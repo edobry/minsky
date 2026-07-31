@@ -1,7 +1,10 @@
 import { z } from "zod";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext } from "../../command-registry";
-import { type CommandParameterMap } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type {
+  CommandExecutionContext,
+  CommandParameterMap,
+  InferParams,
+} from "../../command-registry";
 import { CommonParameters } from "../../common-parameters";
 
 const embeddingsRepairParams = {
@@ -14,17 +17,13 @@ const embeddingsRepairParams = {
   json: CommonParameters.json,
 } satisfies CommandParameterMap;
 
-interface EmbeddingsRepairParams extends BaseTaskParams {
-  dryRun?: boolean;
-}
-
-export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepairParams> {
+export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<typeof embeddingsRepairParams> {
   readonly id = "tasks.embeddings-repair";
   readonly name = "embeddings-repair";
   readonly description = "Remove orphaned embeddings and report entries missing a content hash";
   readonly parameters = embeddingsRepairParams;
 
-  async execute(params: EmbeddingsRepairParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof embeddingsRepairParams>, ctx: CommandExecutionContext) {
     if (!ctx.container?.has("persistence")) {
       return this.formatResult(
         { success: false, message: "Persistence not initialized (no container)" },

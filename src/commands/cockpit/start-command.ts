@@ -8,12 +8,21 @@ import { createCockpitServer } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
+  startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
+  startConversationTitleSweeper,
+  startConversationSummarySweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
+  startFollowUpSweeper,
+  startConversationPresenceSweeper,
+  startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
+import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
+import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
+import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -24,8 +33,31 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
+import {
+  getCockpitTokenPath,
+  isLoopbackHost,
+  getOrCreateCockpitToken,
+  buildAllowedHosts,
+} from "../../cockpit/auth";
+import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
+import {
+  createHighestUpdateIdReader,
+  createInboundEventRecorder,
+  getPrincipalChannelDb,
+  respondToAskFromChannel,
+  startPrincipalChannel,
+} from "../../cockpit/principal-channel-launch";
+import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
 const DEFAULT_PORT = 3737;
+
+/**
+ * Default bind host (mt#2538): loopback-only. Binding to any other
+ * interface (via `--host`) exposes the cockpit's data (tasks, sessions,
+ * transcripts, live events) and command surface to that interface — e.g.
+ * the whole LAN for a bare IP or `0.0.0.0`.
+ */
+export const DEFAULT_HOST = "127.0.0.1";
 
 // __dirname is used only for the --dev Vite web root (which requires a source
 // checkout). The PRODUCTION web-dist path is resolved bundle-aware via
@@ -41,8 +73,12 @@ type ListenAttempt =
  * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
  * classified separately from other errors so the caller can attempt recovery.
  */
-async function attemptListen(app: express.Express, port: number): Promise<ListenAttempt> {
-  const server = app.listen(port);
+async function attemptListen(
+  app: express.Express,
+  port: number,
+  host: string
+): Promise<ListenAttempt> {
+  const server = app.listen(port, host);
   return new Promise<ListenAttempt>((resolve) => {
     server.once("listening", () => resolve({ kind: "ok", server }));
     server.once("error", (err: NodeJS.ErrnoException) => {
@@ -120,11 +156,53 @@ export function createStartCommand(): Command {
       "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. " +
         "Use with `bun --watch` for server-side auto-restart."
     )
+    .option(
+      "--host <host>",
+      `Interface to bind to (default: ${DEFAULT_HOST} — loopback only). Binding to any ` +
+        "other interface exposes the cockpit's data (tasks, sessions, transcripts, live " +
+        "events) and command surface to that interface — e.g. your whole LAN for a bare " +
+        "IP or 0.0.0.0. Only opt in if you understand that risk.",
+      DEFAULT_HOST
+    )
     .action(async (options) => {
+      // mt#2894: install rotating daemon file logging + force-enable the
+      // structured warn/error channel as the FIRST thing this handler does —
+      // before any sweeper or other module's first log.*() call, so the
+      // shared logger singleton (lazily initialized on first use) picks up
+      // ENABLE_AGENT_LOGS. See src/cockpit/daemon-file-log.ts's docblock for
+      // why this was previously a silent gap.
+      installDaemonFileLogging();
+
+      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
+      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
+      // the one launch-path-agnostic place a size policy can live, since the
+      // files' fds are owned by whichever supervisor started this process.
+      // Started immediately after logging install (PR #2387 R1) so the boot
+      // tick bounds an oversized file left by a previous run before the
+      // subsystems below begin writing to stdout/stderr. Filesystem-only;
+      // deliberately not gated on schema readiness.
+      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
+
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
         process.exit(1);
+      }
+
+      const host: string = options.host || DEFAULT_HOST;
+      if (!isLoopbackHost(host)) {
+        console.warn(
+          `WARNING: cockpit daemon binding to ${host} — this exposes cockpit data ` +
+            "(tasks, sessions, transcripts, live events) and command endpoints to any " +
+            "host that can reach this interface (e.g. your LAN).\n" +
+            "  Auth posture on a non-loopback bind: the daemon serves plain HTTP (no TLS), " +
+            "so the bearer token would traverse the network in the clear, and any host that " +
+            "can reach this interface can attempt to brute-force it. Cookie bootstrap is " +
+            "DISABLED on non-loopback binds — mutation clients must send an explicit " +
+            "`Authorization: Bearer <token>` header (token at " +
+            `${getCockpitTokenPath()}). Prefer an SSH tunnel or a TLS-terminating reverse ` +
+            "proxy over a bare non-loopback bind."
+        );
       }
 
       const isDev = !!options.dev;
@@ -135,7 +213,7 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      const app = createCockpitServer({ dev: isDev });
+      const app = createCockpitServer({ dev: isDev, host });
 
       // In dev mode, attach Vite middleware for frontend HMR.
       if (isDev) {
@@ -165,7 +243,7 @@ export function createStartCommand(): Command {
         }
       }
 
-      let attempt = await attemptListen(app, port);
+      let attempt = await attemptListen(app, port, host);
 
       // EADDRINUSE: classify and (with --force) recover.
       if (attempt.kind === "in-use") {
@@ -173,7 +251,7 @@ export function createStartCommand(): Command {
         switch (classification.kind) {
           case "free":
             // Holder vanished between bind and lsof. Retry once.
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "recognized-zombie":
             if (!options.force) {
@@ -188,7 +266,7 @@ export function createStartCommand(): Command {
               `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
             );
             await killZombie(classification.pid);
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "unrecognized":
             console.error(
@@ -216,6 +294,36 @@ export function createStartCommand(): Command {
       }
 
       const server = attempt.server;
+
+      // Rung 2A driven-session WebSocket channel (mt#2750) — LOCAL DAEMON
+      // ONLY (this file IS the local daemon entrypoint; the Railway
+      // isPublicDeployment entrypoint is a separate file,
+      // services/cockpit/src/server.ts, which never calls this attach
+      // function — mirrors the routes/driven-sessions.ts mount gate).
+      // WS upgrades bypass Express's request pipeline entirely (they're
+      // plain HTTP GETs with `Connection: Upgrade`, handled by a listener on
+      // the raw http.Server), so this is attached directly to the `server`
+      // handle rather than threaded through createCockpitServer(). Re-derives
+      // the SAME token/allowedHosts createCockpitServer computed internally
+      // (same persisted token file, same --host value) — a cheap,
+      // deterministic re-read, not a new source of truth.
+      attachDrivenSessionWebSocket(server, {
+        token: getOrCreateCockpitToken(),
+        allowedHosts: buildAllowedHosts(host),
+      });
+
+      // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
+      // — the "minimal first slice" step 2: load every non-terminal
+      // persisted driven-session row as "reconnecting" so a WS reconnect
+      // right after this restart resumes instead of 404ing. Fire-and-forget
+      // (never blocks the bind) — persistence init is itself async and this
+      // mirrors startSseBrokerWarmup()'s posture below; a client connecting
+      // before this resolves just sees a brief "not found yet" that a retry
+      // clears once reconciliation completes.
+      void loadPersistedDrivenSessions().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Warning: driven-session boot reconciliation failed: ${message}`);
+      });
 
       try {
         writeCurrentCockpitState({
@@ -250,6 +358,30 @@ export function createStartCommand(): Command {
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Principal channel (mt#3228): the inbound Telegram poller, which drives
+      // a local `claude` conversation with the principal's messages. LOCAL
+      // DAEMON ONLY, like the driven-session surfaces above — it spawns the
+      // genuine binary with the operator's own credentials. Opt-in
+      // (`principalChannel.enabled`); fire-and-forget so a Telegram or
+      // Pulumi hiccup can never keep the cockpit from serving.
+      let stopPrincipalChannel: (() => void) | null = null;
+      void startPrincipalChannel({
+        respondToAsk: respondToAskFromChannel,
+        recordEvent: createInboundEventRecorder(getPrincipalChannelDb),
+        readHighestUpdateId: createHighestUpdateIdReader(getPrincipalChannelDb),
+      })
+        .then((handle) => {
+          stopPrincipalChannel = handle ? () => handle.stop() : null;
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`Warning: principal channel failed to start: ${message}`);
+        });
+      // Stale-suspended-ask close sweep (mt#3001): recurring reconciliation
+      // over `suspended` asks — close parent-terminal authz/review asks,
+      // close failed-commit orphans superseded by a later landed commit,
+      // expire abandoned commit-auth asks past the TTL. 15-minute cadence.
+      const stopStaleAskCloseSweeper = startStaleAskCloseSweeper();
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
@@ -267,6 +399,24 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Conversation-title generation (mt#3321): fill `agent_transcripts.title`
+      // for conversations that don't have one, so the cockpit labels a run by
+      // what it's ABOUT instead of the first 60 characters of the opening
+      // prompt (which is unusable when that prompt is garbled).
+      const stopConversationTitleSweeper = startConversationTitleSweeper();
+      // Conversation-summary generation (mt#3441): the same treatment for
+      // `agent_transcripts.summary`, which had NO automatic caller at all —
+      // 11 of 2,108 rows carried one, so the index could not answer "which
+      // conversation was the one about X" for 99.5% of its contents.
+      const stopConversationSummarySweeper = startConversationSummarySweeper();
+      // Schema readiness (mt#3297): populate the /api/health `schema` block at
+      // boot, independently of any sweep. The transcript sweep also refreshes
+      // it every tick, but relying on that alone would leave `current: null`
+      // forever whenever that sweep is not running (PR #2379 R1) — a health
+      // field that is permanently "unknown" is indistinguishable from one that
+      // is broken, which is the failure shape this whole task removes.
+      // Fire-and-forget: it never throws, and boot must not block on the DB.
+      void refreshSchemaReadinessFromDb();
       // Dispatch watchdog refresh (mt#2646): periodically check in-flight
       // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
       // event/subagent_invocations progress) and write the flagged set to the
@@ -277,18 +427,50 @@ export function createStartCommand(): Command {
       // cockpit process was deployed from has completed, emitting a
       // best-effort deploy.smoke system event once per distinct commit.
       const stopDeploySmokeSweeper = startDeploySmokeSweeper();
+      // Scheduled follow-up sweeper (mt#2322 — remaining scope of parent
+      // mt#2234): periodic poll of the scheduled_follow_ups table, firing
+      // any pending row whose dueAt has passed. The general recurring-job
+      // scheduler facility itself IS createIntervalSweeper (already proven
+      // general by every sweeper in this list); this is simply its newest
+      // registrant plus a DB-durable one-shot primitive layered on top.
+      const stopFollowUpSweeper = startFollowUpSweeper();
+      // Conversation presence absence-detection sweep (mt#3201, mt#3130
+      // Phase 2): detects presence TRANSITIONS the write path structurally
+      // cannot emit — above all LIVE -> STALLED, since a killed process emits
+      // no event to retract its own `running` row — and pushes them on
+      // `minsky.conversation.presence_changed` for the SSE broker. Started
+      // BEFORE the meta-watchdog below so the watchdog covers it like every
+      // other sweep.
+      const stopConversationPresenceSweeper = startConversationPresenceSweeper();
+      // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
+      // self-rescheduling setTimeout chain (deliberately not setInterval —
+      // see sweepers.ts's docblock) that force-restarts any of the
+      // sweeps above whose interval has stopped attempting ticks entirely.
+      // Covers the class per-tick isolation structurally cannot: a dropped
+      // or wedged setInterval handle, not a hung/throwing tick.
+      const stopSweepMetaWatchdog = startSweepMetaWatchdog();
 
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
         stopAskSweeper();
+        stopStaleAskCloseSweeper();
         stopProdStateSweeper();
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopConversationTitleSweeper();
+        stopConversationSummarySweeper();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
+        stopFollowUpSweeper();
+        stopConversationPresenceSweeper();
+        stopStdioLogRotationSweeper();
+        stopSweepMetaWatchdog();
+        // Aborts the in-flight long poll rather than letting shutdown wait it
+        // out; null when the channel is disabled or still starting.
+        stopPrincipalChannel?.();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

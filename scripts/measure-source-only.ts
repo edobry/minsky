@@ -116,7 +116,7 @@ for (const key of keys) {
   const vals = allCheckpoints.get(key);
   if (vals && vals.length > 0) {
     const sorted = [...vals].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
+    const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
     medians[key] = median;
     console.log(`  ${key}: ${median.toFixed(1)}ms  (n=${vals.length})`);
   }

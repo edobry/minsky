@@ -164,6 +164,18 @@ export interface FlatFinding {
    * finding and use `line` as both start and end.
    */
   lineEnd?: number;
+  /**
+   * Optional prose text following the `path:line - ` (or `path - `)
+   * separator — the reviewer's finding description. Populated only for the
+   * dash-terminated citation form; the colon-only form (`path:line`, no
+   * trailing dash + prose) has nothing to capture, so `text` is left
+   * undefined for that variant, and single-line bodies with an empty/
+   * whitespace-only remainder also leave it undefined. Additive field (mt#2726
+   * Milestone A corpus mining): `CorpusFinding.text` in `eval-corpus.ts`
+   * consumes this to give label-derivation and judge passes access to the
+   * reviewer's original finding language.
+   */
+  text?: string;
 }
 
 /**
@@ -213,30 +225,39 @@ export function parseFindingsFromBody(body: string): FlatFinding[] {
   // char must not be `*`); for matchAll, this consumes one extra char,
   // which is harmless for severity detection. Path char class is tightened
   // to common path chars only (rejects backticks, parens, em-dashes).
+  //
+  // Text capture (mt#2726 Milestone A, additive): the dash-terminated
+  // alternative gains a trailing `(.*)` group that captures the prose after
+  // the `- ` separator to end-of-line (no `s` flag, so `.` already stops at
+  // `\n`). The colon-only alternative has no dash/prose to capture and
+  // leaves its finding's `text` undefined.
   const findingRe =
-    /^\s*(?:[-*•]\s+)?(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:[^*]|$))\s*([A-Za-z0-9@._\-/]+)(?:(?::(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gim;
+    /^\s*(?:[-*•]\s+)?(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?:[^*]|$))\s*([A-Za-z0-9@._\-/]+)(?:(?::(\d+)(?:-(\d+))?)?\s+[-–—]\s(.*)|:(\d+)(?:-(\d+))?)/gim;
 
   for (const match of body.matchAll(findingRe)) {
     // Capture groups (alternation produces two parallel sets):
     //   [1] severity from bold-wrapped branch
     //   [2] severity from bare branch
     //   [3] file (always set)
-    //   [4]/[5] lineStart/lineEnd from the dash-terminated alternative
-    //   [6]/[7] lineStart/lineEnd from the colon-then-required-line alternative
-    // Only one severity branch fires per match; only one of (4,5) or (6,7) fires.
+    //   [4]/[5]/[6] lineStart/lineEnd/text from the dash-terminated alternative
+    //   [7]/[8] lineStart/lineEnd from the colon-then-required-line alternative
+    // Only one severity branch fires per match; only one of (4,5,6) or (7,8) fires.
     const rawSeverity = match[1] ?? match[2];
     const file = match[3];
     if (!rawSeverity || !file) continue;
     const severity = rawSeverity.toUpperCase() as FlatFinding["severity"];
-    const lineRaw = match[4] ?? match[6];
-    const lineEndRaw = match[5] ?? match[7];
+    const lineRaw = match[4] ?? match[7];
+    const lineEndRaw = match[5] ?? match[8];
     const line = lineRaw ? parseInt(lineRaw, 10) : undefined;
     const lineEnd = lineEndRaw ? parseInt(lineEndRaw, 10) : undefined;
+    const textRaw = match[6]?.trim();
+    const text = textRaw && textRaw.length > 0 ? textRaw : undefined;
     out.push({
       file,
       severity,
       ...(line !== undefined ? { line } : {}),
       ...(lineEnd !== undefined ? { lineEnd } : {}),
+      ...(text !== undefined ? { text } : {}),
     });
   }
   return out;

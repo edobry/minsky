@@ -42,19 +42,24 @@ async function main() {
     },
   };
 
-  // Native tools (mirror start-command.ts ordering)
-  registerSessionWorkspaceTools(mapper);
-  registerSessionFileTools(mapper);
-  registerSessionEditTools(mapper);
+  // Native tools (mirror start-command.ts ordering). CommandMapper is a
+  // concrete class with private fields, so a structurally-shaped mock is
+  // nominally incompatible — `as never` is the SAME cast
+  // shared-command-integration.test.ts's own `makeMockMapper` helper uses
+  // for this identical mock (see `registerSharedCommandsWithMcp(mapper as
+  // never, ...)` there), not a new pattern introduced here.
+  registerSessionWorkspaceTools(mapper as never);
+  registerSessionFileTools(mapper as never);
+  registerSessionEditTools(mapper as never);
 
   // Discovery loop (mirror start-command.ts logic — mt#2037 deleted the
   // opt-out parameter, so the loop iterates unconditionally).
   for (const category of Object.values(CommandCategory)) {
     const adapters = MCP_CATEGORY_ADAPTERS[category];
     if (adapters && adapters.length > 0) {
-      for (const adapter of adapters) adapter(mapper);
+      for (const adapter of adapters) adapter(mapper as never);
     } else {
-      registerSharedCommandsWithMcp(mapper, { categories: [category] });
+      registerSharedCommandsWithMcp(mapper as never, { categories: [category] });
     }
   }
 

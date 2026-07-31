@@ -1,7 +1,7 @@
 ---
 name: documentation-taxonomy
 description: REQUIRED taxonomy for Minsky's strategic and operational documents — names 10 categories, where each lives (repo vs Notion), title patterns, lifecycles, and triggers (which type to produce for which scope).
-alwaysApply: true
+alwaysApply: false
 tags:
   - minsky
   - principles

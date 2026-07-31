@@ -90,19 +90,30 @@ export default defineDeployment({
 
 A Minsky project may have multiple services on different platforms (e.g., a
 Vercel-hosted SPA + a Railway-hosted API). Service-level config accommodates the
-multi-platform case without restructuring. v1 still has only one configured
-service (`minsky-mcp`) for this repo; the file exists alongside the existing
-`railway.config.ts` rather than replacing it.
+multi-platform case without restructuring. This repo now has several declared
+services (`minsky-mcp`, `reviewer`, `cockpit`, `site`, `minsky-ops`); the file
+exists alongside the existing `railway.config.ts` rather than replacing it.
 
 ### Service resolution
 
-MCP tools accept an optional `service` argument. Resolution:
+MCP tools accept an optional `service` argument. Resolution (mt#2821 extends
+step 3):
 
 1. If `service` is passed, look up `services/<service>/deploy.config.ts`.
 2. If `service` is omitted AND the project has exactly one `deploy.config.ts`,
    use it.
 3. If `service` is omitted AND the project has multiple `deploy.config.ts`
-   files, return a typed error listing the available services.
+   files, try two fallbacks before giving up:
+   - a. A configured default: the `deployment.defaultService` config key
+     (`minsky config set deployment.defaultService <name>` — reuses the
+     existing config system, not a new subsystem).
+   - b. Unambiguous runtime inference: if the process is itself running
+     inside a Railway container, Railway's own `RAILWAY_SERVICE_ID` system
+     variable is matched against each candidate's declared
+     `railway.serviceId`. This is a platform ground-truth signal (not a
+     guess) and naturally no-ops outside a Railway container.
+   - If neither resolves, return a typed error (`AmbiguousDeploymentServiceError`)
+     listing every available service name.
 
 ## Platform adapter interface
 

@@ -23,6 +23,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
+import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
 
 // Postgres enums for memory type and scope
 // MEMORY_TYPE_VALUES is the single source of truth — adding a value there
@@ -38,6 +39,24 @@ export const memoriesTable = pgTable(
   "memories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * Numeric `mem#N` short id (mt#2966, ADR-029) — added alongside the
+     * canonical uuid PK above, never replacing it. Nullable text; NULL until
+     * minted on create (new rows) or backfilled
+     * (`scripts/backfill-memory-short-ids.ts`, existing rows). See
+     * `../short-id-column.ts` for the general design rationale
+     * (nullable-not-backfilled-here, concurrency contract).
+     *
+     * The unique index (`idx_memories_short_id_unique`, declared below via
+     * the shared `shortIdUniqueIndex()` helper) is PLAIN, not partial — see
+     * the index-builder comment below for the mt#2999 incident that makes
+     * this load-bearing. Do NOT re-add a `WHERE short_id IS NOT NULL`
+     * predicate here or in any short-id index: it breaks the create path's
+     * bare `ON CONFLICT ("short_id")` arbiter inference.
+     */
+    shortId: shortIdColumn(),
+
     type: memoryTypeEnum("type").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull(),
@@ -65,6 +84,18 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
+    // PLAIN unique index on the mem#N short id via the shared ADR-029 helper
+    // (mt#2963). MUST stay non-partial (mt#2999): the create path's bare
+    // `.onConflictDoNothing({ target: shortId })` emits `ON CONFLICT
+    // ("short_id")`, and Postgres only infers a PARTIAL unique index as the
+    // arbiter when the conflict target repeats its predicate — the partial
+    // variant (introduced PR #2134 R2, migration 0066) made every insert
+    // error with "no unique or exclusion constraint matching the ON CONFLICT
+    // specification", a full memory_create outage. Plain unique is safe on
+    // this nullable column (NULLs are never equal under btree uniqueness) —
+    // see short-id-column.ts's design rationale, which ask's index also
+    // follows. Reverted to plain by migration 0068.
+    shortIdUniqueIndex("memories", table.shortId),
   ]
 );
 

@@ -13,7 +13,16 @@ import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveMetricsTranscriptPath } from "./record-subagent-invocation";
+import {
+  resolveMetricsTranscriptPath,
+  usedPerAgentTranscript,
+  buildUnattributedModelWarning,
+  decideRecordingAction,
+  HOOK_UNKNOWN_TASK_ID,
+  recordFailureBestEffort,
+  __setDeadlineExceededForTest,
+} from "./record-subagent-invocation";
+import { UNKNOWN_TASK_ID } from "../../src/mcp/subagent-dispatch-tracker";
 import { readTranscriptMetrics } from "../../packages/domain/src/subagent/transcript-metrics";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +44,13 @@ function metricsLine(opts: {
   outputTokens?: number;
   timestamp?: string;
   agentSessionId?: string;
+  /**
+   * Harness agent id. Real per-agent transcripts carry this on every line
+   * (verified 60/60 against on-disk `subagents/agent-<id>.jsonl` files), and
+   * mt#3256 made attribution require a POSITIVE match — so a fixture standing
+   * in for a per-agent file must set it, or it is not a faithful stand-in.
+   */
+  agentId?: string;
 }): Record<string, unknown> {
   const blocks = Array.from({ length: opts.toolUseCount ?? 0 }, () => ({ type: "tool_use" }));
   return {
@@ -47,6 +63,7 @@ function metricsLine(opts: {
         : undefined,
     timestamp: opts.timestamp,
     agent_session_id: opts.agentSessionId,
+    agentId: opts.agentId,
   };
 }
 
@@ -76,6 +93,186 @@ function buildTranscriptTree(
   writeFileSync(agentPath, toJsonl(agentLines));
   return { parentPath, agentPath };
 }
+
+// ---------------------------------------------------------------------------
+// Recording decision — mt#3019 acceptance tests (PR #2178 R1 BLOCKING #3)
+//
+// These are the spec's hook-level edge cases: the null correlation key and the
+// unresolved-taskId paths. The pre-mt#3019 bug survived precisely because
+// tracker-level mocks stayed green while the hook never reached the tracker at
+// all, so these assert the hook's OWN control flow.
+// ---------------------------------------------------------------------------
+
+const SESSION_CWD = "/Users/x/.local/state/minsky/sessions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+describe("decideRecordingAction (mt#3019)", () => {
+  test("sentinel constant matches the tracker's, so the duplication cannot drift", () => {
+    expect(HOOK_UNKNOWN_TASK_ID).toBe(UNKNOWN_TASK_ID);
+  });
+
+  test("no taskId and no session key -> skip, with a warning naming the cwd", () => {
+    const decision = decideRecordingAction(null, null, "/tmp/not-a-session");
+
+    expect(decision.action).toBe("skip");
+    expect(decision.warning).toContain("no taskId and no session correlation key");
+    expect(decision.warning).toContain("/tmp/not-a-session");
+    expect(decision.warning).toContain("skipping DB write");
+    // Nothing to key the write on — there must be no task id to write either.
+    expect(decision.effectiveTaskId).toBeUndefined();
+  });
+
+  test("session key but unresolved taskId -> record with the sentinel, not a fabricated id", () => {
+    // The mt#2315 case. Pre-mt#3019 this dropped the entire write while its
+    // own inline comment claimed it would "still record with a placeholder".
+    const decision = decideRecordingAction(null, "session-abc", SESSION_CWD);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe(UNKNOWN_TASK_ID);
+    expect(decision.warning).toContain("could not resolve taskId");
+    expect(decision.warning).toContain("session-abc");
+    expect(decision.warning).toContain("unknown-task sentinel");
+  });
+
+  test("taskId but no session key -> record under the real task id, no warning", () => {
+    // A null correlation key is passed through as null by the caller; the
+    // decision must never invent a substitute string for it.
+    const decision = decideRecordingAction("mt#3019", null, "/some/other/dir");
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe("mt#3019");
+    expect(decision.warning).toBeUndefined();
+  });
+
+  test("both resolved -> record under the real task id, no warning", () => {
+    const decision = decideRecordingAction("mt#3019", "session-abc", SESSION_CWD);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe("mt#3019");
+    expect(decision.warning).toBeUndefined();
+  });
+
+  test("a real task id is never replaced by the sentinel", () => {
+    // Guards the inverse of the mt#3019 fix: the sentinel is for UNRESOLVED
+    // ids only. If this ever returned the sentinel for a known task, the
+    // tracker would silently stop updating task_id for every dispatch.
+    for (const id of ["mt#1", "mt#3019", "md#416", "gh#491"]) {
+      expect(decideRecordingAction(id, "session-abc", SESSION_CWD).effectiveTaskId).toBe(id);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recordFailureBestEffort (mt#3089)
+//
+// The durable-error-recording fallback for when classifyAndRecord throws.
+// These tests cover its no-op guards, which are pure/synchronous-fast enough
+// to assert without needing a live DB — the function must return WITHOUT
+// attempting any persistence-provider import in either guarded case.
+// ---------------------------------------------------------------------------
+
+describe("recordFailureBestEffort (mt#3089)", () => {
+  test("no-ops when there is no correlation key (subagentSessionId null)", async () => {
+    // Should resolve immediately without throwing and without needing a DB —
+    // if this reached the persistence import it would still resolve (best-
+    // effort), but the point of this guard is to skip that work entirely
+    // when there's nothing to correlate the error to.
+    await expect(
+      recordFailureBestEffort(null, HOOK_UNKNOWN_TASK_ID, "some error")
+    ).resolves.toBeUndefined();
+  });
+
+  test("no-ops when the entrypoint's deadline has already fired", async () => {
+    __setDeadlineExceededForTest(true);
+    try {
+      await expect(
+        recordFailureBestEffort("some-session-id", HOOK_UNKNOWN_TASK_ID, "some error")
+      ).resolves.toBeUndefined();
+    } finally {
+      __setDeadlineExceededForTest(false);
+    }
+  });
+
+  test("never throws even when given a pathological error message", async () => {
+    __setDeadlineExceededForTest(true); // forces the fast no-op path in this env
+    try {
+      await expect(
+        recordFailureBestEffort("some-session-id", HOOK_UNKNOWN_TASK_ID, "x".repeat(10_000))
+      ).resolves.toBeUndefined();
+    } finally {
+      __setDeadlineExceededForTest(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end process behavior (PR #2178 R1 BLOCKING #3)
+//
+// Spawns the hook the way the harness does — a bare `bun <file>` process with a
+// JSON payload on stdin — and asserts the fail-safe contract holds. This is the
+// shape of check mt#3046 generalizes across every DB-touching hook.
+// ---------------------------------------------------------------------------
+
+describe("record-subagent-invocation process contract (mt#3019)", () => {
+  const HOOK = new URL("./record-subagent-invocation.ts", import.meta.url).pathname;
+
+  async function runHook(payload: Record<string, unknown>): Promise<{
+    exitCode: number;
+    stderr: string;
+  }> {
+    const proc = Bun.spawn(["bun", HOOK], {
+      stdin: new TextEncoder().encode(JSON.stringify(payload)),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    return { exitCode, stderr };
+  }
+
+  test("cwd lacking a /sessions/<id> segment -> skips the write and exits 0", async () => {
+    const { exitCode, stderr } = await runHook({
+      agent_id: "test-agent-no-key",
+      cwd: "/tmp/definitely-not-a-session-dir",
+      transcript_path: "",
+    });
+
+    // The fail-safe contract holds in EVERY environment.
+    expect(exitCode).toBe(0);
+
+    // Two legitimate outcomes, depending on whether this environment can reach
+    // a database: it either gets far enough to skip on the missing correlation
+    // key, or it reports a bootstrap failure as a value. CI has no Postgres
+    // configured and takes the second path; a developer machine takes the
+    // first. (An earlier revision asserted only the first and failed in CI.)
+    const skippedOnKey = stderr.includes("no taskId and no session correlation key");
+    const reportedBootstrapFailure = stderr.includes("domain bootstrap failed");
+    expect(skippedOnKey || reportedBootstrapFailure).toBe(true);
+
+    // Environment-independent regression guard: the pre-mt#3019 failure was an
+    // UNCAUGHT throw from the domain import, which the entrypoint reports as an
+    // "unexpected top-level error". A missing bootstrap resurfaces exactly
+    // there, whatever the environment.
+    expect(stderr).not.toContain("unexpected top-level error");
+    expect(stderr).not.toContain("reflect polyfill");
+  }, 30_000);
+
+  test("missing agent_id (a main-agent Stop) exits 0 without touching the DB", async () => {
+    const { exitCode, stderr } = await runHook({ cwd: "/tmp", transcript_path: "" });
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+  }, 30_000);
+
+  test("malformed payload still exits 0 — the hook never blocks a subagent stop", async () => {
+    const proc = Bun.spawn(["bun", HOOK], {
+      stdin: new TextEncoder().encode("not json at all"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await new Response(proc.stderr).text();
+    expect(await proc.exited).toBe(0);
+  }, 30_000);
+});
 
 // ---------------------------------------------------------------------------
 // resolveMetricsTranscriptPath
@@ -129,8 +326,9 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
           inputTokens: 100,
           outputTokens: 50,
           timestamp: "2026-07-07T00:00:00.000Z",
+          agentId: "abc123",
         }),
-        metricsLine({ toolUseCount: 1, timestamp: "2026-07-07T00:01:00.000Z" }),
+        metricsLine({ toolUseCount: 1, timestamp: "2026-07-07T00:01:00.000Z", agentId: "abc123" }),
       ]
     );
 
@@ -141,12 +339,18 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
     expect(metrics.totalTokens).toBe(150); // 100 + 50 from the per-agent file
     expect(metrics.durationMs).toBe(60000); // 1 minute between the per-agent timestamps
 
-    // Sanity check: reading the PARENT directly produces a different (wrong)
-    // result — proves the fixtures are actually distinguishable, and that
-    // the resolved path above is not accidentally reading the parent.
+    // Sanity check: reading the PARENT directly does NOT yield the per-agent
+    // numbers — proving the fixtures are distinguishable and the resolved path
+    // above is not accidentally reading the parent.
+    //
+    // mt#3256 changed WHAT the parent read returns: it used to return the
+    // parent's own counts (toolUseCount 1, totalTokens 15), because a line
+    // carrying no agent id was attributed to whoever was asked about. It now
+    // returns all-null, because those lines are attributable to no one. Both
+    // are "different from the per-agent numbers"; null is the honest one.
     const parentMetrics = await readTranscriptMetrics(parentPath, "abc123");
-    expect(parentMetrics.toolUseCount).toBe(1);
-    expect(parentMetrics.totalTokens).toBe(15);
+    expect(parentMetrics.toolUseCount).toBeNull();
+    expect(parentMetrics.totalTokens).toBeNull();
   });
 
   test("agent_session_id line-filter is preserved on the resolved file", async () => {
@@ -174,5 +378,43 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
     expect(metrics.toolUseCount).toBeNull();
     expect(metrics.totalTokens).toBeNull();
     expect(metrics.durationMs).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3256 SC2 — an unattributable read must SAY so, not just record null
+// ---------------------------------------------------------------------------
+
+describe("attribution-failure warning (mt#3256 SC2)", () => {
+  test("usedPerAgentTranscript distinguishes the per-agent file from a parent fallback", () => {
+    const { parentPath, agentPath } = buildTranscriptTree(
+      [metricsLine({ toolUseCount: 1 })],
+      "abc123",
+      [metricsLine({ toolUseCount: 1, agentId: "abc123" })]
+    );
+
+    expect(usedPerAgentTranscript(agentPath, "abc123")).toBe(true);
+    expect(usedPerAgentTranscript(parentPath, "abc123")).toBe(false);
+    expect(usedPerAgentTranscript(undefined, "abc123")).toBe(false);
+    // A per-agent file belonging to a DIFFERENT agent is not this agent's.
+    expect(usedPerAgentTranscript(agentPath, "zzz999")).toBe(false);
+  });
+
+  test("the parent-fallback warning names the path and the cause", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/parent.jsonl", false);
+
+    expect(warning).toContain("abc123");
+    expect(warning).toContain("/tmp/parent.jsonl");
+    expect(warning).toContain("PARENT-transcript fallback");
+    // The point of the line: why null was recorded instead of a model.
+    expect(warning).toContain("Recording null rather than another agent's model");
+    expect(warning.endsWith("\n")).toBe(true);
+  });
+
+  test("the per-agent warning distinguishes itself from the fallback case", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/agent-abc123.jsonl", true);
+
+    expect(warning).toContain("its per-agent transcript");
+    expect(warning).not.toContain("PARENT-transcript fallback");
   });
 });

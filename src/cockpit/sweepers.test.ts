@@ -8,8 +8,15 @@
  * a tick whose work never resolves must time out, release the guard, and
  * let the NEXT tick actually execute.
  */
-import { describe, test, expect } from "bun:test";
-import { createIntervalSweeper } from "./sweepers";
+import { describe, test, expect, afterEach } from "bun:test";
+import {
+  createIntervalSweeper,
+  getSweepLivenessSnapshot,
+  startSweepMetaWatchdog,
+  _simulateDroppedTimerForTest,
+  _resetSweepLivenessRegistryForTest,
+  REINIT_FAILURE_THRESHOLD,
+} from "./sweepers";
 
 /** Poll `condition` until it's true, or throw after `timeoutMs`. */
 async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -197,6 +204,380 @@ describe("createIntervalSweeper", () => {
       await waitFor(() => calls >= 1);
       expect(calls).toBe(1);
     } finally {
+      stop();
+    }
+  });
+});
+
+// ── mt#2894: per-sweep liveness registry ──────────────────────────────────
+
+describe("sweep-liveness registry (mt#2894)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("records lastAttemptAt and lastSuccessAt after a successful boot tick", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-liveness-success",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    try {
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-liveness-success");
+        return entry?.lastSuccessAt !== null && entry?.lastSuccessAt !== undefined;
+      });
+      const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-liveness-success");
+      expect(entry).toBeDefined();
+      expect(entry?.lastAttemptAt).not.toBeNull();
+      expect(entry?.lastSuccessAt).not.toBeNull();
+      expect(entry?.lastErrorAt).toBeNull();
+      expect(entry?.consecutiveFailures).toBe(0);
+      expect(entry?.intervalMs).toBe(60_000);
+    } finally {
+      stop();
+    }
+  });
+
+  test("records lastErrorAt and increments consecutiveFailures on a timed-out tick", async () => {
+    const neverResolves = new Promise<void>(() => {
+      /* deliberately never settles */
+    });
+    const stop = createIntervalSweeper({
+      name: "test-liveness-error",
+      intervalMs: 60_000,
+      tickTimeoutMs: 15,
+      tick: async () => {
+        await neverResolves;
+      },
+    });
+    try {
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-liveness-error");
+        return (entry?.consecutiveFailures ?? 0) >= 1;
+      });
+      const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-liveness-error");
+      expect(entry?.lastErrorAt).not.toBeNull();
+      expect(entry?.consecutiveFailures).toBeGreaterThanOrEqual(1);
+    } finally {
+      stop();
+    }
+  });
+
+  test("bounded re-init: N consecutive failures trigger a self-restart, then a successful tick clears the failure streak", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-bounded-reinit",
+      intervalMs: 15,
+      tickTimeoutMs: 10,
+      tick: async () => {
+        callCount++;
+        if (callCount <= REINIT_FAILURE_THRESHOLD) {
+          // Hang past tickTimeoutMs so each of the first N ticks counts as a failure.
+          await new Promise(() => {});
+        }
+        // Ticks after the threshold resolve immediately (success).
+      },
+    });
+    try {
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-bounded-reinit");
+        return (entry?.reinits ?? 0) >= 1;
+      }, 3000);
+      const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-bounded-reinit");
+      expect(entry?.reinits).toBeGreaterThanOrEqual(1);
+      // consecutiveFailures resets to 0 the moment the threshold triggers a re-init.
+      await waitFor(() => {
+        const e = getSweepLivenessSnapshot().find((x) => x.name === "test-bounded-reinit");
+        return e?.lastSuccessAt !== null && e?.lastSuccessAt !== undefined;
+      }, 3000);
+    } finally {
+      stop();
+    }
+  });
+
+  test("stop() deregisters the sweep from the liveness snapshot", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-liveness-deregister",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    await waitFor(() =>
+      getSweepLivenessSnapshot().some((e) => e.name === "test-liveness-deregister")
+    );
+    stop();
+    expect(getSweepLivenessSnapshot().some((e) => e.name === "test-liveness-deregister")).toBe(
+      false
+    );
+  });
+
+  // ── PR #2019 R1 BLOCKING #1: stop() must be authoritative ────────────────
+
+  test("stop() prevents a late in-flight bounded re-init from resurrecting the sweep", async () => {
+    let attemptCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-stop-vs-reinit",
+      intervalMs: 15,
+      tickTimeoutMs: 10,
+      tick: async () => {
+        attemptCount++;
+        // Every attempt hangs forever — each individually times out via the
+        // factory's own per-tick timeout (mt#2625), incrementing
+        // consecutiveFailures on schedule without this test needing to
+        // orchestrate exact promise resolution timing.
+        await new Promise<void>(() => {});
+      },
+    });
+
+    try {
+      // Let 2 failures accumulate — one short of REINIT_FAILURE_THRESHOLD
+      // (3) — so the NEXT tick's timeout would normally cross the
+      // threshold and trigger a bounded re-init.
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-stop-vs-reinit");
+        return (entry?.consecutiveFailures ?? 0) >= 2;
+      }, 3000);
+
+      // Stop right now — the 3rd (threshold-crossing) attempt is either
+      // already in flight or about to start; its eventual timeout must not
+      // resurrect the sweep via restartInterval("bounded-reinit").
+      stop();
+
+      // Wait past when the 3rd attempt's timeout (10ms) — and thus the
+      // buggy re-init, if the fix regressed — would have fired, then
+      // confirm attemptCount has stopped growing across a further window.
+      await new Promise((r) => setTimeout(r, 60));
+      const countAfterFirstWait = attemptCount;
+      await new Promise((r) => setTimeout(r, 60));
+      expect(attemptCount).toBe(countAfterFirstWait);
+
+      expect(getSweepLivenessSnapshot().some((e) => e.name === "test-stop-vs-reinit")).toBe(false);
+    } finally {
+      stop(); // must be a safe no-op when already stopped
+    }
+  });
+
+  // ── PR #2019 R1 BLOCKING #2: duplicate active registration ────────────────
+
+  test("throws when registering a duplicate ACTIVE sweep name", () => {
+    const stop = createIntervalSweeper({
+      name: "test-duplicate-name",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    try {
+      expect(() =>
+        createIntervalSweeper({
+          name: "test-duplicate-name",
+          intervalMs: 60_000,
+          tickTimeoutMs: 5_000,
+          tick: async () => {},
+        })
+      ).toThrow(/duplicate active sweep registration/);
+    } finally {
+      stop();
+    }
+  });
+
+  test("re-registering the same name after a clean stop() does not throw", async () => {
+    const stopFirst = createIntervalSweeper({
+      name: "test-reuse-after-stop",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    stopFirst();
+
+    let calls = 0;
+    const stopSecond = createIntervalSweeper({
+      name: "test-reuse-after-stop",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        calls++;
+      },
+    });
+    try {
+      await waitFor(() => calls >= 1);
+      expect(calls).toBe(1);
+    } finally {
+      stopSecond();
+    }
+  });
+});
+
+// ── mt#2894: meta-watchdog ("sweep of sweeps") ─────────────────────────────
+
+describe("sweep meta-watchdog (mt#2894)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("force-restarts a sweep whose underlying timer was silently dropped, within one meta-cadence", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-drop",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    // Short meta-cadence for test speed; stall threshold is 2x intervalMs (15ms) = 30ms.
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => callCount >= 1);
+      const countAfterBoot = callCount;
+
+      // Simulate the exact mt#2891 failure class: the timer handle is
+      // cleared out from under the sweep without touching the process or
+      // calling the sweep's own stop() — the sweep stays "registered" but
+      // its interval never fires again on its own.
+      _simulateDroppedTimerForTest("test-meta-watchdog-drop");
+
+      // Confirm the timer really is dead: no new ticks in a short window
+      // (kept well under the 30ms/20ms stall/scan thresholds above so this
+      // check itself doesn't race the watchdog's own recovery).
+      await new Promise((r) => setTimeout(r, 10));
+      expect(callCount).toBe(countAfterBoot);
+
+      // The meta-watchdog should detect the stall (staleness > 30ms) on one
+      // of its 20ms scans and force-restart the interval — ticks resume.
+      await waitFor(() => callCount > countAfterBoot, 2000);
+      expect(callCount).toBeGreaterThan(countAfterBoot);
+
+      const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-meta-watchdog-drop");
+      expect(entry?.metaRestarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      stop();
+    }
+  });
+
+  test("does not restart a healthy sweep that is still attempting ticks on schedule", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-healthy",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => callCount >= 2);
+      // Let the watchdog scan several times while the sweep keeps ticking normally.
+      await new Promise((r) => setTimeout(r, 100));
+      const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-meta-watchdog-healthy");
+      expect(entry?.metaRestarts ?? 0).toBe(0);
+    } finally {
+      stopWatchdog();
+      stop();
+    }
+  });
+
+  // ── PR #2019 R1 BLOCKING #1: meta-watchdog must respect stop() too ────────
+
+  test("does not restart a sweep that was cleanly stopped, even once it looks stale", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-stopped",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    await waitFor(() => callCount >= 1);
+    stop();
+    const countAtStop = callCount;
+
+    // Short meta-cadence so several scans happen well within the wait below,
+    // each of which would see this sweep's (now-frozen) lastAttemptAt as
+    // stale past the 2x-cadence (30ms) threshold — the exact condition that
+    // triggers a restart for a sweep that ISN'T stopped.
+    const stopWatchdog = startSweepMetaWatchdog(10);
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      expect(callCount).toBe(countAtStop); // never restarted
+      expect(getSweepLivenessSnapshot().some((e) => e.name === "test-meta-watchdog-stopped")).toBe(
+        false
+      );
+    } finally {
+      stopWatchdog();
+    }
+  });
+
+  // ── mt#3060: force-restart must fire a tick, not just re-arm the timer ────
+  //
+  // Regression for the 2026-07-22 incident (mt#3051's runtime-log evidence):
+  // the meta-watchdog fired "force-restarting" once a minute for ~7.5h and
+  // `staleMs` never reset. Root cause: `restartInterval` only called
+  // `startInterval()` (re-arm) and never `runTick()` (fire) — so whenever a
+  // sweep's own cadence is LONGER than the watchdog's scan cadence (every
+  // real production sweep: e.g. prod-state's 10min vs the watchdog's 60s
+  // default), the watchdog re-clobbers the freshly-armed interval on its
+  // very next scan, before that interval ever gets a chance to fire on its
+  // own — an infinite restart storm that never actually resumes ticking.
+  // The prior test above ("force-restarts ... within one meta-cadence") used
+  // intervalMs=15ms < watchdog cadence=20ms, which masked this bug: the
+  // restarted interval's OWN natural cadence elapsed before the next scan,
+  // so it "happened" to tick anyway. This test deliberately inverts that
+  // ratio to match production.
+  test("force-restart resumes real ticking even when the sweep's cadence outlasts the watchdog's scan interval", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-restart-storm",
+      // Sweep cadence is intentionally much LONGER than the watchdog's scan
+      // cadence below (500ms vs 20ms) — the exact ratio every real sweep has
+      // relative to DEFAULT_META_WATCHDOG_INTERVAL_MS, and the ratio the
+      // pre-fix bug needed to manifest as an infinite restart storm.
+      intervalMs: 500,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20); // stall threshold = 2 * 500ms = 1000ms
+    try {
+      await waitFor(() => callCount >= 1);
+      const countAfterBoot = callCount;
+
+      _simulateDroppedTimerForTest("test-meta-watchdog-restart-storm");
+
+      // Wait for at least one force-restart to fire (staleness > 1000ms).
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find(
+          (e) => e.name === "test-meta-watchdog-restart-storm"
+        );
+        return (entry?.metaRestarts ?? 0) >= 1;
+      }, 3000);
+
+      // The actual regression check: a restart must produce a REAL tick
+      // shortly after, not just increment metaRestarts while callCount stays
+      // frozen (which is what the pre-fix restart-storm looked like — the
+      // watchdog kept "restarting" every 20ms scan without ever letting a
+      // tick actually run before the next scan clobbered it again).
+      await waitFor(() => callCount > countAfterBoot, 2000);
+      expect(callCount).toBeGreaterThan(countAfterBoot);
+
+      // mt#3060 AT2: the liveness signal (the scheduling-layer equivalent of
+      // ProdStateSweepTracker — ProdStateSweepTracker itself only tracks the
+      // DOMAIN outcome of an attempted tick, so it can't observe a tick that
+      // never got attempted at all) must demonstrably reflect BOTH the
+      // failure (a force-restart was recorded) AND the recovery (a fresh
+      // successful tick landed after it).
+      const finalEntry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-meta-watchdog-restart-storm"
+      );
+      expect(finalEntry?.metaRestarts ?? 0).toBeGreaterThanOrEqual(1);
+      expect(finalEntry?.lastSuccessAt).not.toBeNull();
+    } finally {
+      stopWatchdog();
       stop();
     }
   });

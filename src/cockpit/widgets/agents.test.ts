@@ -6,7 +6,7 @@
  * title-from-branch fallback) live in src/cockpit/cockpit.test.ts.
  */
 import { describe, test, expect } from "bun:test";
-import { createAgentsWidget } from "./agents";
+import { createAgentsWidget, isWithinActiveWindow } from "./agents";
 import type { TaskProviderLike, AgentRow } from "./agents";
 import type {
   SessionProviderInterface,
@@ -14,6 +14,9 @@ import type {
   SessionListOptions,
 } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
+import type { SessionAttachment } from "@minsky/domain/session/index";
+import { isAllProjects } from "@minsky/domain/project/scope";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -443,5 +446,504 @@ describe("createAgentsWidget — pagination and caching", () => {
     expect(agents.find((a) => a.sessionId === S3)?.taskTitle).toBe("Title mt#300");
     // Cached titles still work
     expect(agents.find((a) => a.sessionId === S1)?.taskTitle).toBe("Title mt#100");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Driven-session splice (mt#2752)
+// ---------------------------------------------------------------------------
+
+import { spliceDrivenSessions } from "./agents";
+import type { DrivenSessionSnapshot } from "./agents";
+
+const DRIVEN_LOCAL_ID = "dddddddd-0000-0000-0000-000000000001";
+
+function makeDrivenSnapshot(overrides: Partial<DrivenSessionSnapshot> = {}): DrivenSessionSnapshot {
+  return {
+    localId: DRIVEN_LOCAL_ID,
+    cwd: "/fixture-state/sessions/aaaaaaaa-0000-0000-0000-000000000001",
+    status: "running",
+    startedAt: NOW.toISOString(),
+    taskId: "mt#9999",
+    minskySessionId: "aaaaaaaa-0000-0000-0000-000000000001",
+    harnessSessionId: null,
+    ...overrides,
+  };
+}
+
+describe("spliceDrivenSessions", () => {
+  test("annotates the matching workspace row instead of adding a new row", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ taskId: "mt#9999" })]),
+      undefined,
+      undefined,
+      () => [makeDrivenSnapshot()]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+
+    expect(agents.length).toBe(1);
+    const row = agents[0];
+    expect(row?.kind).toBe("dispatched-agent");
+    expect(row?.driven).toEqual({
+      sessionId: DRIVEN_LOCAL_ID,
+      status: "running",
+    });
+  });
+
+  test("emits a standalone driven-session row for an untasked scratch session", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([]),
+      undefined,
+      undefined,
+      () => [
+        makeDrivenSnapshot({
+          taskId: null,
+          minskySessionId: null,
+          cwd: "/Users/op/projects/minsky",
+          harnessSessionId: "cccccccc-0000-0000-0000-000000000003",
+        }),
+      ]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+
+    expect(agents.length).toBe(1);
+    const row = agents[0];
+    expect(row?.kind).toBe("driven-session");
+    expect(row?.sessionId).toBe(DRIVEN_LOCAL_ID);
+    expect(row?.title).toBe("Scratch: minsky");
+    expect(row?.taskId).toBeNull();
+    expect(row?.conversationId).toBe("cccccccc-0000-0000-0000-000000000003");
+    expect(row?.driven?.status).toBe("running");
+  });
+
+  test("emits a standalone row when the bound workspace is not in view", () => {
+    const rows: AgentRow[] = [];
+    const result = spliceDrivenSessions(rows, [makeDrivenSnapshot()]);
+    expect(result.length).toBe(1);
+    expect(result[0]?.kind).toBe("driven-session");
+    // Task binding is preserved on the standalone row.
+    expect(result[0]?.taskId).toBe("mt#9999");
+  });
+
+  test("a throwing snapshot source degrades to no driven rows, not a widget error", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession()]),
+      undefined,
+      undefined,
+      () => {
+        throw new Error("registry unavailable");
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.length).toBe(1);
+    expect(agents[0]?.driven).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachState wiring (mt#2286) — the 5th `getLiveAttachments` factory param.
+// ---------------------------------------------------------------------------
+
+function makeAttachment(overrides: Partial<SessionAttachment> = {}): SessionAttachment {
+  return {
+    id: overrides.id ?? "att-1",
+    sessionId: overrides.sessionId ?? S1,
+    actorId: overrides.actorId ?? "actor-1",
+    terminalContext: overrides.terminalContext,
+    registeredAt: overrides.registeredAt ?? NOW.toISOString(),
+  };
+}
+
+describe("createAgentsWidget — attachState wiring", () => {
+  test("attachState is null for every row when no getLiveAttachments factory is supplied", async () => {
+    const widget = createAgentsWidget(async () =>
+      makeSessionProvider([makeActiveSession({ sessionId: S1 })])
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBeNull();
+  });
+
+  test("attachState is 'attached-external' when the row's live attachment carries terminalContext", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: S1, terminalContext: { TMUX_PANE: "%3" } })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("attached-external");
+  });
+
+  test("attachState is 'in-cockpit' when the row's live attachment has no terminalContext", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: S1, terminalContext: {} })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("in-cockpit");
+  });
+
+  test("attachState is 'detached' when no live attachment matches the row's sessionId", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: "some-other-session" })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("detached");
+  });
+
+  test("a throwing getLiveAttachments degrades to attachState: null, not a widget error", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        throw new Error("presence service unavailable");
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.length).toBe(1);
+    expect(agents[0]?.attachState).toBeNull();
+  });
+
+  test("batches one attachment lookup across multiple rows and maps each independently", async () => {
+    const calls: number[] = [];
+    const widget = createAgentsWidget(
+      async () =>
+        makeSessionProvider([
+          makeActiveSession({ sessionId: S1 }),
+          makeActiveSession({ sessionId: S2 }),
+          makeActiveSession({ sessionId: S3 }),
+        ]),
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1);
+        return [
+          makeAttachment({
+            id: "a1",
+            sessionId: S1,
+            terminalContext: { TERM_PROGRAM: "iTerm.app" },
+          }),
+          makeAttachment({ id: "a2", sessionId: S2, terminalContext: {} }),
+          // S3 has no attachment at all -> detached
+        ];
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(calls.length).toBe(1); // one batch call, not one per row
+
+    const bySessionId = new Map(agents.map((a) => [a.sessionId, a]));
+    expect(bySessionId.get(S1)?.attachState).toBe("attached-external");
+    expect(bySessionId.get(S2)?.attachState).toBe("in-cockpit");
+    expect(bySessionId.get(S3)?.attachState).toBe("detached");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project-scope wiring (mt#2418)
+//
+// These tests prove the WIRING itself: the widget reads `ctx.query.project`,
+// calls through the real resolveCockpitProjectScope codepath, and always
+// supplies a `projectScope` key to listSessions() — without crashing —
+// whether or not the query param is present. The end-to-end "slug filters to
+// that project's rows" behavior is covered by
+// `tests/domain/project-scope-acceptance.test.ts` (listSessions/listTasks
+// projectScope filtering) and `src/cockpit/project-scope.test.ts` (slug->uuid
+// resolution).
+//
+// mt#3016 — explicit `getProjectScopeDb` injection, not ambient "no live db":
+// earlier versions of this block relied on `getContextInspectorDb()` (the
+// REAL, module-level-cached singleton `resolveCockpitProjectScope` falls
+// back to) resolving to `null` as an AMBIENT property of the test
+// environment. That assumption is NOT guaranteed — `getContextInspectorDb`
+// is shared across every test file in the same `bun test` process, and its
+// result depends on whatever OTHER file happened to run first. Confirmed
+// empirically: running `packages/domain/src/session-auto-task-creation.test.ts`
+// (whose `beforeEach` calls the equally global, equally un-reset
+// `@minsky/domain/configuration` `initializeConfiguration()` singleton, which
+// still merges in the real user-level `~/.config/minsky/config.yaml`
+// independent of the fake `workingDirectory` it passes) before this file in
+// the same process made `getContextInspectorDb()` resolve a REAL, non-null
+// Postgres connection, breaking the "no live db" assumption below. See
+// `src/cockpit/widgets/task-list.test.ts`'s file-header docstring (mt#2418's
+// sibling widget) for the full writeup — the fix is the same: inject
+// `getProjectScopeDb` directly via `createAgentsWidget`'s 6th (mt#3016)
+// parameter, so behavior is fully determined by THIS test file.
+// ---------------------------------------------------------------------------
+
+/**
+ * Fake db shaped exactly as `scope-resolver.ts`'s query expects
+ * (`select().from().where().limit()`), resolving to `rows` — mirrors
+ * `src/cockpit/project-scope.test.ts`'s helper of the same name.
+ */
+function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+  return {
+    select() {
+      return {
+        from() {
+          return {
+            where() {
+              return {
+                limit() {
+                  return Promise.resolve(rows);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
+  test("supplies projectScope: ALL_PROJECTS to listSessions when ctx.query.project is absent", async () => {
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    const widget = createAgentsWidget(async () => provider);
+
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(isAllProjects(projectScope)).toBe(true);
+  });
+
+  test("does not crash when ctx.query.project is present (injected getProjectScopeDb: null -> fail-open to ALL_PROJECTS)", async () => {
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    // mt#3016: explicit injection via the 6th (getProjectScopeDb) param, not
+    // reliance on ambient "no live db" environment state — see the
+    // describe-block header comment above.
+    const widget = createAgentsWidget(
+      async () => provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => null
+    );
+
+    const data = await widget.fetch({ id: "agents", query: { project: "edobry/minsky" } });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(isAllProjects(projectScope)).toBe(true);
+  });
+
+  // mt#3016 regression guard: project-scope resolution must be driven
+  // ENTIRELY by this test's own injected `getProjectScopeDb`, never by
+  // whatever `@minsky/domain/configuration` / `getContextInspectorDb()`
+  // global singleton state some OTHER test file left behind in this
+  // process. Prove it with a fake db that DOES resolve a matching project
+  // row — see task-list.test.ts's sibling test for the full rationale.
+  test("resolves ctx.query.project to the injected fake db's matching project uuid", async () => {
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    const widget = createAgentsWidget(
+      async () => provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => makeScopeResolverDb([{ id: PROJECT_ID, slug: "edobry/minsky" }])
+    );
+
+    const data = await widget.fetch({ id: "agents", query: { project: "edobry/minsky" } });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(projectScope).toBe(PROJECT_ID);
+    expect(isAllProjects(projectScope)).toBe(false);
+  });
+
+  // PR #2056 R1 BLOCKING 1 / NON-BLOCKING 1: a thrown db-getter (module import
+  // failure, connection error, etc.) must degrade project-scope resolution to
+  // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract
+  // lives entirely inside resolveCockpitProjectScope() (see
+  // src/cockpit/project-scope.ts's fail-open try/catch, which wraps the
+  // db-getter call, the dynamic import, and the resolveProjectScope call all
+  // in one boundary) — every consumer of it, including this widget, inherits
+  // the guarantee for free. This widget DOES now carry a `getProjectScopeDb`
+  // DI seam (added for mt#3016, above) but re-exercising the thrown-getter /
+  // thrown-import / thrown-query paths here would be redundant — they're
+  // already covered directly, with clean DI (no mock.module, banned by this
+  // repo's own custom/no-global-module-mocks ESLint rule), in
+  // src/cockpit/project-scope.test.ts.
+});
+
+// ---------------------------------------------------------------------------
+// Activity-bound tests (mt#3118)
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Fixed clock for the pure-function tests. `isWithinActiveWindow` takes `now`
+ * as a parameter precisely so these never read a real clock — a wall-clock
+ * read would make the assertions time-of-day dependent (and trips
+ * `custom/no-real-fs-in-tests`, which flags `Date.now()` in tests).
+ */
+const FIXED_NOW_MS = Date.parse("2026-07-23T12:00:00.000Z");
+
+function agedSession(daysAgo: number, overrides: Partial<SessionRecord> = {}): SessionRecord {
+  const ts = new Date(FIXED_NOW_MS - daysAgo * DAY_MS).toISOString();
+  return makeActiveSession({ createdAt: ts, lastActivityAt: ts, ...overrides });
+}
+
+describe("isWithinActiveWindow — the default activity bound", () => {
+  test("keeps a workspace active within the window", () => {
+    expect(isWithinActiveWindow(agedSession(3), FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("drops a workspace quiet for longer than the window", () => {
+    expect(isWithinActiveWindow(agedSession(40), FIXED_NOW_MS)).toBe(false);
+  });
+
+  test("an OPEN pull request extends the window past the base bound", () => {
+    const withPr = agedSession(20, {
+      pullRequest: { number: 1234, state: "open" },
+    } as Partial<SessionRecord>);
+    // 20 days is outside the 10-day base bound, inside the 30-day PR window.
+    expect(isWithinActiveWindow(withPr, FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("a DRAFT pull request extends the window the same way (in-flight work)", () => {
+    const withDraft = agedSession(20, {
+      pullRequest: { number: 1234, state: "draft" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(withDraft, FIXED_NOW_MS)).toBe(true);
+  });
+
+  // The open-PR window EXTENDS the bound; it does not remove it. 35 of the 37
+  // sessions cached as "open" have been inactive 30+ days with PR numbers as
+  // low as #152 — a stale cache, not live review work.
+  test("an open pull request does NOT grant an unbounded window", () => {
+    const ancient = agedSession(200, {
+      pullRequest: { number: 152, state: "open" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(ancient, FIXED_NOW_MS)).toBe(false);
+  });
+
+  // Regression for the defect the live DB check caught: overriding on the mere
+  // PRESENCE of a PR record left 55 of 225 workspaces in the "bounded" view,
+  // oldest last active 2025-09-03 — sessions whose PR merged months ago but
+  // whose row was never updated.
+  test("a merged pull request grants no extension at all", () => {
+    const merged = agedSession(20, {
+      pullRequest: { number: 1234, state: "merged" },
+    } as Partial<SessionRecord>);
+    // Inside the 30-day PR window but outside the 10-day base bound: a merged
+    // PR must not extend anything, so this is hidden.
+    expect(isWithinActiveWindow(merged, FIXED_NOW_MS)).toBe(false);
+  });
+
+  test("a closed pull request grants no extension at all", () => {
+    const closed = agedSession(20, {
+      pullRequest: { number: 1234, state: "closed" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(closed, FIXED_NOW_MS)).toBe(false);
+  });
+
+  test("keeps a row whose activity timestamp is unparseable (fail-open, never silently drop)", () => {
+    const bad = makeActiveSession({ createdAt: "not-a-date", lastActivityAt: "not-a-date" });
+    expect(isWithinActiveWindow(bad, FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("falls back to createdAt when lastActivityAt is absent", () => {
+    const old = new Date(FIXED_NOW_MS - 40 * DAY_MS).toISOString();
+    const rec = makeActiveSession({ createdAt: old, lastActivityAt: undefined });
+    expect(isWithinActiveWindow(rec, FIXED_NOW_MS)).toBe(false);
+  });
+});
+
+describe("createAgentsWidget — activity bound applied to the row source (mt#3118)", () => {
+  // These go through the widget's own real clock, so "recent" rides the
+  // module-level NOW and "abandoned" is a fixed date far enough in the past to
+  // stay outside the window no matter when the suite runs.
+  const recent = makeActiveSession({ sessionId: S1 });
+  const abandoned = makeActiveSession({
+    sessionId: S2,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    lastActivityAt: "2025-01-01T00:00:00.000Z",
+  });
+
+  test("default view hides abandoned workspaces and reports how many were hidden", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([recent, abandoned]),
+      async () => makeTaskProvider({})
+    );
+    const result = await widget.fetch({ query: {} } as never);
+    expect(result.state).toBe("ok");
+    const payload = (result as { payload: { agents: AgentRow[]; hiddenInactiveCount: number } })
+      .payload;
+    expect(payload.agents.map((a) => a.sessionId)).toEqual([S1]);
+    expect(payload.hiddenInactiveCount).toBe(1);
+  });
+
+  test("includeInactive=true restores the hidden rows", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([recent, abandoned]),
+      async () => makeTaskProvider({})
+    );
+    const result = await widget.fetch({ query: { includeInactive: "true" } } as never);
+    const payload = (result as { payload: { agents: AgentRow[]; hiddenInactiveCount: number } })
+      .payload;
+    expect(payload.agents.map((a) => a.sessionId).sort()).toEqual([S1, S2].sort());
+    expect(payload.hiddenInactiveCount).toBe(0);
   });
 });

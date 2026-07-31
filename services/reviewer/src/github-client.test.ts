@@ -16,11 +16,17 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerConfig } from "./config";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
 import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
+  createOctokit,
+  createAppIdentityOctokit,
   fetchPriorReviews,
+  fetchCommitMessagesSince,
+  fetchChangedFilesSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -787,5 +793,294 @@ describe("submitReview", () => {
 
     const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
     expect(args.comments).toBeUndefined();
+  });
+});
+
+// ── createOctokit (mt#2717) ──────────────────────────────────────────────────
+
+/**
+ * Minimal ReviewerConfig for createOctokit — only appId/privateKey/installationId
+ * are read; the remaining fields are filler to satisfy the type.
+ */
+function testConfig(privateKey: string): ReviewerConfig {
+  return {
+    appId: 12345,
+    privateKey,
+    installationId: 67890,
+    webhookSecret: "test-secret",
+    provider: "openai",
+    providerApiKey: "test-key",
+    providerModel: "gpt-5",
+    tier2Enabled: false,
+    mcpUrl: undefined,
+    mcpToken: undefined,
+    port: 3000,
+    logLevel: "info",
+    modelTimeoutMs: 120_000,
+    githubTimeoutMs: 30_000,
+  };
+}
+
+describe("createOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // The pre-mt#2717 body signed a JWT and minted an installation token AT
+    // CONSTRUCTION (`const { token } = await auth({ type: "installation" })`),
+    // so a malformed private key threw here. The authStrategy form defers all
+    // auth to the first request, so construction must succeed regardless of key
+    // validity — the property that makes the reused, self-refreshing client
+    // correct (it never re-extracts a stale token).
+    const octokit = await createOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the refreshing App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = await createOctokit(testConfig(privateKey));
+
+    // With authStrategy: createAppAuth, requesting an APP-level JWT is a purely
+    // LOCAL RS256 signing operation (no network) — only possible when the
+    // app-auth strategy is installed. A static-token Octokit could not satisfy
+    // `{ type: "app" }`.
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    // A JWT is three dot-separated base64url segments.
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+describe("createAppIdentityOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // Same property as createOctokit: the pre-mt#2717 getAppIdentity path
+    // extracted a static App JWT at construction (`await auth({ type: "app" })`)
+    // and threw on a malformed key. The authStrategy form defers auth to the
+    // first request, so construction must not throw.
+    const octokit = createAppIdentityOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = createAppIdentityOctokit(testConfig(privateKey));
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchCommitMessagesSince (mt#2836)
+// ---------------------------------------------------------------------------
+
+interface FakeCommitData {
+  sha: string;
+  commit: {
+    message: string;
+    committer?: { date: string } | null;
+    author?: { date: string } | null;
+  };
+}
+
+function buildFakeCommitOctokit(commits: FakeCommitData[]): Octokit {
+  const paginateMock = mock(async (_endpoint: unknown, _options: unknown) => commits);
+  return {
+    paginate: paginateMock,
+    rest: {
+      pulls: {
+        listCommits: mock(async () => ({ data: [] })),
+      },
+    },
+  } as unknown as Octokit;
+}
+
+function makeRawCommit(overrides: Partial<FakeCommitData> = {}): FakeCommitData {
+  return {
+    sha: "abc123",
+    commit: {
+      message: "fix: address review feedback",
+      committer: { date: "2026-07-15T12:00:00Z" },
+    },
+    ...overrides,
+  };
+}
+
+describe("fetchCommitMessagesSince", () => {
+  test("calls octokit.paginate (not listCommits directly) to follow Link headers", async () => {
+    const octokit = buildFakeCommitOctokit([makeRawCommit()]);
+    await fetchCommitMessagesSince(octokit, "owner", "repo", 1);
+
+    expect((octokit.paginate as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+    expect(
+      (octokit.rest.pulls.listCommits as unknown as ReturnType<typeof mock>).mock.calls
+    ).toHaveLength(0);
+  });
+
+  test("returns all commits when sinceIso is omitted", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "a",
+        commit: { message: "one", committer: { date: "2026-07-01T00:00:00Z" } },
+      }),
+      makeRawCommit({
+        sha: "b",
+        commit: { message: "two", committer: { date: "2026-07-02T00:00:00Z" } },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(octokit, "owner", "repo", 1);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((c) => c.message)).toEqual(["one", "two"]);
+  });
+
+  test("filters out commits authored at or before sinceIso", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "old",
+        commit: { message: "before the review", committer: { date: "2026-07-01T00:00:00Z" } },
+      }),
+      makeRawCommit({
+        sha: "new",
+        commit: { message: "after the review", committer: { date: "2026-07-03T00:00:00Z" } },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-02T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.message).toBe("after the review");
+  });
+
+  test("falls back to author.date when committer.date is absent", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "x",
+        commit: {
+          message: "authored, not committed",
+          committer: null,
+          author: { date: "2026-07-05T00:00:00Z" },
+        },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-01T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.authoredAt).toBe("2026-07-05T00:00:00Z");
+  });
+
+  test("includes a commit with no resolvable date rather than dropping it", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "no-date",
+        commit: { message: "no date info", committer: null, author: null },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-01T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchChangedFilesSince (mt#3300 SC#1)
+// ---------------------------------------------------------------------------
+
+function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
+  const compareCommitsMock = mock(async () => ({ data: { files } }));
+  return {
+    rest: {
+      repos: {
+        compareCommits: compareCommitsMock,
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchChangedFilesSince", () => {
+  test("returns [] immediately when baseSha === headSha, without calling the API", async () => {
+    const compareCommitsMock = mock(async () => ({ data: { files: [] } }));
+    const octokit = {
+      rest: { repos: { compareCommits: compareCommitsMock } },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha1");
+
+    expect(result).toEqual([]);
+    expect(compareCommitsMock).not.toHaveBeenCalled();
+  });
+
+  test("returns the changed file list from compareCommits", async () => {
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+  });
+
+  test("returns undefined and does not throw when compareCommits fails", async () => {
+    const octokit = {
+      rest: {
+        repos: {
+          compareCommits: mock(async () => {
+            throw new Error("404 Not Found");
+          }),
+        },
+      },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("mt#3300 R1 non-blocking: returns undefined (ambiguous) when the response hits the 300-file cap", async () => {
+    // GitHub's compare-commits endpoint caps `files` at 300 with no explicit
+    // truncation flag. A response that hits the cap MAY have more files
+    // beyond it — proceeding as if the list were complete could miss the
+    // finding's cited file and manufacture a false "untouched" verdict, so
+    // this must fail toward ambiguous (undefined), never toward asserting
+    // the file list is exhaustive.
+    const files = Array.from({ length: 300 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("returns the full list when file count is just under the cap", async () => {
+    const files = Array.from({ length: 299 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toHaveLength(299);
   });
 });

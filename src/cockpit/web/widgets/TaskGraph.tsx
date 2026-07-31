@@ -31,6 +31,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { EntityRef } from "../components/EntityRef";
+import { statusStyle } from "../lib/status-colors";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server GraphNode / GraphEdge shapes.
@@ -75,39 +77,6 @@ interface Props {
   variant?: WidgetVariant;
   /** Title from the registry; defaults to the widget's canonical title for back-compat. */
   title?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Status color palette
-// Mirrors the "tech-tree" style from deps-rendering-graphviz.ts
-// ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: GraphNode["status"]): StatusStyle {
-  switch (status) {
-    case "DONE":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +147,7 @@ function computeLayout(
   let head = 0;
   while (head < queue.length) {
     const curr = queue[head++];
+    if (curr === undefined) continue;
     const gen = generation.get(curr) ?? 0;
     for (const succ of successors.get(curr) ?? []) {
       const existing = generation.get(succ) ?? -1;
@@ -260,7 +230,7 @@ function toFlowEdges(graphEdges: GraphEdge[]): Edge[] {
     id: e.id,
     source: e.source,
     target: e.target,
-    style: { stroke: "#4a5568", strokeWidth: 1.5 },
+    style: { stroke: "oklch(var(--border))", strokeWidth: 1.5 },
     animated: false,
   }));
 }
@@ -274,7 +244,10 @@ interface SelectedPanelProps {
   onClose: () => void;
 }
 
-function SelectedPanel({ node, onClose }: SelectedPanelProps) {
+// Exported for direct testing (mt#3175) — avoids exercising the full
+// react-flow canvas (unreliable under jsdom) just to assert on the
+// selected-node panel's entity-reference treatment.
+export function SelectedPanel({ node, onClose }: SelectedPanelProps) {
   if (!node) return null;
 
   return (
@@ -284,7 +257,13 @@ function SelectedPanel({ node, onClose }: SelectedPanelProps) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-muted-foreground font-mono mb-1">{node.id}</p>
+          <p className="text-xs mb-1">
+            {/* Link only — node.label (title) and the status chip below already
+                identify this node; no duplicated title here (mt#3175). */}
+            <EntityRef type="task" id={node.id}>
+              {node.id}
+            </EntityRef>
+          </p>
           <p className="text-sm font-medium leading-snug break-words">{node.label}</p>
         </div>
         <button

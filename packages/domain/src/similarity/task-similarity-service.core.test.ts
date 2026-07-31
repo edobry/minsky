@@ -296,3 +296,233 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
     expectNoForwardedFilter(capturedSearchOptions);
   });
 });
+
+// Regression for mt#2762: `kind` is applied at READ TIME against the live task, the same way
+// status/backend are (see the mt#2220/ADR-013 suite above) — not pushed down into the vector
+// store. A task with no `kind` field (the GHI-backend gap) is treated as "implementation".
+// No initializeConfiguration call here (see the no-filter-forward suite's comment above) —
+// a third occurrence of the "../configuration/index" dynamic import trips the
+// no-magic-string-duplication lint rule, and this suite's lexical-fallback path doesn't need it.
+describe("TaskSimilarityService read-time kind filter (mt#2762)", () => {
+  const dummyEmbedding: EmbeddingService = {
+    generateEmbedding: async () => new Array(3).fill(0),
+  } as unknown as EmbeddingService;
+  const dummyVector: VectorStorage = {
+    initialize: async () => void 0,
+    store: async () => void 0,
+    search: async () => [],
+  } as unknown as VectorStorage;
+
+  // Two strong lexical matches for QUERY below: one umbrella, one implementation (kind
+  // omitted, defaults to "implementation"); plus an unrelated task.
+  const QUERY = "widget rollout plan";
+  const tasks = [
+    { id: "md#501", title: "Widget rollout plan epic", status: "TODO", kind: "umbrella" },
+    { id: "md#502", title: "Widget rollout plan task", status: "TODO" },
+    { id: "md#503", title: "Unrelated changelog cleanup", status: "TODO" },
+  ];
+  const specs: Record<string, string> = {
+    "md#501": "Widget rollout plan tracking the overall release effort.",
+    "md#502": "Widget rollout plan implementation work for the release.",
+    "md#503": "Clean up an unrelated changelog entry.",
+  };
+
+  let service: TaskSimilarityService;
+
+  beforeEach(() => {
+    (
+      EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: () => Promise<boolean> }
+    ).isAvailable = async () => false;
+
+    service = new TaskSimilarityService(
+      dummyEmbedding,
+      dummyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} as any }),
+      {}
+    );
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  it("kind=umbrella returns only the umbrella-kind match", async () => {
+    const response = await service.searchByText(QUERY, 5, undefined, {
+      kind: "umbrella",
+    });
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#501");
+    expect(ids).not.toContain("md#502"); // implementation (default) — excluded
+  });
+
+  it("kind=implementation matches a task with no kind field (default)", async () => {
+    const response = await service.searchByText(QUERY, 5, undefined, {
+      kind: "implementation",
+    });
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#502");
+    expect(ids).not.toContain("md#501"); // umbrella — excluded
+  });
+
+  it("no kind filter surfaces both matches", async () => {
+    const response = await service.searchByText(QUERY, 5);
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#501");
+    expect(ids).toContain("md#502");
+  });
+});
+
+// mt#2754: the filtered path embeds the query ONCE (concurrently with the live-task fetch) and
+// reuses that precomputed vector for the vector search(es) — the embed-split latency fix. Verified
+// by counting embed calls and asserting the vector store receives the precomputed vector.
+describe("TaskSimilarityService embed-split reuses one query vector (mt#2754)", () => {
+  const tasks = [
+    { id: "md#401", title: "Embed-split candidate one", status: "TODO", backend: "minsky" },
+    { id: "md#402", title: "Embed-split candidate two", status: "TODO", backend: "minsky" },
+  ];
+  const QUERY_VECTOR = [0.42, 0.43, 0.44];
+  let embedCalls: number;
+  let capturedVectors: number[][];
+
+  const countingEmbedding: EmbeddingService = {
+    generateEmbedding: async () => {
+      embedCalls++;
+      return QUERY_VECTOR;
+    },
+  } as unknown as EmbeddingService;
+
+  const spyVector: VectorStorage = {
+    store: async () => void 0,
+    delete: async () => void 0,
+    search: async (vector: number[]): Promise<SearchResult[]> => {
+      capturedVectors.push(vector);
+      return tasks.map((t, i) => ({ id: t.id, score: 1 - i * 0.1, metadata: {} }));
+    },
+  };
+
+  let service: TaskSimilarityService;
+
+  beforeEach(() => {
+    embedCalls = 0;
+    capturedVectors = [];
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+    service = new TaskSimilarityService(
+      countingEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (_id: string) => ({ content: "", specPath: "", task: {} as any }),
+      {}
+    );
+  });
+
+  afterEach(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  it("filtered search embeds once and passes the precomputed vector to the vector store", async () => {
+    const response = await service.searchByText("deploy pipeline", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("embeddings");
+    // Embedded exactly once (in searchByText's Promise.all), NOT re-embedded inside the backend.
+    expect(embedCalls).toBe(1);
+    // Every vector-store search received the precomputed query vector.
+    expect(capturedVectors.length).toBeGreaterThan(0);
+    for (const v of capturedVectors) {
+      expect(v).toEqual(QUERY_VECTOR);
+    }
+  });
+
+  it("pre-embed failure degrades to the lexical backend instead of throwing", async () => {
+    const throwingEmbedding: EmbeddingService = {
+      generateEmbedding: async () => {
+        throw new Error("embedding provider unavailable");
+      },
+    } as unknown as EmbeddingService;
+    // Lexical needs content to score against; make it overlap the query.
+    const specForLexical: Record<string, string> = {
+      "md#401": "widget alpha configuration and rollout notes",
+      "md#402": "widget beta configuration and rollout notes",
+    };
+    const svc = new TaskSimilarityService(
+      throwingEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (id: string) => ({ content: specForLexical[id] || "", specPath: "", task: {} as any }),
+      {}
+    );
+
+    // The precompute embed throws; searchByText must NOT bubble it — the search service
+    // fails the embeddings backend and degrades to lexical (mt#2754 review BLOCKING).
+    const response = await svc.searchByText("widget configuration rollout", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("lexical");
+    expect(response.degraded).toBe(true);
+    expect(response.results.length).toBeGreaterThan(0);
+  });
+});
+
+describe("TaskSimilarityService.indexTask force re-embed (mt#2795)", () => {
+  const task = { id: "md#201", title: "Reindex target", status: "TODO" };
+  const spec = "Stable spec content — hash does not change between calls.";
+
+  function buildService() {
+    const stored: Array<{ id: string; metadata: Record<string, unknown> }> = [];
+    let lastMetadata: Record<string, unknown> | undefined;
+
+    const vector: VectorStorage = {
+      initialize: async () => void 0,
+      store: async (id: string, _vec: number[], metadata: Record<string, unknown>) => {
+        lastMetadata = metadata;
+        stored.push({ id, metadata });
+      },
+      search: async () => [],
+      // Replays whatever the service last stored — so the second indexTask call
+      // sees a matching contentHash and takes the up-to-date skip path.
+      getMetadata: async () => lastMetadata,
+    } as unknown as VectorStorage;
+
+    const embedding: EmbeddingService = {
+      generateEmbedding: async () => [0, 0, 0],
+    } as unknown as EmbeddingService;
+
+    const service = new TaskSimilarityService(
+      embedding,
+      vector,
+      async (id: string) => (id === task.id ? (task as any) : null),
+      async () => [task] as any,
+      async () => ({ content: spec, specPath: "", task: task as any }),
+      {}
+    );
+
+    return { service, stored };
+  }
+
+  it("skips an up-to-date task by default, re-embeds it under force (--reindex)", async () => {
+    const { service, stored } = buildService();
+
+    // First index: nothing stored yet → embeds and stores.
+    expect(await service.indexTask(task.id)).toBe(true);
+    expect(stored.length).toBe(1);
+
+    // Second index, same content: up-to-date skip.
+    expect(await service.indexTask(task.id)).toBe(false);
+    expect(stored.length).toBe(1);
+
+    // Forced: bypasses the up-to-date check and re-embeds (mt#2795 --reindex wiring).
+    expect(await service.indexTask(task.id, { force: true })).toBe(true);
+    expect(stored.length).toBe(2);
+
+    // force: false behaves like the default skip path.
+    expect(await service.indexTask(task.id, { force: false })).toBe(false);
+    expect(stored.length).toBe(2);
+  });
+});

@@ -26,6 +26,24 @@ details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a worksp
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+### Keyboard shortcuts
+
+| Chord            | Action                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| `⌘K`             | Open the command palette (`CommandPalette.tsx`)                                                     |
+| `⌘⇧]` / `⌘⇧[`    | Next / previous tab in **strip** order, wrapping at both ends (mt#3469)                             |
+| `⌃Tab` / `⌃⇧Tab` | Next / previous tab in **recency** order; holding `⌃` walks a frozen order, as in VS Code (mt#3469) |
+
+All of them are suppressed while focus is in a text input, textarea, select, or
+contenteditable host.
+
+**The tab shortcuts only work in the Tauri cockpit window, not in a browser tab.** Browsers
+reserve those chords for their own tab strip and never deliver them to the page, so there they
+are inert by construction — no detection or feature flag is involved. Owner:
+`components/TabKeyboardNav.tsx`; the ordering primitives it drives (`stepInOrder`,
+`mruOrderedPaths`) live in `lib/tabs.tsx`. `⌘1`–`⌘9` ordinal jumps are deliberately absent:
+they need a spatially stable strip, which the working-set model does not guarantee.
+
 Two id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate; vocabulary per ADR-022 stage 1,
 mt#2686): `/agents` and `/agents/:id` are keyed by the **Minsky workspace sessionId**
 (`SessionRecord`); `/conversations` and `/conversation/:id` are keyed by the **harness
@@ -37,22 +55,22 @@ scope for the ADR-022 rename.)
 
 ## Routes
 
-| Path                       | Page              | Purpose                                                                                                                                                                                                   |
-| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                        | Home              | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398)                                                                                |
-| `/agents`                  | Agents            | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                    |
-| `/agents/:id`              | Workspace detail  | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686) |
-| `/conversation/:id`        | Conversation      | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                   |
-| `/context`                 | Context           | Agent context inspector                                                                                                                                                                                   |
-| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                         |
-| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                      |
-| `/asks`                    | Asks              | Interactive ask management                                                                                                                                                                                |
-| `/activity`                | Activity          | Event stream                                                                                                                                                                                              |
-| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                                                                          |
-| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                        |
-| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                                                                       |
-| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                    |
-| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                       |
+| Path                       | Page              | Purpose                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                        | Home              | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398) |
+| `/agents`                  | Agents            | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                   |
+| `/agents/:id`              | Workspace detail  | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                |
+| `/conversation/:id`        | Conversation      | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                  |
+| `/context`                 | Context           | Agent context inspector                                                                                                                                                                                                                                                                                                  |
+| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
+| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
+| `/asks`                    | Asks              | Interactive ask management                                                                                                                                                                                                                                                                                               |
+| `/activity`                | Activity          | Event stream                                                                                                                                                                                                                                                                                                             |
+| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
+| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
+| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                      |
+| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                   |
+| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
 
 ## Widgets
 
@@ -74,6 +92,43 @@ The model separates two concerns the old `enabled` flag conflated:
 
 Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
 the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
+
+### Query-layer-failure vs no-data convention (mt#2758)
+
+`WidgetData`'s `{ state: "ok" | "degraded" }` split is all-or-nothing per widget — it signals
+that the WHOLE widget failed, not that one of several independent data sources inside an `ok`
+payload silently failed. Widgets that fan out to multiple independent sources (several DB
+queries, several HTTP probes) commonly degrade each source independently — a failing query
+`catch`es to an empty default (`[]`/`null`/`0`) so one bad source doesn't take the rest of the
+widget down. That per-source fail-open creates a structural blind spot: a source that failed
+and a source that legitimately has no data both resolve to the same empty value, so "the query
+layer is broken" and "there's genuinely nothing here yet" render identically. This is exactly
+what happened to the reviewer-bot-status widget for ~5 weeks (mt#2076/mt#2757) — every DB query
+threw `NOT_TAGGED_CALL` while the UI showed healthy-looking zeros, and nobody could tell from
+the cockpit.
+
+**Convention:** a widget with this shape adds ADDITIVE OPTIONAL fields to its own payload
+(payload is `unknown` at the `WidgetData` level, so no framework change is needed) signaling
+per-fetch-cycle failure counts alongside the real data. The reference implementation
+(`src/cockpit/widgets/reviewer-bot-status.ts`) adds `queryFailureCount` / `queryTotalCount` to
+its `db` sub-object: `queryFailureCount` counts how many of the widget's independent queries
+failed to run for real (threw, rejected, or had no live connection) during the CURRENT fetch
+cycle, and `queryTotalCount` is the denominator. The counter is computed as state local to the
+fetch invocation (not module-level) — a widget that single-flights concurrent `fetch()` calls
+(reviewer-bot-status does, mt#2765) would otherwise leak or double-count the failure signal
+across polling cycles. A `degradedFields: string[]` naming the specific affected output fields
+is an equally valid shape when per-field granularity is more useful than a count.
+
+**Frontend rendering:** render a visible degraded indicator when the failure count is nonzero
+— never let it fall through to the same rendering as "no data." `ReviewerBotStatus.tsx` renders
+an `AnomalyBanner` when `db.queryFailureCount > 0`: the amber warning variant for a partial
+failure, and the banner's `error` variant — which maps to the `destructive` semantic token per
+`src/cockpit/CLAUDE.md`'s error-state convention — when every query in the cycle failed.
+
+This is a reference-implementation convention adopted incrementally, not a framework
+requirement — see the full type-level writeup in `src/cockpit/types.ts` above `WidgetData`.
+Existing widgets are not required to adopt it in one pass; new widgets with a multi-source
+fan-out shape should.
 
 ### Widget parameterization (slice/altitude)
 
@@ -103,16 +158,17 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                      | Page                                 | Surface                                                                                                                                                                                |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                                  | Home System-Status card grid                                                                                                                                                           |
-| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages                      | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                           |
-| `memories-health`                                                                              | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                  |
-| `memories-stats`                                                                               | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                              |
-| `memories-list`                                                                                | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                      |
-| `memories-search`                                                                              | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                        |
-| `memories-detail`                                                                              | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                |
-| `slow-topology`                                                                                | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602) |
+| Widget ID                                                                                     | Page                                 | Surface                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                                  | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home. |
+| `basic-health`, `credentials`                                                                 | `/settings`                          | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                   |
+| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                      | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                              |
+| `memories-health`                                                                             | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                       |
+| `memories-stats`                                                                              | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                   |
+| `memories-list`                                                                               | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                           |
+| `memories-search`                                                                             | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                             |
+| `memories-detail`                                                                             | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                     |
+| `slow-topology`                                                                               | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602)                                                                                                                                      |
 
 ### Reviewer Bot Status widget
 
@@ -147,6 +203,8 @@ Widget ID: `reviewer-bot-status` (mt#2076). Backend: `src/cockpit/widgets/review
 | A4 — Latency regression  | P95 latency > 120 s in the last 24 h                        | Warning  |
 
 **DB access:** reads four reviewer tables directly via the shared Postgres connection (`getSharedPersistenceService`). The widget degrades gracefully — DB fields become `null` when the DB is unreachable (A1–A4 continue to be computable from the `/health` probe alone). Individual SQL query failures degrade only the affected field(s); the `db` object is still non-null when only some queries fail (e.g. `PERCENTILE_CONT` unsupported on a PG variant causes `avgLatencyMs`/`p95LatencyMs` to be null while all other fields remain populated).
+
+**Query-layer-failure signal (mt#2758):** `db.queryFailureCount` / `db.queryTotalCount` (15 queries per fetch cycle) distinguish "a query failed" from "a query legitimately returned zero rows" — both previously rendered as indistinguishable zeros. The frontend renders an `AnomalyBanner` whenever `queryFailureCount > 0` (amber for partial, `destructive` for every query in the cycle failing). See "Query-layer-failure vs no-data convention" above for the general pattern this widget is the reference implementation of.
 
 **Health endpoint override:** set `MINSKY_REVIEWER_HEALTH_URL` to point at a different host. Default: `https://minsky-reviewer-webhook-production.up.railway.app/health` (the Railway public domain for the `minsky-reviewer-webhook` service).
 
@@ -280,6 +338,159 @@ Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
 
+## Scheduled follow-up sweeper (mt#2322)
+
+The cockpit daemon hosts a **general recurring-job scheduler facility** whose
+first consumer is the **scheduled-follow-up** primitive — mt#2322, the
+remaining scope of parent mt#2234 after mt#2320/mt#2321/mt#2381 shipped the
+watcher, sweep backstop, and ADR-019 seam re-cut respectively. There is no
+separate scheduler abstraction to build: `createIntervalSweeper` (above) IS
+the general recurring-job primitive — it is already proven general by every
+sweeper in this file (ask advancement, prod-state, topology, transcript
+backstop, dispatch watchdog, deploy.smoke), and the follow-up sweep
+(`startFollowUpSweeper` in `src/cockpit/sweepers.ts`) is simply its newest
+registrant.
+
+**The one-shot primitive.** A follow-up is a `scheduled_follow_ups` DB row
+(`message`, `dueAt`, `status`, optional `relatedTaskId`/`relatedSessionId`) —
+storage-backed rather than an in-memory `setTimeout`, so it survives a daemon
+restart between creation and its due time (sweeper-not-durable-queue per
+`decision-defaults.mdc §Reliability`: the DB row is the durable state, the
+sweep is the reconciliation loop). `FollowUpService`
+(`packages/domain/src/scheduler/follow-up-service.ts`) owns create/list/
+cancel/fireDue; `fireDue()` is idempotent — it status-guards its UPDATE to
+`pending` rows only, so overlapping ticks or a sweep re-run can never
+double-fire a follow-up.
+
+**Cadence.** Every 60 seconds — a follow-up's "fires locally at its scheduled
+time" contract only needs local precision, matching the meta-watchdog's own
+cadence.
+
+**HTTP surface — `/api/follow-ups`** (`src/cockpit/routes/follow-ups.ts`):
+
+```
+GET  /api/follow-ups            — list, optional ?status=pending|fired|cancelled|failed
+POST /api/follow-ups            — create: { message, dueAt (ISO-8601), payload?, relatedTaskId?, relatedSessionId? }
+POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
+```
+
+**Observability.** No dedicated tracker — the sweep is a `createIntervalSweeper`
+registrant like every other sweep in this file, so its liveness
+(lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
+covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
+(next section) under the name `"scheduled follow-ups"`.
+
+## Sweep-liveness registry + meta-watchdog (mt#2894)
+
+Every periodic sweep in this file is built on the shared `createIntervalSweeper`
+factory (`src/cockpit/sweepers.ts`). mt#2625 hardened that factory against a
+single tick hanging or throwing (per-tick timeout, watchdog force-release,
+last-resort catch — see the factory's own docblock). mt#2894 closed a
+DIFFERENT failure class the per-tick hardening structurally cannot cover: the
+underlying `setInterval` handle itself getting silently dropped or wedged
+while the daemon process stays alive — evidenced by a 2026-07-16 incident
+where two independent sweeps (prod-state, dispatch-watchdog) stopped
+attempting ticks within ~5 minutes of each other with no per-tick error to
+explain it.
+
+**Liveness registry.** `createIntervalSweeper` now registers every sweep in
+an in-process registry tracking `lastAttemptAt` (every time the interval
+callback fires, whether or not the tick that follows succeeds),
+`lastSuccessAt`, `lastErrorAt`, and `consecutiveFailures`. Exposed via:
+
+```
+GET /api/sweeps
+```
+
+```jsonc
+{
+  "sweeps": [
+    {
+      "name": "prod-state refresh",
+      "intervalMs": 600000,
+      "lastAttemptAt": "2026-07-17T13:00:00.000Z",
+      "lastSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastErrorAt": null,
+      "consecutiveFailures": 0,
+      "reinits": 0,
+      "metaRestarts": 0,
+    },
+  ],
+}
+```
+
+This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
+(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
+layer's liveness uniformly across all six sweeps, including the three (ask
+advancement, topology, deploy.smoke) that have no domain-specific tracker of
+their own. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart.
+
+**Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
+failures (timeout or unexpected throw — NOT a domain-level failure the
+tick's own fail-open try/catch already absorbed), the sweep logs loudly and
+force-restarts its own interval, resetting the failure streak.
+
+**Meta-watchdog ("sweep of sweeps").** `startSweepMetaWatchdog` (started
+alongside the six sweepers in `src/commands/cockpit/start-command.ts`) scans
+the liveness registry on its own cadence (default 60s) and force-restarts
+any sweep whose `lastAttemptAt` is stale by more than 2x its own cadence —
+recovering a dropped/wedged timer with no tick-level signal to react to.
+Deliberately scheduled on a self-rescheduling `setTimeout` CHAIN rather than
+its own `setInterval`, since the failure class it recovers from implicates
+the shared interval-scheduling layer; sharing that primitive for the
+watchdog itself would risk it dying alongside the thing it watches.
+
+**What this does NOT cover:** the daemon process dying (tray supervision,
+mt#2786, owns that) or the meta-watchdog's own `setTimeout` chain dying
+(total timer death) — that residual is detectable via `/api/sweeps`
+going stale plus the consumer-side staleness banners
+(`inject-prod-state.ts` / `inject-dispatch-watchdog.ts`), with recovery
+falling to tray/operator supervision. See mt#2894's spec for the full
+Covers/Does NOT cover enumeration.
+
+**Daemon rotating file log.** Investigating the 2026-07-16 incident found
+that `log.warn` — the exact call the factory above uses for every tick
+timeout/throw/watchdog event — was a silent no-op under the cockpit
+daemon's default logger mode (`@minsky/shared/logger`'s HUMAN mode without
+`ENABLE_AGENT_LOGS`), so none of this observability ever reached a log file
+even where the daemon's raw stdout/stderr WAS captured (the tray supervisor
+and launchd both redirect it, unbounded, to
+`~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`). `src/cockpit/
+daemon-file-log.ts`'s `installDaemonFileLogging()` (called first, before any
+sweeper starts, in the `cockpit start` action handler) fixes both gaps: it
+forces `ENABLE_AGENT_LOGS=true` for the daemon process and attaches a
+size-bounded, rotating (winston's built-in `maxsize`/`maxFiles`) JSON+
+timestamp File transport at `~/.local/state/minsky/logs/cockpit-daemon.log`,
+independent of which of the three daemon-launch paths (tray, launchd, or a
+bare manual start) is in use.
+
+**Stdio-redirect log rotation (mt#3298).** The raw stdio capture files the
+supervisors write — `~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`,
+redirected by the tray supervisor's `open_log()` and the launchd plist's
+`StandardOutPath`/`StandardErrorPath` — previously had NO rotation and
+accumulated 6.2 GB. `src/cockpit/stdio-log-rotation.ts` bounds them with an
+in-daemon sweep (`startStdioLogRotationSweeper`, started immediately after
+`installDaemonFileLogging()` in the `cockpit start` handler; liveness visible
+as `stdio-log rotation` on `/api/sweeps`): **50 MB cap per stream, 2 rotated
+files retained per stream (`.1` newest), 60 s check cadence plus a boot
+tick** — worst case ~300 MB on disk across both streams. Rotation is
+copy-tail-then-truncate (logrotate's `copytruncate` pattern): the daemon
+cannot reopen the supervisor-owned inherited fds 1/2, so rename-based
+rotation (newsyslog-style) would leave those fds writing to the renamed
+inode forever. Both supervisors open the files O_APPEND, so truncating the
+live file in place cleanly resets the write position; only the last 50 MB is
+copied into `.1`, so a single boot tick bounds even a multi-GB file left by
+a previous run. The documented copytruncate race (raw stdio written between
+copy and truncate is lost) is accepted — `cockpit-daemon.log` above is the
+primary operational record.
+
+One-time reclaim record (mt#3298 SC4): on 2026-07-29, operator-authorized
+via ask#6348 ("Truncate both"), both files were truncated in place while the
+daemon ran — `cockpit-stdout.log` 4,579,567,871 B and `cockpit-stderr.log`
+1,976,335,179 B → 0 B; the logs directory went 6.2 GB → 91 MB (6,261 MB
+reclaimed) with no daemon downtime (`/api/health` verified after).
+
 ## Slow-clock topology sweeper (mt#2602)
 
 The cockpit daemon runs the **slow-clock topology sweeper**
@@ -330,6 +541,135 @@ bun run cockpit:build && minsky cockpit start --port 3737
 
 When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-014), this `cockpit:build` step is automatic: the tray rebuilds the bundle at startup if source is newer than `dist/`, and watches `src/cockpit/web/**` for changes while running (mt#2297). Operators running through the tray never need to invoke `cockpit:build` by hand. The auto-rebuild is gated on a source checkout being present — a packaged/no-source install serves the bundle shipped with the app.
 
+## Bind, auth, and CSP posture (mt#2538)
+
+The daemon binds `127.0.0.1` (loopback) by default (`src/commands/cockpit/start-command.ts`).
+An explicit `--host <host>` opt-in is required to bind any other interface; doing so logs a
+one-line warning naming the exposure (cockpit data — tasks, sessions, transcripts, live events —
+plus the command surface become reachable from that interface, e.g. the whole LAN for a bare IP
+or `0.0.0.0`).
+
+**Loopback bind alone is not a sufficient auth posture.** Any local process of any user on the
+machine can reach loopback, DNS-rebinding can drive a victim browser at `localhost`, and the Rung
+2A driven-session WS channel (mt#2750) needs a token model regardless. So the daemon also enforces:
+
+- **Bearer token** (`src/cockpit/auth.ts`) — a random token generated on first boot and persisted
+  at `~/.local/state/minsky/cockpit-token` (mode `0600`), reused across restarts. Every
+  non-GET/HEAD/OPTIONS request must carry it, either as `Authorization: Bearer <token>` or via the
+  `minsky_cockpit` cookie (`HttpOnly`, `SameSite=Strict`, no `Secure` — the daemon is plain HTTP on
+  loopback). The cookie is minted automatically on the first GET, so the SPA's same-origin
+  mutation fetches work with zero URL/localStorage plumbing. A `?token=<t>` query-param bootstrap
+  is also accepted on any GET (validates, sets the cookie, redirects to strip the param) for a
+  future non-loopback opt-in consumer.
+- **Read-only GET/SSE surfaces are exempt from the token check.** The loopback bind already
+  restricts them to the local machine, and plumbing the token to every GET consumer (the tray
+  Rust supervisor's `/api/health` poll, the chrome-devtools-mcp dev canary, curl operators) is
+  disproportionate at this tier. The Rung 2A WS channel (mt#2750, see below) DOES require the
+  token — it is remote command execution, not a read-only surface.
+- **Host-header allowlist** (DNS-rebinding defense) — every request's `Host` header must resolve
+  to `localhost`, `127.0.0.1`, `::1`, or the configured `--host` value; anything else gets `403`.
+  This is what stops an attacker-controlled DNS name that resolves to `127.0.0.1` from reaching
+  the daemon under its own `Host` value.
+- **Content-Security-Policy** — set on every GET/HEAD response (`src/cockpit/csp.ts`):
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'`. `--dev` mode (Vite HMR) uses a
+  relaxed variant (`'unsafe-inline' 'unsafe-eval'` on `script-src`) since Vite's dev client and
+  esbuild's dev transform rely on inline/eval'd script execution the pre-built prod bundle never
+  needs.
+- **No permissive CORS.** There is no `cors` middleware and no `Access-Control-Allow-Origin`
+  response header anywhere in `server.ts` — that absence IS the policy (same-origin only). A
+  cross-origin mutation additionally fails an explicit `Origin` check as defense in depth for
+  non-browser HTTP clients that set `Origin` manually (browsers already can't get a cross-origin
+  `fetch()` to succeed here, and the `SameSite=Strict` cookie is never sent cross-site regardless).
+
+Scope: this posture covers the **local** cockpit daemon only. The Railway-deployed
+`services/cockpit/src/server.ts` is a separate entrypoint that binds `0.0.0.0` deliberately for
+the platform proxy and is out of scope here. Because both entrypoints share the same
+`createCockpitServer()` factory, the Railway entrypoint passes `isPublicDeployment: true`
+(`CockpitServerOptions`), which skips the Host-header allowlist and the bearer-token/cookie
+mutation-auth for that deployment — its incoming `Host` header is a Railway-assigned public
+hostname that could never satisfy the loopback-only allowlist, and introducing a mutation
+bearer-token requirement to an already-shipped multi-consumer production surface is out of
+scope for this task. The CSP header and the no-CORS policy are additive/response-only, so they
+still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
+its own, distinct auth surface for that separate concern.
+
+## Driven-session host and WS channel (Rung 2A, mt#2750)
+
+`src/cockpit/driven-session-host.ts` spawns the **genuine `claude` binary**
+as a managed child of the LOCAL cockpit daemon (never the Railway
+`isPublicDeployment` entrypoint — see the Bind/auth section above):
+
+```
+claude -p --input-format stream-json --output-format stream-json \
+  --verbose --include-partial-messages [--dangerously-skip-permissions]
+```
+
+cwd set to the target workspace. Stdout is parsed defensively as
+newline-delimited stream-json events (the upstream event schema is thin —
+anthropics/claude-code#24594 / #24596). A daemon-side
+`DrivenSessionRegistry` tracks each spawned session — keyed by a spawn-time
+local id (used by the WS route, addressable before the child's `init` event
+can possibly arrive) with the harness `init` session id recorded as a
+secondary index once observed.
+
+Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
+`!isPublicDeployment`):
+
+| Path                              | Method | Purpose                                           |
+| --------------------------------- | ------ | ------------------------------------------------- |
+| `/api/driven-session`             | POST   | Spawn a driven session; returns its local id      |
+| `/api/driven-session/:id/stop`    | POST   | Graceful stop (close stdin, SIGTERM fallback)     |
+| `/api/driven-session`             | GET    | List app-started sessions (registry snapshot)     |
+| `/api/driven-session/turn-active` | GET    | "Is any session mid-turn" signal (mt#3048, below) |
+| `/api/driven-session/:id/ws`      | WS     | Bidirectional event/input channel (below)         |
+
+**Turn-active signal (mt#3048).** `GET /api/driven-session/turn-active`
+returns `{ active: boolean, activeSessionIds: string[] }` — a cheap,
+in-memory scan of the registry for any session whose LATEST observed event
+is not yet a terminal `result`/`minsky_exit` event (a record with no live
+actuator — any terminal status, or `reconnecting` — is never mid-turn). This
+is the pre-restart gate the cockpit-tray watcher's backend-source watcher
+(mt#2299, `cockpit-tray/src-tauri/src/watcher_backend.rs`) queries before a
+hot-reload daemon restart: if a turn is active, the restart is deferred for
+a bounded grace period (`TURN_ACTIVE_GRACE`, 60s, polled every
+`TURN_ACTIVE_POLL_INTERVAL`, 5s) and then proceeds regardless — never
+indefinitely, since a driven session can sit idle between turns for
+hours-days. The mt#3038 resume machinery (advisory lock, `claude --resume`,
+interruption-notice injection) recovers the interrupted turn when a restart
+does land mid-stream. The query fails OPEN on any error/timeout so a broken
+or slow signal endpoint never blocks the watcher's restart.
+
+The WS channel (`src/cockpit/driven-session-ws.ts`) attaches to the
+daemon's underlying `http.Server` `"upgrade"` event via the `ws` package
+(`{ noServer: true }` + `wss.handleUpgrade`) — WS upgrades bypass Express's
+request pipeline entirely, so this is a separate attach point wired from
+`src/commands/cockpit/start-command.ts` rather than mounted on the Express
+app. It replays the session's buffered event log on connect, streams new
+events live, and forwards client frames to the child's stdin as stream-json
+user-message turns (multi-turn — the child process stays alive across
+turns). Every upgrade is validated against the SAME mt#2538 bearer
+token/cookie and Host allowlist the mutation-auth middleware enforces
+(`isValidCockpitAuth`/`isHostAllowed`, shared, not reinvented) — an
+unauthenticated or disallowed-Host upgrade never completes the handshake.
+
+Permission posture is an explicit, logged parameter
+(`bypassPermissions` | `default`; default `bypassPermissions` —
+`--dangerously-skip-permissions`, since Rung 2A ships no permission-prompt
+UI). If an org policy blocks that flag, the child exits immediately and the
+host surfaces a readable `minsky_error`/`minsky_exit` event on the channel
+rather than hanging.
+
+Nested-scope note: the spawned `claude` child inherits the operator's MCP
+config and may call back into Minsky MCP tools mid-turn. The cockpit daemon
+and the Minsky MCP server are separate OS processes reached over
+stdio/HTTP by the child — there is no in-process loop; a `tool_use`/
+`tool_result` pair is just another pair of forwarded events to this host.
+
+Out of scope for Rung 2A (deferred to later rungs): SPA rendering of the
+channel (Rung 2B), launch-from-task UX (Rung 2C), cost readout (Rung 2D),
+a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
+
 ## Daemon lifecycle and tray
 
 - `cockpit-tray/` — Tauri v2 menu bar app
@@ -341,6 +681,14 @@ When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-0
 ## Cross-references
 
 - `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)
+- mt#2538 — daemon security hardening (loopback bind default, bearer-token auth, CSP, no-CORS
+  policy — see "Bind, auth, and CSP posture" above); `src/cockpit/auth.ts`, `src/cockpit/csp.ts`
+- mt#2750 — Rung 2A driven-session host + WS channel (see "Driven-session host
+  and WS channel" above); REQUIRES the bearer token this task introduces;
+  `src/cockpit/driven-session-host.ts`, `src/cockpit/driven-session-ws.ts`,
+  `src/cockpit/routes/driven-sessions.ts`
+- mt#2237 — parent (Rung 2); mt#2230 — umbrella (harness-host ladder)
+- mt#2238 — Rung 3 cloud→local relay channel; owns its own distinct auth surface, out of scope here
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference
 - mt#1143 — Cockpit v0 umbrella
 - mt#2149 — embeddings-health overview card (DONE 2026-05-27)

@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { RuleService } from "./rule-service";
+import { buildClaudeMdContent } from "./compile/targets/claude-md";
 
 // ─── In-memory fs helpers ────────────────────────────────────────────────────
 // A minimal fake fs that mimics the subset of node:fs/promises used by RuleService.
@@ -284,5 +285,104 @@ Cursor-only content.
     expect(cursorRules).toHaveLength(1);
     expect(cursorRules[0]?.format).toBe("cursor");
     expect(cursorRules[0]?.content).toContain("cursor source");
+  });
+});
+
+// ─── listRules ordering determinism (mt#3075) ───────────────────────────────
+//
+// `makeStringFs`'s fake `readdir` returns filenames in the underlying object's
+// key-INSERTION order (mirroring how a real filesystem's readdir order is an
+// enumeration artifact, not alphabetical). Before mt#3075, `RuleService`
+// appended rules in that raw order; these tests pin the fix: `listRules()`
+// sorts alphabetically by filename regardless of insertion/enumeration order,
+// for parity with the new pipeline's `discoverRuleSources().sort()`
+// (`packages/domain/src/compile/rule-sources.ts`).
+
+function makeAlwaysApplyMdc(label: string): string {
+  return `---
+description: ${label}
+alwaysApply: true
+---
+# ${label}
+Content of ${label}.
+`;
+}
+
+describe("RuleService.listRules() — deterministic alphabetical ordering (mt#3075)", () => {
+  const workspacePath = "/workspace";
+
+  it("multi-format scan: returns rules alphabetically by filename regardless of readdir order", async () => {
+    // Object key insertion order is deliberately NOT alphabetical — a real
+    // directory listing offers no ordering guarantee either.
+    const files: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/zzz-rule.mdc`]: makeAlwaysApplyMdc("zzz-rule"),
+      [`${workspacePath}/.minsky/rules/aaa-rule.mdc`]: makeAlwaysApplyMdc("aaa-rule"),
+      [`${workspacePath}/.minsky/rules/mmm-rule.mdc`]: makeAlwaysApplyMdc("mmm-rule"),
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const rules = await service.listRules({});
+    expect(rules.map((r) => r.id)).toEqual(["aaa-rule", "mmm-rule", "zzz-rule"]);
+  });
+
+  it("single-format scan (options.format set): also returns rules alphabetically", async () => {
+    const files: Record<string, string> = {
+      [`${workspacePath}/.cursor/rules/zzz-rule.mdc`]: makeAlwaysApplyMdc("zzz-rule"),
+      [`${workspacePath}/.cursor/rules/aaa-rule.mdc`]: makeAlwaysApplyMdc("aaa-rule"),
+      [`${workspacePath}/.cursor/rules/mmm-rule.mdc`]: makeAlwaysApplyMdc("mmm-rule"),
+    };
+
+    const service = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(files) as never,
+    });
+
+    const rules = await service.listRules({ format: "cursor" });
+    expect(rules.map((r) => r.id)).toEqual(["aaa-rule", "mmm-rule", "zzz-rule"]);
+  });
+
+  it("regression: two consecutive CLAUDE.md compiles are byte-identical after a rename-then-restore", async () => {
+    // Simulates the acceptance test literally: a rule file is renamed away and
+    // restored (which churns its directory-entry position on a real
+    // filesystem — modeled here by re-inserting its key at the end of the
+    // fake fs's file map, changing readdir's raw enumeration order) between
+    // two compiles. The compiled CLAUDE.md content must be identical both
+    // times.
+    const before: Record<string, string> = {
+      [`${workspacePath}/.minsky/rules/aaa-rule.mdc`]: makeAlwaysApplyMdc("aaa-rule"),
+      [`${workspacePath}/.minsky/rules/mmm-rule.mdc`]: makeAlwaysApplyMdc("mmm-rule"),
+      [`${workspacePath}/.minsky/rules/zzz-rule.mdc`]: makeAlwaysApplyMdc("zzz-rule"),
+    };
+    // "Rename-then-restore" mmm-rule.mdc: delete then re-add, which moves its
+    // key to the end of insertion order in a plain JS object.
+    const after: Record<string, string> = { ...before };
+    delete after[`${workspacePath}/.minsky/rules/mmm-rule.mdc`];
+    after[`${workspacePath}/.minsky/rules/mmm-rule.mdc`] = makeAlwaysApplyMdc("mmm-rule");
+
+    const serviceBefore = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(before) as never,
+    });
+    const serviceAfter = new RuleService(workspacePath, {
+      fsPromises: makeStringFs(after) as never,
+    });
+
+    const rulesBefore = await serviceBefore.listRules({});
+    const rulesAfter = await serviceAfter.listRules({});
+
+    // Raw readdir enumeration order differs between the two fake fs's...
+    expect(Object.keys(before)).not.toEqual(Object.keys(after));
+    // ...but listRules()'s sort makes the resulting Rule[] order identical.
+    expect(rulesBefore.map((r) => r.id)).toEqual(rulesAfter.map((r) => r.id));
+
+    const { content: contentBefore } = buildClaudeMdContent(rulesBefore);
+    const { content: contentAfter } = buildClaudeMdContent(rulesAfter);
+    expect(contentAfter).toEqual(contentBefore);
+
+    // Re-compiling from the SAME (already-sorted) rule list a second time is
+    // also byte-identical (buildClaudeMdContent is pure/deterministic).
+    const { content: contentBeforeAgain } = buildClaudeMdContent(rulesBefore);
+    expect(contentBeforeAgain).toEqual(contentBefore);
   });
 });

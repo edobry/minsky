@@ -23,6 +23,7 @@
 
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync as nodeSpawnSync } from "child_process";
 import { extractChats, redactSecret, classifyGetUpdatesFailure } from "./lib";
 
 const SECRET_KEY = "secrets:minsky-reviewer-telegram-bot-token";
@@ -48,16 +49,21 @@ function pulumiEnv(): Record<string, string | undefined> {
 function readToken(infraDir: string): string {
   // stdin inherited so a Pulumi passphrase prompt works; stdout captured so
   // the decrypted token never reaches the terminal/transcript.
-  const proc = Bun.spawnSync(["pulumi", "-C", infraDir, "config", "get", SECRET_KEY], {
-    stdin: "inherit",
-    stdout: "pipe",
-    stderr: "pipe",
+  //
+  // Uses node:child_process.spawnSync (not Bun.spawnSync) — see mt#3088
+  // spec: bun-types@1.2.12's Bun.spawnSync stdin type is hardcoded to
+  // "ignore" on both overloads, with no cast-free way to pass "inherit"
+  // (and the custom no-excessive-as-unknown ESLint rule correctly flags a
+  // cast-based workaround). node's `stdio` tuple is properly typed for
+  // this and has identical synchronous semantics.
+  const proc = nodeSpawnSync("pulumi", ["-C", infraDir, "config", "get", SECRET_KEY], {
+    stdio: ["inherit", "pipe", "pipe"],
     env: pulumiEnv(),
   });
-  if (proc.exitCode !== 0) {
+  if (proc.status !== 0) {
     fail(
       `could not read ${SECRET_KEY} from Pulumi config ` +
-        `(${proc.stderr.toString().trim() || `exit ${proc.exitCode}`}). ` +
+        `(${proc.stderr.toString().trim() || `exit ${proc.status}`}). ` +
         `Run: pulumi -C infra config set --secret ${SECRET_KEY}  (masked prompt), then retry.`
     );
   }

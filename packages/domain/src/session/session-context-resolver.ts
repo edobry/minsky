@@ -94,7 +94,18 @@ export async function resolveSessionContext(
     task,
     sessionId,
     repo,
-    sessionProviderType: sessionProvider.constructor.name,
+    // mt#2945: guard this diagnostic read with optional chaining. Right after
+    // a server reload, `sessionProvider` may be the DI container's deferred-
+    // failure placeholder (or, defensively, genuinely undefined) if a
+    // required resource (Postgres) was unavailable when the provider was
+    // constructed. A bare `sessionProvider.constructor.name` crashes the
+    // WHOLE call with an opaque "undefined is not an object (evaluating
+    // 'sessionProvider.constructor.name')" TypeError before the provider's
+    // own clear "service unavailable" error (thrown when it's actually used,
+    // a few lines below) ever gets a chance to fire. See
+    // `packages/domain/src/composition/container.ts`'s
+    // `makeDeferredFailurePlaceholder` for the companion fix.
+    sessionProviderType: sessionProvider?.constructor?.name ?? "unknown",
   });
 
   const workingDirectory = repo || cwd;
@@ -103,14 +114,23 @@ export async function resolveSessionContext(
   if (sessionId) {
     log.debug("Using explicit session ID", { sessionId });
 
-    // Validate session exists
+    // Validate session exists. `getSession` resolves `ws#N` short ids and
+    // hex-prefixes as well as a full uuid or legacy custom name (mt#2967) —
+    // so `sessionId` here may be any of those input shapes.
     const sessionRecord = await sessionProvider.getSession(sessionId);
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${sessionId}' not found`, "session", sessionId);
     }
 
     return {
-      sessionId,
+      // mt#2967: return the CANONICAL resolved id (sessionRecord.sessionId),
+      // not the raw input — the raw input may have been a `ws#N` short id or
+      // hex prefix, and downstream consumers (filesystem path construction,
+      // updateSession/deleteSession calls) require the real uuid/name.
+      // Falls back to the raw `sessionId` when the returned record has no
+      // `.sessionId` (defends against malformed records — every real
+      // persisted row always has one).
+      sessionId: sessionRecord.sessionId ?? sessionId,
       taskId: sessionRecord.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,
@@ -258,4 +278,95 @@ export async function validateSessionContext(options: SessionContextOptions): Pr
   } catch (error) {
     return false;
   }
+}
+
+/**
+ * Resolve a definite session ID from `{sessionId, task}` params — the
+ * convenience-resolution semantics `session_start` / `session_exec` already
+ * expose (mt#2816: closes the session_* param-alias drift where
+ * `session_commit` accepted `sessionId` but silently rejected `task`, and
+ * `session_start({ taskId })` silently rejected wanting `task`).
+ *
+ * No auto-detection, no repo/cwd fallback — this resolver is for MUTATING
+ * commands that must act on an EXPLICITLY identified session, never a
+ * guessed one:
+ *
+ * - Explicit `sessionId` always wins outright. Existence validation is left
+ *   to the caller/domain layer (matching each command's pre-existing
+ *   behavior — duplicating it here would risk diverging wording).
+ * - `task` resolves via `sessionProvider.listSessions({ taskId })` (the same
+ *   canonical unscoped-by-project taskId-filtered query mt#2697 established
+ *   for session.start's "is this task already in use" collision probe and
+ *   session.list's task-filtered query, so this resolver can never
+ *   structurally diverge from what those two surfaces consider "the active
+ *   session(s) for this task"):
+ *     - exactly one match -> resolve to it
+ *     - zero matches -> `ResourceNotFoundError`
+ *     - more than one match -> `ValidationError` naming every candidate
+ *       session ID. This is deliberately an ambiguity ERROR, not a silent
+ *       first-match pick — unlike the legacy `getSessionByTaskId` lookup
+ *       other call sites use (`.find()` under the hood), which returns the
+ *       first session on multiple matches with no signal to the caller that
+ *       a choice was made on its behalf.
+ * - Neither `sessionId` nor `task` provided -> returns `undefined` so each
+ *   call site keeps its own "session identifier required" wording (several
+ *   pre-existing commands already differ here; a single generic message
+ *   would either diverge from or shadow them).
+ */
+export async function resolveSessionIdForCommand(options: {
+  sessionId?: string;
+  task?: string;
+  sessionProvider: SessionProviderInterface;
+}): Promise<string | undefined> {
+  const { sessionId, task, sessionProvider } = options;
+
+  if (sessionId) {
+    // mt#2967: resolve a `ws#N` short id / hex-prefix / uuid to the
+    // canonical sessionId via the same lookup `getSession()` uses, so
+    // mutating commands (session_commit, session_edit_file, ...) that pass
+    // a short id or prefix operate against the correct on-disk workspace
+    // directory (named by the canonical uuid), not the raw short-id token.
+    // Existence validation is intentionally left to the caller/domain layer
+    // (matches pre-existing behavior): if resolution finds no matching row,
+    // fall back to the raw input unchanged so the caller's own not-found
+    // error message/path is unaffected.
+    const record = await sessionProvider.getSession(sessionId);
+    return record?.sessionId ?? sessionId;
+  }
+
+  if (!task) {
+    return undefined;
+  }
+
+  const validatedTaskId = taskIdSchema.parse(task);
+  const candidates = await sessionProvider.listSessions({ taskId: validatedTaskId });
+
+  if (candidates.length === 0) {
+    throw new ResourceNotFoundError(
+      `No session found for task ID "${validatedTaskId}"`,
+      "task",
+      validatedTaskId
+    );
+  }
+
+  if (candidates.length > 1) {
+    const candidateSessionIds = candidates.map((s) => s.sessionId);
+    throw new ValidationError(
+      `Multiple sessions found for task ID "${validatedTaskId}": ${candidateSessionIds.join(", ")}. ` +
+        `Specify sessionId explicitly to disambiguate which one to use.`,
+      { taskId: validatedTaskId, candidateSessionIds }
+    );
+  }
+
+  const [onlyCandidate] = candidates;
+  if (!onlyCandidate) {
+    // Unreachable: the length === 0 branch above already returned. Narrows
+    // the type without a non-null assertion.
+    throw new ResourceNotFoundError(
+      `No session found for task ID "${validatedTaskId}"`,
+      "task",
+      validatedTaskId
+    );
+  }
+  return onlyCandidate.sessionId;
 }

@@ -117,7 +117,7 @@ export function resolveHeadCommit(repoDir: string): string | null {
       timeout: 5000,
       encoding: "utf8",
     });
-    const sha = (typeof result === "string" ? result : result.toString()).trim();
+    const sha = String(result).trim();
     if (/^[0-9a-f]{7,}$/i.test(sha)) return sha;
     return null;
   } catch {
@@ -161,9 +161,7 @@ export function writeDaemonState(serverName: string, transport: "stdio" | "http"
 
     const statePath = getDaemonStatePath();
     const stateDir = path.dirname(statePath);
-    if (!fs.existsSync(stateDir)) {
-      fs.mkdirSync(stateDir, { recursive: true });
-    }
+    fs.mkdirSync(stateDir, { recursive: true });
 
     // Write atomically: tmp file → rename.
     const tmp = `${statePath}.tmp.${process.pid}`;

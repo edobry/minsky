@@ -7,7 +7,9 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
+import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
+import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -36,6 +38,79 @@ import {
   IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
+import {
+  detectMigrationJournalViolations,
+  isMigrationCollisionOverrideTruthy,
+  MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
+} from "./migration-collision-detector";
+import {
+  runMigrationGuardCheck as runMigrationGuardCheckImpl,
+  MIGRATION_GUARD_CHECK_OVERRIDE_ENV,
+} from "./migration-guard-detector";
+import {
+  runDuplicateGeneratedContentCheck as runDuplicateGeneratedContentCheckImpl,
+  DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV,
+} from "./duplicate-generated-content-detector";
+import { runRelatedTestsCheck } from "./related-tests-check";
+import {
+  recordPreCommitFireLogEntry,
+  classifyOverride as classifyPreCommitOverride,
+} from "./pre-commit-fire-log";
+import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
+import {
+  selectLintableStagedFiles,
+  buildScopedLintCommand,
+  evaluateLintSummary,
+} from "./pre-commit-lint-scope";
+import {
+  describeSubprocessFailure,
+  ESLINT_TIMEOUT_MS,
+  FORMATTER_TIMEOUT_MS,
+  TYPECHECK_TIMEOUT_MS,
+} from "./pre-commit-subprocess-failure";
+
+/**
+ * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
+ * failure from `runRulesCompileCheck` (mt#2802). Scoped narrowly to the
+ * "budget-exceeded" failure class — a genuinely STALE target still blocks
+ * the commit even with this override set (see the `errorKind` branch in
+ * `runRulesCompileCheck`). Registered in `HOOK_ONLY_ENV_VARS` at
+ * packages/domain/src/configuration/sources/environment.ts per the mt#1788
+ * ESLint rule contract. Follows the same override-with-audit pattern as
+ * `NUL_BYTE_CHECK_OVERRIDE_ENV` etc. (`isOverrideTruthy`, imported above).
+ *
+ * **Mid-session override path for MCP-only agents (mt#2904).** This hook runs
+ * via `.husky/pre-commit`'s `bun run src/hooks/pre-commit.ts`, and Bun
+ * auto-loads a `.env.local` (or `.env`) file from the process cwd into
+ * `process.env` for every `bun run` invocation — no shell export required
+ * (Bun docs, "Environment variables": .env.local is one of the files Bun
+ * reads automatically, https://bun.com/docs/runtime/env). An MCP-only agent
+ * has no parameter path to set this var directly: `session_commit` has no
+ * env-passthrough parameter, and raw `git commit` invocations from agent
+ * tool contexts are denied by the repo's git/gh-CLI PreToolUse ban
+ * (mt#1196 — see CLAUDE.md §Hook Files for the guard registry; agents are
+ * redirected to `session_commit`). The SANCTIONED mid-session
+ * override is therefore: write a session-workspace `.env.local` containing
+ * `MINSKY_SKIP_SIZE_BUDGET=1`, then commit via `session_commit` as normal —
+ * the value is picked up automatically on the next `bun run`. `.env.local`
+ * is gitignored (see `.gitignore`), so this never lands in the commit
+ * itself. Proven by three independent implementer sessions on 2026-07-17
+ * (mt#2888, mt#2894, mt#2729 — see their PR #2018/#2019/#2020 bodies) before
+ * being canonicalized here. This is still an AUDITED override (the skip is
+ * logged with a timestamp per invocation, value never echoed) — it is a new
+ * DELIVERY MECHANISM for the same env var, not a new bypass.
+ */
+const SIZE_BUDGET_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SIZE_BUDGET";
+
+/**
+ * Override env var for the fast changed-file-scoped related-test gate
+ * (mt#2932, Step 7 in `run()`). Escape hatch for the rare case where the
+ * related-test mapping/runner itself is misbehaving and blocking an
+ * unrelated commit -- the full-suite gate at push time (.husky/pre-push)
+ * and CI remain the authoritative backstop regardless of this override.
+ * Registered in `HOOK_ONLY_ENV_VARS` per the mt#1788 ESLint rule contract.
+ */
+const RELATED_TESTS_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_RELATED_TESTS";
 
 export interface ESLintResult {
   filePath: string;
@@ -59,14 +134,121 @@ export interface ESLintSummary {
   results: ESLintResult[];
 }
 
+// ---------------------------------------------------------------------------
+// mt#2597 R1 fix — the fire-log instrumentation wrapper, extracted to a
+// standalone exported function so its override-attribution logic is
+// unit-testable without instantiating (or running the real heavy steps of)
+// `PreCommitHook`. `PreCommitHook.instrumented()` below is a thin delegate.
+// ---------------------------------------------------------------------------
+
+export interface RunInstrumentedStepDeps {
+  /** Injectable for tests — defaults to the real `recordPreCommitFireLogEntry`. */
+  recordFireLog?: (input: RecordPreCommitFireLogInput) => void;
+  /** Injectable clock for duration measurement — defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/**
+ * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — instruments a single
+ * pre-commit step without touching the step method's own body. Records
+ * exactly one fire-log entry per step invocation: decision=allow on success,
+ * decision=deny on failure.
+ *
+ * Override attribution (R1 fix): a pre-commit step's override env-var (e.g.
+ * `MINSKY_SKIP_NUL_CHECK`) is read INSIDE the step's own body — this wrapper
+ * has no independent visibility into whether a violation was actually found
+ * and suppressed. The ORIGINAL Phase-1 landing approximated this by checking
+ * `result.success && isOverrideTruthy(process.env[overrideEnvVar])` — but that
+ * conflates "the env-var happens to be set in the environment" with "this
+ * step's own decision was actually overridden": a var left set from an
+ * earlier step, a different step's test run, or a developer's unrelated
+ * export would misattribute a NORMAL pass as an override. The fix: each
+ * step's own function body now sets `result.overridden = true` on the
+ * SPECIFIC branch where it actually consulted its var and took the skip
+ * path (mirroring the guard-dispatcher's `checkOverride`, which observes the
+ * decision BEFORE the guard runs and so always knows definitively). This
+ * wrapper reads that flag — not `process.env` — as the sole override signal.
+ */
+export function runInstrumentedStep(
+  guardName: string,
+  fn: () => Promise<HookResult>,
+  overrideEnvVar?: string,
+  deps: RunInstrumentedStepDeps = {}
+): Promise<HookResult> {
+  const recordFireLog = deps.recordFireLog ?? recordPreCommitFireLogEntry;
+  const now = deps.now ?? Date.now;
+  const startMs = now();
+  return fn().then((result) => {
+    const durationMs = now() - startMs;
+    const overridden = result.overridden === true && overrideEnvVar !== undefined;
+    recordFireLog({
+      guardName,
+      decision: result.success ? "allow" : "deny",
+      durationMs,
+      ...(overridden
+        ? {
+            overrideEnvVar,
+            overrideClassification: classifyPreCommitOverride(overrideEnvVar),
+          }
+        : {}),
+    });
+    return result;
+  });
+}
+
 export interface HookResult {
   success: boolean;
   message: string;
   exitCode: number;
+  /**
+   * mt#2597 R1 fix (reviewer finding: "pre-commit over-attribution on
+   * presence vs. actual suppression") — set to `true` by a step's OWN
+   * function body when IT actually consulted its paired override env-var
+   * and took the skip path (e.g. `runNulByteCheck`'s
+   * `isOverrideTruthy(process.env[NUL_BYTE_CHECK_OVERRIDE_ENV])` branch).
+   * `instrumented()`/`runInstrumentedStep` reads THIS flag — not a blanket
+   * `process.env` scan — to decide whether to attach override fields to the
+   * fire-log record. Omitted (or `false`) means "ran its normal path," even
+   * if the step's paired override env-var happens to be truthy in the
+   * environment for an unrelated reason (a leftover export, a var set for a
+   * DIFFERENT step, a developer testing something else) — that env-var
+   * presence must never be conflated with "this step's decision was
+   * actually overridden."
+   */
+  overridden?: boolean;
 }
 
 export class PreCommitHook {
-  constructor(private projectRoot: string = process.cwd()) {}
+  /**
+   * @param exec Test seam for the subprocess-running steps (mt#3406, PR #2480
+   * R1). The reviewer asked for the timeout relabelling to be asserted through
+   * the STEPS rather than the helper alone, which needs a way to make a step's
+   * child process fail on demand. Module-mocking `child_process` was tried and
+   * rejected: it only takes effect if this module has not been imported yet, so
+   * the tests passed alone and failed in a suite run — order-dependent, which
+   * is worse than no test. An injected default matches the seam convention used
+   * across the repo (`spawnFn`, `execFileFn`, `getDb`) and cannot be defeated
+   * by import order. Production constructs the hook with no argument.
+   */
+  constructor(
+    private projectRoot: string = process.cwd(),
+    private exec: typeof execAsync = execAsync
+  ) {}
+
+  /**
+   * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — thin per-instance
+   * delegate to the standalone `runInstrumentedStep` (see that function's
+   * doc comment above for the override-attribution rationale, including the
+   * R1 fix that replaced the original presence-based env-var scan with the
+   * step's own `result.overridden` signal).
+   */
+  private async instrumented(
+    guardName: string,
+    fn: () => Promise<HookResult>,
+    overrideEnvVar?: string
+  ): Promise<HookResult> {
+    return runInstrumentedStep(guardName, fn, overrideEnvVar);
+  }
 
   /**
    * Run all pre-commit validation steps
@@ -78,7 +260,9 @@ export class PreCommitHook {
       // ── Instant checks (~0s) ──
 
       // Step 0: Hook file permissions
-      const hookPermResult = await this.runHookPermissionCheck();
+      const hookPermResult = await this.instrumented("hook-permission-check", () =>
+        this.runHookPermissionCheck()
+      );
       if (!hookPermResult.success) {
         return hookPermResult;
       }
@@ -86,7 +270,9 @@ export class PreCommitHook {
       // ── Fast, lightweight checks first (~1s each) ──
 
       // Step 1: Code formatting (lint-staged, only staged files, ~1s)
-      const formatResult = await this.runCodeFormatting();
+      const formatResult = await this.instrumented("code-formatting", () =>
+        this.runCodeFormatting()
+      );
       if (!formatResult.success) {
         return formatResult;
       }
@@ -102,7 +288,9 @@ export class PreCommitHook {
       // re-staging a corrected version carries none of the "don't want an
       // unreviewed content rewrite auto-committed" risk that motivates the
       // rules/skills compile checks blocking instead of auto-fixing.
-      const completionManifestResult = await this.runCompletionManifestRegen();
+      const completionManifestResult = await this.instrumented("completion-manifest-regen", () =>
+        this.runCompletionManifestRegen()
+      );
       if (!completionManifestResult.success) {
         return completionManifestResult;
       }
@@ -113,13 +301,17 @@ export class PreCommitHook {
       // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
-      const variableResult = await this.runVariableNamingCheck();
+      const variableResult = await this.instrumented("variable-naming-check", () =>
+        this.runVariableNamingCheck()
+      );
       if (!variableResult.success) {
         return variableResult;
       }
 
       // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
-      const nodeShimResult = await this.runNodeShimCheck();
+      const nodeShimResult = await this.instrumented("node-shim-check", () =>
+        this.runNodeShimCheck()
+      );
       if (!nodeShimResult.success) {
         return nodeShimResult;
       }
@@ -128,7 +320,11 @@ export class PreCommitHook {
       // a literal 0x00 byte (mt#1824). Closes the gate-gap exposed by mt#1821
       // / PR #1107 R1 where a JSON-escaped U+0000 landed on disk inside a TS
       // template literal and slipped past every other quality gate.
-      const nulByteResult = await this.runNulByteCheck();
+      const nulByteResult = await this.instrumented(
+        "nul-byte-check",
+        () => this.runNulByteCheck(),
+        NUL_BYTE_CHECK_OVERRIDE_ENV
+      );
       if (!nulByteResult.success) {
         return nulByteResult;
       }
@@ -144,9 +340,41 @@ export class PreCommitHook {
       // manifest auto-fix-and-restage pattern). Eliminates the drift class
       // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
       // (4-hour reviewer-Dockerfile outage).
-      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      const dockerfileWorkspaceCopyResult = await this.instrumented(
+        "dockerfile-workspace-copy-regen",
+        () => this.runDockerfileWorkspaceCopyRegen()
+      );
       if (!dockerfileWorkspaceCopyResult.success) {
         return dockerfileWorkspaceCopyResult;
+      }
+
+      // Step 3c-2: Dockerfile bun-build invocation regeneration (mt#3091).
+      // Regenerates the root Dockerfile's `RUN bun build ...` line from
+      // `scripts/cli-entry.ts`'s canonical `bunBuildArgs()` and re-stages it
+      // if it changed — same auto-fix-and-restage shape as Step 3c above,
+      // for the same reason: the Dockerfile invocation can no longer drift
+      // out of sync by hand once it's generated instead of hand-typed.
+      const dockerfileBunBuildResult = await this.instrumented("dockerfile-bun-build-regen", () =>
+        this.runDockerfileBunBuildRegen()
+      );
+      if (!dockerfileBunBuildResult.success) {
+        return dockerfileBunBuildResult;
+      }
+
+      // Step 3c-3: package.json bun-build sync check (mt#3091). Unlike the
+      // regen step above, package.json's `scripts.build` is a flat JSON
+      // string that isn't safely auto-rewritable the same way a
+      // comment-delimited Dockerfile block is — so this step BLOCKS the
+      // commit instead of auto-fixing when it diverges from the canonical
+      // `bunBuildCommand()` (the same "compile --check" block-instead-of-
+      // autofix shape used for content this repo's generators don't rewrite
+      // in place). Also re-verifies the Dockerfile as a defense-in-depth
+      // backstop for the regen step just above.
+      const bunBuildSyncResult = await this.instrumented("bun-build-sync-check", () =>
+        this.runBunBuildSyncCheck()
+      );
+      if (!bunBuildSyncResult.success) {
+        return bunBuildSyncResult;
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
@@ -154,20 +382,62 @@ export class PreCommitHook {
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
-      const migrationJournalResult = await this.runMigrationJournalCheck();
-      if (!migrationJournalResult.success) {
-        return migrationJournalResult;
-      }
+      const migrationJournalResult = await this.instrumented(
+        "migration-journal-check",
+        () => this.runMigrationJournalCheck(),
+        MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationJournalResult.success) return migrationJournalResult;
 
       // Step 3e-a: Immutable-migration check (mt#2268). Block staged
       // MODIFICATIONS (not additions) to .sql files under the migration
       // directories whose tag is already listed in meta/_journal.json.
       // Editing an applied migration drifts Drizzle's sha256 ledger —
       // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
-      const immutableMigrationResult = await this.runImmutableMigrationCheck();
-      if (!immutableMigrationResult.success) {
-        return immutableMigrationResult;
+      const immutableMigrationResult = await this.instrumented(
+        "immutable-migration-check",
+        () => this.runImmutableMigrationCheck(),
+        IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV
+      );
+      if (!immutableMigrationResult.success) return immutableMigrationResult;
+
+      // Step 3e-b: Migration collision + journal-`when` immutability check
+      // (mt#2948). Compare the staged journal against origin/main: block a
+      // renumber that mutates an already-shipped entry's `when` (the 2026-07-19
+      // outage cause), a new migration reusing an on-main number, or a new
+      // entry whose `when` is non-monotonic vs main. Complements mt#2268
+      // (.sql content) and mt#2087 (local sql<->journal set).
+      const migrationCollisionResult = await this.instrumented(
+        "migration-collision-check",
+        () => this.runMigrationCollisionCheck(),
+        MIGRATION_COLLISION_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationCollisionResult.success) {
+        return migrationCollisionResult;
       }
+
+      // Step 3e-c (mt#3299): migration guard — unguarded DROP INDEX / CREATE
+      // UNIQUE INDEX (migration 0068 / PR #2142 / 065fc729f). Own
+      // overrideEnvVar (mt#3299 PR #2392 R1 BLOCKING #5 — a prior combined-
+      // step draft dropped fire-log override-attribution for both checks
+      // by omitting this 3rd arg entirely; each check now gets its own
+      // instrumented() call, same as every sibling pre-commit step).
+      const migrationGuardResult = await this.instrumented(
+        "migration-guard-check",
+        () => runMigrationGuardCheckImpl(this.projectRoot),
+        MIGRATION_GUARD_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationGuardResult.success) return migrationGuardResult;
+
+      // Step 3g (mt#3299): duplicate-generated-content — a repeated
+      // top-level block in staged AGENTS.md/CLAUDE.md/compiled
+      // skills/completion-manifest.json.
+      const dupContentResult = await this.instrumented(
+        "duplicate-generated-content-check",
+        () => runDuplicateGeneratedContentCheckImpl(this.projectRoot),
+        DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV
+      );
+      if (!dupContentResult.success) return dupContentResult;
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
       // mt#2193). Verify every domain ASSERTED as a deployment target in
@@ -177,21 +447,40 @@ export class PreCommitHook {
       // Prevents recurrence of the minsky.dev class: an illustrative example URL
       // that hardened into authoritative config + a false "Deployed at" claim,
       // never ownership-verified.
-      const deployDomainResult = await this.runDeployDomainCheck();
+      const deployDomainResult = await this.instrumented(
+        "deploy-domain-check",
+        () => this.runDeployDomainCheck(),
+        DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV
+      );
       if (!deployDomainResult.success) {
         return deployDomainResult;
+      }
+
+      // Step 3f: claude-hooks compile auto-regeneration (mt#2977). Unlike the
+      // block-on-drift Step 9b compile-check, this REGENERATES + re-stages the
+      // .claude/hooks/ outputs when this commit touches hooks sources — no
+      // manual `compile --target claude-hooks` + re-commit needed. Same
+      // auto-fix-and-restage shape as Step 1b / Step 3c; no override (a
+      // generator failure is a real compile error, not staleness).
+      const claudeHooksRegenResult = await this.instrumented("claude-hooks-compile-regen", () =>
+        this.runClaudeHooksCompileRegen()
+      );
+      if (!claudeHooksRegenResult.success) {
+        return claudeHooksRegenResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
 
       // Step 4: TypeScript type checking (~5s)
-      const typeCheckResult = await this.runTypeCheck();
+      const typeCheckResult = await this.instrumented("type-check", () => this.runTypeCheck());
       if (!typeCheckResult.success) {
         return typeCheckResult;
       }
 
       // Step 5: ESLint validation (~5-10s)
-      const lintResult = await this.runESLintValidation();
+      const lintResult = await this.instrumented("eslint-validation", () =>
+        this.runESLintValidation()
+      );
       if (!lintResult.success) {
         return lintResult;
       }
@@ -199,33 +488,70 @@ export class PreCommitHook {
       // ── Security scanning (~2-3s, critical but rare) ──
 
       // Step 6: Secret scanning
-      const secretsResult = await this.runSecretScanning();
+      const secretsResult = await this.instrumented("secret-scanning", () =>
+        this.runSecretScanning()
+      );
       if (!secretsResult.success) {
         return secretsResult;
       }
 
-      // ── Expensive runtime checks (tests) ──
+      // ── Runtime checks (tests) ──
+      //
+      // mt#2716: the full unit-suite step was REMOVED from pre-commit. Running
+      // ~8300 tests (~4.3 min) on every commit is the documented "slow hook →
+      // developers --no-verify it → worse than no hook" anti-pattern; it also
+      // never actually worked here (the old 120s execAsync timeout was shorter
+      // than the honest suite, and `bun test` 1.2.21 silently truncated it —
+      // mt#2665). The truncation-safe, fail-closed full-suite gate now lives in
+      // .husky/pre-push (scripts/run-tests-gated.ts, "before you share") + CI
+      // (authoritative). See docs/testing-patterns.md + mt#2716.
+      //
+      // mt#2932: that left a real gap -- ZERO automated test signal at commit
+      // time. This step is the fast middle ground (jest --findRelatedTests /
+      // vitest related / lint-staged, per mt#2716's research pass): map
+      // staged files to the tests related to them (scripts/find-related-tests.ts)
+      // and run ONLY those (scripts/run-related-tests.ts), well under the
+      // 60-90s bypass-risk threshold. Fail-closed gating REUSES
+      // evaluateBunTestSummary from scripts/run-tests-gated.ts (the mt#2716
+      // gate), not a reimplementation.
 
-      // Step 7: Unit tests (most expensive)
-      const testsResult = await this.runUnitTests();
-      if (!testsResult.success) {
-        return testsResult;
+      // Step 7: Fast changed-file-scoped related-test gate (mt#2932)
+      const relatedTestsResult = await this.instrumented(
+        "fast-related-tests",
+        () => this.runFastRelatedTests(),
+        RELATED_TESTS_CHECK_OVERRIDE_ENV
+      );
+      if (!relatedTestsResult.success) {
+        return relatedTestsResult;
       }
 
       // Step 8: ESLint rule tooling tests (niche)
-      const ruleTestsResult = await this.runESLintRuleTests();
+      const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
+        this.runESLintRuleTests()
+      );
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
       }
 
       // Step 9: Rules compile staleness check (legacy `rules compile` system)
-      const rulesCheckResult = await this.runRulesCompileCheck();
+      const rulesCheckResult = await this.instrumented(
+        "rules-compile-check",
+        () => this.runRulesCompileCheck(),
+        SIZE_BUDGET_CHECK_OVERRIDE_ENV
+      );
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
       }
 
-      // Step 9b: Compile staleness check (new `compile` system — mt#2252)
-      const compileCheckResult = await this.runCompileCheck();
+      // Step 9b: Compile staleness check (new `compile` system — mt#2252).
+      // mt#3058: now also carries the monolithic (claude.md/agents.md) +
+      // claude-rules targets and their size-budget override, so the override
+      // env is threaded here exactly as on Step 9.
+      const compileCheckResult = await this.instrumented(
+        "compile-check",
+        () => this.runCompileCheck(),
+        SIZE_BUDGET_CHECK_OVERRIDE_ENV
+      );
       if (!compileCheckResult.success) {
         return compileCheckResult;
       }
@@ -254,10 +580,38 @@ export class PreCommitHook {
     log.cli("🔍 Running ESLint with strict quality gates...");
 
     try {
+      // mt#3404: lint the STAGED files, not the whole repo. `eslint .` sweeps
+      // ~3,000 files; on a loaded host (load avg 85 on 16 cores) that measured
+      // 287s wall against this step's 120s timeout, and six commits were denied
+      // at the timeout boundary within one hour on 2026-07-30. CI's
+      // `lint:strict` (.github/workflows/ci.yml) remains the authoritative
+      // full-repo gate — the same commit-time-scoping trade mt#2716/mt#2932
+      // already made for the test step, with the same CI backstop.
+      const stagedResult = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+      const stagedFiles = stagedResult.stdout.toString().trim().split("\n").filter(Boolean);
+      const lintableFiles = selectLintableStagedFiles(stagedFiles);
+
+      if (lintableFiles.length === 0) {
+        log.cli("✅ No lintable staged files — skipping ESLint.");
+        return { success: true, message: "No lintable staged files to check", exitCode: 0 };
+      }
+
       // Use ProjectConfigReader for consistent config loading
       const configReader = new ProjectConfigReader(this.projectRoot);
-      const lintJsonCommand = await configReader.getLintJsonCommand();
+      const lintJsonCommand = buildScopedLintCommand(
+        await configReader.getLintJsonCommand(),
+        lintableFiles
+      );
 
+      // Print the command as well as the count: the staged file list is the
+      // only thing that varies run to run now, so losing it would make a
+      // failing run harder to reproduce by hand than it was pre-mt#3404
+      // (PR #2450 R1, non-blocking).
+      log.cli(`📋 Linting ${lintableFiles.length} staged file(s)`);
       log.cli(`📋 Using lint command: ${lintJsonCommand}`);
 
       // Execute the lint command and get JSON output
@@ -265,16 +619,25 @@ export class PreCommitHook {
       let stdout = "";
       let stderr = "";
       try {
-        const result = await execAsync(lintJsonCommand, {
+        const result = await this.exec(lintJsonCommand, {
           cwd: this.projectRoot,
-          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
-          // mt#1859 session) — the former 30s timeout fired on any loaded run,
-          // blocking every commit with a bare "Command failed". 120s gives
-          // repo-growth headroom; a hung eslint still gets killed.
-          timeout: 120000,
-          // The --format json payload is ~850KB and grows with file count;
-          // the 1MB exec default truncate-kills the process at the boundary.
-          maxBuffer: 64 * 1024 * 1024,
+          // History: 30s (original) -> 120s (mt#1859, 2026-06-13, sized for a
+          // full-repo sweep then measuring ~29s) -> 60s here. mt#3404 removed
+          // the full-repo sweep, so the budget no longer has to cover ~3,000
+          // files. What it MUST still cover is ESLint's fixed startup cost —
+          // flat-config load plus 46 custom rules — measured at ~2.2s CPU but
+          // ~11s WALL on a host at load avg 85, because the process is starved
+          // rather than slow. 60s leaves room for that floor plus a large
+          // staged set, while still killing a genuinely hung run in half the
+          // time the full-repo budget took. (Value in
+          // ./pre-commit-subprocess-failure so the timeout message names the
+          // same number this enforces — mt#3406.)
+          timeout: ESLINT_TIMEOUT_MS,
+          // The full-repo --format json payload was ~850KB; a staged-file run
+          // is far smaller, but keep real headroom — a big staged set with many
+          // findings is still sizable, and the 1MB exec default
+          // truncate-KILLS the process at the boundary rather than truncating.
+          maxBuffer: 16 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
@@ -309,77 +672,20 @@ export class PreCommitHook {
         lintResults = [];
       }
 
-      // Calculate totals
-      const summary = this.calculateESLintSummary(lintResults);
-
-      // Log the current state
-      log.cli("📊 ESLint Results:");
-      log.cli(`   Errors: ${summary.errorCount}`);
-      log.cli(`   Warnings: ${summary.warningCount}`);
-
-      // STRICT ENFORCEMENT: Block if ANY errors found
-      if (summary.errorCount > 0) {
-        log.cli("");
-        log.cli("❌ ❌ ❌ LINTER ERRORS DETECTED! COMMIT BLOCKED! ❌ ❌ ❌");
-        log.cli("");
-        log.cli(
-          `🚫 Found ${summary.errorCount} linter error(s). ALL errors must be fixed before committing.`
-        );
-        log.cli("💡 Run 'bun run lint --fix' to auto-fix many issues.");
-        log.cli("🔧 Review and manually fix any remaining errors.");
-        log.cli("");
-        log.cli("Run 'bun run lint' to see detailed error information.");
-        return {
-          success: false,
-          message: `ESLint found ${summary.errorCount} error(s)`,
-          exitCode: 1,
-        };
-      }
-
-      // WARNING THRESHOLD: zero tolerance — any new warning blocks the commit.
-      // mt#1097 ratcheted this to 0 after fixing all pre-existing warnings and
-      // adding CI-level enforcement (`bun run lint:strict`) so GitHub-UI merges
-      // can't bypass the gate. If a warning category legitimately needs an
-      // exception, add a line/file-level waiver with a specific justification.
-      const MAX_LINT_WARNINGS = 0;
-      if (summary.warningCount > MAX_LINT_WARNINGS) {
-        log.cli("");
-        log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
-        log.cli("");
-        log.cli(
-          `🚫 Found ${summary.warningCount} warnings. Maximum allowed: ${MAX_LINT_WARNINGS}.`
-        );
-        log.cli("💡 Please address warnings to improve code quality.");
-        log.cli(`🎯 Target: Reduce warnings below ${MAX_LINT_WARNINGS} threshold.`);
-        log.cli("");
-        log.cli("Run 'bun run lint' to see detailed warning information.");
-        return {
-          success: false,
-          message: `ESLint found ${summary.warningCount} warnings (over ${MAX_LINT_WARNINGS} threshold)`,
-          exitCode: 1,
-        };
-      }
-
-      // Success case
-      if (summary.warningCount === 0) {
-        log.cli("✅ Perfect! Zero errors and zero warnings detected.");
-      } else {
-        log.cli(
-          `✅ Quality gate passed: ${summary.warningCount} warnings (under ${MAX_LINT_WARNINGS} threshold).`
-        );
-      }
-
-      return {
-        success: true,
-        message: "ESLint validation passed",
-        exitCode: 0,
-      };
+      // Reporting + threshold enforcement live in ./pre-commit-lint-scope
+      // (mt#3404) so this file stays under its max-lines ceiling.
+      return evaluateLintSummary(this.calculateESLintSummary(lintResults));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ ESLint validation failed: ${errorMsg}`);
+      // mt#3406: a timeout and a lint failure arrive here with the same
+      // `message`; only `killed` tells them apart. See ./pre-commit-subprocess-failure.
+      const errorMsg = describeSubprocessFailure(error, {
+        step: "ESLint validation",
+        timeoutMs: ESLINT_TIMEOUT_MS,
+      });
+      log.error(`❌ ${errorMsg}`);
       return {
         success: false,
-        message: `ESLint validation failed: ${errorMsg}`,
+        message: errorMsg,
         exitCode: 1,
       };
     }
@@ -438,6 +744,48 @@ export class PreCommitHook {
         "💡 Real credentials detected in: PostgreSQL, MySQL, MongoDB, Redis URLs, or API keys"
       );
       return { success: false, message: "Secret scanning failed", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Fast, changed-file-scoped local test gate (mt#2932). Delegates the
+   * spawn+capture to runRelatedTestsCheck (./related-tests-check.ts), which
+   * runs scripts/run-related-tests.ts -- itself mapping staged files to
+   * their related tests (scripts/find-related-tests.ts) and gating
+   * fail-closed via scripts/run-tests-gated.ts's evaluateBunTestSummary
+   * (reused, not reimplemented). See the "Runtime checks (tests)" comment
+   * block in `run()` for the full rationale.
+   */
+  private async runFastRelatedTests(): Promise<HookResult> {
+    log.cli("🧪 Running fast changed-file-scoped test gate...");
+
+    if (isOverrideTruthy(process.env[RELATED_TESTS_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:fast-related-tests] override ${RELATED_TESTS_CHECK_OVERRIDE_ENV}=` +
+          `${process.env[RELATED_TESTS_CHECK_OVERRIDE_ENV]} at ${ts} — fast related-test gate skipped`
+      );
+      return {
+        success: true,
+        message: "Fast related-test gate skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    try {
+      const result = runRelatedTestsCheck(this.projectRoot);
+      if (result.stdout) log.cli(result.stdout);
+      if (result.stderr) log.cli(result.stderr);
+      return { success: result.success, message: result.message, exitCode: result.exitCode };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ Fast related-test gate failed to run: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Fast related-test gate failed to run: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 
@@ -504,6 +852,10 @@ export class PreCommitHook {
           lower.endsWith(".yaml") ||
           lower.endsWith(".yml") ||
           lower.endsWith(".toml") ||
+          // mt#2726: the reviewer benchmark corpus is verbatim-mined PR data
+          // (findings + code context windows) that legitimately quotes idioms
+          // like `npx`/`npm run`; it is data, not source, so exempt the dir.
+          lower.startsWith("services/reviewer/eval/corpus/") ||
           // The bun-over-node enforcement check itself contains "npm run"/"npx" in
           // help-message string literals; exempt the file that runs this check.
           lower === "src/hooks/pre-commit.ts"
@@ -711,7 +1063,12 @@ export class PreCommitHook {
         `[pre-commit:nul-byte-check] override ${NUL_BYTE_CHECK_OVERRIDE_ENV}=${process.env[NUL_BYTE_CHECK_OVERRIDE_ENV]} ` +
           `at ${ts} — NUL-byte check skipped`
       );
-      return { success: true, message: "NUL-byte check skipped via override", exitCode: 0 };
+      return {
+        success: true,
+        message: "NUL-byte check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
     }
 
     try {
@@ -905,6 +1262,58 @@ export class PreCommitHook {
     };
   }
 
+  /**
+   * Thin wrapper over {@link regenerateDockerfileBunBuild} (the logic lives
+   * in `./bun-build-sync-regen`, extracted for the max-lines ceiling,
+   * mt#3091 mirroring mt#2977): regenerate the root Dockerfile's
+   * `RUN bun build ...` line from `scripts/cli-entry.ts`'s canonical
+   * `bunBuildArgs()` and re-stage it if changed — same auto-fix-and-restage
+   * shape as Step 3c above.
+   */
+  private async runDockerfileBunBuildRegen(): Promise<HookResult> {
+    return regenerateDockerfileBunBuild({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link checkBunBuildSync} (mt#3091): block the commit
+   * if package.json's `scripts.build` (or, as a defense-in-depth backstop,
+   * the Dockerfile's generated block) diverges from the canonical
+   * `bunBuildCommand()`. Unlike {@link runDockerfileBunBuildRegen}, this
+   * does NOT auto-fix — package.json's build script is a flat JSON string,
+   * not a comment-delimited block, so rewriting it in place risks
+   * formatting drift a generator shouldn't introduce.
+   */
+  private async runBunBuildSyncCheck(): Promise<HookResult> {
+    return checkBunBuildSync({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link regenerateStagedClaudeHooks} (the logic lives in
+   * `./claude-hooks-compile-regen`, extracted for the max-lines ceiling,
+   * mt#2977): auto-regenerate + re-stage `.claude/hooks/*` when this commit
+   * stages hooks sources — the same auto-fix-and-restage shape as Step 1b /
+   * Step 3c, instead of the block-on-drift `runCompileCheck` uses for the
+   * sibling targets (SC#4).
+   */
+  private async runClaudeHooksCompileRegen(): Promise<HookResult> {
+    return regenerateStagedClaudeHooks({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
   private async runMigrationJournalCheck(): Promise<HookResult> {
     if (isOverrideTruthy(process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV])) {
       const ts = new Date().toISOString();
@@ -916,6 +1325,7 @@ export class PreCommitHook {
         success: true,
         message: "Migration journal check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -974,6 +1384,115 @@ export class PreCommitHook {
   }
 
   /**
+   * Block a concurrent-migration collision or a journal-`when` mutation of an
+   * already-shipped migration, checked against the `origin/main` baseline (mt#2948).
+   *
+   * This is the collision-PREVENTION complement to mt#2560 (auto-migrate default
+   * OFF, the blast-radius fix). Unlike the sibling guards it reads the origin/main
+   * journal to detect drift the LOCAL tree cannot reveal. Fails OPEN when there is
+   * no baseline (fresh clone / detached / file absent on main).
+   *
+   * Override: `MINSKY_SKIP_MIGRATION_COLLISION_CHECK=1` (audit-logged).
+   */
+  private async runMigrationCollisionCheck(): Promise<HookResult> {
+    if (isMigrationCollisionOverrideTruthy(process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:migration-collision] override ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=${process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — migration collision check skipped`
+      );
+      return {
+        success: true,
+        message: "Migration collision check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    const journalRelPath = "packages/domain/src/storage/migrations/pg/meta/_journal.json";
+
+    // Staged journal — the content actually being committed (the index, NOT the
+    // working tree; PR #2081 R2). `git show :<path>` reads the index entry, so a
+    // partially-staged or unstaged working-tree edit cannot make the guard block
+    // or miss incorrectly.
+    let headEntries: JournalEntry[];
+    try {
+      const staged = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`:${journalRelPath}`)}`,
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+      const parsed = JSON.parse(staged.stdout.toString()) as { entries?: JournalEntry[] };
+      headEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (journal not in index)",
+        exitCode: 0,
+      };
+    }
+
+    // origin/main baseline. Without it there is nothing to diff — fail OPEN
+    // (this is a NEW-drift detector, not a first-commit correctness gate).
+    let baseEntries: JournalEntry[];
+    try {
+      // journalRelPath is a hardcoded constant (no external input); still, shell-quote
+      // the ref via the repo's shell-safety primitive (`safeShellQuote`, exec.ts) so
+      // there is no shell-interpolation surface. The git-exec module runs via shell
+      // (`execAsync`), not argv — there is no argv git helper — so quoting is the
+      // established alignment with prior shell-safety fixes.
+      const result = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`origin/main:${journalRelPath}`)}`,
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
+      const parsed = JSON.parse(result.stdout.toString()) as { entries?: JournalEntry[] };
+      baseEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (no origin/main journal baseline)",
+        exitCode: 0,
+      };
+    }
+
+    const violations = detectMigrationJournalViolations(baseEntries, headEntries);
+    if (violations.length === 0) {
+      return { success: true, message: "Migration collision check passed", exitCode: 0 };
+    }
+
+    log.cli("");
+    log.cli(
+      `${violations.length} migration journal drift issue(s) vs origin/main. Commit blocked (mt#2948).`
+    );
+    log.cli("");
+    for (const v of violations) {
+      log.cli(`   [${v.kind}] ${v.tag}: ${v.detail}`);
+    }
+    log.cli("");
+    log.cli("Why this is blocked:");
+    log.cli("   Drizzle applies journal entries whose `when` exceeds the DB high-water-mark.");
+    log.cli("   A renumber that mutates an already-shipped entry's `when`, a reused migration");
+    log.cli("   number, or a non-monotonic `when` re-triggers an applied migration on boot");
+    log.cli("   (the 2026-07-19 outage). See memory 0c2427e5.");
+    log.cli("");
+    log.cli("Fix: regenerate your migration against current main —");
+    log.cli("   git fetch origin && git rebase origin/main, then `bun run db:generate:pg`");
+    log.cli("   so your migration is numbered after main's latest with a fresh timestamp.");
+    log.cli("");
+    log.cli(`Override (rare, audited): set ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=1`);
+
+    return {
+      success: false,
+      message: "Migration collision check failed",
+      exitCode: 1,
+    };
+  }
+
+  /**
    * Block staged modifications to already-applied SQL migration files (mt#2268).
    *
    * Drizzle records sha256(full .sql) at apply-time; editing an applied
@@ -999,6 +1518,7 @@ export class PreCommitHook {
         success: true,
         message: "Immutable-migration check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1152,6 +1672,7 @@ export class PreCommitHook {
         success: true,
         message: "Deploy-domain check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1218,67 +1739,72 @@ export class PreCommitHook {
   }
 
   /**
-   * Run unit tests
-   */
-  private async runUnitTests(): Promise<HookResult> {
-    log.cli("🧪 MANDATORY: Running unit test suite...");
-    log.cli("  → Executing unit tests with timeout (excluding integration tests)...");
-
-    try {
-      await execAsync(
-        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
-        // target) and the four orphaned tests/{unit,mcp,dev-tooling,
-        // architecture} subdirs had zero pre-commit coverage until this
-        // line added them. Kept aligned with the canonical `test` script's
-        // path list (package.json) so pre-commit and CI test the same
-        // surface — reviewer R1 flagged the original packages/domain-only
-        // version as drifting from the canonical script.
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./tests/unit ./tests/mcp ./tests/dev-tooling ./tests/architecture ./packages/domain",
-        {
-          cwd: this.projectRoot,
-          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
-          env: { ...process.env, AGENT: "1" },
-        }
-      );
-      log.cli("✅ All tests passing! Test suite validation completed.");
-      return { success: true, message: "Unit tests passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("");
-      log.cli("❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌");
-      log.cli("");
-      log.cli("🚫 One or more tests are failing. Fix ALL test failures before committing.");
-      log.cli("💡 Run 'bun run test' locally to see detailed failure information.");
-      log.cli("🔧 Ensure your changes don't break existing functionality.");
-      log.cli("");
-      log.cli("📋 Common fixes:");
-      log.cli("   • Update test expectations if behavior intentionally changed");
-      log.cli("   • Fix bugs in your code that break existing tests");
-      log.cli("   • Add missing mocks or dependencies");
-      log.cli("   • Check for import/export issues");
-      return { success: false, message: "Unit tests failed", exitCode: 1 };
-    }
-  }
-
-  /**
-   * Run TypeScript type checking
+   * Run TypeScript type checking.
+   *
+   * Covers TWO projects: the root tsconfig.json AND src/cockpit/web/tsconfig.json
+   * (mt#2424). The root tsconfig's own `exclude` list excludes src/cockpit/web —
+   * browser-only lib/DOM settings would otherwise leak into the root Bun/Node
+   * program — and `vite build` transpiles it via esbuild WITHOUT type-checking, so
+   * without this second target the cockpit frontend has no static type coverage
+   * at all. See mt#2424 for the two production escapes this closed (an unimported
+   * `UseQueryResult` type and a missing `KIND_ICONS` union key, both of which
+   * shipped past this same pre-commit hook before this project existed).
    */
   private async runTypeCheck(): Promise<HookResult> {
     log.cli("🔎 Running TypeScript type check...");
 
-    try {
-      await execAsync("bunx @typescript/native-preview --noEmit", {
-        cwd: this.projectRoot,
-        timeout: 60000,
-      });
-      log.cli("✅ TypeScript compilation passed — no type errors.");
-      return { success: true, message: "Type check passed", exitCode: 0 };
-    } catch (error: unknown) {
-      const err = error as { stdout?: string; message?: string };
-      const output = err.stdout || err.message || String(error);
-      log.cli("❌ TypeScript type errors found! Commit blocked.");
-      log.cli(output);
-      return { success: false, message: "TypeScript type check failed", exitCode: 1 };
+    const targets: Array<{ label: string; command: string }> = [
+      { label: "root", command: "bunx @typescript/native-preview --noEmit" },
+      {
+        label: "cockpit-web",
+        command: "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
+      },
+    ];
+
+    for (const target of targets) {
+      try {
+        await this.exec(target.command, {
+          cwd: this.projectRoot,
+          timeout: TYPECHECK_TIMEOUT_MS,
+        });
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string; message?: string };
+        // Include BOTH streams — tsgo's real type errors print to stdout, but a runner
+        // crash (missing tsconfig, spawn failure) often puts the actionable diagnostic on
+        // stderr instead; dropping it silently would hide exactly the failure this hook
+        // exists to surface (reviewer finding, PR #2057 R1).
+        const output =
+          [err.stdout, err.stderr].filter((s) => s && s.trim().length > 0).join("\n") ||
+          err.message ||
+          String(error);
+        // mt#3406: "type errors found" is a claim this catch cannot make. It
+        // was reached during mt#3406's own implementation by a tsgo child the
+        // KERNEL killed (SIGKILL, both streams empty) on a loaded host, while
+        // `validate_typecheck` reported 0 errors on the same tree minutes
+        // earlier. describeSubprocessFailure only relabels when the process
+        // demonstrably did not finish; a real type error still reads as one.
+        const label = describeSubprocessFailure(error, {
+          step: `TypeScript type check (${target.label})`,
+          timeoutMs: TYPECHECK_TIMEOUT_MS,
+        });
+        log.cli(`❌ ${label} Commit blocked.`);
+        // PR #2480 R1 (non-blocking): when the child produced no diagnostics,
+        // `output` falls back to `err.message`, which the label already quotes
+        // as its `(underlying: …)` clause — printing it again just repeats the
+        // same sentence under a heading that implies new information.
+        if (!label.includes(output)) {
+          log.cli(output);
+        }
+        return {
+          success: false,
+          message: label,
+          exitCode: 1,
+        };
+      }
     }
+
+    log.cli("✅ TypeScript compilation passed — no type errors (root + cockpit-web).");
+    return { success: true, message: "Type check passed", exitCode: 0 };
   }
 
   /**
@@ -1370,15 +1896,34 @@ export class PreCommitHook {
     log.cli("🎨 Running code formatter...");
 
     try {
-      await execAsync("bunx lint-staged", {
+      await this.exec("bunx lint-staged", {
         cwd: this.projectRoot,
-        timeout: 30000,
+        // Grounded in a measurement, not a round number (`decision-defaults.mdc
+        // §Thresholds`): a 4-file stage set measured 42.7s cold, already past
+        // the former 30s bound, which killed the step and failed three
+        // consecutive commits while prettier and ESLint were independently
+        // verified clean. lint-staged pays a `bunx` resolve plus a git
+        // stash/restore cycle before touching a file, so that floor is mostly
+        // fixed cost; 240s leaves ~5x headroom instead of sitting just above it.
+        // (Inlined rather than named: this file is at its 1500-code-line cap,
+        // so a `const` would not fit. Comments are free.)
+        timeout: FORMATTER_TIMEOUT_MS,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };
     } catch (error) {
-      log.cli("❌ Code formatting failed! Please check for syntax errors.");
-      return { success: false, message: "Code formatting failed", exitCode: 1 };
+      // Report what happened rather than naming a cause this catch cannot
+      // know: "check for syntax errors" sent readers hunting through files
+      // prettier called clean, when the real failure was this step's timeout.
+      // mt#3406 finishes that: the underlying message alone still cannot say
+      // WHICH of the two happened, because Node words a timeout as a bare
+      // "Command failed: <cmd>". `killed` is what tells them apart.
+      const message = describeSubprocessFailure(error, {
+        step: "Code formatting",
+        timeoutMs: FORMATTER_TIMEOUT_MS,
+      });
+      log.cli(`❌ ${message}`);
+      return { success: false, message, exitCode: 1 };
     }
   }
 
@@ -1417,26 +1962,15 @@ export class PreCommitHook {
       return { success: false, message: result.message, exitCode: 1 };
     }
 
-    try {
-      // Prettier-format the regenerated manifest before diff/stage: the
-      // generator's raw output is not prettier-styled, and the lint-staged
-      // formatting step (step 1) has already run by the time this step
-      // re-stages the file — without this pass, CI's `format:check` fails on
-      // the freshly staged manifest. Fully literal command string (no
-      // interpolation), consistent with the R1 no-shell-interpolation finding.
-      await execAsync("bunx prettier --write src/generated/completion-manifest.json", {
-        cwd: this.projectRoot,
-        timeout: 15000,
-      });
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      log.cli(`❌ Could not format the regenerated completion manifest: ${errMsg}`);
-      return {
-        success: false,
-        message: `Could not format the regenerated completion manifest: ${errMsg}`,
-        exitCode: 1,
-      };
-    }
+    // The generator (scripts/build-completion-manifest.ts) now formats its own
+    // output with the project's Prettier config, so the regenerated manifest is
+    // already canonical — no separate `bunx prettier --write` pass is needed
+    // here before diff/stage (mt#2732). This removes the redundant format
+    // subprocess the mt#2622 R2 review added back when the generator still
+    // emitted raw JSON.stringify output that diverged from the committed copy.
+    // Regression backstop: the generator uses the same .prettierrc.json config
+    // as CI's `format:check` (which globs the committed manifest), so any future
+    // format drift fails loudly at the CI gate — no local check needed here.
 
     // Compare the regenerated working-tree copy against the index. `git diff`
     // (no --quiet) always exits 0 and simply prints nothing when there is no
@@ -1507,84 +2041,29 @@ export class PreCommitHook {
   }
 
   /**
-   * Run rules compile --check for compile targets whose output files already exist
-   * and were generated by the compiler.
+   * Legacy `rules compile` staleness check — RETIRED by the mt#3058 cutover.
    *
-   * Only checks targets that the project has already opted into:
-   * - agents.md: if AGENTS.md exists and starts with the generation header
-   * - claude.md: if CLAUDE.md exists and starts with the generation header
-   * - cursor-rules: if .cursor/rules/ directory exists with .mdc files
+   * Its three targets — agents.md, claude.md, and claude-rules — moved to the
+   * new-pipeline `runCompileCheck` (below), which now regenerates and
+   * staleness-checks CLAUDE.md / AGENTS.md / .claude/rules (and carries their
+   * MINSKY_SKIP_SIZE_BUDGET override). Banner-based detection could not be used
+   * to "turn this off" because the new pipeline emits the identical generation
+   * banner during coexistence — so the method is reduced to a no-op rather than
+   * left detecting targets it must no longer own.
+   *
+   * This is a no-op SHELL, not a full removal: deleting the method, its Step-9
+   * registration, and its tests is mt#2993's scope (the epic's phase-4
+   * cleanup). Retained here so this cutover PR stays a focused wiring flip.
    */
   private async runRulesCompileCheck(): Promise<HookResult> {
-    log.cli("📋 Checking rules compile outputs are up-to-date...");
-
-    const COMPILE_HEADER = "<!-- Generated by minsky rules compile.";
-
-    // Determine which targets to check based on what's opted in
-    const targetsToCheck: string[] = [];
-
-    // Check agents.md
-    try {
-      const agentsContent = await (
-        await import("fs/promises")
-      ).readFile(`${this.projectRoot}/AGENTS.md`, "utf-8");
-      if (String(agentsContent).startsWith(COMPILE_HEADER)) {
-        targetsToCheck.push("agents.md");
-      }
-    } catch {
-      // File doesn't exist or isn't readable — skip
-    }
-
-    // Check claude.md
-    try {
-      const claudeContent = await (
-        await import("fs/promises")
-      ).readFile(`${this.projectRoot}/CLAUDE.md`, "utf-8");
-      if (String(claudeContent).startsWith(COMPILE_HEADER)) {
-        targetsToCheck.push("claude.md");
-      }
-    } catch {
-      // File doesn't exist or isn't readable — skip
-    }
-
-    // Check cursor-rules (if .cursor/rules/ has any .mdc files)
-    try {
-      const fsp = await import("fs/promises");
-      const entries = await fsp.readdir(`${this.projectRoot}/.cursor/rules`);
-      if (entries.some((e) => e.endsWith(".mdc"))) {
-        targetsToCheck.push("cursor-rules");
-      }
-    } catch {
-      // Directory doesn't exist — skip
-    }
-
-    if (targetsToCheck.length === 0) {
-      log.cli("✅ No compiled rule outputs detected — skipping rules compile check.");
-      return { success: true, message: "No compile targets to check", exitCode: 0 };
-    }
-
-    for (const target of targetsToCheck) {
-      try {
-        // mt#1829: `target` is from the locally-built `targetsToCheck` array
-        // which contains only the hardcoded values "claude.md", "agents.md",
-        // and "cursor-rules" (set earlier in this function from
-        // existsSync/readdir checks). Bounded enum, no shell metacharacters
-        // possible — no safeShellQuote needed.
-        await execAsync(`bun run src/cli.ts rules compile --check --target ${target}`, {
-          cwd: this.projectRoot,
-          timeout: 30000,
-        });
-      } catch (error) {
-        const result = classifyCompileCheckError(error, target);
-        for (const line of result.logLines) {
-          log.cli(line);
-        }
-        return { success: false, message: result.message, exitCode: 1 };
-      }
-    }
-
-    log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
-    return { success: true, message: "Rules compile check passed", exitCode: 0 };
+    log.cli(
+      "✅ Legacy rules-compile check retired (mt#3058) — CLAUDE.md / AGENTS.md / .claude/rules are now covered by the new compile check."
+    );
+    return {
+      success: true,
+      message: "Legacy rules compile check retired (mt#3058)",
+      exitCode: 0,
+    };
   }
 
   /**
@@ -1606,7 +2085,7 @@ export class PreCommitHook {
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks, claude.md, agents.md, claude-rules)..."
     );
 
     const fsp = await import("fs/promises");
@@ -1622,6 +2101,12 @@ export class PreCommitHook {
       skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+      // claude-hooks is auto-regenerated + re-staged by Step 3f
+      // (runClaudeHooksCompileRegen, mt#2977) when hooks SOURCES are staged;
+      // this block-on-drift check is RETAINED as the safety net for output
+      // drift when sources are NOT staged — e.g. a hand-edited output (PR #2223
+      // review). For a hooks-source commit Step 3f already regenerated the
+      // output, so this check then passes on the fresh output.
       hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
     });
 
@@ -1630,11 +2115,19 @@ export class PreCommitHook {
       return { success: true, message: "No compile targets to check", exitCode: 0 };
     }
 
+    // mt#3058: the size-budget-bearing targets (claude.md/agents.md) moved onto
+    // this check at cutover, so MINSKY_SKIP_SIZE_BUDGET must be honored HERE now,
+    // exactly as it was on the legacy runRulesCompileCheck. Tracks whether THIS
+    // invocation actually took the skip branch so the success return reports
+    // `overridden: true` only then (never from a blanket env-presence check).
+    let overrodeSizeBudget = false;
+
     for (const target of targetsToCheck) {
       try {
         // `target` is from the locally-built `targetsToCheck` array which
         // contains only the hardcoded literals "claude-skills",
-        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
+        // "cursor-rules-ts", "claude-agents", "claude-hooks", "claude.md",
+        // "agents.md", and "claude-rules". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
         // runRulesCompileCheck / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
@@ -1643,6 +2136,24 @@ export class PreCommitHook {
         });
       } catch (error) {
         const result = classifyCompileCheckError(error, target, "compile");
+
+        // mt#2802/mt#3058: MINSKY_SKIP_SIZE_BUDGET overrides ONLY the
+        // size-budget failure class — a genuinely stale target still blocks the
+        // commit even with the override set. Mirrors runRulesCompileCheck.
+        if (
+          result.errorKind === "budget-exceeded" &&
+          isOverrideTruthy(process.env[SIZE_BUDGET_CHECK_OVERRIDE_ENV])
+        ) {
+          const ts = new Date().toISOString();
+          log.cli(
+            `[pre-commit:compile-size-budget] override ${SIZE_BUDGET_CHECK_OVERRIDE_ENV} ` +
+              `active at ${ts} — size budget failure for target "${target}" skipped ` +
+              `(env value not echoed)`
+          );
+          overrodeSizeBudget = true;
+          continue;
+        }
+
         for (const line of result.logLines) {
           log.cli(line);
         }
@@ -1651,7 +2162,12 @@ export class PreCommitHook {
     }
 
     log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
-    return { success: true, message: "Compile check passed", exitCode: 0 };
+    return {
+      success: true,
+      message: "Compile check passed",
+      exitCode: 0,
+      ...(overrodeSizeBudget ? { overridden: true } : {}),
+    };
   }
 }
 
@@ -1726,11 +2242,20 @@ export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
   };
 }
 
+// `classifyDockerfileBunBuildRegenError` moved to `./bun-build-sync-regen`
+// (mt#3091, extracted for the max-lines ceiling alongside the regen/check
+// functions it classifies errors for — see that module's header).
+
 /**
  * Maps which `.minsky/` source dirs are present to the compile targets the
  * pre-commit check verifies. Each target is opted in only when its source dir
  * exists, so repos without a given source tree skip that check. Pure +
  * exported for unit testing (mt#2497).
+ *
+ * mt#3058 cutover: `claude.md`, `agents.md`, and `claude-rules` moved here from
+ * the legacy `runRulesCompileCheck`. All three are sourced from `.minsky/rules/`,
+ * so they gate on `present.rules` alongside `cursor-rules-ts`. Kept in sync with
+ * `minskyCompileTargetsFromPresence` (packages/domain/src/compile/compile.ts).
  */
 export function compileCheckTargets(present: {
   skills: boolean;
@@ -1740,11 +2265,25 @@ export function compileCheckTargets(present: {
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
-  if (present.rules) targets.push("cursor-rules-ts");
+  if (present.rules) {
+    targets.push("cursor-rules-ts");
+    targets.push("claude.md");
+    targets.push("agents.md");
+    targets.push("claude-rules");
+  }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
   return targets;
 }
+
+// The claude-hooks compile auto-regen helpers live in
+// ./claude-hooks-compile-regen (extracted for the max-lines ceiling, mt#2977).
+// Re-exported so existing importers (compile-check-targets.test.ts) resolve
+// them from ./pre-commit.
+export {
+  claudeHooksCompileAffected,
+  classifyCompileHooksRegenError,
+} from "./claude-hooks-compile-regen";
 
 /**
  * Classify a failed compile-check subprocess error as either genuine staleness
@@ -1758,6 +2297,31 @@ export function compileCheckTargets(present: {
  * command itself failed — telling the operator to "regenerate" would be
  * misleading because the same error will recur.
  *
+ * **Marker-classification precedence (R1 fix — made explicit, was previously
+ * only implicit in code order).** Exactly THREE stdout markers are checked,
+ * IN THIS ORDER, each an early `return` so at most one ever fires:
+ *
+ *   1. `is STALE` (staleness) — checked FIRST. A stale target's compiled
+ *      output doesn't reflect the current rule source, so evaluating a size
+ *      budget against it would be meaningless (the operator needs to
+ *      regenerate before ANY size classification is trustworthy).
+ *   2. `EXCEEDS SIZE BUDGET` (aggregate budget, mt#2802) — checked SECOND,
+ *      only reachable when not stale.
+ *   3. `HAS RULE(S) EXCEEDING PER-RULE CEILING` (per-rule ceiling, mt#2874) —
+ *      checked THIRD, only reachable when neither stale nor aggregate-
+ *      exceeded. Both 2 and 3 map to the SAME `"budget-exceeded"` errorKind
+ *      (one audited override, `MINSKY_SKIP_SIZE_BUDGET`, not two) — their
+ *      relative order between each other doesn't change override behavior,
+ *      but staleness MUST stay first regardless.
+ *
+ * Each of the three ordered pairs (stale-vs-aggregate, stale-vs-per-rule,
+ * aggregate-vs-per-rule) has a direct unit test in
+ * `src/hooks/rules-compile-check.test.ts` asserting the correct marker wins
+ * when BOTH are present in the same stdout (a scenario that should not occur
+ * in practice — the CLI's own `reportSingleTargetCompile` returns on the
+ * first failure it finds in this same order — but the classifier's
+ * precedence must still be deterministic if it ever does).
+ *
  * Exported for unit testing; not part of the public hook API.
  */
 export function classifyCompileCheckError(
@@ -1768,7 +2332,18 @@ export function classifyCompileCheckError(
   // match and the regenerate hint to print. Defaults to "rules" for backward
   // compatibility with existing callers/tests.
   kind: "rules" | "compile" = "rules"
-): { logLines: string[]; message: string } {
+): {
+  logLines: string[];
+  message: string;
+  /**
+   * Discriminates the failure class (mt#2802 adds "budget-exceeded" for the
+   * legacy `rules compile` size-budget check). Callers (e.g.
+   * `runRulesCompileCheck`) use this to decide whether an override env var
+   * applies — overrides are keyed to a specific failure class, not to "any
+   * compile --check failure".
+   */
+  errorKind: "stale" | "budget-exceeded" | "setup-incomplete" | "other";
+} {
   const execError = error as { stdout?: string; stderr?: string };
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
@@ -1791,6 +2366,60 @@ export function classifyCompileCheckError(
         `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
       ],
       message: `Compile output for target "${target}" is stale`,
+      errorKind: "stale",
+    };
+  }
+
+  // mt#2802: size-budget-exceeded classification. Legacy `rules compile` only —
+  // the new `compile` system's targets don't enforce a size budget, so this
+  // marker never appears in "compile"-kind stdout.
+  const budgetExceededLineRe = new RegExp(
+    `\\[${cmd} --check\\] Target "${escapedTarget}" EXCEEDS SIZE BUDGET`,
+    "m"
+  );
+  const isBudgetExceeded = budgetExceededLineRe.test(stdout);
+
+  if (isBudgetExceeded) {
+    const detail = stdout.trim();
+    const indentedDetail = detail
+      .split("\n")
+      .map((line) => `   ${line}`)
+      .join("\n");
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" exceeds its size budget.`,
+        indentedDetail,
+        `💡 Trim the rules listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
+      ],
+      message: `Compile output for target "${target}" exceeds its size budget`,
+      errorKind: "budget-exceeded",
+    };
+  }
+
+  // mt#2874: per-rule-ceiling-exceeded classification. Reuses the SAME
+  // "budget-exceeded" errorKind (and therefore the same MINSKY_SKIP_SIZE_BUDGET
+  // override) as the aggregate budget check above — one audited escape hatch,
+  // not two, per the mt#2874 spec.
+  const perRuleCeilingLineRe = new RegExp(
+    `\\[${cmd} --check\\] Target "${escapedTarget}" HAS RULE\\(S\\) EXCEEDING PER-RULE CEILING`,
+    "m"
+  );
+  const isPerRuleCeilingExceeded = perRuleCeilingLineRe.test(stdout);
+
+  if (isPerRuleCeilingExceeded) {
+    const detail = stdout.trim();
+    const indentedDetail = detail
+      .split("\n")
+      .map((line) => `   ${line}`)
+      .join("\n");
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling.`,
+        indentedDetail,
+        `💡 Trim the rule(s) listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
+      ],
+      message: `Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling`,
+      errorKind: "budget-exceeded",
     };
   }
 
@@ -1818,6 +2447,7 @@ export function classifyCompileCheckError(
         `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
       ],
       message: `Compile check for target "${target}" failed: developer setup incomplete`,
+      errorKind: "setup-incomplete",
     };
   }
 
@@ -1828,6 +2458,7 @@ export function classifyCompileCheckError(
       `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
     ],
     message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+    errorKind: "other",
   };
 }
 

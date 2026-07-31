@@ -133,6 +133,40 @@ bun run test:integration   # Just the integration tests
 bun test path/to/specific.test.ts  # Single test file
 ```
 
+## Tests may not reach a live database
+
+Under `bun test`, module state and configuration are shared across every file in one
+process. Once _any_ test initializes configuration, the cockpit's production database
+resolution path returns the real configured connection — which in this repo is
+**production**. That is not theoretical: it wrote 31 rows into production tables across
+four test runs before it was caught (mt#3254).
+
+So `createCachedSqlDbGetter` (`src/cockpit/db-providers.ts`) refuses to resolve a database
+when **all** of these hold:
+
+- the getter was built **without** a `getProvider` seam (i.e. it resolves the real provider), and
+- `NODE_ENV === "test"`, and
+- `MINSKY_ALLOW_TEST_DB` is unset or empty.
+
+It throws `TestEnvironmentDbAccessError` **before** contacting the provider, so no
+connection is attempted and no connect-time side effect can occur.
+
+### If you hit this error
+
+The message names the two ways out. In order of preference:
+
+1. **Inject a fake** through whichever seam the code under test offers — `getProvider` on
+   the getter itself, or a route-level seam such as `overrideProjectRoutes: { getDb: async () => null }`
+   / `orchestrateResume`. This is almost always the right answer: a test that reaches a real
+   database is not hermetic regardless of which database it reaches.
+2. **Opt in** with `MINSKY_ALLOW_TEST_DB=1` — only for a test that genuinely exercises a real
+   **local** database. This is an explicit, deliberate escape hatch, not a way to silence the
+   error. An empty value (`MINSKY_ALLOW_TEST_DB=`) does not count as consent, so a stray
+   export cannot disable the guard by accident.
+
+Note the guard covers the cockpit's cached getters. Code reaching persistence by another
+path is not covered by it — hermeticity there is still the test author's responsibility.
+
 ## Troubleshooting
 
 ### "Integration tests failing"

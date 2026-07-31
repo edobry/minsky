@@ -28,15 +28,31 @@ import { log } from "./logger";
 const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
+  // mt#2717: install `createAppAuth` as the Octokit `authStrategy` rather than
+  // extracting a static installation-token STRING. The prior form —
+  //   const { token } = await auth({ type: "installation" });
+  //   return new Octokit({ auth: token });
+  // — pinned the client to `@octokit/auth-token` (a static strategy) holding a
+  // token GitHub expires after ~60 minutes. Any client reused past that mark
+  // (both sweepers cache one for the whole process lifetime) then returns
+  // `401 "Bad credentials"` on EVERY subsequent call and never self-recovers —
+  // the merge-state sweeper alone logged 1,730 such failures in one ~15.5h
+  // deployment window. The webhook review path escaped only because it builds a
+  // fresh Octokit per review, never crossing the 1h boundary.
+  //
+  // The `authStrategy` form is the canonical `@octokit/auth-app` usage: the auth
+  // hook runs per request and `@octokit/auth-app` "transparently creates an
+  // installation access token the first time it is needed and refreshes it when
+  // it expires" (cached and reused until ~59 min, then refreshed). This makes a
+  // single long-lived reused instance correct — exactly what both sweepers want.
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+      installationId: config.installationId,
+    },
   });
-
-  const { token } = await auth({ type: "installation" });
-
-  return new Octokit({ auth: token });
 }
 
 export interface PullRequestContext {
@@ -396,6 +412,177 @@ export async function fetchPriorReviews(
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
 
   return reviews;
+}
+
+/**
+ * A single commit on the PR, as needed for author-response context (mt#2836).
+ */
+export interface PullRequestCommit {
+  sha: string;
+  message: string;
+  /** ISO timestamp; undefined when GitHub omits it (rare, defensive). */
+  authoredAt?: string;
+}
+
+/**
+ * Cap mirroring MAX_REVIEWS_FETCHED — pathological PRs (hundreds of commits)
+ * should not blow up the fetch or the downstream prompt/recovery-pass budget.
+ */
+const MAX_COMMITS_FETCHED = 500;
+
+/**
+ * Fetch commit messages pushed to a PR since a given timestamp (mt#2836).
+ *
+ * Used to give the reviewer author-response context on re-review rounds: a
+ * commit message responding to a prior finding (e.g. "fix(mt#X): add PG17
+ * transcript proving GREATEST ignores NULL arguments") is evidence the model
+ * should weigh before re-asserting the same BLOCKING finding — see
+ * refutation-recovery.ts, which consumes this fetch's output.
+ *
+ * `sinceIso` is typically the most recent prior review's `submittedAt`.
+ * Filtering is done on the commit's own authored/committed date rather than
+ * by SHA-diffing against the prior review's `commitId`, so a rebase or
+ * force-push that changes SHAs without changing intent still resolves
+ * correctly — the same tradeoff `diff-scoper.ts`'s fix-commit-diff
+ * extraction currently approximates with the full PR diff (see its module
+ * doc). When `sinceIso` is omitted, all commits on the PR are returned
+ * (bounded by MAX_COMMITS_FETCHED) — used for the first-review case where
+ * there is no prior review to bound against, though callers typically skip
+ * calling this at all in that case (there is nothing to respond to yet).
+ */
+export async function fetchCommitMessagesSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sinceIso?: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<PullRequestCommit[]> {
+  const allCommits = await withTimeout("github.pulls.listCommits", timeoutMs, (signal) =>
+    octokit.paginate(octokit.rest.pulls.listCommits, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+      request: { signal },
+    })
+  );
+
+  let rawCommits = allCommits;
+  if (rawCommits.length > MAX_COMMITS_FETCHED) {
+    log.warn("reviewer.commits_since_review_cap_exceeded", {
+      event: "reviewer.commits_since_review_cap_exceeded",
+      pr: prNumber,
+      count: rawCommits.length,
+      cap: MAX_COMMITS_FETCHED,
+    });
+    rawCommits = rawCommits.slice(0, MAX_COMMITS_FETCHED);
+  }
+
+  const commits: PullRequestCommit[] = rawCommits
+    .map((c): PullRequestCommit => {
+      const authoredAt = c.commit.committer?.date ?? c.commit.author?.date ?? undefined;
+      return {
+        sha: c.sha,
+        message: c.commit.message ?? "",
+        ...(authoredAt !== undefined ? { authoredAt } : {}),
+      };
+    })
+    .filter((c) => {
+      if (sinceIso === undefined) return true;
+      // Defensive: a commit with no resolvable date is included rather than
+      // silently dropped — better to over-include (the refutation matcher
+      // in refutation-recovery.ts is a topical-overlap heuristic, tolerant
+      // of extra unrelated commit messages) than to lose a genuine response.
+      if (c.authoredAt === undefined) return true;
+      return c.authoredAt > sinceIso;
+    });
+
+  return commits;
+}
+
+/** One changed file between two commits, as needed by the resolution classifier (mt#3300). */
+export interface ChangedFileEntry {
+  filename: string;
+}
+
+/**
+ * GitHub's "Compare two commits" endpoint caps the `files` array at 300
+ * entries per response and does not paginate further (documented API
+ * behavior; there is no explicit truncation flag in the response schema).
+ * mt#3300 R1 non-blocking: a response that hits this cap MAY be truncated —
+ * silently treating it as complete could miss the finding's cited file (it
+ * could be file #301+) and manufacture a false `resolved-without-code-change`
+ * verdict. `fetchChangedFilesSince` treats a hit-the-cap response as
+ * ambiguous (returns `undefined`, the same "cannot determine" signal as an
+ * API failure) rather than ever letting a possibly-incomplete file list
+ * assert "untouched" — the classifier must fail toward ambiguity, never
+ * toward an "argued out" accusation.
+ */
+const GITHUB_COMPARE_FILES_CAP = 300;
+
+/**
+ * Fetch the list of files changed between two commits via GitHub's compare
+ * API (mt#3300 SC#1).
+ *
+ * Used to determine whether a prior BLOCKING finding's cited file was
+ * touched by any commit since the finding's review round — the diff-mining
+ * signal `resolution-classifier.ts`'s `classifyOutstandingFindings` uses to
+ * distinguish `fixed-by-code-change` from `resolved-without-code-change`.
+ * File-level only (matches the mt#3300 spec's literal "touched the finding's
+ * cited file" — no line-range precision).
+ *
+ * Returns `[]` immediately when `baseSha === headSha` (nothing to compare).
+ * Returns `undefined` on any API failure (e.g. the base/head pair is
+ * unreachable after a force-push rewrote history) or a possibly-truncated
+ * response (see `GITHUB_COMPARE_FILES_CAP`) — callers must treat this as
+ * "cannot determine," never as "no files changed."
+ */
+export async function fetchChangedFilesSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseSha: string,
+  headSha: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<ReadonlyArray<ChangedFileEntry> | undefined> {
+  if (baseSha === headSha) return [];
+
+  try {
+    const resp = await withTimeout("github.repos.compareCommits", timeoutMs, (signal) =>
+      octokit.rest.repos.compareCommits({
+        owner,
+        repo,
+        base: baseSha,
+        head: headSha,
+        request: { signal },
+      })
+    );
+    const files = resp.data.files ?? [];
+    if (files.length >= GITHUB_COMPARE_FILES_CAP) {
+      log.warn("reviewer.compare_commits_possibly_truncated", {
+        event: "reviewer.compare_commits_possibly_truncated",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
+    return files.map((f) => ({ filename: f.filename }));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("reviewer.compare_commits_failed", {
+      event: "reviewer.compare_commits_failed",
+      owner,
+      repo,
+      baseSha,
+      headSha,
+      error: message,
+    });
+    return undefined;
+  }
 }
 
 /**
@@ -888,20 +1075,39 @@ export async function dismissReview(
  */
 let cachedAppIdentity: { login: string } | null = null;
 
+/**
+ * Construct the App-JWT-authed Octokit used to read the reviewer App's own
+ * identity (`GET /app`).
+ *
+ * mt#2717: installs `createAppAuth` as the `authStrategy` so the App-level JWT
+ * is minted and refreshed per request, rather than extracting a static JWT
+ * string (`new Octokit({ auth: token })`) — the same static-token anti-pattern
+ * the sweepers' `createOctokit` hit. Only `appId`/`privateKey` are needed for
+ * the App-level `/app` route (no `installationId`); `@octokit/auth-app` supplies
+ * a JWT automatically for App-level endpoints. Exported for tests.
+ */
+export function createAppIdentityOctokit(config: ReviewerConfig): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+    },
+  });
+}
+
+/** TEST-ONLY: reset the cached App identity so a test can re-exercise the fetch. */
+export function _resetAppIdentityCacheForTests(): void {
+  cachedAppIdentity = null;
+}
+
 export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
   if (cachedAppIdentity) return cachedAppIdentity;
 
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
-  });
-
-  // `type: "app"` returns an App-level JWT (not an installation token), which
-  // is required for `/app` endpoints.
-  const { token } = await auth({ type: "app" });
-
-  const appOctokit = new Octokit({ auth: token });
+  // mt#2717: authStrategy-based client (see createAppIdentityOctokit) so the
+  // App JWT mints/refreshes per request. `apps.getAuthenticated` (GET /app) is
+  // an App-level route, so @octokit/auth-app supplies a fresh JWT automatically.
+  const appOctokit = createAppIdentityOctokit(config);
   const response = await appOctokit.rest.apps.getAuthenticated();
   if (!response.data) {
     throw new Error(

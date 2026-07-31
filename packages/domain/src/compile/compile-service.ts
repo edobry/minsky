@@ -18,6 +18,10 @@ import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
 import { claudeHooksTarget } from "./targets/claude-hooks";
+import { claudeMdTarget } from "./targets/claude-md";
+import { agentsMdTarget } from "./targets/agents-md";
+import { claudeRulesTarget } from "./targets/claude-rules";
+import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
   workspacePath: string;
@@ -29,7 +33,25 @@ export interface MinskyCompileServiceResult extends MinskyCompileResult {
   stale?: boolean;
   staleFile?: string;
   check?: boolean;
+  /**
+   * Populated when a bare (no explicit `--target`) invocation of
+   * `runMinskyCompile` probed and compiled MULTIPLE applicable targets
+   * (mt#2803). Each entry mirrors this result shape, scoped to one target.
+   * When present, the top-level fields above carry a cross-target aggregate
+   * (`filesWritten` etc. concatenated, `target` a joined id list) — consumers
+   * that want per-target detail should iterate `targets` instead. Absent for
+   * explicit `--target` invocations and for bare invocations that probe to
+   * exactly one applicable target.
+   */
+  targets?: MinskyCompileTargetOutcome[];
 }
+
+/**
+ * Per-target outcome inside a multi-target `MinskyCompileServiceResult.targets`
+ * array (mt#2803). Mirrors `MinskyCompileServiceResult` minus `targets`
+ * itself, which does not nest.
+ */
+export type MinskyCompileTargetOutcome = Omit<MinskyCompileServiceResult, "targets">;
 
 @injectable()
 export class MinskyCompileService {
@@ -54,9 +76,7 @@ export class MinskyCompileService {
   ): Promise<MinskyCompileServiceResult> {
     const target = this.targets.get(targetId);
     if (!target) {
-      throw new Error(
-        `Unknown compile target: "${targetId}". Available targets: ${this.getAvailableTargets().join(", ")}`
-      );
+      throw new Error(unknownCompileTargetMessage(targetId, this.getAvailableTargets()));
     }
 
     const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
@@ -123,6 +143,15 @@ function buildExpectedContents(result: MinskyCompileResult): Map<string, string>
 
 /**
  * Factory that returns a MinskyCompileService with the default targets pre-registered.
+ *
+ * `claude.md` / `agents.md` / `claude-rules` (mt#2992, Phase 1 of ADR-016
+ * convergence) are registered here — reachable via explicit
+ * `compile --target <id>` — but land DORMANT: they are deliberately NOT
+ * added to `minskyCompileTargetsFromPresence` (`./compile.ts`) or
+ * `compileCheckTargets` (`src/hooks/pre-commit.ts`), so a bare `minsky
+ * compile` and pre-commit's staleness check are unaffected by this task.
+ * Legacy (`rules compile`) remains the authoritative writer for all three
+ * until the cutover task (mt#3058) flips them atomically.
  */
 export function createMinskyCompileService(): MinskyCompileService {
   const service = new MinskyCompileService();
@@ -130,5 +159,8 @@ export function createMinskyCompileService(): MinskyCompileService {
   service.registerTarget(claudeAgentsTarget);
   service.registerTarget(cursorRulesTsTarget);
   service.registerTarget(claudeHooksTarget);
+  service.registerTarget(claudeMdTarget);
+  service.registerTarget(agentsMdTarget);
+  service.registerTarget(claudeRulesTarget);
   return service;
 }

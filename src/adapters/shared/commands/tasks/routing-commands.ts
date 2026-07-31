@@ -3,6 +3,8 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
+import { assertKnownKind } from "@minsky/domain/tasks/workflows";
+import { TaskParameters } from "../../common-parameters";
 
 // Re-export RouteStep for callers that reference it from this file
 export type { RouteStep } from "@minsky/domain/tasks/task-routing-service";
@@ -19,8 +21,15 @@ const tasksAvailableParams = {
     description: "Filter by specific backend (mt, md, gh, etc.)",
     required: false,
   },
+  // Reuses the shared, workflow-registry-derived enum (mt#2762) — same schema as
+  // tasks_list / tasks_search / tasks_edit, so CLI --help and MCP JSON-schema both
+  // show the enum values (reviewer finding, PR #1912 R1).
+  kind: TaskParameters.kind,
   limit: {
     schema: z.number().default(20),
+    // defaultValue (not schema.default) is what the CLI/MCP bridges materialize for
+    // omitted args — a schema-only default is never applied at runtime (mt#2759).
+    defaultValue: 20,
     description: "Maximum number of tasks to show",
     required: false,
   },
@@ -41,6 +50,10 @@ const tasksAvailableParams = {
   },
   minReadiness: {
     schema: z.number().min(0).max(1).default(0.5),
+    // defaultValue is required for the bridges to apply the default; without it an
+    // omitted minReadiness reached the filter as undefined, and `score >= undefined`
+    // is false for every task — tasks_available returned [] at defaults (mt#2759).
+    defaultValue: 0.5,
     description: "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks",
     required: false,
   },
@@ -59,11 +72,11 @@ const tasksRouteParams = {
       "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
     required: false,
   },
-  parallel: {
-    schema: z.boolean().default(false),
-    description: "Show parallel execution opportunities",
-    required: false,
-  },
+  // mt#2795: the former `parallel` param ("Show parallel execution
+  // opportunities") was declared-but-unread since the command shipped — the
+  // handler never threaded it and TaskRoutingService's parallel-track
+  // detection is an unimplemented TODO. Removed so the declared surface
+  // matches real behavior; mt#2834 implements the feature and reinstates it.
   json: {
     schema: z.boolean().default(false),
     description: "Output in JSON format",
@@ -87,10 +100,19 @@ export function createTasksAvailableCommand(
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       const provider = getPersistenceProvider();
 
+      // Validate kind against the workflow registry up front (mt#2762), mirroring
+      // tasks_list / tasks_search / tasks_edit.
+      assertKnownKind(params.kind);
+
       // Parse status filter
       const statusFilter = params.status
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
+
+      // Belt-and-suspenders for bridge-materialized defaults (mt#2759): direct
+      // execute() callers (or a bridge that fails to materialize defaultValue)
+      // must still get the documented defaults.
+      const limit = (params.limit as number | undefined) ?? 20;
 
       // Track whether we have dependency data available
       let dependencyDataAvailable = true;
@@ -106,7 +128,8 @@ export function createTasksAvailableCommand(
           availableTasks = await routingService.findAvailableTasks({
             statusFilter,
             backendFilter: params.backend,
-            limit: params.limit,
+            kind: params.kind,
+            limit,
             showEffort: params.showEffort,
             showPriority: params.showPriority,
           });
@@ -130,6 +153,7 @@ export function createTasksAvailableCommand(
 
         const allTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,
+          kind: params.kind,
         });
 
         const filteredTasks = params.backend
@@ -141,7 +165,7 @@ export function createTasksAvailableCommand(
             ? filteredTasks.filter((task) => statusFilter.includes(task.status))
             : filteredTasks;
 
-        availableTasks = statusFilteredTasks.slice(0, params.limit).map((task) => ({
+        availableTasks = statusFilteredTasks.slice(0, limit).map((task) => ({
           taskId: task.id,
           title: task.title || "Unknown",
           status: task.status,
@@ -151,9 +175,12 @@ export function createTasksAvailableCommand(
         }));
       }
 
-      // Filter by readiness score (default 0.5 = shows partially-ready tasks)
+      // Filter by readiness score (default 0.5 = shows partially-ready tasks).
+      // Belt-and-suspenders: tolerate an absent value even if a bridge fails to
+      // materialize the declared default (the mt#2759 failure mode).
+      const minReadiness = (params.minReadiness as number | undefined) ?? 0.5;
       const readyTasks = (availableTasks ?? []).filter(
-        (task) => task.readinessScore >= params.minReadiness
+        (task) => task.readinessScore >= minReadiness
       );
 
       if (params.json) {
@@ -187,7 +214,7 @@ export function createTasksAvailableCommand(
         (t) => t.readinessScore > 0.5 && t.readinessScore < 1.0
       );
       const lowReadiness = readyTasks.filter(
-        (t) => t.readinessScore <= 0.5 && t.readinessScore >= params.minReadiness
+        (t) => t.readinessScore <= 0.5 && t.readinessScore >= minReadiness
       );
 
       if (fullyReady.length > 0) {

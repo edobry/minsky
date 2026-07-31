@@ -13,6 +13,9 @@ import {
   ValidationError,
   getErrorMessage,
 } from "@minsky/domain/errors/index";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
 import { sessionPrWaitForReview } from "@minsky/domain/session/commands/pr-subcommands";
@@ -83,13 +86,37 @@ export function formatMatchMessage(result: SessionPrWaitForReviewMatch): string 
  * Includes the mt#2043 diagnostic payload (sinceUsed + up to MAX_SHOWN
  * lastSeenReviews entries with rejectionReason) so text-mode callers can
  * diagnose the miss class without re-running with --json.
+ *
+ * mt#2777 SC#1: also surfaces the final-authoritative-check outcome —
+ * whether a fresh re-read ran (`finalCheckPerformed`) and the
+ * `minsky-reviewer/findings` check-run state (`reviewerCheckRunState`) —
+ * so a caller reading the timeout message (not just the JSON payload) sees
+ * whether this is a confirmed-fresh silence or the reviewer is still
+ * actively working / has already posted findings via the check-run surface.
  */
 export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): string {
-  const { elapsedMs, pollCount, sinceUsed, lastSeenReviews } = result;
+  const {
+    elapsedMs,
+    pollCount,
+    sinceUsed,
+    lastSeenReviews,
+    finalCheckPerformed,
+    reviewerCheckRunState,
+  } = result;
   const header =
     `⏳ No matching review after ${Math.round(elapsedMs / 1000)}s ` +
     `(${pollCount} poll(s)). Timeout reached without a match.`;
   const lines: string[] = [header, `  Threshold (since): ${sinceUsed}`];
+  lines.push(
+    finalCheckPerformed
+      ? "  Final authoritative check: re-read reviews list immediately before timing out — still no match."
+      : "  Final authoritative check: re-read attempt failed; the above reflects the last successful poll."
+  );
+  if (reviewerCheckRunState) {
+    const { name, status, conclusion } = reviewerCheckRunState;
+    const conclusionSuffix = conclusion ? ` (${conclusion})` : "";
+    lines.push(`  Reviewer check-run "${name}": ${status}${conclusionSuffix}`);
+  }
   if (lastSeenReviews.length === 0) {
     lines.push("  No reviews on the PR at the final poll.");
     return lines.join("\n");
@@ -157,11 +184,52 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
           // on ResourceNotFoundError (missing PR) vs ValidationError
           // (invalid --since) vs generic MinskyError. Only wrap truly
           // unknown errors to avoid swallowing unexpected failures silently.
-          if (
-            error instanceof ResourceNotFoundError ||
-            error instanceof ValidationError ||
-            error instanceof MinskyError
-          ) {
+          //
+          // ORDERING (mt#2888, fixed per PR #2018 R1): named domain-typed
+          // subclasses are preserved FIRST, exactly as before this task's
+          // changes — classification never runs on them, so a
+          // ResourceNotFoundError/ValidationError whose message happens to
+          // mention "rate limit" for its own unrelated reasons can never be
+          // reclassified into a transport-error shape. Read-path
+          // classification (classifyOctokitOriginReadError) then runs on
+          // whatever's LEFT, using a TIGHT match on handleOctokitError's
+          // exact headline text (not classifyMergeError's broader
+          // substring/regex, which is tuned for session.pr.merge's
+          // different job) — see merge-error-classification.ts's module
+          // doc for why. Any remaining MinskyError (e.g. a 401/403/404 from
+          // handleOctokitError, or the subcommand's own generic wrap) is
+          // preserved unchanged, matching this site's ORIGINAL behavior
+          // before mt#2888 touched it.
+          if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
+            throw error;
+          }
+
+          const errorClass = classifyOctokitOriginReadError(error);
+          const originalMessage = error instanceof Error ? error.message : String(error);
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded while waiting for PR review — wait a few minutes before retrying",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+          if (errorClass.kind === "degraded") {
+            const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+            throw mcpStructuredError({
+              code: McpErrorCode.SERVICE_DEGRADED,
+              summary: withOriginalMessage(
+                `GitHub API degraded/unavailable while waiting for PR review${statusSuffix}`,
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          if (error instanceof MinskyError) {
             throw error;
           }
           throw new MinskyError(`Failed to wait for session PR review: ${getErrorMessage(error)}`);

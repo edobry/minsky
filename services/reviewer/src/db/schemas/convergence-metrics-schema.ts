@@ -67,6 +67,21 @@ export const convergenceMetricsTable = pgTable(
      */
     headRef: text("head_ref"),
 
+    /**
+     * Per-review verdict: the GitHub review event the reviewer submitted for
+     * this iteration, lowercased. Accepted values: "approve" |
+     * "request_changes" | "comment" | NULL.
+     *
+     * Nullable — rows written before this column was added (0000-0007 era)
+     * retain NULL; that is the documented cut-off (no backfill from
+     * reviewer_webhook_events.body JSONB). Populated from the review-submission
+     * event (`outcome.event` on the prose path, `event` on the output-tools
+     * path) at both call sites in review-worker.ts. A plain nullable text
+     * column is used instead of a pg enum for additive-migration simplicity
+     * (mt#2287).
+     */
+    verdict: text("verdict"),
+
     /** Row insertion timestamp (UTC). */
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

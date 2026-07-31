@@ -54,7 +54,7 @@ function mockSlowTopologyFetch(payload: unknown) {
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 describe("WeldHistoryPage", () => {
@@ -142,7 +142,7 @@ describe("WeldHistoryPage", () => {
   test("renders an error message when the widget fetch fails", async () => {
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response("Not found", { status: 404 }))
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
     renderWeldHistory();
 
     await waitFor(() => {

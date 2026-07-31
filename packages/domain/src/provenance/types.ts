@@ -97,6 +97,14 @@ export interface RecomputeSummary {
   recomputed: number;
   tierChanged: number;
   skippedNoTranscript: number;
+  /**
+   * Rows skipped because no workspace->conversation link exists, as opposed to
+   * a linked conversation whose transcript is absent (mt#3101, PR #2232 R1).
+   * Reporting both under one counter is the same conflation this task exists to
+   * remove — an operator reading `skippedNoTranscript: 1305` would conclude the
+   * transcripts are missing when the real gap is the link.
+   */
+  skippedNoLink: number;
   errors: number;
   /** Distribution of final tiers: "1" | "2" | "3" → count */
   tierDistribution: Record<string, number>;

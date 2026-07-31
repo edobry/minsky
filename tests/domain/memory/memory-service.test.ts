@@ -57,6 +57,7 @@ const throwingEmbeddingService = {
 
 type MemoryRow = {
   id: string;
+  short_id: string | null;
   type: string;
   name: string;
   description: string;
@@ -216,7 +217,11 @@ function evalAssociationsUpdate(
 
 let idCounter = 1;
 function genId(): string {
-  return `mem-${String(idCounter++).padStart(4, "0")}`;
+  // UUID-shaped: `memories.id` is a Postgres `uuid` column, so a `mem-0001`
+  // synthetic id could never occur in production — and since mt#3259
+  // `MemoryService.get` treats a non-uuid, non-`mem#N` string as an
+  // unqueryable miss rather than letting it reach the driver as a cast error.
+  return `00000000-0000-4000-8000-${String(idCounter++).padStart(12, "0")}`;
 }
 
 /** Recorded call to db.update().set().where() */
@@ -291,6 +296,13 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
           const id = (data["id"] as string | undefined) ?? genId();
           const row: MemoryRow = {
             id,
+            // mt#2966: mint-on-create sets shortId; tests that construct
+            // MemoryCreateInput directly (no shortId) leave this null,
+            // matching a pre-backfill legacy row.
+            short_id:
+              (data["shortId"] as string | undefined) ??
+              (data["short_id"] as string | undefined) ??
+              null,
             type: data["type"] ?? "user",
             name: data["name"] ?? "",
             description: data["description"] ?? "",
@@ -310,11 +322,20 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
             access_count: 0,
           };
           rows.set(id, row);
-          return {
+          // mt#2966: onConflictDoNothing is a no-op passthrough in this fake
+          // (it always inserts — the fake never simulates a short_id
+          // collision), matching drizzle's chainable builder shape so
+          // MemoryService.create()/supersede()'s
+          // `.onConflictDoNothing({...}).returning()` chain works.
+          const result = {
+            onConflictDoNothing(_opts?: unknown) {
+              return result;
+            },
             returning() {
               return Promise.resolve([row]);
             },
           };
+          return result;
         },
       };
     },
@@ -388,7 +409,11 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
         where(cond: any) {
           const matched = queryRows(cond);
           for (const r of matched) rows.delete(r.id);
-          return Promise.resolve();
+          // `.returning()` mirrors Postgres DELETE ... RETURNING: the service
+          // reads the deleted row's canonical uuid from here so it can remove
+          // the matching embedding, which is keyed by uuid and never by a
+          // `mem#N` alias (mt#3108 / PR #2348 R1).
+          return { returning: () => Promise.resolve(matched) };
         },
       };
     },
@@ -825,6 +850,7 @@ describe("MemoryService", () => {
       const idB = genId();
       db._rows.set(idA, {
         id: idA,
+        short_id: null,
         type: "user",
         name: "A cycle",
         description: "",
@@ -845,6 +871,7 @@ describe("MemoryService", () => {
       });
       db._rows.set(idB, {
         id: idB,
+        short_id: null,
         type: "user",
         name: "B cycle",
         description: "",
@@ -884,6 +911,7 @@ describe("MemoryService", () => {
         const nextId = i < ids.length - 1 ? (ids[i + 1] ?? null) : null;
         db._rows.set(id, {
           id,
+          short_id: null,
           type: "user",
           name: `Chain ${i}`,
           description: "",
@@ -980,6 +1008,7 @@ describe("MemoryService", () => {
       // First insert the row into failDb manually since svc.create used a different service
       failDb._rows.set(rec.id, {
         id: rec.id,
+        short_id: rec.shortId ?? null,
         type: rec.type,
         name: rec.name,
         description: rec.description,

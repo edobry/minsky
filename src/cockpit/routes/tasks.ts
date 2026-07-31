@@ -1,16 +1,165 @@
 /**
  * Cockpit task routes (mt#2615 — extracted from server.ts).
  *
- *   GET /api/tasks/ids — uncapped ids-only endpoint for the linkifier (mt#2518 R5)
- *   GET /api/tasks/:id — task detail for the drill-down page (mt#1918)
- *   GET /api/tasks     — lightweight task list for the command palette (mt#1917)
+ *   GET /api/tasks/ids  — uncapped ids-only endpoint for the linkifier (mt#2518 R5)
+ *   GET /api/tasks/meta — batch {id,title,status} label channel for the entity-
+ *                         reference layer (mt#3174); lazy over requested ids
+ *   GET /api/tasks/:id  — task detail for the drill-down page (mt#1918)
+ *   GET /api/tasks      — lightweight task list for the command palette (mt#1917)
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import { getServerTaskService, getServerTaskDetailDeps } from "../db-providers";
+import {
+  getServerTaskService,
+  getServerTaskDetailDeps,
+  getServerSessionProvider,
+} from "../db-providers";
+import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+// Static, matching `widgets/agents.ts`'s use of the same registry: the host
+// module is dependency-light by design, and a deployment that never spawns a
+// driven session just reads an empty registry.
+import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host";
+
+/**
+ * Pick the driven session an operator should be returned to for a task
+ * (mt#3400), or null when none applies.
+ *
+ * Extracted as a pure function for the same reason `parseTaskMetaIds` is: the
+ * `/api/tasks/:id` route has no DI seam and `mock.module` is banned in this
+ * codebase, so the selection RULES are tested here directly and the route keeps
+ * only the registry read (see ./tasks.test.ts's header).
+ *
+ * Three rules, each load-bearing:
+ *   - Ids are compared through `normalize`, never raw. The record's `taskId` is
+ *     an opaque string recorded at launch by whichever surface launched it; the
+ *     route's comes from the URL. A raw `===` would silently never match if the
+ *     two ever disagree on display form.
+ *   - `isTerminal` excludes finished sessions so an exited/crashed/unrecoverable
+ *     record can never hijack the action — but everything non-terminal DOES
+ *     qualify, including `"reconnecting"`. That state (a record rebuilt after a
+ *     daemon restart) is exactly the one the originating incident hit, and it is
+ *     genuinely reachable: attaching to `/driven/:id` resumes it.
+ *   - Newest-started wins when a task has been driven more than once. The
+ *     comparator is TOTAL: a missing or non-string `startedAt` sorts last
+ *     rather than throwing. Today's producers always supply an ISO string
+ *     (`new Date().toISOString()` on spawn, `row.startedAt.toISOString()` on
+ *     rehydration, which would itself throw on a null column before reaching
+ *     here), so this is not a reachable bug via those paths — but the function
+ *     is exported and generic over its record type, so a total comparator
+ *     costs nothing and removes the class. (PR #2448 R1.)
+ */
+export function selectLiveDrivenSession<
+  S extends string,
+  T extends { localId: string; taskId: string | null; status: S; startedAt: string },
+>(
+  records: readonly T[],
+  wantedTaskId: string,
+  normalize: (id: string) => string,
+  isTerminal: (status: S) => boolean
+): T | null {
+  const wanted = normalize(wantedTaskId);
+  // Sort key, not the raw field: an absent/non-string `startedAt` becomes ""
+  // and therefore sorts last under a descending compare, instead of throwing
+  // on `.localeCompare`.
+  const startedAtKey = (record: T): string =>
+    typeof record.startedAt === "string" ? record.startedAt : "";
+  const candidates = records
+    .filter(
+      (record) =>
+        record.taskId !== null && normalize(record.taskId) === wanted && !isTerminal(record.status)
+    )
+    .sort((a, b) => startedAtKey(b).localeCompare(startedAtKey(a)));
+  return candidates[0] ?? null;
+}
+
+/**
+ * Task-meta provider (mt#3174) — adapts `getServerTaskService()` to
+ * `TaskProviderLike`'s batch shape, returning `{id, title, status}` (status
+ * included, unlike the title-only providers `widgets/agents.ts` and
+ * `widgets/context-inspector.ts` construct for their own `TaskTitleCache`
+ * instances). Module-level singleton cache, separate instance from those two
+ * widgets' caches — no shared state, no cross-contamination.
+ */
+async function taskMetaProvider(): Promise<TaskProviderLike> {
+  const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+  return {
+    async getTask(taskId: string) {
+      const taskService = await getServerTaskService();
+      if (!taskService) return null;
+      const task = await taskService.getTask(taskId);
+      if (!task) return null;
+      return { title: task.title ?? "", status: (task.status ?? "TODO").toUpperCase() };
+    },
+    async getTasks(ids: string[]) {
+      const taskService = await getServerTaskService();
+      if (!taskService) return [];
+      const tasks = await taskService.getTasks(ids);
+      return tasks.map((t) => ({
+        id: formatTaskIdForDisplay(t.id),
+        title: t.title ?? "",
+        status: ((t.status ?? "TODO") as string).toUpperCase(),
+      }));
+    },
+  };
+}
+
+const taskMetaCache = new TaskTitleCache(taskMetaProvider);
+
+/**
+ * Parse the `?ids=` query param for `GET /api/tasks/meta` into a clean id
+ * list — comma-separated, each segment percent-decoded and trimmed, empty
+ * segments dropped. Pure (no I/O) so it's unit-testable without a running
+ * server or task service (mt#3174).
+ */
+export function parseTaskMetaIds(rawIds: unknown): string[] {
+  if (typeof rawIds !== "string" || rawIds.length === 0) return [];
+  return rawIds
+    .split(",")
+    .map((s) => {
+      try {
+        return decodeURIComponent(s.trim());
+      } catch {
+        return "";
+      }
+    })
+    .filter((s) => s.length > 0);
+}
 
 /** Mount the /api/tasks* routes on `app`. */
 export function mountTaskRoutes(app: express.Express): void {
+  /**
+   * GET /api/tasks/meta?ids=mt%231,mt%232 — batch task-label channel (mt#3174).
+   *
+   * Returns: { tasks: {id, title, status}[] } for whichever of the requested
+   * ids resolve — unknown/missing ids are simply omitted (never an error),
+   * so a caller degrades to bare-id rendering for anything not returned.
+   *
+   * Built on `TaskTitleCache` (TTL-cached batch resolution, mt#2770) rather
+   * than a widened `/api/tasks/ids` — this channel is lazy over the ids
+   * actually requested, not a comprehensive/uncapped list (that property
+   * belongs to `/api/tasks/ids` alone; see its doc comment below).
+   *
+   * IMPORTANT: registered BEFORE /api/tasks/:id so "meta" is not interpreted
+   * as a task id parameter by Express's first-match-wins routing (same
+   * reasoning as the /api/tasks/ids route below).
+   */
+  app.get("/api/tasks/meta", async (req, res) => {
+    try {
+      const ids = parseTaskMetaIds(req.query.ids);
+      if (ids.length === 0) {
+        res.json({ tasks: [] });
+        return;
+      }
+      const meta = await taskMetaCache.getTaskMeta(ids);
+      const tasks = Array.from(meta, ([id, m]) => ({ id, title: m.title, status: m.status }));
+      res.json({ tasks });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[tasks] GET /api/tasks/meta — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while resolving task labels." });
+    }
+  });
+
   /**
    * GET /api/tasks/ids — uncapped ids-only endpoint for the linkifier (mt#2518 R5).
    *
@@ -164,6 +313,147 @@ export function mountTaskRoutes(app: express.Express): void {
         incoming: incomingIds.map(taskRef),
       };
 
+      // Stage-appropriate actions for the cockpit act-here region (mt#2986,
+      // superseding mt#2959's button-shaped `startability` boolean). Every
+      // non-terminal stage maps to at least one action that can actually
+      // succeed (the mt#2959 honesty invariant, kept): a principal-driven
+      // launch is exempt from the planning gate (session-startability.ts), so
+      // pre-READY stages offer "plan" (a driven session primed to plan) rather
+      // than a dead-end explanation. The workspace probe degrades to
+      // "no workspace" on any error rather than failing the detail read.
+      interface TaskAction {
+        kind: "plan" | "start" | "resume" | "view-pr" | "drive";
+        /** Workspace session id — set on "resume". */
+        sessionId?: string;
+        /** Driven-session local id — set on "drive" (mt#3400). */
+        drivenSessionId?: string;
+        /** PR number — set on "view-pr" when known. */
+        prNumber?: number;
+        /** Secondary explanation rendered under the control (honesty layer). */
+        note?: string;
+      }
+
+      let existingWorkspace: { sessionId: string; prNumber: number | null } | null = null;
+      try {
+        const sessionProvider = await getServerSessionProvider();
+        if (sessionProvider) {
+          const existing = await sessionProvider.getSessionByTaskId(taskId);
+          if (existing) {
+            existingWorkspace = {
+              sessionId: existing.sessionId,
+              prNumber: existing.pullRequest?.number ?? null,
+            };
+          }
+        }
+      } catch (workspaceErr) {
+        log.warn(
+          `[tasks] actions workspace probe failed for ${taskId}: ${
+            workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
+          }`
+        );
+      }
+
+      // mt#3400 — a live driven session bound to this task is the operator's
+      // actual work surface, and until this probe existed the task page could
+      // not see it: the workspace probe above answers "does a clone exist",
+      // never "is something running in it". The result was that the page's own
+      // recovery affordance ("Open session" -> /agents/:id) pointed AWAY from
+      // the live drive view, making the return path four hops. Registry read
+      // only — this route and the driven-session host share one process, so
+      // there is no HTTP round-trip and no new external dependency. Degrades to
+      // "no live driven session" on any error, matching the workspace probe's
+      // posture directly above: a task page must still render if the driven
+      // registry is unavailable.
+      let liveDriven: { drivenSessionId: string } | null = null;
+      try {
+        const { formatTaskIdForDisplay: formatForCompare } = await import(
+          "@minsky/domain/tasks/task-id-utils"
+        );
+        const newest = selectLiveDrivenSession(
+          drivenSessionRegistry.list(),
+          taskId,
+          formatForCompare,
+          isTerminalStatus
+        );
+        if (newest) {
+          liveDriven = { drivenSessionId: newest.localId };
+        }
+      } catch (drivenErr) {
+        log.warn(
+          `[tasks] driven-session probe failed for ${taskId}: ${
+            drivenErr instanceof Error ? drivenErr.message : String(drivenErr)
+          }`
+        );
+      }
+
+      const { sessionStartBlockedReason } = await import(
+        "@minsky/domain/session/session-startability"
+      );
+      // mt#3010: single-authority consolidation — this route runs server-side
+      // (not part of the Vite-bundled cockpit web client, unlike
+      // status-colors.ts / TaskList.tsx, which stay on self-contained literals
+      // for bundle-size/Node-built-in reasons), so importing the registry's
+      // predicates directly is safe here.
+      const { isTerminal, isActiveWork, isAwaitingReview } = await import(
+        "@minsky/domain/tasks/workflows"
+      );
+
+      const status = (task.status ?? "TODO").toUpperCase();
+      const kind = task.kind ?? "implementation";
+      const actions: TaskAction[] = [];
+
+      if (!isTerminal(status)) {
+        const resumeAction: TaskAction | null = existingWorkspace
+          ? { kind: "resume", sessionId: existingWorkspace.sessionId }
+          : null;
+
+        const preReady = status === "TODO" || (status === "PLANNING" && kind !== "umbrella");
+        if (preReady) {
+          // The autonomous gate's reason doubles as the honest explanation of
+          // WHY this is a plan launch rather than a plain start.
+          actions.push({
+            kind: "plan",
+            note: sessionStartBlockedReason(status, kind) ?? undefined,
+          });
+        } else if (status === "READY" || (status === "PLANNING" && kind === "umbrella")) {
+          actions.push({ kind: "start" });
+        } else if (isActiveWork(status)) {
+          if (resumeAction) {
+            actions.push(resumeAction);
+          } else {
+            actions.push({ kind: "start" });
+          }
+        } else if (isAwaitingReview(status)) {
+          actions.push({
+            kind: "view-pr",
+            prNumber: existingWorkspace?.prNumber ?? undefined,
+          });
+        } else if (status === "BLOCKED") {
+          actions.push({
+            ...(resumeAction ?? { kind: "start" }),
+            note: "Task is BLOCKED — review its dependencies below before driving it.",
+          });
+        }
+
+        // Resume is always reachable as a secondary action when a workspace
+        // exists and isn't already the primary.
+        if (resumeAction && !actions.some((a) => a.kind === "resume")) {
+          actions.push(resumeAction);
+        }
+
+        // mt#3400 — a live driven session LEADS, whatever the stage-appropriate
+        // action would otherwise have been. Unshift rather than replace, so the
+        // workspace link and the stage action both stay reachable behind it.
+        //
+        // This also removes a duplicate-launch footgun on the pre-READY stages:
+        // "Plan in session" SPAWNS a new driven session, so a task already
+        // being driven previously offered launch-another as its primary
+        // control, with the live session invisible.
+        if (liveDriven) {
+          actions.unshift({ kind: "drive", drivenSessionId: liveDriven.drivenSessionId });
+        }
+      }
+
       res.json({
         task: {
           id: formatTaskIdForDisplay(task.id),
@@ -176,6 +466,7 @@ export function mountTaskRoutes(app: express.Express): void {
         parent,
         children,
         deps: taskDeps,
+        actions,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -194,7 +485,7 @@ export function mountTaskRoutes(app: express.Express): void {
    * slice over a >500 backlog hid every recent task from the palette.
    *
    * Query params:
-   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED/COMPLETED
+   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED
    *               included). Used by the entity-index linkifier (mt#2518) to make
    *               the task id-set comprehensive so every transcript ref links.
    *               Without this flag the default excludes terminal statuses, which
@@ -211,7 +502,7 @@ export function mountTaskRoutes(app: express.Express): void {
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
       const { sortTasksByRecency } = await import("../palette-tasks");
-      // ?all=true: include DONE/CLOSED/COMPLETED tasks (needed by the entity-index
+      // ?all=true: include DONE/CLOSED tasks (needed by the entity-index
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";

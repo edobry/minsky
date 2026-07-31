@@ -22,7 +22,12 @@ function sealed(configKey: string): VarDef {
 function defineVariables(
   serviceName: string,
   environmentId: string,
-  serviceId: string,
+  // mt#2132: widened from `string` to `pulumi.Input<string>` so a
+  // newly-created service's `.id` (a `pulumi.Output<string>`, not known
+  // until `pulumi up` runs) can be passed directly — the existing callers
+  // below all pass hardcoded plain strings for already-provisioned
+  // services, which remain valid under the wider type.
+  serviceId: pulumi.Input<string>,
   vars: Record<string, VarDef>
 ): Record<string, railway.Variable> {
   const resources: Record<string, railway.Variable> = {};
@@ -67,10 +72,99 @@ defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   MINSKY_MCP_MAX_SESSIONS: plain("1000"),
   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  // mt#2542 least-privilege role split: app binaries connect as the DML-only
+  // `minsky_app` Postgres role (scripts/supabase-app-role.sql). The DDL-capable
+  // `postgres` credential lives ONLY in Pulumi key
+  // `minsky-persistence-postgres-url` + the MINSKY_PERSISTENCE_POSTGRES_URL
+  // GitHub Actions secret (the deploy-keyed migrator). NOTE: sealed vars carry
+  // `ignoreChanges: ["value"]`, so this declaration sets the value at resource
+  // CREATION only — the live rotation to the minsky_app URL is done out-of-band
+  // (`railway variables --set`), per the sealed-secret posture (mt#1442 runbook).
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
   NODE_ENV: plain("production"),
   OPENAI_API_KEY: sealed("openai-api-key"),
   MINSKY_OAUTH_SIGNING_KEY: sealed("minsky-oauth-signing-key"),
+});
+
+// ---------------------------------------------------------------------------
+// minsky-ops (mt#2132)
+// ---------------------------------------------------------------------------
+// Runs the SAME GHCR image as minsky-mcp above, with a start-command
+// override (`ops start` instead of `mcp start --http`) so it boots the
+// background-loop / health-endpoint process (src/commands/ops/start-command.ts)
+// instead of the MCP server. Same project + environment as minsky-mcp — this
+// is a placeholder-topology decision recorded in services/minsky-ops/deploy.config.ts
+// before this task (shared Postgres access, shared GHCR image lifecycle:
+// `.github/workflows/deploy-minsky-mcp.yml`'s `src/**` path filter already
+// covers `src/commands/ops/**`, so a push touching either service's code
+// rebuilds+pushes the one shared `ghcr.io/edobry/minsky:latest` image that
+// both services pick up independently on their own Railway-native redeploy).
+//
+// KNOWN GAP (verified against the generated Pulumi SDK at
+// infra/sdks/railway/service.ts, mt#2132): the
+// terraform-community-providers/railway bridge's `railway.Service` resource
+// has NO `startCommand` (or any `deploy.*`) field — Railway's per-service
+// deploy-settings concept (start command, healthcheck path, etc.) lives
+// outside this simplified schema entirely, the same class of gap already
+// documented on the reviewer service below for `deploy.healthcheckPath`.
+// The start-command override is therefore set out-of-band via
+// `railway environment edit --service-config minsky-ops deploy.startCommand
+// "<command>"` (documented in services/minsky-ops/deploy.config.ts) — NOT
+// expressible here, and NOT a `config_path` (which Railway rejects alongside
+// `source_image`, per the minsky-mcp comment above).
+//
+// PORT (mt#2132, verified empirically): unlike the root Dockerfile's shell-form
+// CMD (which Docker wraps in `/bin/sh -c "..."`, letting `$PORT` expand from
+// Railway's injected env var), Railway's `deploy.startCommand` override does
+// NOT go through a shell — `--port $PORT` in the override string arrives at
+// the CLI as the LITERAL 5-character string `$PORT`, which fails
+// `parsePositiveIntEnv`-style validation and crash-loops. The override
+// therefore uses a LITERAL port matching this declared `PORT` variable, and
+// Railway's edge networking (per its documented behavior, confirmed against
+// minsky-mcp's own `targetPort: null` domain config) routes the public
+// domain to whatever value the service's `PORT` variable holds — declaring
+// it here makes the routing target and the app's actual listening port the
+// same fixed value instead of depending on shell expansion.
+export const minskyOpsService = new railway.Service("minsky-ops", {
+  projectId: minskyMcpProject,
+  name: "minsky-ops",
+  sourceImage: "ghcr.io/edobry/minsky:latest",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
+});
+
+defineVariables("minsky-ops", minskyMcpEnv, minskyOpsService.id, {
+  // Same domain-container bootstrap as minsky-mcp (both run createDomainContainer()
+  // from the same bundle) — inherits the same credential set per
+  // services/minsky-ops/deploy.config.ts's docstring ("Inherits all
+  // minsky-mcp variables plus" the ADOPTION_SWEEPER_* family below).
+  // MINSKY_MCP_MAX_SESSIONS is intentionally OMITTED — that variable only
+  // governs the MCP-over-HTTP transport's session cap, which minsky-ops
+  // never runs (it calls domain services directly, no callMcp()).
+  MINSKY_APP_ID: plain("3436626"),
+  MINSKY_APP_INSTALLATION_ID: plain("125403046"),
+  MINSKY_GITHUB_APP_PRIVATE_KEY: sealed("minsky-github-app-private-key"),
+  MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  // mt#2542 least-privilege role split — same DML-only `minsky_app` role as
+  // minsky-mcp (see that service's comment above for the full rationale).
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
+  NODE_ENV: plain("production"),
+  // Route info-level logs to stdout as JSON so Railway captures them. Without
+  // this the default CLI logger mode keeps info logs off stdout and the
+  // container is silent even when boot succeeds (observed during mt#2132
+  // bring-up: zero log lines after "Starting Container").
+  MINSKY_LOG_MODE: plain("STRUCTURED"),
+  OPENAI_API_KEY: sealed("openai-api-key"),
+  MINSKY_OAUTH_SIGNING_KEY: sealed("minsky-oauth-signing-key"),
+  // Fixed listening/routing port — see the `minskyOpsService` comment above
+  // for why this is a literal value rather than Railway's usual `$PORT`
+  // shell-expansion convention.
+  PORT: plain("8081"),
+  // Adoption sweeper (mt#1630 loop, mt#2101 ops-service wiring, mt#3328
+  // container-blindness fix). ADOPTION_SWEEPER_EXECUTE is DELIBERATELY NOT
+  // set — the sweeper defaults to dry-run (mt#3328); flipping to execute is
+  // an operator-reviewed step after mt#2132, not part of this task's scope.
+  ADOPTION_SWEEPER_ENABLED: plain("true"),
 });
 
 // ---------------------------------------------------------------------------
@@ -83,13 +177,31 @@ const reviewerServiceId = "3913e8a4-81ab-465a-aad8-b76b5e3f66ed";
 export const reviewerService = new railway.Service("reviewer", {
   projectId: reviewerProject,
   name: "minsky-reviewer-webhook",
-  sourceRepo: "edobry/minsky",
-  sourceRepoBranch: "main",
-  // Scope the deploy trigger to the reviewer's build/dependency closure via
-  // Railway config-as-code `build.watchPatterns` (the provider exposes no
-  // watch field). Without this the service redeploys on EVERY push to main,
-  // and each restart drops in-flight GitHub->reviewer webhooks (mt#2345).
-  configPath: "services/reviewer/railway.json",
+  sourceImage: "ghcr.io/edobry/minsky-reviewer:latest",
+  // mt#3117 — converted from repo-source (Railway's native GitHub webhook,
+  // rebuilding on EVERY push to main matching the now-retired
+  // railway.json's build.watchPatterns — mt#2345's original fix for
+  // unsynchronized redeploys) to image-source, the SAME shape minsky-mcp
+  // uses above. Deploy-scoping now lives entirely in
+  // `.github/workflows/deploy-reviewer.yml`'s `paths:` filter — the
+  // workflow builds, smoke-tests, migrates, and pushes the GHCR image only
+  // on changes within the reviewer's build closure; that is the single
+  // source of truth (mirrors the minsky-mcp comment above in intent).
+  //
+  // `configPath` is INTENTIONALLY DROPPED, not just omitted — Railway
+  // rejects `config_path` when `source_image` is set ("Invalid Attribute
+  // Combination"), the exact mt#2472 incident that removed minsky-mcp's own
+  // config_path. `services/reviewer/railway.json` is retired for the same
+  // reason (see services/reviewer/deploy.config.ts's mt#3117 comment).
+  //
+  // LIVE-STATE CAVEAT (mt#1815/mt#2777, unresolved as of this task): the
+  // live reviewer service's `configPath` has been independently observed
+  // drifted to null in production — i.e. even the PRE-mt#3117 config-as-code
+  // state was not reliably applying to the live service. `pulumi up`
+  // against this declaration is what reconciles the live service to
+  // sourceImage; running it, and flipping the dashboard's Settings > Source
+  // to Docker Image, are documented OPERATOR follow-ups performed after
+  // this PR merges (see services/reviewer/DEPLOY.md) — not an in-PR action.
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -101,8 +213,46 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   MINSKY_REVIEWER_TIER2_ENABLED: plain("true"),
   REVIEWER_PROVIDER: plain("openai"),
   OPENAI_API_KEY: sealed("openai-api-key"),
+  // mt#2724: Braintrust observability credential — enables the reviewer's
+  // per-review cost event emission (mt#2723, source="minsky.reviewer.cost") in
+  // production. Without it, the shared emitBraintrustEvent gracefully no-ops.
+  // Project name defaults to "minsky" (no BRAINTRUST_PROJECT_NAME needed).
+  BRAINTRUST_API_KEY: sealed("braintrust-api-key"),
   SWEEPER_ENABLED: plain("true"),
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
+  // mt#3245: deterministic verifier that demotes a BLOCKING duplicate-identifier /
+  // duplicate-declaration finding to NON-BLOCKING when a declaration-FORM count (not
+  // identifier occurrences) against the file's actual current content at the review ref
+  // finds <=1 declaration. mt#3307: enabling it now — mt#3245 merged 2026-07-26 (PR #2334)
+  // but this variable was never declared here, so the check has been deployed-but-inert;
+  // mt#2575 instance 5 (PR #2325, 2026-07-26) is the incident it targets.
+  REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED: plain("true"),
+  // mt#2799: zero-downtime redeploy drain/overlap. Originally declared to
+  // DUPLICATE services/reviewer/railway.json's `deploy.drainingSeconds` /
+  // `deploy.overlapSeconds` as a belt-and-suspenders measure, because the
+  // live reviewer service's `configPath` had been observed drifted to null
+  // in production (memory mt1815_soak_still_failing_2026_07_15, tracked as
+  // mt#1815/mt#2777 SC#3, unresolved as of this task).
+  //
+  // mt#3117 UPDATE: `services/reviewer/railway.json` is now RETIRED (the
+  // service converted from repo-source to image-source deploy — Railway
+  // rejects `config_path` alongside `source_image`; see this file's
+  // `reviewerService` resource comment). These two service variables are
+  // therefore no longer a belt-and-suspenders duplicate of anything — they
+  // are the SOLE declarative source for drain/overlap now (still a plain
+  // Railway service-variable mechanism, unaffected by the configPath
+  // question, which no longer applies at all). Values unchanged: 300s
+  // draining covers a typical review (kill-test target <30s recovery +
+  // normal review latency ~60-90s, well under 300s); 60s overlap gives the
+  // new deployment time to pass its healthcheck and start draining the old
+  // one gracefully. `deploy.healthcheckPath` has NO service-variable
+  // equivalent and, with railway.json gone, now has NO config-as-code
+  // declaration at all — the same gap minsky-mcp's image-source service
+  // already has (see that service's comment above). One-time dashboard
+  // verification of the healthcheck path is an operator follow-up
+  // (services/reviewer/DEPLOY.md), not something this file can declare.
+  RAILWAY_DEPLOYMENT_DRAINING_SECONDS: plain("300"),
+  RAILWAY_DEPLOYMENT_OVERLAP_SECONDS: plain("60"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   // Canonical persistence config (mt#2463): the domain container reads
@@ -112,7 +262,8 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   // mt#1610) — the reviewer's own DB client prefers the canonical name and
   // both secrets resolve to the same prod database.
   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  // mt#2542: DML-only minsky_app role — see the minsky-mcp block above.
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
   // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
   // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
   // R1): the chat id is an operator-specific identifier and the sink must not
@@ -195,7 +346,13 @@ export const cockpitService = new railway.Service("cockpit", {
 // ---------------------------------------------------------------------------
 export const services = {
   minskyMcp: { projectId: minskyMcpProject, serviceId: minskyMcpServiceId },
+  minskyOps: { projectId: minskyMcpProject, serviceId: minskyOpsService.id },
   reviewer: { projectId: reviewerProject, serviceId: reviewerServiceId },
   site: { projectId: siteProject, serviceId: siteServiceId },
   cockpit: { projectId: cockpitProject, serviceId: cockpitServiceId },
 };
+
+// Stack output so the real serviceId is discoverable after `pulumi up`
+// creates it (mt#2132) — `pulumi stack output minskyOpsServiceId` — without
+// needing to query the Railway API/dashboard to find it.
+export const minskyOpsServiceId = minskyOpsService.id;

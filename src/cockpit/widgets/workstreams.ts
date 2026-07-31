@@ -21,6 +21,7 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 
@@ -62,6 +63,13 @@ export interface WorkstreamCard {
   activeChildCount: number;
   doneChildCount: number;
   blockedChildCount: number;
+  /**
+   * Newest `updatedAt` across the parent and all children, ISO string
+   * (mt#2885) — the stream's last-motion signal; null when no task in the
+   * stream carries a timestamp. Stall detection derives from this
+   * render-side against the decision-defaults thresholds.
+   */
+  lastActivityAt: string | null;
 }
 
 /**
@@ -128,18 +136,14 @@ function normaliseStatus(raw: string): TaskStatus {
   return "TODO";
 }
 
-/** Non-terminal statuses — a child in any of these keeps the workstream "active" */
-const NON_TERMINAL_STATUSES: Set<TaskStatus> = new Set([
-  "TODO",
-  "READY",
-  "IN-PROGRESS",
-  "IN-REVIEW",
-  "PLANNING",
-  "BLOCKED",
-]);
-
+/**
+ * A child in a non-terminal status keeps the workstream "active" (mt#3010:
+ * delegates to the domain registry's isTerminal instead of a hand-maintained
+ * NON_TERMINAL_STATUSES Set — this file runs server-side, unlike its frontend
+ * twin Workstreams.tsx, so importing the registry here is safe).
+ */
 function isActive(status: TaskStatus): boolean {
-  return NON_TERMINAL_STATUSES.has(status);
+  return !isTerminal(status);
 }
 
 /**
@@ -297,6 +301,17 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
           // Filter rule: only include workstreams with at least one active child
           if (activeChildCount === 0) continue;
 
+          // Last-motion signal (mt#2885): newest updatedAt across parent +
+          // children. Tasks without a timestamp simply don't contribute.
+          let lastActivityMs = parentTask.updatedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+          for (const childId of childIds) {
+            const t = taskMap.get(childId)?.updatedAt?.getTime();
+            if (t !== undefined && t > lastActivityMs) lastActivityMs = t;
+          }
+          const lastActivityAt = Number.isFinite(lastActivityMs)
+            ? new Date(lastActivityMs).toISOString()
+            : null;
+
           workstreams.push({
             parentId: formatTaskIdForDisplay(parentTask.id),
             parentTitle: parentTask.title ?? "",
@@ -305,6 +320,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
             activeChildCount,
             doneChildCount,
             blockedChildCount,
+            lastActivityAt,
           });
         }
 

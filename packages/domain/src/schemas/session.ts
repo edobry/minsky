@@ -147,7 +147,20 @@ export const sessionDeleteParamsSchema = z
   .object({
     sessionId: sessionIdSchema.optional().describe("Session ID to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    force: flagSchema("Skip confirmation prompt"),
+    // mt#3105 SC5: the former `force` flag is REMOVED — it was declared but
+    // never read by deleteSessionImpl (dead end-to-end), and mt#3021's design
+    // decision is that a bare boolean must never lift a destructive guard.
+    // `overrideReason` below is the only mechanism that does.
+    // mt#3021 SC2: justification required to delete a workspace with an
+    // in-progress merge (MERGE_HEAD present) or uncommitted changes; also
+    // lifts the mt#3105 live-actor gate.
+    overrideReason: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event."
+      ),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.sessionId !== undefined || data.task !== undefined, {
@@ -195,6 +208,10 @@ export const sessionUpdateParamsSchema = z
     ),
     dryRun: flagSchema("Check for conflicts without performing actual update"),
     skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
+    // mt#3205: override the push-phase wall-clock bound (see
+    // pushWithConfirmation/DEFAULT_PUSH_CONFIRM_TIMEOUT_MS in
+    // push-operations.ts). Mirrors session.commit's pushTimeoutMs.
+    pushTimeoutMs: z.number().int().positive().optional(),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.sessionId !== undefined || data.task !== undefined, {

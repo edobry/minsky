@@ -61,6 +61,9 @@ import {
 
 import { projectConfigSchema, type ProjectConfig } from "./project";
 
+import { deploymentConfigSchema, type DeploymentSectionConfig } from "./deployment";
+import { principalChannelConfigSchema, type PrincipalChannelConfig } from "./principal-channel";
+
 /**
  * Complete application configuration schema
  *
@@ -145,6 +148,14 @@ export const configurationSchema = z.object({
   // Project identity configuration (mt#2414 — Phase 1.1 of mt#2391)
   // Stamped by `minsky init` / `minsky setup` with the project slug.
   project: projectConfigSchema,
+
+  // Deployment-tooling configuration (mt#2821 — default-service disambiguation)
+  deployment: deploymentConfigSchema,
+
+  // Principal Telegram channel (mt#3228, made launch-independent by mt#3230).
+  // Optional: an absent section means the channel is off, which is the correct
+  // default for a surface that turns a Telegram message into a local claude turn.
+  principalChannel: principalChannelConfigSchema.optional(),
 });
 
 /**
@@ -203,6 +214,8 @@ export type {
   ObservabilityProviderConfig,
   ObservabilityProvidersConfig,
   ProjectConfig,
+  DeploymentSectionConfig,
+  PrincipalChannelConfig,
 };
 
 // Re-export schemas for external use
@@ -230,6 +243,8 @@ export {
   oauthProviderSchema,
   observabilityConfigSchema,
   projectConfigSchema,
+  deploymentConfigSchema,
+  principalChannelConfigSchema,
 };
 
 // Export the main schema as default

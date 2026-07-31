@@ -1,19 +1,18 @@
 /**
- * Regression test: applyPostMergeStateSync kind-aware terminal state (mt#1872)
+ * Regression test: applyPostMergeStateSync post-merge terminal state.
  *
- * Before this fix, the post-merge handler hardcoded `setTaskStatus(taskId, DONE)`.
- * For umbrella-kind tasks (mt#1812) DONE isn't a valid state — the umbrella
- * workflow's terminal is COMPLETED. The validateStatusTransition call inside
- * the persistence layer would throw, the surrounding catch would swallow the
- * error (setting partialFailure), and the task would silently remain in
- * IN-PROGRESS. This is the same failure-class that produced mt#1768.
+ * History: mt#1872 added kind-aware dispatch (umbrella → COMPLETED) because the
+ * umbrella workflow then had no DONE state. mt#2311 collapsed the workflows to
+ * a single success terminal, so the dispatch is retired and EVERY kind targets
+ * DONE on merge — these tests pin that, including for umbrella-kind tasks (the
+ * class that silently stuck in IN-PROGRESS pre-mt#1872, same family as mt#1768).
  *
  * Tests verify:
- *   1. Implementation-kind task at IN-REVIEW → DONE (existing behavior preserved).
- *   2. Umbrella-kind task at IN-PROGRESS → COMPLETED (new dispatch).
+ *   1. Implementation-kind task at IN-REVIEW → DONE.
+ *   2. Umbrella-kind task at IN-PROGRESS → DONE (single terminal, mt#2311).
  *   3. Already-at-target idempotency: implementation already DONE → no-op.
- *   4. Already-at-target idempotency: umbrella already COMPLETED → no-op.
- *   5. Back-compat: task without `kind` field defaults to implementation behavior.
+ *   4. Already-at-target idempotency: umbrella already DONE → no-op.
+ *   5. Back-compat: task without `kind` field behaves identically.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -102,7 +101,7 @@ describe("applyPostMergeStateSync kind-aware terminal state (mt#1872)", () => {
     expect(status).toBe(TASK_STATUS.DONE);
   });
 
-  it("umbrella kind at IN-PROGRESS → transitions to COMPLETED (not DONE)", async () => {
+  it("umbrella kind at IN-PROGRESS → transitions to DONE (single terminal, mt#2311)", async () => {
     const deps = makeDeps({ kind: "umbrella", initialStatus: TASK_STATUS.IN_PROGRESS });
     const params: PostMergeStateSyncParams = {
       sessionId: SESSION_ID,
@@ -116,9 +115,9 @@ describe("applyPostMergeStateSync kind-aware terminal state (mt#1872)", () => {
 
     expect(result.taskStatusUpdated).toBe(true);
     expect(result.taskUpdateError).toBeUndefined();
-    expect(result.taskTerminalStatus).toBe(TASK_STATUS.COMPLETED);
+    expect(result.taskTerminalStatus).toBe(TASK_STATUS.DONE);
     const status = await deps.taskService.getTaskStatus(TASK_ID);
-    expect(status).toBe(TASK_STATUS.COMPLETED);
+    expect(status).toBe(TASK_STATUS.DONE);
     // Adjacent post-merge effects must remain intact (mergeSha/mergedAt provided):
     // session.status → MERGED and the pullRequest record update both still land.
     expect(result.sessionStatusUpdated).toBe(true);
@@ -139,8 +138,8 @@ describe("applyPostMergeStateSync kind-aware terminal state (mt#1872)", () => {
     expect(result.taskUpdateError).toBeUndefined();
   });
 
-  it("umbrella kind already at COMPLETED → idempotent no-op", async () => {
-    const deps = makeDeps({ kind: "umbrella", initialStatus: TASK_STATUS.COMPLETED });
+  it("umbrella kind already at DONE → idempotent no-op", async () => {
+    const deps = makeDeps({ kind: "umbrella", initialStatus: TASK_STATUS.DONE });
     const params: PostMergeStateSyncParams = {
       sessionId: SESSION_ID,
       cleanupSession: false,

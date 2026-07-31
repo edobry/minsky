@@ -18,3 +18,65 @@ export { resolveSessionDirectory } from "./resolve-session-directory";
 
 // Export read-only interfaces for ADR-004 validate() phase
 export type { ReadonlySessionProvider } from "./readonly-interfaces";
+
+// Export session runtime-attachment (presence) domain layer (mt#2284)
+export type { SessionAttachment, ReapStaleAttachmentsResult } from "./attachment";
+export {
+  listSessionAttachments,
+  listAllSessionAttachments,
+  listLiveSessionAttachments,
+  isAttachmentConfirmedLive,
+  clearSessionAttachments,
+  isPidAlive,
+  reapStaleSessionAttachments,
+} from "./attachment";
+
+// Session live-ACTOR verdict — the gate primitive for destructive session
+// operations (mt#3103). Distinct from `deriveSessionLiveness`: that buckets a
+// sparse row checkpoint for DISPLAY; this composes a dense presence read with
+// a PID probe and fails CLOSED for GATING.
+export type {
+  SessionActorVerdict,
+  SessionActorResult,
+  SessionActorDeps,
+  SessionActorOptions,
+} from "./session-actor";
+export { resolveSessionActor, DEFAULT_SESSION_ACTOR_RECENCY_MS } from "./session-actor";
+
+export type { LiveSessionProcess, LsofRunner } from "./attachment-lsof";
+export {
+  detectLiveSessionProcesses,
+  parseLsofCwdOutput,
+  defaultLsofRunner,
+} from "./attachment-lsof";
+export type { SessionPsEntry } from "./session-ps";
+export { buildSessionPsReport } from "./session-ps";
+
+// Export session focus-adapter domain layer (mt#2285)
+export type {
+  CommandExecResult,
+  CommandExecutor,
+  FocusAdapter,
+  FocusAdapterContext,
+  FocusOutcome,
+  FocusOutcomeKind,
+  FocusAttachmentOptions,
+  FocusAttemptResult,
+  FocusAttemptResultKind,
+  FocusableAttachment,
+} from "./focus/index";
+export {
+  defaultCommandExecutor,
+  isAppleScriptPermissionError,
+  appleScriptPermissionMessage,
+  tmuxFocusAdapter,
+  weztermFocusAdapter,
+  kittyFocusAdapter,
+  iterm2FocusAdapter,
+  terminalAppFocusAdapter,
+  wmRaiseFocusAdapter,
+  resolveAppNameForTermProgram,
+  FOCUS_ADAPTER_REGISTRY,
+  resolveFocusAdapter,
+  focusAttachment,
+} from "./focus/index";

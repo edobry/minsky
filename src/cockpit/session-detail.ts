@@ -3,21 +3,33 @@
  *
  * Pure helpers for the workspace-session drill-down endpoint: payload types,
  * GitHub web-URL derivation, `git log` output parsing, and SessionRecord →
- * payload mapping. The Express route in server.ts composes these with the
- * session provider, a bounded `git log` subprocess, and the transcript
- * cwd-resolution query.
+ * payload mapping. The Express route in `./routes/agents.ts` composes these
+ * with the session provider, a bounded `git log` subprocess, and the
+ * transcript conversation-resolution query.
  *
  * Two session id-spaces (mt#2398/mt#2420 — do not conflate): this endpoint is
  * keyed by the MINSKY workspace sessionId (`SessionRecord.sessionId`). The
  * conversation link it returns carries the harness agentSessionId
- * (`agent_transcripts.agent_session_id`), resolved by matching the session's
- * workspace directory against transcript cwd. `minsky_session_links` is the
- * eventual structural home for that join; it has no writers yet, so v0
- * resolves at read time.
+ * (`agent_transcripts.agent_session_id`).
+ *
+ * Consultation order (mt#2441 + mt#2756): `minsky_session_links` — populated
+ * by TWO independent writers, `cwd_match` at ingest time
+ * (`AgentTranscriptIngestService`, backfilled via
+ * `scripts/backfill-minsky-session-links.ts`) and `subagent_spawn` at
+ * spawn-extraction time (`AgentSpawnsPipeline`, backfilled via
+ * `scripts/backfill-subagent-spawn-links.ts`) — is now consulted FIRST via
+ * {@link pickBestConversationLink}, which is link-class agnostic: it just
+ * ranks whatever candidate rows the caller's query returns by confidence,
+ * tie-broken by recency, regardless of which writer produced them. The live
+ * `cwd` LIKE query against `agent_transcripts` (in `./routes/agents.ts`) is
+ * kept ONLY as a fallback for transcripts that have no link row of EITHER
+ * class yet (pre-backfill, or ingested before either writer shipped). Full
+ * removal of that fallback is a separate task (mt#2768), not this one.
  */
 import type { SessionRecord, SessionLiveness } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import type { Changeset } from "@minsky/domain/changeset/types";
 
 // ---------------------------------------------------------------------------
 // Payload types — mirrored by the SessionDetail web widget
@@ -45,6 +57,8 @@ export interface SessionPrRef {
 
 export interface SessionDetailMeta {
   sessionId: string;
+  /** Numeric `ws#N` short id (mt#2967) — null for legacy sessions pre-backfill. */
+  shortId: string | null;
   taskId: string | null;
   taskTitle: string | null;
   status: string | null;
@@ -67,6 +81,165 @@ export interface SessionDetailPayload {
   pr: SessionPrRef | null;
   /** Resolved harness transcript for this workspace, when one exists. */
   conversation: { agentSessionId: string } | null;
+}
+
+/**
+ * Live-PR fields for the changeset detail page (mt#3096).
+ *
+ * Present only when the changeset was resolved from the LIVE PR; null when the
+ * endpoint degraded to the session-record snapshot (no GitHub credential, PR
+ * not found, or a forge error). Consumers must treat null as "unknown", never
+ * as zero/empty — rendering a confident `+0 −0` for a degraded fetch is the
+ * fake-health failure mode this field exists to avoid.
+ */
+export interface ChangesetLiveDetail {
+  /** PR body/description. Null when the PR has an empty body. */
+  body: string | null;
+  /** Author login (may be a bot, e.g. `minsky-ai[bot]`). */
+  author: string | null;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  /** ISO-8601; null unless the PR is merged. */
+  mergedAt: string | null;
+  /** Login of whoever merged; null unless the PR is merged. */
+  mergedBy: string | null;
+  /** Number of reviews on the PR. */
+  reviewCount: number | null;
+}
+
+/**
+ * CI check-run summary for a changeset (mt#3097).
+ *
+ * Mirrors the domain `ChecksResult` shape. Carried on the detail payload as
+ * `checks`, which is **null when the check state could not be determined** —
+ * distinct from a real result reporting `total: 0`. That distinction is
+ * load-bearing: `getCheckRunsForRef` deliberately throws rather than returning
+ * an empty-but-successful result when its fetches fail, so "we could not find
+ * out" must never render as "no checks / green".
+ */
+export interface ChangesetChecksSummary {
+  allPassed: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  checks: {
+    name: string;
+    /** "completed" | "queued" | "in_progress" */
+    status: string;
+    /** "success" | "failure" | "neutral" | ... | null while pending */
+    conclusion: string | null;
+    url: string | null;
+  }[];
+}
+
+/**
+ * WHY the CI check state is unknown, when `checks` is null (mt#3097, PR #2233 R1).
+ *
+ * A bare `null` conflates two materially different situations, and telling the
+ * operator "could not read check runs for this commit" in the second case is a
+ * false statement — there was no commit to read them for:
+ *
+ * - `no-commit`     — no live PR resolved, so there is no head SHA to query.
+ *                     CI is not-applicable here, not failed.
+ * - `not-configured`— no GitHub credential/repo, so the reader could not be built.
+ * - `fetch-failed`  — a head SHA existed and the query genuinely failed.
+ *
+ * Only `fetch-failed` means "we tried and could not find out".
+ */
+export type ChangesetChecksUnavailableReason = "no-commit" | "not-configured" | "fetch-failed";
+
+/**
+ * NOTE (mt#3096): the shared `changesetDisplayTitle` helper deliberately does
+ * NOT live here — it lives in `web/lib/changeset-title.ts`.
+ *
+ * This is a SERVER module: it imports `@minsky/domain` at runtime. Web files
+ * may import TYPES from it (erased before bundling), but a runtime VALUE import
+ * makes Vite resolve this whole module graph into the browser bundle, which
+ * fails the production build. Both changeset surfaces import the helper from
+ * `web/lib/changeset-title.ts` instead.
+ */
+
+// ---------------------------------------------------------------------------
+// Live-changeset mappers (mt#3096)
+//
+// Pure translations from the domain `Changeset` (the live forge read) into the
+// payload shapes this module already defines, so the live path and the
+// session-snapshot fallback hand the widget one consistent shape.
+// ---------------------------------------------------------------------------
+
+/** Map a live Changeset onto the SessionPrRef shape the detail widget renders. */
+export function prRefFromChangeset(cs: Changeset, approved: boolean | null): SessionPrRef {
+  const gh = cs.metadata?.github;
+  const parsedId = Number.parseInt(cs.id, 10);
+  return {
+    number: gh?.number ?? (Number.isFinite(parsedId) ? parsedId : null),
+    url: gh?.htmlUrl ?? null,
+    state: cs.status,
+    title: cs.title,
+    headBranch: cs.sourceBranch ?? null,
+    approved,
+  };
+}
+
+/**
+ * Extract the live-only fields (body, diffstat, merge metadata).
+ *
+ * Every field stays null when the forge did not supply it. This matters: the
+ * diffstat fields are absent on a list-sourced changeset, and defaulting them
+ * to 0 would render a confident "+0 −0" for a PR whose real diff is unknown.
+ */
+export function liveDetailFromChangeset(cs: Changeset): ChangesetLiveDetail {
+  const gh = cs.metadata?.github;
+  return {
+    body:
+      typeof cs.description === "string" && cs.description.trim().length > 0
+        ? cs.description
+        : null,
+    author: cs.author?.username ?? null,
+    additions: gh?.additions ?? null,
+    deletions: gh?.deletions ?? null,
+    changedFiles: gh?.changedFiles ?? null,
+    mergedAt: gh?.mergedAt ?? null,
+    mergedBy: gh?.mergedBy ?? null,
+    reviewCount: Array.isArray(cs.reviews) ? cs.reviews.length : null,
+  };
+}
+
+/**
+ * Repo web base ("https://github.com/<owner>/<repo>") derived from a PR
+ * html_url — the no-session path's substitute for `githubRepoWebBase`, which
+ * needs a session record's repoUrl.
+ */
+export function repoWebBaseFromPrUrl(htmlUrl: string | null | undefined): string | null {
+  if (!htmlUrl) return null;
+  return htmlUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+)\/pull\/\d+/)?.[1] ?? null;
+}
+
+/**
+ * Forge-sourced commits, used when there is no local workspace to `git log`
+ * (the merged-and-cleaned-up case). Reversed to newest-first so the ordering
+ * matches the git-log path, then capped at the same 10.
+ */
+export function commitsFromChangeset(
+  cs: Changeset,
+  repoWebBase: string | null
+): SessionCommitRef[] {
+  return (cs.commits ?? [])
+    .slice()
+    .reverse()
+    .slice(0, 10)
+    .map((c) => ({
+      hash: c.sha,
+      shortHash: c.sha.slice(0, 7),
+      date:
+        c.timestamp instanceof Date && !Number.isNaN(c.timestamp.getTime())
+          ? c.timestamp.toISOString()
+          : null,
+      subject: (c.message ?? "").split("\n")[0] ?? "",
+      url: repoWebBase ? `${repoWebBase}/commit/${c.sha}` : null,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +290,111 @@ export function parseGitLog(stdout: string, repoWebBase: string | null): Session
 }
 
 // ---------------------------------------------------------------------------
+// Conversation-link consultation order (mt#2441)
+// ---------------------------------------------------------------------------
+
+/** One candidate row joined from `minsky_session_links` + `agent_transcripts`. */
+export interface ConversationLinkCandidate {
+  agentSessionId: string;
+  /** `minsky_session_links.confidence`; null is treated as lowest (0). */
+  confidence: number | null;
+  /** `agent_transcripts.started_at`, for tie-breaking by recency. */
+  startedAt: Date | string | null;
+}
+
+/**
+ * Select the best `minsky_session_links` row for a workspace session, when
+ * link rows exist. Highest confidence wins (exact cwd match beats a
+ * descendant-path match); ties broken by most-recent `startedAt`.
+ *
+ * Pure and side-effect-free so it's unit-testable without a DB — the caller
+ * (`./routes/agents.ts`) does the query, this function does the selection.
+ *
+ * @returns `null` when `candidates` is empty — callers should fall back to
+ *   the live `cwd` LIKE query in that case (mt#2441 SC3; full removal of the
+ *   fallback is mt#2768).
+ */
+export function pickBestConversationLink(
+  candidates: ConversationLinkCandidate[]
+): { agentSessionId: string } | null {
+  const [first, ...rest] = candidates;
+  if (!first) return null;
+
+  const best = rest.reduce((currentBest, candidate) => {
+    const candidateConfidence = candidate.confidence ?? 0;
+    const bestConfidence = currentBest.confidence ?? 0;
+    if (candidateConfidence > bestConfidence) return candidate;
+    if (
+      candidateConfidence === bestConfidence &&
+      toEpochMs(candidate.startedAt) > toEpochMs(currentBest.startedAt)
+    ) {
+      return candidate;
+    }
+    return currentBest;
+  }, first);
+
+  return { agentSessionId: best.agentSessionId };
+}
+
+function toEpochMs(value: Date | string | null): number {
+  if (!value) return 0;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// ---------------------------------------------------------------------------
+// Reverse-link consultation order (mt#2768) — conversation -> workspace
+// ---------------------------------------------------------------------------
+
+/** One candidate row joined from `minsky_session_links` for a single agentSessionId. */
+export interface WorkspaceLinkCandidate {
+  minskySessionId: string;
+  /** `minsky_session_links.confidence`; null is treated as lowest (0). */
+  confidence: number | null;
+  /** `minsky_session_links.detectedAt`, for tie-breaking when confidence ties. */
+  detectedAt: Date | string | null;
+}
+
+/**
+ * Select the best `minsky_session_links` row for a CONVERSATION (the reverse
+ * direction of {@link pickBestConversationLink}): given every workspace a
+ * conversation has touched, pick the one the Conversation-keyed run-detail
+ * page (`/conversation/:id`) should resolve Overview to. Highest confidence
+ * wins; ties broken by most-recently-detected link (a conversation can touch
+ * more than one workspace over its life — e.g. re-linked after a rebase —
+ * and the most recently established link is the best guess at "current").
+ *
+ * Pure and side-effect-free, mirroring `pickBestConversationLink` — the
+ * caller (`routes/conversations.ts`) does the query, this function does the
+ * selection.
+ *
+ * @returns `null` when `candidates` is empty — callers should treat the
+ *   conversation as workspace-less (mt#2768 Behavior: "workspace-less runs
+ *   collapse Overview to conversation metadata").
+ */
+export function pickBestWorkspaceLink(
+  candidates: WorkspaceLinkCandidate[]
+): { minskySessionId: string } | null {
+  const [first, ...rest] = candidates;
+  if (!first) return null;
+
+  const best = rest.reduce((currentBest, candidate) => {
+    const candidateConfidence = candidate.confidence ?? 0;
+    const bestConfidence = currentBest.confidence ?? 0;
+    if (candidateConfidence > bestConfidence) return candidate;
+    if (
+      candidateConfidence === bestConfidence &&
+      toEpochMs(candidate.detectedAt) > toEpochMs(currentBest.detectedAt)
+    ) {
+      return candidate;
+    }
+    return currentBest;
+  }, first);
+
+  return { minskySessionId: best.minskySessionId };
+}
+
+// ---------------------------------------------------------------------------
 // Record → payload mapping
 // ---------------------------------------------------------------------------
 
@@ -126,6 +404,7 @@ export function buildSessionMeta(
 ): SessionDetailMeta {
   return {
     sessionId: record.sessionId,
+    shortId: record.shortId ?? null,
     taskId: record.taskId ? formatTaskIdForDisplay(record.taskId) : null,
     taskTitle,
     status: record.status ?? null,

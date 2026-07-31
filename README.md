@@ -10,6 +10,12 @@ An exocortex for software organizations led by a principal — the substrate tha
 
 The principal — the human responsible for the work — declares intent; the substrate composes hooks, sessions, tasks, asks, memory, and reviewer agents to drive that intent to realization. Principality is recursive: every individual engineer running Minsky is the principal of their own flock, and an organization is a tree of principals all the way down to the ICs. Minsky is principal substrate at every level on that tree.
 
+Minsky is a substrate, not an operator: it doesn't write or judge the work — it composes the environment agents and engineers already run inside, so the right practice is the only path through, not a request an agent could decline. Environmental alignment is the mechanism, not instruction: the same pre-commit hook that blocks an unformatted commit from a human blocks one from an agent, with no separate AI configuration to maintain.
+
+The theory behind that mechanism — the control-system mapping the substrate follows, the attention-as-scarce-resource argument, the humility and noticing properties a substrate needs — is written up, not just implemented; the architecture underneath it is documented the same way.
+
+Theory: [`docs/theory-of-operation.md`](./docs/theory-of-operation.md) — Architecture index: [`docs/architecture.md`](./docs/architecture.md)
+
 ## What Minsky does
 
 ### Task management with multiple backends
@@ -98,13 +104,28 @@ npm link
 ```bash
 # Interactive setup — configures task backend and git hooks
 minsky init
+
+# Developer-local setup — MCP registration + local config + DB connection
+minsky setup
 ```
 
-### Configure the database
+`minsky setup` owns the database connection so most projects need zero database
+thought. It resolves `persistence.postgres.connectionString` through the config
+loader first: on a machine that already has a Minsky project configured, it finds
+and reuses that connection (printing which config source it came from — user
+config, repo config, or an environment variable — after a quick connectivity
+check); on a fresh machine with nothing configured, it falls straight into the
+same interactive wizard described below. Schema migrations are **not** a manual
+step — Minsky auto-migrates the schema on first connect (`MINSKY_AUTO_MIGRATE`
+defaults to `true`), so there is never a `minsky persistence migrate` command to
+run as part of onboarding.
 
-Minsky requires a PostgreSQL database. `minsky setup db` is an interactive wizard
-that captures a connection string, writes it to your config, runs the schema
-migrations, and verifies connectivity:
+### Configure the database directly
+
+`minsky setup db` is the same interactive wizard `minsky setup` falls into
+automatically, available standalone when you want to (re)configure the database
+without touching MCP registration — e.g. to point at a different connection, or
+for non-interactive/scripted use:
 
 ```bash
 minsky setup db
@@ -128,6 +149,10 @@ Non-interactive / scripted use:
 ```bash
 # Supply the connection string directly; --yes skips the confirmation prompt.
 minsky setup db --connection-string "postgresql://user:password@host:5432/dbname" --yes
+
+# minsky setup accepts the same two flags, used only if no connection can be
+# inherited from existing config:
+minsky setup --connection-string "postgresql://user:password@host:5432/dbname" --yes
 ```
 
 On failure it reports which step failed (`validate` / `connectivity` /
@@ -246,6 +271,37 @@ in order:
 The first candidate whose `meta/_journal.json` exists wins. When using the production
 bundle (`dist/minsky.js`) from an arbitrary working directory, candidates 2 and 3 resolve
 to the migrations co-located with the bundle.
+
+#### Pending-migration detection (per-migration hash, not row count)
+
+`persistence migrate` (both `--dry-run` and `--execute`) reports which local migrations
+are **pending** — not yet recorded as applied — by comparing each local `.sql` file's
+sha256 hash against the full set of hashes recorded in `drizzle.__drizzle_migrations`,
+NOT by subtracting row counts (`fileCount - appliedCount`). A raw count comparison
+silently reports 0 pending whenever the DB's applied-row count meets or exceeds the local
+file count for any reason unrelated to a specific migration's apply state — a historical
+ledger squash/consolidation, a duplicate or orphaned ledger row, an out-of-band insert —
+while a genuinely-unapplied migration goes unreported. The per-migration hash comparison
+is robust to any such count offset: a migration is pending iff its file's hash is absent
+from the ledger, full stop.
+
+`getPostgresMigrationsStatus` exposes this as `pendingCount` (a number) and `pendingTags`
+(the specific migration tags, e.g. `["0060_slow_kang"]`); the dry-run plan additionally
+carries `plan.pendingFiles` (the same set, as filenames with `.sql`). A missing or
+unreadable migration file (partial checkout, in-flight rename, permissions issue) is
+never silently dropped — it is reported pending and logged as a warning, so the operator
+sees the read failure rather than an unexplained gap in the count.
+
+**The pending list is informational, not a guaranteed preview of what `migrate()` will
+apply.** drizzle-orm's own `migrate()` does not decide what to run by hash-set
+membership — it applies by a single-row **timestamp high-water-mark** (the latest
+`created_at` already in the ledger vs. each journal entry's `when`). When the ledger has
+an anomaly (a duplicate/orphaned row, an out-of-band insert, migrations recorded out of
+`when`-order), the hash-missing set this tool reports and the set drizzle's own
+high-water-mark check will actually apply can diverge — a migration this list names may
+be silently skipped by drizzle (permanently shadowed), or the reverse. Every CLI listing
+of pending migrations is labeled accordingly; treat it as "these files' hashes are not
+recorded as applied," not as an exact forecast of `migrate()`'s next run.
 
 ## CI workflows
 

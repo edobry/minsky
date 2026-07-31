@@ -80,12 +80,16 @@ const setupGithubAppParams = composeParams(
     },
     update: {
       schema: z.boolean().optional(),
-      description: "Update an existing App's events/permissions via PATCH /app",
+      description:
+        "Show drift between an existing App's live events/permissions and the requested " +
+        "ones, with a link to the settings page to fix it (GitHub has no API to apply this)",
       required: false,
     },
     execute: {
       schema: z.boolean().optional(),
-      description: "Apply changes (without this flag, --update shows a dry-run preview)",
+      description:
+        "No effect with --update (there is no API to apply an events/permissions change); " +
+        "accepted for backward compatibility",
       required: false,
     },
   },
@@ -93,7 +97,8 @@ const setupGithubAppParams = composeParams(
     permissions: {
       schema: z.string().optional(),
       description:
-        "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)",
+        "Comma-separated k:v permissions (default: pull_requests:write,contents:write,metadata:read " +
+        "— contents:write is required for session_commit's App-token push, mt#1477/mt#3210)",
       required: false,
     },
     events: {
@@ -130,7 +135,11 @@ const setupGithubAppParams = composeParams(
   }
 ) satisfies CommandParameterMap;
 
-const DEFAULT_PERMISSIONS = "pull_requests:write,contents:read,metadata:read";
+// mt#3218: contents:write (not read) is the correct default — session_commit's
+// App-token push (mt#1477) needs it to succeed, and the read-only default was
+// the upstream cause of the mt#3210 incident (every fresh App created with the
+// old default degraded to a keychain-credential push fallback on first use).
+const DEFAULT_PERMISSIONS = "pull_requests:write,contents:write,metadata:read";
 
 function parsePermissions(raw: string): Record<string, string> {
   const out: Record<string, string> = {};

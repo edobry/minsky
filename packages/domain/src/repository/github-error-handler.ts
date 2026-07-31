@@ -6,12 +6,67 @@
  */
 
 import { MinskyError, getErrorMessage } from "../errors/index";
+import { getLastGithubRateLimitSnapshot } from "./github-rate-limit-state";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+// ── HTML-body sanitization (mt#2888) ─────────────────────────────────────
+//
+// GitHub occasionally serves a 5xx (or other) response as an HTML error
+// page (the "Unicorn" page — ~5KB of markup with base64-inlined images)
+// instead of JSON. `@octokit/request`'s fetch wrapper folds a non-JSON
+// string response body DIRECTLY into the thrown `RequestError`'s `.message`
+// (see `toErrorMessage`/`getResponseData` in
+// `@octokit/request/dist-src/fetch-wrapper.js`: `if (typeof data ===
+// "string") return data;`) — so without this guard, the raw markup flows
+// straight through `classifyOctokitError` into every `handleOctokitError`
+// branch that echoes `info.message` (the 5xx branch's `Error:
+// ${info.message}` line in particular), burning agent context and burying
+// the actual signal. Originating incident: mt#2888, 2026-07-16 — `gh api`'s
+// own JSON-decode failure surfaced this class independently (`invalid
+// character '<' looking for beginning of value`); the Octokit path exhibits
+// the SAME underlying GitHub behavior, but Octokit's fetch layer swallows
+// the parse failure and keeps the raw body as the message instead of
+// erroring, so it needs this dedicated sanitization pass.
+const HTML_BODY_PATTERN = /<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])/i;
+
+/**
+ * True when `text` looks like an HTML document body rather than a GitHub
+ * API JSON/plain-text error message. Only inspects a bounded prefix — an
+ * HTML document's doctype/opening tags always appear at the very start.
+ */
+export function looksLikeHtmlBody(text: string): boolean {
+  if (!text) return false;
+  return HTML_BODY_PATTERN.test(safeTruncate(text, 500, "head"));
+}
+
+/**
+ * Replace an HTML-body message with a short, safe placeholder naming the
+ * byte length — never echoes the markup itself. Callers that need the HTTP
+ * status for classification already have it via `OctokitErrorInfo.status`,
+ * independent of this sanitization (status is extracted separately from
+ * `error.status` / `error.response.status`, not parsed out of the message).
+ */
+export function sanitizeOctokitMessage(message: string): string {
+  if (!looksLikeHtmlBody(message)) return message;
+  return `<non-JSON HTML error page from GitHub, ${message.length} chars — see HTTP status for classification>`;
+}
 
 // ── Structured error info extracted from an Octokit error ──────────────
 
 export interface OctokitErrorInfo {
   /** HTTP status code, if present */
   status?: number;
+  /**
+   * True when the error carries a `response` — i.e. GitHub actually sent one.
+   *
+   * Load-bearing for the 5xx branch (mt#3221). `@octokit/request`'s fetch wrapper
+   * synthesizes `status: 500` for EVERY transport-level failure (DNS failure, connection
+   * refused, TLS error, abort), rethrowing as `new RequestError(message, 500, { request })`
+   * with no `response`; every path that throws for a response GitHub actually SENT passes
+   * `response: octokitResponse`. So this flag — not the status — is what distinguishes
+   * "GitHub returned a server error" from "the request never reached GitHub."
+   */
+  hasResponse: boolean;
   /** Top-level error message */
   message: string;
   /** Lowercased message for quick substring checks */
@@ -43,10 +98,13 @@ interface OctokitErrorShape {
 
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   const anyErr = error as OctokitErrorShape; // Octokit errors have dynamic shape not covered by standard types
-  const message: string = error instanceof Error ? error.message : String(error);
+  const rawMessage: string = error instanceof Error ? error.message : String(error);
+  const message: string = sanitizeOctokitMessage(rawMessage);
   const status: number | undefined = anyErr?.status ?? anyErr?.response?.status;
+  const hasResponse: boolean = anyErr?.response != null;
   const ghData = anyErr?.response?.data;
-  const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
+  const rawGhMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
+  const ghMessage: string = sanitizeOctokitMessage(rawGhMessage);
   const ghErrors: Record<string, unknown>[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
   const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
     .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" "))
@@ -54,6 +112,7 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
 
   return {
     status,
+    hasResponse,
     message,
     messageLower: message.toLowerCase(),
     ghErrors,
@@ -62,7 +121,155 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   };
 }
 
+/**
+ * Placeholder for the trailing detail line when GitHub supplied no usable text.
+ *
+ * An EMPTY `Error:` line is worse than no line: it reads as "the tool has nothing to say"
+ * when the truth is "the server said nothing," and it gives the reader no way to tell those
+ * apart. Naming the absence explicitly is what makes the difference legible (mt#3171).
+ *
+ * Kept SHORT (PR #2313 R1): this string is excerpted into one-line summaries by
+ * `withOriginalMessage` at the adapter layer, where a long parenthetical crowds out the
+ * headline it is attached to.
+ */
+export const NO_DETAIL_PLACEHOLDER = "(no message from GitHub)";
+
+/**
+ * Pick the most informative human-readable detail available for a failed request.
+ *
+ * Preference order, most-specific first:
+ *   1. `ghMessage` — GitHub's OWN `response.data.message`. The server's account of what went
+ *      wrong is strictly more useful than the client library's, which is often a generic
+ *      restatement of the status line.
+ *   2. A display rendering of `ghErrors` (`response.data.errors[]`) — also SERVER-supplied,
+ *      so it outranks the client-side `.message` below.
+ *   3. `message` — the Error object's own `.message`, the client library's account.
+ *
+ * The ordering principle is server-before-client (PR #2313 R1): both (1) and (2) come from
+ * GitHub's response body; (3) is whatever Octokit chose to put on the Error. The original
+ * implementation put (3) second, which contradicted that principle and this task's own SC1.
+ *
+ * NOTE on (2): this re-renders `ghErrors` rather than reusing {@link OctokitErrorInfo.ghErrorsText},
+ * because that field is lowercased and space-joined for SUBSTRING MATCHING — displaying it would
+ * show the user mangled text. Matching text and display text are different products of the same
+ * source. (SC1 originally named `ghErrorsText` directly; the spec was corrected to name the
+ * display rendering, since the matching field is unfit for display.)
+ *
+ * Returns null when every candidate is empty, so callers can decide how to render the absence.
+ *
+ * mt#3171: before this existed, the 5xx branch interpolated `info.message` directly. During the
+ * 2026-07-24 GitHub outage that field was an empty string while `ghMessage` held the server's
+ * actual text — so the surfaced error ended in a bare `Error:` and the useful detail, already
+ * parsed and sitting one field away, was never shown.
+ */
+export function selectErrorDetail(info: OctokitErrorInfo): string | null {
+  if (typeof info.ghMessage === "string" && info.ghMessage.trim().length > 0) {
+    return info.ghMessage.trim();
+  }
+
+  const structured = info.ghErrors
+    .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" ").trim())
+    .filter((s) => s.length > 0);
+  if (structured.length > 0) {
+    return structured.join("; ");
+  }
+
+  if (typeof info.message === "string" && info.message.trim().length > 0) {
+    return info.message.trim();
+  }
+
+  return null;
+}
+
+/** Build the trailing `Error: …` line, never bare. See {@link NO_DETAIL_PLACEHOLDER}. */
+export function formatErrorDetailLine(info: OctokitErrorInfo): string {
+  return `Error: ${selectErrorDetail(info) ?? NO_DETAIL_PLACEHOLDER}`;
+}
+
 // ── Context passed to the error handler so messages are specific ────────
+
+/**
+ * What a GitHub-backed failure actually WAS, carried as data on the thrown
+ * error (mt#3249).
+ *
+ * Before this existed, `handleOctokitError` computed the classification, threw
+ * it away into prose, and the adapter layer reconstructed it by regex-matching
+ * that prose (`merge-error-classification.ts` recovers the status with
+ * `/\(HTTP (5\d\d)\)/` and matches the exact headline string). That round-trip
+ * — class → string → class — made operator-facing WORDING a parsed API:
+ * mt#2890 had to put the status into the message purely so the classifier
+ * could read it back, and every later change to this file (mt#3171, mt#3221)
+ * had to prove it did not disturb the headline.
+ *
+ * Consumers should prefer this field and fall back to string matching only for
+ * errors that do not carry it (non-Octokit origins, or anything not yet
+ * migrated).
+ *
+ * `respondedByServer` mirrors {@link OctokitErrorInfo.hasResponse}: it is the
+ * difference between "GitHub returned this status" and "the request never got
+ * a response" (mt#3221), which the status alone cannot express since Octokit
+ * synthesizes `500` for transport failures.
+ */
+export type OctokitFailureKind =
+  | "auth"
+  | "rate-limit"
+  | "permission"
+  | "not-found"
+  | "degraded"
+  | "network"
+  | "merge-blocked"
+  | "self-approval"
+  | "unclassified";
+
+export interface OctokitFailureClass {
+  kind: OctokitFailureKind;
+  /** HTTP status when one is known. */
+  status?: number;
+  /** True when GitHub actually sent a response (see {@link OctokitErrorInfo.hasResponse}). */
+  respondedByServer: boolean;
+}
+
+/**
+ * A `MinskyError` that additionally carries {@link OctokitFailureClass}.
+ *
+ * Extends `MinskyError` rather than replacing it so every existing
+ * `instanceof MinskyError` check — including `github-pr-operations.ts`'s
+ * rethrow guard and this module's own tests — keeps passing unchanged.
+ *
+ * **The original error is always passed as `cause`** (mt#3169). This handler
+ * replaces the thrown value, so without it the upstream payload —
+ * `response.data.documentation_url`, the raw `errors[]`, the request's
+ * method/URL — is destroyed at the throw and no caller can ever print it. That
+ * is precisely why `session_pr_create`'s advertised `--debug` had nothing to
+ * show: the detail was gone before the adapter saw the error, so the fix had to
+ * restore the chain before it could render anything.
+ */
+export class GitHubApiError extends MinskyError {
+  constructor(
+    message: string,
+    public readonly classification: OctokitFailureClass,
+    cause?: unknown
+  ) {
+    super(message, cause);
+  }
+}
+
+/** Build the classification for a throw site from the already-parsed info. */
+function classOf(
+  kind: OctokitFailureKind,
+  info: Pick<OctokitErrorInfo, "status" | "hasResponse">
+): OctokitFailureClass {
+  // `typeof === "number"`, not `!== undefined` (PR #2351 R1): `status` is typed
+  // `number | undefined` but derives from `anyErr?.status ?? anyErr?.response?.status`
+  // over an `unknown` error, so a shape carrying explicit nulls yields `null` at
+  // runtime. `!== undefined` would let that through and a consumer stringifying
+  // it would emit the literal "null" as a status.
+  return {
+    kind,
+    ...(typeof info.status === "number" ? { status: info.status } : {}),
+    respondedByServer: info.hasResponse,
+  };
+}
 
 export interface ErrorContext {
   /** Human-readable operation name, e.g. "create pull request" */
@@ -102,7 +309,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.messageLower.includes("bad credentials") ||
     info.messageLower.includes("unauthorized")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Authentication Failed\n\n` +
         `Your GitHub token is invalid or expired.\n\n` +
         `To fix this:\n` +
@@ -110,7 +317,34 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `https://github.com/settings/tokens\n` +
         `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
         `  3. Ensure the token has 'repo' and 'pull_requests' permissions\n\n` +
-        `Repository: ${ctx.owner}/${ctx.repo}`
+        `Repository: ${ctx.owner}/${ctx.repo}`,
+      classOf("auth", info),
+      error
+    );
+  }
+
+  // ── Rate limiting (checked BEFORE 403: GitHub's primary rate limits are
+  // HTTP 403 with a "rate limit" message, and the 403 branch below matches
+  // any 403 — ordering is load-bearing; PR #2005 R-final finding, mt#2890) ──
+  if (
+    info.status === 429 ||
+    info.messageLower.includes("429") ||
+    info.messageLower.includes("rate limit")
+  ) {
+    // mt#2888: fold the last-observed `x-ratelimit-reset` into the message
+    // when available, so the reset time survives into
+    // `withOriginalMessage`'s one-line excerpt at the adapter layer instead
+    // of a bare "wait a few minutes" with no concrete time.
+    const snapshot = getLastGithubRateLimitSnapshot();
+    const resetSuffix = snapshot ? ` (resets ${snapshot.reset})` : "";
+    throw new GitHubApiError(
+      `GitHub Rate Limit Exceeded${resetSuffix}\n\n` +
+        `You've hit GitHub's API rate limit.\n\n` +
+        `To fix this:\n` +
+        `  - Wait a few minutes before trying again\n` +
+        `  - Use a GitHub token for higher rate limits`,
+      classOf("rate-limit", info),
+      error
     );
   }
 
@@ -121,14 +355,16 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
       info.messageLower.includes("forbidden")) &&
     !info.messageLower.includes("422")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Permission Denied\n\n` +
         `You don't have permission to ${ctx.operation} in ` +
         `${ctx.owner}/${ctx.repo}.\n\n` +
         `To fix this:\n` +
         `  - Ensure you have write access to the repository\n` +
         `  - Verify your GitHub token has sufficient permissions\n\n` +
-        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`
+        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`,
+      classOf("permission", info),
+      error
     );
   }
 
@@ -142,44 +378,85 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
       ? `Pull request #${ctx.prNumber} was not found in ${ctx.owner}/${ctx.repo}.`
       : `The repository ${ctx.owner}/${ctx.repo} was not found.`;
     const prSuffix = ctx.prNumber ? `/pull/${ctx.prNumber}` : "";
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Not Found\n\n${subject}\n\n` +
         `To fix this:\n` +
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
-        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`
+        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`,
+      classOf("not-found", info),
+      error
     );
   }
 
-  // ── Rate limiting (429) ─────────────────────────────────────────
-  if (
-    info.status === 429 ||
-    info.messageLower.includes("429") ||
-    info.messageLower.includes("rate limit")
-  ) {
-    throw new MinskyError(
-      `GitHub Rate Limit Exceeded\n\n` +
-        `You've hit GitHub's API rate limit.\n\n` +
+  // ── Server-side degradation (5xx GitHub actually responded with) ──
+  //
+  // mt#2890: distinct from the generic fallback below so the status code
+  // survives into the message text — the fallback's `getErrorMessage(error)`
+  // typically does NOT include the numeric status, which downstream
+  // classifiers (workflow-commands.ts's merge-error classifier) rely on to
+  // tell a real GitHub-side outage apart from a merge conflict or a rate
+  // limit.
+  //
+  // mt#3221: `hasResponse` is a correctness guard, not a refinement. Octokit
+  // synthesizes `status: 500` for every transport-level failure, so without it
+  // the operator's OWN connectivity failure renders as "GitHub API
+  // degraded/unavailable" and `classifyMergeError` records a GitHub outage —
+  // pointing the operator at githubstatus.com for a fault on their end.
+  //
+  // Trade-off, taken deliberately: a genuine GitHub 5xx re-thrown through a
+  // wrapper that preserved only `.status` would lose `.response` and route to
+  // the network branch instead. No such wrapper exists on any current path —
+  // every `handleOctokitError` call site passes the raw caught error — and
+  // claiming a GitHub outage from an error carrying no evidence GitHub
+  // responded is the same unearned-cause assertion mt#3171 removed from this
+  // branch's own text.
+  const isServer5xx =
+    info.status !== undefined && info.status >= 500 && info.status < 600 && info.hasResponse;
+
+  // A 5xx WITHOUT a response is Octokit's synthesized transport failure — it
+  // belongs in the network branch below, where the guidance actually matches.
+  const isSynthesizedTransport5xx =
+    info.status !== undefined && info.status >= 500 && info.status < 600 && !info.hasResponse;
+
+  if (isServer5xx) {
+    throw new GitHubApiError(
+      `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
+        `GitHub's API returned a server error for this request. A 5xx is a server-side ` +
+        `failure; it does not, by itself, establish whether your request, credentials, or ` +
+        `repository state were involved.\n\n` +
         `To fix this:\n` +
-        `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`
+        `  - Check GitHub status: https://www.githubstatus.com/\n` +
+        `  - Retry the operation in a few minutes\n\n${formatErrorDetailLine(info)}`,
+      classOf("degraded", info),
+      error
     );
   }
 
   // ── Network / connectivity ──────────────────────────────────────
+  //
+  // mt#3221: a status-LESS error whose message merely mentions a gateway
+  // timeout stays here deliberately, rather than being promoted to the
+  // degraded branch above. With neither a status nor a response there is no
+  // evidence GitHub responded at all, so naming it a GitHub outage would
+  // assert precisely what cannot be established — and matching `5xx` out of
+  // message text would additionally misfire on ordinary prose, since `500` is
+  // a common round number in a way `403`/`404` are not.
   if (
+    isSynthesizedTransport5xx ||
     info.messageLower.includes("network") ||
     info.messageLower.includes("timeout") ||
     info.messageLower.includes("enotfound")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `Network Connection Error\n\n` +
         `Unable to connect to GitHub API.\n\n` +
         `To fix this:\n` +
         `  - Check your internet connection\n` +
         `  - Verify GitHub is accessible (https://githubstatus.com)\n` +
-        `  - Try again in a few moments\n\n` +
-        `Error: ${info.message}`
+        `  - Try again in a few moments\n\n${formatErrorDetailLine(info)}`,
+      classOf("network", info),
+      error
     );
   }
 
@@ -191,17 +468,23 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     const prLink = ctx.prNumber
       ? `PR: https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}\n\n`
       : "";
-    throw new MinskyError(
+    throw new GitHubApiError(
       `Cannot Approve Your Own Pull Request\n\n` +
         `GitHub prevents authors from approving their own PR.\n\n` +
         `${prLink}Next steps:\n` +
         `  - Request a review from a maintainer\n` +
-        `  - Have another collaborator approve the PR`
+        `  - Have another collaborator approve the PR`,
+      classOf("self-approval", info),
+      error
     );
   }
 
   // ── Fallback ────────────────────────────────────────────────────
-  throw new MinskyError(`Failed to ${ctx.operation}: ${getErrorMessage(error)}`);
+  throw new GitHubApiError(
+    `Failed to ${ctx.operation}: ${getErrorMessage(error)}`,
+    classOf("unclassified", info),
+    error
+  );
 }
 
 /**
@@ -287,11 +570,16 @@ export function handleMerge405or422(
       `  - Required status checks not passing\n` +
       `  - PR is not in an open state`;
 
-  throw new MinskyError(
+  // No cause available here: this helper receives the already-parsed `info`,
+  // not the original error (its callers hold that). Threading it would mean a
+  // signature change across callers for a path `--debug` does not exercise —
+  // mt#3169 scopes the cause chain to `handleOctokitError`.
+  throw new GitHubApiError(
     `Pull Request Cannot Be Merged\n\n` +
       `Pull request #${ctx.prNumber} cannot be merged automatically.\n\n` +
       `${body}\n\n` +
       `Visit the PR to resolve: ` +
-      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`
+      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`,
+    classOf("merge-blocked", info)
   );
 }

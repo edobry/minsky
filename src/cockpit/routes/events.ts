@@ -43,6 +43,10 @@ const CHANNEL_TASK_BLOCKING = "minsky.task.blocking";
 // `notifyCredentialInvalidated` in src/domain/credentials/invalidations.ts.
 // Mirror constant: `CHANNEL_CREDENTIAL_INVALIDATED` in that file.
 const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
+// mt#3201: presence transitions detected by the absence-detection sweep. Unlike
+// the channels above, this one's producer is in-process (the cockpit sweep
+// itself), so the constant is imported from the producer rather than mirrored.
+import { CHANNEL_CONVERSATION_PRESENCE_CHANGED } from "../conversation-presence-sweep";
 
 /**
  * Canonical list of all Postgres NOTIFY channels this cockpit-server process
@@ -76,6 +80,7 @@ export const COCKPIT_SSE_CHANNELS: readonly string[] = [
   CHANNEL_TASK_STATUS_CHANGED,
   CHANNEL_TASK_BLOCKING,
   CHANNEL_CREDENTIAL_INVALIDATED,
+  CHANNEL_CONVERSATION_PRESENCE_CHANGED,
 ] as const;
 
 // ---------------------------------------------------------------------------

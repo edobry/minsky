@@ -11,11 +11,18 @@ the four deployment profiles (A–D) consume it.
 2. **`dist/minsky.js`** — the **bundle**. Produced by:
 
    ```sh
-   bun build --target=bun --outfile=dist/minsky.js src/cli.ts
+   bun build --target=bun --outdir=dist --entry-naming minsky.js \
+     --sourcemap=external --minify src/cli.ts
    ```
 
    Single-file pre-parsed JavaScript output. The actual MCP server, CLI commands,
-   tool registry, etc. all live inside.
+   tool registry, etc. all live inside. `--minify` (mt#3006) roughly a third off
+   the bundle; `--sourcemap=external` emits `dist/minsky.js.map` beside it, which
+   is what lets Bun symbolicate a minified stack trace back to the original
+   `src/**.ts` file:line. The two flags travel together — `--minify` without the
+   map produces unreadable traces. `--outdir` + `--entry-naming` rather than
+   `--outfile` because bun refuses to write an external source map through
+   `--outfile`.
 
 The bin entry uses `await import(bundlePath)` — not subprocess spawn. The bin
 entry's Bun process **becomes** the bundle's runtime. There is no extra fork,
@@ -73,7 +80,8 @@ correctly distinguishes three install shapes:
 ### Profile B — Railway HTTP (deployed, immutable container)
 
 - Dockerfile bypasses the bin entry entirely
-- `RUN bun build --target=bun --outfile=dist/minsky.js src/cli.ts` at image-build time
+- `RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts` at image-build time (mt#3023 — flag parity with the other two build sites)
+- `dist/minsky.js.map` ships in the image by design, so production stack traces symbolicate; do not strip it as a size optimization
 - `CMD bun run dist/minsky.js mcp start --http ...` execs the bundle directly
 - No freshness check needed — the image is immutable; the bundle is fresh by definition
 

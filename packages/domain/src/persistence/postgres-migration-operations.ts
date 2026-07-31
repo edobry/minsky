@@ -6,9 +6,24 @@
  */
 
 import { join, dirname } from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { createHash } from "crypto";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
+
+/**
+ * Where migration SQL lives in the repository, relative to the repo root.
+ *
+ * POSIX separators: this is used both as a path segment and as a `git <tree>:<path>`
+ * tree-ish, and git tree paths require forward slashes on every platform.
+ *
+ * Single definition on purpose (PR #2378 R1). It is consumed by BOTH
+ * `resolvePgMigrationsFolder`'s cwd-relative fallback and the unmerged-migration
+ * guard's origin/main lookup; two copies could drift apart, and the guard
+ * failing to find a file the resolver happily loaded is exactly the class of bug
+ * mt#3296 fixes.
+ */
+const CANONICAL_MIGRATIONS_SOURCE_DIR = "packages/domain/src/storage/migrations/pg";
 
 /**
  * Resolve the absolute path of the Postgres migrations folder.
@@ -62,7 +77,7 @@ export function resolvePgMigrationsFolder(): string {
 
     // (c) Legacy cwd-relative fallback: preserves the behaviour that existed
     //     before mt#2369 when run from the Minsky repo root.
-    join(process.cwd(), "packages/domain/src/storage/migrations/pg"),
+    join(process.cwd(), CANONICAL_MIGRATIONS_SOURCE_DIR),
   ];
 
   for (const candidate of candidates) {
@@ -154,6 +169,14 @@ export interface UnmergedMigrationCheckResult {
    * migration. Distinguishing this from per-file absence is the mt#2277 review fix.
    */
   skippedReason?: string;
+  /**
+   * Repo-relative paths the guard looked for on `origin/main`, per unmerged tag
+   * (mt#3296). Surfaced so a block names what was actually checked: the previous
+   * message asserted a migration was "NOT present on origin/main" without
+   * saying at which path, which is what made a false positive take a hand-run
+   * `git cat-file` to diagnose.
+   */
+  checkedPaths?: Record<string, string[]>;
 }
 
 /**
@@ -225,6 +248,19 @@ export async function checkUnmergedMigrations(
   }
 
   const unmergedTags: string[] = [];
+  const checkedPaths: Record<string, string[]> = {};
+
+  /** True when `<repoRelPath>` exists in the `origin/main` tree. */
+  const existsOnOriginMain = async (repoRelPath: string): Promise<boolean> => {
+    try {
+      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
+      // non-zero if it doesn't (file not on origin/main)
+      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   for (const entry of pendingEntries) {
     const sqlFileName = `${entry.tag}.sql`;
@@ -239,21 +275,79 @@ export async function checkUnmergedMigrations(
     // no `..` segments, no leading `-`, and no `:` — safe to interpolate.
     const repoRelPath = relative(repoRoot, absSqlPath).split(sep).join("/");
 
-    try {
-      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
-      // non-zero if it doesn't (file not on origin/main)
-      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
-      // exit 0 → file is present on origin/main → not blocked
-    } catch {
-      // non-zero exit → file is NOT on origin/main
+    // Look for the migration where it was resolved from AND at its canonical
+    // source location (mt#3296). Both, not just the latter, because a migration
+    // applied from the source tree must still be checked at the path it was
+    // actually read from — narrowing to the canonical path alone would stop
+    // verifying the file in front of us.
+    //
+    // Checking both cannot weaken the guard: a genuinely unmerged migration is
+    // absent from origin/main at EVERY path, so it still blocks. What it fixes
+    // is the case where the file is merged but was resolved from a build-output
+    // copy that is gitignored by design.
+    const canonicalRelPath = `${CANONICAL_MIGRATIONS_SOURCE_DIR}/${sqlFileName}`;
+    const candidates =
+      repoRelPath === canonicalRelPath ? [repoRelPath] : [repoRelPath, canonicalRelPath];
+
+    let present = false;
+    for (const candidate of candidates) {
+      if (await existsOnOriginMain(candidate)) {
+        present = true;
+        break;
+      }
+    }
+
+    if (!present) {
       unmergedTags.push(entry.tag);
+      checkedPaths[entry.tag] = candidates;
     }
   }
 
   return {
     blocked: unmergedTags.length > 0,
     unmergedTags,
+    ...(Object.keys(checkedPaths).length > 0 ? { checkedPaths } : {}),
   };
+}
+
+/**
+ * Build the operator-facing message for a blocked apply.
+ *
+ * Extracted so the message itself is testable (PR #2378 R1): it was previously
+ * inline in `runPgMigrate`, which needs a live connection, so nothing asserted
+ * that the searched paths actually reach the operator — only that the check
+ * returned them. The whole point of mt#3296's message change is what the person
+ * reading the failure sees, so that is what the test should pin.
+ *
+ * @param check   A blocked result from {@link checkUnmergedMigrations}
+ * @param masked  The connection string with credentials already redacted
+ */
+export function formatUnmergedMigrationBlockMessage(
+  check: UnmergedMigrationCheckResult,
+  masked: string
+): string {
+  // Name the paths actually searched. The previous message asserted absence
+  // without saying where it looked, so diagnosing a false positive meant
+  // hand-running `git cat-file` to discover the guard had checked a gitignored
+  // build-output path.
+  const tagList = check.unmergedTags
+    .map((tag) => {
+      const paths = check.checkedPaths?.[tag] ?? [];
+      const where = paths.map((p) => `\n      looked at: ${p}`).join("");
+      return `  - ${tag}.sql${where}`;
+    })
+    .join("\n");
+
+  return (
+    `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
+    `The following pending migration(s) are NOT present on origin/main:\n` +
+    `${tagList}\n\n` +
+    `Merge the originating branch to main FIRST, then re-run:\n` +
+    `  minsky persistence migrate --execute\n\n` +
+    `Break-glass override (use only when the migration IS intentionally\n` +
+    `applied ahead of merge — will be audit-logged):\n` +
+    `  ${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=1 minsky persistence migrate --execute`
+  );
 }
 
 /** Shape of a single journal entry from _journal.json */
@@ -270,6 +364,123 @@ export interface Journal {
   version: string;
   dialect: string;
   entries: JournalEntry[];
+}
+
+/**
+ * Compute the sha256 hex digest of a migration file's raw content.
+ *
+ * Matches drizzle-orm's own hash computation in `readMigrationFiles`
+ * (`node_modules/drizzle-orm/migrator.js`): `sha256(rawFileContent)` where
+ * `rawFileContent` is the FULL, un-split `.sql` file text (computed BEFORE
+ * splitting on `--> statement-breakpoint`). Using the identical algorithm
+ * means a hash computed here will match a hash drizzle itself would have
+ * recorded in `__drizzle_migrations` for the same file content.
+ */
+export function computeMigrationHash(fileContent: string): string {
+  return createHash("sha256").update(fileContent).digest("hex");
+}
+
+/**
+ * Resolve which local migration journal entries are PENDING — i.e. whose
+ * file hash is NOT present in the set of hashes already recorded in
+ * `drizzle.__drizzle_migrations` — via a per-migration hash SET DIFFERENCE.
+ *
+ * This is deliberately NOT count-based (`fileCount - appliedCount`, the
+ * mt#2936 bug). The two raw counts can diverge from the true pending set for
+ * reasons that have nothing to do with whether any SPECIFIC migration was
+ * applied — a historical ledger squash/consolidation, a duplicate or
+ * orphaned ledger row, or an out-of-band insert can all make
+ * `appliedCount >= fileCount` while a genuinely-unapplied migration goes
+ * silently unreported. Comparing per-migration identity (hash) instead of
+ * raw counts is robust to any such offset, regardless of its cause or sign.
+ *
+ * Note: drizzle-orm's own `migrate()` (`pg-core/dialect.js`) does NOT decide
+ * what to apply by hash-set membership — it applies by a single-row
+ * timestamp high-water-mark (`created_at` of the latest ledger row vs. each
+ * journal entry's `when`). This function intentionally does NOT replicate
+ * that algorithm: for REPORTING "has this migration ever been applied?", hash
+ * presence in the ledger is the correct ground-truth check regardless of
+ * drizzle's own apply-time decision procedure (see mt#2936 spec + memory
+ * `0c2427e5` for the full mechanics and why the two questions are distinct).
+ *
+ * @param journalEntries  All local journal entries (in order), from `_journal.json`.
+ * @param migrationsFolder  Absolute path to the migrations folder (used to locate `<tag>.sql`).
+ * @param appliedHashes  The full set of `hash` values currently recorded in `__drizzle_migrations`.
+ * @param readFile  Injectable file reader (defaults to a real `fs.readFileSync`), so this can be
+ *   unit-tested without touching disk.
+ */
+export function resolvePendingMigrations(
+  journalEntries: JournalEntry[],
+  migrationsFolder: string,
+  appliedHashes: ReadonlySet<string>,
+  readFile: (absPath: string) => string = (p) => readFileSync(p, { encoding: "utf8" }) as string
+): JournalEntry[] {
+  return journalEntries.filter((entry) => {
+    const filePath = join(migrationsFolder, `${entry.tag}.sql`);
+    let content: string;
+    try {
+      content = readFile(filePath);
+    } catch (err) {
+      // Fail LOUD, not silent. The old count-only code never touched the
+      // filesystem, so a missing/renamed/unreadable migration file (partial
+      // checkout, in-flight rename, permissions issue) is a NEW failure mode
+      // introduced by this hash-based comparison — PR #2088 review R1. A
+      // detector that silently swallowed the read failure and dropped the
+      // entry would reintroduce exactly the silent-miss bug class mt#2936
+      // fixed, just from a different angle. Treat an unreadable file's
+      // applied status as unknown and report it PENDING (a false pending is
+      // safe — it surfaces for investigation; a false 0-pending is not), and
+      // emit a warning so the operator sees the read failure explicitly
+      // instead of only an unexplained pending count.
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `[resolvePendingMigrations] could not read migration file for ${entry.tag} ` +
+          `(${filePath}): ${message}. Treating as PENDING — investigate before applying.`
+      );
+      return true;
+    }
+    const hash = computeMigrationHash(content);
+    return !appliedHashes.has(hash);
+  });
+}
+
+/**
+ * Format a labeled, informational CLI listing of pending migrations.
+ *
+ * PR #2088 review (BLOCKING #2): `resolvePendingMigrations` reports the
+ * per-migration HASH-MISSING set — every journal entry whose file hash is
+ * absent from the ledger. That is NOT the same computation drizzle-orm's own
+ * `migrate()` uses to decide what to actually apply: drizzle applies via a
+ * single-row TIMESTAMP HIGH-WATER-MARK (the latest `created_at` already in
+ * the ledger vs. each journal entry's `when` — `pg-core/dialect.js`), not by
+ * hash-set membership (see mt#2936 PR body + memory `0c2427e5`). When the
+ * ledger has an anomaly — a duplicate/orphaned row, an out-of-band insert,
+ * migrations recorded out of `when`-order — the two computations can
+ * diverge: a migration this list names may be silently skipped by drizzle's
+ * high-water-mark check (permanently shadowed), or the reverse. This
+ * function exists so every CLI surface that prints the hash-missing set
+ * labels it as informational rather than an exact preview of what
+ * `migrate()` is about to do, and explains why the two can differ.
+ *
+ * @param heading  The listing's heading line (varies by call site — dry-run
+ *   preview vs. execute-mode pre-apply summary).
+ * @param pendingTags  Migration tags (without `.sql`) reported pending by hash.
+ * @returns  An array of lines to print, or `[]` when there is nothing pending
+ *   (callers should skip printing entirely in that case).
+ */
+export function formatPendingMigrationsListing(heading: string, pendingTags: string[]): string[] {
+  if (pendingTags.length === 0) {
+    return [];
+  }
+  return [
+    heading,
+    "  NOTE: informational — hash-missing set. drizzle's own migrate() applies by",
+    "  a DIFFERENT mechanism (a timestamp high-water-mark, not hash-set membership;",
+    "  see mt#2936 PR body). The two can diverge when the ledger has anomalies",
+    "  (duplicate/orphaned rows, out-of-order applies) — this is not a guaranteed",
+    "  preview of exactly what migrate() will do.",
+    ...pendingTags.map((tag) => `  - ${tag}.sql`),
+  ];
 }
 
 /**
@@ -323,6 +534,7 @@ export interface PostgresMigrationPlan {
     fileCount: number;
     appliedCount: number;
     pendingCount: number;
+    pendingFiles?: string[];
     latestHash?: string;
     latestAt?: string;
   };
@@ -350,11 +562,12 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   latestAt?: string;
   fileCount: number;
   pendingCount: number;
+  pendingTags: string[];
   migrationsFolder: string;
   maskedConn: string;
 }> {
   const migrationsFolder = resolvePgMigrationsFolder();
-  const { readdirSync, readFileSync } = await import("fs");
+  const { readdirSync } = await import("fs");
 
   // Validate journal timestamps before doing anything else
   const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
@@ -373,6 +586,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   let appliedCount = 0;
   let latestHash: string | undefined;
   let latestAt: string | undefined;
+  let appliedHashes = new Set<string>();
   try {
     const sch = await sql<{ exists: boolean }[]>`
       SELECT EXISTS (
@@ -396,6 +610,14 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
         SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
       `;
       appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+      // Full hash set — the per-migration identity comparison below needs
+      // EVERY recorded hash, not just the single `latestHash` row (which
+      // cannot detect a specific migration missing from an otherwise
+      // larger-than-expected ledger; see mt#2936).
+      const hashRows = await sql<{ hash: string | null }[]>`
+        SELECT hash FROM "drizzle"."__drizzle_migrations";
+      `;
+      appliedHashes = new Set(hashRows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
     }
   } finally {
     await sql.end();
@@ -410,7 +632,15 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
     fileCount = 0;
   }
 
-  const pendingCount = Math.max(fileCount - appliedCount, 0);
+  // Pending = the set of journal entries whose file hash is NOT present in
+  // the ledger — a per-migration identity comparison (mt#2936), NOT
+  // `fileCount - appliedCount`. A raw count difference silently reports 0
+  // pending whenever the ledger's row count meets or exceeds the local file
+  // count for ANY reason unrelated to whether a specific migration was
+  // applied, while a genuinely-unapplied migration goes undetected.
+  const pendingEntries = resolvePendingMigrations(journal.entries, migrationsFolder, appliedHashes);
+  const pendingCount = pendingEntries.length;
+  const pendingTags = pendingEntries.map((e) => e.tag);
 
   return {
     schemaExists,
@@ -420,6 +650,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
     latestAt,
     fileCount,
     pendingCount,
+    pendingTags,
     migrationsFolder,
     maskedConn,
   };
@@ -437,7 +668,6 @@ export async function runPostgresSchemaMigrations(
 
   if (dryRun) {
     // Build preview plan
-    const { basename: _basename } = await import("path");
     const status = await getPostgresMigrationsStatus(connectionString);
     const maskedConn = status.maskedConn;
     const migrationsFolder = status.migrationsFolder;
@@ -450,12 +680,6 @@ export async function runPostgresSchemaMigrations(
     } catch {
       // ignore
     }
-
-    const _summary =
-      `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\n` +
-      `Migrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ` +
-      `${status.appliedCount} applied, ` +
-      `${Math.max(fileNames.length - status.appliedCount, 0)} pending`;
 
     const plan: PostgresMigrationPlan = {
       success: true,
@@ -471,7 +695,8 @@ export async function runPostgresSchemaMigrations(
         files: fileNames,
         fileCount: fileNames.length,
         appliedCount: status.appliedCount,
-        pendingCount: Math.max(fileNames.length - status.appliedCount, 0),
+        pendingCount: status.pendingCount,
+        pendingFiles: status.pendingTags.map((tag) => `${tag}.sql`),
         latestHash: status.latestHash,
         latestAt: status.latestAt,
       },
@@ -482,10 +707,8 @@ export async function runPostgresSchemaMigrations(
     }
 
     {
-      const pendingCount = Math.max(fileNames.length - status.appliedCount, 0);
-
       // Mark plan metadata
-      plan.nothingToDo = pendingCount === 0;
+      plan.nothingToDo = status.pendingCount === 0;
 
       log.cli("=== Persistence Schema Migration (postgres) — DRY RUN ===");
       log.cli("");
@@ -506,7 +729,7 @@ export async function runPostgresSchemaMigrations(
       }
       log.cli(
         `Plan: ${fileNames.length} file(s), ${status.appliedCount} applied, ` +
-          `${pendingCount} pending`
+          `${status.pendingCount} pending`
       );
       log.cli("");
       if (!status.metaExists || status.appliedCount === 0) {
@@ -523,7 +746,14 @@ export async function runPostgresSchemaMigrations(
           );
         }
       }
-      if (pendingCount > 0) {
+      if (status.pendingCount > 0) {
+        for (const line of formatPendingMigrationsListing(
+          "Pending migration(s):",
+          status.pendingTags
+        )) {
+          log.cli(line);
+        }
+        log.cli("");
         log.cli("(use --execute to apply)");
       } else {
         log.cli("✅ No pending migrations.");
@@ -538,7 +768,7 @@ export async function runPostgresSchemaMigrations(
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
-  const { readdirSync, readFileSync } = await import("fs");
+  const { readdirSync } = await import("fs");
 
   const sql = postgres(connectionString, {
     prepare: false,
@@ -582,6 +812,7 @@ export async function runPostgresSchemaMigrations(
     let latestAt: string | undefined;
     let schemaExists = false;
     let metaExists = false;
+    let appliedHashes = new Set<string>();
     try {
       const sch = await sql<{ exists: boolean }[]>`
         SELECT EXISTS (
@@ -607,10 +838,24 @@ export async function runPostgresSchemaMigrations(
         `;
         latestHash = rows?.[0]?.hash || undefined;
         latestAt = rows?.[0]?.created_at || undefined;
+        const hashRows = await sql<{ hash: string | null }[]>`
+          SELECT hash FROM "drizzle"."__drizzle_migrations";
+        `;
+        appliedHashes = new Set(hashRows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
       }
     } catch {
       // best-effort pre-checks
     }
+
+    // Pending = per-migration hash set difference (mt#2936), not a raw count
+    // subtraction — see getPostgresMigrationsStatus above for the full
+    // rationale. Reused below both for the CLI summary and for the
+    // "Running migrations (in order)" listing right before `migrate()`.
+    const pendingEntries = resolvePendingMigrations(
+      journal.entries,
+      migrationsFolder,
+      appliedHashes
+    );
 
     {
       log.cli("=== Persistence Schema Migration (postgres) ===");
@@ -631,10 +876,7 @@ export async function runPostgresSchemaMigrations(
         );
       }
       log.cli(
-        `Plan: ${files.length} file(s), ${appliedCount} applied, ${Math.max(
-          files.length - appliedCount,
-          0
-        )} pending`
+        `Plan: ${files.length} file(s), ${appliedCount} applied, ${pendingEntries.length} pending`
       );
       // Show file list once below right before execution
       log.cli("");
@@ -700,30 +942,21 @@ export async function runPostgresSchemaMigrations(
           );
         }
         if (check.blocked) {
-          const tagList = check.unmergedTags.map((t) => `  - ${t}.sql`).join("\n");
-          throw new Error(
-            `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
-              `The following pending migration(s) are NOT present on origin/main:\n` +
-              `${tagList}\n\n` +
-              `Merge the originating branch to main FIRST, then re-run:\n` +
-              `  minsky persistence migrate --execute\n\n` +
-              `Break-glass override (use only when the migration IS intentionally\n` +
-              `applied ahead of merge — will be audit-logged):\n` +
-              `  ${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=1 minsky persistence migrate --execute`
-          );
+          throw new Error(formatUnmergedMigrationBlockMessage(check, masked));
         }
       }
     }
     // ── end unmerged-migration guard ────────────────────────────────────────
 
     const start = Date.now();
-    if (files.length > 0) {
-      const pendingEntries = journal.entries.slice(appliedCount);
-      if (pendingEntries.length > 0) {
-        log.cli("Running migrations (in order):");
-        pendingEntries.forEach((e, i) => log.cli(`  ${i + 1}. ${e.tag}.sql`));
-        log.cli("");
+    if (files.length > 0 && pendingEntries.length > 0) {
+      for (const line of formatPendingMigrationsListing(
+        "Running migrations (in order):",
+        pendingEntries.map((e) => e.tag)
+      )) {
+        log.cli(line);
       }
+      log.cli("");
     }
     await migrate(db, { migrationsFolder });
     {

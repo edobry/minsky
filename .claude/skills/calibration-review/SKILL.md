@@ -32,6 +32,9 @@ Call the command in JSON mode, read-only (do NOT pass `--ack` yet):
 - CLI: `minsky observability calibration-review --json`
 
 It returns, per registered log: `totalFires`, `firesSinceLastReview`,
+`suppressedSinceLastReview`, `injectedFiresSinceLastReview` (mt#3197 — the
+count the thresholds key off; a detection that was suppressed before injection
+never reached the operator and is NOT a fire for cadence purposes),
 `distinctPhrases`, `lowDiversity`, `pastThreshold`, `newRecords` (the
 unreviewed matches), and `openAskId` (mt#2659 — set when a prior pass filed a
 disposition Ask for this log that hasn't been resolved yet).
@@ -66,6 +69,27 @@ If **no** log has `pastThreshold: true` (after excluding still-open-ask logs
 per step 3 above), stop — nothing to review. Do not emit an Ask, do not
 advance watermarks.
 
+### Step 1b — Coverage-receipt check (mt#2554)
+
+Independent of the past-threshold gate above (a DEAD detector fires rarely, so it
+will never trip `pastThreshold` — its problem is the ABSENCE of fires, which the
+sweep's fire-count thresholds cannot see). Run this every pass, even when Step 1
+found nothing to classify:
+
+- CLI: `bun scripts/check-coverage-receipts.ts`
+
+It reports `[OK]`/`[FLAGGED]` per detector and exits non-zero when any detector has had
+zero `source:"live"` fires in the last 7 days. For each `[FLAGGED]` detector, distinguish
+broken from dormant by cross-checking its canary (`bun scripts/run-guard-canaries.ts`):
+
+- **canary PASS + zero live fires** → dormant: the trigger condition simply hasn't
+  occurred. No action beyond noting it.
+- **canary FAIL + zero live fires** → broken (the mt#2057 9-day-dead-hook shape). Fold it
+  into the Ask you emit in Step 4, or file a fix task — do not silently pass over it.
+
+This is the LIVE-input complement to the canary's synthetic-input check; see
+`docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.
+
 ## Step 2 — False-positive classification
 
 For each log with `pastThreshold: true`, go through its `newRecords` and
@@ -80,7 +104,7 @@ classify each as **real positive** or **false positive**:
 
 When the record alone is ambiguous, say so and lean toward calling it
 **uncertain** rather than guessing — the goal is an honest FP rate, not a
-flattering one. Compute `fpRate = falsePositives / firesSinceLastReview` per
+flattering one. Compute `fpRate = falsePositives / injectedFiresSinceLastReview` per
 log.
 
 ## Step 3 — Recommendation
@@ -100,12 +124,108 @@ never reach this step; they stay in the "keep collecting" state with
 
 Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 **kind `direction.decide`** (mt#2659 — corrected from `quality.review`; see
-"Why `direction.decide`, not `quality.review`" below). The Ask body must
-contain, per past-threshold log:
+"Why `direction.decide`, not `quality.review`" below).
 
-- the log name + `firesSinceLastReview` / `totalFires` + `distinctPhrases`
+**Acceptance bar (mt#3326): the ask must pass the cold-reader test.** Before
+calling `asks_create`, read your drafted body as a fresh, minimal-context
+evaluator who has never seen this skill, this codebase, or these detector
+names would read it. That reader must be able to, from the body alone:
+
+1. State in one sentence what decision is being asked.
+2. Predict what each option does if clicked — including any downstream
+   consequence (like a flip creating a double-injection risk).
+
+If you can't answer both from the body text, rewrite before creating — don't
+ship and hope the operator infers it. (Originating incident: ask#6448,
+2026-07-29, filed by this skill, failed exactly this test: seven undefined
+detector names, "live vs log-only" never defined, and a recommended option
+that bundled a flip whose precondition — dedup — was not yet satisfied.)
+
+### Step 4a — Plain-language lead, THEN stats
+
+The body must LEAD with a one- or two-sentence plain-language definition of
+any term the reader needs (e.g. what "live" vs "log-only" means for a
+detector), then one line per past-threshold log in this shape:
+
+```
+N. DISPOSITION — detector-name, live|log-only ("what habit it watches, in
+   plain words"): stat summary. one-line rationale.
+```
+
+Stats (`injectedFiresSinceLastReview`/`totalFires`, FP rate, representative
+false positives, `suppressedSinceLastReview` when non-zero) attach AFTER the
+plain-language clause on the same line — never as the line's opening word.
+A line that opens with a percentage or a raw detector identifier has not
+been rendered for a cold reader yet.
+
+Reference exemplar — the corrected ask#6448 body (fetch via
+`asks_get id:91b77372-6b14-4a85-b526-25b703b3c1f8` to see it verbatim):
+
+> Your behavior detectors either log quietly (log-only) or inject a visible
+> warning into the agent's next turn (live). Four have enough review data to
+> act on:
+>
+> 1. KEEP — ask-routing-deferral, live ("defers decisions in chat instead of
+>    filing an ask"): ~0-10% false positives. Accurate; not yet changing the
+>    habit.
+> 2. TUNE — silent-stretch, log-only ("agent went quiet"): 8 of 12 fires were
+>    sub-5-minute tool bursts, not real silence. Require a longer gap.
+> 3. TUNE — wall-of-text, live ("turn report over budget"): 2 of 16 fires
+>    false — one 56-word one-liner, one report you explicitly asked to be
+>    long. Add a word-count floor; widen depth-request suppression.
+> 4. HOLD — untaken-action, log-only ("said 'I'll do X', then stopped"): low
+>    FP and flip-worthy, BUT it fires on the same turns as #1 — flipping now
+>    risks double-injection. Land dedup first, then flip.
+>
+> Recommendation: approve 1-3 now; #4 only after dedup lands.
+
+Notice: the opening sentence defines "live"/"log-only" ONCE, in plain words,
+before any detector name appears; every numbered line names the habit in
+quotes before the stats; and item 4 is split out as its own disposition
+rather than folded into the headline recommendation — see Step 4b.
+
+### Step 4b — Precondition-safe recommendation rule
+
+**Never bundle an action whose stated precondition is not yet satisfied into
+the ask's recommended option.** If a log's disposition is "flip, but only
+after X lands" and X has not landed, that log's disposition is **HOLD**, not
+"flip" — give it its own line and, if X doesn't already have a tracking
+task, name one. The recommended option must be safe to click as written: an
+operator clicking "approve the recommendation" must never trigger a
+consequence (like the double-injection risk in the ask#6448 origin
+incident) that the ask itself warns about one paragraph later. When in
+doubt, split: one option approves the precondition-clear items, a separate
+option (or a plain HOLD line, not a clickable bundle) covers the blocked
+one.
+
+### Step 4c — formWarnings / hard-reject handling (mt#3326)
+
+`asks_create` now hard-rejects a call whose body/options fail any form-lint
+check (over-word-budget, internal-tool-id, portal-no-link,
+long-option-label, letter-prefixed-option-label) and lists the violations
+in the error — it does not silently create the ask with an ignorable
+warning anymore. Treat a rejection as a signal to shorten/restructure via
+Step 4a's template, not as a cue to bypass:
+
+- **Default response:** fix the wording (usually: apply the plain-language
+  compression above, and move any per-log deep-dive detail into
+  `contextRefs` instead of the body) and retry `asks_create`.
+- **`acknowledgeFormWarnings: true`** is available for a pass that genuinely
+  covers many logs and cannot compress under the word budget even after
+  Step 4a's rewrite. Use it deliberately, not reflexively — every use is
+  recorded on the calibration log (`acknowledged: true`) and is itself
+  reviewable in a future calibration pass. Reaching for it before trying the
+  plain-language compression defeats the point of this amendment.
+
+The Ask body must still contain, per past-threshold log, the full stat
+detail Step 4a's template attaches after the plain-language clause:
+
+- the log name + `injectedFiresSinceLastReview` / `totalFires` + `distinctPhrases`
+  (and `suppressedSinceLastReview` when non-zero — say so explicitly, since a
+  large suppressed count means the detector's tune is WORKING, not that it is noisy)
 - the FP rate and a few representative false positives
-- the recommendation (flip / tune / keep) with one line of rationale
+- the recommendation (flip / tune / keep / **hold**, per Step 4b) with one
+  line of rationale
 
 **You MUST NOT** edit any hook file, flip `INJECTION_ENABLED`, or change any
 detector pattern. The flip is the principal's decision; the Ask surfaces it.
@@ -168,3 +288,12 @@ the logs it DOES advance — only `clearAskId` clears it.
   Fixes the 2026-07-07 incident where the policy-coverage cadence warning
   fired on nearly every turn AND kept demanding a re-review already blocked on
   an open disposition ask.
+- mt#3326 — Step 4's plain-language-lead template (4a), precondition-safe
+  recommendation rule (4b), `asks_create` form-lint hard-reject handling
+  (4c), and the cold-reader acceptance bar. Originating incident: ask#6448
+  (2026-07-29), filed by this skill, failed a cold-reader actionability
+  test. Reference exemplar: the corrected ask#6448 body (`asks_get
+id:91b77372-6b14-4a85-b526-25b703b3c1f8`). Companion change: `asks.create`
+  itself now hard-rejects form-lint violations at the tool boundary
+  (`src/adapters/shared/commands/asks.ts`'s `validateFormLintNotViolated`),
+  not just for asks this skill files.

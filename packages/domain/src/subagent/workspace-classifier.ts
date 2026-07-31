@@ -24,6 +24,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invocations-schema";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -66,34 +67,81 @@ export interface ClassifierOptions {
 // Sync exec helper (mirrors types.ts pattern)
 // ---------------------------------------------------------------------------
 
+/**
+ * Crash-safe `Bun.spawnSync` wrapper (mt#3089, mirrors the mt#2810 fix in
+ * `.minsky/hooks/types.ts`'s `safeSpawnSync`).
+ *
+ * `Bun.spawnSync` THROWS synchronously when the binary cannot be resolved
+ * (ENOENT) instead of returning a non-zero result — verified for `git`/`gh`
+ * the same way mt#2810 verified it for the hook-layer git calls. This
+ * classifier's `defaultRunGit`/`defaultRunGh` called `Bun.spawnSync` directly
+ * with no try/catch, so when a `SubagentStop` hook process (which does not
+ * necessarily inherit the interactive-shell PATH the main agent has — see
+ * mt#2810's root-cause finding in `.minsky/hooks/types.ts`) cannot resolve
+ * `git`, THIS call throws, uncaught, all the way up through
+ * `classifyWorkspaceOutcome` -> `recordInvocation` -> the hook's outer
+ * try/catch, which logs "unexpected top-level error" to stderr (never
+ * persisted anywhere) and exits 0 per the fail-safe contract — so the
+ * SubagentStop write silently never lands, indistinguishable from the hook
+ * never having fired at all. mt#3089's diagnosis: EVERY closed
+ * `subagent_invocations` row's `summary` field traced to
+ * `tasks.dispatch-recover` (a server-side path with a different, safe
+ * environment), never to this hook — i.e. this hook's own completion has
+ * never been observed to land in production, exactly the signature this
+ * throw produces.
+ *
+ * Degrading to a synthetic non-zero result (rather than crashing) is safe
+ * here specifically because every caller already handles a non-zero
+ * git/gh exit gracefully (git status failure -> `crashed-no-output`; gh
+ * failure -> `{}`, no PR found) — this makes an unresolvable binary behave
+ * exactly like "the command ran and failed," which the classifier was
+ * already designed to tolerate.
+ */
+export function safeSpawnSync(
+  cmd: string[],
+  options: { cwd?: string }
+): { exitCode: number; stdout: string; stderr: string } {
+  try {
+    const result = Bun.spawnSync(cmd, {
+      cwd: options.cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env["PATH"] ?? ""}`,
+      },
+    });
+    return {
+      exitCode: result.exitCode ?? 1,
+      stdout: result.stdout.toString().trim(),
+      stderr: result.stderr.toString().trim(),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Loud, structured degradation signal (mt#3089 "make any swallow loud").
+    // Routed through the structured logger rather than a bare command-line
+    // `console.error` per mt#1960; the caller (classifyWorkspaceOutcome)
+    // still treats the returned non-zero result the same way it treats a
+    // real command failure, so the classification itself degrades
+    // gracefully instead of this throw aborting the entire SubagentStop
+    // recording silently.
+    log.error("[workspace-classifier] DEGRADED: failed to spawn binary", {
+      command: cmd.join(" "),
+      error: message,
+    });
+    return { exitCode: 127, stdout: "", stderr: `spawn failed: ${message}` };
+  }
+}
+
 function defaultRunGit(
   args: string[],
   cwd: string
 ): { exitCode: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env["PATH"] ?? ""}` },
-  });
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-  };
+  return safeSpawnSync(["git", ...args], { cwd });
 }
 
 function defaultRunGh(args: string[]): { exitCode: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync(["gh", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env["PATH"] ?? ""}` },
-  });
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-  };
+  return safeSpawnSync(["gh", ...args], {});
 }
 
 // ---------------------------------------------------------------------------

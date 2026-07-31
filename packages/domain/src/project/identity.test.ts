@@ -120,6 +120,48 @@ describe("deriveSlugFromGitRemote", () => {
     });
     expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
   });
+
+  // mt#2893: in a git-less container (e.g. the reviewer service), shelling
+  // out to `git remote get-url origin` directly makes the invoking shell
+  // itself print a "not found"-style line to stderr — text a try/catch
+  // around the JS-level exec error cannot suppress. `deriveSlugFromGitRemote`
+  // now passes `stdio: ["ignore", "pipe", "ignore"]` so the child's stderr
+  // (fd 2) is opened to the null device instead of inherited, discarding
+  // that text at the OS level while stdout stays piped for the success
+  // path. This works identically on POSIX shells and Windows `cmd.exe`
+  // (no shell-builtin dependency, unlike an earlier `command -v git`
+  // pre-probe that would have false-negatived on Windows).
+  test("suppresses child stderr via stdio so a missing git binary can't leak a shell error", () => {
+    let capturedOpts: { cwd?: string; encoding?: string; stdio?: string[] } | undefined;
+    const deps = makeDeps({
+      execSync: (_cmd, opts) => {
+        capturedOpts = opts as typeof capturedOpts;
+        throw new Error("/bin/sh: 1: git: not found");
+      },
+    });
+    expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
+    expect(capturedOpts).toEqual({
+      cwd: "/repo",
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  });
+
+  test("passes the same cwd/encoding/stdio options through on the success path", () => {
+    let capturedOpts: { cwd?: string; encoding?: string; stdio?: string[] } | undefined;
+    const deps = makeDeps({
+      execSync: (_cmd, opts) => {
+        capturedOpts = opts as typeof capturedOpts;
+        return GITHUB_SSH_URL;
+      },
+    });
+    expect(deriveSlugFromGitRemote("/some/repo", deps)).toBe("edobry/minsky");
+    expect(capturedOpts).toEqual({
+      cwd: "/some/repo",
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

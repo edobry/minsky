@@ -43,10 +43,11 @@ function fixFile(filePath: string): Fix[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNumber = i + 1;
+    if (line === undefined) continue;
 
     // Fix catch blocks with underscore parameters that are used without underscore
     const catchMatch = line.match(/catch\s*\(\s*(_\w+)\s*\)/);
-    if (catchMatch) {
+    if (catchMatch && catchMatch[1] !== undefined) {
       const underscoreVar = catchMatch[1];
       const varWithoutUnderscore = underscoreVar.slice(1);
 
@@ -54,6 +55,7 @@ function fixFile(filePath: string): Fix[] {
       let foundUsage = false;
       for (let j = i + 1; j < Math.min(i + 21, lines.length); j++) {
         const nextLine = lines[j];
+        if (nextLine === undefined) break;
 
         // Skip if we hit another catch or function
         if (nextLine.includes("catch") || nextLine.includes("function")) break;
@@ -86,7 +88,7 @@ function fixFile(filePath: string): Fix[] {
 
     // Fix function parameters with underscores that are used without underscore
     const funcMatch = line.match(/function\s+\w+\s*\([^)]*(_\w+)[^)]*/);
-    if (funcMatch) {
+    if (funcMatch && funcMatch[1] !== undefined) {
       const underscoreParam = funcMatch[1];
       const paramWithoutUnderscore = underscoreParam.slice(1);
 
@@ -97,6 +99,7 @@ function fixFile(filePath: string): Fix[] {
 
       for (let j = i; j < lines.length; j++) {
         const nextLine = lines[j];
+        if (nextLine === undefined) break;
 
         if (nextLine.includes("{")) {
           braceCount += (nextLine.match(/\{/g) || []).length;
@@ -136,7 +139,7 @@ function fixFile(filePath: string): Fix[] {
 
     // Fix arrow function parameters with underscores
     const arrowMatch = line.match(/\(\s*([^)]*_\w+[^)]*)\s*\)\s*=>/);
-    if (arrowMatch) {
+    if (arrowMatch && arrowMatch[1] !== undefined) {
       const params = arrowMatch[1];
       const underscoreParams = params.match(/_\w+/g) || [];
 
@@ -150,6 +153,7 @@ function fixFile(filePath: string): Fix[] {
 
         for (let j = i; j < lines.length; j++) {
           const nextLine = lines[j];
+          if (nextLine === undefined) break;
 
           if (nextLine.includes("{")) {
             braceCount += (nextLine.match(/\{/g) || []).length;

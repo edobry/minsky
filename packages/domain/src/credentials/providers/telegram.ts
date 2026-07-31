@@ -19,6 +19,7 @@
  */
 import { existsSync } from "fs";
 import { join, resolve } from "path";
+import { spawnSync as nodeSpawnSync } from "child_process";
 import type { CredentialProvider, CredentialCheckResult } from "../types";
 
 export const TELEGRAM_PULUMI_SECRET_KEY = "secrets:minsky-reviewer-telegram-bot-token";
@@ -160,19 +161,37 @@ async function storeInPulumi(token: string): Promise<{ location: string }> {
         "directory. Start the cockpit from the Minsky repo root."
     );
   }
-  const proc = Bun.spawnSync(
-    ["pulumi", "-C", infraDir, "config", "set", "--secret", TELEGRAM_PULUMI_SECRET_KEY],
+  // NOTE (mt#2729): this spawnSync call has no `timeout` option, so it shares
+  // the same un-timeout-bounded-subprocess gap fixed on isConfiguredInPulumi's
+  // spawnSync below (a hung/slow `pulumi` CLI blocks the caller indefinitely).
+  // Out of scope here — this call isn't implicated in the observed CI flake
+  // (listCredentials only calls isConfigured) — but worth applying the same
+  // `timeout:` fix if this pattern recurs.
+  //
+  // Uses node:child_process.spawnSync (not Bun.spawnSync) because
+  // bun-types@1.2.12's Bun.spawnSync overloads hardcode stdin to the literal
+  // "ignore" on both signatures (missing the generic `In` parameter `spawn()`
+  // correctly declares) — there is no cast-free way to pass a real stdin
+  // value to it in this bun-types version, and the custom
+  // `no-excessive-as-unknown` ESLint rule (correctly) flags a cast-based
+  // workaround as risky. node:child_process.spawnSync's `input` option is
+  // properly typed for exactly this (buffer piped to the child's stdin,
+  // fully synchronous — identical semantics) and is already used elsewhere
+  // in this codebase (see src/mcp/daemon-state.ts's execSync usage). See
+  // mt#3088 spec for the full diagnosis.
+  const proc = nodeSpawnSync(
+    "pulumi",
+    ["-C", infraDir, "config", "set", "--secret", TELEGRAM_PULUMI_SECRET_KEY],
     {
-      stdin: Buffer.from(`${token}\n`),
-      stdout: "pipe",
-      stderr: "pipe",
+      input: Buffer.from(`${token}\n`),
+      stdio: ["pipe", "pipe", "pipe"],
       env: pulumiEnv(),
     }
   );
-  if (proc.exitCode !== 0) {
+  if (proc.status !== 0) {
     const err = proc.stderr.toString().trim();
     // The token rides stdin, so stderr cannot embed it; still, never echo stdout.
-    throw new Error(`pulumi config set failed: ${err || `exit ${proc.exitCode}`}`);
+    throw new Error(`pulumi config set failed: ${err || `exit ${proc.status}`}`);
   }
   return { location: `pulumi stack config (${TELEGRAM_PULUMI_SECRET_KEY})` };
 }
@@ -185,6 +204,8 @@ async function storeInPulumi(token: string): Promise<{ location: string }> {
 async function readFromPulumi(): Promise<string | null> {
   const infraDir = resolveInfraDir();
   if (!infraDir) return null;
+  // NOTE (mt#2729): shares the same un-timeout-bounded-subprocess gap as
+  // storeInPulumi above — out of scope for this task, follow-up note only.
   const proc = Bun.spawnSync(
     ["pulumi", "-C", infraDir, "config", "get", TELEGRAM_PULUMI_SECRET_KEY],
     { stdout: "pipe", stderr: "pipe", env: pulumiEnv() }
@@ -198,6 +219,8 @@ async function readFromPulumi(): Promise<string | null> {
 async function removeFromPulumi(): Promise<{ removed: boolean }> {
   const infraDir = resolveInfraDir();
   if (!infraDir) return { removed: false };
+  // NOTE (mt#2729): shares the same un-timeout-bounded-subprocess gap as
+  // storeInPulumi above — out of scope for this task, follow-up note only.
   const proc = Bun.spawnSync(
     ["pulumi", "-C", infraDir, "config", "rm", TELEGRAM_PULUMI_SECRET_KEY],
     { stdout: "pipe", stderr: "pipe", env: pulumiEnv() }
@@ -210,13 +233,36 @@ async function isConfiguredInPulumi(): Promise<boolean> {
   if (!infraDir) return false;
   // `pulumi config` LISTS keys without decrypting values (secrets render as
   // [secret]) — presence check only; nothing secret reaches this process.
-  const proc = Bun.spawnSync(["pulumi", "-C", infraDir, "config"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: pulumiEnv(),
-  });
-  if (proc.exitCode !== 0) return false;
-  return proc.stdout.toString().includes(TELEGRAM_PULUMI_SECRET_KEY.replace(/^secrets:/, ""));
+  //
+  // `timeout` (mt#2729): Bun.spawnSync is a genuinely synchronous,
+  // thread-blocking call — a caller-side Promise.race/setTimeout wrapper
+  // cannot bound it, because the event loop is blocked while it runs. The
+  // native `timeout` option (bun-types SpawnOptions.OptionsObject) kills the
+  // process after the given ms, which the existing `exitCode !== 0` guard
+  // below already treats as "not configured". This is the root-cause fix for
+  // the flaky 15s CI timeout in lifecycle.test.ts (this is the only
+  // `isConfigured` implementation in the provider registry, and it's the
+  // sole real subprocess call `listCredentials` transitively makes).
+  //
+  // try/catch (PR #2020 R1): Bun.spawnSync can THROW (missing binary,
+  // spawn failure, timeout-kill edge) rather than return a non-zero
+  // exitCode. `listCredentials`' own `.catch(() => false)` would absorb a
+  // rejection from this async function, but a local catch keeps the
+  // "unavailable == not configured" contract independent of any caller's
+  // error handling (this provider method is also callable directly).
+  try {
+    const proc = Bun.spawnSync(["pulumi", "-C", infraDir, "config"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: pulumiEnv(),
+      timeout: 3000, // ms — well under bun test's 15s ceiling; a warm,
+      // authenticated local `pulumi config` run takes ~0.5s.
+    });
+    if (proc.exitCode !== 0) return false;
+    return proc.stdout.toString().includes(TELEGRAM_PULUMI_SECRET_KEY.replace(/^secrets:/, ""));
+  } catch {
+    return false;
+  }
 }
 
 export const telegramProvider: CredentialProvider = {

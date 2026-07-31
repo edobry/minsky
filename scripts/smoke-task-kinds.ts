@@ -5,7 +5,8 @@
  * Verifies that:
  *   1. The `kind` column exists in the tasks table and is readable.
  *   2. Creating a new task with kind="umbrella" persists correctly.
- *   3. Transitioning an umbrella task to COMPLETED succeeds.
+ *   3. Transitioning an umbrella task to DONE succeeds (single terminal DONE
+ *      across all kinds, mt#2311).
  *   4. The workflow gate correctly rejects invalid umbrella transitions.
  *   5. Implementation-kind tasks (default) still follow the old state machine.
  *
@@ -130,32 +131,33 @@ if (implWorkflow === WORKFLOWS["implementation"]) {
 }
 
 // ---------------------------------------------------------------------------
-// Check 4: umbrella kind allows COMPLETED terminal state
-// ---------------------------------------------------------------------------
-
-try {
-  validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella");
-  pass("umbrella IN-PROGRESS → COMPLETED is allowed");
-} catch (err) {
-  fail(
-    "umbrella IN-PROGRESS → COMPLETED is allowed",
-    err instanceof Error ? err.message : String(err)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Check 5: umbrella kind rejects DONE (implementation-only state)
+// Check 4: umbrella kind allows DONE terminal state (single terminal DONE
+// across all kinds, mt#2311 — supersedes the pre-mt#2311 per-kind COMPLETED
+// terminal this script used to assert here)
 // ---------------------------------------------------------------------------
 
 try {
   validateStatusTransition("IN-PROGRESS", "DONE", "umbrella");
-  fail("umbrella IN-PROGRESS → DONE is rejected", "Expected rejection but transition was allowed");
+  pass("umbrella IN-PROGRESS → DONE is allowed");
 } catch (err) {
-  pass("umbrella IN-PROGRESS → DONE is correctly rejected");
+  fail("umbrella IN-PROGRESS → DONE is allowed", err instanceof Error ? err.message : String(err));
 }
 
 // ---------------------------------------------------------------------------
-// Check 6: implementation kind still rejects COMPLETED (umbrella-only state)
+// Check 5: umbrella kind rejects READY (no planning gate — READY is absent
+// from the umbrella workflow's states entirely; see workflows.ts)
+// ---------------------------------------------------------------------------
+
+try {
+  validateStatusTransition("IN-PROGRESS", "READY", "umbrella");
+  fail("umbrella IN-PROGRESS → READY is rejected", "Expected rejection but transition was allowed");
+} catch (err) {
+  pass("umbrella IN-PROGRESS → READY is correctly rejected");
+}
+
+// ---------------------------------------------------------------------------
+// Check 6: implementation kind rejects COMPLETED (removed entirely as a valid
+// TaskStatus post-mt#2311 — not merely umbrella-only anymore)
 // ---------------------------------------------------------------------------
 
 try {
@@ -231,15 +233,16 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// Check 8: COMPLETED is in umbrella terminal states
+// Check 8: DONE is in umbrella terminal states (single terminal DONE across
+// all kinds, mt#2311 — this used to assert COMPLETED here)
 // ---------------------------------------------------------------------------
 
 const umbrellaWorkflow = WORKFLOWS["umbrella"];
-if (umbrellaWorkflow.terminal.includes("COMPLETED")) {
-  pass("umbrella workflow has COMPLETED in terminal states");
+if (umbrellaWorkflow.terminal.includes("DONE")) {
+  pass("umbrella workflow has DONE in terminal states");
 } else {
   fail(
-    "umbrella workflow has COMPLETED in terminal states",
+    "umbrella workflow has DONE in terminal states",
     `terminal: ${umbrellaWorkflow.terminal.join(", ")}`
   );
 }

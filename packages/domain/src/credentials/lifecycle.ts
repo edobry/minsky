@@ -18,7 +18,7 @@ import { join } from "path";
 import { createConfigWriter } from "../configuration/config-writer";
 import { getUserConfigDir } from "../configuration/sources/user";
 import { getCredentialProvider, listCredentialProviders } from "./providers";
-import type { CredentialCheckResult } from "./types";
+import type { CredentialCheckResult, CredentialProvider } from "./types";
 import { clearInvalidation, notifyCredentialInvalidated } from "./invalidations";
 
 /**
@@ -183,12 +183,22 @@ export interface CredentialListing {
  * Return one listing per known provider. `configured` reflects ONLY the
  * user-level config.yaml (the file this subsystem writes to) — env-var-only
  * credentials are out of scope for the "managed via this flow" surface.
+ *
+ * `providers` is an injectable override of the registry, defaulting to the
+ * real `listCredentialProviders()`. This exists so tests can substitute a
+ * hermetic provider list (e.g. neutralizing telegram's real Pulumi-backed
+ * `isConfigured()` subprocess probe) without `mock.module()` (banned —
+ * `eslint-rules/no-global-module-mocks.js`) — dependency injection per the
+ * project's own convention. No other caller needs to pass this; the default
+ * preserves existing behavior exactly.
  */
-export async function listCredentials(): Promise<CredentialListing[]> {
+export async function listCredentials(
+  providers: readonly CredentialProvider[] = listCredentialProviders()
+): Promise<CredentialListing[]> {
   const meta = await readMetaFile();
   const userConfig = await readUserConfigFile();
   return Promise.all(
-    listCredentialProviders().map(async (provider) => {
+    providers.map(async (provider) => {
       const metaEntry = meta.credentials.find((c) => c.provider === provider.id);
       // Providers with provider-owned storage (mt#2419) report configured-ness
       // themselves; the config.yaml check is the default-path fallback.

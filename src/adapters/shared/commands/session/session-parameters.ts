@@ -13,7 +13,9 @@ import { CONVENTIONAL_COMMIT_TYPES } from "@minsky/domain/git/conventional-commi
 export const commonSessionParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID",
+    description:
+      "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex " +
+      "prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: {
@@ -138,7 +140,11 @@ export const sessionGetCommandParams = {
 export const sessionStartCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID",
+    description:
+      "Session ID — a custom identifier for the new session (optional; a uuid is " +
+      "generated when omitted). Also accepted for the existing-session-collision check " +
+      "against the same ws#N short id / uuid / hex-prefix / legacy-name forms " +
+      "commonSessionParams.sessionId documents (mt#2967).",
     required: false,
   },
   task: commonSessionParams.task,
@@ -193,6 +199,48 @@ export const sessionDirCommandParams = {
 };
 
 /**
+ * Session ps (alias: session attached) command parameters (mt#2284).
+ */
+export const sessionPsCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  json: commonSessionParams.json,
+  reap: {
+    schema: z.boolean(),
+    description:
+      "Run the stale-attachment reaper before listing (drops attachment records whose " +
+      "pid is confirmed dead on this host; local-host only, v0 — remote-host " +
+      "attachments are skipped, never reaped by this flag).",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session bindings refresh command parameters (mt#1628).
+ */
+export const sessionBindingsRefreshCommandParams = {
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session focus (alias: session goto) command parameters (mt#2285).
+ */
+export const sessionFocusCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  attachment: {
+    schema: z.string(),
+    description:
+      "Attachment id to focus when the session has more than one live attachment. " +
+      "Omit when there is only one; a bare invocation against a multi-attachment " +
+      "session lists the candidate ids to choose from.",
+    required: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session search command parameters
  */
 export const sessionSearchCommandParams = {
@@ -215,9 +263,20 @@ export const sessionSearchCommandParams = {
 export const sessionDeleteCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
-  force: commonSessionParams.force,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  // mt#3105 SC5: the former `force` entry is REMOVED — declared but never
+  // read by deleteSessionImpl; a bare boolean must never lift a destructive
+  // guard (mt#3021 design decision). `overrideReason` is the only lifter.
+  // mt#3021 SC2: justification required to delete a workspace with an
+  // in-progress merge (MERGE_HEAD present) or uncommitted changes; also
+  // lifts the mt#3105 live-actor gate.
+  overrideReason: {
+    schema: z.string().min(1),
+    description:
+      "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event.",
+    required: false,
+  },
 };
 
 /**
@@ -266,11 +325,24 @@ export const sessionUpdateCommandParams = {
  * Session approve command parameters.
  * Only includes fields relevant to the approve action (not merge-only flags).
  */
-export const sessionApproveCommandParams = {
+// mt#2742: base params shared by approve + merge. `reviewComment` is approve-only
+// (a merge posts no review comment), so it lives on sessionApproveCommandParams — NOT
+// the base — otherwise sessionMergeCommandParams (which spreads the base) would inherit
+// a param its handler never reads (a declared-but-unread bug, the very class this task fixes).
+const sessionApproveBaseParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+};
+
+export const sessionApproveCommandParams = {
+  ...sessionApproveBaseParams,
+  reviewComment: {
+    schema: z.string(),
+    description: "Optional review comment posted alongside the approval",
+    required: false,
+  },
 };
 
 /**
@@ -278,7 +350,9 @@ export const sessionApproveCommandParams = {
  * Extends the approve base with merge-only flags.
  */
 export const sessionMergeCommandParams = {
-  ...sessionApproveCommandParams,
+  // mt#2742: spread the BASE (not sessionApproveCommandParams) so merge does NOT
+  // inherit the approve-only `reviewComment` param (its handler never reads it).
+  ...sessionApproveBaseParams,
   skipCleanup: {
     schema: z.boolean(),
     description: "Skip session cleanup after merge (preserves session files)",
@@ -551,7 +625,9 @@ export const sessionPrCloseCommandParams = {
 export const sessionPrListCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Filter PRs by specific session ID",
+    description:
+      "Filter PRs by specific session ID — accepts the uuid, a `ws#N` short id " +
+      "(mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: commonSessionParams.task,
@@ -664,6 +740,18 @@ export const sessionPrGetCommandParams = {
     required: false,
     defaultValue: false,
   },
+  reviews: {
+    schema: z.boolean(),
+    description:
+      "Include posted GitHub reviews: reviewer login, state, submitted_at, full body " +
+      "text, and per-review inline comments (path, line, body), in submission order " +
+      "(mt#2829). Bodies are included but capped if enormous (truncation stated " +
+      "explicitly); diffs are never included. A confirmed-zero-reviews PR returns " +
+      "`reviews: []` (not an error); a fetch failure returns `reviewsFetchError` " +
+      "instead — the two are never conflated.",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -713,7 +801,9 @@ export const sessionPrChecksCommandParams = {
 export const sessionPrWaitForReviewCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID (positional)",
+    description:
+      "Session ID (positional) — accepts the uuid, a `ws#N` short id (mt#2967), an " +
+      "8+ char hex prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: commonSessionParams.task,
@@ -1174,6 +1264,10 @@ export const sessionRepairCommandParams = {
  */
 export const sessionEditFileCommandParams = {
   sessionId: commonSessionParams.sessionId,
+  // mt#2816: convenience-resolution alias — same semantics as
+  // session_start/session_exec (`task` resolves to the session bound to
+  // that task). sessionId still wins when both are supplied.
+  task: commonSessionParams.task,
   path: {
     schema: z.string(),
     description: "Path to the file within the session workspace",
@@ -1207,6 +1301,16 @@ export const sessionEditFileCommandParams = {
       "Override the marker-less fail-closed guard (mt#2400). When false (default), editing " +
       "an EXISTING file with marker-less content is REFUSED (it would silently overwrite the " +
       "whole file). Set true to intentionally replace the entire file content.",
+    required: false,
+    defaultValue: false,
+  },
+  allowShrink: {
+    schema: z.boolean(),
+    description:
+      "Override the marker-spanning-collapse guard (mt#2577). When false (default), a " +
+      "marker-based edit whose apply result is dramatically smaller than the original is " +
+      "REFUSED (the apply model likely mis-resolved a marker and dropped content). Set true " +
+      "only for an intentional large deletion.",
     required: false,
     defaultValue: false,
   },

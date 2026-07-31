@@ -10,7 +10,7 @@
 
 import "reflect-metadata";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { setupConfiguration } from "../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
 import {
   synthesizeMemeplexes,
@@ -76,11 +76,11 @@ async function main() {
   });
 
   const tweets: TweetForSynthesis[] = parsed.originals
-    .map((t) => {
+    .map((t): TweetForSynthesis => {
       const c = cache.get(t.id);
       return { ...t, relevance: c?.relevance, theme: c?.theme };
     })
-    .filter((t): t is TweetForSynthesis => (t.relevance ?? 0) >= 0.7);
+    .filter((t) => (t.relevance ?? 0) >= 0.7);
 
   console.log(
     `[synth] ${tweets.length} tweets at relevance ≥ 0.7 will be surfaced to the synthesizer`

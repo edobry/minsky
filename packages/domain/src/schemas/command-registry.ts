@@ -33,6 +33,8 @@ export const commandCategorySchema = z.enum([
   "PRINCIPAL_CORPUS",
   "FORGE",
   "EVENTS",
+  "REFS",
+  "PRINCIPAL",
 ]);
 
 /**

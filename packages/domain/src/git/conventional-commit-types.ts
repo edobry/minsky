@@ -1,10 +1,14 @@
 /**
  * Single source of truth for accepted conventional commit types.
  *
- * The commit-msg hook (`src/hooks/commit-msg.ts`) is the runtime enforcement
- * point — every other consumer (CLI parameter enums, error messages, skill
- * documentation, prompt-generation envelopes) must reflect the same set, or
- * commits that pass an upstream check fail at the hook (mt#1524).
+ * Two runtime enforcement points share this list via
+ * `./commit-message-format.ts`: `commitImpl` (fast-fail, runs before any
+ * Minsky-issued commit reaches git) and the `commit-msg` git hook
+ * (`src/hooks/commit-msg.ts`, the backstop for commits made outside
+ * Minsky's own commit path — mt#2821). Every other consumer (CLI parameter
+ * enums, error messages, skill documentation, prompt-generation envelopes)
+ * must reflect the same set, or commits that pass an upstream check fail at
+ * one of these two points (mt#1524).
  */
 
 export const CONVENTIONAL_COMMIT_TYPES = [

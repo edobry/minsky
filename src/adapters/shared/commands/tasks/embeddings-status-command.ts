@@ -1,5 +1,9 @@
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext, CommandParameterMap } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type {
+  CommandExecutionContext,
+  CommandParameterMap,
+  InferParams,
+} from "../../command-registry";
 import { CommonParameters } from "../../common-parameters";
 
 const embeddingsStatusParams = {
@@ -7,15 +11,13 @@ const embeddingsStatusParams = {
   json: CommonParameters.json,
 } satisfies CommandParameterMap;
 
-interface EmbeddingsStatusParams extends BaseTaskParams {}
-
-export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStatusParams> {
+export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<typeof embeddingsStatusParams> {
   readonly id = "tasks.embeddings-status";
   readonly name = "embeddings-status";
   readonly description = "Show embedding index coverage and health statistics";
   readonly parameters = embeddingsStatusParams;
 
-  async execute(params: EmbeddingsStatusParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof embeddingsStatusParams>, ctx: CommandExecutionContext) {
     if (!ctx.container?.has("persistence")) {
       return this.formatResult(
         { success: false, message: "Persistence not initialized (no container)" },

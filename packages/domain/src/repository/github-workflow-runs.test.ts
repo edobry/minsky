@@ -6,7 +6,12 @@
  */
 
 import { describe, expect, test, mock } from "bun:test";
-import { listWorkflowRuns, viewWorkflowRunLogs, type WorkflowRun } from "./github-workflow-runs";
+import {
+  listWorkflowRuns,
+  viewWorkflowRunLogs,
+  rerunWorkflowRun,
+  type WorkflowRun,
+} from "./github-workflow-runs";
 import { MinskyError } from "../errors/index";
 import { deflateRawSync } from "node:zlib";
 
@@ -457,5 +462,182 @@ describe("viewWorkflowRunLogs", () => {
     );
     // Aborted into the fallback — not 64MB of decoded text.
     expect(result).toContain(DEFLATE_FALLBACK_MARKER);
+  });
+});
+
+describe("rerunWorkflowRun (mt#2775)", () => {
+  /** An Octokit-shaped error: `.status` + `.message` is exactly what classifyOctokitError reads. */
+  function octokitError(status: number, message: string): Error & { status: number } {
+    const err = new Error(message) as Error & { status: number };
+    err.status = status;
+    return err;
+  }
+
+  function buildRerunMockOctokit(
+    opts: {
+      rerunError?: Error;
+      getWorkflowRunError?: Error;
+      runAttempt?: number;
+      htmlUrl?: string;
+    } = {}
+  ) {
+    const calls: { method: string; params: Record<string, unknown> }[] = [];
+
+    return {
+      rest: {
+        actions: {
+          reRunWorkflow: mock(async (params: Record<string, unknown>) => {
+            calls.push({ method: "reRunWorkflow", params });
+            if (opts.rerunError) throw opts.rerunError;
+            return { status: 201, data: undefined };
+          }),
+          reRunWorkflowFailedJobs: mock(async (params: Record<string, unknown>) => {
+            calls.push({ method: "reRunWorkflowFailedJobs", params });
+            if (opts.rerunError) throw opts.rerunError;
+            return { status: 201, data: undefined };
+          }),
+          getWorkflowRun: mock(async (params: Record<string, unknown>) => {
+            calls.push({ method: "getWorkflowRun", params });
+            if (opts.getWorkflowRunError) throw opts.getWorkflowRunError;
+            return {
+              data: {
+                run_attempt: opts.runAttempt ?? 2,
+                html_url:
+                  opts.htmlUrl ??
+                  `https://github.com/test-owner/test-repo/actions/runs/${params["run_id"]}`,
+              },
+            };
+          }),
+        },
+      },
+      calls,
+    };
+  }
+
+  test("defaults to rerun-failed-jobs and surfaces rerunCount from the post-rerun refetch", async () => {
+    const oct = buildRerunMockOctokit({ runAttempt: 3 });
+    const result = await rerunWorkflowRun(
+      TEST_GH,
+      26132756066,
+      {},
+      oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+    );
+    expect(oct.calls[0]?.method).toBe("reRunWorkflowFailedJobs");
+    expect(oct.calls[0]?.params).toMatchObject({
+      owner: "test-owner",
+      repo: "test-repo",
+      run_id: 26132756066,
+    });
+    expect(result.mode).toBe("rerun-failed-jobs");
+    expect(result.runId).toBe(26132756066);
+    expect(result.rerunCount).toBe(3);
+    expect(result.htmlUrl).toContain("actions/runs/26132756066");
+  });
+
+  test("fullRerun:true dispatches to the full-rerun endpoint", async () => {
+    const oct = buildRerunMockOctokit();
+    const result = await rerunWorkflowRun(
+      TEST_GH,
+      26132756066,
+      { fullRerun: true },
+      oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+    );
+    expect(oct.calls[0]?.method).toBe("reRunWorkflow");
+    expect(oct.calls[0]?.params).toMatchObject({
+      owner: "test-owner",
+      repo: "test-repo",
+      run_id: 26132756066,
+    });
+    expect(result.mode).toBe("full-rerun");
+  });
+
+  test("throws MinskyError when runId is 0 or negative", async () => {
+    const oct = buildRerunMockOctokit();
+    await expect(
+      rerunWorkflowRun(TEST_GH, 0, {}, oct as unknown as Parameters<typeof rerunWorkflowRun>[3])
+    ).rejects.toThrow(MinskyError);
+    await expect(
+      rerunWorkflowRun(TEST_GH, -1, {}, oct as unknown as Parameters<typeof rerunWorkflowRun>[3])
+    ).rejects.toThrow(MinskyError);
+  });
+
+  test("nonexistent runId surfaces a structured 'Workflow Run Not Found' error", async () => {
+    const oct = buildRerunMockOctokit({
+      rerunError: octokitError(404, "Not Found"),
+    });
+    await expect(
+      rerunWorkflowRun(
+        TEST_GH,
+        999999999,
+        {},
+        oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+      )
+    ).rejects.toThrow(/Workflow Run Not Found/);
+  });
+
+  test("missing 'Actions' write permission surfaces a structured, actionable error naming the permission", async () => {
+    const oct = buildRerunMockOctokit({
+      rerunError: octokitError(403, "Resource not accessible by integration"),
+    });
+    await expect(
+      rerunWorkflowRun(
+        TEST_GH,
+        26132756066,
+        {},
+        oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+      )
+    ).rejects.toThrow(/Missing "Actions" Write Permission/);
+    // Must name the specific permission and the fix, not a generic 403 message.
+    await expect(
+      rerunWorkflowRun(
+        TEST_GH,
+        26132756066,
+        {},
+        oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+      )
+    ).rejects.toThrow(/Actions.*repository permission.*write/is);
+  });
+
+  test("rerunning a non-completed run surfaces a structured 'not completed' error", async () => {
+    const oct = buildRerunMockOctokit({
+      rerunError: octokitError(403, "This workflow is already running"),
+    });
+    await expect(
+      rerunWorkflowRun(
+        TEST_GH,
+        26132756066,
+        {},
+        oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+      )
+    ).rejects.toThrow(/Workflow Run Is Not Completed/);
+  });
+
+  test("a failed post-rerun refetch does not fail the rerun itself (rerunCount undefined)", async () => {
+    const oct = buildRerunMockOctokit({
+      getWorkflowRunError: new Error("network blip"),
+    });
+    const result = await rerunWorkflowRun(
+      TEST_GH,
+      26132756066,
+      {},
+      oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+    );
+    expect(result.runId).toBe(26132756066);
+    expect(result.rerunCount).toBeUndefined();
+    expect(result.htmlUrl).toBeUndefined();
+  });
+
+  test("generic errors (e.g. 401) still fall back to the shared classifier", async () => {
+    const oct = buildRerunMockOctokit({
+      rerunError: octokitError(401, "Bad credentials"),
+    });
+    await expect(
+      rerunWorkflowRun(
+        TEST_GH,
+        26132756066,
+        {},
+        oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
+      )
+    ).rejects.toThrow(/GitHub Authentication Failed/);
   });
 });

@@ -11,31 +11,40 @@
  * mt#1924: Added pagination, sorting, and filtering controls with URL param
  * persistence. Controls use prefix "ws" to namespace params.
  *
- * Status color palette duplicated from TaskGraph.tsx — centralization is a
- * separate refactor concern per mt#1146 review feedback.
+ * Status colors come from the shared `../lib/status-colors` module (mt#2909
+ * consolidation; previously a byte-identical raw-hex copy of TaskGraph.tsx's
+ * `statusStyle()` — see mt#1146 review feedback).
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useId } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { statusStyle, type TaskStatus } from "../lib/status-colors";
+import {
+  streamHealth,
+  STREAM_HEALTH_RANK,
+  type StreamHealth,
+  type StreamHealthState,
+} from "../lib/workstream-health";
+import { fetchAsks, formatRelative, type AsksListResponse } from "./AskDetail";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server WorkstreamCard / WorkstreamsPayload shapes.
 // Frontend must stay self-contained (no server imports).
 // Keep in sync with src/cockpit/widgets/workstreams.ts.
+// TaskStatus itself is imported from ../lib/status-colors (a frontend-only
+// module, not a server import) to avoid a second inline copy of the enum.
 // ---------------------------------------------------------------------------
-
-type TaskStatus =
-  | "TODO"
-  | "READY"
-  | "IN-PROGRESS"
-  | "IN-REVIEW"
-  | "DONE"
-  | "BLOCKED"
-  | "CLOSED"
-  | "PLANNING";
 
 interface WorkstreamChild {
   id: string;
@@ -51,6 +60,8 @@ interface WorkstreamCard {
   activeChildCount: number;
   doneChildCount: number;
   blockedChildCount: number;
+  /** Newest task updatedAt in the stream, ISO string or null (mt#2885). */
+  lastActivityAt: string | null;
 }
 
 /** Semantic slice names (mt#2385) — keep in sync with workstreams.ts */
@@ -76,12 +87,12 @@ interface Props {
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
-type WorkstreamSortKey = "activeChildCount" | "parentId" | "age";
+type WorkstreamSortKey = "attention" | "activeChildCount" | "parentId" | "age";
 
-interface WorkstreamFilters {
+type WorkstreamFilters = {
   status: "all" | "active" | "done" | "blocked";
   minActiveChildren: string; // URL params are always strings; parse to int when comparing
-}
+};
 
 const DEFAULT_FILTERS: WorkstreamFilters = {
   status: "all",
@@ -89,38 +100,8 @@ const DEFAULT_FILTERS: WorkstreamFilters = {
 };
 
 // ---------------------------------------------------------------------------
-// Status badge helpers
-// Duplicated from TaskGraph.tsx — palette mirrors "tech-tree" style from
-// deps-rendering-graphviz.ts. Centralization is a separate refactor concern.
+// Status badge
 // ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: TaskStatus): StatusStyle {
-  switch (status) {
-    case "DONE":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
-}
 
 function StatusBadge({ status }: { status: TaskStatus }) {
   const s = statusStyle(status);
@@ -200,10 +181,27 @@ function WorkstreamsControlBar({
   onPageSize,
   onClearFilters,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so a second control bar on the same page
+  // cannot collide on a literal "per-page" id.
+  const statusLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-3 border-b border-border">
       {/* Sort controls */}
       <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+      <button
+        onClick={() => onSort("attention")}
+        className={`text-xs px-2 py-1 rounded border transition-colors ${
+          sortKey === "attention"
+            ? "border-primary bg-primary/10 text-foreground"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+        }`}
+        aria-pressed={sortKey === "attention"}
+      >
+        Attention
+        <SortIndicator active={sortKey === "attention"} dir={sortDir} />
+      </button>
       <button
         onClick={() => onSort("activeChildCount")}
         className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -232,18 +230,30 @@ function WorkstreamsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Status filter */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Status:</span>
-      <select
-        value={filters.status}
-        onChange={(e) => onFilterStatus(e.target.value as WorkstreamFilters["status"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by status"
+      <span
+        id={statusLabelId}
+        className="text-xs text-muted-foreground uppercase tracking-wide mr-1"
       >
-        <option value="all">All</option>
-        <option value="active">Active</option>
-        <option value="done">Done</option>
-        <option value="blocked">Blocked</option>
-      </select>
+        Status:
+      </span>
+      <Select
+        value={filters.status}
+        onValueChange={(v) => onFilterStatus(v as WorkstreamFilters["status"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={statusLabelId}
+          title="Filter by status"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="active">Active</SelectItem>
+          <SelectItem value="done">Done</SelectItem>
+          <SelectItem value="blocked">Blocked</SelectItem>
+        </SelectContent>
+      </Select>
 
       {/* Min active children filter */}
       <span className="text-xs text-muted-foreground ml-1">Min active:</span>
@@ -260,19 +270,25 @@ function WorkstreamsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
-      <select
-        value={pageSize}
-        onChange={(e) => onPageSize(Number(e.target.value))}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Items per page"
-      >
-        {pageSizeOptions.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
+      <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {pageSizeOptions.map((n) => (
+            <SelectItem key={n} value={String(n)}>
+              {n}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Clear filters */}
       {hasActiveFilters && (
@@ -348,9 +364,10 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 interface WorkstreamCardProps {
   card: WorkstreamCard;
   defaultOpen: boolean;
+  health: StreamHealth;
 }
 
-function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
+function WorkstreamCardItem({ card, defaultOpen, health }: WorkstreamCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   // Rollup altitude returns cards without child rows — header-only card,
   // no expand affordance (mt#2385).
@@ -373,12 +390,26 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
             </CardTitle>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Supervision signals (mt#2885): health chip + needs-me rollups +
+                last motion — readable without expansion. */}
+            <StreamHealthChip health={health} />
+            {health.openAskCount > 0 && (
+              <span className="rounded bg-warn-amber/25 px-1.5 py-0.5 text-xs tabular-nums text-foreground whitespace-nowrap">
+                {health.openAskCount} ask{health.openAskCount === 1 ? "" : "s"}
+              </span>
+            )}
             {/* Counts pill */}
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {card.activeChildCount} active
+              {health.inReviewCount > 0 && ` · ${health.inReviewCount} in review`}
               {card.doneChildCount > 0 && ` · ${card.doneChildCount} done`}
               {card.blockedChildCount > 0 && ` · ${card.blockedChildCount} blocked`}
             </span>
+            {card.lastActivityAt && (
+              <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                {formatRelative(card.lastActivityAt)}
+              </span>
+            )}
             {/* Expand/collapse button */}
             {hasChildren && (
               <button
@@ -465,6 +496,49 @@ function workstreamSortFn(
 }
 
 // ---------------------------------------------------------------------------
+// Stream health chip (mt#2885) — the supervision signal: is this stream
+// moving, stuck, awaiting review, or blocked on the operator?
+// ---------------------------------------------------------------------------
+
+/**
+ * Health-chip colors (mt#2917 register pass). Neither "blocked-on-you" (an
+ * open ask exists, not yet escalated) nor "stalled" (no motion in 5+ days,
+ * no escalation signal) matches docs/design-system.md §5.1's enumerated red
+ * triggers (BLOCKED task status, hook denial, hard service failure, an
+ * escalated ask) — both are attention debt, not an active alarm, so both
+ * stay in the amber family. Weight tracks rank: "blocked-on-you" (rank 0,
+ * the most actionable) renders more prominently than "stalled" (rank 1).
+ * This was previously inverted: "stalled" rendered bg-warn-red (the only
+ * red in this widget, and the least-urgent of the two amber-eligible
+ * states) while "blocked-on-you" — the more actionable state — was already
+ * correctly amber.
+ */
+const HEALTH_CHIP: Record<StreamHealthState, { label: string; className: string }> = {
+  "blocked-on-you": {
+    label: "blocked on you",
+    className: "bg-warn-amber/50 text-foreground font-semibold",
+  },
+  stalled: { label: "stalled", className: "bg-warn-amber/25 text-foreground" },
+  "awaiting-review": { label: "in review", className: "bg-primary/15 text-foreground" },
+  moving: { label: "moving", className: "bg-muted text-muted-foreground" },
+};
+
+function StreamHealthChip({ health }: { health: StreamHealth }) {
+  const chip = HEALTH_CHIP[health.state];
+  const label =
+    health.state === "stalled" && health.daysSinceActivity != null
+      ? `stalled ${health.daysSinceActivity}d`
+      : chip.label;
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-xs font-medium tabular-nums flex-shrink-0 ${chip.className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Chrome-agnostic body — no widget-level Card/CardHeader/CardTitle
 // (WorkstreamCardItem's inner Cards are child item chrome, not widget chrome)
 // ---------------------------------------------------------------------------
@@ -487,7 +561,52 @@ function WorkstreamsBody({ data }: WorkstreamsBodyProps) {
 // Inner component so hooks run after the early-return guard
 function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
   const filterFn = useCallback(workstreamFilterFn, []);
-  const sortFn = useCallback(workstreamSortFn, []);
+
+  // Needs-me join (mt#2885, same pattern as the fleet table mt#2884): open
+  // asks bound by parentTaskId to the stream's parent or any child mark the
+  // stream blocked-on-you. Shared ["asks"] query cache.
+  const asksQuery = useQuery<AsksListResponse, Error>({
+    queryKey: ["asks"],
+    queryFn: fetchAsks,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
+  const askTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of asksQuery.data?.asks ?? []) {
+      if (a.parentTaskId) ids.add(a.parentTaskId);
+    }
+    return ids;
+  }, [asksQuery.data]);
+
+  const healthByStream = useMemo(() => {
+    const m = new Map<string, StreamHealth>();
+    for (const card of workstreams) {
+      m.set(card.parentId, streamHealth(card, askTaskIds));
+    }
+    return m;
+  }, [workstreams, askTaskIds]);
+
+  // Attention sort: health rank first (blocked-on-you → stalled → in-review →
+  // moving), newest motion within a rank. Other keys delegate to the
+  // existing comparator.
+  const sortFn = useCallback(
+    (a: WorkstreamCard, b: WorkstreamCard, key: WorkstreamSortKey, dir: SortDir): number => {
+      if (key === "attention") {
+        const ha = healthByStream.get(a.parentId);
+        const hb = healthByStream.get(b.parentId);
+        const rankDiff =
+          STREAM_HEALTH_RANK[ha?.state ?? "moving"] - STREAM_HEALTH_RANK[hb?.state ?? "moving"];
+        if (rankDiff !== 0) return dir === "asc" ? rankDiff : -rankDiff;
+        const ta = a.lastActivityAt ?? "";
+        const tb = b.lastActivityAt ?? "";
+        const cmp = ta.localeCompare(tb);
+        return dir === "asc" ? -cmp : cmp; // newest motion first within a rank
+      }
+      return workstreamSortFn(a, b, key, dir);
+    },
+    [healthByStream]
+  );
 
   const {
     pageItems,
@@ -509,8 +628,8 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
   } = useListControls<WorkstreamCard, WorkstreamSortKey, WorkstreamFilters>({
     items: workstreams,
     defaultPageSize: 10,
-    defaultSortKey: "activeChildCount",
-    defaultSortDir: "desc",
+    defaultSortKey: "attention",
+    defaultSortDir: "asc",
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
@@ -565,7 +684,7 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
       ) : (
         <div>
           {pageItems.map((card) => (
-            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} />
+            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} health={healthByStream.get(card.parentId)!} />
           ))}
           <PaginationBar
             page={page}

@@ -23,23 +23,91 @@
  * @see ../lib/entity-linkifier.tsx — tokenizer + rehypeEntityLinks plugin
  * @see ../lib/use-entity-index.ts — the id-set hook callers pass in
  */
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { PluggableList } from "react-markdown";
+import type { PluggableList } from "unified";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
+import { minskyUriToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { EntityRef } from "./EntityRef";
+import { Check } from "lucide-react";
+
+/**
+ * URL transform that admits the `minsky://` deeplink scheme (mt#2797).
+ *
+ * Agents emit markdown deeplinks — `[mt#2779](minsky://task/mt%232779)` — in
+ * terminal chat per the cockpit-deeplinks rule, and stored transcripts must
+ * keep resolving them. react-markdown's defaultUrlTransform strips protocols
+ * outside its safe list to '' (so the `a` override saw no href and rendered a
+ * dead blue span). Pass `minsky:` URLs through untouched — the `a` override
+ * maps them to in-SPA routes via the entity codec — and defer to the default
+ * transform for everything else (javascript: etc. still stripped).
+ */
+function urlTransformWithMinsky(value: string): string {
+  if (value.startsWith("minsky://")) return value;
+  return defaultUrlTransform(value);
+}
 
 // Element overrides give the dense, dark cockpit look (the @tailwindcss/typography
 // `prose` defaults are tuned for article spacing and clash with mission-control
 // density — so we hand-roll a tight set of element styles instead).
 const COMPONENTS: Components = {
-  a: ({ href, children, className }) => {
+  a: (props) => {
+    const { href, children, className } = props;
+    // Entity identity carried by rehypeEntityLinks' makeAnchor (mt#3174) —
+    // only ever present on anchors produced from bare mt#NNNN/UUID refs
+    // resolved against the entity index, never on markdown-authored links.
+    // Read from the raw properties bag (react-markdown's `Components["a"]`
+    // prop type has no `data-entity-*` entries — these are additive hast
+    // properties, not a typed prop) so no href re-parsing is needed.
+    const extra = props as Record<string, unknown>;
+    const entityType = extra["data-entity-type"] as RoutableEntityType | undefined;
+    const entityId = extra["data-entity-id"] as string | undefined;
+
     // Defensive: an anchor with no destination (shouldn't occur for
     // react-markdown-generated links) renders as plain inline text, not a
     // dangling <a href={undefined}>.
     if (!href) {
       return <span className={cn("text-primary", className)}>{children}</span>;
+    }
+    // minsky:// deeplinks (admitted by urlTransformWithMinsky) resolve to SPA
+    // routes via the shared entity codec; an unparseable URI degrades to the
+    // same non-link span as the no-href case (mt#2797).
+    if (href.startsWith("minsky://")) {
+      const path = minskyUriToPath(href);
+      if (!path) {
+        return <span className={cn("text-primary", className)}>{children}</span>;
+      }
+      return (
+        <Link
+          to={path}
+          className={cn("text-primary underline-offset-2 hover:underline", className)}
+        >
+          {children}
+        </Link>
+      );
+    }
+    // Entity links carrying resolved (type, id) identity (mt#3174): render
+    // through the shared <EntityRef> so the hover-card badge treatment is
+    // available. `children` is passed through unchanged as EntityRef's
+    // inline content — the visible text stays EXACTLY what the linkifier
+    // matched, whether or not a label ever resolves (failure-tolerant, no
+    // layout shift; see EntityRef's module doc).
+    //
+    // `appendLabel` (mt#3189): prose additionally shows the resolved title
+    // INLINE, truncated, after the matched text. Without it the title reached
+    // the reader only via the hover card — which Radix documents as
+    // inaccessible to keyboard users and ignored by screen readers, so a bare
+    // `mt#NNNN` was unidentifiable for them and required a click for everyone
+    // else. Dense list rows deliberately do NOT set this flag (it would grow
+    // their line height); prose is the surface with room for it.
+    if (entityType && entityId && href.startsWith("/")) {
+      return (
+        <EntityRef type={entityType} id={entityId} className={className} appendLabel>
+          {children}
+        </EntityRef>
+      );
     }
     // Entity links and internal markdown links resolve to SPA routes (href
     // starts with "/", always produced by entityToPath); render as react-router
@@ -120,6 +188,52 @@ const COMPONENTS: Components = {
     <th className="border border-border/60 px-2 py-1 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => <td className="border border-border/60 px-2 py-1 align-top">{children}</td>,
+  /**
+   * GFM task-list checkbox (mt#3348).
+   *
+   * `remark-gfm` renders `- [ ] item` as `<input type="checkbox" disabled>`,
+   * which keeps `appearance: auto` — so the engine paints native OS chrome
+   * inside a dark-mode-first surface. Every task spec rendered on
+   * `/tasks/:id` carried these; a source grep never finds them because they
+   * are generated at render time.
+   *
+   * Deliberately NOT the Radix `Checkbox` primitive (`ui/checkbox.tsx`): these
+   * are always `disabled` and purely presentational — markdown task state is
+   * not editable from this surface, so mounting a real interactive control
+   * would advertise an affordance that does not exist.
+   *
+   * Exposed as `role="img"` with an explicit `aria-label`, NOT as
+   * `role="checkbox"` (PR #2417 R1). A checkbox role needs an accessible name,
+   * and this element has no text content and no label to point at — a nameless
+   * widget role announces "checkbox, checked" with no indication of what. It is
+   * also unfocusable and unoperable, so the widget role promised something it
+   * could never satisfy. `role="img"` + a label that states the state outright
+   * is both nameable and honest about what this is: a state icon.
+   *
+   * Overriding `input` is react-markdown's documented customization path
+   * (the `components` prop keyed by tag name), the same escape hatch the 18
+   * other entries in this map use.
+   */
+  input: ({ type, checked }) => {
+    // The only input GFM emits is the task-list checkbox. Anything else would
+    // be a native control we never asked for — render nothing rather than
+    // leak OS chrome.
+    if (type !== "checkbox") return null;
+    return (
+      <span
+        role="img"
+        aria-label={checked ? "Completed" : "Not completed"}
+        className={cn(
+          "mr-1.5 inline-flex h-3 w-3 shrink-0 translate-y-[1px] items-center justify-center rounded-sm border align-text-top",
+          checked
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-background"
+        )}
+      >
+        {checked ? <Check className="h-2.5 w-2.5" aria-hidden="true" /> : null}
+      </span>
+    );
+  },
   hr: () => <hr className="my-3 border-border" />,
 };
 
@@ -153,6 +267,7 @@ export function Prose({ children, entityIndex, className }: ProseProps) {
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
         components={COMPONENTS}
+        urlTransform={urlTransformWithMinsky}
       >
         {children}
       </ReactMarkdown>

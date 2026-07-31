@@ -21,6 +21,7 @@ import { tmpdir } from "os";
 
 import {
   isCovered,
+  isActionCovered,
   extractActionTokens,
   loadClaudeMd,
   loadProjectRules,
@@ -438,5 +439,67 @@ describe("policy truncateQuote — surrogate safety (mt#1615)", () => {
       expect(hasUnpairedSurrogate(result)).toBe(false);
       expect(jsonRoundtrips(result)).toBe(true);
     }
+  });
+});
+
+describe("isActionCovered — detection-time explicit-token coverage (mt#2935)", () => {
+  test("covered when a statement carries an action token AND an authority keyword", () => {
+    const sources = [
+      {
+        source: "CLAUDE.md",
+        content:
+          "# Prefs\n\nCommits and pushes in session workspaces are pre-approved by standing policy.\n",
+      },
+    ];
+    const result = isActionCovered(["commit", "push"], sources);
+    expect(result.covered).toBe(true);
+    expect(result.citation?.source).toBe("CLAUDE.md");
+    expect(result.citation?.quote).toContain("pre-approved");
+  });
+
+  test("NOT covered when the statement names the action without an authority keyword", () => {
+    const sources = [
+      {
+        source: "CLAUDE.md",
+        content: "# Prefs\n\nCommit and push after implementing any code fixes.\n",
+      },
+    ];
+    expect(isActionCovered(["commit", "push"], sources).covered).toBe(false);
+  });
+
+  test("NOT covered when the authority keyword appears in a different statement", () => {
+    const sources = [
+      {
+        source: "CLAUDE.md",
+        content:
+          "Commit early and often.\n\nUnrelated actions are pre-approved by standing policy.\n",
+      },
+    ];
+    expect(isActionCovered(["commit"], sources).covered).toBe(false);
+  });
+
+  test("empty or sub-4-char token lists can never be covered", () => {
+    const sources = [
+      { source: "CLAUDE.md", content: "Everything is allowed by policy for all actions.\n" },
+    ];
+    expect(isActionCovered([], sources).covered).toBe(false);
+    expect(isActionCovered(["git", "ok"], sources).covered).toBe(false);
+  });
+
+  test("returns the FIRST covering source in priority order", () => {
+    const sources = [
+      { source: "CLAUDE.md", content: "Nothing relevant here.\n" },
+      {
+        source: ".claude/rules/a.md",
+        content: "Session commits are authorized under standing policy.\n",
+      },
+      {
+        source: "task-spec",
+        content: "Commits are also permitted here.\n",
+      },
+    ];
+    const result = isActionCovered(["commit"], sources);
+    expect(result.covered).toBe(true);
+    expect(result.citation?.source).toBe(".claude/rules/a.md");
   });
 });

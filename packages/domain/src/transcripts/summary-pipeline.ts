@@ -20,12 +20,12 @@
  * @see per-turn-embedding-pipeline.ts — per-turn extraction (mt#1352)
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, sql, type SQLWrapper } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import { extractTurns } from "./turn-extractor";
 import type { AgentSessionId, RawTurnLine } from "./transcript-source";
@@ -47,12 +47,38 @@ export interface SummaryPipelineRunResult {
   embeddingCallsMade: number;
 }
 
+/**
+ * Rows per {@link SummaryPipeline.run} call.
+ *
+ * Matches {@link DEFAULT_TITLE_BATCH_SIZE} in title-pipeline.ts — the same
+ * sweeper cadence drives both, and one summary costs a completion PLUS an
+ * embedding call, so there is no reason to be more permissive here.
+ */
+export const DEFAULT_SUMMARY_BATCH_SIZE = 25;
+
+/** `batchSize` value meaning "no limit" — a deliberate, visible opt-out (mt#3441). */
+export const SUMMARY_BATCH_UNBOUNDED = 0;
+
 export interface SummaryPipelineOptions {
   /**
    * When true, re-generate summaries even for rows that already have a
    * non-null `summary`. Default: false (idempotent skip).
    */
   force?: boolean;
+  /**
+   * Rows per run. Default: {@link DEFAULT_SUMMARY_BATCH_SIZE}. Pass
+   * {@link SUMMARY_BATCH_UNBOUNDED} for a full pass.
+   *
+   * Bounded BY DEFAULT (mt#3441). Before this, `run()` selected every row in
+   * `agent_transcripts` — including the `transcript` blob — with no WHERE and no
+   * LIMIT, then discarded the already-summarized ~99.5% in JS. That is merely
+   * wasteful for a one-shot operator command, but it is what made the pipeline
+   * unsafe to put on a timer, which is why it had no automatic caller at all and
+   * why summary coverage sat at 11 of 2,108 rows. The default is bounded so the
+   * next caller inherits the safe shape; the full pass is opt-in at the one call
+   * site that wants it.
+   */
+  batchSize?: number;
 }
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -70,7 +96,42 @@ export class SummaryPipeline {
   }
 
   /**
-   * Run the summary pipeline for all rows in `agent_transcripts`.
+   * WHERE conditions selecting summarization candidates.
+   *
+   * Mirrors `TitlePipeline.candidateConditions()` — an explicit array rather
+   * than a conditional `undefined` passed into `and(...)`, so the force branch's
+   * SQL states its intent directly instead of relying on drizzle dropping
+   * undefined arguments.
+   */
+  private candidateConditions(): SQLWrapper[] {
+    const conditions: SQLWrapper[] = [
+      // A transcript with no content can never yield a summary; excluding it in
+      // SQL keeps those rows from consuming the batch budget on every tick.
+      isNotNull(agentTranscriptsTable.transcript),
+    ];
+    // force re-summarizes rows that already have a summary, so the
+    // unsummarized filter is omitted rather than negated.
+    if (!this.options.force) conditions.push(isNull(agentTranscriptsTable.summary));
+    return conditions;
+  }
+
+  /**
+   * Number of WHERE conditions the current options produce — 2 normally
+   * (has-transcript AND unsummarized), 1 under `force` (has-transcript only).
+   * Exposed for tests so the force branch's query shape is asserted against the
+   * real builder rather than inferred from a fake DB.
+   */
+  candidateConditionCount(): number {
+    return this.candidateConditions().length;
+  }
+
+  /**
+   * Run the summary pipeline over a bounded batch of candidate rows.
+   *
+   * Filters and limits in SQL (mt#3441), so a run costs one bounded query plus
+   * at most `batchSize` completion + embedding calls regardless of table size.
+   * Each run re-queries for rows still needing a summary, which is what makes
+   * repeated runs resumable without tracking a cursor.
    */
   async run(): Promise<SummaryPipelineRunResult> {
     const result: SummaryPipelineRunResult = {
@@ -81,22 +142,31 @@ export class SummaryPipeline {
       embeddingCallsMade: 0,
     };
 
+    const batchSize = this.options.batchSize ?? DEFAULT_SUMMARY_BATCH_SIZE;
+
     let rows: Array<{
       agentSessionId: AgentSessionId;
       transcript: unknown;
-      summary: string | null;
     }>;
     try {
-      rows = await this.db
+      // `summary` is no longer selected: it is a WHERE condition now, not a
+      // value to re-check in JS. The transcript blob is only fetched for rows
+      // that will actually be processed.
+      const query = this.db
         .select({
           agentSessionId: agentTranscriptsTable.agentSessionId,
           transcript: agentTranscriptsTable.transcript,
-          summary: agentTranscriptsTable.summary,
         })
-        .from(agentTranscriptsTable);
+        .from(agentTranscriptsTable)
+        .where(and(...this.candidateConditions()))
+        // Newest first, matching TitlePipeline: the conversation an operator is
+        // most likely trying to re-find is the one that most needs a summary.
+        .orderBy(sql`${agentTranscriptsTable.startedAt} DESC NULLS LAST`);
+
+      rows = batchSize === SUMMARY_BATCH_UNBOUNDED ? await query : await query.limit(batchSize);
     } catch (err) {
-      log.error("SummaryPipeline: failed to load transcripts", {
-        error: getErrorMessage(err),
+      log.error("SummaryPipeline: failed to load candidate transcripts", {
+        error: getLoggableErrorSummary(err),
       });
       return result;
     }
@@ -104,13 +174,7 @@ export class SummaryPipeline {
     result.transcriptsScanned = rows.length;
 
     for (const row of rows) {
-      const { agentSessionId, transcript, summary } = row;
-
-      // Skip rows with existing summaries unless force=true.
-      if (summary && !this.options.force) {
-        result.transcriptsSkipped++;
-        continue;
-      }
+      const { agentSessionId, transcript } = row;
 
       try {
         const processed = await this.processTranscript(agentSessionId, transcript, result);
@@ -122,7 +186,7 @@ export class SummaryPipeline {
       } catch (err) {
         result.transcriptsErrored++;
         log.warn(`SummaryPipeline: failed to process transcript ${agentSessionId}`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -236,7 +300,7 @@ export class SummaryPipeline {
       result.embeddingCallsMade++;
     } catch (err) {
       log.warn(`SummaryPipeline: embedding failed for ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Still write the summary text even if embedding fails.
     }

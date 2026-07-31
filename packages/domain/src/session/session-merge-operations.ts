@@ -40,11 +40,14 @@ import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship
 import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
 import { AgentTranscriptService } from "../provenance/transcript-service";
+import { resolveConversationForWorkspace } from "../transcripts/conversation-link-resolver";
+import { isAuthorshipTierJudgingEnabled } from "../provenance/authorship-judging-flag";
 import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
 import type { AskRepository } from "../ask/repository";
+import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "../ask/close-as-resolved";
 import { applyPostMergeStateSync } from "./session-merge-status-sync";
 import {
   validateSessionApprovedForMerge,
@@ -567,41 +570,66 @@ export async function mergeSessionPr(
   // Post-merge: AI-based tier judging (best-effort, non-fatal)
   // Evaluates the session transcript to assign a final authorship tier, replacing
   // the preliminary tier computed at PR creation time.
+  //
+  // mt#3101: DEFAULT OFF. Until this task, the block was unreachable for a
+  // different reason — the transcript lookup used a workspace id against the
+  // conversation keyspace and always returned null (0 of 1,305 provenance rows
+  // resolved; 1 was ever judged). Fixing the lookup alone would have silently
+  // started a completion call on every merge, which the operator explicitly
+  // declined (ask#5581: "fix the lookup, leave judging off"). The flag is the
+  // switch that decision maps to; the lookup below is correct either way.
   if (sessionRecord.pullRequest?.number && deps.persistenceProvider) {
     try {
       const provider = deps.persistenceProvider as SqlCapablePersistenceProvider;
       if (typeof provider.getDatabaseConnection === "function") {
         const db = await provider.getDatabaseConnection();
         if (db) {
-          const transcriptService = new AgentTranscriptService(db);
-          const transcript = await transcriptService.getTranscript(sessionIdToUse);
-          if (transcript && transcript.length > 0) {
-            const judgingCfg = getConfiguration() as ResolvedConfig;
-            const anthropicKey = (
-              judgingCfg as { ai?: { providers?: { anthropic?: { apiKey?: string } } } }
-            ).ai?.providers?.anthropic?.apiKey;
-            if (anthropicKey) {
-              const completionService = createCompletionService(judgingCfg);
-              const judge = new AuthorshipJudge(completionService);
-              const judgment = await judge.evaluateTranscript(transcript, {
-                taskOrigin: "human",
-                specAuthorship: "mixed",
-                initiationMode: "dispatched",
-              });
-              const provenanceService = new ProvenanceService(db);
-              await provenanceService.updateWithJudgment(
-                String(sessionRecord.pullRequest.number),
-                "pr",
-                judgment
-              );
-              log.cli(
-                `✍️  Authorship tier: ${judgment.tier} (${judgment.rationale.slice(0, 100)}...)`
-              );
-            } else {
-              log.debug("Skipping AI tier judging: ANTHROPIC_API_KEY not configured");
-            }
+          const conversationId = await resolveConversationForWorkspace(db, sessionIdToUse);
+
+          if (!conversationId) {
+            // Distinguishable from "the transcript was empty" on purpose — the
+            // two collapsing into one silent branch is the defect class this
+            // task belongs to (`work-completion.mdc §Invocation path`).
+            log.debug(
+              `Authorship judging: no conversation linked to workspace ${sessionIdToUse} — ` +
+                "no pr_author link was recorded for this PR (see mt#3101)"
+            );
+          } else if (!isAuthorshipTierJudgingEnabled()) {
+            log.debug(
+              `Authorship judging: DISABLED by default (mt#3101 / ask#5581); would have judged ` +
+                `conversation ${conversationId}. Set MINSKY_AUTHORSHIP_TIER_JUDGING=enabled to turn it on.`
+            );
           } else {
-            log.debug("Skipping AI tier judging: no transcript stored for session");
+            const transcriptService = new AgentTranscriptService(db);
+            const transcript = await transcriptService.getTranscript(conversationId);
+            if (transcript && transcript.length > 0) {
+              const judgingCfg = getConfiguration() as ResolvedConfig;
+              const anthropicKey = (
+                judgingCfg as { ai?: { providers?: { anthropic?: { apiKey?: string } } } }
+              ).ai?.providers?.anthropic?.apiKey;
+              if (anthropicKey) {
+                const completionService = createCompletionService(judgingCfg);
+                const judge = new AuthorshipJudge(completionService);
+                const judgment = await judge.evaluateTranscript(transcript, {
+                  taskOrigin: "human",
+                  specAuthorship: "mixed",
+                  initiationMode: "dispatched",
+                });
+                const provenanceService = new ProvenanceService(db);
+                await provenanceService.updateWithJudgment(
+                  String(sessionRecord.pullRequest.number),
+                  "pr",
+                  judgment
+                );
+                log.cli(
+                  `✍️  Authorship tier: ${judgment.tier} (${judgment.rationale.slice(0, 100)}...)`
+                );
+              } else {
+                log.debug("Skipping AI tier judging: ANTHROPIC_API_KEY not configured");
+              }
+            } else {
+              log.debug("Skipping AI tier judging: no transcript stored for session");
+            }
           }
         }
       }
@@ -701,6 +729,35 @@ export async function mergeSessionPr(
       session: sessionIdToUse,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+
+  // mt#2593: the PR merged, so any open quality.review Ask for it is resolved —
+  // close them best-effort so they never linger in the operator's suspended
+  // queue. Match by parent task, then by the merged PR number when the Ask
+  // carries a github-pr contextRef (fall back to same-task when it does not, so
+  // review Asks emitted without a PR URL are still closed).
+  if (deps.askRepository && sessionRecord.taskId) {
+    try {
+      const askRepository = deps.askRepository;
+      const reviewAsks = selectOpenReviewAsksForMergedPr(
+        await askRepository.listByParentTask(sessionRecord.taskId),
+        sessionRecord.pullRequest?.number
+      );
+      for (const a of reviewAsks) {
+        await closeAskAsResolved(askRepository, a.id, {
+          responder: "system:pr-merged",
+          payload: {
+            prNumber: sessionRecord.pullRequest?.number,
+            prUrl: sessionRecord.pullRequest?.url,
+          },
+        });
+      }
+    } catch (err: unknown) {
+      log.warn("session_pr_merge: failed to close quality.review Asks (best-effort, swallowed)", {
+        session: sessionIdToUse,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return {

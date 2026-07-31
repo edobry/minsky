@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
-import { type CommandParameterMap } from "../../command-registry";
+import { type CommandParameterMap, type InferParams } from "../../command-registry";
+import { resolveTaskId } from "./deps-commands";
 import {
   generateDependencyTree,
   generateDependencyGraph,
@@ -12,12 +13,19 @@ import {
 // Re-export types so callers that import from this file keep working
 export type { LayoutOptions, TaskNode } from "./deps-rendering";
 
-// Parameter definitions matching the CommandParameterMap interface
+// Parameter definitions matching the CommandParameterMap interface.
+// mt#2741: canonical `taskId` (tasks_* convention) + `task` back-compat alias,
+// resolved via resolveTaskId (shared with deps-commands.ts).
 const tasksDepsTreeParams = {
-  task: {
-    schema: z.string(),
+  taskId: {
+    schema: z.string().optional(),
     description: "ID of the task to show dependency tree for",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
   maxDepth: {
     schema: z.number().default(3),
@@ -84,23 +92,6 @@ const tasksDepsGraphParams = {
   },
 } satisfies CommandParameterMap;
 
-interface TasksDepsTreeParams {
-  task: string;
-  maxDepth: number;
-}
-
-interface TasksDepsGraphParams {
-  limit: number;
-  status: string;
-  format: "ascii" | "dot" | "svg" | "png" | "pdf";
-  output?: string;
-  layout: "dot" | "neato" | "fdp" | "circo" | "twopi";
-  direction: "TB" | "BT";
-  spacing: "compact" | "normal" | "wide";
-  style: "default" | "tech-tree" | "kanban" | "mobile" | "compact";
-  open: boolean;
-}
-
 /**
  * ASCII Tree visualization for task dependencies
  */
@@ -113,11 +104,12 @@ export function createTasksDepsTreeCommand(
     name: "tree",
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
-    execute: async (params: TasksDepsTreeParams) => {
+    execute: async (params: InferParams<typeof tasksDepsTreeParams>) => {
+      const taskId = resolveTaskId(params, "tasks.deps.tree");
       const graphService = getTaskGraphService();
       const taskService = getTaskService();
       const output = await generateDependencyTree(
-        params.task,
+        taskId,
         graphService,
         taskService,
         params.maxDepth || 3
@@ -139,7 +131,7 @@ export function createTasksDepsGraphCommand(
     name: "graph",
     description: "Show ASCII graph of all task dependencies",
     parameters: tasksDepsGraphParams,
-    execute: async (params: TasksDepsGraphParams) => {
+    execute: async (params: InferParams<typeof tasksDepsGraphParams>) => {
       const graphService = getTaskGraphService();
       const taskService = getTaskService();
 

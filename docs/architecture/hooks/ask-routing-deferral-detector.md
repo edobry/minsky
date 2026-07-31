@@ -12,6 +12,18 @@ After ~10 fires, review the FP rate (via the `calibration-review` skill); only
 then flip the flag. Same rollout pattern as the causal-premise detector
 (mt#2216) and retrospective-trigger scanner (mt#2057).
 
+> **Correction (2026-07-15, mt#2835).** The paragraph above describes the
+> original v1 calibration-only rollout and is now stale: `INJECTION_ENABLED`
+> flipped to `true` in code on 2026-07-08 (mt#2694), after the calibration
+> data confirmed an acceptable FP rate. That flip alone did not make the
+> detector live, though — it shipped into the same ADR-028 Phase 2b migration
+> whose `auto-session-title.ts` guard had an ungated module-level `main()`
+> that killed the entire `dispatch-userpromptsubmit.ts` process (all 15
+> UserPromptSubmit guards, this one included) before any guard's output was
+> written, for the detector's whole "live" life to date. mt#2835 is the fix
+> that actually makes the mt#2694 flip take effect in production — see that
+> task for the root-cause writeup.
+
 **Hook file:** `.claude/hooks/ask-routing-deferral-detector.ts`
 
 **Two sub-classes:**

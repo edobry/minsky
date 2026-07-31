@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./index.css";
 import { App } from "./App";
 import { installPreloadErrorRecovery } from "./lib/preload-error-recovery";
+import { ProjectProvider } from "./lib/project-context";
 
 installPreloadErrorRecovery(window);
 
@@ -21,7 +22,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <ProjectProvider>
+          <App />
+        </ProjectProvider>
       </QueryClientProvider>
     </BrowserRouter>
   </StrictMode>

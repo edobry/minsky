@@ -1,10 +1,18 @@
 import { validateProcess } from "../schemas/runtime";
+import { runGitCommandWithLockHandling, type LockDependencies } from "./lock-operations";
 
 /**
  * Options for status operations.
  */
 export interface StatusOptions {
   repoPath?: string;
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and status retried once.
+   * When false/omitted, a lock-blocked error is enriched with diagnostics
+   * (age, owning-process liveness) instead of the raw git fatal.
+   */
+  repairLock?: boolean;
 }
 
 /**
@@ -13,8 +21,26 @@ export interface StatusOptions {
 export interface StatusResult {
   workdir: string;
   branch: string;
-  ahead: number;
-  behind: number;
+  /**
+   * The configured upstream ref (e.g. `origin/main`), or null when the branch
+   * has none (mt#3164).
+   *
+   * Null does NOT strictly mean "never pushed" — a branch pushed without `-u`,
+   * one created with `--no-track`, or one whose upstream ref was deleted also
+   * has none. What null reliably means is that git has no upstream to compare
+   * against, so `ahead`/`behind` are unanswerable. "Never pushed" is the common
+   * cause, not the definition (PR #2314 R1).
+   */
+  upstream: string | null;
+  /**
+   * Commits ahead of / behind the upstream, or **null when there is no
+   * upstream** — the question does not apply rather than answering zero.
+   *
+   * Consumers must not coerce null to 0: that reintroduces the exact ambiguity
+   * this distinction exists to remove, one layer up.
+   */
+  ahead: number | null;
+  behind: number | null;
   staged: string[];
   unstaged: string[];
   untracked: string[];
@@ -24,12 +50,7 @@ export interface StatusResult {
 /**
  * Dependencies for status operations
  */
-export interface StatusDependencies {
-  execAsync: (
-    command: string,
-    options?: Record<string, unknown>
-  ) => Promise<{ stdout: string; stderr: string }>;
-}
+export type StatusDependencies = LockDependencies;
 
 // POSIX shell single-quote escape
 function shellQuote(s: string): string {
@@ -50,16 +71,24 @@ function shellQuote(s: string): string {
  */
 function parsePorcelainV2(output: string): {
   branch: string;
-  ahead: number;
-  behind: number;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
   staged: string[];
   unstaged: string[];
   untracked: string[];
   conflicted: string[];
 } {
   let branch = "HEAD";
-  let ahead = 0;
-  let behind = 0;
+  let upstream: string | null = null;
+  // NOT initialized to 0 (mt#3164). Git emits `# branch.ab` only when the
+  // branch HAS an upstream, so a `0` default made "no upstream configured"
+  // indistinguishable from "configured and exactly in sync" — a branch that had
+  // never been pushed reported the same `ahead: 0, behind: 0` as one fully up to
+  // date. Deciding whether work was pushed then required a second, different
+  // tool call. Null means "this question does not apply here."
+  let ahead: number | null = null;
+  let behind: number | null = null;
   const staged: string[] = [];
   const unstaged: string[] = [];
   const untracked: string[] = [];
@@ -96,8 +125,16 @@ function parsePorcelainV2(output: string): {
       continue;
     }
 
+    if (record.startsWith("# branch.upstream ")) {
+      // Present only when an upstream is configured — which is precisely the
+      // signal that distinguishes "never pushed" from "in sync" (mt#3164).
+      upstream = record.slice("# branch.upstream ".length).trim() || null;
+      i++;
+      continue;
+    }
+
     if (record.startsWith("# ")) {
-      // Other branch headers (oid, upstream) — ignore.
+      // Other branch headers (oid) — ignore.
       i++;
       continue;
     }
@@ -175,7 +212,7 @@ function parsePorcelainV2(output: string): {
     i++;
   }
 
-  return { branch, ahead, behind, staged, unstaged, untracked, conflicted };
+  return { branch, upstream, ahead, behind, staged, unstaged, untracked, conflicted };
 }
 
 /**
@@ -208,7 +245,11 @@ export async function statusImpl(
   const workdir = options.repoPath ?? validateProcess(process).cwd();
   const qWorkdir = shellQuote(workdir);
 
-  const { stdout } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain=v2 --branch -z`);
+  const { stdout } = await runGitCommandWithLockHandling(
+    `git -C ${qWorkdir} status --porcelain=v2 --branch -z`,
+    deps,
+    { repoPath: workdir, repairLock: options.repairLock }
+  );
 
   const parsed = parsePorcelainV2(stdout);
 

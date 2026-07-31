@@ -1,0 +1,128 @@
+/**
+ * Regression tests for packages/domain/src/tasks.ts's listTasksFromParams — mt#2762.
+ *
+ * `tasks.ts`'s listTasksFromParams is a thin facade that delegates to
+ * packages/domain/src/tasks/commands/query-commands.ts's implementation (mt#2783
+ * consolidation — the two were independent, divergently-tested copies before
+ * that). packages/domain/src/tasks/index.ts re-exports listTasksFromParams from
+ * "../tasks" (this file), and that barrel is what `@minsky/domain/tasks`
+ * resolves to — the import used by the actual CLI/MCP `tasks.list` command
+ * (src/adapters/shared/commands/tasks/crud-commands.ts). These tests exercise
+ * the facade's delegation directly; see
+ * src/adapters/shared/commands/tasks/list-canonical-import-path.test.ts for a
+ * test that goes through the exact `@minsky/domain/tasks` specifier the
+ * production command uses, and packages/domain/src/tasks/taskCommands.test.ts
+ * for the underlying query-commands.ts implementation's own coverage.
+ *
+ * Discovered while implementing mt#2762: `--kind umbrella` had no effect via the
+ * CLI despite query-commands.ts's listTasksFromParams correctly forwarding kind
+ * — because the CLI command never reached that function before the mt#2783
+ * consolidation.
+ */
+import { describe, test, expect, mock } from "bun:test";
+import { listTasksFromParams, createTaskFromTitleAndSpec } from "./tasks";
+import { ValidationError } from "./errors/index";
+import type { TaskServiceInterface } from "./tasks/taskService";
+import type { Task } from "./tasks/types";
+
+function makeStubTaskService(
+  listTasksMock: (options?: unknown) => Promise<Task[]>,
+  createTaskMock?: (title: string, spec: string, options?: unknown) => Promise<Task>
+) {
+  return {
+    listTasks: listTasksMock,
+    getTask: async () => null,
+    getTasks: async () => [],
+    getTaskStatus: async () => undefined,
+    setTaskStatus: async () => {},
+    createTaskFromTitleAndSpec:
+      createTaskMock ??
+      (async () => ({ id: "#test", title: "Test", status: "TODO" }) as unknown as Task),
+    deleteTask: async () => false,
+    getWorkspacePath: () => "/test/path",
+    getTaskSpecContent: async () => ({ task: {} as Task, specPath: "", content: "" }),
+  } as unknown as TaskServiceInterface;
+}
+
+describe("packages/domain/src/tasks.ts listTasksFromParams kind filter (mt#2762)", () => {
+  test("forwards a valid kind filter to taskService.listTasks (server-side)", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const taskService = makeStubTaskService(listTasksMock);
+
+    await listTasksFromParams({ all: true, kind: "umbrella", json: false }, { taskService });
+
+    expect(listTasksMock).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "umbrella", all: true })
+    );
+  });
+
+  test("an unknown kind is rejected with a ValidationError naming valid kinds, before the query runs", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const taskService = makeStubTaskService(listTasksMock);
+
+    await expect(
+      listTasksFromParams({ all: true, kind: "not-a-real-kind", json: false }, { taskService })
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(listTasksMock).not.toHaveBeenCalled();
+  });
+
+  test("no kind filter forwards kind: undefined (no filter applied)", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const taskService = makeStubTaskService(listTasksMock);
+
+    await listTasksFromParams({ all: true, json: false }, { taskService });
+
+    expect(listTasksMock).toHaveBeenCalledWith(expect.objectContaining({ kind: undefined }));
+  });
+});
+
+describe("packages/domain/src/tasks.ts createTaskFromTitleAndSpec kind governance (mt#3010)", () => {
+  const TEST_SPEC_CONTENT = "Some spec content";
+
+  test("an unknown kind is rejected with a ValidationError naming valid kinds, before the write reaches the backend", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const createTaskMock = mock(() =>
+      Promise.resolve({ id: "#test", title: "Test", status: "TODO" } as unknown as Task)
+    );
+    const taskService = makeStubTaskService(listTasksMock, createTaskMock);
+
+    await expect(
+      createTaskFromTitleAndSpec(
+        { title: "A task", spec: TEST_SPEC_CONTENT, kind: "not-a-real-kind" },
+        { taskService }
+      )
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  test("a known kind is accepted and forwarded to the backend", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const createTaskMock = mock(() =>
+      Promise.resolve({ id: "#test", title: "Test", status: "TODO" } as unknown as Task)
+    );
+    const taskService = makeStubTaskService(listTasksMock, createTaskMock);
+
+    await createTaskFromTitleAndSpec(
+      { title: "A task", spec: TEST_SPEC_CONTENT, kind: "state-ops" },
+      { taskService }
+    );
+
+    expect(createTaskMock).toHaveBeenCalledWith(
+      "A task",
+      TEST_SPEC_CONTENT,
+      expect.objectContaining({ kind: "state-ops" })
+    );
+  });
+
+  test("an omitted kind is accepted (defaults to implementation downstream)", async () => {
+    const listTasksMock = mock(() => Promise.resolve([] as Task[]));
+    const createTaskMock = mock(() =>
+      Promise.resolve({ id: "#test", title: "Test", status: "TODO" } as unknown as Task)
+    );
+    const taskService = makeStubTaskService(listTasksMock, createTaskMock);
+
+    await createTaskFromTitleAndSpec({ title: "A task", spec: TEST_SPEC_CONTENT }, { taskService });
+
+    expect(createTaskMock).toHaveBeenCalled();
+  });
+});

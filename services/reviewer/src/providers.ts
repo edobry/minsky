@@ -18,6 +18,12 @@ import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
+import { createHash } from "node:crypto";
+import {
+  evaluateConcludeReviewCall,
+  DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+} from "./conclude-review-guard";
+import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-note-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -116,6 +122,8 @@ export interface ReviewUsage {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
+  /** Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721. */
+  cachedTokens?: number;
   totalTokens?: number;
 }
 
@@ -140,6 +148,18 @@ export interface ReviewOutput {
    */
   toolCalls: ReviewToolCall[];
   timing?: TimingData;
+  /**
+   * mt#2828: outcome of the conclude_review forcing-function guard for this
+   * review. Present only on the OpenAI tool-use path (undefined on the
+   * no-tools path and for other providers, which never call conclude_review
+   * as a tool). `rejectionCount` is how many incoherent
+   * `conclude_review(REQUEST_CHANGES)` calls (zero BLOCKING findings) were
+   * rejected back to the model this review; `boundExhausted` is true when an
+   * incoherent call was ultimately let through after exhausting the bound
+   * (see conclude-review-guard.ts), meaning the mt#2685 recovery pass had to
+   * run as backstop.
+   */
+  concludeReviewGuard?: { rejectionCount: number; boundExhausted: boolean };
 }
 
 /**
@@ -380,6 +400,16 @@ interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
   reasoning_effort?: "low" | "medium" | "high";
+  // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
+  // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
+  // unknown body fields verbatim, so we carry them as a typed passthrough on
+  // baseParams and let the spread into `client.chat.completions.create` forward
+  // them (spread-originated properties are exempt from TS excess-property
+  // checks). `prompt_cache_key` is only a routing HINT — it can never cause an
+  // incorrect cache hit (OpenAI validates the actual prefix bytes), so a
+  // stale/colliding key is at worst a missed optimization, never wrong data.
+  prompt_cache_key: string;
+  prompt_cache_retention: "24h";
 }
 
 /**
@@ -410,6 +440,7 @@ async function forceConcludeReview(
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   emitted: boolean;
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
@@ -424,7 +455,13 @@ async function forceConcludeReview(
       provider: "openai",
       severity: "error",
     });
-    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
   }
 
   // Build a shallow-copied messages array for the forced call so the parent
@@ -446,7 +483,21 @@ async function forceConcludeReview(
         {
           ...baseParams,
           messages: forcedMessages,
-          tools: [CONCLUDE_REVIEW_TOOL_DEF],
+          // mt#2722 — pass the FULL tools array (was [CONCLUDE_REVIEW_TOOL_DEF])
+          // so the forced pass preserves the cached prefix shared with the main
+          // loop: swapping the `tools` array busts the prompt cache from the
+          // tools position onward. `tool_choice` below still pins the model to
+          // emit exactly conclude_review regardless of array width, so effective
+          // tool availability is unchanged. NOTE (mt#2722 AT 2b): the original
+          // single-tool narrowing was a deliberate mt#1471 choice (memory
+          // c57a9479 records that narrowing + forced tool_choice reached 15/15
+          // emission on gpt-5); widening to the full array is expected to stay
+          // quality-neutral because tool_choice removes the compliance question,
+          // but this is EMPIRICALLY GATED, not assumed — the replay emission
+          // rate must stay >= the mt#1471 baseline. If it regresses, revert to
+          // the narrow array and accept the forced-pass cache-bust (spec
+          // Contingency: change (a)/(b) separability).
+          tools: ALL_TOOL_DEFINITIONS,
           // Reference the extracted tool def's name so the constraint stays in
           // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
           // renamed there, this call updates automatically.
@@ -464,6 +515,7 @@ async function forceConcludeReview(
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
   };
 
   const message = response.choices[0]?.message;
@@ -527,6 +579,7 @@ async function forceDocumentationImpact(
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   emitted: boolean;
 }> {
   if (!DOC_IMPACT_TOOL_DEF) {
@@ -535,7 +588,13 @@ async function forceDocumentationImpact(
       provider: "openai",
       severity: "error",
     });
-    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
   }
 
   const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -552,7 +611,12 @@ async function forceDocumentationImpact(
         {
           ...baseParams,
           messages: forcedMessages,
-          tools: [DOC_IMPACT_TOOL_DEF],
+          // mt#2722 — pass the FULL tools array (was [DOC_IMPACT_TOOL_DEF]) so
+          // the forced pass preserves the cached prefix shared with the main
+          // loop. `tool_choice` still pins exactly submit_documentation_impact.
+          // Empirically gated the same as the conclude_review forced pass — see
+          // that pass's comment and mt#2722 AT 2b.
+          tools: ALL_TOOL_DEFINITIONS,
           tool_choice: {
             type: "function",
             function: { name: DOC_IMPACT_TOOL_DEF.function.name },
@@ -567,6 +631,7 @@ async function forceDocumentationImpact(
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
   };
 
   const message = response.choices[0]?.message;
@@ -642,9 +707,32 @@ export async function callOpenAIWithClient(
   // options.reasoningEffort always takes precedence on both paths. See mt#1232.
   const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
 
+  // mt#2722 — stable prompt-cache routing key. The OpenAI cached prefix is the
+  // systemPrompt + tools array; the systemPrompt (built by
+  // buildCriticConstitution) is repo-INDEPENDENT — a pure function of
+  // (toolsActive, scopeBucket, outputToolsActive, priorReviewsPresent) — so a
+  // hash of it is the correct variant discriminator, stable across reviews,
+  // across the tool-use rounds within a review, and across the forced passes
+  // (all four create call sites spread this baseParams). This DEVIATES from the
+  // spec's original `reviewer:<repo>:<variant>` shape by dropping <repo>: the
+  // repo is not part of the cacheable prefix (it lives in the per-PR user
+  // message, past the shared prefix), so keying on it would fragment cross-repo
+  // cache sharing for negligible sharding benefit (single dominant repo,
+  // sporadic cadence far under OpenAI's ~15 RPM/prefix ceiling). See the spec's
+  // "cache-key value" reconciliation note.
+  const promptCacheKey = `reviewer:${createHash("sha256")
+    .update(systemPrompt)
+    .digest("hex")
+    .slice(0, 16)}`;
+
   const baseParams = {
     model,
     max_completion_tokens: maxCompletionTokens,
+    // mt#2722 — see ChatCreateBaseParams. Applied uniformly to every OpenAI call
+    // in a review (main-loop rounds, both forced passes, and the no-tools path)
+    // so they share one cached prefix.
+    prompt_cache_key: promptCacheKey,
+    prompt_cache_retention: "24h" as const,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
     // API — so only include it when the configured model supports it. The
@@ -675,6 +763,7 @@ export async function callOpenAIWithClient(
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
         totalTokens: usage?.total_tokens,
       },
       provider: "openai",
@@ -692,9 +781,22 @@ export async function callOpenAIWithClient(
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+  let totalCachedTokens = 0;
 
   /** Accumulated output tool calls parsed during the loop. */
   const accumulatedToolCalls: ReviewToolCall[] = [];
+
+  /**
+   * mt#2828 conclude_review forcing-function state: how many times this
+   * review has rejected an incoherent `conclude_review(REQUEST_CHANGES)`
+   * call (zero BLOCKING findings recorded), and whether the bound
+   * ({@link DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS}) was exhausted (i.e. an
+   * incoherent call was ultimately let through for the mt#2685 recovery pass
+   * to handle). Surfaced on `ReviewOutput.concludeReviewGuard` so
+   * `review-recovery-logging.ts` can emit the counted, budgeted signal.
+   */
+  let concludeReviewRejectionCount = 0;
+  let concludeReviewGuardBoundExhausted = false;
 
   /**
    * Text content from the round in which the model exited the tool-use loop
@@ -780,6 +882,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += usage.prompt_tokens ?? 0;
       totalCompletionTokens += usage.completion_tokens ?? 0;
       totalReasoningTokens += usage.completion_tokens_details?.reasoning_tokens ?? 0;
+      totalCachedTokens += usage.prompt_tokens_details?.cached_tokens ?? 0;
     }
 
     const message = response.choices[0]?.message;
@@ -835,6 +938,93 @@ export async function callOpenAIWithClient(
         // the loop continues normally.
         try {
           const parsed = parseToolCall(fnName, toolCall.function.arguments);
+
+          // mt#2828: service-layer forcing function. A conclude_review(event=
+          // REQUEST_CHANGES) call with zero BLOCKING submit_finding calls
+          // recorded so far is incoherent — reject it back to the model
+          // (bounded retries) instead of silently accumulating it and relying
+          // on the mt#2685 recovery pass to patch it after the fact. See
+          // conclude-review-guard.ts for the full rationale.
+          if (parsed.name === "conclude_review") {
+            const evaluation = evaluateConcludeReviewCall({
+              args: parsed.args,
+              accumulatedToolCalls,
+              rejectionCountSoFar: concludeReviewRejectionCount,
+            });
+
+            if (evaluation.decision === "reject") {
+              concludeReviewRejectionCount = evaluation.rejectionCount;
+              log.info("reviewer.conclude_review_rejected_zero_findings", {
+                event: "reviewer.conclude_review_rejected_zero_findings",
+                provider: "openai",
+                round,
+                rejectionCount: concludeReviewRejectionCount,
+                maxRejections: DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+              });
+              resultContent = JSON.stringify({ ok: false, error: evaluation.correctiveMessage });
+              messages.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent });
+              continue;
+            }
+
+            if (evaluation.boundExhausted) {
+              concludeReviewGuardBoundExhausted = true;
+              log.info("reviewer.conclude_review_zero_findings_bound_exhausted", {
+                event: "reviewer.conclude_review_zero_findings_bound_exhausted",
+                provider: "openai",
+                round,
+                rejectionCount: concludeReviewRejectionCount,
+                maxRejections: DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+              });
+            }
+          }
+
+          // mt#2863: emission guard for resolution-note findings. A
+          // submit_finding(severity="BLOCKING") whose text reads as a completed
+          // resolution note ("no action required — resolved in the current diff")
+          // is self-contradictory: the BLOCKING severity forces an
+          // APPROVE→REQUEST_CHANGES reconciliation (mt#2655) and fails the
+          // required findings-check on an approved-in-substance PR. Reclassify it
+          // to NON-BLOCKING at emission (stateless / per-finding) so the
+          // incoherent BLOCKING never reaches composition. See
+          // resolution-note-guard.ts for the full rationale.
+          //
+          // mt#3300: a resolution note that names no recognized argument, or
+          // names a deferral with no tracking task id, is REJECTED rather than
+          // reclassified — the finding stays BLOCKING and its `details` is
+          // marked `[untracked-deferral]` so the gap is visible in the
+          // persisted finding body, forcing a genuine fix, a named spec
+          // amendment, or a task-id-tracked deferral before it can converge.
+          if (parsed.name === "submit_finding") {
+            const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
+            if (evaluation.decision === "reclassify") {
+              log.info("reviewer.submit_finding_resolution_note_reclassified", {
+                event: "reviewer.submit_finding_resolution_note_reclassified",
+                provider: "openai",
+                round,
+                file: parsed.args.file,
+                line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
+                reason: evaluation.reason,
+              });
+              parsed.args.severity = evaluation.newSeverity;
+            } else if (evaluation.decision === "reject") {
+              log.info("reviewer.submit_finding_resolution_note_rejected", {
+                event: "reviewer.submit_finding_resolution_note_rejected",
+                provider: "openai",
+                round,
+                file: parsed.args.file,
+                line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
+                reason: evaluation.reason,
+              });
+              // mt#3300 R1 non-blocking: idempotent prepend — a re-raised
+              // finding can carry its own prior (already-marked) text
+              // forward across rounds; markUntrackedDeferral avoids
+              // accumulating duplicate markers on retries.
+              parsed.args.details = markUntrackedDeferral(parsed.args.details);
+            }
+          }
+
           accumulatedToolCalls.push(parsed);
           const count = accumulatedToolCalls.length;
           log.info("reviewer.output_tool_call", {
@@ -918,6 +1108,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
 
       log.info("reviewer.doc_impact_reminder", {
         event: "reviewer.doc_impact_reminder",
@@ -989,6 +1180,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
 
       log.info("reviewer.conclude_review_reminder", {
         event: "reviewer.conclude_review_reminder",
@@ -1025,6 +1217,7 @@ export async function callOpenAIWithClient(
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       reasoningTokens: totalReasoningTokens,
+      cachedTokens: totalCachedTokens,
       totalTokens,
     },
     provider: "openai",
@@ -1034,6 +1227,12 @@ export async function callOpenAIWithClient(
       roundLatenciesMs,
       timeoutCount,
       retryOutcomes,
+    },
+    // mt#2828: conclude_review forcing-function outcome for this review, for
+    // the counted/budgeted signal emitted by review-recovery-logging.ts.
+    concludeReviewGuard: {
+      rejectionCount: concludeReviewRejectionCount,
+      boundExhausted: concludeReviewGuardBoundExhausted,
     },
   };
 }

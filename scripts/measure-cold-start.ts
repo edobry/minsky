@@ -49,14 +49,15 @@ interface Stats {
 function computeStats(samples: number[]): Stats {
   const sorted = [...samples].sort((a, b) => a - b);
   const n = sorted.length;
-  const median = n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
+  const at = (i: number): number => sorted[i] ?? NaN;
+  const median = n % 2 === 0 ? (at(n / 2 - 1) + at(n / 2)) / 2 : at(Math.floor(n / 2));
   const p95Index = Math.min(n - 1, Math.floor(n * 0.95));
   return {
     count: n,
     median,
-    p95: sorted[p95Index],
-    min: sorted[0],
-    max: sorted[n - 1],
+    p95: at(p95Index),
+    min: at(0),
+    max: at(n - 1),
     raw: samples,
   };
 }

@@ -13,15 +13,21 @@ import {
   parseTaskListJson,
   formatDuplicateBlockMessage,
   decideTasksCreateGuard,
-  resolveDuplicateGuardOverride,
   resolveDuplicateGuardParent,
   isNewTaskModeDispatch,
-  DUPLICATE_CHILD_GUARD_NAME,
   DUPLICATE_TOKEN_THRESHOLD,
   type ChildTask,
 } from "./parallel-work-guard";
+import {
+  resolveDuplicateGuardOverride,
+  resolveOpenPrSweepOverride,
+  DUPLICATE_CHILD_GUARD_NAME,
+  OPEN_PR_SWEEP_GUARD_NAME,
+  KNOWN_GUARD_NAMES_WITH_SELF,
+} from "./parallel-work-guard-overrides";
 import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 import { findValidGuardGrant } from "./guard-grant-store";
 import type { GuardGrant } from "./guard-grant-store";
 
@@ -443,9 +449,166 @@ describe("resolveDuplicateGuardOverride (mt#2658)", () => {
   });
 });
 
+describe("resolveOpenPrSweepOverride (mt#1637)", () => {
+  const TASK = "mt#1635";
+
+  it("returns inactive when neither the env var nor a grant matches", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveOpenPrSweepOverride(TASK, {}, checkOverrideFn);
+    expect(result).toEqual({ active: false });
+  });
+
+  it("legacy MINSKY_FORCE_PARALLEL=1 activates via source 'env', without consulting checkOverrideFn", () => {
+    let called = false;
+    const checkOverrideFn = (): OverrideResult => {
+      called = true;
+      return { overridden: false };
+    };
+    const result = resolveOpenPrSweepOverride(
+      TASK,
+      { MINSKY_FORCE_PARALLEL: "1" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: true, source: "env" });
+    expect(called).toBe(false);
+  });
+
+  it("a grant match (via checkOverrideFn) activates via source 'grant' with its reason", () => {
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      grantReason: "overlap verified region-disjoint via PR diff",
+    });
+    const result = resolveOpenPrSweepOverride(TASK, {}, checkOverrideFn);
+    expect(result).toEqual({
+      active: true,
+      source: "grant",
+      reason: "overlap verified region-disjoint via PR diff",
+    });
+  });
+
+  it("overridden:true without grantReason (unified MINSKY_HOOK_OVERRIDE path) resolves source 'env', not 'grant'", () => {
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      raw: "parallel-work-open-pr",
+    });
+    const result = resolveOpenPrSweepOverride(TASK, {}, checkOverrideFn);
+    expect(result).toEqual({ active: true, source: "env" });
+  });
+
+  it("passes the sweep guard name and task id as scope through to checkOverrideFn", () => {
+    let seenGuardName: string | null = null;
+    let seenScope: string | undefined;
+    const checkOverrideFn = (
+      guardName: string,
+      _env: NodeJS.ProcessEnv,
+      options?: { scope?: string }
+    ): OverrideResult => {
+      seenGuardName = guardName;
+      seenScope = options?.scope;
+      return { overridden: false };
+    };
+    resolveOpenPrSweepOverride(TASK, {}, checkOverrideFn);
+    expect(seenGuardName).toBe(OPEN_PR_SWEEP_GUARD_NAME);
+    expect(seenScope).toBe(TASK);
+  });
+
+  it("MINSKY_FORCE_PARALLEL set to something other than '1' does not activate the env path", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveOpenPrSweepOverride(
+      TASK,
+      { MINSKY_FORCE_PARALLEL: "true" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: false });
+  });
+
+  it("end-to-end with the real checkOverride: MINSKY_HOOK_OVERRIDE=parallel-work-open-pr resolves source 'env'", () => {
+    const result = resolveOpenPrSweepOverride(TASK, {
+      MINSKY_HOOK_OVERRIDE: "parallel-work-open-pr",
+    });
+    expect(result).toEqual({ active: true, source: "env" });
+  });
+});
+
+describe("known-guard-names registration consistency (PR #2054 R1)", () => {
+  it("both hook-local guard names are registered in the known-names universe", () => {
+    expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(DUPLICATE_CHILD_GUARD_NAME);
+    expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(OPEN_PR_SWEEP_GUARD_NAME);
+  });
+
+  it("every dispatcher GUARD_REGISTRY name is also in the universe", () => {
+    for (const entry of GUARD_REGISTRY) {
+      expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(entry.name);
+    }
+  });
+
+  it("the two hook-local guard names are distinct from each other and from registry names", () => {
+    expect(DUPLICATE_CHILD_GUARD_NAME).not.toBe(OPEN_PR_SWEEP_GUARD_NAME);
+    const registryNames = new Set(GUARD_REGISTRY.map((r) => r.name));
+    expect(registryNames.has(DUPLICATE_CHILD_GUARD_NAME)).toBe(false);
+    expect(registryNames.has(OPEN_PR_SWEEP_GUARD_NAME)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1637 acceptance: open-PR sweep override through the REAL checkOverride
+// backed by an in-memory grant list via the real findValidGuardGrant matcher —
+// the same full-pipeline shape as the mt#2658 acceptance suite below.
+// ---------------------------------------------------------------------------
+
+describe("mt#1637 acceptance: fresh sweep grant permits, expired grant denies", () => {
+  const TASK = "mt#1635";
+  const SWEEP_REASON = "overlap verified region-disjoint via PR diff — mechanical-rebase shape";
+
+  function makeSweepGrant(overrides: Partial<GuardGrant> = {}): GuardGrant {
+    return {
+      guardName: OPEN_PR_SWEEP_GUARD_NAME,
+      scope: TASK,
+      issuedAt: "2026-07-18T00:00:00.000Z",
+      ttlMs: 30 * 60 * 1000, // 30 minutes
+      reason: SWEEP_REASON,
+      ...overrides,
+    };
+  }
+
+  function resolveAt(nowIso: string, grants: GuardGrant[]) {
+    const nowMs = Date.parse(nowIso);
+    return resolveOpenPrSweepOverride(TASK, {}, (guardName, env, options) =>
+      checkOverride(guardName, env, {
+        ...options,
+        now: () => nowMs,
+        findGuardGrant: (gName, scope, ms) =>
+          findValidGuardGrant(grants, { guardName: gName, scope }, ms),
+      })
+    );
+  }
+
+  it("fresh (unexpired) grant: sweep override resolves source 'grant' with the reason verbatim", () => {
+    const result = resolveAt("2026-07-18T00:05:00.000Z", [makeSweepGrant()]);
+    expect(result).toEqual({ active: true, source: "grant", reason: SWEEP_REASON });
+  });
+
+  it("expired grant: sweep override stays inactive (block path unchanged)", () => {
+    const result = resolveAt("2026-07-18T00:31:00.000Z", [makeSweepGrant()]);
+    expect(result).toEqual({ active: false });
+  });
+
+  it("a grant for the WRONG scope (different task id) does not activate", () => {
+    const result = resolveAt("2026-07-18T00:05:00.000Z", [makeSweepGrant({ scope: "mt#9999" })]);
+    expect(result).toEqual({ active: false });
+  });
+
+  it("a duplicate-child-matcher grant does not leak into the sweep guard", () => {
+    const result = resolveAt("2026-07-18T00:05:00.000Z", [
+      makeSweepGrant({ guardName: DUPLICATE_CHILD_GUARD_NAME }),
+    ]);
+    expect(result).toEqual({ active: false });
+  });
+});
+
 describe("decideTasksCreateGuard (mt#1435)", () => {
   // ACTIVE status: since mt#2683 the block path requires a non-terminal
-  // sibling — terminal (DONE/CLOSED/COMPLETED) siblings warn instead.
+  // sibling — terminal (DONE/CLOSED) siblings warn instead.
   const children = [child("mt#2397", RAIL_TITLE, "TODO")];
   const fetchOk = () => children;
   const fetchNull = () => null;
@@ -489,6 +652,28 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
       { fetchChildren: fetchNull, overrideActive: false }
     );
     expect(d.action).toBe("skip");
+    // mt#2811 acceptance test: "Simulate child-enumeration API failure ->
+    // guard output explicitly names the skipped check and the reason."
+    // reason names WHAT (duplicate-child overlap check, for this parent) and
+    // points at WHERE the why lives (stderr, written by fetchTaskChildren at
+    // the point of CLI failure); `degraded: true` routes the message to
+    // stderr at the entrypoint instead of routine stdout info.
+    if (d.action === "skip") {
+      expect(d.reason).toContain("could not enumerate children of mt#2370");
+      expect(d.reason).toContain("duplicate-child overlap check is SKIPPED");
+      expect(d.degraded).toBe(true);
+    }
+  });
+
+  it("does NOT mark a routine no-op skip (no parent) as a degradation", () => {
+    const d = decideTasksCreateGuard(
+      { title: RAIL_TITLE },
+      { fetchChildren: fetchOk, overrideActive: false }
+    );
+    expect(d.action).toBe("skip");
+    if (d.action === "skip") {
+      expect(d.degraded).toBeUndefined();
+    }
   });
 
   it("override bypasses the block and reports the would-be match for audit", () => {
@@ -556,14 +741,17 @@ describe("decideTasksCreateGuard terminal-sibling WARN (mt#2683)", () => {
     if (d.action === "block") expect(d.message).toContain("mt#2399");
   });
 
-  it("CLOSED and COMPLETED are terminal too", () => {
-    for (const status of ["CLOSED", "COMPLETED"]) {
-      const d = decideTasksCreateGuard(
-        { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
-        { fetchChildren: () => [child("mt#2397", RAIL_TITLE, status)], overrideActive: false }
-      );
-      expect(d.action).toBe("warn");
-    }
+  it("CLOSED is terminal too", () => {
+    // COMPLETED used to be covered here too (mt#2683 discipline predates
+    // mt#2311's single-DONE-terminal collapse), but COMPLETED was removed
+    // entirely as a valid TaskStatus by mt#2311 — no live sibling can ever
+    // carry it, so the case was dropped rather than kept as a dead-status
+    // regression fixture (mt#3013 residue sweep).
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      { fetchChildren: () => [child("mt#2397", RAIL_TITLE, "CLOSED")], overrideActive: false }
+    );
+    expect(d.action).toBe("warn");
   });
 });
 

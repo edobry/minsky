@@ -18,6 +18,11 @@ import {
   sessionSearchCommandParams,
   sessionExecCommandParams,
 } from "./session-parameters";
+import {
+  annotateSessionsWithAttachment,
+  annotateSessionWithAttachment,
+} from "./attachment-annotation";
+import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
 
 export function createSessionListCommand(
   getDeps: LazySessionDeps,
@@ -50,8 +55,21 @@ export function createSessionListCommand(
       // ADR-021 / mt#2416: resolve project scope so list returns only this
       // project's sessions by default. When allProjects=true, skip scope
       // resolution and let the repository return all rows.
+      //
+      // mt#2697: also skip project-scope resolution when a task filter is
+      // supplied. `session_list task:"mt#X"` is the collision-probe predicate
+      // (session_start / tasks_dispatch's "is this task already in use" check
+      // consults sessionDB.listSessions({ taskId }) UNSCOPED by project — see
+      // start-session-operations.ts). Applying project scope on top of an
+      // explicit task filter would make session_list silently disagree with
+      // that check for any session whose project_id doesn't match the caller's
+      // current project scope (including legitimately unstamped rows), which is
+      // exactly the divergence that broke the probe protocol during the
+      // 2026-07-08 incident. A task-filtered query is already maximally
+      // specific — project scoping adds no precision, only a false-negative risk.
+      const hasTaskFilter = typeof params.task === "string" && params.task.length > 0;
       let projectScope: string | undefined;
-      if (!allProjects) {
+      if (!allProjects && !hasTaskFilter) {
         const provider = getPersistenceProvider?.();
         const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
         if (sqlProvider?.getDatabaseConnection) {
@@ -99,12 +117,29 @@ export function createSessionListCommand(
         sessions = sessions.map(({ pullRequest: _pr, prState: _ps, ...rest }) => rest);
       }
 
-      return { success: true, sessions, verbose };
+      // mt#2284: attached/detached indicator, best-effort (never blocks the list).
+      const annotatedSessions = await annotateSessionsWithAttachment(
+        sessions,
+        getPersistenceProvider
+      );
+
+      // mt#1628: interfaceBinding always present in the response (defaults to
+      // `unbound` when no correlation pass has ever observed this session —
+      // pure/synchronous, never blocks the list).
+      const boundSessions = annotatedSessions.map((session) => ({
+        ...session,
+        interfaceBinding: resolveInterfaceBinding(session),
+      }));
+
+      return { success: true, sessions: boundSessions, verbose };
     }),
   };
 }
 
-export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionGetCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.get",
     category: CommandCategory.SESSION,
@@ -143,7 +178,17 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
         // ignore
       }
 
-      return { success: true, session };
+      // mt#2284: attached/detached indicator, best-effort (never blocks get).
+      const annotatedSession = await annotateSessionWithAttachment(session, getPersistenceProvider);
+
+      // mt#1628: interfaceBinding always present in the response (defaults to
+      // `unbound` when no correlation pass has ever observed this session).
+      const boundSession = {
+        ...annotatedSession,
+        interfaceBinding: resolveInterfaceBinding(annotatedSession),
+      };
+
+      return { success: true, session: boundSession };
     }),
   };
 }
@@ -234,6 +279,10 @@ export function createSessionStartCommand(
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
         skipInstall: (params.skipInstall as boolean | undefined) ?? false,
         packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+        // mt#2742: thread the declared `recover` flag to the domain — start-session-operations
+        // honors it (delete a stale/orphaned session and start fresh). It was dropped here, so
+        // `--recover` / recover:true never fired.
+        recover: (params.recover as boolean | undefined) ?? false,
       });
 
       // Best-effort informational event (mt#2487). Never blocks session start.
@@ -296,6 +345,9 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
       const matchingSessions = sessions.filter((session) => {
         return (
           session.sessionId?.toLowerCase().includes(lowerQuery) ||
+          // ws#N short id (mt#2967) — matched alongside the uuid so
+          // session.search finds a session by its human-readable short id.
+          session.shortId?.toLowerCase().includes(lowerQuery) ||
           session.repoName?.toLowerCase().includes(lowerQuery) ||
           session.repoUrl?.toLowerCase().includes(lowerQuery) ||
           session.taskId?.toLowerCase().includes(lowerQuery) ||

@@ -1,5 +1,7 @@
 ---
 description: 'Use this when deciding where to put code, or when refactoring modules or moving functions around'
+globs:
+  - 'packages/domain/src/**'
 alwaysApply: false
 tags:
   - architecture

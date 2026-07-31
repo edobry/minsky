@@ -58,6 +58,7 @@ import {
   getPullRequestCreatedAt as getPullRequestCreatedAtImpl,
   getPullRequestHeadSha as getPullRequestHeadShaImpl,
   listChangedFiles as listChangedFilesImpl,
+  listReviewComments as listReviewCommentsImpl,
 } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
 import {
@@ -66,13 +67,16 @@ import {
   type SubmitCheckRunResult,
 } from "./github-checks-run";
 import { handleOctokitError } from "./github-error-handler";
-import type { ReviewListEntry, PrChangedFile } from "./index";
+import type { ReviewListEntry, PrChangedFile, PostedReviewComment } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 import {
   listWorkflowRuns as listWorkflowRunsImpl,
   viewWorkflowRunLogs as viewWorkflowRunLogsImpl,
+  rerunWorkflowRun as rerunWorkflowRunImpl,
   type WorkflowRun,
   type ListWorkflowRunsOptions,
+  type RerunWorkflowRunOptions,
+  type RerunWorkflowRunResult,
 } from "./github-workflow-runs";
 import {
   getBranchProtection as getBranchProtectionImpl,
@@ -508,7 +512,17 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const sessionId = repoSession.sessionId;
       const workdir = this.getSessionWorkdir(sessionId);
 
-      // Use GitService for pushing changes
+      // mt#3205 (Gap 4): this method has zero production callers (confirmed
+      // by grep — no `.push()` no-arg call site anywhere outside this
+      // definition and its interface declaration), but it's a REQUIRED
+      // member of the `RepositoryBackend`/`ForgeBackend` interface (`push():
+      // Promise<Result>`), so it cannot simply be deleted without a wider
+      // interface change that is out of scope here. No change needed HERE
+      // though: `GitService.push()` itself (git.ts) now delegates to
+      // `pushWithConfirmation` internally, so this call inherits the
+      // bound/confirmation behavior automatically, closing the same
+      // unbounded-hang hazard mt#3177 fixed elsewhere, in case a future
+      // caller reaches this interface method.
       const pushResult = await this.gitService.push({
         repoPath: workdir,
         remote: "origin",
@@ -726,11 +740,28 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
   get ci(): CIStatusOperations {
     return {
+      // mt#2888: both methods now route failures through handleOctokitError,
+      // matching every other Octokit call site in this file. Before this
+      // fix, these two were the outliers that let a raw Octokit error (which
+      // can carry GitHub's raw HTML "Unicorn" error-page body verbatim in
+      // `.message` -- see github-error-handler.ts's HTML-sanitization
+      // comment) propagate straight through session.pr.checks /
+      // forge.check_runs_list into the tool's error output.
       getChecksForRef: async (headSha: string): Promise<ChecksResult> => {
         const gh = this.requireGitHubContext();
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
-        return getCheckRunsForRef(gh, headSha, octokit);
+        try {
+          return await getCheckRunsForRef(gh, headSha, octokit);
+        } catch (error) {
+          handleOctokitError(error, {
+            operation: "fetch check runs",
+            owner: gh.owner,
+            repo: gh.repo,
+          });
+          // handleOctokitError always throws; this satisfies TypeScript
+          throw error;
+        }
       },
 
       getChecksForPR: async (prNumber: number): Promise<ChecksResult> => {
@@ -738,13 +769,24 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
 
-        const { data: pr } = await octokit.rest.pulls.get({
-          owner: gh.owner,
-          repo: gh.repo,
-          pull_number: prNumber,
-        });
+        try {
+          const { data: pr } = await octokit.rest.pulls.get({
+            owner: gh.owner,
+            repo: gh.repo,
+            pull_number: prNumber,
+          });
 
-        return getCheckRunsForRef(gh, pr.head.sha, octokit);
+          return await getCheckRunsForRef(gh, pr.head.sha, octokit);
+        } catch (error) {
+          handleOctokitError(error, {
+            operation: "fetch check runs",
+            owner: gh.owner,
+            repo: gh.repo,
+            prNumber,
+          });
+          // handleOctokitError always throws; this satisfies TypeScript
+          throw error;
+        }
       },
     };
   }
@@ -799,6 +841,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       listChangedFiles: async (prIdentifier: string | number): Promise<PrChangedFile[]> => {
         const gh = this.requireGitHubContext();
         return listChangedFilesImpl(gh, prIdentifier);
+      },
+
+      listReviewComments: async (prIdentifier: string | number): Promise<PostedReviewComment[]> => {
+        const gh = this.requireGitHubContext();
+        return listReviewCommentsImpl(gh, prIdentifier);
       },
 
       resolveReviewThread: async (threadId: string): Promise<void> => {
@@ -868,6 +915,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
         return viewWorkflowRunLogsImpl(gh, runId, octokit);
+      },
+
+      rerun: async (
+        runId: number,
+        options?: RerunWorkflowRunOptions
+      ): Promise<RerunWorkflowRunResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return rerunWorkflowRunImpl(gh, runId, options ?? {}, octokit);
       },
     };
   }

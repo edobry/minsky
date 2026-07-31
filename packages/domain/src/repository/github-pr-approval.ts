@@ -96,6 +96,76 @@ export function pickLatestReviewPerReviewer<R extends MinimalReview>(reviews: R[
   return Array.from(byReviewer.values());
 }
 
+// ── Non-approval merge-blocker computation (mt#2890) ─────────────────────
+
+/** Minimal PR shape consumed by `computeNonApprovalMergeBlockers`. */
+export interface MergeBlockerPrShape {
+  mergeable: boolean | null | undefined;
+  state?: string;
+}
+
+/** Result of `computeNonApprovalMergeBlockers`. */
+export interface NonApprovalMergeBlockerResult {
+  /** True only for a definitive, non-approval blocker (draft / real conflict / not-open). */
+  hasNonApprovalMergeBlockers: boolean;
+  /** Human-readable description, set whenever there's something worth surfacing — even when
+   *  it isn't a hard blocker (e.g. "mergeability not yet computed"). */
+  nonApprovalBlockerDescription?: string;
+  /** True only when GitHub has definitively reported `mergeable: false`. Used by `canMerge`. */
+  mergeableBlocked: boolean;
+}
+
+/**
+ * Compute the non-approval merge-blocker state for a PR: draft / merge-conflict /
+ * not-open / unknown-mergeability.
+ *
+ * `mergeable === false` (GitHub definitively found a conflict) is a hard blocker.
+ * `mergeable === null` (GitHub is still computing mergeability, or the API is
+ * degraded) is surfaced descriptively as "mergeability not yet computed" but is
+ * NOT counted as a hard blocker (mt#2890) — the merge call itself
+ * (`mergePullRequest` / `pollForMergeableStatus`, github-pr-operations.ts) polls
+ * with a bounded backoff before giving up, so a caller here shouldn't refuse to
+ * even attempt the merge just because GitHub hasn't resolved it yet.
+ *
+ * Exported for direct unit testing — see github-pr-approval-merge-blockers.test.ts.
+ */
+export function computeNonApprovalMergeBlockers(
+  pr: MergeBlockerPrShape,
+  isDraft: boolean
+): NonApprovalMergeBlockerResult {
+  const mergeableBlocked = pr.mergeable === false;
+
+  if (isDraft) {
+    return {
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: "draft PR",
+      mergeableBlocked,
+    };
+  }
+  if (mergeableBlocked) {
+    return {
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: "merge conflicts",
+      mergeableBlocked,
+    };
+  }
+  if (pr.mergeable === null) {
+    return {
+      hasNonApprovalMergeBlockers: false,
+      nonApprovalBlockerDescription: "mergeability not yet computed",
+      mergeableBlocked,
+    };
+  }
+  if (pr.state !== "open") {
+    return {
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: `PR not open (state: ${pr.state})`,
+      mergeableBlocked,
+    };
+  }
+  return { hasNonApprovalMergeBlockers: false, mergeableBlocked };
+}
+
 // ── GitHub API shape interfaces ──────────────────────────────────────────
 
 /** Partial shape of a GitHub check run as returned by the Checks API. */
@@ -387,20 +457,14 @@ export async function getPullRequestApprovalStatus(
     const prExtended = pr as typeof pr & { draft?: boolean };
     const isDraft = prExtended.draft === true;
 
-    const canMerge = isApproved && !!pr.mergeable && pr.state === "open" && !isDraft;
+    // mt#2890: mergeable===null (GitHub still computing, or API degraded) is
+    // surfaced descriptively but is NOT a hard blocker here -- the merge call
+    // itself (mergePullRequest / pollForMergeableStatus) polls before giving
+    // up. Only a definitive mergeable===false blocks canMerge.
+    const { hasNonApprovalMergeBlockers, nonApprovalBlockerDescription, mergeableBlocked } =
+      computeNonApprovalMergeBlockers(pr, isDraft);
 
-    // hasNonApprovalMergeBlockers is computed independently of isApproved so the
-    // acceptStaleReviewerSilence waiver can use it. canMerge is always false when
-    // isApproved=false, making canMerge useless inside the waiver path (B1).
-    let nonApprovalBlockerDescription: string | undefined;
-    if (isDraft) {
-      nonApprovalBlockerDescription = "draft PR";
-    } else if (!pr.mergeable) {
-      nonApprovalBlockerDescription = "merge conflicts";
-    } else if (pr.state !== "open") {
-      nonApprovalBlockerDescription = `PR not open (state: ${pr.state})`;
-    }
-    const hasNonApprovalMergeBlockers = nonApprovalBlockerDescription !== undefined;
+    const canMerge = isApproved && !mergeableBlocked && pr.state === "open" && !isDraft;
 
     // prState: surface "draft" when the PR is a draft rather than surfacing the
     // misleading GitHub state value "open" (B3).

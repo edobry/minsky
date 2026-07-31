@@ -238,7 +238,9 @@ the commit otherwise. This RULE file (`hook-files.mdc`) is itself a compiled SOU
 `CLAUDE.md` / `AGENTS.md` / `.cursor/rules/hook-files.mdc` — after editing it, run `rules
 compile` and verify EACH target regenerated (the no-`--target` invocation does not reliably
 regenerate every output; `grep` the new section into `CLAUDE.md` specifically, and run
-`--target claude.md` / `--target cursor-rules` explicitly if a target is missing the update).
+`--target claude.md` explicitly if `CLAUDE.md` is missing the update; regenerate the
+`.cursor/rules/` output via `bun run minsky compile --target cursor-rules-ts` — the sole
+`.cursor/rules/` writer since mt#2995).
 
 **Phase 2b family migration (mt#2687).** The remaining nine `UserPromptSubmit` hooks —
 `auto-session-title`, `inject-current-time`, `inject-git-state`, `inject-prod-state`,

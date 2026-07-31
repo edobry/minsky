@@ -17,6 +17,7 @@ import type { Task } from "../tasks";
 import { elementAt } from "@minsky/shared/array-safety";
 import {
   getLabelsForTaskStatus,
+  getIssueStateForTaskStatus,
   buildSpecContentFromIssue,
   parseGitHubTaskSpec,
 } from "./github-issues-mapping";
@@ -185,12 +186,27 @@ export async function updateIssueStatus(
   const nonStatusLabels = currentLabels.filter((l) => !statusLabelValues.includes(l));
   const newLabels = [...nonStatusLabels, ...getLabelsForTaskStatus(status, statusLabels)];
 
+  // Map the task status to the GitHub issue state + state_reason pair per the
+  // mt#2310 RFC projection contract (github-issues-mapping.ts). Both DONE and
+  // CLOSED close the mirrored issue — previously only DONE did, leaving a
+  // cancelled/superseded (CLOSED) task's issue open indefinitely (mt#3012's
+  // sibling defect, mt#3032).
+  //
+  // state_reason is only included in the payload when non-null (i.e. for the
+  // two terminal/closing statuses). The GitHub REST API docs note state_reason
+  // is "ignored unless state is changed," but omitting it entirely for
+  // non-terminal statuses preserves the exact prior behavior for open/reopen
+  // transitions rather than introducing an explicit `state_reason: null` that
+  // was never exercised before this fix (reviewer-bot R1 finding).
+  const { state, state_reason } = getIssueStateForTaskStatus(status);
+
   const updateResponse = await octokit.rest.issues.update({
     owner,
     repo,
     issue_number: issueNumber,
     labels: newLabels,
-    state: status === "DONE" ? "closed" : "open",
+    state,
+    ...(state_reason !== null ? { state_reason } : {}),
   });
 
   // Read-back verification: confirm the expected status label was actually applied.

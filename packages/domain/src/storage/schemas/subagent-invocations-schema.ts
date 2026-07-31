@@ -63,7 +63,29 @@ export const subagentInvocationsTable = pgTable(
     /** Surrogate primary key. */
     id: uuid("id").defaultRandom().primaryKey(),
 
-    /** Minsky task ID this invocation is associated with (e.g., "mt#1735"). */
+    /**
+     * Minsky task ID this invocation is associated with (e.g., "mt#1735").
+     *
+     * NOT NULL and deliberately unconstrained beyond that — no FK to `tasks`,
+     * no CHECK, no format constraint (verified against the live schema
+     * 2026-07-22: this table's only constraint is its primary key). Rows can
+     * legitimately outlive or precede the task they name, so referential
+     * integrity is intentionally not enforced here.
+     *
+     * Two writers, two shapes:
+     *  - `tasks.dispatch` writes the real task id at dispatch time.
+     *  - The SubagentStop hook writes `UNKNOWN_TASK_ID` ("unknown") when it
+     *    could not resolve one (mt#3019). The tracker drops that sentinel on
+     *    the UPDATE path so the dispatch-time value survives, so it only ever
+     *    PERSISTS on an orphan INSERT — a Stop with no matching dispatch row.
+     *    Same mechanism `agent_type` uses with `UNKNOWN_AGENT_TYPE` (mt#2653).
+     *
+     * Consumers query this column by equality against a real task id
+     * (`getLatestInvocationForTask`, `getInvocationChainForTask`), so a
+     * sentinel row simply never matches — which is the correct outcome for a
+     * row that names no task. The sentinel cannot collide with a real id:
+     * task ids are `<backend>#<number>` (`mt#3019`, `md#416`, `gh#491`).
+     */
     taskId: text("task_id").notNull(),
 
     /** Minsky session ID of the parent/calling session. */
@@ -149,6 +171,45 @@ export const subagentInvocationsTable = pgTable(
 
     /** Whether the subagent wrote a handoff.md file before exiting. */
     handoffWritten: boolean("handoff_written"),
+
+    // -------------------------------------------------------------------------
+    // Dispatch-recovery retry linkage (mt#2831)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The invocation this row RESUMES, when this row was produced by the
+     * `tasks.dispatch-recover` command's auto-resume path. Null for an
+     * original dispatch (attempt 1). No FK constraint (self-reference on a
+     * table with no unique constraint on the natural retry-chain key) —
+     * treated as an informational pointer, same posture as
+     * `subagentSessionId`'s non-unique index.
+     *
+     * @see mt#2831 — dispatch auto-recovery (this column's origin)
+     */
+    resumedFromInvocationId: uuid("resumed_from_invocation_id"),
+
+    /**
+     * 1-indexed attempt number within a retry chain. 1 = the original
+     * dispatch. 2 = the one auto-resume `tasks.dispatch-recover` is allowed
+     * to produce. The recover command refuses to produce attempt 3 — the
+     * 2-attempt bound is enforced by reading this column, not by an
+     * agent-side loop counter.
+     *
+     * `NOT NULL DEFAULT 1` at the DB level (mt#2831 R1 NB #5) is the
+     * AUTHORITATIVE source of "missing means 1" — migration
+     * `0059_flippant_red_skull.sql` backfills every pre-existing row to 1 via
+     * standard Postgres `ALTER TABLE ADD COLUMN ... DEFAULT` semantics, so no
+     * row in a migrated database can ever read back `null`/`undefined` here.
+     * Application-layer `?? 1` fallbacks in callers (e.g.
+     * `dispatch-recover-command.ts`'s `latest.attemptNumber ?? 1`) are
+     * therefore defensive belt-and-suspenders — guarding a non-Drizzle raw
+     * read or a hand-built test fixture, not a real production gap — and are
+     * intentionally kept rather than removed. See
+     * `subagent-dispatch-tracker.test.ts`'s "defaults to 1 when omitted from
+     * a hand-built row (no NOT NULL DEFAULT enforcement outside Postgres)"
+     * test for the fake-store-level equivalent of the DB backfill guarantee.
+     */
+    attemptNumber: integer("attempt_number").notNull().default(1),
   },
   (table) => [
     // Primary lookup: all invocations for a given task
@@ -162,6 +223,9 @@ export const subagentInvocationsTable = pgTable(
 
     // Outcome-class aggregation and filtering
     index("idx_subagent_invocations_outcome").on(table.outcome),
+
+    // Retry-chain lookups (mt#2831): find the resumed row for a given original
+    index("idx_subagent_invocations_resumed_from").on(table.resumedFromInvocationId),
   ]
 );
 

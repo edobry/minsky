@@ -129,6 +129,63 @@ The seam split shipped in mt#2381 (PR #1640):
   the array directly (`jsonb_typeof = 'array'`); `extractTurnsForAllTranscripts` corrects existing
   double-encoded rows on the next `index-embeddings --all`.
 
+## Implementation notes (mt#2457)
+
+The extraction-on-capture path (mt#2381) fixed the FORWARD path, but the HWM-gated capture
+mechanisms never re-extract already-ingested sessions — so the ~651 sessions ingested in the
+window before mt#2381 shipped stayed turn-less until this task's backfill ran. mt#2457 also
+closed a silent-failure gap in the reconciliation primitive itself and made it safe to run over
+the full corpus:
+
+- **`writeTurnsForTranscript` return shape.** Changed from a bare `Promise<number>` to
+  `Promise<WriteTurnsResult>` — `{ written, nonEmptyYieldedZero, erroredChunks }`:
+  - `nonEmptyYieldedZero: boolean` — true when the input transcript was a real, non-empty array
+    but `extractTurns` returned zero turns (an extractor-shape mismatch), as opposed to a
+    genuinely empty/absent transcript. This case now also WARN-logs
+    (`writeTurnsForTranscript: non-empty transcript … yielded zero turns …`) instead of returning
+    a bare `0` indistinguishable from "nothing to do."
+  - `erroredChunks: number` — count of failed bulk-insert chunks (see below); non-zero means
+    `written` under-counts `extractTurns(transcript).length` due to a write failure, not a
+    genuinely-empty result.
+- **Bulk-upsert instead of per-turn inserts.** The original per-turn loop issued one awaited
+  `INSERT … ON CONFLICT` per turn — for a handful of legacy sessions with thousands of turns (up
+  to ~4,511 raw lines observed in the 2026-07-20 corpus measurement), that meant thousands of
+  serial round-trips to a remote Postgres, which alone consumed a full session_exec time budget
+  processing a SINGLE session. `writeTurnsForTranscript` now chunks turns into groups of 500 and
+  issues one multi-row `INSERT … ON CONFLICT` per chunk, preserving the exact same
+  idempotent/embedding-preservation semantics. A chunk that fails to upsert increments
+  `erroredChunks` and is WARN-logged rather than silently dropped.
+- **`extractTurnsForAllTranscripts` — batched/bounded/resumable.** The prior implementation loaded
+  ALL `agent_transcripts` rows in one unbounded `SELECT` before iterating — over ~1,584 large-JSONB
+  rows this did not complete in 280s locally. It now pages through the corpus via keyset
+  pagination (`fetchTranscriptPage`, ordered by `agent_session_id`, the table's primary key — no
+  new index needed), with `ExtractAllTurnsOptions.batchSize` / `afterId` (resume from a checkpoint)
+  / `onBatchComplete` (a callback a caller can use to persist a resume checkpoint after each page).
+  `fetchTranscriptPage` executes (awaits) the query explicitly rather than returning the drizzle
+  query builder for the caller to implicitly unwrap via `await`.
+- **`ExtractAllTurnsResult` gained two fields:**
+  - `nonEmptyYieldedZero: number` — count of transcripts hitting the loud-failure case above (a
+    subset of `transcriptsSkipped` when there is no chunk error; if a chunk error ALSO occurred,
+    the transcript counts under `transcriptsErrored` instead, per the classification below).
+  - `aborted: boolean` — true when the sweep stopped early because a `fetchPage` call itself
+    failed (as opposed to reaching a clean end-of-corpus empty page). Before this field existed,
+    a fetch failure was logged but invisible in the returned result — a caller reading only the
+    counts could not tell "finished cleanly" from "gave up partway through."
+- **Per-transcript classification** (mirrored identically in `extractTurnsForAllTranscripts`'s
+  sweep loop and the `transcripts.index-embeddings --conversationId=<uuid>` single-session path):
+  `erroredChunks > 0` → `transcriptsErrored` (even if `written > 0` from a partial success — a
+  degraded result is not "processed"); else `written === 0` → `transcriptsSkipped` (+
+  `nonEmptyYieldedZero` if that also applied); else → `transcriptsProcessed`.
+- **Backfill runner — `scripts/backfill-agent-transcript-turns.ts`.** The task-wrapped, dry-run-first
+  driver for this reconciliation (`operational-safety-dry-run-first.mdc`): default invocation counts
+  zero-turn non-null-transcript rows and compares against the ~651 baseline measured 2026-07-20,
+  STOPping (exit 1, no write) if the count diverges beyond ~2x — the dry-run scope-match gate.
+  `--execute` drives `extractTurnsForAllTranscripts` with per-batch progress logging;
+  `--after-id=<uuid>` resumes an interrupted run from a checkpoint; `--batch-size=<n>` overrides
+  the page size. The corpus was fully reconciled via this runner (resumed across several
+  invocations for the largest legacy sessions); zero-turn non-null-transcript rows in the
+  2026-04-27 – 2026-06-08 window went from 650 to 0.
+
 ## Cross-references
 
 - Related tasks: **mt#2234** (cockpit-daemon transcript capture — owns and implements this split),
@@ -137,7 +194,9 @@ The seam split shipped in mt#2381 (PR #1640):
   mt#2192 (SessionEnd fast-path; gated embeddings behind an opt-in env var — the deferral this ADR
   preserves), mt#1352 (per-turn embeddings — introduced `PerTurnEmbeddingPipeline`, the fused stage
   being split), mt#1313 / mt#1324 (transcripts substrate), mt#1418 (ingest concurrency guard — soft
-  prerequisite), mt#2051 (MCP boot sweep — a capture entry point).
+  prerequisite), mt#2051 (MCP boot sweep — a capture entry point), **mt#2457** (backfill for the
+  ~651 legacy sessions the mt#2381 split never re-extracted, + the loud-failure/batching fixes
+  documented above).
 - Related ADRs: **ADR-017** (transcript capture — continuous-JSONL watch/sweep; decides _what triggers_
   the pipeline, the orthogonal axis to this ADR's _internal seam_); ADR-013 (filtered vector search —
   the semantic-search read path that already guards on `embedding IS NOT NULL`); ADR-002

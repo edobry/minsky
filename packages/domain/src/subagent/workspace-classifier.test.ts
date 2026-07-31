@@ -19,6 +19,7 @@ import { join } from "path";
 import { execSync } from "child_process";
 import {
   classifyWorkspaceOutcome,
+  safeSpawnSync,
   type SubprocessResult,
   type WorkspaceClassification,
 } from "./workspace-classifier";
@@ -213,5 +214,58 @@ describe("classifyWorkspaceOutcome", () => {
     const result = await classify(tmpDir, "mt#1737", makeGhRunner(null));
     // Should fall through to committed-no-pr (clean workspace, no PR found)
     expect(result.outcome).toBe(COMMITTED_NO_PR);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// safeSpawnSync (mt#3089)
+//
+// This is the actual root-cause fix under test: `Bun.spawnSync` throws
+// synchronously (ENOENT) when the binary cannot be resolved rather than
+// returning a non-zero result — the same class mt#2810 fixed for the hook
+// layer's own git calls, but which this classifier's `defaultRunGit`/
+// `defaultRunGh` had NOT been retrofitted with. Before this fix, a
+// SubagentStop hook process whose spawn environment omitted `git` from PATH
+// would throw here, uncaught, all the way up through `classifyAndRecord`'s
+// caller — which is exactly why every closed `subagent_invocations` row's
+// `summary` traced to `tasks.dispatch-recover` (a server-side path with a
+// full PATH) and NEVER to this hook (mt#3089's diagnosis).
+// ---------------------------------------------------------------------------
+
+describe("safeSpawnSync (mt#3089)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    cleanTempDir(tmpDir);
+  });
+
+  test("an unresolvable binary degrades to a synthetic failed result instead of throwing", () => {
+    const result = safeSpawnSync(["definitely-not-a-real-binary-xyz123"], {});
+    expect(result.exitCode).toBe(127);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("spawn failed");
+  });
+
+  test("a resolvable binary still returns its real exit code and output", () => {
+    const result = safeSpawnSync(["git", "--version"], {});
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("git version");
+  });
+
+  test("classifyWorkspaceOutcome never throws even when the real git/gh binaries are used against a workspace with no git repo (regression guard for the unwrapped-spawn class)", async () => {
+    // Deliberately exercises the REAL defaultRunGit/defaultRunGh (no DI
+    // override) against a directory with no git repo — the closest
+    // in-process proxy for "git ran and failed" without needing to strip
+    // PATH. The regression this guards against is a THROW escaping
+    // classifyWorkspaceOutcome; a graceful crashed-no-output classification
+    // is the correct, already-existing behavior for this input.
+    await expect(classifyWorkspaceOutcome(tmpDir, "mt#3089")).resolves.toEqual({
+      outcome: CRASHED,
+      handoffWritten: false,
+    });
   });
 });

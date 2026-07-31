@@ -1,20 +1,63 @@
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- this file's real fs use is
+   (a) the isolated MINSKY_STATE_DIR temp directory required by the *default*
+   recordFireLogEntry wiring under test (see beforeAll below; mirrors the
+   exemption in guard-health-dispatcher-integration.test.ts and
+   dispatch-userpromptsubmit.e2e.test.ts), and (b) the real mkdtemp scratch
+   directories used by the guard-health write-path tests (mt#2875 — replacing
+   the assumed-unwritable "/nonexistent/..." trick that leaked fixture rows,
+   guardName "throws" / sessionId "sess-1", into the operator's live
+   ~/.local/state/minsky/guard-health-log.jsonl). Neither touches the
+   developer's actual ~/.local/state/minsky/. */
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   checkOverride,
   buildOverrideAuditLine,
+  buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
   resolveDispatchContext,
   runDispatcher,
+  composeAdditionalContext,
+  DEFAULT_CONTEXT_PRIORITY,
+  MERGED_CONTEXT_BUDGET_CHARS,
   HOOK_OVERRIDE_ENV_VAR,
   type CalibrationWriteDeps,
+  type ContextFragment,
 } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
+import type { RecordFireLogInput } from "./fire-log";
 
 /** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
 const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
+
+// mt#2597: runDispatcher now fire-logs EVERY matched guard's outcome via the
+// real `recordFireLogEntry` default when a test doesn't inject
+// `recordFireLogFn`. Point MINSKY_STATE_DIR at an isolated temp dir for the
+// WHOLE file's duration (rather than adding `recordFireLogFn: () => {}` to
+// every pre-existing call site) so no test in this file — new or
+// pre-existing — can ever write through the developer's real
+// `~/.local/state/minsky/fire-log.jsonl` (the mt#2876 class this task's
+// coordination brief calls out explicitly).
+let fireLogTestStateDir: string;
+let prevMinskyStateDir: string | undefined;
+
+beforeAll(() => {
+  fireLogTestStateDir = mkdtempSync(join(tmpdir(), "mt2597-dispatcher-fire-log-isolation-"));
+  prevMinskyStateDir = process.env.MINSKY_STATE_DIR;
+  process.env.MINSKY_STATE_DIR = fireLogTestStateDir;
+});
+
+afterAll(() => {
+  if (prevMinskyStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+  else process.env.MINSKY_STATE_DIR = prevMinskyStateDir;
+  rmSync(fireLogTestStateDir, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // checkOverride (D3)
@@ -37,6 +80,10 @@ const PILOT_GUARD_NAME = "check-guessed-session-path";
 /** Shared grant-reason fixture (Phase-7 adjunct, mt#2658) — extracted to satisfy
  * custom/no-magic-string-duplication. */
 const GRANT_REASON = "concurrent decomposition — distinct sibling";
+
+/** mt#2597 R1 — extracted to satisfy custom/no-magic-string-duplication across
+ * the `buildOverrideFireLogFields` test cases below. */
+const AUTHORIZED_EXCEPTION = "authorized_exception";
 
 describe("checkOverride", () => {
   test("no env var set -> not overridden", () => {
@@ -335,6 +382,43 @@ describe("calibrationLogPath", () => {
     expect(calibrationLogPath("causal-premise", "/repo")).toBe(
       "/repo/.minsky/causal-premise-calibration.jsonl"
     );
+  });
+
+  // mt#2710: real-fs regression for the hooks-resolve-input.cwd-raw fix.
+  // Sets `CLAUDE_PROJECT_DIR` to a repo SUBDIRECTORY rather than calling
+  // `process.chdir()` — this exercises the SAME fallback chain production
+  // hits at the real `runDispatcher` call site (`logCalibration(reg.
+  // calibrationLog, outcome.calibration)`, which passes no `projectDir`)
+  // without mutating the shared `process.cwd()` for the rest of this test
+  // file's (possibly concurrent) suite. Uses a REAL temp directory (not the
+  // injectable `MergeDetectFs`) because `findRepoRoot`'s default fs
+  // parameter is real fs — this file already exempts
+  // `custom/no-real-fs-in-tests` at the top for the same class of
+  // real-directory-structure need (see file-header comment).
+  test("walks up from a repo SUBDIRECTORY to the real repo root (mt#2710 acceptance test)", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt2710-calibration-log-path-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      const subDir = join(repoRoot, "cockpit-tray", "src-tauri");
+      mkdirSync(subDir, { recursive: true });
+
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      process.env.CLAUDE_PROJECT_DIR = subDir;
+      try {
+        // No `projectDir` argument — matches the real `runDispatcher` call
+        // site.
+        const result = calibrationLogPath("causal-premise");
+        expect(result).toBe(join(repoRoot, ".minsky", "causal-premise-calibration.jsonl"));
+        // The stray-subdirectory bug this fix closes: no `.minsky/` under
+        // the subdirectory `CLAUDE_PROJECT_DIR` pointed at.
+        expect(result.startsWith(subDir)).toBe(false);
+      } finally {
+        if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -695,11 +779,137 @@ describe("runDispatcher", () => {
       writeOutputFn: (o) => written.push(o),
       stderrWrite: (s) => stderr.push(s),
       resolveDispatchContextFn: () => stubContext(),
+      // Recording is not this test's subject — stub it so the throwing guard
+      // never reaches the real guard-health log (mt#2872: this test's default
+      // recorder wrote fixture "throws"/"boom" rows into the operator's real
+      // state and fired a CRITICAL escalation; tests/setup.ts now also
+      // isolates MINSKY_STATE_DIR globally as the class-level backstop).
+      recordGuardErrorFn: () => {},
     });
     expect(stderr.length).toBe(1);
     expect(stderr[0]).toContain("guard=throws threw: boom");
     expect(secondGuardCalled).toBe(true);
     expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+  });
+
+  // mt#2812: a thrown guard error is recorded for guard-health aggregation,
+  // IN ADDITION to the existing stderr line, and never disables the guard
+  // loop even if the recording itself misbehaves.
+  test("a guard that throws is recorded via recordGuardErrorFn with guard name, event, error, and tool context", async () => {
+    const recorded: Array<{
+      guardName: string;
+      event: string;
+      error: unknown;
+      toolName?: string;
+      sessionId?: string;
+    }> = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "throws",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              throw new Error("boom");
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () =>
+        Promise.resolve({ ...baseInput(), tool_name: "Bash", session_id: "sess-42" }),
+      writeOutputFn: () => {},
+      stderrWrite: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordGuardErrorFn: (input) => recorded.push(input),
+    });
+    expect(recorded.length).toBe(1);
+    expect(recorded[0]?.guardName).toBe("throws");
+    expect(recorded[0]?.event).toBe("PreToolUse");
+    expect(recorded[0]?.error).toBeInstanceOf(Error);
+    expect((recorded[0]?.error as Error).message).toBe("boom");
+    expect(recorded[0]?.toolName).toBe("Bash");
+    expect(recorded[0]?.sessionId).toBe("sess-42");
+  });
+
+  test("the default recordGuardErrorFn (real recordGuardError) never throws — guard loop is fail-safe by contract, no redundant dispatcher-side try/catch needed", async () => {
+    // recordGuardError's own internal swallow-all is covered directly in
+    // guard-health.test.ts ("NEVER throws even when the fs seam throws").
+    // This test confirms the DEFAULT wiring (no recordGuardErrorFn override)
+    // runs to completion end-to-end when a guard throws — i.e. the real
+    // production capture path never disables the dispatcher, matching the
+    // mt#2812 acceptance test ("Tracker DB/log unavailable -> guards still
+    // run normally"). Points MINSKY_STATE_DIR at a real mkdtemp scratch
+    // directory (mt#2875 fix) — NOT an assumed-unwritable literal path — so
+    // the real write path lands somewhere hermetically isolated and cleaned
+    // up afterward, rather than depending on the OS rejecting a write to a
+    // hardcoded "/nonexistent/..." path (that reliance is the mt#2875
+    // root-cause candidate for the "throws"/"boom"/"sess-1" fixture rows
+    // found in the operator's live guard-health-log.jsonl on 2026-07-16).
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt2875-dispatcher-default-recording-test-"));
+    const prevStateDir = process.env.MINSKY_STATE_DIR;
+    process.env.MINSKY_STATE_DIR = scratchDir;
+    try {
+      const written: HookOutput[] = [];
+      let secondGuardCalled = false;
+      const registrations: GuardRegistration[] = [
+        {
+          name: "throws",
+          event: "PreToolUse",
+          matcher: "Bash",
+          module: () =>
+            Promise.resolve({
+              run: () => {
+                throw new Error("boom");
+              },
+            }),
+          timeoutMs: 1000,
+          denyCapable: true,
+        },
+        {
+          name: "second",
+          event: "PreToolUse",
+          matcher: "Bash",
+          module: () =>
+            Promise.resolve({
+              run: () => {
+                secondGuardCalled = true;
+                return { additionalContext: "ok" };
+              },
+            }),
+          timeoutMs: 1000,
+          denyCapable: false,
+        },
+      ];
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        writeOutputFn: (o) => written.push(o),
+        stderrWrite: () => {},
+        resolveDispatchContextFn: () => stubContext(),
+        // No recordGuardErrorFn override — exercises the real default.
+      });
+      expect(secondGuardCalled).toBe(true);
+      expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+
+      // Confirm the real write actually landed in the scratch dir (proves
+      // MINSKY_STATE_DIR scoping isolates the write, rather than the prior
+      // test merely hoping the write silently failed).
+      const scratchLogPath = join(scratchDir, "guard-health-log.jsonl");
+      const scratchContent = readFileSync(scratchLogPath, "utf-8");
+      expect(scratchContent).toContain('"guardName":"throws"');
+      expect(scratchContent).toContain('"message":"boom"');
+    } finally {
+      if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+      else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
   });
 
   test("calibration outcome is logged via logCalibrationRecordFn when the registration declares calibrationLog", async () => {
@@ -776,5 +986,595 @@ describe("runDispatcher", () => {
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(stdout).toEqual(["[g] legacy override active\n"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fire-log integration (mt#2597, evaluation-loop Phase 1)
+// ---------------------------------------------------------------------------
+
+describe("runDispatcher fire-log integration (mt#2597)", () => {
+  function makeFireLogSpy(): {
+    records: RecordFireLogInput[];
+    fn: (i: RecordFireLogInput) => void;
+  } {
+    const records: RecordFireLogInput[] = [];
+    return { records, fn: (i) => records.push(i) };
+  }
+
+  test("a silently-allowed guard (null outcome) is still fire-logged as allow — 'including silent-allow'", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "silent",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => null }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("silent");
+    expect(spy.records[0]?.decision).toBe("allow");
+    expect(spy.records[0]?.overrideEnvVar).toBeUndefined();
+    expect(typeof spy.records[0]?.durationMs).toBe("number");
+  });
+
+  test("a denying guard is fire-logged as deny", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "denier",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("deny");
+  });
+
+  test("a guard contributing additionalContext (no deny) is fire-logged as warn", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "informer",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "fyi" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("warn");
+  });
+
+  test("a guard that throws is still fire-logged as allow (fail-open) in addition to guard-health's error record", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "throws",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              throw new Error("boom");
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      stderrWrite: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordGuardErrorFn: () => {},
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("throws");
+    expect(spy.records[0]?.decision).toBe("allow");
+  });
+
+  test("an env-var override is fire-logged with overrideEnvVar=MINSKY_HOOK_OVERRIDE, classification=authorized_exception — the guard itself is never invoked", async () => {
+    const spy = makeFireLogSpy();
+    let guardInvoked = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "pilot",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              guardInvoked = true;
+              return { deny: { reason: "would have denied" } };
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    process.env[HOOK_OVERRIDE_ENV_VAR] = "pilot";
+    try {
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        writeOutputFn: () => {},
+        stdoutWrite: () => {},
+        resolveDispatchContextFn: () => stubContext(),
+        recordFireLogFn: spy.fn,
+      });
+    } finally {
+      delete process.env[HOOK_OVERRIDE_ENV_VAR];
+    }
+    expect(guardInvoked).toBe(false);
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("allow");
+    expect(spy.records[0]?.overrideEnvVar).toBe(HOOK_OVERRIDE_ENV_VAR);
+    expect(spy.records[0]?.overrideClassification).toBe("authorized_exception");
+    expect(spy.records[0]?.overrideSource).toBe("env");
+  });
+
+  // NOTE: a grant-file-channel override (mt#2658 Phase-7 adjunct — `checkOverride`
+  // consulting the grant store instead of the `MINSKY_HOOK_OVERRIDE` env var) is
+  // NOT reachable through a full `runDispatcher()` call today — that call site
+  // never passes a `scope` to `checkOverride` (grant-file consultation is a
+  // per-guard concern, e.g. `parallel-work-guard.ts`, not a dispatcher-loop one).
+  // The env->grant attribution logic itself (`buildOverrideFireLogFields`,
+  // covering grant-only/env-only/both-channels-present) is unit-tested directly
+  // below, and `classifyOverride`'s own three-way split is covered in
+  // fire-log.test.ts's `classifyOverride` suite.
+  describe("buildOverrideFireLogFields (mt#2597 R1 — env/grant attribution)", () => {
+    test("grant-only override (no raw env-var involved at all) -> source=grant, classification=authorized_exception, no overrideEnvVar", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, grantReason: GRANT_REASON });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("env-only override (no grant involved) -> source=env, overrideEnvVar=MINSKY_HOOK_OVERRIDE, classification=authorized_exception", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, raw: "pilot" });
+      expect(fields).toEqual({
+        overrideSource: "env",
+        overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("both raw and grantReason present (env var set for a DIFFERENT guard/token, this guard's override came from a grant) -> attributes to grant, mirroring checkOverride's own precedence rather than re-deriving it", () => {
+      // checkOverride() only ever returns BOTH `raw` and `grantReason` together
+      // when the grant channel is what decided — the env channel returns early
+      // (before the grant branch runs) whenever IT decides. So "both present"
+      // here means "grant decided while an unrelated env token happened to be
+      // set," not "env decided."
+      const fields = buildOverrideFireLogFields({
+        overridden: true,
+        raw: "some-other-guard",
+        grantReason: GRANT_REASON,
+      });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+  });
+
+  test("multiple matched guards each produce exactly one fire-log record, in registry order", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "a",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "A" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+      {
+        name: "b",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => null }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.map((r) => r.guardName)).toEqual(["a", "b"]);
+    expect(spy.records.map((r) => r.decision)).toEqual(["warn", "allow"]);
+  });
+
+  test("a deny-capable guard's deny short-circuits later guards, but the denying guard's own fire-log record is still written", async () => {
+    const spy = makeFireLogSpy();
+    let secondGuardCalled = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "first",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+      {
+        name: "second",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              secondGuardCalled = true;
+              return null;
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(secondGuardCalled).toBe(false);
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("first");
+    expect(spy.records[0]?.decision).toBe("deny");
+  });
+
+  test("the default recordFireLogFn (real recordFireLogEntry) never throws end-to-end — isolated MINSKY_STATE_DIR (file-level beforeAll) is honored", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "g",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "ok" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    // No recordFireLogFn override — exercises the real default wiring,
+    // writing into fireLogTestStateDir (set by this file's beforeAll), never
+    // the developer's real ~/.local/state/minsky/fire-log.jsonl.
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3394 — merged-context priority ordering + size budget
+// ---------------------------------------------------------------------------
+
+function frag(guardName: string, priority: number, text: string): ContextFragment {
+  return { guardName, priority, text };
+}
+
+describe("composeAdditionalContext (mt#3394)", () => {
+  test("no fragments -> undefined, so the caller omits the key entirely", () => {
+    expect(composeAdditionalContext([])).toBeUndefined();
+  });
+
+  // Acceptance test 1: higher declared priority is emitted first.
+  test("orders by priority DESC regardless of arrival order", () => {
+    const out = composeAdditionalContext([
+      frag("low", 0, "LOW"),
+      frag("high", 10, "HIGH"),
+      frag("mid", 5, "MID"),
+    ]);
+    expect(out).toBe("HIGH\n\nMID\n\nLOW");
+  });
+
+  // Acceptance test 4: the single-guard case must not change at all.
+  test("a single fragment is emitted verbatim — no separator, no notice", () => {
+    expect(composeAdditionalContext([frag("only", 0, "just this")])).toBe("just this");
+  });
+
+  test("equal priorities keep arrival (registry) order — the stable-sort guarantee", () => {
+    // This is what keeps an unannotated registry byte-identical to the
+    // pre-mt#3394 `fragments.join("\n\n")`.
+    const out = composeAdditionalContext([
+      frag("a", DEFAULT_CONTEXT_PRIORITY, "A"),
+      frag("b", DEFAULT_CONTEXT_PRIORITY, "B"),
+      frag("c", DEFAULT_CONTEXT_PRIORITY, "C"),
+    ]);
+    expect(out).toBe("A\n\nB\n\nC");
+  });
+
+  // Acceptance test 2: over budget -> highest-priority intact + explicit notice.
+  test("over budget: drops lowest-priority fragments and names them in a notice", () => {
+    const out = composeAdditionalContext(
+      [frag("keeper", 10, "K".repeat(40)), frag("dropped-guard", 0, "D".repeat(40))],
+      50
+    );
+    expect(out).toContain("K".repeat(40));
+    expect(out).not.toContain("D".repeat(40));
+    expect(out).toContain("1 lower-priority reminder(s) omitted");
+    expect(out).toContain("dropped-guard");
+  });
+
+  test("the highest-priority fragment is admitted intact even if it alone exceeds the budget", () => {
+    const huge = "H".repeat(500);
+    const out = composeAdditionalContext([frag("huge", 10, huge), frag("small", 0, "s")], 50);
+    // Never truncated — a budget must not mutilate the most important reminder.
+    expect(out).toContain(huge);
+    expect(out).toContain("small");
+  });
+
+  // PR #2476 R1 (BLOCKING): the notice was appended AFTER the body was fitted
+  // to the budget, so the emitted block could exceed the cap it advertises.
+  test("the rendered block including its omission notice stays within budget", () => {
+    const budget = 400;
+    const fragments = [
+      frag("keeper", 10, "K".repeat(120)),
+      frag("dropped-one", 0, "A".repeat(120)),
+      frag("dropped-two", 0, "B".repeat(120)),
+      frag("dropped-three", 0, "C".repeat(120)),
+    ];
+    const out = composeAdditionalContext(fragments, budget) ?? "";
+    expect(out).toContain("omitted");
+    expect(out).toContain("K".repeat(120));
+    // The whole string — notice included — must respect the budget. Before the
+    // R1 fix the body alone was fitted and the notice appended on top, so this
+    // came out over.
+    expect(out.length).toBeLessThanOrEqual(budget);
+  });
+
+  test("floor case: a budget too small for one fragment PLUS its notice overshoots, not truncates", () => {
+    // The single documented exception to the cap. With admittedCount already at
+    // its floor of 1 there is nothing left to drop, so the block overshoots
+    // rather than mutilating the highest-priority reminder. Pinned so the
+    // exception stays deliberate and visible instead of being rediscovered.
+    const out =
+      composeAdditionalContext(
+        [frag("keeper", 10, "K".repeat(120)), frag("dropped", 0, "D".repeat(120))],
+        200
+      ) ?? "";
+    expect(out).toContain("K".repeat(120));
+    expect(out).toContain("omitted");
+    expect(out.length).toBeGreaterThan(200);
+  });
+
+  test("a lone over-budget fragment overshoots deliberately rather than being truncated", () => {
+    // The one documented exception to the cap: with nothing left to drop, the
+    // highest-priority fragment is emitted intact.
+    const huge = "H".repeat(500);
+    const out = composeAdditionalContext([frag("huge", 10, huge)], 50) ?? "";
+    expect(out).toBe(huge);
+  });
+
+  test("under budget: no notice is appended", () => {
+    const out = composeAdditionalContext([frag("a", 0, "A"), frag("b", 0, "B")], 1000);
+    expect(out).toBe("A\n\nB");
+    expect(out).not.toContain("omitted");
+  });
+
+  test("the default budget accommodates the measured all-injectors-plus-five-detectors turn", () => {
+    // The turn the budget is SIZED for — everything always-on plus the five
+    // heaviest conditional detectors — must NOT be truncated, or the budget
+    // binds on real traffic.
+    //
+    // Derived from the registry's own annotations rather than hardcoded
+    // (mt#3479). The previous version of this test restated the sizes as
+    // literals, so when mt#3479 corrected 14 annotations the test kept
+    // asserting a turn that no longer resembled production — the same
+    // copy-drift the annotations themselves had already suffered. Reading the
+    // registry means changing an annotation automatically changes what this
+    // asserts, and `guard-feedback-shape.test.ts` separately keeps the
+    // annotations honest against each guard's real rendered output.
+    const annotated = GUARD_REGISTRY.filter(
+      (r) => r.event === "UserPromptSubmit" && r.attentionCost !== undefined
+    );
+    const size = (name: string) =>
+      annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
+
+    const alwaysOnNames = [
+      "inject-current-time",
+      "inject-git-state",
+      "inject-prod-state",
+      "inject-dispatch-watchdog",
+      "memory-search",
+    ];
+    // Every always-on injector must still be present in the registry; a typo or
+    // a rename here would silently shrink the modelled turn to a passing one.
+    for (const name of alwaysOnNames) expect(size(name)).toBeGreaterThan(0);
+
+    const topFiveConditional = annotated
+      .filter((r) => !alwaysOnNames.includes(r.name))
+      .sort(
+        (a, b) =>
+          (b.attentionCost?.denialMessageSizeChars ?? 0) -
+          (a.attentionCost?.denialMessageSizeChars ?? 0)
+      )
+      .slice(0, 5);
+    expect(topFiveConditional).toHaveLength(5);
+
+    const fragments = [
+      ...alwaysOnNames.map((name) => frag(name, 10, "x".repeat(size(name)))),
+      ...topFiveConditional.map((r) =>
+        frag(r.name, 0, "x".repeat(r.attentionCost?.denialMessageSizeChars ?? 0))
+      ),
+    ];
+    const out = composeAdditionalContext(fragments, MERGED_CONTEXT_BUDGET_CHARS);
+    expect(out).not.toContain("omitted");
+  });
+});
+
+describe("runDispatcher merged-context behavior (mt#3394)", () => {
+  // Acceptance test 3: a fragment dropped for budget must STILL have written
+  // its calibration record — the budget is a presentation concern only, and
+  // /calibration-review's false-positive rates depend on the record surviving.
+  test("a budget-dropped guard still logs its calibration record", async () => {
+    const written: HookOutput[] = [];
+    const logged: { name: string; record: Record<string, unknown> }[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "loud-high-priority",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({ additionalContext: "H".repeat(MERGED_CONTEXT_BUDGET_CHARS) }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        contextPriority: 10,
+      },
+      {
+        name: "quiet-low-priority",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({
+              additionalContext: "L".repeat(100),
+              calibration: { timestamp: "t", session_id: "s", detail: "still measured" },
+            }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        calibrationLog: "quiet-low",
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      logCalibrationRecordFn: (name, record) => logged.push({ name, record }),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+
+    const emitted = written[0]?.hookSpecificOutput?.additionalContext ?? "";
+    // Presentation: the low-priority fragment was dropped and named.
+    expect(emitted).not.toContain("L".repeat(100));
+    expect(emitted).toContain("quiet-low-priority");
+    // Measurement: its calibration record was written anyway.
+    expect(logged.length).toBe(1);
+    expect(logged[0]?.name).toBe("quiet-low");
+    expect(logged[0]?.record?.detail).toBe("still measured");
+  });
+
+  // PR #2476 R1 (BLOCKING, raised as a possible semantic change): the emit
+  // condition moved from `contextFragments.length > 0` to
+  // `additionalContext !== undefined`. Those are equivalent — the composer
+  // returns undefined ONLY for an empty fragment list, and a falsy
+  // additionalContext never enters the list in the first place — but
+  // "equivalent by reasoning" is not a test, so here is the test.
+  test("no guard contributes context -> the additionalContext key is omitted entirely", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "silent-guard",
+        event: "PreToolUse",
+        matcher: "Bash",
+        // Returns an outcome, but with no additionalContext — the "matched but
+        // silent" case that must still produce no stdout.
+        module: () => Promise.resolve({ run: () => ({}) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+      {
+        name: "empty-string-guard",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written.length).toBe(0);
+  });
+
+  test("registry contextPriority is what orders the emitted block", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "declared-last-but-higher",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "SECOND-DECLARED" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        contextPriority: 99,
+      },
+      {
+        name: "declared-first-but-default",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "FIRST-DECLARED" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe(
+      "SECOND-DECLARED\n\nFIRST-DECLARED"
+    );
   });
 });

@@ -34,6 +34,10 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
+import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
+import type { TokenProvider } from "@minsky/domain/auth";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -58,6 +62,84 @@ export async function getCachedPersistenceProvider() {
 // createCachedSqlDbGetter — shared lazy-cached SQL-db-handle factory
 // ---------------------------------------------------------------------------
 
+/** A lazy-cached SQL-db getter, plus a test-only reset of its private cache. */
+export interface CachedSqlDbGetter {
+  (): Promise<PostgresJsDatabase | null>;
+  /**
+   * @internal Test-only. Clears this getter's private `cachedDb` /
+   * `probedAndFailed` state so the NEXT call re-probes from scratch, instead
+   * of returning whatever this getter resolved to earlier in the process
+   * (mt#3016). Production code must never call this — it would force a
+   * redundant re-probe on the very next request.
+   */
+  __resetForTests(): void;
+}
+
+/**
+ * Guard for the test-only reset surface: `bun test` sets NODE_ENV to "test",
+ * so any other environment reaching a reset API is production misuse — throw
+ * instead of silently corrupting the live singleton caches. (Reviewer-bot
+ * non-blocking finding, PR #2159.)
+ */
+function assertTestEnvironment(api: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `${api} is test-only (NODE_ENV must be "test"; got ${JSON.stringify(process.env.NODE_ENV)})`
+    );
+  }
+}
+
+/** @internal Test-only registry of every getter this factory has produced, so `__resetDbProvidersForTests()` (below) can reset all of them without needing to name each one individually. */
+const _allCachedSqlDbGetters: CachedSqlDbGetter[] = [];
+
+// ---------------------------------------------------------------------------
+// Test-process live-database guard (mt#3254)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a test process resolves a live database through the PRODUCTION
+ * provider path.
+ *
+ * A distinct class rather than a bare Error because `createCachedSqlDbGetter`
+ * converts every thrown probe failure into `null`. This one must survive that
+ * catch: degrading it to "no database available" would make the guard silent,
+ * which is the failure mode it exists to prevent.
+ */
+export class TestEnvironmentDbAccessError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TestEnvironmentDbAccessError";
+  }
+}
+
+/** Env var that opts a test into using a real (local) database. */
+export const ALLOW_TEST_DB_ENV_VAR = "MINSKY_ALLOW_TEST_DB";
+
+/**
+ * Decide whether a resolved database must be refused.
+ *
+ * Extracted as a pure function so the decision is unit-testable without a live
+ * connection, mirroring how `assertTestEnvironment` above keeps its own
+ * NODE_ENV check in one readable place.
+ *
+ * `isProductionResolution` is the load-bearing input: a getter built WITHOUT
+ * the `getProvider` seam resolves through `getCachedPersistenceProvider`, i.e.
+ * the real configured database. A getter given an explicit provider is being
+ * handed a deliberate fake and is none of this guard's business — guarding it
+ * would break every legitimate injected-provider test.
+ */
+export function shouldRefuseTestEnvironmentDb(input: {
+  isProductionResolution: boolean;
+  nodeEnv: string | undefined;
+  optIn: string | undefined;
+}): boolean {
+  if (!input.isProductionResolution) return false;
+  if (input.nodeEnv !== "test") return false;
+  // An exported-but-empty `MINSKY_ALLOW_TEST_DB=` is not consent. Requiring a
+  // non-empty value keeps a stray export from disabling the guard silently.
+  return !(input.optIn !== undefined && input.optIn.length > 0);
+}
+
 /**
  * Build a lazy-cached SQL-capable-provider database getter.
  *
@@ -76,12 +158,40 @@ export async function getCachedPersistenceProvider() {
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
-}): () => Promise<PostgresJsDatabase | null> {
+}): CachedSqlDbGetter {
+  // A getter built without `getProvider` resolves the REAL configured
+  // database; that is what the mt#3254 guard keys on.
+  const isProductionResolution = options.getProvider === undefined;
   const getProvider = options.getProvider ?? getCachedPersistenceProvider;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
 
-  return async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
+  const getCachedSqlDb = async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
+    // FIRST statement, before the caches and before any provider work (PR #2342
+    // R1): connecting is itself the hazard. The real provider may run
+    // connect-time side effects — migrations, session initialization — so a
+    // guard that fires after `getDatabaseConnection()` resolves has already let
+    // them happen. Deciding purely from `isProductionResolution` + the
+    // environment needs no connection at all, so nothing is attempted.
+    //
+    // Keying off the resolution SHAPE rather than the resolved value also means
+    // a provider that returns null, or throws, cannot silently downgrade the
+    // guard into the "probe failed -> null" path below.
+    if (
+      shouldRefuseTestEnvironmentDb({
+        isProductionResolution,
+        nodeEnv: process.env.NODE_ENV,
+        optIn: process.env[ALLOW_TEST_DB_ENV_VAR],
+      })
+    ) {
+      throw new TestEnvironmentDbAccessError(
+        "Refusing to resolve a live database in a test process. This getter uses the real " +
+          "configured provider, which under `bun test` is whatever the environment points at — " +
+          "prod, in this repo. Inject a fake via the `getProvider` seam, or set " +
+          `${ALLOW_TEST_DB_ENV_VAR}=1 if this test genuinely needs a real LOCAL database. ` +
+          "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
+      );
+    }
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
@@ -106,11 +216,26 @@ export function createCachedSqlDbGetter(options: {
       }
       cachedDb = db;
       return cachedDb;
-    } catch {
+    } catch (err) {
+      // Defensive: the guard now throws before this try block, so it cannot
+      // reach here. Kept so a future refactor that moves the check back inside
+      // cannot silently re-degrade it into the "probe failed -> null" path — a
+      // null is indistinguishable from "no database configured", which is the
+      // silence this guard exists to break.
+      if (err instanceof TestEnvironmentDbAccessError) throw err;
       probedAndFailed = true;
       return null;
     }
+  } as CachedSqlDbGetter;
+
+  getCachedSqlDb.__resetForTests = () => {
+    assertTestEnvironment("__resetForTests");
+    cachedDb = null;
+    probedAndFailed = false;
   };
+
+  _allCachedSqlDbGetters.push(getCachedSqlDb);
+  return getCachedSqlDb;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +266,33 @@ export async function getServerAskRepository(): Promise<AskRepository | null> {
     const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
     _cachedServerAskRepo = new DrizzleAskRepository(db);
     return _cachedServerAskRepo;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FollowUpService lazy init (mt#2322) — uses cockpit-wide PersistenceService
+// singleton. cacheNegative: false, same rationale as getServerAskRepository:
+// a failed probe retries on every call; only a SUCCESSFUL service instance
+// is cached.
+// ---------------------------------------------------------------------------
+
+const getFollowUpDb = createCachedSqlDbGetter({ cacheNegative: false });
+let _cachedFollowUpService:
+  | import("@minsky/domain/scheduler/follow-up-service").FollowUpService
+  | null = null;
+
+export async function getServerFollowUpService(): Promise<
+  import("@minsky/domain/scheduler/follow-up-service").FollowUpService | null
+> {
+  if (_cachedFollowUpService) return _cachedFollowUpService;
+  try {
+    const db = await getFollowUpDb();
+    if (!db) return null;
+    const { FollowUpService } = await import("@minsky/domain/scheduler/follow-up-service");
+    _cachedFollowUpService = new FollowUpService(db);
+    return _cachedFollowUpService;
   } catch {
     return null;
   }
@@ -236,4 +388,192 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Changeset service lazy init (mt#3096) — the LIVE-PR data path used by
+// `GET /api/changeset/:id`.
+//
+// Why this exists: that endpoint used to build its entire view from the cached
+// `pullRequest` snapshot on the session record, whose `title` is almost always
+// null — so the detail page rendered the literal "(no title)" for PRs that
+// plainly have one. Reading the live PR removes that whole class of staleness.
+//
+// CREDENTIAL PATH: `ChangesetService` previously had no way to receive one —
+// `getAdapter()` called `factory.createAdapter(repositoryUrl)` with no config,
+// so the GitHub adapter fell back to `GITHUB_TOKEN` / `GH_TOKEN` env vars only.
+// The cockpit daemon keeps its GitHub credential in Minsky config, not the
+// environment, so that path yielded an adapter failing `isAvailable()`. mt#3096
+// added the `adapterConfig` parameter threaded through here; token + repo
+// resolution mirrors `deploy-smoke-sweep.ts`'s `buildRealDeps()`, the existing
+// in-cockpit precedent for config-driven GitHub access.
+//
+// A FRESH service is built per call while the deps below stay cached: the
+// adapter memoizes its Octokit on first use, so caching the service would pin a
+// GitHub App installation token past its ~1h expiry and silently start 401ing.
+// `tokenProvider` does its own caching, so rebuilding costs no extra round-trip
+// in the common case.
+//
+// Returns null (never throws) when GitHub isn't configured or credential
+// resolution fails — the caller degrades to the session-snapshot rendering.
+// ---------------------------------------------------------------------------
+
+interface ChangesetReadDeps {
+  repoUrl: string;
+  tokenProvider: TokenProvider;
+}
+
+let _cachedChangesetReadDeps: ChangesetReadDeps | null = null;
+
+async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
+  if (_cachedChangesetReadDeps) return _cachedChangesetReadDeps;
+
+  const { getRepositoryBackendFromConfig } = await import(
+    "@minsky/domain/session/repository-backend-detection"
+  );
+  const { repoUrl, github } = await getRepositoryBackendFromConfig();
+
+  // `getRepositoryBackendFromConfig` has TWO return shapes, and this resolution
+  // must survive both:
+  //   1. Project-config path — `repository.url` plus an OPTIONAL
+  //      `repository.github` sub-object ({owner, repo}). This project sets both.
+  //   2. Auto-detection fallback — taken when `getConfiguration()` throws
+  //      (notably "Configuration not initialized", i.e. any process that hasn't
+  //      bootstrapped config). It returns `repoUrl` only, with NO `github`.
+  // So neither field alone is safe to gate on: prefer `repoUrl`, and compose one
+  // from `github` when only that is present.
+  const resolvedUrl =
+    repoUrl || (github ? `https://github.com/${github.owner}/${github.repo}.git` : "");
+
+  // Mirrors GitHubChangesetAdapterFactory.canHandle — a non-GitHub remote has
+  // no adapter to build.
+  if (!resolvedUrl.includes("github.com")) return null;
+
+  const { getConfiguration } = await import("@minsky/domain/configuration/index");
+  const { createTokenProvider } = await import("@minsky/domain/auth");
+  const cfg = getConfiguration();
+
+  _cachedChangesetReadDeps = {
+    repoUrl: resolvedUrl,
+    tokenProvider: createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? ""),
+  };
+  return _cachedChangesetReadDeps;
+}
+
+/**
+ * Build a changeset service for the project's configured repository, or null
+ * when GitHub isn't configured / the credential can't be resolved.
+ *
+ * Only the READ surface (`get`) is exercised by the cockpit — that path uses
+ * Octokit directly and needs no `sessionProvider`. (Mutation methods and
+ * `getDetails` would additionally require one; the cockpit does not call them.)
+ */
+export async function getServerChangesetService(): Promise<ChangesetService | null> {
+  try {
+    const deps = await getChangesetReadDeps();
+    if (!deps) {
+      log.debug("[cockpit] changeset service unavailable — no GitHub repository configured");
+      return null;
+    }
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
+    return await createChangesetService(deps.repoUrl, undefined, {
+      repositoryUrl: deps.repoUrl,
+      auth: { token: await deps.tokenProvider.getServiceToken() },
+    });
+  } catch (err) {
+    // Never swallow silently: a dead credential path is indistinguishable from
+    // "no live data" at the endpoint, which is exactly how a degraded page
+    // looks healthy. Log the real reason.
+    log.debug(
+      `[cockpit] changeset service construction failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return null;
+  }
+}
+
+/**
+ * Build a check-runs fetcher for the project's configured repository, or null
+ * when GitHub isn't configured / the credential can't be resolved (mt#3097).
+ *
+ * Reuses the same cached repo + token resolution as the changeset service.
+ * `getCheckRunsForRef` already fails CLOSED when both its underlying fetches
+ * reject (it throws rather than reporting a misleading zero-checks result), so
+ * the caller can distinguish "CI genuinely has no checks" from "we could not
+ * find out" — which is what keeps the UI from rendering an unearned green.
+ */
+export async function getServerChecksReader(): Promise<
+  ((headSha: string) => Promise<ChecksResult>) | null
+> {
+  try {
+    const deps = await getChangesetReadDeps();
+    if (!deps) {
+      log.debug("[cockpit] checks reader unavailable — no GitHub repository configured");
+      return null;
+    }
+    const { extractGitHubInfoFromUrl } = await import(
+      "@minsky/domain/session/repository-backend-detection"
+    );
+    const gh = extractGitHubInfoFromUrl(deps.repoUrl);
+    if (!gh) {
+      log.debug(`[cockpit] checks reader unavailable — unparseable repo URL`);
+      return null;
+    }
+    const { createOctokit } = await import("@minsky/domain/repository/github-pr-operations");
+    const { getCheckRunsForRef } = await import("@minsky/domain/repository/github-pr-checks");
+    const octokit = createOctokit(await deps.tokenProvider.getServiceToken());
+    return (headSha: string) =>
+      getCheckRunsForRef({ owner: gh.owner, repo: gh.repo }, headSha, octokit);
+  } catch (err) {
+    log.debug(
+      `[cockpit] checks reader construction failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test-only reset (mt#3016) — mirrors shared-persistence.ts's
+// __resetSharedPersistenceForTests(), same rationale: this module's caches
+// are all module-level state, and bun shares module state across every test
+// file that runs in one process. Confirmed empirically (mt#3016): running
+// packages/domain/src/session-auto-task-creation.test.ts (whose beforeEach
+// calls @minsky/domain/configuration's own equally global, equally un-reset
+// initializeConfiguration()) before a cockpit widget/route test in the same
+// process let getContextInspectorDb() resolve a REAL, non-null connection
+// where the consuming test expected null — breaking a "no live db"
+// assumption none of these getters had any way to guard against.
+//
+// This alone is NOT sufficient to fix that specific bug (a genuinely FRESH
+// call to getContextInspectorDb() also resolves non-null once configuration
+// has been initialized anywhere in-process — the actual mt#3016 fix is the
+// getDb/getProjectScopeDb DI seams threaded through task-list.ts, agents.ts,
+// routes/conversation-search.ts, and routes/conversations.ts). This reset
+// is still exported as general test hygiene for this module's OWN cache
+// state, matching the established shared-persistence.ts precedent, for any
+// future test that needs a guaranteed-fresh probe.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset every cached SQL-db getter this module has produced (via
+ * `createCachedSqlDbGetter`, including `getContextInspectorDb` and the
+ * private `getAskDb`/`getFollowUpDb` instances) plus every module-level
+ * singleton cache below it, so each starts fresh on its next call.
+ *
+ * @internal Test-only. Production code must never call this.
+ */
+export function __resetDbProvidersForTests(): void {
+  assertTestEnvironment("__resetDbProvidersForTests");
+  for (const getter of _allCachedSqlDbGetters) {
+    getter.__resetForTests();
+  }
+  _cachedServerAskRepo = null;
+  _cachedFollowUpService = null;
+  _cachedTaskService = null;
+  _cachedTaskDetailDeps = null;
+  _cachedServerSessionProvider = null;
+  _cachedChangesetReadDeps = null;
 }

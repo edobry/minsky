@@ -21,9 +21,36 @@
 // @see mt#1459 — this hook implementation
 // @see mt#1460 — sibling /prepare-pr skill step (PR-creation-time guard)
 // @see feedback_behavior_detecting_artifacts_need_execution_evidence — four-incident history
+//
+// mt#3033: ADDITIVE acceptance-test cross-reference check. Independent of the
+// file-pattern (test-file / operational-script) triggers above, which remain the
+// deterministic BLOCKING floor and are UNCHANGED by this addition. The AT-cross-
+// reference path resolves the bound task's `## Acceptance Tests`, classifies each
+// as executable-vs-findings-shaped (conservative heuristic), and checks whether the
+// PR body's `Execution evidence:` block addresses each executable AT (by number/
+// keyword reference, or an explicit `[atN-deferred: mt#NNNN]` marker). This is
+// CALIBRATION-FIRST (mt#2263 ladder): it only WARNs (additionalContext + a
+// calibration JSONL line) and NEVER emits `permissionDecision: "deny"` — graduating
+// to a blocking decision is a follow-up once false-positive rate is measured against
+// real merges. Override: `MINSKY_SKIP_AT_COVERAGE=1` skips the check entirely.
+// Graduation (flip WARN -> deny once the calibration FP rate is measured) is tracked
+// as mt#3339 (mt#3059 fixed FP-1/FP-2; mt#3316 fixed FP-3 and discovered FP-4, still
+// open) — this task ships Phase 1 (log-only) only.
+// @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
+// @see mt#3059 / mt#3316 / mt#3339 — graduation lineage (WARN -> deny)
 
-import { readInput, writeOutput } from "./types";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
+import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
+import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
+import { isTestFile } from "./pr-file-predicates";
+import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
   parseGitHubRemoteUrl as parseGitHubRemoteUrlImpl,
@@ -38,6 +65,9 @@ import type {
   PrDeps as PrDepsImpl,
   FetchPrFilesResult as FetchPrFilesResultImpl,
 } from "./pr-context";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-execution-evidence-before-merge";
 
 // ---------------------------------------------------------------------------
 // mt#2617: PR-data fetch (repo derivation, PR-number resolution, files/meta
@@ -67,6 +97,8 @@ export interface ExecutionEvidenceCheckResult {
   reason?: string;
   /** Any new test files found in the PR diff */
   newTestFiles: string[];
+  /** Any newly-added operational scripts found in the PR diff (mt#2776) */
+  newScripts: string[];
   /** Whether the bypass prefix was detected */
   bypassDetected: boolean;
   /** Any non-fatal warnings to surface */
@@ -77,19 +109,32 @@ export interface ExecutionEvidenceCheckResult {
 // Test file detection
 // ---------------------------------------------------------------------------
 
-/**
- * Pattern for test files we care about. Matches:
- *   - *.test.ts
- *   - *.integration.test.ts
- *   - *.spec.ts
- */
-const TEST_FILE_PATTERN = /\.(test|integration\.test|spec)\.ts$/;
+// `isTestFile` moved to the dependency-free `./pr-file-predicates` (mt#3244, PR #2462 R1)
+// so `test-first-evidence.ts` can consume it without importing this module — this file
+// imports THAT one to run its calibration, so the reverse import would be a cycle.
+// Re-exported here so existing callers and tests are unaffected by the move. Imported
+// AND re-exported (not a bare `export ... from`) because this file calls it internally —
+// a re-export alone creates no local binding.
+export { isTestFile };
 
 /**
- * Returns true when a filename matches a test-file pattern.
+ * Pattern for operational scripts (mt#2776). A newly-added `scripts/*.ts` is a
+ * behavior-EFFECTING artifact (backfill / migration / sweep / probe) per the
+ * execution-evidence family (memory `69db6fdc` / `7c83fed0`), so it needs
+ * execution evidence just like a test does — but it is NOT a test file, so the
+ * mt#1459 test-file gate never demanded it (originating incident: mt#2760 /
+ * mt#2774, `scripts/backfill-close-stale-asks.ts` shipped with a broken
+ * `--execute` branch its dry-run never exercised).
  */
-export function isTestFile(filename: string): boolean {
-  return TEST_FILE_PATTERN.test(filename);
+const OPERATIONAL_SCRIPT_PATTERN = /^scripts\/.*\.ts$/;
+
+/**
+ * Returns true when a filename is an operational script under `scripts/` at ANY
+ * depth (e.g. `scripts/foo.ts`, `scripts/migrations/backfill.ts`) that is not
+ * itself a test file.
+ */
+export function isOperationalScript(filename: string): boolean {
+  return OPERATIONAL_SCRIPT_PATTERN.test(filename) && !isTestFile(filename);
 }
 
 /**
@@ -107,11 +152,42 @@ export function findNewTestFiles(files: PrFile[]): string[] {
       if (!isTestFile(f.filename)) return false;
       if (f.status === "added") return true;
       if (f.status === "renamed" || f.status === "copied") {
-        // Only count if the source was NOT already a test file (new-test-file conversion)
-        if (f.previous_filename !== undefined) {
+        // Only count if the source was NOT already a test file (new-test-file
+        // conversion). mt#2809: check `!= null` (covers both `undefined` AND
+        // a literal `null` — the PrFile.previous_filename doc comment in
+        // ./pr-context explains why `!== undefined` alone is unsafe), not
+        // just `!== undefined`.
+        if (f.previous_filename != null) {
           return !isTestFile(f.previous_filename);
         }
         // No previous_filename info available — conservatively include it
+        return true;
+      }
+      return false;
+    })
+    .map((f) => f.filename);
+}
+
+/**
+ * Filters a list of PrFile objects to only newly-introduced operational scripts.
+ * mt#2776. Mirrors `findNewTestFiles`' status logic for parity:
+ *   - status === "added": brand-new script.
+ *   - status === "renamed" | "copied": the new name is an operational script AND
+ *     the previous name was NOT (a promotion into `scripts/`, e.g.
+ *     `tools/foo.ts` -> `scripts/foo.ts`), so it is a newly-introduced artifact.
+ */
+export function findNewOperationalScripts(files: PrFile[]): string[] {
+  return files
+    .filter((f) => {
+      if (!isOperationalScript(f.filename)) return false;
+      if (f.status === "added") return true;
+      if (f.status === "renamed" || f.status === "copied") {
+        // mt#2809: `!= null`, not `!== undefined` alone — see the
+        // PrFile.previous_filename doc comment in ./pr-context.
+        if (f.previous_filename != null) {
+          return !isOperationalScript(f.previous_filename);
+        }
+        // No previous_filename info available — conservatively include it.
         return true;
       }
       return false;
@@ -232,10 +308,12 @@ export function checkExecutionEvidence(
 ): ExecutionEvidenceCheckResult {
   const warnings: string[] = [];
   const newTestFiles = findNewTestFiles(prFiles);
+  const newScripts = findNewOperationalScripts(prFiles);
+  const requiring = [...newTestFiles, ...newScripts];
 
-  // No new test files → hook is silent
-  if (newTestFiles.length === 0) {
-    return { blocked: false, newTestFiles: [], bypassDetected: false, warnings };
+  // No evidence-requiring files (new test files OR new operational scripts) → hook is silent
+  if (requiring.length === 0) {
+    return { blocked: false, newTestFiles: [], newScripts: [], bypassDetected: false, warnings };
   }
 
   // Bypass prefix present → allow with warning
@@ -243,33 +321,630 @@ export function checkExecutionEvidence(
   if (bypassDetected) {
     warnings.push(
       `[unverified-tests] bypass detected: merge proceeding without execution evidence for ` +
-        `${newTestFiles.length} new test file(s). File a follow-up verification task.`
+        `${requiring.length} evidence-requiring file(s) (${newTestFiles.length} test, ` +
+        `${newScripts.length} script). File a follow-up verification task.`
     );
-    return { blocked: false, newTestFiles, bypassDetected: true, warnings };
+    return { blocked: false, newTestFiles, newScripts, bypassDetected: true, warnings };
   }
 
   // Execution evidence present → allow
   if (hasExecutionEvidence(prBody)) {
-    return { blocked: false, newTestFiles, bypassDetected: false, warnings };
+    return { blocked: false, newTestFiles, newScripts, bypassDetected: false, warnings };
   }
 
   // No evidence, no bypass → block
-  const fileList = newTestFiles.map((f) => `  - ${f}`).join("\n");
+  const fileList = requiring.map((f) => `  - ${f}`).join("\n");
+  const classes: string[] = [];
+  if (newTestFiles.length > 0) classes.push(`${newTestFiles.length} new test file(s)`);
+  if (newScripts.length > 0) classes.push(`${newScripts.length} new operational script(s)`);
+  const scriptNote =
+    newScripts.length > 0
+      ? `\n\nA newly-added operational script (backfill/migration/sweep/probe) is a ` +
+        `behavior-effecting artifact that must be run before merge — and for a dual-mode ` +
+        `script, EACH production branch (dry-run AND a bounded \`--execute\` — single item / ` +
+        `\`--limit 1\` / scratch target), not just the safe mode (mt#2776).`
+      : "";
   const reason =
-    `Merge blocked: PR adds ${newTestFiles.length} new test file(s) but PR body has no ` +
-    `execution-evidence block.\n\n` +
+    `Merge blocked: PR adds ${classes.join(" + ")} but PR body has no ` +
+    `execution-evidence block.${scriptNote}\n\n` +
     `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
     `required) OR a Markdown heading of any level with an optional trailing colon ` +
     `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
-    `New test files:\n${fileList}\n\n` +
+    `Evidence-requiring files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
-    `  1. Run the new tests and paste output under an \`Execution evidence\` section ` +
+    `  1. Run the artifact and paste output under an \`Execution evidence\` section ` +
     `(any accepted form above) in ` +
     `the PR body (use mcp__minsky__session_pr_edit to update the body).\n` +
     `  2. Prefix the PR title with \`[unverified-tests]\` and file a follow-up ` +
     `verification task before re-attempting the merge.`;
 
-  return { blocked: true, reason, newTestFiles, bypassDetected: false, warnings };
+  return { blocked: true, reason, newTestFiles, newScripts, bypassDetected: false, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// mt#3033: Acceptance-test cross-reference (CALIBRATION-FIRST, log-only)
+// ---------------------------------------------------------------------------
+//
+// Everything in this section is ADDITIVE — it never influences `checkExecutionEvidence`
+// above (the file-pattern BLOCKING floor), and never itself produces a `deny` decision.
+// It only appends a calibration JSONL record + a WARN string when a would-be-blocking
+// condition is detected, per the mt#2263 calibration ladder (measure real-world false-
+// positive rate before graduating an unproven heuristic to a blocking gate).
+
+/** One numbered item parsed from a task spec's `## Acceptance Tests` section. */
+export interface AcceptanceTestItem {
+  /** The list number as written in the spec (e.g. `3` for "3. Fixture: ..."). */
+  number: number;
+  /** The item's text, with any wrapped continuation lines joined. */
+  text: string;
+}
+
+/**
+ * Matches a heading that introduces a SUPERSEDING acceptance-test section (mt#3306
+ * Defect 2 / mt#3059 FP-2) — `## Remaining acceptance tests`, `### Updated acceptance
+ * tests`, etc.
+ *
+ * Why this exists: long-lived incident tasks get rescoped mid-life, and this repo's
+ * convention (mt#3142, mt#3030, mt#3251) is to APPEND the new disposition while
+ * PRESERVING the original `## Acceptance Tests` section as an audit trail — so a spec
+ * can legitimately carry both a stale original section and a live "Remaining / Updated /
+ * Revised / Current acceptance tests" section at once, in EITHER document order (a
+ * rescoping preface commonly sits near the TOP of the spec, ahead of the original
+ * section it supersedes, which is kept further down for history — see mt#3142's real
+ * spec).
+ *
+ * Boundary construction (merged mt#3059 PR #2386 R1 into mt#3306's regex): the trailing
+ * lookahead anchors the next-heading alternative on `^` (multiline) instead of requiring
+ * a literal preceding `\n`, so a heading that immediately follows this one with ZERO AT
+ * content (no blank line separating them) is still recognized as the boundary — a plain
+ * `\n#{2,3}\s` lookahead cannot match there, because the `\n` that would satisfy it was
+ * already consumed by THIS heading's own match, silently expanding the capture past the
+ * empty section into whatever came next. Turning on multiline mode for `^` has one
+ * consequence to guard against: the same flag also makes a bare `$` mean "end of every
+ * line," not "end of string" — the final alternative uses `(?![\s\S])` instead (a
+ * negative lookahead for "any character remains," true end-of-string regardless of the
+ * `m` flag) specifically to avoid that. Verified empirically against the exact fixture
+ * that caught this in PR #2386 R1 (a `## Acceptance Tests` heading immediately followed
+ * by `### Covers`, zero AT content) before merging this structure — the un-patched
+ * version over-captured past the subsection; this one correctly returns an empty section.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE =
+  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
+
+/**
+ * Global-flagged twin of {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}, used with
+ * `matchAll` so the LAST superseding section wins when a spec has been rescoped
+ * more than once — "later supersedes earlier" is the whole premise of preferring a
+ * superseding section at all, so selecting the FIRST match would reintroduce the same
+ * defect one level up. Kept as a separate constant rather than adding `g` to the
+ * original: a `g`-flagged regex carries mutable `lastIndex` state across calls, so
+ * sharing one instance between `match` and `matchAll` call sites would make results
+ * depend on call order. `matchAll` itself clones the regex internally, so this constant
+ * is safe to reuse.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL = new RegExp(
+  SUPERSEDING_ACCEPTANCE_TESTS_RE.source,
+  "gim"
+);
+
+/**
+ * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
+ *
+ * Boundary rule (mt#3306 Defect 1 / mt#3059 FP-1): the section ends at the next heading
+ * of the SAME OR DEEPER level (`##` or `###`), not just an exact `## ` sibling.
+ * `work-completion.mdc §Recovery layer spec discipline` REQUIRES a `### Covers` /
+ * `### Does NOT cover` pair on every spec introducing a sweeper/retry/fallback/gate —
+ * exactly the infrastructure-hardening specs this check most wants to police — and a
+ * `###` boundary was invisible to the old `\n##\s` lookahead (its third `#` fails the
+ * `\s` check), so extraction ran straight past the subsection and swept its bullets in as
+ * acceptance tests (mt#3117 / PR #2234: reported 10 "ATs" against a spec that declared 4).
+ *
+ * Same `^`/`(?![\s\S])` boundary construction as {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}
+ * above (merged mt#3059 PR #2386 R1 fix) — see that constant's doc comment for why.
+ */
+const ACCEPTANCE_TESTS_RE =
+  /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
+
+/**
+ * Extracts the raw body of a spec's authoritative acceptance-tests section.
+ *
+ * Precedence (mt#3306 Defect 2 / mt#3059 FP-2): a SUPERSEDING section — matched by
+ * `SUPERSEDING_ACCEPTANCE_TESTS_RE` above — always wins over the original `##
+ * Acceptance Tests` section when both are present, regardless of which appears first in
+ * the document. `String.prototype.match` only ever returns the FIRST literal match, so
+ * without this explicit precedence check the extractor would silently keep reading a
+ * stale, already-superseded section (mt#3142 / PR #2365: reported 3 of 5 "unaddressed"
+ * ATs, all three satisfied and dispositioned DONE days earlier — the spec's own
+ * `### Remaining acceptance tests` section, listing the 3 checks that actually still
+ * applied, was never consulted). When a spec has been rescoped MORE than once, the LAST
+ * superseding section wins (see `SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL`).
+ *
+ * Historical note: the original (pre-mt#3059) regex here mirrored one in
+ * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
+ * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
+ * convention.
+ *
+ * Returns `null` when neither a superseding nor an original section exists.
+ */
+export function extractAcceptanceTestsSection(specContent: string): string | null {
+  // Take the LAST superseding section, not the first — see
+  // SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL's doc comment.
+  let lastSuperseding: RegExpMatchArray | null = null;
+  for (const m of specContent.matchAll(SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL)) {
+    lastSuperseding = m;
+  }
+  if (lastSuperseding) return lastSuperseding[1] ?? "";
+
+  const original = specContent.match(ACCEPTANCE_TESTS_RE);
+  return original ? (original[1] ?? "") : null;
+}
+
+/**
+ * Parses a spec's `## Acceptance Tests` section into numbered items. Recognizes TWO list
+ * shapes (mt#3078): an explicitly numbered list (`1. ...`) — the ORIGINAL, still-supported
+ * form, whose written number is preserved verbatim — and a bare bullet list (`- ...` /
+ * `* ...`), which is numbered SEQUENTIALLY in document order starting at 1. Handles
+ * multi-line items by joining continuation lines (any non-empty line that doesn't itself
+ * start a new TOP-LEVEL list item) onto the preceding item's text.
+ *
+ * Bullet support closes a real invocation-path gap, not a match-pattern tuning: the
+ * CANONICAL `/create-task` skill template (`.claude/skills/create-task/SKILL.md`) writes
+ * `## Acceptance Tests` as a bullet list (`- <Concrete test 1: ...>`), never a numbered
+ * list — so before this fix, `checkAcceptanceTestCoverage` silently returned
+ * `applicable: false` for every task spec authored via the standard, documented workflow
+ * (verified against this very task's own spec, mt#3078, whose bullet-style ATs parsed to
+ * `[]`). A parser that cannot read the project's own canonical spec format is
+ * indistinguishable, from the calibration log's silence, from "never had an unaddressed AT
+ * to report" — exactly the ambiguity this task exists to resolve.
+ *
+ * **Top-level-only bullet matching (PR #2207 R1 review).** A bullet line only starts a NEW
+ * item when it has ZERO leading whitespace. An indented bullet — a nested/sub-bullet under
+ * the current item (e.g. `- Parent\n  - child detail`) — does NOT match the bullet-item
+ * branch and instead falls through to the continuation branch, folding its text onto the
+ * current item (matching the reviewer's "only accept top-level bullets" request; the
+ * canonical template's ATs are always written flush-left, so this doesn't regress the
+ * common case). A leading GitHub-style checkbox marker (`- [ ]` / `- [x]` / `- [X]`) is
+ * stripped from the item text rather than left as literal `[ ]` noise, so a spec authored
+ * with task-list-style ATs (as `## Success Criteria` sections in this very file's spec
+ * convention already are) parses identically to a plain bullet.
+ *
+ * Returns `[]` when the section is absent or contains no list items of either shape.
+ */
+export function parseAcceptanceTests(specContent: string): AcceptanceTestItem[] {
+  const section = extractAcceptanceTestsSection(specContent);
+  if (!section) return [];
+
+  const items: AcceptanceTestItem[] = [];
+  let current: AcceptanceTestItem | null = null;
+
+  for (const rawLine of section.split("\n")) {
+    const numberedMatch = rawLine.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (numberedMatch) {
+      if (current) items.push(current);
+      const num = parseInt(numberedMatch[1] ?? "", 10);
+      current = {
+        number: Number.isFinite(num) ? num : items.length + 1,
+        text: (numberedMatch[2] ?? "").trim(),
+      };
+      continue;
+    }
+    // Top-level only: zero leading whitespace. An indented `-`/`*` line is a
+    // nested/sub-bullet, not a new AT — it falls through to the continuation
+    // branch below. Optional `[ ]`/`[x]`/`[X]` checkbox marker is stripped.
+    const bulletMatch = rawLine.match(/^[-*]\s+(?:\[[ xX]\]\s+)?(.*)$/);
+    if (bulletMatch) {
+      if (current) items.push(current);
+      current = {
+        number: items.length + 1,
+        text: (bulletMatch[1] ?? "").trim(),
+      };
+      continue;
+    }
+    if (current && rawLine.trim().length > 0) {
+      current.text = `${current.text} ${rawLine.trim()}`.trim();
+    }
+  }
+  if (current) items.push(current);
+
+  return items;
+}
+
+/**
+ * Findings-shaped acceptance-test language — an AT written this way describes a
+ * DISCOVERY or RECORD (an audit conclusion, a decision write-up) rather than a
+ * verifiable code behavior. Matching ATs are excluded from the executable set so a
+ * state-ops-flavored or research/analysis task doesn't false-positive-trigger the
+ * coverage check (spec requirement: conservative, false-positive-averse — calibration
+ * is measuring FP rate, so under-flagging is the safe failure direction here).
+ */
+const FINDINGS_SHAPED_AT_PATTERN =
+  /\b(audit produces|decision (?:is |was )?recorded|record(?:ed)? in (?:memory|notion|the task)|documented (?:in|as)|written up|captured (?:as|in)|no code change|non-code|informational only|research (?:finding|report)|investigation (?:finding|concludes)|analysis (?:shows|concludes)|memory (?:entry|record) (?:is |was )?(?:created|saved)|finding(?:s)? (?:are|is) (?:documented|recorded|written))\b/i;
+
+/** True when an AT's text reads as a findings/record-shaped conclusion, not executable behavior. */
+export function isFindingsShapedAcceptanceTest(text: string): boolean {
+  return FINDINGS_SHAPED_AT_PATTERN.test(text);
+}
+
+/**
+ * True when an AT should be treated as "executable" (verifiable pre-merge behavior) for
+ * the coverage check below. Conservative by design (per mt#3033 requirement 4):
+ *   - A `state-ops` task (per `docs/task-kinds.md`) has no code workspace — its ATs are
+ *     never executable code-behavior checks, so the whole task is excluded.
+ *   - Findings-shaped text (see above) is excluded.
+ *   - Empty/whitespace-only text is excluded.
+ * Everything else defaults to executable — the calibration log is exactly the mechanism
+ * for discovering when this default is too liberal for a given task shape.
+ */
+export function isExecutableAcceptanceTest(text: string, taskKind?: string): boolean {
+  if (taskKind === "state-ops") return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return !isFindingsShapedAcceptanceTest(trimmed);
+}
+
+/**
+ * Extracts the CONTENT of a PR body's `Execution evidence:` block(s) — everything
+ * between an accepted marker (mirrors `hasExecutionEvidence`'s accepted forms) and the
+ * next heading or end-of-string. Used as the search text for AT-coverage matching. If
+ * multiple evidence blocks exist, all are concatenated. Returns `""` when no evidence
+ * marker is present — this is a plain text-extraction helper, deliberately independent
+ * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
+ * 2) so neither function's behavior can regress the other's test suite.
+ *
+ * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
+ * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
+ * tests (mt#3174 spec, by number)` — in addition to the literal `Execution evidence:`
+ * block. Before this fix, an AT-by-number reference living in a SIBLING section (a
+ * heading immediately following the Execution evidence content) was invisible to the
+ * scan, which stops at the next heading of any level: `checkAcceptanceTestCoverage`
+ * would then report a genuinely-addressed AT as unaddressed — recorded as FP-3 in
+ * mt#3059's `## Observed false positives` running log. `communication-contract.mdc
+ * §Three authoring requirements` (mt#3200) now tells authors to keep AT references
+ * INSIDE the Execution evidence block going forward; this widening is the scanner-side
+ * complement, covering evidence written before that convention existed (like PR #2264
+ * itself) and PR bodies that reasonably split a dedicated AT-by-number section out for
+ * readability. Deliberately narrow — matches only on heading TEXT containing "acceptance
+ * test(s)", not arbitrary PR-body prose, to keep the false-negative surface small (per
+ * `checkAcceptanceTestCoverage`'s existing false-positive-averse design).
+ *
+ * **Fence-aware scanning (PR #2410 R1 BLOCKING #1).** Both heading-detection passes
+ * below (the pre-existing Execution-evidence scan AND the acceptance-tests widening —
+ * same bug class, fixed together per class-not-instance) skip lines that sit INSIDE a
+ * fenced code block when deciding whether a line is a real Markdown heading. A PR body
+ * legitimately pastes example Markdown or terminal output inside ``` fences; a
+ * heading-looking line in there (e.g. an illustrative `### Acceptance tests` snippet, or
+ * a test-failure message starting with `# `) must not be misread as a real section
+ * boundary — it would either wrongly widen the acceptance-tests scan into unrelated
+ * pasted content, or wrongly truncate a real Execution-evidence block early. This
+ * REUSES the fence-delimiter recognition already centralized in `elision.ts`'s
+ * `elideQuotedContexts` (backtick OR tilde, 3+ markers) as a per-line predicate — not
+ * that module's whole-string blank-and-replace transform, which would incorrectly blank
+ * real pasted test-run output that legitimately lives inside a fence (exactly what an
+ * `Execution evidence:` block usually contains).
+ */
+const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
+
+export function extractExecutionEvidenceText(prBody: string): string {
+  const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
+  const headingPattern =
+    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  const lines = strippedBody.split("\n");
+  const fenceInternal = computeFenceInternalLines(lines);
+  const collected: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || fenceInternal[i]) continue;
+    const match = line.match(headingPattern);
+    if (!match) continue;
+
+    const beforeMarker = line.slice(0, line.toLowerCase().indexOf("execution")).toLowerCase();
+    if (/\bno\b/.test(beforeMarker)) continue;
+
+    const inlineContent = (match[2] ?? "").trim();
+    if (inlineContent.length > 0) collected.push(inlineContent);
+
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (nextLine === undefined) break;
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      collected.push(nextLine);
+    }
+  }
+
+  // mt#3316 FP-3: widen the scan to also cover any "acceptance test(s)" heading's
+  // section, in addition to the literal Execution evidence block collected above.
+  collected.push(
+    ...collectHeadingSections(lines, fenceInternal, (line) =>
+      ACCEPTANCE_TESTS_HEADING_LINE_PATTERN.test(line)
+    )
+  );
+
+  return collected.join("\n");
+}
+
+const AT_COVERAGE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "before",
+  "being",
+  "block",
+  "doesn",
+  "should",
+  "their",
+  "there",
+  "these",
+  "those",
+  "which",
+  "while",
+]);
+
+/** Extracts lowercase, length>=5, non-stopword tokens from AT text for loose keyword matching. */
+function extractSignificantKeywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 5 && !AT_COVERAGE_STOPWORDS.has(word));
+}
+
+/** True when the evidence text references this AT by number (any of a few common forms). */
+export function isAtReferencedByNumber(at: AcceptanceTestItem, evidenceText: string): boolean {
+  const n = at.number;
+  const patterns = [
+    new RegExp(`\\bAT\\s*#?${n}\\b`, "i"),
+    new RegExp(`\\bacceptance test\\s*#?${n}\\b`, "i"),
+    new RegExp(`\\bat-${n}\\b`, "i"),
+  ];
+  return patterns.some((p) => p.test(evidenceText));
+}
+
+/** True when the evidence text shares a distinctive keyword with the AT's own text. */
+export function isAtReferencedByKeyword(at: AcceptanceTestItem, evidenceText: string): boolean {
+  const evidenceLower = evidenceText.toLowerCase();
+  return extractSignificantKeywords(at.text).some((keyword) => evidenceLower.includes(keyword));
+}
+
+/**
+ * Extracts the deferral target (e.g. `mt#1234`) from a `[atN-deferred: mt#NNNN]` marker
+ * for the given AT number, anywhere in the PR body (not scoped to the evidence block —
+ * a deferral marker documenting a tracked follow-up is legitimate wherever it's placed).
+ * Returns `null` when no such marker is present for this AT number.
+ */
+export function extractAtDeferralMarker(prBody: string, atNumber: number): string | null {
+  const match = prBody.match(new RegExp(`\\[at${atNumber}-deferred:\\s*([^\\]]+)\\]`, "i"));
+  return match ? (match[1] ?? "").trim() : null;
+}
+
+/** True when a `[atN-deferred: ...]` marker exists for this AT number. */
+export function isAtDeferred(prBody: string, atNumber: number): boolean {
+  return extractAtDeferralMarker(prBody, atNumber) !== null;
+}
+
+/** Result of cross-referencing a task's executable ATs against a PR body. */
+export interface AtCoverageResult {
+  /** False when the task has zero executable ATs — the check does not apply. */
+  applicable: boolean;
+  /** ATs classified as executable (after the state-ops / findings-shaped filter). */
+  executableAts: AcceptanceTestItem[];
+  /** Executable ATs neither referenced in the evidence block nor deferred. */
+  unaddressedAts: AcceptanceTestItem[];
+}
+
+/**
+ * Core AT-coverage check (pure, injectable — mirrors `checkExecutionEvidence`'s shape).
+ * For each executable AT, considers it addressed when EITHER:
+ *   - a `[atN-deferred: mt#NNNN]` marker exists for it anywhere in the PR body, OR
+ *   - the Execution-evidence block references it by number, OR
+ *   - the Execution-evidence block shares a distinctive keyword with its text.
+ * Any executable AT satisfying none of these is "unaddressed".
+ */
+export function checkAcceptanceTestCoverage(
+  specContent: string,
+  taskKind: string | undefined,
+  prBody: string
+): AtCoverageResult {
+  const allAts = parseAcceptanceTests(specContent);
+  const executableAts = allAts.filter((at) => isExecutableAcceptanceTest(at.text, taskKind));
+
+  if (executableAts.length === 0) {
+    return { applicable: false, executableAts: [], unaddressedAts: [] };
+  }
+
+  const evidenceText = extractExecutionEvidenceText(prBody);
+  const unaddressedAts = executableAts.filter((at) => {
+    if (isAtDeferred(prBody, at.number)) return false;
+    if (isAtReferencedByNumber(at, evidenceText)) return false;
+    if (isAtReferencedByKeyword(at, evidenceText)) return false;
+    return true;
+  });
+
+  return { applicable: true, executableAts, unaddressedAts };
+}
+
+/** Override env var (mt#1788 `HOOK_ONLY_ENV_VARS`) — skips the AT-coverage check entirely. */
+export const AT_COVERAGE_SKIP_ENV_VAR = "MINSKY_SKIP_AT_COVERAGE";
+
+/** Calibration log path (mt#2263 ladder) — repo-root relative. */
+export const AT_COVERAGE_CALIBRATION_LOG =
+  ".minsky/execution-evidence-at-coverage-calibration.jsonl";
+
+/** True when the AT-coverage check is skipped via env var. */
+export function isAtCoverageSkipped(): boolean {
+  const v = process.env[AT_COVERAGE_SKIP_ENV_VAR];
+  return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/**
+ * Appends one calibration record to `logRelPath` under `repoRootDir`. Fail-safe: never throws —
+ * a calibration-log write failure must never affect the (log-only) merge decision.
+ *
+ * The log path is REQUIRED, deliberately (PR #2432 R1). An earlier shape gave it a default of
+ * `AT_COVERAGE_CALIBRATION_LOG`, which meant any caller that forgot the argument silently wrote
+ * its records into the acceptance-test log — corrupting BOTH corpora at once, and in a way no
+ * test would notice because the write still succeeds. For a mechanism whose entire deliverable
+ * is a trustworthy measurement, that default is not a convenience worth its failure mode.
+ */
+export function appendCalibrationRecord(
+  record: Record<string, unknown>,
+  repoRootDir: string,
+  logRelPath: string
+): void {
+  try {
+    const logPath = resolve(repoRootDir, logRelPath);
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+  } catch (err) {
+    process.stderr.write(
+      `[execution-evidence-calibration] Failed to write ${logRelPath}: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
+  }
+}
+
+/** Appends an acceptance-test calibration record. Thin wrapper naming its own log. */
+export function appendAtCoverageCalibration(
+  record: Record<string, unknown>,
+  repoRootDir: string
+): void {
+  appendCalibrationRecord(record, repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
+}
+
+/** Result of fetching a task's spec for the AT-coverage check. */
+export interface TaskSpecFetchResult {
+  ok: boolean;
+  content?: string;
+  kind?: string;
+}
+
+/**
+ * Fetches the bound task's spec via the `minsky` CLI (same shelling-out pattern as
+ * `ask-verification.ts`'s `verifyApprovedAsk` and `pr-context.ts`'s
+ * `fetchCheckRunsViaForgeCli` — reach the server through the CLI rather than importing
+ * `packages/domain` directly, per `.claude/hooks/SPEC.md`). Verified CLI shape (2026-07-22):
+ * `minsky tasks spec get <taskId> --json` returns `{ success, task: { kind, ... },
+ * content }`, where `content` is the full spec markdown.
+ *
+ * Fails CLOSED to `{ ok: false }` on ANY error (non-zero exit, timeout, unparseable JSON,
+ * missing `content` field) — per mt#3033 constraint 3, a spec-fetch failure must be
+ * silent, never a WARN and never a block.
+ */
+export function fetchTaskSpecForAtCoverage(
+  task: string,
+  cwd: string,
+  exec: ExecFn = execWithPath
+): TaskSpecFetchResult {
+  try {
+    const result = exec(["minsky", "tasks", "spec", "get", task, "--json"], {
+      cwd,
+      timeout: 15000,
+    });
+    if (result.exitCode !== 0) return { ok: false };
+    const parsed = JSON.parse(result.stdout) as {
+      success?: boolean;
+      content?: string;
+      task?: { kind?: string };
+    };
+    if (typeof parsed.content !== "string") return { ok: false };
+    return { ok: true, content: parsed.content, kind: parsed.task?.kind };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Result of running the AT-coverage calibration surface for one merge attempt. */
+export interface AtCoverageCalibrationRunResult {
+  /** True when the check actually ran (spec fetched, not skipped). */
+  ranCheck: boolean;
+  /** A WARN string to surface via `additionalContext`, if any executable AT is unaddressed. */
+  warning?: string;
+}
+
+/**
+ * AT-coverage calibration against an ALREADY-FETCHED spec.
+ *
+ * Split out from {@link runAtCoverageCalibration} by PR #2432 R2. The entry point fetches the
+ * spec once and drives BOTH calibration surfaces from it, so the acceptance-test and
+ * success-criteria checks are genuinely independent: each honors only its own override. The
+ * previous shape had the entry point read the spec back out of this function's result, which
+ * silently coupled them — `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, so it
+ * disabled the success-criteria surface too, contradicting the separate
+ * `MINSKY_SKIP_SC_COVERAGE` override those two are documented to have.
+ */
+export function runAtCoverageCalibrationWithSpec(
+  task: string,
+  prNumber: number,
+  prBody: string,
+  specFetch: TaskSpecFetchResult,
+  repoRootDir: string
+): AtCoverageCalibrationRunResult {
+  if (isAtCoverageSkipped()) return { ranCheck: false };
+  if (!specFetch.ok || typeof specFetch.content !== "string") return { ranCheck: false };
+
+  let coverage: AtCoverageResult;
+  try {
+    coverage = checkAcceptanceTestCoverage(specFetch.content, specFetch.kind, prBody);
+  } catch {
+    return { ranCheck: false };
+  }
+
+  if (!coverage.applicable || coverage.unaddressedAts.length === 0) {
+    return { ranCheck: true };
+  }
+
+  const unaddressedList = coverage.unaddressedAts
+    .map((at) => `  - AT${at.number}: ${at.text}`)
+    .join("\n");
+
+  try {
+    appendAtCoverageCalibration(
+      {
+        timestamp: new Date().toISOString(),
+        task,
+        prNumber,
+        surface: "execution-evidence-at-coverage",
+        executableAtCount: coverage.executableAts.length,
+        unaddressedAts: coverage.unaddressedAts.map((at) => ({ number: at.number, text: at.text })),
+      },
+      repoRootDir
+    );
+  } catch {
+    // appendAtCoverageCalibration already fail-safes internally; this catch is
+    // belt-and-suspenders against any error in building the record itself.
+  }
+
+  const warning =
+    `[execution-evidence-at-coverage] CALIBRATION (log-only, mt#3033 — would block if ` +
+    `graduated): ${coverage.unaddressedAts.length} of ${coverage.executableAts.length} ` +
+    `executable acceptance test(s) for ${task} not addressed by the \`Execution evidence:\` ` +
+    `block (no number/keyword reference, and no \`[atN-deferred: mt#NNNN]\` marker found):\n` +
+    `${unaddressedList}\n\n` +
+    `Merge is NOT blocked by this — it is a calibration signal only. Override: set ` +
+    `${AT_COVERAGE_SKIP_ENV_VAR}=1 to skip this check.`;
+
+  return { ranCheck: true, warning };
+}
+
+/**
+ * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
+ * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
+ * a deny). Fully guarded — this function must never throw and must never, by itself,
+ * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ */
+export function runAtCoverageCalibration(
+  task: string,
+  prNumber: number,
+  prBody: string,
+  cwd: string,
+  repoRootDir: string,
+  exec: ExecFn = execWithPath
+): AtCoverageCalibrationRunResult {
+  if (isAtCoverageSkipped()) return { ranCheck: false };
+  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
+  return runAtCoverageCalibrationWithSpec(task, prNumber, prBody, specFetch, repoRootDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -277,10 +952,36 @@ export function checkExecutionEvidence(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
 
-  const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  // mt#3355: `session_pr_merge` takes EITHER `task` or `sessionId`, both optional. This
+  // used to read `tool_input.task` alone and exit `allow` when it was empty, so every
+  // `sessionId`-invoked merge silently skipped the whole gate (11.6% of recorded
+  // invocations). Resolve through the shared resolver, record which source produced the
+  // id, and WARN rather than allow when neither does.
+  const resolution = resolveMergeGateTaskId(input);
+  fireLogContext.taskResolutionSource = resolution.source;
+  const task = resolution.taskId;
+  if (!task) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+      },
+    });
+    recordAndExit("warn");
+  }
 
   // Derive owner/repo from the git remote so the hook works on forks and
   // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
@@ -293,7 +994,7 @@ if (import.meta.main) {
           "⚠️ [execution-evidence] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -316,7 +1017,7 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -325,6 +1026,82 @@ if (import.meta.main) {
 
   // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
   const allWarnings = [...topLevelWarnings, ...result.warnings];
+
+  // mt#3033 / mt#3350: TWO additive, calibration-first cross-reference checks, driven from ONE
+  // spec fetch. Both run regardless of the file-pattern trigger's outcome above — they are
+  // SEPARATE, log-only signals, never a deny, and neither suppresses or alters
+  // `result.blocked` in any way.
+  //
+  // The fetch is deliberately OUTSIDE both surfaces (PR #2432 R2). Reading the spec back out of
+  // the AT result coupled them: `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, which
+  // silently disabled the success-criteria surface too, despite the two having separate
+  // documented overrides.
+  const repoRootDir = findRepoRoot(input.cwd);
+  const specFetch = fetchTaskSpecForAtCoverage(task, input.cwd);
+
+  const atCoverage = runAtCoverageCalibrationWithSpec(
+    task,
+    context.prNumber,
+    prBody,
+    specFetch,
+    repoRootDir
+  );
+  if (atCoverage.warning) {
+    allWarnings.push(atCoverage.warning);
+  }
+
+  if (specFetch.ok && typeof specFetch.content === "string") {
+    const scCoverage = runScCoverageCalibration(
+      task,
+      context.prNumber,
+      specFetch.content,
+      prBody,
+      extractExecutionEvidenceText(prBody)
+    );
+    if (scCoverage.calibrationRecord) {
+      appendCalibrationRecord(
+        scCoverage.calibrationRecord,
+        repoRootDir,
+        SC_COVERAGE_CALIBRATION_LOG
+      );
+    }
+    if (scCoverage.warning) {
+      allWarnings.push(scCoverage.warning);
+    }
+  }
+
+  // mt#3244: THIRD additive calibration surface, driven from the same spec fetch. Unlike the
+  // two above it also reads the PR's FILE LIST and TITLE, because its trigger is the shape of
+  // the change (a bugfix modifying an existing test), not a section of the spec. Log-only:
+  // never influences `result.blocked`.
+  const testFirst = runTestFirstCalibration(
+    task,
+    context.prNumber,
+    prFiles,
+    prTitle,
+    prBody,
+    extractExecutionEvidenceText(prBody),
+    specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
+  );
+  if (testFirst.calibrationRecord) {
+    appendCalibrationRecord(testFirst.calibrationRecord, repoRootDir, TEST_FIRST_CALIBRATION_LOG);
+  }
+  if (testFirst.warning) {
+    allWarnings.push(testFirst.warning);
+  }
+  // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
+  // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
+  // `ranCheck: false` is how the skip surfaces back here without threading a
+  // second override signal through the function's return shape. This
+  // sub-check never denies (mt#3033: log-only), so the override is attached
+  // to whichever decision below actually fires rather than assumed to be
+  // "allow".
+  const atCoverageOverrideFields = !atCoverage.ranCheck
+    ? {
+        overrideEnvVar: AT_COVERAGE_SKIP_ENV_VAR,
+        overrideClassification: classifyOverride(AT_COVERAGE_SKIP_ENV_VAR),
+      }
+    : undefined;
 
   if (result.blocked) {
     // Blocked: aggregate warnings + deny into a single writeOutput call.
@@ -339,6 +1116,7 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
+    recordAndExit("deny", atCoverageOverrideFields);
   } else if (allWarnings.length > 0) {
     // Allowed but with warnings: single writeOutput with aggregated context.
     writeOutput({
@@ -347,5 +1125,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn", atCoverageOverrideFields);
   }
+  recordAndExit("allow", atCoverageOverrideFields);
 }

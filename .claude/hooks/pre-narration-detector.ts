@@ -44,7 +44,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput } from "./types";
+import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -297,7 +297,10 @@ export function detectPreNarration(
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
-    const logPath = resolve(cwd, CALIBRATION_LOG);
+    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
+    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
+    // scatter this calibration log into a stray subdirectory `.minsky/`.
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -338,9 +341,8 @@ function buildReminder(matches: ClaimMatch[]): string {
     "OR in durable artifacts before the tool result is in hand. If the outcome did",
     "occur in an earlier turn, cite the tool result you are relying on.",
     "",
-    "This is an informational signal (calibration phase) — it does not block the",
-    "turn. If the claim was legitimate (the tool ran in an earlier turn, or the",
-    "phrase was a quote/example), set `MINSKY_ACK_PRE_NARRATION=1` to suppress.",
+    "If the claim was legitimate — the tool ran in an earlier turn, or the phrase",
+    "was a quote or an example — no action is needed.",
   ].join("\n");
 }
 

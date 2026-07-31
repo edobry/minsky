@@ -19,6 +19,7 @@ import type {
 import type {
   ChangesetAdapter,
   ChangesetAdapterFactory,
+  ChangesetAdapterConfig,
   ChangesetDetails,
 } from "./adapter-interface";
 
@@ -36,7 +37,20 @@ export class ChangesetService {
 
   constructor(
     private repositoryUrl: string,
-    private workdir?: string
+    private workdir?: string,
+    /**
+     * Optional adapter configuration (credentials, workdir) forwarded to the
+     * platform factory when the adapter is constructed (mt#3096).
+     *
+     * Without this, the service had NO credential path: `getAdapter()` called
+     * `factory.createAdapter(repositoryUrl)` with no config, so the GitHub
+     * adapter fell back to `GITHUB_TOKEN` / `GH_TOKEN` env vars only. A
+     * deployment that keeps its GitHub credential in Minsky config (as this one
+     * does) therefore produced an adapter that failed `isAvailable()` — which is
+     * what "the changeset adapter is not configured in all environments" meant
+     * in practice. Callers that already resolved a token can now pass it here.
+     */
+    private adapterConfig?: ChangesetAdapterConfig
   ) {}
 
   /**
@@ -66,7 +80,7 @@ export class ChangesetService {
       throw new MinskyError(`No changeset adapter factory registered for platform: ${platform}`);
     }
 
-    const adapter = await factory.createAdapter(this.repositoryUrl);
+    const adapter = await factory.createAdapter(this.repositoryUrl, this.adapterConfig);
 
     // Verify adapter is available
     if (!(await adapter.isAvailable())) {
@@ -240,9 +254,10 @@ export class ChangesetService {
  */
 export async function createChangesetService(
   repositoryUrl: string,
-  workdir?: string
+  workdir?: string,
+  adapterConfig?: ChangesetAdapterConfig
 ): Promise<ChangesetService> {
-  const service = new ChangesetService(repositoryUrl, workdir);
+  const service = new ChangesetService(repositoryUrl, workdir, adapterConfig);
 
   // Auto-register available adapter factories
   await registerDefaultAdapterFactories(service);

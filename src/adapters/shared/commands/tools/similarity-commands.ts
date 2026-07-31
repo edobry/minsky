@@ -5,7 +5,11 @@
  * as tasks and rules similarity commands.
  */
 import { z } from "zod";
-import type { CommandExecutionContext, CommandParameterMap } from "../../command-registry";
+import type {
+  CommandExecutionContext,
+  CommandParameterMap,
+  InferParams,
+} from "../../command-registry";
 import { sharedCommandRegistry } from "../../command-registry";
 import { createLogger } from "@minsky/shared/logger";
 import { CommonParameters } from "../../common-parameters";
@@ -73,26 +77,6 @@ const toolsSearchParams = {
   json: CommonParameters.json,
 } satisfies CommandParameterMap;
 
-// === Type Definitions ===
-
-interface ToolsSimilarParams {
-  toolId: string;
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  json?: boolean;
-}
-
-interface ToolsSearchParams {
-  query: string;
-  limit?: number;
-  threshold?: number;
-  category?: string;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-}
-
 // === Enhanced Result Interface ===
 
 interface EnhancedToolResult {
@@ -157,7 +141,7 @@ export class ToolsSimilarCommand {
     return enhanced;
   }
 
-  async execute(params: ToolsSimilarParams, ctx?: CommandExecutionContext) {
+  async execute(params: InferParams<typeof toolsSimilarParams>, ctx?: CommandExecutionContext) {
     const toolId = params.toolId;
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
@@ -259,7 +243,7 @@ export class ToolsSearchCommand {
     return enhanced;
   }
 
-  async execute(params: ToolsSearchParams, ctx?: CommandExecutionContext) {
+  async execute(params: InferParams<typeof toolsSearchParams>, ctx?: CommandExecutionContext) {
     const query = params.query;
     const limit = params.limit ?? 10;
     const threshold = params.threshold;

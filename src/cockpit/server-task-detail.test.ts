@@ -19,11 +19,16 @@ import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
 
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden — pass a fixed test token so these GET-only
+// tests never touch ~/.local/state/minsky/cockpit-token.
+const TEST_TOKEN = "test-server-task-detail-token";
+
 async function startTestServer(opts?: Parameters<typeof createCockpitServer>[0]): Promise<{
   url: string;
   close: () => Promise<void>;
 }> {
-  const app = createCockpitServer(opts);
+  const app = createCockpitServer({ overrideToken: TEST_TOKEN, ...opts });
   const server: Server = createServer(app);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -78,6 +83,15 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
       const deps = body["deps"] as Record<string, unknown>;
       expect(Array.isArray(deps["outgoing"])).toBe(true);
       expect(Array.isArray(deps["incoming"])).toBe(true);
+
+      // Act-here actions (mt#2986) — stage-appropriate, server-computed;
+      // replaces mt#2959's startability boolean.
+      expect(body).toHaveProperty("actions");
+      const actions = body["actions"] as Array<Record<string, unknown>>;
+      expect(Array.isArray(actions)).toBe(true);
+      for (const action of actions) {
+        expect(["plan", "start", "resume", "view-pr"]).toContain(action["kind"]);
+      }
     } else {
       expect(body).toHaveProperty("error");
     }

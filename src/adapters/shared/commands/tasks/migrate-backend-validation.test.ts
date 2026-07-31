@@ -17,8 +17,11 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { TasksMigrateBackendCommand, type MigrateBackendParams } from "./migrate-backend-command";
+import { TasksMigrateBackendCommand } from "./migrate-backend-command";
 import type { CommandExecutionContext } from "../../command-registry";
+
+// Derived from the command's map-tied execute signature (mt#2779) — not hand-rolled.
+type MigrateBackendParams = Parameters<TasksMigrateBackendCommand["execute"]>[0];
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 
 // Type helper for accessing private methods on TasksMigrateBackendCommand

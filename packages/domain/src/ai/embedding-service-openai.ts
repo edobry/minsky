@@ -4,48 +4,15 @@ import type { EmbeddingService } from "./embeddings/types";
 import { RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
+import {
+  isRetryableAIError,
+  isRequestTimeoutError,
+  REQUEST_TIMEOUT_MS,
+} from "./request-resilience";
 
-/**
- * Determines whether an AI service error is retryable.
- * Retries on transient rate limits, server errors, and network issues.
- * Does NOT retry on quota exhaustion (billing issue).
- */
-export function isRetryableAIError(error: unknown): boolean {
-  const msg = String((error as Error)?.message || "");
-  if (/insufficient_quota/i.test(msg)) return false;
-  if (error instanceof RateLimitError) return true;
-  return /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
-}
-
-/**
- * Determines whether a Google Docs / Drive API error is retryable.
- *
- * Retryable:
- *   - 401 (token expired – caller will refresh and retry)
- *   - 403 with reason userRateLimitExceeded or quotaExceeded (transient quota)
- *   - 429 (Too Many Requests)
- *   - 5xx / 503 (server errors)
- *
- * Not retryable:
- *   - 404 (document not found)
- *   - 400 (bad request – permanent)
- *   - 403 with other reasons (e.g. insufficientPermissions)
- */
-export function isRetryableGoogleDocsError(error: unknown): boolean {
-  const msg = String((error as Error)?.message || "");
-  // Non-retryable status codes
-  if (/Google (Docs|Drive) API error: 404/i.test(msg)) return false;
-  if (/Google (Docs|Drive) API error: 400/i.test(msg)) return false;
-  // 403 — only retry if reason is quota-related
-  if (/Google (Docs|Drive) API error: 403/i.test(msg)) {
-    return /userRateLimitExceeded|quotaExceeded/i.test(msg);
-  }
-  // Retryable: 401, 429, 5xx, 503, network errors
-  return (
-    /Google (Docs|Drive) API error: (401|429|5\d\d)/i.test(msg) ||
-    /429|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg)
-  );
-}
+// `isRetryableAIError` / `isRequestTimeoutError` / `REQUEST_TIMEOUT_MS` are
+// provider-agnostic and live in `./request-resilience` so no provider has to
+// import from another provider's module (PR #2481 review).
 
 interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
@@ -61,11 +28,47 @@ export class OpenAIEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
   private readonly baseURL: string;
   private readonly model: string;
+  private readonly retryService: IntelligentRetryService;
+  private readonly requestTimeoutMs: number;
 
-  constructor(apiKey: string, baseURL?: string, model?: string) {
+  /**
+   * `retryService` (mt#2980): optional injectable retry-config seam, following
+   * the `postgres-channel-listener.ts` `RetryConfig` precedent. Defaults to
+   * the module-level `sharedRetryService` singleton (preserving the existing
+   * production behavior — one circuit breaker shared across every
+   * `OpenAIEmbeddingService` instance created via `fromConfig()`). Tests can
+   * inject a fast `IntelligentRetryService` (tiny `baseDelay`/`maxDelay` and
+   * `jitterMaxMs: 0`) to exercise the real retry loop without real delays.
+   *
+   * Circuit-breaker isolation: passing a custom `retryService` gives this
+   * instance its OWN circuit-breaker state, isolated from the shared
+   * singleton's — the right behavior for tests (each test wants a fresh
+   * breaker) but a future production caller that wants the shared
+   * cross-instance breaker must NOT pass this param.
+   *
+   * `@injectable()` note: this class is never resolved via the tsyringe
+   * container in production — `apiKey`/`baseURL`/`model` are unannotated
+   * primitive params tsyringe cannot auto-inject by type, and the sole
+   * production construction site is the static `fromConfig()` factory below,
+   * which calls `new OpenAIEmbeddingService(apiKey, baseURL, model)` (3 args;
+   * `retryService` defaults to `sharedRetryService`). Verified empirically:
+   * grepping the whole repo for `OpenAIEmbeddingService` turns up only this
+   * file, this file's test, and `embedding-service-factory.ts`'s
+   * `fromConfig()` call — no `container.resolve(OpenAIEmbeddingService)` or
+   * DI registration exists anywhere.
+   */
+  constructor(
+    apiKey: string,
+    baseURL?: string,
+    model?: string,
+    retryService?: IntelligentRetryService,
+    requestTimeoutMs?: number
+  ) {
     this.apiKey = apiKey;
     this.baseURL = baseURL || "https://api.openai.com/v1";
     this.model = model || "text-embedding-3-small";
+    this.retryService = retryService ?? sharedRetryService;
+    this.requestTimeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   }
 
   static async fromConfig(): Promise<OpenAIEmbeddingService> {
@@ -98,7 +101,7 @@ export class OpenAIEmbeddingService implements EmbeddingService {
 
   private async requestWithRetry(inputs: string[]) {
     try {
-      const result = await sharedRetryService.execute(
+      const result = await this.retryService.execute(
         async () => this.request(inputs),
         isRetryableAIError,
         "openai-embeddings"
@@ -107,13 +110,19 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const errorCode = /insufficient_quota/i.test(msg)
-        ? "insufficient_quota"
-        : /circuit.breaker.is.open/i.test(msg)
-          ? "circuit_breaker_open"
-          : /429|rate.limit/i.test(msg)
-            ? "rate_limit"
-            : "unknown";
+      // `timeout` is checked FIRST and by error name: a stalled request is a
+      // distinct operational condition from an error the API returned, and it
+      // would otherwise fall through to "unknown" — the bucket that tells an
+      // operator nothing (mt#3444).
+      const errorCode = isRequestTimeoutError(err)
+        ? "timeout"
+        : /insufficient_quota/i.test(msg)
+          ? "insufficient_quota"
+          : /circuit.breaker.is.open/i.test(msg)
+            ? "circuit_breaker_open"
+            : /429|rate.limit/i.test(msg)
+              ? "rate_limit"
+              : "unknown";
       await EmbeddingsHealthTracker.getInstance().recordError("openai", errorCode, msg);
       throw err;
     }
@@ -128,6 +137,11 @@ export class OpenAIEmbeddingService implements EmbeddingService {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({ model: this.model, input: inputs }),
+      // Without this the request can hang forever: a server that accepts the
+      // connection and never responds leaves the promise pending, so the
+      // surrounding retry service never sees a rejection to retry and the
+      // circuit breaker never counts it (mt#3444).
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!res.ok) {

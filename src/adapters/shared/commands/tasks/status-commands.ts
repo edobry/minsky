@@ -5,11 +5,11 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { select, isCancel, cancel } from "@clack/prompts";
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { getTaskStatusFromParams, setTaskStatusFromParams } from "@minsky/domain/tasks";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
 import type {
@@ -17,6 +17,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -53,24 +54,9 @@ async function emitTaskStatusChangedEvent(
 }
 
 /**
- * Parameters for tasks status get command
- */
-interface TasksStatusGetParams extends BaseTaskParams {
-  taskId: string;
-}
-
-/**
- * Parameters for tasks status set command
- */
-interface TasksStatusSetParams extends BaseTaskParams {
-  taskId: string;
-  status?: string;
-}
-
-/**
  * Task status get command implementation
  */
-export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams> {
+export class TasksStatusGetCommand extends BaseTaskCommand<typeof tasksStatusGetParams> {
   readonly id = "tasks.status.get";
   readonly name = "get";
   readonly description = "Get the status of a task";
@@ -83,7 +69,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
     super();
   }
 
-  async execute(params: TasksStatusGetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksStatusGetParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.get execution");
 
     // Validate and normalize task ID
@@ -113,7 +99,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
 /**
  * Task status set command implementation
  */
-export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams> {
+export class TasksStatusSetCommand extends BaseTaskCommand<typeof tasksStatusSetParams> {
   readonly id = "tasks.status.set";
   readonly name = "set";
   readonly description = "Set the status of a task";
@@ -121,12 +107,13 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    private readonly getTaskGraphService?: () => TaskGraphService
   ) {
     super();
   }
 
-  async execute(params: TasksStatusSetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksStatusSetParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.set execution");
 
     // Validate and normalize task ID
@@ -172,7 +159,12 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         taskId: validatedTaskId,
         status,
       },
-      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
+      {
+        persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
+        // Enables the umbrella children-completeness closeout guard (mt#2606).
+        taskGraphService: this.getTaskGraphService?.(),
+      }
     );
 
     // Best-effort informational event (mt#2340) — captured for the Phase 2
@@ -206,9 +198,15 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
       throw new ValidationError("Status parameter is required in non-interactive mode");
     }
 
-    // Define the options array for consistency
+    // Define the options array for consistency. Covers the union of all
+    // per-kind workflows (docs/task-kinds.md): PLANNING/READY for the
+    // implementation planning gate; DONE is the single success terminal for
+    // every kind (mt#2311). Invalid picks for the task's kind are refused
+    // downstream by validateStatusTransition.
     const statusOptions = [
       { value: TASK_STATUS.TODO, label: "TODO" },
+      { value: TASK_STATUS.PLANNING, label: "PLANNING" },
+      { value: TASK_STATUS.READY, label: "READY" },
       { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
       { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
       { value: TASK_STATUS.DONE, label: "DONE" },
@@ -247,5 +245,7 @@ export const createTasksStatusGetCommand = (
 
 export const createTasksStatusSetCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskService?: () => TaskServiceInterface
-): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider, getTaskService);
+  getTaskService?: () => TaskServiceInterface,
+  getTaskGraphService?: () => TaskGraphService
+): TasksStatusSetCommand =>
+  new TasksStatusSetCommand(getPersistenceProvider, getTaskService, getTaskGraphService);

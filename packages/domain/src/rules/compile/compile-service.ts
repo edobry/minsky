@@ -12,8 +12,10 @@ import type { CompileTarget, CompileResult, TargetOptions } from "./types";
 import type { Rule } from "../types";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
-import { cursorRulesTarget } from "./targets/cursor-rules";
+import { claudeRulesTarget } from "./targets/claude-rules";
 import { resolveActiveRules } from "../rule-selection";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../../compile/size-budget";
+import { unknownCompileTargetMessage } from "./target-error-hint";
 
 @injectable()
 export class CompileService {
@@ -42,9 +44,7 @@ export class CompileService {
   ): Promise<CompileResult & { content?: string }> {
     const target = this.targets.get(targetId);
     if (!target) {
-      throw new Error(
-        `Unknown compile target: "${targetId}". Available targets: ${this.getAvailableTargets().join(", ")}`
-      );
+      throw new Error(unknownCompileTargetMessage(targetId, this.getAvailableTargets()));
     }
 
     const { workspacePath, dryRun, selectionConfig, ...targetOptions } = options;
@@ -104,36 +104,66 @@ async function compileDryRun(
   workspacePath: string
 ): Promise<CompileResult & { content: string }> {
   if (target.id === "agents.md") {
-    const { buildContent, DEFAULT_AGENTS_MD_SECTIONS } = await import("./targets/agents-md");
+    const { buildContent, DEFAULT_AGENTS_MD_SECTIONS, DEFAULT_AGENTS_MD_SIZE_BUDGET } =
+      await import("./targets/agents-md");
     const { content, rulesIncluded, rulesSkipped } = buildContent(
       rules,
       DEFAULT_AGENTS_MD_SECTIONS
     );
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_AGENTS_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
     return {
       target: target.id,
       filesWritten: [],
       rulesIncluded,
       rulesSkipped,
       content,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   }
 
   if (target.id === "claude.md") {
-    const { buildClaudeMdContent } = await import("./targets/claude-md");
+    const { buildClaudeMdContent, DEFAULT_CLAUDE_MD_SIZE_BUDGET } = await import(
+      "./targets/claude-md"
+    );
     const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+      // mt#2874: per-rule 15K ceiling — claude.md only, per the spec's scope.
+      perRuleCeiling: DEFAULT_PER_RULE_CEILING_CHARS,
+    });
     return {
       target: target.id,
       filesWritten: [],
       rulesIncluded,
       rulesSkipped,
       content,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
+      perRuleViolations: sizeEvaluation.perRuleViolations,
     };
   }
 
-  if (target.id === "cursor-rules") {
-    const { buildCursorRulesContent } = await import("./targets/cursor-rules");
-    const outputDir = options.outputPath || cursorRulesTarget.defaultOutputPath(workspacePath);
-    const { files, rulesIncluded, rulesSkipped } = buildCursorRulesContent(rules, outputDir);
+  if (target.id === "claude-rules") {
+    const { buildClaudeRulesContent } = await import("./targets/claude-rules");
+    const outputDir = options.outputPath || claudeRulesTarget.defaultOutputPath(workspacePath);
+    const { files, rulesIncluded, rulesSkipped } = buildClaudeRulesContent(rules, outputDir);
     const summary = files
       .map(({ path: filePath, content }) => `// ${filePath}\n${content}`)
       .join("\n\n");
@@ -158,6 +188,6 @@ export function createCompileService(): CompileService {
   const service = new CompileService();
   service.registerTarget(agentsMdTarget);
   service.registerTarget(claudeMdTarget);
-  service.registerTarget(cursorRulesTarget);
+  service.registerTarget(claudeRulesTarget);
   return service;
 }

@@ -14,10 +14,11 @@
  * ## Channel: Telegram (decided 2026-06-10)
  *
  * Telegram was chosen as the pragmatic "simplest thing that reaches the
- * principal's phone": free, reliable, already in daily use. The impl uses the
- * Telegram Bot API `sendMessage` endpoint via a raw `fetch` POST — **zero new
- * package dependency** (no grammY/SDK). A generic `WebhookAlertSink` (POST JSON
- * to a URL) is the second impl.
+ * principal's phone": free, reliable, already in daily use. The Bot API call
+ * itself moved to `@minsky/domain/notify/telegram-transport` in mt#3228, when
+ * the bidirectional principal channel needed the same `sendMessage` path — one
+ * wire-level callsite, still **zero package dependency** (raw `fetch`, no SDK).
+ * A generic `WebhookAlertSink` (POST JSON to a URL) is the second impl.
  *
  * ## Matrix-readiness
  *
@@ -34,6 +35,7 @@
 
 import { log } from "./logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
 
 /** Alert severity. The circuit-breaker path emits `error`. */
 export type AlertSeverity = "info" | "warn" | "error";
@@ -115,40 +117,38 @@ export class TelegramAlertSink implements AlertSink {
   ) {}
 
   async notify(severity: AlertSeverity, title: string, body: string): Promise<void> {
-    try {
-      const text = `[${severity.toUpperCase()}] ${title}\n\n${body}`;
-      const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-      const res = await this.fetchFn(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // disable_web_page_preview keeps the message compact; plain text (no
-        // parse_mode) avoids Markdown-escaping pitfalls on SHAs/error strings.
-        body: JSON.stringify({
-          chat_id: this.chatId,
-          text,
-          disable_web_page_preview: true,
-        }),
-      });
-      if (!res.ok) {
-        log.error("sweeper.alert_sink_telegram_non_ok", {
-          event: "sweeper.alert_sink_telegram_non_ok",
-          status: res.status,
-          severity,
-          title,
-          // Telegram returns a JSON error body (e.g. {ok:false, description:
-          // "Bad Request: chat not found"}) — include a bounded snippet so
-          // operators can diagnose bad chat id / bot-not-started without guessing.
-          responseBody: await safeReadBodySnippet(res),
-        });
-      }
-    } catch (err: unknown) {
+    const text = `[${severity.toUpperCase()}] ${title}\n\n${body}`;
+    const result = await sendTelegramMessage({
+      token: this.botToken,
+      chatId: this.chatId,
+      text,
+      fetchFn: this.fetchFn,
+    });
+    if (result.ok) return;
+
+    // The transport distinguishes the two failure shapes by whether Telegram
+    // answered at all: a `status` means it did (bad chat id, bot not started),
+    // no `status` means the request never landed (network, DNS, abort). The
+    // two have different operator remedies, so they keep separate log events.
+    if (result.status === undefined) {
       log.error("sweeper.alert_sink_telegram_failed", {
         event: "sweeper.alert_sink_telegram_failed",
         severity,
         title,
-        error: err instanceof Error ? err.message : String(err),
+        error: result.detail,
       });
+      return;
     }
+    log.error("sweeper.alert_sink_telegram_non_ok", {
+      event: "sweeper.alert_sink_telegram_non_ok",
+      status: result.status,
+      severity,
+      title,
+      // Telegram returns a JSON error body (e.g. {ok:false, description:
+      // "Bad Request: chat not found"}) — the transport folds a bounded
+      // snippet of it into `detail` so operators can diagnose without guessing.
+      responseBody: result.detail,
+    });
   }
 }
 

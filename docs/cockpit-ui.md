@@ -9,7 +9,15 @@ what each surface is for and how to read it.
 
 A single whole-system view: all of Minsky on one board, laid out on the VSM
 five-organ skeleton in a process-engineering (P&ID) visual language. Reached via
-the **Plant Board** tile on the cockpit home grid, or directly at `/plant`.
+the **Plant** entry in the cockpit rail, or directly at `/plant`. (The home
+page is the triage radiator since mt#2881 — needs-you band, fleet strip,
+substrate line — not a widget grid; navigation lives in the rail, mt#2398.
+The `/agents` fleet table defaults to **needs-me-first** ordering since
+mt#2884: rows needing the operator — an open bound ask, or a non-terminal PR
+on a recently-active lane — rank above working/idle/done, with recency only
+within a band; the liveness dot and the needs-me badge are two independent
+status channels, and the absence of a badge is the calm state. An explicit
+`?ag_sort=` URL param still selects any other ordering.)
 
 Its purpose is comprehension and observability-in-the-felt-sense: see the system's
 structure, watch it breathe, and build an intuitive model of its rhythms over time
@@ -89,7 +97,165 @@ defined in `src/cockpit/web/index.css` and documented in
 [`docs/brand-system.md`](brand-system.md) §2. They follow the brand system's
 semantic-token discipline — no raw hex on the surface.
 
+## Driven sessions (`/driven/:id`, mt#2750–mt#2752)
+
+The drive surface of the harness-host ladder (umbrella mt#2230): the cockpit
+daemon spawns a genuine `claude` binary as a managed child and the SPA renders
+its live stream with an input composer. **Local daemon only** — never mounted on
+the public (Railway) deployment; the invariant is genuine binary + the
+operator's own credentials + the operator's own machine.
+
+### Launching (mt#2752)
+
+- **From a task** — the task detail page (`/tasks/:id`) shows a **Start
+  session** button for tasks in a startable (non-terminal) status. One click
+  binds-or-creates the task's workspace via the real `session_start` machinery,
+  spawns the driven session with the workspace as its working directory, and
+  lands you in the live view at `/driven/:id`.
+- **Scratch** — the Agents page (`/agents`) has a **Start scratch session**
+  button: an untasked session in the daemon's own repo directory, clearly
+  labeled `Scratch:` in the run list.
+- Both launch buttons name the permission mode in their tooltip. The default is
+  `bypassPermissions` (headless print-mode sessions have no prompt UI to answer
+  with); for task-bound sessions the isolated workspace clone is the
+  containment.
+- **Model (mt#3040)** — each task-detail launch control carries a model picker
+  beside the button. It defaults to **Sonnet** and offers the dispatch tiers
+  (Sonnet / Opus / Haiku / Fable) from the registry in
+  `src/cockpit/web/lib/dispatch-models.ts`; the selection is passed to the
+  spawned binary as `--model <alias>`. It is a defaulted-with-visible-override
+  control, not a required per-launch choice — leaving it untouched reproduces
+  the previous behavior exactly. Reach for a stronger tier when the task
+  warrants it (the originating case: "this one needs Fable").
+- **MCP tools (mt#3377)** — a driven session is provisioned with the `minsky`
+  MCP server explicitly, via `--mcp-config` plus `--strict-mcp-config`, so the
+  agent has the `mcp__minsky__*` toolset rather than shelling out to the CLI.
+  This is required because the child's working directory is a workspace clone,
+  and Claude Code resolves MCP servers per-project: the operator's `.mcp.json`
+  lives in the main checkout and is gitignored, so a clone inherits none of it.
+  The server set is deliberately just `minsky` — `github`/`supabase` carry their
+  own credential paths, so granting them is a separate decision — and
+  `--strict-mcp-config` keeps the surface from varying with whichever claude.ai
+  connectors and plugins the operator happens to have configured. Each session
+  costs one additional `minsky mcp start` process (~57 MB RSS, measured
+  2026-07-30); if concurrent driven sessions routinely exceed ~4, revisit
+  against the hosted-HTTP server option (mt#2141).
+
+### Reading the run list
+
+Driven sessions appear in the unified `/agents` run list alongside observe-only
+rows. The distinction (driven = you can type; observed = read-only) is carried
+by the amber **Driven** marker:
+
+- A standalone **Driven**-badged row is an app-started session; opening it goes
+  to the drive view (`/driven/:id`).
+- A workspace (**Agent**) row with a small **Driven** chip has an app-started
+  session bound to it — the chip links to the drive view; the row itself still
+  opens the workspace detail page.
+- iTerm/externally-started sessions never get the marker and stay observe-only.
+
+### Identity registration and deeplinks
+
+App-started sessions register their workspace↔conversation identity **at spawn
+time**: when the child's `system/init` event yields its harness session id, the
+daemon writes a `driven_spawn` row (confidence 1.0) into `minsky_session_links`
+(plus the `agent_transcripts` stub row the FK requires). The workspace detail
+page therefore resolves the live conversation with no cwd-matching heuristics.
+`minsky://session/<workspace-id>` deeplinks keep routing to `/agents/:id` (the
+`minsky://` URI type set is pinned by ADR-022 stage 1); a banner on that page
+links through to the drive view when a driven session is bound.
+
+### Cost & usage (`/agents/cost`, mt#2753)
+
+Every turn's terminal `result` event (per-turn `total_cost_usd`, token counts,
+cache-creation/cache-read tokens, per-model `modelUsage` mix, duration) is
+captured in the daemon host's event path and persisted to Postgres
+(`driven_session_cost`, one row per turn — reuses the reviewer-service
+cost-tracking shape from mt#2288/mt#2721 where sensible). The `/agents/cost`
+page (linked from the Agents page header) reads the `driven-session-cost`
+widget's rollup: a global aggregate (total spend at API rates, token totals, a
+daily/monthly spend projection at the observed cadence) plus a per-session
+breakdown table.
+
+**Billing-premise note (2026-07-13):** the 2026-06-15 Agent SDK / `claude -p`
+billing split was paused — headless usage currently draws from the operator's
+subscription at $0 marginal cost. These numbers are the API-RATE EQUIVALENT
+the stream's own `result` events report — consumption/rate observability and
+re-application readiness, not a live dollar bill. See memory `2d6cdbaf`.
+
 ## Operator endpoints
+
+### `POST /api/driven-session`
+
+Spawn a driven session (mutation — bearer/cookie auth). Body shapes, all
+optional and `taskId`/`cwd` mutually exclusive (400 when both are present):
+
+| Body                    | Behavior                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `{ "taskId": "mt#N" }`  | Task-bound: bind-or-create the task's workspace, spawn with cwd = the workspace directory. |
+| `{ "cwd": "/abs/dir" }` | Explicit-directory launch (the original mt#2750 shape).                                    |
+| `{}`                    | Scratch: cwd defaults to the daemon's own working directory; no task binding.              |
+
+Optional on any shape: `"permissionMode": "bypassPermissions" \| "default"`, and
+`"model"` (mt#3040) — a dispatch-model id from
+`src/cockpit/web/lib/dispatch-models.ts`: `"sonnet"` \| `"opus"` \| `"haiku"` \|
+`"fable"`. When present it is resolved to the spawned binary's `--model <alias>`
+argument; an unrecognized id is rejected with `400` rather than silently falling
+back to the default. Omit it to inherit the CLI's own default model.
+Returns `201` with `{ sessionId, harnessSessionId, cwd, taskId,
+minskySessionId, permissionMode, status, pid, startedAt, exitCode, argv }` —
+`sessionId` is the spawn-time local id that addresses `/driven/:id` and the
+per-session WebSocket. Companions: `POST /api/driven-session/:id/stop`
+(graceful stop), `GET /api/driven-session` (registry snapshot, same row
+shape), and `GET /api/driven-session/turn-active` (mt#3048 — cheap "is any
+session mid-turn" signal consumed by the cockpit-tray watcher's pre-restart
+gate; see `docs/architecture/cockpit.md`'s Operator endpoints table for
+detail).
+
+### `POST /api/driven-session/attach`
+
+Attach an actuator to a conversation Minsky did **not** spawn — one the
+operator started in their own terminal (mt#3095). Body: `{ "conversationId":
+"<uuid>" }`. Mutation, same auth as the spawn route above.
+
+Unlike the spawn route, this does not create a conversation; it puts an input
+channel on an existing one, resolved from its on-disk transcript under
+`~/.claude/projects/**`. On success the session behaves like any other driven
+session — same row shape, same WebSocket, same cost/link recording.
+
+| Status | Meaning                                                                                |
+| ------ | -------------------------------------------------------------------------------------- |
+| `201`  | Attached. Body is the same session summary the spawn route returns.                    |
+| `409`  | **Refused** — a writer holds (or may hold) the conversation. See below.                |
+| `423`  | Another _cockpit_ actuator won the advisory lock. A retry may succeed.                 |
+| `404`  | No on-disk transcript for that id, or one with no recoverable cwd.                     |
+| `400`  | Missing, empty, or syntactically impossible `conversationId` (rejected with zero I/O). |
+
+**Why attach can be refused.** `claude --resume` has no multi-writer safety:
+two processes resuming one conversation both succeed and both append to the
+same transcript, recording the same `parentUuid` — a silent history fork with
+no error surface. So the cockpit refuses unless the conversation is
+demonstrably idle. Liveness comes from the hook-fed presence signal
+(`GET /api/conversation/:id/presence`, mt#3201):
+
+| Presence      | Attach | Rationale                                                         |
+| ------------- | ------ | ----------------------------------------------------------------- |
+| `IDLE`        | admit  | The designed case.                                                |
+| `ENDED`       | admit  | Observed `SessionEnd`; nothing holds the file.                    |
+| `LIVE`        | refuse | A writer is mid-turn.                                             |
+| `NEEDS_INPUT` | refuse | A writer is attached and waiting on a human.                      |
+| `STALLED`     | refuse | Last seen mid-work, since quiet — a wedged writer still holds it. |
+| `UNKNOWN`     | refuse | No telemetry is not evidence of idleness.                         |
+
+A `409` body carries `{ refused: true, presence, reason, message }`, where
+`message` is operator-facing prose explaining the risk — render it rather than
+the reason code. `reason` is one of `live-writer`, `awaiting-human`,
+`possibly-wedged`, `no-telemetry`. A presence store that is unreachable refuses
+as `no-telemetry` rather than admitting.
+
+**Known gap:** an attached conversation's pane opens EMPTY and fills from its
+next turn — its prior history is on disk but the drive channel does not replay
+it yet (mt#3453).
 
 ### `GET /api/health`
 
@@ -124,5 +290,8 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
 - mt#2626 — guard vocabulary alignment ("hook" = registration mechanics,
   "interlock" = domain noun, "weld" = verb only); route renamed from
   `/plant/weld-history`
+- mt#2230 / mt#2237 / mt#2750 / mt#2751 / mt#2752 / mt#2753 — harness-host ladder:
+  driven-session host, drive view, task-bound launch, cost/usage readout (the
+  §Driven sessions surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

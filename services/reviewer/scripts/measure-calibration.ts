@@ -159,19 +159,27 @@ import { resolveGitHubToken, getAuthSource } from "./harness-auth";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GITHUB_TOKEN = resolveGitHubToken();
 
-const isDryRunInvocation = process.argv.includes("--dry-run");
-if (!GITHUB_TOKEN) {
-  if (isDryRunInvocation) {
-    console.log(
-      "SKIPPED: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Dry-run requires GitHub API access for " +
-        "prior-review fetches and corpus enumeration. Treating as skipped (exit 0)."
+// mt#2726 Milestone A wave 3: guarded behind import.meta.main so importing
+// this module's exports (fetchIterationContext, IterationContext — reused by
+// paired-eval-runner.ts) doesn't trigger a process.exit() side effect merely
+// from module load. Behavior when this script is run directly is unchanged:
+// import.meta.main is true in that case, so the gate still fires before
+// main() runs.
+if (import.meta.main) {
+  const isDryRunInvocation = process.argv.includes("--dry-run");
+  if (!GITHUB_TOKEN) {
+    if (isDryRunInvocation) {
+      console.log(
+        "SKIPPED: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Dry-run requires GitHub API access for " +
+          "prior-review fetches and corpus enumeration. Treating as skipped (exit 0)."
+      );
+      process.exit(0);
+    }
+    console.error(
+      "ERROR: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Live measurement requires GitHub API access."
     );
-    process.exit(0);
+    process.exit(1);
   }
-  console.error(
-    "ERROR: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Live measurement requires GitHub API access."
-  );
-  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +275,11 @@ async function fetchAllBotReviewsForReplay(
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
 }
 
-interface IterationContext {
+/**
+ * Exported (mt#2726 Milestone A wave 3): `paired-eval-runner.ts` reuses this
+ * shape rather than redefining it — see that script's reuse-targets note.
+ */
+export interface IterationContext {
   prNumber: number;
   iteration: number;
   title: string;
@@ -288,8 +300,12 @@ interface IterationContext {
  *
  * For iteration=N (N > 1), fetches all bot reviews up to iteration N-1 and
  * renders the prior-review summary markdown.
+ *
+ * Exported (mt#2726 Milestone A wave 3): `paired-eval-runner.ts` reuses this
+ * rather than reimplementing PR-context reconstruction — see that script's
+ * reuse-targets note.
  */
-async function fetchIterationContext(
+export async function fetchIterationContext(
   octokit: Octokit,
   prNumber: number,
   iteration: number
@@ -1124,11 +1140,19 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error("Measurement script error:", message);
-  if (err instanceof Error && err.stack) {
-    console.error(err.stack);
-  }
-  process.exit(1);
-});
+// mt#2726 Milestone A wave 3: guarded behind import.meta.main (matching the
+// convention in mine-ground-truth-corpus.ts / seeded-bug-harness.ts) so that
+// importing this module's exports (fetchIterationContext, IterationContext —
+// reused by paired-eval-runner.ts) doesn't also run this script's own CLI
+// entry point. Bun sets import.meta.main to true only when the file is the
+// actual entry point, not when it's imported by another module.
+if (import.meta.main) {
+  main().catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Measurement script error:", message);
+    if (err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
+    process.exit(1);
+  });
+}

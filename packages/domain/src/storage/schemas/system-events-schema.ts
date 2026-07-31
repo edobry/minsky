@@ -39,6 +39,16 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "pr.review_posted",
   "subagent.failed",
   "embeddings.provider_degraded",
+  // mt#3228 (bidirectional principal channel) — an inbound Telegram message
+  // was refused by the channel's allowlist. Actionable because an unauthorized
+  // party attempting to drive the local swarm is something the operator must
+  // see; its accepted sibling below is informational.
+  "principal.message_rejected",
+  // mt#3228 (PR #2324 R1) — carrying out an accepted message FAILED. Actionable
+  // for the same reason the pre-action row is not sufficient on its own: "audit
+  // before action" records what the channel was asked to do, and without this
+  // the log never says whether it worked.
+  "principal.message_failed",
   // --- informational / trajectory (mt#2340) — discoverable on the operator's
   //     own schedule; primary consumer is the Phase 2 noticer ---
   "task.status_changed",
@@ -61,6 +71,43 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "deploy.live",
   "deploy.fail",
   "ask.policy_closed",
+  // mt#2935 (commit-auth emission inversion) — a policy-covered authorization
+  // action recorded as an audit EVENT instead of a per-action Ask. Emitted by
+  // detection-time policy consults at authorization emit sites (v1:
+  // `sessionCommit` in packages/domain/src/session/session-commands.ts) when
+  // ADR-008 §Router policy coverage answers the action at the emit site — the
+  // attention-cost ledger record (cost = 0, recorded) without occupying the
+  // decision substrate.
+  "authorization.policy_covered",
+  // mt#2819 (bulk-mutation primitives) — the dry-run event doubles as the
+  // durable token record the execute path validates against; the executed
+  // event is the one-shot consumption marker. Append-only by design.
+  "task.bulk_edit.dry_run",
+  "task.bulk_edit.executed",
+  // mt#3021 (Layer-1 defensive-gate shared override contract) — emitted
+  // whenever a destructive-action guard (mass-deletion sanity gate on
+  // session_commit; MERGE_HEAD/uncommitted-changes guard on session
+  // delete/cleanup) was tripped AND an explicit override with a reason was
+  // supplied to proceed anyway. Generic across every guard that consumes
+  // `packages/domain/src/safety/destructive-override.ts` — the `guard`
+  // payload field names which one fired (v1: "session-commit-mass-deletion",
+  // "session-delete-git-state", "session-cleanup-git-state"; mt#3103-3106's
+  // Layer-2 liveness gates are expected to add further `guard` values without
+  // a schema change). Actionable: an operator should know a safety gate was
+  // bypassed, in case the bypass turns out to have been wrong.
+  "guard.overridden",
+  // mt#3228 (bidirectional principal channel) — the principal sent the swarm a
+  // message from their phone. Informational: they know they sent it, and the
+  // channel agent's reply is the response they actually watch for. The
+  // append-only row is what makes the inbound path auditable, restart-safe
+  // (poll cursor), and replay-safe (idempotency token) at once.
+  "principal.message_received",
+  // mt#3228 (PR #2324 R3) — the inbound poller advanced its Telegram offset to
+  // a given update id. Needed because the cursor must clear updates that
+  // produce NO message row (an `edited_message`, a future update type this
+  // version does not parse); deriving the cursor from message rows alone
+  // re-fetches such an update forever and wedges the channel behind it.
+  "principal.poll_advanced",
 ] as const;
 
 /**
@@ -124,6 +171,35 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       that previously lived only in a `log.debug` nobody consumed — the
  *       c26eca0a incident (a disposition Ask silently policy-closed with an
  *       irrelevant citation) was indistinguishable from a missing record.
+ *   - `authorization.policy_covered` → `{ action: string; citationSource: string;
+ *       citationLines?: [number, number]; commitMessage?: string }`
+ *       (mt#2935) emitted by detection-time policy consults at authorization
+ *       emit sites (v1: `sessionCommit`) when standing policy covers the
+ *       action — no Ask is created for the covered path. The suppressed-ask
+ *       fallback contract: emit sites suppress the Ask ONLY when this event
+ *       row actually persisted (tryEmit → true); otherwise they fall back to
+ *       Ask creation so the action is never silently unrecorded.
+ *
+ * Payload shapes for the mt#2819 bulk-mutation event types (emitted by the
+ * `tasks.bulk-edit` command; the dry-run row IS the token store the execute
+ * path validates against — see `src/adapters/shared/commands/tasks/bulk-edit-command.ts`):
+ *
+ *   - `task.bulk_edit.dry_run`  → `{ token: string; count: number; ids: string[];
+ *       edits: Record<string, string>; changeSet: Array<{ taskId, field, before, after }> }`
+ *   - `task.bulk_edit.executed` → `{ token: string; count: number;
+ *       outcomes: Array<{ taskId, field, outcome }> }`
+ *
+ * Payload shape for the mt#3021 shared destructive-override audit type:
+ *
+ *   - `guard.overridden` → `{ guard: string; reason: string; [key: string]: unknown }`
+ *       emitted by `recordDestructiveOverride`
+ *       (`packages/domain/src/safety/destructive-override.ts`) whenever a
+ *       caller supplies a valid override for a tripped destructive-action
+ *       guard. `guard` names the specific guard (e.g.
+ *       "session-commit-mass-deletion"); `reason` is the caller-supplied
+ *       justification (never empty — see `isValidDestructiveOverride`);
+ *       additional guard-specific fields (e.g. `deletionCount`, `reasonCode`,
+ *       `sessionId`) are merged in verbatim by the calling guard.
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -171,6 +247,14 @@ export const eventCategory = {
   "deploy.live": "informational",
   "deploy.fail": "informational",
   "ask.policy_closed": "informational",
+  "authorization.policy_covered": "informational",
+  "task.bulk_edit.dry_run": "informational",
+  "task.bulk_edit.executed": "informational",
+  "guard.overridden": "actionable",
+  "principal.message_rejected": "actionable",
+  "principal.message_failed": "actionable",
+  "principal.message_received": "informational",
+  "principal.poll_advanced": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
@@ -225,6 +309,13 @@ export const systemEventsTable = pgTable(
      * retrospective.fired:            { note, taskId? }
      * deploy.build/live/fail:         { phase, service?, status }
      * deploy.smoke:                   { phase, sha, status }
+     * principal.message_received:     { token, updateId, messageId, route, text?, sentAt? }
+     * principal.message_rejected:     { token, updateId, messageId, route, rejectionReason, sentAt? }
+     * principal.message_failed:       { token: "<base>:failed", updateId, messageId, route, failureDetail, text?, sentAt? }
+     * principal.poll_advanced:        { token: "<base>:advanced", updateId, messageId: 0, route: "poll-advanced" }
+     *   (mt#3228 — see PrincipalMessageEventPayload in ../../notify/principal-inbound.ts.
+     *    `text` is deliberately absent on the rejected variant: an unauthorized
+     *    chat must not be able to write attacker-chosen content into the feed.)
      */
     payload: jsonb("payload").notNull(),
 

@@ -18,6 +18,16 @@ export function createSetupCommand(): Command {
   cmd.option("--overwrite", "Overwrite existing config", false);
   cmd.option("--repo <path>", "Repository path");
   cmd.option("--workspace-path <path>", "Workspace path");
+  cmd.option(
+    "--connection-string <url>",
+    "Postgres connection string, used only if no connection can be inherited from " +
+      "existing config (otherwise captured via the setup db wizard)"
+  );
+  cmd.option(
+    "--yes",
+    "Skip the DB-setup confirmation prompt if the interactive wizard runs",
+    false
+  );
 
   cmd.action(async (options) => {
     try {
@@ -33,6 +43,8 @@ export function createSetupCommand(): Command {
           overwrite: options.overwrite ?? false,
           repo: options.repo,
           workspacePath: options.workspacePath,
+          connectionString: options.connectionString,
+          yes: options.yes ?? false,
         },
         { interface: "cli" }
       );
@@ -106,15 +118,22 @@ function createSetupGithubAppCommand(): Command {
   cmd.option("--via <provisioner>", "Provisioner: manifest (default) or wizard");
   cmd.option("--output-dir <path>", "Where to write credentials (default: ~/.config/minsky)");
   cmd.option("--force", "Re-provision even if credentials already exist", false);
-  cmd.option("--update", "Update an existing App's events/permissions via PATCH /app", false);
+  cmd.option(
+    "--update",
+    "Show drift between an existing App's live and requested events/permissions, with a link " +
+      "to the settings page to fix it (GitHub has no API to apply this)",
+    false
+  );
   cmd.option(
     "--execute",
-    "Apply changes (without this flag, --update shows a dry-run preview)",
+    "No effect with --update (there is no API to apply an events/permissions change); " +
+      "accepted for backward compatibility",
     false
   );
   cmd.option(
     "--permissions <k:v,...>",
-    "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)"
+    "Comma-separated k:v permissions (default: pull_requests:write,contents:write,metadata:read " +
+      "— contents:write is required for session_commit's App-token push, mt#1477/mt#3210)"
   );
   cmd.option("--events <e1,e2,...>", "Comma-separated GitHub event names");
   cmd.option("--webhook-url <url>", "Webhook URL to prefill in hook_attributes");

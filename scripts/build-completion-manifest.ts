@@ -32,6 +32,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import type { Command } from "commander";
 import { z } from "zod";
+import { format as prettierFormat, resolveConfig } from "prettier";
 
 // Force the `needsAll` path inside createCli — this loads every lazy-loaded
 // heavy command (mcp, github, context, lint, init, setup, compile, cockpit)
@@ -59,11 +60,28 @@ interface ManifestOption {
   values?: string[];
 }
 
+/**
+ * A Commander positional argument (`cmd.registeredArguments`), distinct from
+ * flag-style `Option`s. Commander tracks these separately (`command.argument(...)`)
+ * and they never appear in `cmd.options` — see mt#2984.
+ */
+interface ManifestArgument {
+  /** Argument name as declared, e.g. "id" (without the <>/[] wrapper). */
+  name: string;
+  description?: string;
+  /** True for `<name>` (required); false for `[name]` (optional). */
+  required: boolean;
+  /** True for a variadic argument (`<name...>` / `[name...]`). */
+  variadic?: boolean;
+}
+
 interface ManifestCommand {
   name: string;
   description?: string;
   subcommands?: ManifestCommand[];
   options?: ManifestOption[];
+  /** Positional arguments declared via `command.argument(...)`. */
+  arguments?: ManifestArgument[];
 }
 
 /**
@@ -96,6 +114,20 @@ function walkCommand(cmd: Command): ManifestCommand {
       // `Option.optional` = "option takes an optional argument". Either ⇒ takes value.
       if (o.required || o.optional) opt.takesValue = true;
       return opt;
+    });
+  }
+
+  // Positional arguments (`command.argument("<id>", ...)`) are tracked by
+  // Commander separately from flag-style options (`cmd.registeredArguments`,
+  // not `cmd.options`). Required positional args (e.g. the `<id>` arg on the
+  // 4 asks.* commands: respond/edit/wait-for-response/get) previously had no
+  // completion-manifest representation at all. See mt#2984.
+  if (cmd.registeredArguments.length > 0) {
+    node.arguments = cmd.registeredArguments.map((a) => {
+      const arg: ManifestArgument = { name: a.name(), required: a.required };
+      if (a.description) arg.description = a.description;
+      if (a.variadic) arg.variadic = true;
+      return arg;
     });
   }
 
@@ -249,7 +281,25 @@ async function main() {
 
     const outPath = join(import.meta.dir, "..", "src", "generated", "completion-manifest.json");
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, `${JSON.stringify(wrapped, null, 2)}\n`);
+
+    // Format the serialized manifest with the project's Prettier (resolving the
+    // same .prettierrc.json config that `format:check` uses) so the generator's
+    // own output byte-matches the committed copy. Without this, the raw
+    // `JSON.stringify` output (expanded short arrays, etc.) diverges from the
+    // Prettier-formatted committed file, so every `bun run build` re-dirties the
+    // tracked file and blocks `git pull --ff-only` (mt#2732). Making the
+    // generator the single source of canonical format means all invocation
+    // paths (build / pre-commit / manual) emit identical output — no downstream
+    // re-formatting pass is needed (the mt#2622 pre-commit prettier pass was
+    // removed as redundant alongside this change).
+    //
+    // Prettier normalizes the trailing newline, so `JSON.stringify` alone (no
+    // manual "\n") suffices. `resolveConfig` returns null when no config file is
+    // found — coalesce to {} so the options spread is always well-defined.
+    const rawJson = JSON.stringify(wrapped, null, 2);
+    const prettierConfig = (await resolveConfig(outPath)) ?? {};
+    const formatted = await prettierFormat(rawJson, { ...prettierConfig, parser: "json" });
+    writeFileSync(outPath, formatted);
 
     console.log(
       `Wrote completion manifest: ${outPath}\n` +

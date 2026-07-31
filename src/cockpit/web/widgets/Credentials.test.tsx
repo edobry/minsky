@@ -137,7 +137,7 @@ function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_P
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ describe("Credentials widget", () => {
           headers: { "Content-Type": "application/json" },
         })
       )
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     renderWithQuery(<CredentialsManager />);
 

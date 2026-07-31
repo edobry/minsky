@@ -53,6 +53,8 @@ export enum CommandCategory {
   PRINCIPAL_CORPUS = "PRINCIPAL_CORPUS",
   FORGE = "FORGE",
   EVENTS = "EVENTS",
+  REFS = "REFS",
+  PRINCIPAL = "PRINCIPAL",
 }
 
 /**
@@ -184,6 +186,15 @@ export interface CommandDefinition<
 export type InferParams<T extends CommandParameterMap> = {
   [K in keyof T]: z.infer<T[K]["schema"]>;
 };
+
+/**
+ * Widest command-definition type, for heterogeneous registration collections
+ * (mt#2779): factories return map-tied `CommandDefinition<typeof theirMap>`,
+ * and strictFunctionTypes variance rejects mixing those under the default
+ * generic — `any` is the deliberate variance sink here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyCommandDefinition = CommandDefinition<any, any, any>;
 
 /**
  * Helper to define a command with full type inference on parameters.

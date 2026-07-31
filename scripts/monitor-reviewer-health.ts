@@ -116,7 +116,8 @@ async function fetchDeliveriesSince(sinceIso: string): Promise<Delivery[]> {
     }
     if (stopped) break;
     const next = linkHeader?.match(/<([^>]+)>;\s*rel="next"/);
-    path = next ? next[1].replace("https://api.github.com", "") : null;
+    const nextUrl = next?.[1];
+    path = nextUrl !== undefined ? nextUrl.replace("https://api.github.com", "") : null;
   }
   return all;
 }

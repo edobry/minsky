@@ -7,7 +7,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { registerMemoryCommands, type MemoryCommandsDeps } from "./index";
+import { registerMemoryCommands, resolveMemoryIdInput, type MemoryCommandsDeps } from "./index";
+import type { PersistenceCapabilities } from "@minsky/domain/persistence/types";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -187,10 +188,35 @@ describe("Memory Commands", () => {
       registerMemoryCommands(registry, makeDeps({ getResult: null }));
 
       const cmd = registry.getCommand(GET_CMD);
+      // mt#2696 R1: message names how the id was interpreted. "missing-id" is
+      // not a valid hex prefix (contains non-hex letters), so it falls
+      // through to the generic "not found with id" phrasing rather than the
+      // "for id prefix" phrasing reserved for genuinely prefix-shaped input.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await expect(cmd!.execute({ id: "missing-id" }, {})).rejects.toThrow(
-        'Memory not found: "missing-id"'
+        'Memory not found with id "missing-id"'
       );
+    });
+
+    test("names the id as a prefix (not a raw echo) when the input is a valid hex prefix that resolved but no longer has a live row", async () => {
+      // mt#2696 R1 (reviewer finding 2): a prefix that resolved to a full id
+      // (via classifyIdInput, which is pure and doesn't need a live DB — this
+      // test has no persistence container, so resolveMemoryIdInput passes
+      // the raw prefix through unchanged) but then finds no row must name
+      // BOTH the original prefix input and how it was interpreted, not just
+      // echo the raw input as if it were an opaque id.
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ getResult: null }));
+
+      const cmd = registry.getCommand(GET_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const err = await cmd!.execute({ id: "d8591800" }, {}).then(
+        () => null,
+        (e: unknown) => e as Error
+      );
+      // Exact match (not substring): the pass-through path must NOT claim
+      // "(resolved to ...)" — no resolution occurred (mt#2696 R2).
+      expect(err?.message).toBe('Memory not found for id prefix "d8591800"');
     });
   });
 
@@ -226,6 +252,113 @@ describe("Memory Commands", () => {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const result = (await cmd!.execute({ limit: 2 }, {})) as { records: MemoryRecord[] };
       expect(result.records).toHaveLength(2);
+    });
+
+    // ── mt#2817: truncation metadata ────────────────────────────────────────
+    test("reports {returned, total, truncated} — untruncated case", async () => {
+      const records = [makeRecord({ id: "a" }), makeRecord({ id: "b" })];
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: records }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({}, {})) as {
+        records: MemoryRecord[];
+        returned: number;
+        total: number;
+        truncated: boolean;
+      };
+      expect(result.returned).toBe(2);
+      expect(result.total).toBe(2);
+      expect(result.truncated).toBe(false);
+    });
+
+    test("reports truncated:true when limit caps the result set", async () => {
+      const records = [makeRecord({ id: "a" }), makeRecord({ id: "b" }), makeRecord({ id: "c" })];
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: records }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ limit: 2 }, {})) as {
+        records: MemoryRecord[];
+        returned: number;
+        total: number;
+        truncated: boolean;
+      };
+      expect(result.returned).toBe(2);
+      expect(result.total).toBe(3);
+      expect(result.truncated).toBe(true);
+    });
+
+    // ── mt#2817: summary projection ─────────────────────────────────────────
+    test("summary:true strips content and non-summary fields", async () => {
+      const record = makeRecord({
+        id: "mem-summary",
+        name: "Summary Memory",
+        type: "feedback",
+        description: "A record with a large body",
+        content: "x".repeat(5000),
+        tags: ["di-cleanup"],
+        scope: "cross_project",
+      });
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: [record] }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ summary: true }, {})) as {
+        records: Array<Record<string, unknown>>;
+      };
+      expect(result.records).toHaveLength(1);
+      const row = result.records[0] as Record<string, unknown>;
+      expect(row).toEqual({
+        id: "mem-summary",
+        name: "Summary Memory",
+        type: "feedback",
+        description: "A record with a large body",
+        tags: ["di-cleanup"],
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      });
+      expect(row.content).toBeUndefined();
+      expect(row.scope).toBeUndefined();
+    });
+
+    test("summary:false (default) preserves the full record shape, including content", async () => {
+      const record = makeRecord({ id: "mem-full", content: "full body text" });
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: [record] }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({}, {})) as { records: MemoryRecord[] };
+      expect(result.records[0]?.content).toBe("full body text");
+    });
+
+    // ── mt#2817: since/until forwarding ──────────────────────────────────────
+    test("forwards parsed since/until as ISO strings to the service filter", async () => {
+      let capturedFilter: Record<string, unknown> | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService({ listResults: [] }),
+          list: async (filter) => {
+            capturedFilter = filter as unknown as Record<string, unknown>;
+            return [];
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await cmd!.execute({ since: "2026-07-01", until: "2026-07-31" }, {});
+
+      expect(typeof capturedFilter?.since).toBe("string");
+      expect(typeof capturedFilter?.until).toBe("string");
+      expect(new Date(capturedFilter?.since as string).toISOString()).toBe(
+        capturedFilter?.since as string
+      );
     });
   });
 
@@ -607,5 +740,100 @@ describe("Memory Commands", () => {
       expect(result.truncated).toBe(true);
       expect(result.chain).toHaveLength(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveMemoryIdInput — mem#N short id resolution (mt#2966)
+//
+// Mirrors asks.test.ts's "resolveAskIdInput (mt#2965)" describe block. The
+// memory resolver's DB bridge (`resolveMemoryDbForPrefix`) gates on
+// `persistence instanceof PersistenceProvider` (unlike ask's duck-typed
+// `getAskDb`) — pre-existing mt#2696 behavior, unchanged by mt#2966 — so the
+// fake `container.get("persistence")` here must be a real PersistenceProvider
+// subclass instance, not a plain object literal.
+// ---------------------------------------------------------------------------
+
+describe("resolveMemoryIdInput (mt#2966)", () => {
+  const MEMORY_UUID = "11111111-1111-1111-1111-111111111111";
+  const PERSISTENCE_TYPES_MODULE = "@minsky/domain/persistence/types";
+
+  /**
+   * Build a fake `CommandExecutionContext` satisfying
+   * `resolveMemoryDbForPrefix`'s narrow usage
+   * (`ctx.container.has("persistence")` + `ctx.container.get("persistence")`
+   * returning a real `PersistenceProvider` subclass instance) whose
+   * `getDatabaseConnection()` resolves to `select()` — injectable so tests
+   * can either return canned rows (resolution tests) or observe whether the
+   * query ran at all (the mismatched-prefix short-circuit test).
+   */
+  async function fakeCtx(select: () => { from: (table: unknown) => unknown }) {
+    const { PersistenceProvider } = await import(PERSISTENCE_TYPES_MODULE);
+
+    class FakePersistenceProvider extends PersistenceProvider {
+      readonly capabilities = { sql: true } as unknown as PersistenceCapabilities;
+      getCapabilities() {
+        return this.capabilities;
+      }
+      async initialize() {}
+      async close() {}
+      getConnectionInfo() {
+        return "fake";
+      }
+      async getDatabaseConnection() {
+        return { select };
+      }
+    }
+
+    const provider = new FakePersistenceProvider();
+    return {
+      container: {
+        has: (key: string) => key === "persistence",
+        get: (_key: string) => provider,
+      },
+    } as any;
+  }
+
+  /** Resolve `select()` to a fixed set of candidate rows regardless of the query condition. */
+  function fakeCtxWithRows(rows: Array<{ id: string; label?: string }>) {
+    return fakeCtx(() => ({
+      from: (_table: unknown) => ({
+        where: (_cond: unknown) => Promise.resolve(rows),
+      }),
+    }));
+  }
+
+  test("passes a full uuid through unchanged", async () => {
+    const ctx = await fakeCtxWithRows([]);
+    const id = await resolveMemoryIdInput(MEMORY_UUID, ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("resolves mem#7 to the row's uuid via the short_id column", async () => {
+    const ctx = await fakeCtxWithRows([{ id: MEMORY_UUID, label: "my memory" }]);
+    const id = await resolveMemoryIdInput("mem#7", ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("REGRESSION (mt#2696 unchanged): an unambiguous 8-char hex prefix still resolves", async () => {
+    const ctx = await fakeCtxWithRows([{ id: MEMORY_UUID, label: "my memory" }]);
+    const id = await resolveMemoryIdInput(MEMORY_UUID.slice(0, 8), ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("rejects a mismatched-entity short id (e.g. ask#3) without querying the DB", async () => {
+    let queried = false;
+    const ctx = await fakeCtx(() => {
+      queried = true;
+      return { from: () => ({ where: () => Promise.resolve([]) }) };
+    });
+
+    await expect(resolveMemoryIdInput("ask#3", ctx)).rejects.toThrow(/short id prefix mismatch/i);
+    expect(queried).toBe(false);
+  });
+
+  test("throws a clean not-found error for a mem#N with no matching row", async () => {
+    const ctx = await fakeCtxWithRows([]);
+    await expect(resolveMemoryIdInput("mem#999", ctx)).rejects.toThrow(/not found/i);
   });
 });

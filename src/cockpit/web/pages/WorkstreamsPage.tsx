@@ -32,7 +32,9 @@ function AltitudeToggle({
 }) {
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Altitude">
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Altitude:</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">
+        Altitude:
+      </span>
       {WORKSTREAM_ALTITUDES.map((a) => (
         <button
           key={a}
@@ -73,7 +75,10 @@ export function WorkstreamsPage() {
 
   return (
     <div className="p-4 max-w-5xl mx-auto w-full flex flex-col gap-3">
-      <AltitudeToggle altitude={altitude} onChange={setAltitude} />
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-h1 font-semibold text-foreground">Workstreams</h1>
+        <AltitudeToggle altitude={altitude} onChange={setAltitude} />
+      </div>
 
       {query.isLoading || query.data === undefined ? (
         query.isError ? (
@@ -86,7 +91,13 @@ export function WorkstreamsPage() {
           </div>
         )
       ) : (
-        <Workstreams data={query.data} />
+        // page-body variant (mt#2917 fix): this route now renders its own
+        // <h1> above, so the widget must not ALSO render a nested Card +
+        // CardTitle "Workstreams" — the default "card" variant was doing
+        // exactly that (a redundant second "Workstreams" heading + an
+        // unnecessary nested border on what is already the page's own
+        // content area).
+        <Workstreams data={query.data} variant="page-body" title="Workstreams" />
       )}
     </div>
   );

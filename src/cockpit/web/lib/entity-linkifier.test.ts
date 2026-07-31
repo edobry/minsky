@@ -535,7 +535,7 @@ describe("buildEntityIndex", () => {
       askIds: [],
       memoryIds: [],
     });
-    expect(index.get("mt#1234")).toBe("task");
+    expect(index.get("mt#1234")?.type).toBe("task");
   });
 
   test("maps session ids to 'session' type", () => {
@@ -545,7 +545,7 @@ describe("buildEntityIndex", () => {
       askIds: [],
       memoryIds: [],
     });
-    expect(index.get(SESSION_ID)).toBe("session");
+    expect(index.get(SESSION_ID)?.type).toBe("session");
   });
 
   test("maps ask ids to 'ask' type", () => {
@@ -555,7 +555,7 @@ describe("buildEntityIndex", () => {
       askIds: [ASK_ID],
       memoryIds: [],
     });
-    expect(index.get(ASK_ID)).toBe("ask");
+    expect(index.get(ASK_ID)?.type).toBe("ask");
   });
 
   test("maps memory ids to 'memory' type", () => {
@@ -565,7 +565,7 @@ describe("buildEntityIndex", () => {
       askIds: [],
       memoryIds: [MEMORY_ID],
     });
-    expect(index.get(MEMORY_ID)).toBe("memory");
+    expect(index.get(MEMORY_ID)?.type).toBe("memory");
   });
 
   test("maps changeset ids (PR numbers as strings) to 'changeset' type", () => {
@@ -576,8 +576,8 @@ describe("buildEntityIndex", () => {
       memoryIds: [],
       changesetIds: ["1234", "5678"],
     });
-    expect(index.get("1234")).toBe("changeset");
-    expect(index.get("5678")).toBe("changeset");
+    expect(index.get("1234")?.type).toBe("changeset");
+    expect(index.get("5678")?.type).toBe("changeset");
   });
 
   test("omitting changesetIds produces no changeset entries (optional field)", () => {
@@ -794,8 +794,8 @@ describe("useEntityIndex / cache key separation (Finding 2 regression)", () => {
       askIds: [],
       memoryIds: [],
     });
-    expect(index.get("mt#1")).toBe("task");
-    expect(index.get("mt#2")).toBe("task");
+    expect(index.get("mt#1")?.type).toBe("task");
+    expect(index.get("mt#2")?.type).toBe("task");
   });
 
   test("linkifyText resolves task ids from TaskListEntry-seeded index", () => {

@@ -1,0 +1,1 @@
+ALTER TABLE "driven_sessions" ADD COLUMN "model" text;

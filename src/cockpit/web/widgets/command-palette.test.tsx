@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TabsProvider } from "../lib/tabs";
 import { TabBar } from "../components/TabBar";
 import { CommandPalette } from "../components/CommandPalette";
+import { NewConversationProvider } from "../hooks/useNewConversation";
 
 function LocationProbe() {
   const { pathname } = useLocation();
@@ -30,9 +31,13 @@ function renderPalette() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
         <TabsProvider>
-          <TabBar />
-          <LocationProbe />
-          <CommandPalette />
+          {/* The palette carries actions as of mt#3464, so it now requires
+              the same provider Layout mounts around the whole shell. */}
+          <NewConversationProvider>
+            <TabBar />
+            <LocationProbe />
+            <CommandPalette />
+          </NewConversationProvider>
         </TabsProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -112,7 +117,7 @@ describe("CommandPalette (mt#2399)", () => {
         );
       }
       throw new Error(`Unexpected fetch in test: ${url}`);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -149,8 +154,10 @@ describe("CommandPalette (mt#2399)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe("/tasks/mt%232320");
     });
-    // The visit opened a task entity tab.
-    expect(screen.getByText("mt#2320")).toBeDefined();
+    // The visit opened a task entity tab — enriched to anchor + title via the
+    // shared entity-label resolver (mt#2883; the task index is in the shared
+    // query cache from the palette's own fetch).
+    expect(screen.getByText("mt#2320 · Palette fixture task")).toBeDefined();
   });
 
   test("selecting an ask lands on /ask/:id and opens its tab", async () => {
@@ -168,8 +175,11 @@ describe("CommandPalette (mt#2399)", () => {
         "/ask/55556666-0000-0000-0000-000000000000"
       );
     });
-    // The visit opened an ask entity tab (short-id label).
-    expect(screen.getByText("55556666…")).toBeDefined();
+    // The visit opened an ask entity tab — enriched to the ask subject via
+    // the shared resolver (mt#2883; the attention cohort is in the shared
+    // query cache from the palette's own fetch). The palette dialog closed on
+    // selection, so the only "Palette fixture ask" text left is the tab's.
+    expect(screen.getByText("Palette fixture ask")).toBeDefined();
   });
 
   test("selecting a memory lands on /memory/:id", async () => {

@@ -42,21 +42,40 @@ pattern after `inject-current-time` (mt#2181), `inject-git-state` (mt#2275), and
 DISPATCH WATCHDOG: 1 in-flight subagent dispatch(es) appear stalled (no commit / PR event /
 subagent_invocations activity past the stale window, last checked 2026-07-07T12:00:00.000Z):
   - mt#2646 (IN-PROGRESS, agentType=implementer, session=session-1): silent for 1h (last activity 2026-07-07T11:00:00.000Z)
-Before assuming the dispatch is dead: probe recovery-relevant state in one call via the
-session.status MCP tool with probe=true ... THEN apply the resume protocol documented in the
-/orchestrate skill ...
+Do NOT hand-roll a probe-then-decide sequence. Call the tasks.dispatch-recover MCP tool
+(mt#2831) with the flagged taskId — it captures session state, classifies the outcome, and
+enforces the 2-attempt bound server-side. Branch on its `status` field: "healthy" -> no action;
+"recover" -> redispatch the returned `continuationPrompt` VERBATIM into the SAME session;
+"escalate" -> the 2-attempt bound is reached, surface the escalation summary instead of
+retrying again; "not-in-flight" / "no-dispatch" -> nothing to recover. See the /orchestrate
+skill's "Dispatch watchdog and resume protocol" section for the full walkthrough.
 ```
 
-**Paired recovery mechanisms (also shipped by mt#2646):**
+**Paired recovery mechanisms:**
 
-- **Probe:** `session.status` (`src/adapters/mcp/session-workspace.ts`) gained an optional
-  `probe: true` mode returning PR number + latest review state, commits-ahead-of-base, dirty-file
-  count, and `handoff.md` presence/first-lines in one call. Shape assembly is the pure
+- **Probe (mt#2646):** `session.status` (`src/adapters/mcp/session-workspace.ts`) gained an
+  optional `probe: true` mode returning PR number + latest review state, commits-ahead-of-base,
+  dirty-file count, and `handoff.md` presence/first-lines in one call. Shape assembly is the pure
   `buildDispatchRecoveryProbe` in `packages/domain/src/session/dispatch-recovery-probe.ts`.
-- **Resume protocol:** the `/orchestrate` skill's "Dispatch watchdog and resume protocol" section
-  documents the decision rule — uncommitted work → checkpoint-commit first; prefer
-  SendMessage-resume of the same agent for fix rounds (memory `6038c0a1`); fresh dispatch into
-  the EXISTING session only when the transcript is unusable.
+- **Auto-recovery (mt#2831):** the `tasks.dispatch-recover` MCP command
+  (`src/adapters/shared/commands/tasks/dispatch-recover-command.ts`) is the server-side
+  detect/classify/prepare half of the recovery protocol — server-side code cannot spawn harness
+  subagents, so it never dispatches anything. Given a taskId, it reuses the same
+  `dispatch-recovery-probe.ts` shape as the `session.status` probe above, classifies the outcome
+  per the subagent-outcome taxonomy
+  (`packages/domain/src/session/dispatch-recovery-classifier.ts` — committed-no-pr /
+  partial-committed-handoff-written / partial-uncommitted-no-handoff / crashed-no-output), and
+  returns a ready-to-dispatch, session-bound `continuationPrompt`. A healthy (not-yet-stale)
+  in-flight dispatch is left untouched (`status: "healthy"`). The 2-attempt bound is enforced
+  server-side by reading the latest invocation's `attemptNumber` — a 3rd recover call for the
+  same chain refuses and returns an escalation package instead of a prompt. Retries are linked
+  in `subagent_invocations` via `resumedFromInvocationId` / `attemptNumber`
+  (`SubagentDispatchTracker.recordDispatchRecoveryAttempt`).
+- **Resume protocol (agent-side execution, mt#2646 + mt#2831):** the `/orchestrate` skill's
+  "Dispatch watchdog and resume protocol" section documents the walkthrough: call
+  `tasks.dispatch-recover`, then act on its `status` — redispatch `continuationPrompt` verbatim
+  via the Agent tool into the SAME session on `"recover"`, do nothing on `"healthy"`, surface the
+  escalation summary to the operator on `"escalate"`.
 
 **Why this exists.** During the mt#2607 burndown (~14 implementer dispatches, 2026-07-06/07), 5
 dispatches ended without a usable completion report — two stalled silently mid-review-convergence
@@ -97,6 +116,8 @@ kept in sync by contract.
 **Cross-references:**
 
 - mt#2646 — this hook's tracking task (watchdog detection + probe + resume protocol)
+- mt#2831 — subagent dispatch auto-recovery: `tasks.dispatch-recover` (server-side
+  detect/classify/prepare) + this hook's + `/orchestrate`'s agent-side execution codification
 - mt#2607 — the burndown session that surfaced the originating incident
 - mt#2506 `inject-prod-state.ts` — the architectural template (cost-aware producer/consumer split)
 - mt#2275 `inject-git-state.ts` / mt#2181 `inject-current-time.ts` — sibling injection hooks

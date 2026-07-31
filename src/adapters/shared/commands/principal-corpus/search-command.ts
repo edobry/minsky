@@ -5,17 +5,11 @@
 
 import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
-import type { CommandExecutionContext } from "../../command-registry";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
 import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
 import type { TweetMetadata } from "@minsky/domain/principal-corpus/types";
 import { resolvePersistenceFromCtx } from "../principal-corpus";
-
-export interface PrincipalCorpusSearchParams {
-  query: string;
-  limit?: number;
-  json?: boolean;
-}
 
 export const principalCorpusSearchParams = composeParams(
   {
@@ -43,7 +37,7 @@ export class PrincipalCorpusSearchCommand {
   readonly parameters = principalCorpusSearchParams;
 
   async execute(
-    params: PrincipalCorpusSearchParams,
+    params: InferParams<typeof principalCorpusSearchParams>,
     ctx: CommandExecutionContext
   ): Promise<{
     success: boolean;

@@ -1,37 +1,117 @@
 /**
- * Agents widget frontend (mt#1145, mt#1924)
+ * Agents widget frontend (mt#1145, mt#1924; unified run list per mt#2767)
  *
- * Displays running sessions/agents in a compact table. Self-fetching via
+ * Displays the unified agent-run list — workspace sessions ("dispatched
+ * agent"), standalone harness conversations ("principal conversation"), and
+ * collapsed subagent groups — in a compact table. Self-fetching via
  * TanStack Query (5-second refetch interval).
  *
  * mt#1924: Added pagination, sorting, and filtering controls with URL param
  * persistence. Controls use prefix "ag" to namespace params.
+ * mt#2767: Added the kind filter/badge, subagent expand/collapse, and the
+ * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
+ * same mechanism the retired `/conversations` page used).
  */
-import { useCallback } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  ChevronDown,
+  ChevronRight,
+  ArrowUpRight,
+  Terminal,
+  AppWindow,
+  Unlink,
+  Anchor,
+  X,
+} from "lucide-react";
+import { dispatchModelLabelForCanonicalId } from "@minsky/domain/ai/dispatch-models";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
+import { useFocusAttachment } from "../hooks/useFocusAttachment";
+import { basePathFor, pathForTab } from "./RunDetail";
+import { cn } from "../lib/utils";
+import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
+import { ConversationSearchPanel } from "./ConversationSearchPanel";
+import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
+import { fetchAsks, type AsksListResponse } from "./AskDetail";
+import { useProject } from "../lib/project-context";
+import { AgentDrivenPeek } from "./AgentDrivenPeek";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
+
+/** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
+type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
+
+/**
+ * Row attachment-state indicator (mt#2286) — mirrors the server-side
+ * RowAttachState (src/cockpit/attachment-state.ts). Only ever populated for
+ * `kind: "dispatched-agent"` rows; `null` for every other kind and for a
+ * dispatched-agent row whose lookup degraded server-side.
+ */
+type RowAttachState = "attached-external" | "in-cockpit" | "detached";
+
+/** One nested subagent conversation, collapsed under a parent run's row. */
+interface SubagentEntry {
+  conversationId: string;
+  label: string;
+  cwd: string | null;
+  startedAt: string | null;
+  /** Terminal timestamp; null = still running (mt#2884). */
+  endedAt: string | null;
+  /** Model the subagent ran on (mt#3070); null = unknown (never a guess). */
+  model: string | null;
+}
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
-interface AgentRow {
+// Exported for direct unit testing (Agents.routing.test.ts — resolveGoToAction).
+export interface AgentRow {
   sessionId: string;
+  kind: RunKind;
   title: string;
-  liveness: "healthy" | "idle" | "stale" | "orphaned";
+  liveness: Liveness;
   taskId: string | null;
   taskTitle: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
   agentId: string | null;
+  conversationId: string | null;
+  cwd: string | null;
+  subagents: SubagentEntry[];
+  /** Model the row's own conversation ran on (mt#3070); null = unknown (never a guess). */
+  model: string | null;
+  /** App-started driven-session binding (mt#2752) — the driven-vs-observed
+   *  marker (SC4): non-null rows carry the input affordance. */
+  driven: { sessionId: string; status: string } | null;
+  /** Attachment-state indicator (mt#2286) — see the RowAttachState doc comment above. */
+  attachState: RowAttachState | null;
+  /**
+   * Local-Minsky-only iTerm-tab binding (mt#1628). Distinct question from
+   * `attachState`: attachState says "is *something* self-registered as
+   * live"; this says "specifically, is a currently-open iTerm2 tab bound to
+   * this session." `null` for non-workspace rows (driven/conversation
+   * rows); `{ kind: "unbound" }` for a workspace row that has never been
+   * observed as bound (the server-side default, not "no data").
+   */
+  interfaceBinding: { kind: string; surfaceId?: string; lastObservedAt: string } | null;
 }
 
 interface AgentsPayload {
   agents: AgentRow[];
   totalCount: number;
+  /**
+   * Workspace rows the server's default activity bound withheld (mt#3118).
+   * OPTIONAL on this side on purpose: a client running against an older
+   * daemon build (or a payload still in the TanStack cache from before the
+   * field existed) must keep rendering, so the guard below does not require
+   * it and the UI treats `undefined` as "nothing hidden".
+   */
+  hiddenInactiveCount?: number;
 }
 
 // Narrows the shared `WidgetData` envelope to the agents-specific payload shape.
@@ -44,42 +124,146 @@ function isAgentsPayload(payload: unknown): payload is AgentsPayload {
   );
 }
 
-async function fetchAgents(): Promise<WidgetData> {
-  return fetchWidgetData("agents");
+async function fetchAgents(
+  queryParam?: { project: string },
+  includeInactive?: boolean
+): Promise<WidgetData> {
+  // Only send the param when enabling — omitting it keeps the default-view URL
+  // (and therefore the server-side query) identical to the pre-mt#3118 shape.
+  return fetchWidgetData(
+    "agents",
+    includeInactive ? { ...(queryParam ?? {}), includeInactive: "true" } : queryParam
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Kind badge
+// ---------------------------------------------------------------------------
+
+/**
+ * Kind badge colors (mt#2917 register pass).
+ *
+ * "dispatched-agent" ("Agent") is de-emphasized to a bare label with no
+ * pill fill — it's the dominant kind on this list (the mt#2914 audit found
+ * it on nearly every row), so a filled chip on every row was bulk visual
+ * noise that drowned the exceptional kinds. "Conversation" and "Driven"
+ * moved off raw Tailwind palette (bg-sky-500, bg-amber-500 — neither a
+ * declared brand token) onto signal-cyan / warn-amber respectively, so
+ * every colored chip in the app traces back to the same token set.
+ */
+const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> = {
+  "dispatched-agent": { label: "Agent", className: "text-muted-foreground" },
+  "principal-conversation": {
+    label: "Conversation",
+    className: "bg-signal-cyan/15 text-signal-cyan",
+  },
+  "subagent-group": { label: "Subagent", className: "bg-muted text-muted-foreground" },
+  // mt#2752 — app-started driven sessions: the amber tint marks "you can type
+  // here" (input affordance), vs the read-only observe rows above (SC4).
+  "driven-session": { label: "Driven", className: "bg-warn-amber/15 text-warn-amber" },
+};
+
+/**
+ * Small "Driven" chip attached to a WORKSPACE row whose session was launched
+ * from the app (mt#2752) — links straight to the drive view. Distinct from
+ * the kind badge: the row's kind stays "dispatched-agent" (it IS a workspace
+ * row); this chip is the input affordance marker.
+ */
+function DrivenChip({ driven }: { driven: NonNullable<AgentRow["driven"]> }) {
+  const active = driven.status === "running" || driven.status === "spawned";
+  return (
+    <Link
+      to={`/driven/${encodeURIComponent(driven.sessionId)}`}
+      onClick={(e) => e.stopPropagation()}
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 transition-colors ${
+        active
+          ? "bg-warn-amber/15 text-warn-amber hover:bg-warn-amber/25"
+          : "bg-muted text-muted-foreground hover:bg-accent"
+      }`}
+      aria-label={`Open driven session (${driven.status})`}
+    >
+      Driven{active ? "" : ` (${driven.status})`}
+    </Link>
+  );
+}
+
+function KindBadge({ kind }: { kind: RunKind }) {
+  const cfg = KIND_BADGE_CONFIG[kind];
+  return (
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${cfg.className}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+/**
+ * Compact model badge (mt#3070) — per-node/per-row model visibility, the
+ * "Agents" entity field the cockpit-design skill already names ("Model:
+ * sonnet/opus/haiku (badge)"). Maps a full model id (e.g. "claude-sonnet-5",
+ * the shape stored in `agent_transcripts.model`) to the dispatch-model
+ * registry's short label ("Sonnet") where the mapping is clean; falls back
+ * to the raw id when the id isn't in the registry (an older dated id, or a
+ * future tier not yet added there) — never hides the value, never guesses
+ * at one it doesn't recognize.
+ *
+ * Neutral (bg-muted) styling deliberately mirrors the PR-number badge
+ * rather than the kind/needs-me badges — this is supplementary metadata,
+ * not a second status channel, so it must not compete visually with the
+ * liveness dot or the needs-me badge (cockpit-design: dual-channel status
+ * untouched).
+ *
+ * `null` (no model recorded) renders as an explicit muted dash — never a
+ * wrong guess or a crash (mt#3070 success criterion).
+ */
+function ModelBadge({ model }: { model: string | null }) {
+  if (model == null) {
+    return (
+      <span
+        className="text-xs text-muted-foreground/40 flex-shrink-0"
+        aria-label="Model unknown"
+        title="Model unknown"
+      >
+        &ndash;
+      </span>
+    );
+  }
+  const label = dispatchModelLabelForCanonicalId(model) ?? model;
+  return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0"
+      title={model}
+    >
+      {label}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
-type AgentSortKey = "lastActivityAt" | "sessionId" | "liveness";
+type AgentSortKey = "needsMe" | "lastActivityAt" | "sessionId" | "liveness";
 
-interface AgentFilters {
+type AgentFilters = {
   liveness: "all" | "healthy" | "idle" | "stale" | "orphaned";
   taskId: string; // empty string = no filter
-}
+  kind: "all" | RunKind;
+};
 
 const DEFAULT_FILTERS: AgentFilters = {
   liveness: "all",
   taskId: "",
+  kind: "all",
 };
 
 // ---------------------------------------------------------------------------
 // Liveness helpers
 // ---------------------------------------------------------------------------
-
-function livenessDotClass(liveness: AgentRow["liveness"]): string {
-  switch (liveness) {
-    case "healthy":
-      return "bg-liveness-healthy";
-    case "idle":
-      return "bg-liveness-idle";
-    case "stale":
-      return "bg-liveness-stale";
-    case "orphaned":
-      return "bg-liveness-orphaned";
-  }
-}
+// livenessDotClass lives in ../lib/liveness-colors.ts (imported above) —
+// RunDetail.tsx needs it too, and this widget already imports basePathFor /
+// pathForTab FROM RunDetail.tsx, so a shared lib avoids a module cycle.
 
 function livenessLabel(liveness: AgentRow["liveness"]): string {
   switch (liveness) {
@@ -91,16 +275,20 @@ function livenessLabel(liveness: AgentRow["liveness"]): string {
       return "stale";
     case "orphaned":
       return "orphaned";
+    case null:
+      return "n/a";
   }
 }
 
-// Numeric order for sorting: healthy > idle > stale > orphaned
-const LIVENESS_ORDER: Record<AgentRow["liveness"], number> = {
+// Numeric order for sorting: healthy > idle > stale > orphaned; conversation-
+// derived rows (no workspace liveness) sort after all of them.
+const LIVENESS_ORDER: Record<string, number> = {
   healthy: 0,
   idle: 1,
   stale: 2,
   orphaned: 3,
 };
+const LIVENESS_ORDER_NULL = 4;
 
 // ---------------------------------------------------------------------------
 // Relative-time helper — no external dep
@@ -148,8 +336,13 @@ interface ControlBarProps {
   onSort: (key: AgentSortKey) => void;
   onFilterLiveness: (value: AgentFilters["liveness"]) => void;
   onFilterTaskId: (value: string) => void;
+  onFilterKind: (value: AgentFilters["kind"]) => void;
   onPageSize: (size: number) => void;
   onClearFilters: () => void;
+  /** Workspace rows withheld by the server-side activity bound (mt#3118). */
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
 }
 
 function AgentsControlBar({
@@ -162,13 +355,35 @@ function AgentsControlBar({
   onSort,
   onFilterLiveness,
   onFilterTaskId,
+  onFilterKind,
   onPageSize,
   onClearFilters,
+  hiddenInactiveCount,
+  includeInactive,
+  onIncludeInactive,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so "Per page:" cannot collide with the
+  // identically-labelled control bars in TaskList / Workstreams.
+  const livenessLabelId = useId();
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Sort:</span>
+      <button
+        onClick={() => onSort("needsMe")}
+        className={`text-xs px-2 py-1 rounded border transition-colors ${
+          sortKey === "needsMe"
+            ? "border-primary bg-primary/10 text-foreground"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+        }`}
+        aria-pressed={sortKey === "needsMe"}
+      >
+        Needs me
+        <SortIndicator active={sortKey === "needsMe"} dir={sortDir} />
+      </button>
       <button
         onClick={() => onSort("lastActivityAt")}
         className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -197,19 +412,50 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Liveness:</span>
-      <select
-        value={filters.liveness}
-        onChange={(e) => onFilterLiveness(e.target.value as AgentFilters["liveness"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by liveness"
+      <span
+        id={livenessLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        <option value="all">All</option>
-        <option value="healthy">Healthy</option>
-        <option value="idle">Idle</option>
-        <option value="stale">Stale</option>
-        <option value="orphaned">Orphaned</option>
-      </select>
+        Liveness:
+      </span>
+      <Select
+        value={filters.liveness}
+        onValueChange={(v) => onFilterLiveness(v as AgentFilters["liveness"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={livenessLabelId}
+          title="Filter by liveness"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="healthy">Healthy</SelectItem>
+          <SelectItem value="idle">Idle</SelectItem>
+          <SelectItem value="stale">Stale</SelectItem>
+          <SelectItem value="orphaned">Orphaned</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Activity bound (mt#3118). The default view drops workspaces quiet
+          past the threshold; this restores them. The count is rendered in the
+          label so the bound announces itself rather than silently truncating
+          — the operator can see there IS more, and how much. */}
+      {(hiddenInactiveCount > 0 || includeInactive) && (
+        <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+          <Checkbox
+            checked={includeInactive}
+            onCheckedChange={(v) => onIncludeInactive(v === true)}
+            aria-label={
+              includeInactive
+                ? "Hide workspaces inactive past the activity window"
+                : `Show ${hiddenInactiveCount} inactive workspace${hiddenInactiveCount === 1 ? "" : "s"}`
+            }
+          />
+          {controlBarLabel(hiddenInactiveCount, includeInactive)}
+        </label>
+      )}
 
       {/* Task ID filter */}
       <span className="text-xs text-muted-foreground ml-1">Task:</span>
@@ -224,20 +470,55 @@ function AgentsControlBar({
 
       <span className="text-border mx-1">|</span>
 
-      {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
-      <select
-        value={pageSize}
-        onChange={(e) => onPageSize(Number(e.target.value))}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Items per page"
+      {/* Kind filter (mt#2767) */}
+      <span
+        id={kindLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        {pageSizeOptions.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
+        Kind:
+      </span>
+      <Select
+        value={filters.kind}
+        onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={kindLabelId}
+          title="Filter by kind"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="dispatched-agent">Agent</SelectItem>
+          <SelectItem value="principal-conversation">Conversation</SelectItem>
+          <SelectItem value="subagent-group">Subagent</SelectItem>
+          <SelectItem value="driven-session">Driven</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <span className="text-border mx-1">|</span>
+
+      {/* Page size */}
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
+      <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {pageSizeOptions.map((n) => (
+            <SelectItem key={n} value={String(n)}>
+              {n}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Clear filters */}
       {hasActiveFilters && (
@@ -307,30 +588,447 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 }
 
 // ---------------------------------------------------------------------------
+// Live-tail pulse indicator — mirrors the retired ConversationsPage's dot
+// (mt#2749's useActiveConversationSessions), now surfaced on the unified list.
+// ---------------------------------------------------------------------------
+
+function LiveDot() {
+  return (
+    <span
+      // mt#2917: bg-signal-cyan / animate-status-dot (the brand's 1.6s
+      // status-dot pulse, docs/brand-system.md §3) — was a raw Tailwind
+      // color (bg-emerald-400) + the generic Tailwind animate-pulse, neither
+      // going through the declared token/motion system. This dot reflects a
+      // real live-tail state (an active conversation), so the pulse is
+      // honest motion, not decoration.
+      className="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-signal-cyan animate-status-dot"
+      aria-label="live"
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row-open target (mt#2767 kind-aware routing)
+//
+// - dispatched-agent: the workspace detail route (unchanged, mt#1919).
+// - principal-conversation: the conversation detail route (mt#2398).
+// - subagent-group: no single detail route (it's a synthetic collapsed
+//   container, not a real entity) — the row toggles expand instead of
+//   navigating; individual nested entries below link to their own
+//   conversation.
+// ---------------------------------------------------------------------------
+
+function rowPath(agent: AgentRow): string | null {
+  if (agent.kind === "dispatched-agent") return `/agents/${encodeURIComponent(agent.sessionId)}`;
+  if (agent.kind === "principal-conversation") {
+    return `/conversation/${encodeURIComponent(agent.sessionId)}`;
+  }
+  // mt#2752 — a standalone driven-session row opens the drive view (the
+  // input-capable surface); a workspace row with a driven session attached
+  // keeps its workspace-detail route and gets a DrivenChip link instead.
+  if (agent.kind === "driven-session") return `/driven/${encodeURIComponent(agent.sessionId)}`;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// "Go to" action routing (mt#2286)
+//
+// Distinct from rowPath() above: rowPath() is the row's PRIMARY click target
+// (a dispatched-agent row lands on the Overview tab, unchanged since
+// mt#1919). This explicit per-row action routes by mt#2284 attachment state
+// instead — an externally-attached session hits the focus endpoint (raises
+// the operator's own terminal); an in-cockpit/no-terminal-context session (or
+// any row kind with no attachment concept at all) navigates straight to the
+// run's Conversation tab, since that's the point of "going to" a run rather
+// than its Overview.
+// ---------------------------------------------------------------------------
+
+export type GoToAction =
+  | { type: "focus"; sessionId: string }
+  | { type: "navigate"; path: string }
+  | { type: "disabled"; reason: string };
+
+/** Exported for direct unit testing (Agents.routing.test.ts) — pure, no React/router dependency. */
+export function resolveGoToAction(agent: AgentRow): GoToAction {
+  if (agent.kind === "subagent-group") {
+    // Synthetic collapsed container, not a real entity (mirrors rowPath()'s
+    // treatment above) — nothing to go to until it's expanded.
+    return { type: "disabled", reason: "Expand the row to open a subagent conversation" };
+  }
+  if (agent.kind === "driven-session") {
+    // Inherently app-started ("in-cockpit" by construction) — no attachment
+    // lookup applies.
+    return { type: "navigate", path: `/driven/${encodeURIComponent(agent.sessionId)}` };
+  }
+  if (agent.kind === "principal-conversation") {
+    return {
+      type: "navigate",
+      path: pathForTab(
+        basePathFor("conversation", agent.sessionId),
+        "conversation",
+        "conversation"
+      ),
+    };
+  }
+
+  // dispatched-agent — the only kind whose sessionId is a Minsky workspace
+  // sessionId, the grain mt#2284's attachState is keyed on.
+  switch (agent.attachState) {
+    case "attached-external":
+      return { type: "focus", sessionId: agent.sessionId };
+    case "in-cockpit":
+      return {
+        type: "navigate",
+        path: pathForTab(basePathFor("workspace", agent.sessionId), "workspace", "conversation"),
+      };
+    case "detached":
+      return { type: "disabled", reason: "Nothing attached" };
+    case null:
+      // The lookup failed/degraded server-side this cycle (agents.ts logs a
+      // warning) — behaviorally the same fail-closed "disabled" outcome as
+      // "detached" (never guess whether there's something to focus), but the
+      // operator-facing text says so honestly rather than falsely asserting
+      // "nothing attached" when the real answer is "unknown" (mt#2286 R1
+      // review finding — distinguishes a genuine detached state from a
+      // degraded/unavailable read).
+      return { type: "disabled", reason: "Attachment status unavailable" };
+  }
+}
+
+const ATTACH_STATE_CONFIG: Record<
+  RowAttachState,
+  { icon: typeof Terminal; label: string; dim?: boolean }
+> = {
+  "attached-external": { icon: Terminal, label: "Attached — external terminal" },
+  "in-cockpit": { icon: AppWindow, label: "Attached — in-cockpit" },
+  detached: { icon: Unlink, label: "Nothing attached", dim: true },
+};
+
+/**
+ * Small attachment-state indicator (mt#2286 SC) — distinct from the liveness
+ * dot (activity-recency) and the live-tail pulse (active-conversation), so it
+ * intentionally stays subtle (muted, icon-only, no color-coding) in an
+ * already-dense row.
+ */
+function AttachStateIndicator({ state }: { state: AgentRow["attachState"] }) {
+  if (state == null) return null;
+  const cfg = ATTACH_STATE_CONFIG[state];
+  const Icon = cfg.icon;
+  return (
+    <span
+      title={cfg.label}
+      aria-label={cfg.label}
+      className={cn(
+        "flex-shrink-0",
+        cfg.dim ? "text-muted-foreground/30" : "text-muted-foreground"
+      )}
+    >
+      <Icon className="h-3 w-3" />
+    </span>
+  );
+}
+
+/**
+ * Lightweight iTerm-tab-binding indicator (mt#1628 v0). Distinct from
+ * `AttachStateIndicator` above — see the field doc comment on
+ * `AgentRow.interfaceBinding`. Renders only for the confirmed-bound case
+ * (`kind: "iterm-tab"`); an `unbound` session shows no icon at all, matching
+ * this row's already-established "absence communicates the negative state"
+ * convention (see `AttachStateIndicator`'s `detached` case, which DOES
+ * render, but dimmed — this is deliberately even lighter-weight per the
+ * task spec's "lightweight cockpit hook" framing for v0).
+ */
+function InterfaceBindingIndicator({ binding }: { binding: AgentRow["interfaceBinding"] }) {
+  if (binding == null || binding.kind !== "iterm-tab") return null;
+  const label = "Bound to a live iTerm2 tab";
+  return (
+    <span title={label} aria-label={label} className="flex-shrink-0 text-muted-foreground">
+      <Anchor className="h-3 w-3" />
+    </span>
+  );
+}
+
+/**
+ * The explicit "go to" row action (mt#2286). Rendered as a SIBLING of the
+ * row's main Link/button, not nested inside it — the row already nests a
+ * DrivenChip <Link> inside the outer row <Link> (pre-existing), and adding a
+ * second nested interactive element would compound that rather than fix it.
+ *
+ * Exported for direct unit testing (Agents.hookorder.test.tsx) — mirrors the
+ * existing `resolveGoToAction` export.
+ */
+export function GoToActionButton({ agent }: { agent: AgentRow }) {
+  const navigate = useNavigate();
+  const focusMutation = useFocusAttachment();
+  const action = resolveGoToAction(agent);
+
+  // mt#3110 fix: this hook must run unconditionally on every render. Each
+  // row's GoToActionButton instance is keyed by sessionId and persists
+  // across the widget's 5s poll ticks (Agents.tsx refetchInterval); if
+  // agent.attachState (and therefore action.type) flips between "disabled"
+  // and a non-disabled value across two poll responses, calling useEffect
+  // only on the non-disabled branch changes the hook count between renders
+  // for the SAME component instance — React's "Rendered more/fewer hooks
+  // than during the previous render" (error #310). Computing outcomeShowing
+  // and calling useEffect here, BEFORE the early return below, keeps hook
+  // count constant regardless of action.type; the effect still no-ops via
+  // `if (!outcomeShowing) return;` when there is nothing to auto-dismiss
+  // (the disabled branch never calls focusMutation.mutate, so
+  // outcomeShowing stays false there — behaviorally unchanged).
+  const outcomeShowing = focusMutation.isSuccess || focusMutation.isError;
+
+  // Auto-dismiss the transient outcome message (mt#2286 R1 review finding:
+  // the prior version had no timeout/dismissal, so a stale outcome could
+  // persist indefinitely across the widget's 5s polling refetches, and a
+  // screen-reader user reading the live region had no way to move past it).
+  // Runs `focusMutation.reset()`, which clears isSuccess/isError and
+  // unmounts the message below — NOT a page/DOM focus change, which would be
+  // the wrong move for a polite/assertive live-region announcement.
+  useEffect(() => {
+    if (!outcomeShowing) return;
+    const timer = setTimeout(() => focusMutation.reset(), 8000);
+    return () => clearTimeout(timer);
+    // Deps intentionally exclude focusMutation: its identity is stable across
+    // TanStack Query re-renders for a given hook instance, and re-running this
+    // effect on every render (from including the whole mutation object) would
+    // restart the timer on unrelated re-renders.
+  }, [outcomeShowing]);
+
+  if (action.type === "disabled") {
+    return (
+      <span
+        title={action.reason}
+        aria-label={`Go to (disabled — ${action.reason})`}
+        className="flex-shrink-0 p-1 text-muted-foreground/30"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (action.type === "navigate") {
+      navigate(action.path);
+      return;
+    }
+    // Unreachable at runtime — the "disabled" case returned above, before this
+    // handler was ever constructed. Kept because it is load-bearing for the
+    // TYPE: TypeScript does not carry the outer early-return narrowing of
+    // `action` into a closure, so without this guard `action.sessionId` below
+    // fails to compile (TS2339 on the disabled variant). Deleting it as dead
+    // code breaks the build — verified, PR #2253 R1.
+    if (action.type === "disabled") {
+      return;
+    }
+    focusMutation.mutate(action.sessionId);
+  }
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    focusMutation.reset();
+  }
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={focusMutation.isPending}
+        title={action.type === "focus" ? "Raise the attached terminal" : "Go to conversation"}
+        aria-label="Go to"
+        className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </button>
+      {focusMutation.isSuccess && (
+        <span
+          role="status"
+          className={cn(
+            "absolute right-0 top-full z-10 mt-1 flex max-w-[16rem] items-start gap-1.5 whitespace-normal rounded border px-2 py-1 text-xs shadow-sm",
+            focusMutation.data.success
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+              : "border-amber-500/40 bg-amber-500/10 text-amber-600"
+          )}
+        >
+          <span className="flex-1">{focusMutation.data.message}</span>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="flex-shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      )}
+      {focusMutation.isError && (
+        <span
+          role="alert"
+          className="absolute right-0 top-full z-10 mt-1 flex max-w-[16rem] items-start gap-1.5 whitespace-normal rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive shadow-sm"
+        >
+          <span className="flex-1">{focusMutation.error.message}</span>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="flex-shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nested subagent row (collapsed under its parent by default)
+// ---------------------------------------------------------------------------
+
+/**
+ * Needs-me badge — the SECOND status channel (mt#2884): "does this run need
+ * the human" rendered independently of "is it alive" (the liveness dot).
+ * Working/idle/done bands render nothing — absence of a badge IS the calm
+ * state; only the two attention bands mark themselves.
+ */
+function NeedsMeBadge({ band }: { band: NeedsMeBand }) {
+  if (band === "needs-input") {
+    return (
+      <span className="rounded bg-warn-amber/40 px-1.5 py-0.5 text-xs font-medium text-foreground flex-shrink-0">
+        needs you
+      </span>
+    );
+  }
+  if (band === "review") {
+    return (
+      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-xs text-foreground flex-shrink-0">
+        in review
+      </span>
+    );
+  }
+  return null;
+}
+
+function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: boolean }) {
+  const elapsed = subagentElapsed(entry.startedAt, entry.endedAt);
+  const running = isLive || (entry.startedAt != null && entry.endedAt == null);
+  return (
+    <Link
+      to={`/conversation/${encodeURIComponent(entry.conversationId)}`}
+      className="flex items-center gap-2 py-1 pl-8 border-b border-border/60 last:border-0 hover:bg-accent/40 transition-colors rounded-sm"
+      aria-label={`Open subagent conversation ${entry.label}`}
+    >
+      <KindBadge kind="subagent-group" />
+      <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm truncate">
+        {entry.label}
+        {isLive && <LiveDot />}
+      </span>
+      {/* Model badge (mt#3070) — alongside the elapsed/liveness display per
+          the tree's existing convention. */}
+      <ModelBadge model={entry.model} />
+      {/* Elapsed + terminal state (mt#2884, subsumes mt#2041): running nodes
+          show live elapsed; ended nodes show total runtime. */}
+      {elapsed && (
+        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+          {running ? `${elapsed} · running` : `${elapsed} · ended`}
+        </span>
+      )}
+      <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+        {entry.startedAt ? formatRelative(entry.startedAt) : ""}
+      </span>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Agent row component
 // ---------------------------------------------------------------------------
 
-function AgentRowItem({ agent }: { agent: AgentRow }) {
+/**
+ * Expand/collapse toggle aria-label (mt#2912 review R1) — a row can carry
+ * subagents, a driven binding, both, or neither. Building the label from the
+ * SET of what's expandable (rather than a nested ternary that only ever
+ * named one thing) keeps a dual-affordance row's label honest: "Expand
+ * subagents" on a row that ALSO has a driven peek waiting under the same
+ * toggle undersells what expanding it reveals.
+ */
+function expandToggleLabel(
+  hasSubagents: boolean,
+  hasDrivenBinding: boolean,
+  expanded: boolean
+): string {
+  const parts: string[] = [];
+  if (hasSubagents) parts.push("subagents");
+  if (hasDrivenBinding) parts.push("driven session");
+  return `${expanded ? "Collapse" : "Expand"} ${parts.join(" and ")}`;
+}
+
+function AgentRowItem({
+  agent,
+  activeConversationIds,
+  band,
+}: {
+  agent: AgentRow;
+  activeConversationIds: Set<string>;
+  band: NeedsMeBand;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const label = livenessLabel(agent.liveness);
-  return (
-    <Link
-      to={`/agents/${encodeURIComponent(agent.sessionId)}`}
-      className="flex items-center gap-3 py-1.5 border-b border-border last:border-0 hover:bg-accent/50 transition-colors rounded-sm"
-      aria-label={`Open session ${agent.sessionId}`}
-    >
-      {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
-          spam on the 5s polling refetch; the label is read when the dot receives focus. */}
-      <span
-        aria-label={`Liveness: ${label}`}
-        className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
-      />
+  const path = rowPath(agent);
+  const hasSubagents = agent.subagents.length > 0;
+  // mt#2912 — a row with an active driven binding (either a dispatched-agent
+  // row annotated via the DrivenChip, or a standalone driven-session row)
+  // gets a peek expansion too, alongside/independent of the subagent tree.
+  const hasDrivenBinding = agent.driven != null;
+  const expandable = hasSubagents || hasDrivenBinding;
+  const isLive = activeConversationIds.has(agent.conversationId ?? agent.sessionId);
+
+  const body = (
+    <>
+      {/* Liveness dot — only meaningful for workspace rows; passive
+          `aria-label` (no `role="status"`) avoids screen-reader spam on the
+          5s polling refetch; the label is read when the dot receives focus. */}
+      {agent.liveness != null ? (
+        <span
+          aria-label={`Liveness: ${label}`}
+          className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
+        />
+      ) : (
+        <span className="inline-block h-2 w-2 flex-shrink-0" aria-hidden />
+      )}
+
+      <KindBadge kind={agent.kind} />
+
+      {/* Attachment-state indicator (mt#2286) — distinct from the liveness
+          dot and the live-tail pulse; null (hidden) for every kind other
+          than dispatched-agent. */}
+      <AttachStateIndicator state={agent.attachState} />
+
+      {/* iTerm-tab binding indicator (mt#1628 v0) — local-Minsky-only;
+          hidden (renders null) for unbound/non-workspace rows. */}
+      <InterfaceBindingIndicator binding={agent.interfaceBinding} />
 
       {/* Primary label: task title when available, branch/sessionId as fallback.
           The taskId secondary line gives the operator the canonical reference. */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{agent.taskTitle ?? agent.title}</span>
+        <span className="text-sm font-medium truncate flex items-center gap-1.5">
+          {agent.taskTitle ?? agent.title}
+          {isLive && <LiveDot />}
+        </span>
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
+
+      {/* Needs-me badge (mt#2884) — the SECOND status channel, independent of
+          the liveness dot: "does this run need the human" vs "is it alive". */}
+      <NeedsMeBadge band={band} />
+
+      {/* Driven chip — workspace rows with an app-started driven session
+          (mt#2752). Standalone driven rows already navigate to /driven/:id
+          via rowPath, so the chip is only for the annotated-workspace case. */}
+      {agent.kind === "dispatched-agent" && agent.driven && <DrivenChip driven={agent.driven} />}
 
       {/* PR badge */}
       {agent.prNumber != null && (
@@ -340,11 +1038,92 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
         </span>
       )}
 
+      {/* Model badge (mt#3070) — top-level run rows show model where known. */}
+      <ModelBadge model={agent.model} />
+
       {/* Last activity */}
       <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
         {formatRelative(agent.lastActivityAt)}
       </span>
-    </Link>
+    </>
+  );
+
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="flex items-center gap-2">
+        {/* Expand/collapse toggle — subagent tree and/or driven peek
+            (mt#2912); always reserves a column so rows without either stay
+            aligned with rows that have one. */}
+        {expandable ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-label={expandToggleLabel(hasSubagents, hasDrivenBinding, expanded)}
+            aria-expanded={expanded}
+            className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : (
+          <span className="w-[18px] flex-shrink-0" aria-hidden />
+        )}
+
+        {path ? (
+          <Link
+            to={path}
+            className={cn(
+              "flex flex-1 min-w-0 items-center gap-3 py-1.5 hover:bg-accent/50 transition-colors rounded-sm"
+            )}
+            aria-label={`Open ${
+              agent.kind === "dispatched-agent"
+                ? "session"
+                : agent.kind === "driven-session"
+                  ? "driven session"
+                  : "conversation"
+            } ${agent.sessionId}`}
+          >
+            {body}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="flex flex-1 min-w-0 items-center gap-3 py-1.5 text-left hover:bg-accent/30 transition-colors rounded-sm"
+          >
+            {body}
+          </button>
+        )}
+
+        {/* Explicit "go to" action (mt#2286) — a SIBLING of the row Link
+            above, not nested inside it (the row Link already nests a
+            DrivenChip Link; this stays out of that). */}
+        <GoToActionButton agent={agent} />
+      </div>
+
+      {hasSubagents && expanded && (
+        <div className="flex flex-col">
+          {agent.subagents.map((entry) => (
+            <SubagentRowItem
+              key={entry.conversationId}
+              entry={entry}
+              isLive={activeConversationIds.has(entry.conversationId)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Driven peek (mt#2912) — respond in-place without navigating to
+          /driven/:id. Renders alongside the subagent tree above when a row
+          happens to carry both (independent mechanisms — see the
+          `hasDrivenBinding` doc comment above). */}
+      {hasDrivenBinding && expanded && agent.driven && (
+        <AgentDrivenPeek sessionId={agent.driven.sessionId} />
+      )}
+    </div>
   );
 }
 
@@ -355,16 +1134,14 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
 function AgentsTableHeader() {
   return (
     <div className="flex items-center gap-3 py-1 mb-0.5 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-20">
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-20">
         Status
       </span>
-      <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Session
-      </span>
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0">
+      <span className="flex-1 text-eyebrow font-mono uppercase text-muted-foreground">Session</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0">
         PR
       </span>
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 tabular-nums">
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 tabular-nums">
         Activity
       </span>
     </div>
@@ -377,6 +1154,7 @@ function AgentsTableHeader() {
 
 function agentFilterFn(agent: AgentRow, filters: AgentFilters): boolean {
   if (filters.liveness !== "all" && agent.liveness !== filters.liveness) return false;
+  if (filters.kind !== "all" && agent.kind !== filters.kind) return false;
   if (filters.taskId.trim() !== "") {
     const needle = filters.taskId.trim().toLowerCase();
     if (!agent.taskId?.toLowerCase().includes(needle)) return false;
@@ -393,9 +1171,18 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
       cmp = tA - tB;
       break;
     }
-    case "liveness":
-      cmp = LIVENESS_ORDER[a.liveness] - LIVENESS_ORDER[b.liveness];
+    case "liveness": {
+      const orderA =
+        a.liveness == null
+          ? LIVENESS_ORDER_NULL
+          : (LIVENESS_ORDER[a.liveness] ?? LIVENESS_ORDER_NULL);
+      const orderB =
+        b.liveness == null
+          ? LIVENESS_ORDER_NULL
+          : (LIVENESS_ORDER[b.liveness] ?? LIVENESS_ORDER_NULL);
+      cmp = orderA - orderB;
       break;
+    }
     case "sessionId":
       cmp = a.sessionId.localeCompare(b.sessionId);
       break;
@@ -414,9 +1201,92 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
 // Inner widget component (runs hooks after payload guard)
 // ---------------------------------------------------------------------------
 
-function AgentsInner({ agents }: { agents: AgentRow[] }) {
+/**
+ * Whether the control bar renders (mt#3118).
+ *
+ * The bar carries the ONLY affordance for the activity bound, so it has to
+ * survive both directions of the empty case — each disjunct is load-bearing,
+ * not defensive:
+ *
+ *  - `totalCount > 0` — the ordinary case, rows to control.
+ *  - `hiddenInactiveCount > 0` — the bound is hiding EVERYTHING. Without this
+ *    the bar vanishes exactly when the operator needs it to get rows back.
+ *  - `includeInactive` — the filter is OFF and there is genuinely nothing to
+ *    show. `includeInactive` always reports 0 hidden by construction, so both
+ *    counts are 0 and, without this disjunct, the bar disappears and the
+ *    operator cannot turn the filter back off. (PR #2235 review, non-blocking.)
+ *
+ * Exported for direct unit testing — the trap here is a render condition that
+ * looks obviously right and strands the operator in one specific state.
+ */
+export function shouldShowControlBar(counts: {
+  totalCount: number;
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+}): boolean {
+  return counts.totalCount > 0 || counts.hiddenInactiveCount > 0 || counts.includeInactive;
+}
+
+/**
+ * Visible text of the activity-bound toggle (mt#3118).
+ *
+ * The withheld COUNT has to appear in the label, not just in the payload —
+ * that is the whole point of `hiddenInactiveCount`: the bound announces what
+ * it hid rather than silently truncating. Exported so the assertion runs
+ * against this exact string builder instead of a copy in the test, which
+ * would keep passing while this drifted.
+ */
+export function controlBarLabel(hiddenInactiveCount: number, includeInactive: boolean): string {
+  return includeInactive ? "Inactive shown" : `+${hiddenInactiveCount} inactive`;
+}
+
+function AgentsInner({
+  agents,
+  hiddenInactiveCount,
+  includeInactive,
+  onIncludeInactive,
+}: {
+  agents: AgentRow[];
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
+}) {
   const filterFn = useCallback(agentFilterFn, []);
-  const sortFn = useCallback(agentSortFn, []);
+  const activeSessionsQuery = useActiveConversationSessions();
+  const activeConversationIds = activeSessionsQuery.data ?? new Set<string>();
+
+  // Needs-me join (mt#2884): open asks bound to a workspace session mark its
+  // row needs-input. Shared ["asks"] cache with TriageBand/AsksPage.
+  const asksQuery = useQuery<AsksListResponse, Error>({
+    queryKey: ["asks"],
+    queryFn: fetchAsks,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
+  const askSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of asksQuery.data?.asks ?? []) {
+      if (a.parentSessionId) ids.add(a.parentSessionId);
+    }
+    return ids;
+  }, [asksQuery.data]);
+
+  // Band-aware sort: needs-me rank first, recency within a band. Recency-only
+  // and the other keys remain selectable; needs-me is the DEFAULT (needs-me
+  // over newest, /product-thinking principle 1).
+  const sortFn = useCallback(
+    (a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir): number => {
+      if (key === "needsMe") {
+        const bandDiff =
+          BAND_RANK[needsMeBand(a, askSessionIds)] - BAND_RANK[needsMeBand(b, askSessionIds)];
+        if (bandDiff !== 0) return dir === "asc" ? bandDiff : -bandDiff;
+        const cmp = a.lastActivityAt.localeCompare(b.lastActivityAt);
+        return dir === "asc" ? -cmp : cmp; // newest-first within a band
+      }
+      return agentSortFn(a, b, key, dir);
+    },
+    [askSessionIds]
+  );
 
   const {
     pageItems,
@@ -438,8 +1308,8 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
   } = useListControls<AgentRow, AgentSortKey, AgentFilters>({
     items: agents,
     defaultPageSize: 20,
-    defaultSortKey: "lastActivityAt",
-    defaultSortDir: "desc",
+    defaultSortKey: "needsMe",
+    defaultSortDir: "asc",
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
@@ -449,7 +1319,7 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 
   return (
     <>
-      {totalCount > 0 && (
+      {shouldShowControlBar({ totalCount, hiddenInactiveCount, includeInactive }) && (
         <AgentsControlBar
           sortKey={sortKey}
           sortDir={sortDir}
@@ -460,8 +1330,12 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
           onSort={setSort}
           onFilterLiveness={(v) => setFilter("liveness", v)}
           onFilterTaskId={(v) => setFilter("taskId", v)}
+          onFilterKind={(v) => setFilter("kind", v)}
           onPageSize={setPageSize}
           onClearFilters={clearFilters}
+          hiddenInactiveCount={hiddenInactiveCount}
+          includeInactive={includeInactive}
+          onIncludeInactive={onIncludeInactive}
         />
       )}
 
@@ -478,7 +1352,12 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
         <div>
           <AgentsTableHeader />
           {pageItems.map((agent) => (
-            <AgentRowItem key={agent.sessionId} agent={agent} />
+            <AgentRowItem
+              key={agent.sessionId}
+              agent={agent}
+              activeConversationIds={activeConversationIds}
+              band={needsMeBand(agent, askSessionIds)}
+            />
           ))}
           <PaginationBar
             page={page}
@@ -499,9 +1378,11 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 
 interface AgentsBodyProps {
   query: UseQueryResult<WidgetData, Error>;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
 }
 
-function AgentsBody({ query }: AgentsBodyProps) {
+function AgentsBody({ query, includeInactive, onIncludeInactive }: AgentsBodyProps) {
   // Error state (network failure, non-200, JSON parse error)
   if (query.isError) {
     return (
@@ -524,7 +1405,14 @@ function AgentsBody({ query }: AgentsBodyProps) {
     return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
   }
 
-  return <AgentsInner agents={data.payload.agents} />;
+  return (
+    <AgentsInner
+      agents={data.payload.agents}
+      hiddenInactiveCount={data.payload.hiddenInactiveCount ?? 0}
+      includeInactive={includeInactive}
+      onIncludeInactive={onIncludeInactive}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -539,16 +1427,35 @@ interface AgentsProps {
 }
 
 export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {}) {
+  const { selectedSlug, queryParam } = useProject();
+  // mt#3118: the activity bound is a SERVER-side filter, so toggling it must
+  // refetch rather than re-filter locally — hence it lives here (where the
+  // query does) and is threaded down to the control bar, not held there.
+  const [includeInactive, setIncludeInactive] = useState(false);
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["agents"],
-    queryFn: fetchAgents,
+    // mt#2418: selectedSlug in the key so switching projects invalidates
+    // the cache and refetches immediately rather than waiting out staleTime.
+    // mt#3118: includeInactive is part of the key for the same reason — the
+    // two views are different server responses, not two slices of one.
+    queryKey: ["agents", selectedSlug, includeInactive],
+    queryFn: () => fetchAgents(queryParam, includeInactive),
     staleTime: 30_000,
     refetchInterval: 5_000,
   });
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <AgentsBody query={query} />
+      {/* mt#2523 — content/time search over past conversations, surfacing a
+          ready, directory-pinned `cd <cwd> && claude --resume <id>` hint
+          (mt#3440). Rendered above the live run list
+          (not gated on its loading/error state — search hits a separate,
+          user-triggered data source, not the polled agents list). */}
+      <ConversationSearchPanel />
+      <AgentsBody
+        query={query}
+        includeInactive={includeInactive}
+        onIncludeInactive={setIncludeInactive}
+      />
     </WidgetShell>
   );
 }

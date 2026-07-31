@@ -15,6 +15,10 @@ export const McpErrorCode = {
   CONFLICT: "CONFLICT",
   /** A pre-commit hook blocked the commit. `subprocessOutput` contains the hook stderr. */
   PRE_COMMIT_FAILED: "PRE_COMMIT_FAILED",
+  /** The upstream API (e.g. GitHub) rejected the request due to rate limiting. */
+  RATE_LIMITED: "RATE_LIMITED",
+  /** The upstream API (e.g. GitHub) is degraded or unavailable (5xx). */
+  SERVICE_DEGRADED: "SERVICE_DEGRADED",
   /** A subprocess invoked during the operation exited with a non-zero status. */
   SUBPROCESS_FAILED: "SUBPROCESS_FAILED",
   /** Input parameters failed validation. */

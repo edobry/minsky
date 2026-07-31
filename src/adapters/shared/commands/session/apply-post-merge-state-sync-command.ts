@@ -25,7 +25,10 @@ import type { PostMergeStateSyncParams } from "@minsky/domain/session/session-me
 export const applyPostMergeStateSyncCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID to sync (resolved from task if omitted)",
+    description:
+      "Session ID to sync (resolved from task if omitted) — accepts the uuid, a " +
+      "`ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy " +
+      "custom session name.",
     required: false,
   },
   task: {

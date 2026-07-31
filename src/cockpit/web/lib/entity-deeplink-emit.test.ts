@@ -31,7 +31,7 @@ function deeplink(label: string, type: RoutableEntityType, id: string): string {
 /** Extract the URL from a single `[label](url)` markdown link. */
 function linkTarget(markdown: string): string | null {
   const match = markdown.match(/\]\(([^)]+)\)/);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 // Shared fixture ids (mirror entity-codec.test.ts).
@@ -64,6 +64,32 @@ describe("Surface A deeplink emit format", () => {
 
   test("changeset ref uses PR number as id", () => {
     expect(deeplink("PR #1234", "changeset", "1234")).toBe("[PR #1234](minsky://changeset/1234)");
+  });
+});
+
+describe("short ids are a LABEL form, never a link target (mt#3259)", () => {
+  // ADR-029 §"What this ADR does NOT change": the UUID "remains canonical,
+  // unchanged, and the sole `minsky://<type>/<uuid>` deeplink target." These
+  // pin that constraint against the obvious-but-wrong shortcut of emitting
+  // `minsky://memory/mem%23728`, which would break as soon as anything tried
+  // to resolve it.
+
+  test("the canonical form pairs a short-id LABEL with a UUID target", () => {
+    expect(deeplink("mem#728", "memory", MEMORY_ID)).toBe(
+      `[mem#728](minsky://memory/${MEMORY_ID})`
+    );
+  });
+
+  test("the emitted target carries the uuid, not the short id", () => {
+    const target = linkTarget(deeplink("mem#728", "memory", MEMORY_ID)) as string;
+    expect(target).toContain(MEMORY_ID);
+    expect(target).not.toContain("mem%23728");
+    expect(target).not.toContain("mem#728");
+  });
+
+  test("a short-id label round-trips to the uuid, so the label never leaks into the id", () => {
+    const target = linkTarget(deeplink("mem#728", "memory", MEMORY_ID)) as string;
+    expect(parseMinskyUri(target)?.id).toBe(MEMORY_ID);
   });
 });
 

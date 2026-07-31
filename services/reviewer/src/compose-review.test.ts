@@ -21,6 +21,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { composeReviewBody, reconcileEventWithBlockingCount } from "./compose-review";
+import { applyRecoveryAndCompose } from "./recovery-compose";
 import type { ReviewToolCall } from "./output-tools";
 
 // Tool name constants — prevents magic-string-duplication lint warnings.
@@ -1070,8 +1071,37 @@ describe("reconcileEventWithBlockingCount (mt#2655)", () => {
     expect(result.reconciledFrom).toBeNull();
   });
 
-  test("COMMENT + blockingCount == 0 → no reconciliation", () => {
+  // ---------------------------------------------------------------------
+  // mt#3202 / ask#6013: COMMENT + zero BLOCKING → reconciled to APPROVE.
+  // Resolves the policy fork left open by mt#2655: a COMMENT verdict with
+  // no outstanding BLOCKING findings no longer requires a content-free
+  // extra round to clear the merge gate.
+  // ---------------------------------------------------------------------
+  test("mt#3202: COMMENT + blockingCount == 0 → reconciled to APPROVE (default)", () => {
     const result = reconcileEventWithBlockingCount("COMMENT", 0);
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciledFrom).toBe("COMMENT");
+  });
+
+  test("mt#3202: REQUEST_CHANGES + blockingCount == 0 → NOT promoted to APPROVE (genuine reservation preserved)", () => {
+    // The model's own REQUEST_CHANGES verdict is never overridden by this
+    // function — only COMMENT is eligible for downward reconciliation. A
+    // REQUEST_CHANGES conclusion with zero raw BLOCKING findings is exactly
+    // the "genuine reservation" shape mt#2685's empty-findings recovery pass
+    // exists to repair (by synthesizing a BLOCKING finding) upstream of this
+    // function; this function must not paper over that case on its own.
+    const result = reconcileEventWithBlockingCount("REQUEST_CHANGES", 0);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBeNull();
+  });
+
+  test("mt#3202: COMMENT + blockingCount == 0 + allowApprovePromotion:false → no reconciliation", () => {
+    // composeReviewBody's "no conclude_review call at all" fallback branch
+    // opts out of promotion — a missing conclusion is a review-process
+    // anomaly, not evidence the review is clean.
+    const result = reconcileEventWithBlockingCount("COMMENT", 0, {
+      allowApprovePromotion: false,
+    });
     expect(result.event).toBe("COMMENT");
     expect(result.reconciledFrom).toBeNull();
   });
@@ -1210,5 +1240,123 @@ describe("composeReviewBody — chunk-review label reconciliation (mt#2655)", ()
     expect(reconciliationPos).toBeGreaterThan(-1);
     expect(reconciliationPos).toBeLessThan(summaryPos);
     expect(summaryPos).toBeLessThan(findingsPos);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// composeReviewBody — COMMENT-with-zero-blocking-findings resolution
+// (mt#3202 / ask#6013)
+//
+// mt#3202 observed four instances where minsky-reviewer[bot] concluded
+// COMMENT on a review recording zero BLOCKING findings — two with exactly
+// one NON-BLOCKING finding, two with zero findings of any kind — costing an
+// extra content-free round each time. ask#6013 (operator, 2026-07-25)
+// resolved the policy fork: make the reviewer emit APPROVE when it has zero
+// BLOCKING findings. These tests cover both the fixed behavior (AT1) and the
+// preserved genuine-reservation case (AT2).
+// ---------------------------------------------------------------------------
+describe("composeReviewBody — COMMENT-with-zero-blocking resolution (mt#3202 / ask#6013)", () => {
+  // AT1 (spec): "A fixture PR producing zero blocking findings reaches a
+  // mergeable state without a second content-free round." Mirrors the
+  // observed PR #2273 / #2276 shape: one NON-BLOCKING finding, no BLOCKING.
+  test("AT1: one NON-BLOCKING finding + conclude COMMENT → reconciled to APPROVE", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 12,
+          summary: "minor style nit",
+          details: "Consider renaming for clarity; not required.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: {
+          event: "COMMENT",
+          summary: "No blocking gaps surfaced; leaving a comment-level verdict.",
+        },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain("Event reconciled from `COMMENT` to `APPROVE`");
+    expect(result.body).toContain("[NON-BLOCKING] src/foo.ts:12");
+  });
+
+  // Mirrors the observed PR #2278 / #2283 shape: zero findings of any kind,
+  // explicit conclude_review(COMMENT).
+  test("AT1: zero findings + conclude COMMENT → reconciled to APPROVE", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: {
+          event: "COMMENT",
+          summary:
+            "Since no blocking gaps surfaced in the reviewed snippet and this is a config-only change, I'm leaving a comment-level verdict rather than approval.",
+        },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain("Event reconciled from `COMMENT` to `APPROVE`");
+  });
+
+  // AT2 (spec): "A fixture PR where the reviewer has an unclassified
+  // reservation still does not merge." The model concludes REQUEST_CHANGES
+  // in prose but emits no submit_finding call at all — the genuine-reservation
+  // case must still block, never silently downgrade to APPROVE. Regression
+  // coverage for the exact failure mode the task spec calls out.
+  test("AT2: REQUEST_CHANGES with an unclassified (prose-only) reservation still blocks — never downgrades to APPROVE", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: {
+          event: "REQUEST_CHANGES",
+          summary:
+            "This change silently swallows a network error in the retry path — I have real concerns about data loss on failure, but I'm not citing a specific file/line.",
+        },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    // composeReviewBody alone (without the mt#2685 empty-findings-recovery
+    // pass that runs upstream in applyRecoveryAndCompose) does not itself
+    // synthesize a finding — but it must never turn this into APPROVE. A
+    // single `.toBe("REQUEST_CHANGES")` assertion already covers "not
+    // APPROVE" (the two are mutually exclusive on this three-valued enum);
+    // the comment above records the specific regression this test guards.
+    expect(result.event).toBe("REQUEST_CHANGES");
+  });
+
+  // Same AT2 case, but through the full recovery pipeline (applyRecoveryAndCompose),
+  // which is what review-worker.ts actually calls. The mt#2685 empty-findings
+  // recovery pass synthesizes a BLOCKING finding from the prose summary,
+  // keeping blockingCount > 0 so the mt#3202 downward reconciliation never
+  // has a zero-blocking COMMENT to promote.
+  test("AT2 (end-to-end via applyRecoveryAndCompose): unclassified REQUEST_CHANGES reservation still blocks after the full recovery pipeline", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: {
+          event: "REQUEST_CHANGES",
+          summary: "Real concern about data loss on failure, no specific finding recorded.",
+        },
+      },
+    ];
+
+    const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+    expect(result.emptyFindingsRecovery.applied).toBe(true);
+    expect(result.postRecoveryBlockingCount).toBeGreaterThan(0);
   });
 });

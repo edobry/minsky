@@ -24,6 +24,7 @@ import {
   handleMerge405or422,
   type ErrorContext,
 } from "./github-error-handler";
+import { recordRateLimitHeaders } from "./github-rate-limit-state";
 import type { AuthorshipTier } from "../provenance/types";
 import { ensureAuthorshipLabelsExist, addAuthorshipLabel } from "../provenance/authorship-labels";
 import { SessionStatus } from "../session/types";
@@ -57,15 +58,48 @@ export interface GitHubContext {
 
 /**
  * Create a silent-log Octokit instance.
+ *
+ * mt#2888: registers `after`/`error` request hooks that capture GitHub's
+ * `x-ratelimit-*` response headers into the process-wide
+ * `github-rate-limit-state.ts` snapshot on EVERY request (success or
+ * failure) this Octokit instance makes — surfaced via `debug.systemInfo`
+ * and classified read-path error metadata. Header capture is best-effort
+ * and defensively wrapped: a malformed/missing header must never affect the
+ * real request/response, and the `error` hook always rethrows the ORIGINAL
+ * error unchanged (before-after-hook's "error" hook swallows the error and
+ * replaces the result with whatever the callback returns UNLESS it rethrows
+ * -- see `before-after-hook/lib/add.js`).
  */
 export function createOctokit(token: string): Octokit {
-  return new Octokit({
+  const octokit = new Octokit({
     auth: token,
     log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     // Bound every request to a deadline so a hung GitHub call can't wedge a
     // long-lived process (mt#2270 sweep; mt#2245 originating fix, mt#2186 incident).
     request: { fetch: createTimeoutFetch() },
   });
+
+  octokit.hook.after("request", (response) => {
+    try {
+      recordRateLimitHeaders(response?.headers as Record<string, unknown> | undefined);
+    } catch {
+      // Capture must never affect the real response.
+    }
+  });
+  octokit.hook.error("request", (error) => {
+    try {
+      const headers = (error as { response?: { headers?: Record<string, unknown> } })?.response
+        ?.headers;
+      recordRateLimitHeaders(headers);
+    } catch {
+      // Capture must never affect the real error.
+    }
+    // MUST rethrow: before-after-hook's "error" hook replaces the result
+    // with whatever this callback returns unless it throws.
+    throw error;
+  });
+
+  return octokit;
 }
 
 /**
@@ -525,6 +559,47 @@ export function buildMergeCommitBody(
 }
 
 /**
+ * Delays (ms) between mergeability re-polls when GitHub reports `mergeable: null`
+ * (mt#2890). GitHub computes PR mergeability asynchronously via a background
+ * test-merge; while that computation is in flight (or the API is degraded),
+ * `mergeable` is `null`. GitHub's documented contract is to poll until it
+ * resolves to `true`/`false` rather than treating `null` as a definitive
+ * answer. Three retries summing to ~15s (plus the initial fetch already made
+ * by the caller = ~4 total `pulls.get` calls) gives the async computation a
+ * realistic window without hanging the merge call indefinitely.
+ */
+export const MERGEABILITY_POLL_DELAYS_MS = [3000, 5000, 7000];
+
+/**
+ * Poll for a PR's mergeability to resolve out of the `null` ("unknown") state.
+ *
+ * Takes a `fetchPr` callback (rather than an Octokit instance directly) so it
+ * stays trivially unit-testable without mocking `@octokit/rest` — see
+ * `github-pr-operations-mergeability-poll.test.ts`.
+ *
+ * Returns the last-fetched PR data whether or not `mergeable` ever resolved;
+ * callers decide how to handle a still-`null` result after the budget is
+ * exhausted.
+ */
+export async function pollForMergeableStatus<T extends { mergeable: boolean | null | undefined }>(
+  fetchPr: () => Promise<T>,
+  initialPr: T,
+  options: { delaysMs?: number[]; sleepFn?: (ms: number) => Promise<void> } = {}
+): Promise<T> {
+  const delaysMs = options.delaysMs ?? MERGEABILITY_POLL_DELAYS_MS;
+  const sleepFn =
+    options.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  let pr = initialPr;
+  for (const delayMs of delaysMs) {
+    if (pr.mergeable !== null) return pr;
+    await sleepFn(delayMs);
+    pr = await fetchPr();
+  }
+  return pr;
+}
+
+/**
  * Merge a GitHub pull request.
  */
 export async function mergePullRequest(
@@ -551,15 +626,41 @@ export async function mergePullRequest(
       pull_number: prNumber,
     });
 
-    const pr = prResponse.data;
+    let pr = prResponse.data;
 
     if (pr.state !== "open") {
       throw new MinskyError(`Pull request #${prNumber} is not open (current state: ${pr.state})`);
     }
 
-    if (!pr.mergeable) {
+    // mt#2890 trichotomy: `mergeable` is `boolean | null`. `false` is a definitive
+    // conflict; `null` means GitHub is still computing it (or the API is degraded) —
+    // NOT a conflict. Poll before concluding anything for the `null` case.
+    if (pr.mergeable === null) {
+      pr = await pollForMergeableStatus(async () => {
+        const resp = await octokit.rest.pulls.get({
+          owner: gh.owner,
+          repo: gh.repo,
+          pull_number: prNumber,
+        });
+        return resp.data;
+      }, pr);
+    }
+
+    if (pr.mergeable === false) {
       throw new MinskyError(
         `Pull request #${prNumber} has merge conflicts that must be ` + `resolved first`
+      );
+    }
+
+    if (pr.mergeable === null) {
+      // Poll budget exhausted and GitHub still hasn't resolved mergeability.
+      // Deliberately avoids the words "conflict" and "mergeable" — the
+      // workflow-commands.ts merge-error classifier keys on explicit conflict
+      // phrasing (mt#2890), and this is NOT a conflict.
+      throw new MinskyError(
+        `Pull request #${prNumber} merge readiness could not be determined after polling ` +
+          `GitHub. GitHub may still be computing it, or the API may be degraded. This is not ` +
+          `a problem with the PR itself — retry the merge shortly.`
       );
     }
 

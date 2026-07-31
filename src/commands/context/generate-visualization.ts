@@ -6,6 +6,7 @@
 
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "../../utils/safe-truncate.ts";
+import { formatContextWindowUtilization } from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -56,7 +57,7 @@ export function displayContextVisualization(
   log.cli("━".repeat(Math.min(width, 80)));
   log.cli(`Total Tokens: ${analysisResult.summary.totalTokens.toLocaleString()}`);
   log.cli(
-    `Context Window Utilization: ${analysisResult.summary.contextWindowUtilization.toFixed(1)}%`
+    `Context Window Utilization: ${formatContextWindowUtilization(analysisResult.summary.contextWindowUtilization)}`
   );
   log.cli(`Total Components: ${analysisResult.summary.totalComponents}`);
   log.cli(`Model: ${analysisResult.metadata.model}`);

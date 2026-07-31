@@ -120,6 +120,9 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
       upsertClaim: upsertMock as PresenceClaimRepository["upsertClaim"],
       listClaims: mock(async () => []),
       reapStale: mock(async () => 0),
+      listAllForKind: mock(async () => []),
+      deleteBySubject: mock(async () => 0),
+      deleteByIds: mock(async () => 0),
     };
 
     const { MinskyMCPServer } = await import("./server");

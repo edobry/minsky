@@ -221,29 +221,361 @@ enough padding files to cross whatever file-count/worker threshold triggers it �
 of the full 147-file suite, then either file an upstream Bun issue or land the
 `bun test`-summary-line CI hardening described below).
 
-### Practical takeaway until mt#2665 lands
+### mt#2665: minimal 4-file repro, refined trigger condition, CI hardening landed
 
-**A green `build` check on this repo's CI is not currently proof that `bun run test`
-found zero failures, or even that it ran to completion.** If a PR's local test run is
-red on a file also touched by CI, do not assume CI's green status supersedes the local
-finding — reproduce locally in isolation (`bun test --preload ./tests/setup.ts
---timeout=15000 <specific file(s)>`) and trust that over the CI badge until mt#2665
-lands a fix or a hardened gate. As a rule of thumb: if `bun run test`'s CI step log
-doesn't show a `Ran N tests across M files` summary line, treat the run as inconclusive
-regardless of its reported exit code — this repro shows exit 0 is reachable without one.
+mt#2665 picked up the deep-fault-isolation follow-through this doc deferred above. The
+narrowed goal: shrink the 147+/552-file full-suite repro to something small enough to
+iterate on in seconds instead of minutes, then either isolate the internal Bun fault or
+land the CI-hardening step regardless.
+
+**A single MCP-lifecycle file is not sufficient to trigger truncation, even at
+near-full scale.** This refines the "trigger class" framing above. Explicitly tested:
+
+- `./src/mcp` alone (11 files, either as a directory arg or as an explicit
+  shell-glob-expanded file list — both forms reproduce identically, so directory-arg
+  vs. explicit-file-list is NOT the differentiator it initially looked like) —
+  **truncates**.
+- All 152 `src/*.test.ts` files, all other 8 test-script directories (338 more files,
+  552 total), or any combination up to 537 files that excludes `src/mcp` entirely, or
+  includes exactly ONE `src/mcp` file mixed into a large unrelated set — **all healthy**,
+  full `Ran N tests across M files` summaries every time (verified at 90, 490, and 537
+  files).
+- The literal, unmodified `bun run test` (the full `package.json` `"test"` script, all 9
+  directories, ~552 files) — **truncates**, reproduced 2/2, matching the original
+  finding above.
+
+**Minimal repro, bisected down from the 11-file `src/mcp` directory:**
+
+```bash
+bun test --preload ./tests/setup.ts --timeout=15000 \
+  src/mcp/disconnect-tracker.test.ts \
+  src/mcp/drift-gate.test.ts \
+  src/mcp/presence-write-path.test.ts \
+  src/mcp/server.test.ts
+# exit 0, no "Ran N tests across M files" line — truncates mid-fixture-output,
+# same shape as the full-suite run (JSON fixture burst from disconnect-tracker.test.ts
+# cuts off abruptly, no per-file or aggregate summary after it)
+```
+
+Reproduced repeatedly (this exact 4-file set, and the 11-file `src/mcp` superset).
+Bisection notes:
+
+- Any 3 of these 4 files, in any combination tried (`disconnect-tracker` +
+  `presence-write-path` + `server`; `agent-identity-integration` +
+  `client-capabilities` + `command-mapper` + `disconnect-event-sweep` + `server`, i.e.
+  the first 4 files + `server` with `disconnect-tracker` excluded), are healthy.
+  `disconnect-tracker.test.ts` + `server.test.ts` alone (2 files) is healthy (93 tests,
+  proper summary). So the fault needs at least this specific 4-file combination, not
+  just "any 2 real-subprocess files" or "any file count `>= N`" — reinforcing that the
+  earlier "one MCP-lifecycle file in a large file set" framing was too broad;
+  `subagent-dispatch-tracker.test.ts` alone (the file that motivated mt#2662) was never
+  actually confirmed as a required OR sufficient trigger — it just happened to sort
+  after `disconnect-tracker.test.ts` in the one real CI run that was directly
+  investigated.
+- Swapping `server.test.ts` for `source-freshness.test.ts` in an equivalent 9-file
+  `src/mcp` subset (`agent-identity-integration` .. `presence-write-path` +
+  `source-freshness`, i.e. skipping `server.test.ts`) is healthy — `server.test.ts`'s
+  presence specifically matters, not just reaching 9 files.
+- No further isolation of the exact internal mechanism was completed within this task's
+  budget (see below for what was ruled out and what remains open).
+
+**What this rules out about the mechanism:**
+
+- **Not a native crash / segfault.** `~/Library/Logs/DiagnosticReports/` has no `bun`
+  crash report timestamped during any of the truncating runs (newest entry pre-dates
+  this investigation). Bun's own process is exiting via a normal `exit(0)` path, not
+  being killed by a signal.
+- **Not reporter-specific.** `--reporter=junit --reporter-outfile=...` truncates
+  identically (no output file even gets written), so the fault is upstream of the
+  configurable-reporter layer, in the core test-runner/worker path itself.
+- **Not fixable by an exposed CLI flag.** `bun test --help` (1.2.21) exposes no
+  worker-count / concurrency flag and no verbose/debug flag to probe further from the
+  CLI surface alone; isolating the exact fault would need Bun's own source (worker-pool
+  / child-process-teardown / stdout-pipe handling) or a native debugger, which was out of
+  reach within this task's scope.
+- **Consistent with (not proof of) an stdout-pipe race.** Every truncating run stops
+  mid-write, inside a rapid loop of synchronous `console.log` calls from
+  `disconnect-tracker.test.ts`'s own fixture generation (real PIDs, JSONL disconnect
+  events per this repo's `CLAUDE.md` §MCP disconnect cadence) — never at a clean
+  test-file or test-case boundary. That shape (abrupt mid-line-burst stop, not
+  "next file's summary line never appeared") is consistent with a lost/errored `write()`
+  on a shared stdout fd racing against Bun's own internal test-file-transition or
+  worker-teardown logic when multiple files are independently spawning and reaping real
+  child processes concurrently — but this was not confirmed against Bun's source, so it
+  remains a hypothesis, not a pinned mechanism.
+
+**Task-spec disposition:** per the spec's Arm 3b, the CI hardening was landed
+independent of upstream disposition — see `.github/workflows/ci.yml`'s `Test` step,
+which now fails the step whenever `bun run test`'s own completion summary
+(`Ran N tests across M files`) is absent, or its own `N fail` summary line reports
+`N > 0`, regardless of the process exit code. Filing an upstream Bun issue with the
+4-file minimal repro above is still open (Arm 3a) — flagged here for whoever picks that
+up next; the repro is self-contained to this repo's `src/mcp/*.test.ts` files and does
+not require the full checkout to reproduce once those 4 files are extracted, but was not
+independently verified against a minimal _non-Minsky_ Bun reproduction (e.g. synthetic
+files using only `Bun.spawn` without this repo's disconnect-tracker logic) within this
+task's scope.
+
+**Detection alone was not sufficient — the full suite truncates near-deterministically,
+so a fix (not just a gate) was required.** Repeated local runs (3/3) and the first live
+CI run (1/1, see below) of the literal, unmodified `bun run test` ALL truncated — no
+observed passing run of the full ~552-file invocation as originally composed. Landing
+detection-only hardening on top of a near-100%-failure-rate step would have made the
+`build` check permanently red, blocking every future merge to `main` regardless of code
+correctness — an unacceptable regression discovered mid-implementation. `git status`
+being clean was necessary but not sufficient here; the actual fix required avoiding the
+trigger condition, not just detecting it.
+
+**The fix: explicit file enumeration instead of directory-arg scanning, plus per-file
+isolation for `src/mcp`.** Two more findings from mt#2665, on top of the pinned trigger
+class above:
+
+- **`bunfig.toml`'s `pathIgnorePatterns` does not reliably exclude a subdirectory once a
+  CLI arg explicitly targets its parent.** `bun test ./src` still recurses into
+  `src/mcp` even with `"src/mcp/**"` (and several other pattern variants —
+  `"src/mcp/*"`, `"src/mcp"`, `"**/src/mcp/**"` — all tried) listed in
+  `pathIgnorePatterns`. This contradicts the working `src/cockpit/web/**` exclusion,
+  which turned out to hold only because nothing explicitly targets `src/cockpit/web` or
+  `src/cockpit` as a bare directory arg elsewhere in this repo's scripts — passing
+  `src/cockpit` explicitly (as tried during this investigation) also leaked `web/**`
+  through, recursing past the ignore pattern the same way `src/mcp` did. Directory-arg
+  scanning's interaction with `pathIgnorePatterns` should be treated as unreliable
+  in general, not just for this one case.
+- **An EXPLICIT FILE LIST does reliably respect an exclusion**, in every combination
+  tried (verified up to 537 files). This is the mechanism `scripts/run-tests-main.ts`
+  (mt#2665) uses instead of bun's own directory/glob exclusion: it walks the same 9
+  target directories itself, in-process, and excludes `src/mcp/**` (plus
+  `src/cockpit/web/**` and `services/**`, mirroring `bunfig.toml`) before handing bun an
+  explicit file list. `package.json`'s `"test"` script now runs this wrapper
+  (`bun scripts/run-tests-main.ts`) instead of `bun test <9 directory args>` directly.
+- **`src/mcp/**.test.ts`truncates even entirely on its own** (all 11 files, nothing
+else) — so simply moving it into its own CI step (mirroring the existing`test:hooks`/`test:components`/`test:eslint-rules`pattern) would not have avoided
+the bug, only relocated it.`scripts/run-tests-mcp-isolated.ts`(mt#2665,`bun run test:mcp-isolated`) instead runs each `src/mcp/\*.test.ts`file in its own
+separate`bun test`process — every single-file combination tried during this
+investigation was healthy — and applies the same completion-summary hardening
+per-file internally (a single-file run always prints singular`"1 file"`, not
+`"1 files"`— the regex needs`files?`, a bug this script's own first run caught).
+`.github/workflows/ci.yml`gained a new`Test (src/mcp, isolated per file)` step
+(`if: ${{ always() }}`, matching the existing sibling steps) that runs it.
+
+**This surfaced genuine, previously-hidden test failures.** Once the full suite
+actually ran to completion for probably the first time in a while, several tests outside
+`src/mcp` and outside the already-tracked `cockpit-credential-integration.test.ts`
+(mt#2664) failed for real — `createDomainContainer`'s architectural-boundary check,
+`detectAgentHarness`/`hasNativeSubagentSupport` (two divergent copies of this test exist,
+one under `tests/domain/runtime/` and one under `packages/domain/src/runtime/` — likely a
+residual duplicate from the mt#2108 extraction), `generateSubagentPrompt`'s operating-
+envelope checkpoint-cadence assertions, and an `Asks — FakeAskRepository` projectScope
+case. These were never actually passing; the truncation bug just prevented CI from ever
+reporting them. Tracked in mt#2712 rather than fixed here — mt#2665's scope is the CI
+infrastructure, not these specific pre-existing test bugs, and fixing them is a
+substantively separate, non-trivial body of work.
+
+**Live confirmation on GitHub's hosted `ubuntu-latest` runner (not just local macOS).**
+The acceptance-test demonstration run for this task ([run
+28975783280](https://github.com/edobry/minsky/actions/runs/28975783280), job
+[85982472493](https://github.com/edobry/minsky/actions/runs/28975783280/job/85982472493),
+commit `c61c8b035` — a scratch commit carrying one deliberately-failing test, reverted
+immediately after in the next commit, never merged) failed with exactly the
+"no completion summary" branch of the new hardening — `bun run test` truncated silently
+on the hosted runner itself, before ever reaching the deliberately-broken test file. This
+is stronger evidence than originally planned: it confirms the truncation bug is not
+macOS-local-machine-specific, it reproduces on Linux `ubuntu-latest` too, and it shows
+the hardening catching the REAL bug live, not just a synthetic broken-assertion case
+(the `FAIL_COUNT > 0` branch was never exercised in this run because the "no summary"
+branch fired first). Pre-hardening, this exact run would have reported `success` — the
+`bun run test` step's own exit code was 0.
+
+### Practical takeaway (updated post-mt#2665)
+
+**A green `build` check on this repo's CI is now hardened against the silent-truncation
+class described above** (see `.github/workflows/ci.yml`'s `Test` step) — a truncated run
+now fails the step instead of reporting `success`. Before this hardening landed, a green
+`build` check was not proof that `bun run test` found zero failures or even ran to
+completion; if you're looking at CI history from before this PR merged, apply that
+caveat. Going forward, if a PR's local test run is red on a file also touched by CI and
+CI is somehow still green, treat that as a bug in the hardening itself (file a task) — it
+should no longer be possible for the two to silently disagree the way they did in the
+mt#2662 incident.
 
 ### Cross-references
 
-- mt#2662 — this investigation (parent task)
+- mt#2662 — the original investigation (parent task) that pinned the trigger class and
+  the indirect CI-annotation evidence
+- mt#2665 — this follow-up: minimal 4-file repro, refined trigger condition (multiple
+  specific `src/mcp` files required, not "any one"), CI-hardening landed, and (once
+  detection alone proved insufficient — the full suite truncates near-deterministically)
+  an actual fix via explicit-file-enumeration + per-file `src/mcp` isolation
+- mt#2712 — fix (or triage) the genuine pre-existing test failures mt#2665's fix
+  unmasked (`createDomainContainer`, `detectAgentHarness`/`hasNativeSubagentSupport`,
+  `generateSubagentPrompt` operating-envelope checks, `Asks — FakeAskRepository`)
 - mt#2654 — the `subagent-dispatch-tracker.test.ts` date-drift fix (injected-clock seam)
 - mt#2664 — the concrete broken test (`cockpit-credential-integration.test.ts`) this same
   CI run failed to catch
-- mt#2665 — follow-up: isolate the exact Bun-internal fault behind the pinned
-  MCP-lifecycle-test-file truncation (root cause already pinned here; this task is the
-  deep-fault-isolation + upstream-report + CI-hardening follow-through), or harden the
-  gate
 - mt#2608 — CI blind-spot closure (parent class this is a residual member of)
-- `.github/workflows/ci.yml` — the `build` job, `Test` step
-- `package.json` — the `"test"` script (`bun run test`'s exact invocation)
+- mt#2678 — parallel investigation into `forge_ci_run_view_log`'s DEFLATE decode failure
+  (the same tooling gap noted above under "Note on tooling"); unrelated to this bug but
+  discovered via the same CI-log-fetching path
+- `.github/workflows/ci.yml` — the `build` job, `Test` step (hardened) and the new
+  `Test (src/mcp, isolated per file)` step (both mt#2665)
+- mt#2716 — moved the full-suite gate from pre-commit to `.husky/pre-push` + CI
+  (`scripts/run-tests-gated.ts`), reusing this investigation's fail-closed
+  `evaluateBunTestSummary` completion-summary check
+- mt#2932 — the fast changed-file-scoped pre-commit gate
+  (`scripts/run-related-tests.ts`) that REUSES mt#2716's `evaluateBunTestSummary`
+  for its own fail-closed gating, per `docs/architecture/hooks/fast-related-test-gate.md`
+- `package.json` — the `"test"` script now runs `scripts/run-tests-main.ts`; the new
+  `"test:mcp-isolated"` script runs `scripts/run-tests-mcp-isolated.ts` (mt#2665)
+- `scripts/run-tests-main.ts` / `scripts/run-tests-mcp-isolated.ts` — the mt#2665
+  explicit-file-enumeration mitigation (see above)
 - `bunfig.toml` — `[test]` defaults (`preload`, `randomize`, `pathIgnorePatterns`) used by
-  bare `bun test`
+  bare `bun test`; see the note in the file itself on why `src/mcp` is excluded via the
+  wrapper scripts rather than `pathIgnorePatterns`
+
+## mt#2990: opt-in parallel-sharded test runner (`bun run test:sharded`)
+
+The main suite (`bun run test` / `scripts/run-tests-main.ts`) runs strictly sequentially in
+one `bun test` process (~130s wall-clock for ~655 files, per mt#2933/mt#2981's measurements).
+`scripts/run-tests-main-sharded.ts` is an ADDITIVE, OPT-IN alternative that splits the same
+file set across N concurrently-spawned `bun test` processes and reports one aggregated
+pass/fail result — **not** a replacement for `bun run test`, `.husky/pre-push`, or
+`src/hooks/pre-commit.ts`, all of which are unchanged and still use the sequential path.
+
+### Usage
+
+```bash
+bun run test:sharded
+```
+
+Locally, on a 16-core machine, this reduced wall-clock from ~77–85s (sequential) to ~11–17s
+(sharded) — roughly a 4–5x reduction. Numbers vary by core count and machine load; the
+runner logs the shard count and per-shard timing on every invocation.
+
+### Env var overrides
+
+- **`TEST_SHARD_COUNT`** — overrides the auto-detected shard count (default:
+  `os.cpus().length`, capped to the file count). Must be a positive integer.
+- **`TEST_SHARD_TIMEOUT_MS`** — overrides the per-shard timeout (default: 5 minutes,
+  grounded in the ~130s sequential baseline). A shard exceeding this is killed and treated
+  as FAILED; every other still-running shard is aborted too, since the overall run has
+  already failed at that point.
+
+### How it works (brief)
+
+- **Shard-splitting:** greedy LPT (longest-processing-time-first) bin-packing by historical
+  per-file duration, round-robin fallback for files with no timing history yet (cold start).
+- **Duration cache:** `scripts/test-duration-cache.json` (gitignored, local/machine-specific)
+  — a flat `{ file: durationMs }` map self-updated from each run's own per-shard
+  `--reporter=junit` output. Delete it any time to reset to cold-start round-robin.
+  Corrupt or unreadable, it is silently ignored (falls back to round-robin), never a
+  hard failure.
+- **Aggregation contract:** preserves this doc's mt#2665 fail-closed discipline per shard
+  (a shard exiting 0 with no "Ran N tests across M files" line is FAILED regardless of exit
+  code) plus fail-closed `<N> fail` parsing, then synthesizes a single unified summary line
+  in bun's own exact textual shape so a future wiring into `ci.yml`/`.husky/pre-push` would
+  need no gate rewrite.
+- **Cross-shard file-targeting:** `bun test <path>` matches positional args as SUBSTRINGS
+  against its own default repo-wide discovery, not as exact single-file targets — confirmed
+  empirically: `packages/domain/src/**` mirrors several `src/**` paths one-for-one (e.g. both
+  `src/composition/container.test.ts` and
+  `packages/domain/src/composition/container.test.ts` exist), and the shorter path is a
+  literal substring of the longer one, so an un-prefixed shard arg could incidentally also
+  run a sibling shard's file. Every file arg is `./`-prefixed to prevent this, with a
+  defense-in-depth backstop (`detectShardScopeViolations`) that fails a shard closed if
+  anything still leaks in.
+
+### Cross-references
+
+- mt#2981 — the design/investigation pass this implements (full rationale, wall-clock
+  estimate, rejected alternatives, community-practice citations for the bin-packing
+  strategy).
+- mt#2990 — this production implementation; its PR body has the measured wall-clock
+  comparison and the empirical repro for the cross-shard collision above.
+- mt#3014 / mt#3016 — follow-up investigations into two things mt#2990's own live
+  verification surfaced: the cross-shard file-targeting collision's full prevention
+  (beyond the `./`-prefix fix already shipped) and an unrelated test-isolation flake
+  observed only under sharded concurrent execution.
+- `scripts/run-tests-sharded-prototype.ts` — the merged prototype (mt#2981) this production
+  runner hardens; its own file docstring explains why it stays as a historical reference
+  rather than being extended in place.
+
+## mt#3156: test-runner wall-clock watchdog (`MINSKY_TEST_WATCHDOG_MS`)
+
+### What it does
+
+Every `bun test` child spawned by the runner chain now runs under a wall-clock budget. On
+expiry the runner sends `SIGTERM`, waits a grace period, then escalates to `SIGKILL`, and the
+run **fails closed** — a timed-out run always exits non-zero and can never be counted as a pass.
+
+Implementation: `scripts/spawn-with-watchdog.ts`. Wired into `run-tests-gated.ts`,
+`run-tests-main.ts`, and `run-tests-mcp-isolated.ts`. `run-tests-main-sharded.ts` already spawns
+with `killSignal: "SIGKILL"` and needs nothing.
+
+### Why it exists
+
+`--timeout=15000` is bun's **per-test** timer. A test that blocks the event loop synchronously
+never lets that timer fire, so the whole run hangs with no upper bound. Three occurrences
+(2026-07-24, 2026-07-30 x2) left `bun test` processes spinning at 100% CPU indefinitely — the
+worst pair ran 2h20m each, and in the third occurrence four such processes were burning ~400% of
+a 16-core host at once. Killing them dropped the load average from 85 to 7.3.
+
+### Why the budget is not just `Bun.spawnSync({ timeout })`
+
+Because that option does not enforce. Measured — two children identical except for a no-op
+`SIGTERM` handler, both under `timeout: 2000, killSignal: "SIGTERM"`:
+
+```
+no SIGTERM handler: elapsed=2005ms   exitCode=null  signal=SIGTERM   success=false
+ignores SIGTERM:    elapsed=25011ms  exitCode=0     signal=undefined success=true
+```
+
+A child that ignores `SIGTERM` runs past its budget to completion and is reported as
+`exitCode: 0, success: true` — a hung run that reads as a PASS, which is worse than a visible
+hang. `child_process.exec` has the identical defect. `spawnSync` also blocks the JS thread, so
+no in-process timer can fire to send the second signal; hence async `Bun.spawn` with an explicit
+two-stage kill.
+
+### Default budgets
+
+| Runner                                    | Budget | Observed normal runtime |
+| ----------------------------------------- | ------ | ----------------------- |
+| `run-tests-gated.ts` -> one runner script | 20 min | — (outermost)           |
+| `run-tests-main.ts` -> `bun test`         | 15 min | ~103s (mt#3122)         |
+| `run-tests-mcp-isolated.ts` -> one file   | 5 min  | seconds                 |
+
+Budgets are ordered **outer > inner** deliberately. The inner watchdog must fire first so the
+actual `bun test` leaf is killed by its own runner; if the outer fired first it would kill the
+middle process and orphan the leaf — the `PPID 1` orphans that motivated this work. The ordering
+is asserted by a test, not just by this table.
+
+### Overriding the budget
+
+```bash
+MINSKY_TEST_WATCHDOG_MS=1800000 bun scripts/run-tests-gated.ts   # 30 min
+```
+
+Applies to whichever runner reads it. Non-numeric, zero, and negative values are **ignored** in
+favor of the default — an unbounded run is the bug this exists to prevent, so the override
+cannot be used to disable the watchdog.
+
+### What a timeout looks like
+
+```
+::error::run-tests-main.ts exceeded its 900s wall-clock watchdog (ran 901s) and was terminated
+with SIGKILL after ignoring SIGTERM. This is a HANG, not a test failure — see mt#3156.
+Raise the budget with MINSKY_TEST_WATCHDOG_MS=<ms> if the run is legitimately slow.
+```
+
+Read it as a **hang**, not a failing assertion: no test reported failure, the run was stopped
+because it exceeded its budget. `SIGKILL after ignoring SIGTERM` additionally means the child
+did not respond to a polite termination request. If the run was legitimately slow (a cold cache,
+a heavily loaded host), raise the budget; if it was not, you have found a hang worth
+investigating — see mt#3156 for the reproduction history.
+
+### Known limitation
+
+The watchdog kills its **direct child**, not a process group: `process.kill(-pid, ...)` requires
+the child to lead its own group, and Bun's spawned children inherit the parent's group, so a
+group kill would signal the runner's own group. The leaf-first budget ordering above covers the
+observed chain instead. A grandchild spawned by something other than these runners is not
+covered.

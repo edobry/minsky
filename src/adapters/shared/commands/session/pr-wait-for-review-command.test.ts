@@ -12,14 +12,18 @@ import {
   formatMatchMessage,
   formatTimeoutMessage,
   isTrimmedReview,
+  createSessionPrWaitForReviewCommand,
 } from "./pr-wait-for-review-command";
 import type {
   AnnotatedReview,
   SessionPrWaitForReviewMatch,
   SessionPrWaitForReviewTimeout,
 } from "@minsky/domain/session/commands/pr-wait-for-review-subcommand";
+import { ResourceNotFoundError, ValidationError } from "@minsky/domain/errors/index";
 
 const REVIEWER_BOT = "minsky-reviewer[bot]";
+/** Shared check-run name literal (extracted per custom/no-magic-string-duplication, mt#2777 SC#1). */
+const FINDINGS_CHECK_NAME = "minsky-reviewer/findings";
 
 describe("formatMatchMessage", () => {
   test("renders reviewer, state, elapsed, pollCount, submitted, URL, body excerpt", () => {
@@ -155,6 +159,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Timeout reached without a match");
@@ -162,6 +168,51 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain("21 poll(s)");
     expect(msg).toContain("Threshold (since): 2026-05-22T18:32:55.000Z");
     expect(msg).toContain("No reviews on the PR at the final poll");
+  });
+
+  // mt#2777 SC#1: the final-authoritative-check outcome must be legible in
+  // text mode, not just the JSON payload (mirrors the mt#2043 precedent for
+  // lastSeenReviews/sinceUsed).
+  test("renders the final-authoritative-check outcome and reviewer check-run state", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: {
+        name: FINDINGS_CHECK_NAME,
+        status: "in_progress",
+        conclusion: null,
+        url: null,
+      },
+    };
+    const msg = formatTimeoutMessage(result);
+    expect(msg).toContain(
+      "Final authoritative check: re-read reviews list immediately before timing out"
+    );
+    expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": in_progress');
+  });
+
+  test("renders a failed-conclusion check-run state and a failed final-check re-read", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      finalCheckPerformed: false,
+      reviewerCheckRunState: {
+        name: FINDINGS_CHECK_NAME,
+        status: "completed",
+        conclusion: "failure",
+        url: "https://github.com/edobry/minsky/runs/1",
+      },
+    };
+    const msg = formatTimeoutMessage(result);
+    expect(msg).toContain("Final authoritative check: re-read attempt failed");
+    expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": completed (failure)');
   });
 
   test("renders up to 5 lastSeenReviews entries with rejectionReason", () => {
@@ -190,6 +241,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Last seen 2 review(s):");
@@ -214,6 +267,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Last seen 8 review(s):");
@@ -243,9 +298,57 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 1,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("[PENDING] <null> @ <no submittedAt>");
     expect(msg).toContain("missing-submittedAt:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSessionPrWaitForReviewCommand — catch-block ordering (mt#2888,
+// PR #2018 R1 regression fix)
+// ---------------------------------------------------------------------------
+//
+// `getDeps` is `await`-ed first inside the command's `try` block, so a
+// throwing `getDeps` reaches the SAME `catch` block a throwing domain call
+// would — the simplest injection point available without mocking the
+// `sessionPrWaitForReview` module import.
+
+describe("createSessionPrWaitForReviewCommand — error-classification ordering (mt#2888)", () => {
+  const CTX = { interface: "cli" } as any;
+
+  test("REGRESSION: a ResourceNotFoundError whose message contains 'rate limit' passes through with its ORIGINAL type, not reclassified", async () => {
+    const err = new ResourceNotFoundError(
+      "Session 'my-session' not found (internal rate limit tracker had no entry)"
+    );
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw err;
+    });
+    await expect(command.execute({ sessionId: "my-session" }, CTX)).rejects.toBe(err);
+  });
+
+  test("REGRESSION: a ValidationError whose message contains '(HTTP 5' passes through with its ORIGINAL type, not reclassified", async () => {
+    const err = new ValidationError("Invalid --since timestamp: '(HTTP 500-ish looking value)'");
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw err;
+    });
+    await expect(command.execute({ sessionId: "my-session" }, CTX)).rejects.toBe(err);
+  });
+
+  test("a genuine GitHub-rate-limit MinskyError (handleOctokitError's exact headline) IS classified as RATE_LIMITED", async () => {
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw new Error(
+        "GitHub Rate Limit Exceeded\n\nYou've hit GitHub's API rate limit.\n\nTo fix this:\n  - Wait a few minutes before trying again"
+      );
+    });
+    try {
+      await command.execute({ sessionId: "my-session" }, CTX);
+      throw new Error("expected command.execute to throw");
+    } catch (err) {
+      expect((err as { payload?: { code?: string } })?.payload?.code).toBe("RATE_LIMITED");
+    }
   });
 });

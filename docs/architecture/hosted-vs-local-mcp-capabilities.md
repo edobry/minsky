@@ -16,8 +16,9 @@ server can fulfill. This document is the reference for that split.
 | Task DB             | shared (Supabase)                                         | shared (Supabase) — same data                   |
 
 The hosted image's missing `git` is **intentional, not drift**. The root
-`Dockerfile` bundles the server (`bun build --target=bun --outfile=dist/minsky.js
-src/cli.ts`) specifically to remove the runtime `git` dependency; the server reads
+`Dockerfile` bundles the server (`bun build --target=bun --outdir=dist
+--entry-naming minsky.js --sourcemap=external --minify src/cli.ts`) specifically
+to remove the runtime `git` dependency; the server reads
 its repo backend from `.minsky/config.yaml`, not from `git`. See the `Dockerfile`
 comments and `docs/architecture/bundling.md`.
 

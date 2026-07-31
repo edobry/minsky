@@ -20,6 +20,15 @@ import { log } from "@minsky/shared/logger";
  *
  * Returns `null` on any initialization error — callers should treat null as
  * "DB unavailable" and proceed without recording.
+ *
+ * The swallowed error is logged at debug level (mt#3019). It used to be
+ * discarded entirely, which made two very different situations indistinguishable
+ * at every call site: a genuinely unreachable database, and a caller that never
+ * initialized the domain configuration system (a hook process — see
+ * `.minsky/hooks/domain-bootstrap.ts`). The latter degraded silently for the
+ * entire life of `record-subagent-invocation.ts`'s DB path; the one-line log
+ * below is what makes that class diagnosable without re-deriving it from a bare
+ * `null`.
  */
 export async function resolvePersistenceProvider(): Promise<PersistenceProvider | null> {
   try {
@@ -27,7 +36,18 @@ export async function resolvePersistenceProvider(): Promise<PersistenceProvider 
     const service = new PersistenceService();
     await service.initialize();
     return service.getProvider();
-  } catch {
+  } catch (err) {
+    // PR #2178 R1 NON-BLOCKING: a driver/initialization error message can embed
+    // the connection string, and a DSN carries a password. Log the error CLASS
+    // unconditionally (that alone distinguishes the two cases this log exists
+    // to separate) and run the message through the credential scrubber before
+    // it reaches any sink.
+    const { scrubText } = await import("../transcripts/credential-scrubber");
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    log.debug("resolvePersistenceProvider: returning null after initialization error", {
+      errorClass: err instanceof Error ? err.constructor.name : typeof err,
+      error: scrubText(rawMessage).text,
+    });
     return null;
   }
 }

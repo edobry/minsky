@@ -39,6 +39,7 @@ import {
   deprecatedConversationAlias,
   resolveConversationId,
 } from "./conversation-id-param";
+import { resolveTranscriptProjectScope } from "./resolve-transcript-project-scope";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -82,12 +83,20 @@ export function registerTranscriptSimilarCommand(
         required: false,
         defaultValue: 10,
       },
+      allProjects: {
+        schema: z.boolean(),
+        description:
+          "Return results across all projects (default: scoped to the resolved current project, mt#2417)",
+        required: false,
+        defaultValue: false,
+      },
     },
 
     async execute(params, context): Promise<TranscriptTurnResult[] | TranscriptSessionResult[]> {
       const turnId = params.turnId as string | undefined;
       const sessionId = resolveConversationId(params);
       const limit = (params.limit as number | undefined) ?? 10;
+      const allProjects = params.allProjects as boolean | undefined;
 
       // ── Validate: exactly one of turnId / conversationId required ────────
       if (!turnId && !sessionId) {
@@ -144,14 +153,20 @@ export function registerTranscriptSimilarCommand(
         embeddingService
       );
 
+      // ADR-021 / mt#2417: resolve project scope for this query.
+      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+
       if (turnId) {
-        const results = await svc.findSimilarTurn(turnId, { limit });
+        const results = await svc.findSimilarTurn(turnId, { limit, projectId });
         log.debug("transcripts.similar (turn) complete", { turnId, resultCount: results.length });
         return results;
       }
 
       // sessionId is set (validated above)
-      const results = await svc.findSimilarSession(sessionId as AgentSessionId, { limit });
+      const results = await svc.findSimilarSession(sessionId as AgentSessionId, {
+        limit,
+        projectId,
+      });
       log.debug("transcripts.similar (session) complete", {
         sessionId,
         resultCount: results.length,

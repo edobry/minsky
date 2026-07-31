@@ -17,6 +17,21 @@ describe("registerSessionCommands (mt#2611)", () => {
   const registeredIds: string[] = [];
 
   it("registers no session.changeset.* or session.cs.* alias commands", async () => {
+    // Order-independence (mt#3022): the shared command registry is a
+    // process-wide singleton, and bunfig.toml's `randomize: true` varies test
+    // FILE execution order every run. If some other test file's own
+    // registration pass (e.g. via the src/adapters/shared/commands/index.ts
+    // aggregator) already populated the SESSION category before this test
+    // runs, `registerSessionCommands()` below throws "already registered" on
+    // its very first command instead of running cleanly. Unregistering any
+    // pre-existing session-category commands first makes this test start
+    // from a known-clean slate every time, independent of file order --
+    // without weakening the assertion intent (the `before`/`after` diff below
+    // still isolates exactly the commands THIS call registers).
+    for (const cmd of sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION)) {
+      sharedCommandRegistry.unregisterCommand(cmd.id);
+    }
+
     const before = new Set(
       sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION).map((cmd) => cmd.id)
     );

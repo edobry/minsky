@@ -341,4 +341,63 @@ describe("composeConventionalTitle", () => {
     expect(caught).toBeInstanceOf(ValidationError);
     expect((caught as ValidationError).message).toContain("md-409:");
   });
+
+  // mt#2821: PR-title create/edit validation parity. composeConventionalTitle
+  // is the SINGLE shared validator called by both session_pr_create and
+  // session_pr_edit — these tests assert the same title string is
+  // valid-or-invalid identically regardless of which command composes it.
+  describe("description-length parity (mt#2821)", () => {
+    it("accepts a 79-character description-only title (under the 80-char budget)", () => {
+      const description = "a".repeat(79);
+      const result = composeConventionalTitle({
+        type: "feat",
+        title: description,
+        taskId: "mt#2821",
+      });
+      expect(result).toBe(`feat(mt#2821): ${description}`);
+    });
+
+    it("accepts an exactly-80-character description-only title (at the budget)", () => {
+      const description = "a".repeat(80);
+      const result = composeConventionalTitle({
+        type: "feat",
+        title: description,
+        taskId: "mt#2821",
+      });
+      expect(result).toBe(`feat(mt#2821): ${description}`);
+    });
+
+    it("rejects an 87-character description-only title (the bdf8f782 create/edit-parity regression)", () => {
+      // Regression for the reported bug: a title accepted by session_pr_create
+      // (no length check at all, pre-fix) was rejected by session_pr_edit
+      // ("too long (87 > 80)"). Both commands now route through this single
+      // function, so an 87-char description is rejected identically at both
+      // call sites instead of only at edit time.
+      const description = "a".repeat(87);
+      let caught: unknown;
+      try {
+        composeConventionalTitle({
+          type: "feat",
+          title: description,
+          taskId: "mt#2821",
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(ValidationError);
+      const msg = (caught as ValidationError).message;
+      expect(msg).toContain("87");
+      expect(msg).toContain("80");
+    });
+
+    it("rejects the same 87-character title with or without a taskId (create- and edit-shaped calls agree)", () => {
+      const description = "b".repeat(87);
+      const withTaskId = () =>
+        composeConventionalTitle({ type: "fix", title: description, taskId: "mt#2821" });
+      const withoutTaskId = () => composeConventionalTitle({ type: "fix", title: description });
+
+      expect(withTaskId).toThrow(ValidationError);
+      expect(withoutTaskId).toThrow(ValidationError);
+    });
+  });
 });

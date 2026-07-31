@@ -42,21 +42,23 @@ describe("transcripts.similar command", () => {
       expect(command.description).toContain("sessionId");
     });
 
-    test("declares turnId, conversationId (+ sessionId alias), and limit parameters", () => {
+    test("declares turnId, conversationId (+ sessionId alias), limit, and allProjects parameters", () => {
       const command = getCommand();
       const params = command.parameters as Record<string, unknown>;
       expect(params.turnId).toBeDefined();
       expect(params.conversationId).toBeDefined();
       expect(params.sessionId).toBeDefined(); // back-compat alias (mt#2526)
       expect(params.limit).toBeDefined();
+      expect(params.allProjects).toBeDefined();
     });
 
-    test("limit defaults to 10; turnId and sessionId have no default", () => {
+    test("limit defaults to 10; allProjects defaults to false; turnId and sessionId have no default", () => {
       const command = getCommand();
       const params = command.parameters as Record<string, { defaultValue?: unknown } | undefined>;
       expect(params.limit?.defaultValue).toBe(10);
       expect(params.turnId?.defaultValue).toBeUndefined();
       expect(params.sessionId?.defaultValue).toBeUndefined();
+      expect(params.allProjects?.defaultValue).toBe(false);
     });
   });
 

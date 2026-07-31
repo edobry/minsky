@@ -32,10 +32,14 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
+  computeReviewDueLogs,
   advanceWatermarks,
   clearResolvedAskIds,
   selectAckablePaths,
+  UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
+  type CalibrationRecord,
+  type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
 
@@ -44,6 +48,78 @@ import {
 // ---------------------------------------------------------------------------
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
+
+// ---------------------------------------------------------------------------
+// Per-record context rendering (mt#3289)
+// ---------------------------------------------------------------------------
+
+/** Indent for context lines nested under a record's summary line. */
+const RECORD_CONTEXT_INDENT = "      ";
+
+/** Longest detector-specific string rendered under a record. */
+const CONTEXT_PREVIEW_CHARS = 300;
+
+/**
+ * Values at or below this length ride on one shared line instead of their own.
+ */
+const CONTEXT_INLINE_CHARS = 60;
+
+function previewText(value: string): string {
+  return value.length <= CONTEXT_PREVIEW_CHARS
+    ? value
+    : `${value.slice(0, CONTEXT_PREVIEW_CHARS)}...`;
+}
+
+/**
+ * Render detector-specific fields the shared fallback branch used to drop.
+ *
+ * The long-string case is the reason this exists: `untaken-action`'s
+ * `final_message_tail` is the only field that makes its fires classifiable, and
+ * it sat on disk in every record since the first while two consecutive
+ * calibration reviews reported "unclassifiable" — because nothing downstream
+ * printed it. Short scalars ride along on one line since they are the
+ * suppression/channel context needed to read the excerpt correctly.
+ */
+function formatDetectorFields(fields: Record<string, unknown>, indent: string): string[] {
+  const lines: string[] = [];
+  const inline: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (typeof value === "string" && value.length > CONTEXT_INLINE_CHARS) {
+      lines.push(`${indent}${key}: ${JSON.stringify(previewText(value))}`);
+    } else {
+      inline.push(`${key}=${JSON.stringify(value)}`);
+    }
+  }
+  if (inline.length > 0) lines.unshift(`${indent}${inline.join(" ")}`);
+  return lines;
+}
+
+/**
+ * Context lines rendered beneath a record's summary line (mt#3289).
+ *
+ * The acceptance bar is that a reviewer can compute an FP rate for a fresh
+ * batch without opening transcripts or detector source. That needs the
+ * surrounding text PRINTED, not merely parsed.
+ */
+function buildRecordContextLines(rec: CalibrationRecord): string[] {
+  const lines: string[] = [];
+  if ("transcript_excerpt" in rec && rec.transcript_excerpt) {
+    lines.push(
+      `${RECORD_CONTEXT_INDENT}excerpt: ${JSON.stringify(previewText(rec.transcript_excerpt))}`
+    );
+  }
+  if (rec.detectorFields) {
+    lines.push(...formatDetectorFields(rec.detectorFields, RECORD_CONTEXT_INDENT));
+  }
+  if ("matches" in rec) {
+    for (const m of rec.matches) {
+      if (m.detectorFields) {
+        lines.push(...formatDetectorFields(m.detectorFields, `${RECORD_CONTEXT_INDENT}  `));
+      }
+    }
+  }
+  return lines;
+}
 
 // ---------------------------------------------------------------------------
 // Filesystem helpers (isolated here so the pure logic stays testable)
@@ -94,8 +170,9 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
 // Result formatting
 // ---------------------------------------------------------------------------
 
-function formatResult(results: CalibrationLogResult[]): string {
+function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
+  const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
 
   for (const r of results) {
     lines.push(`Log: ${r.entry.name} (${r.entry.path})`);
@@ -103,9 +180,20 @@ function formatResult(results: CalibrationLogResult[]): string {
     lines.push(`  Total fires (all-time): ${r.totalFires}`);
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
     lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
+    // mt#3197: the positional count above includes detections that were
+    // suppressed before reaching the operator. Show the split so a reviewer
+    // never mistakes log volume for attention cost.
+    if (r.suppressedSinceLastReview > 0) {
+      lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+      lines.push(`    ...injected:          ${r.injectedFiresSinceLastReview}`);
+    }
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
+    const dueReason = reasonByPath.get(r.entry.path);
+    if (dueReason) {
+      lines.push(`  Review-due:             ${dueReason}`);
+    }
     if (r.openAskId) {
       lines.push(`  Open ask (mt#2659):     ${r.openAskId} — disposition pending`);
     }
@@ -128,6 +216,22 @@ function formatResult(results: CalibrationLogResult[]): string {
           );
         } else if ("reason" in rec) {
           lines.push(`    [${rec.timestamp}] outcome=${rec.outcome} reason=${rec.reason}`);
+        } else if ("gapMinutes" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] gap=${rec.gapMinutes}min toolCalls=${rec.toolCallCount} ` +
+              `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
+          );
+        } else if ("wordCount" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] words=${rec.wordCount} trigger=${rec.trigger}` +
+              `${rec.leadLabelHits && rec.leadLabelHits.length > 0 ? ` labels=${rec.leadLabelHits.join("+")}` : ""} ` +
+              `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
+          );
+        } else if ("loadedSkills" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] rung=${rec.detectionRung} skills=${rec.loadedSkills.slice(0, 3).join(", ")} ` +
+              `tools=${rec.researchTools.slice(0, 3).join(", ")} hadPropagation=${rec.hadPropagation}`
+          );
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches
@@ -136,6 +240,7 @@ function formatResult(results: CalibrationLogResult[]): string {
               .join(", ")}`
           );
         }
+        lines.push(...buildRecordContextLines(rec));
       }
       if (r.newRecords.length > 5) {
         lines.push(`    ... and ${r.newRecords.length - 5} more`);
@@ -145,12 +250,19 @@ function formatResult(results: CalibrationLogResult[]): string {
   }
 
   const pastThresholdLogs = results.filter((r) => r.pastThreshold);
-  if (pastThresholdLogs.length === 0) {
-    lines.push("No logs have reached the review threshold.");
+  if (reviewDue.length === 0) {
+    lines.push("No logs are review-due.");
   } else {
+    lines.push(`${reviewDue.length} log(s) review-due:`);
+    for (const d of reviewDue) {
+      lines.push(
+        `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+      );
+    }
     lines.push(
-      `${pastThresholdLogs.length} log(s) past threshold. ` +
-        `Re-run with --ack to advance watermarks after review.`
+      pastThresholdLogs.length > 0
+        ? `Re-run with --ack to advance watermarks for the ${pastThresholdLogs.length} past-threshold log(s) after review.`
+        : "Note: --ack advances past-threshold logs only; time-stale / never-reviewed ack is mt#2878."
     );
   }
 
@@ -242,6 +354,12 @@ export function registerCalibrationCommands(): void {
 
         const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
 
+        // Review-due determination (mt#2896) — the SAME domain function the
+        // cadence hook uses, so the command surfaces time-stale / never-reviewed
+        // logs, not only pastThreshold. --ack below still advances pastThreshold
+        // logs only (extending ack to the time-based legs is mt#2878).
+        const reviewDue = computeReviewDueLogs(results, watermarks, Date.now());
+
         // Advance watermarks for past-threshold logs when --ack is set.
         //
         // mt#2659 review fix (BLOCKING 2): a past-threshold log whose watermark
@@ -285,13 +403,25 @@ export function registerCalibrationCommands(): void {
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
               firesSinceLastReview: r.firesSinceLastReview,
+              suppressedSinceLastReview: r.suppressedSinceLastReview,
+              injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
               distinctPhrases: r.distinctPhrases,
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,
               pastThreshold: r.pastThreshold,
+              firstRecordTimestamp: r.firstRecordTimestamp,
               newRecordCount: r.newRecords.length,
               newRecords: r.newRecords,
               openAskId: r.openAskId,
+            })),
+            reviewDue: reviewDue.map((d) => ({
+              name: d.name,
+              path: d.path,
+              reason: d.reason,
+              firesSinceLastReview: d.firesSinceLastReview,
+              totalFires: d.totalFires,
+              distinctPhrases: d.distinctPhrases,
+              openAskId: d.openAskId,
             })),
             watermarkAdvanced,
             clearedAskId,
@@ -299,7 +429,7 @@ export function registerCalibrationCommands(): void {
           };
         }
 
-        const text = formatResult(results);
+        const text = formatResult(results, reviewDue);
         const suffix = watermarkAdvanced
           ? "\nWatermarks advanced for past-threshold logs."
           : params.ack && skippedOpenAskPaths.length === 0

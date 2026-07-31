@@ -29,6 +29,8 @@
 //
 // Defaults follow the user's operational-safety-dry-run-first principle (CLAUDE.md).
 
+import { spawnSync as nodeSpawnSync } from "child_process";
+
 const OWNER = "edobry";
 const REPO = "minsky";
 const BRANCH = "main";
@@ -129,26 +131,27 @@ function isLiveCompliant(
 }
 
 function applyProtection(desired: typeof DESIRED_CONFIG_BASE): void {
-  // gh api PUT expects the body via stdin with `--input -`. Bun.spawnSync pipes
+  // gh api PUT expects the body via stdin with `--input -`. spawnSync pipes
   // the body buffer into the child's stdin. inherit stdout/stderr so gh's
   // response prints directly to the operator's terminal.
+  //
+  // Uses node:child_process.spawnSync (not Bun.spawnSync) — see mt#3088
+  // spec: bun-types@1.2.12's Bun.spawnSync stdin type is hardcoded to
+  // "ignore" on both overloads, with no cast-free way to pass a real stdin
+  // value (and the custom no-excessive-as-unknown ESLint rule correctly
+  // flags a cast-based workaround). node's `input` option is properly typed
+  // for this and has identical synchronous semantics.
   const body = JSON.stringify(desired);
-  const result = Bun.spawnSync({
-    cmd: [
-      "gh",
-      "api",
-      "-X",
-      "PUT",
-      `repos/${OWNER}/${REPO}/branches/${BRANCH}/protection`,
-      "--input",
-      "-",
-    ],
-    stdin: new TextEncoder().encode(body),
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(`gh api PUT exited ${result.exitCode}`);
+  const result = nodeSpawnSync(
+    "gh",
+    ["api", "-X", "PUT", `repos/${OWNER}/${REPO}/branches/${BRANCH}/protection`, "--input", "-"],
+    {
+      input: body,
+      stdio: ["pipe", "inherit", "inherit"],
+    }
+  );
+  if (result.status !== 0) {
+    throw new Error(`gh api PUT exited ${result.status}`);
   }
 }
 

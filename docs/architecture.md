@@ -32,7 +32,7 @@ without duplicating business logic. The shared command registry is the mechanism
 2. **CLI Bridge** (`src/adapters/shared/bridges/cli-bridge-modular.ts`) reads the registry and generates
    Commander.js `Command` objects. Parameters marked `cliHidden: true` are omitted.
 
-3. **MCP Bridge** (`src/adapters/shared/bridges/mcp-bridge.ts`) reads the same registry to dispatch
+3. **MCP Bridge** (`src/adapters/mcp/shared-command-integration.ts`) reads the same registry to dispatch
    MCP tool calls. Parameters marked `mcpHidden: true` are omitted.
 
 ```
@@ -71,13 +71,14 @@ Source: `src/adapters/shared/command-registry.ts`
 
 ## 2. Domain Architecture
 
-Business logic lives exclusively in `src/domain/`. Adapters (`src/adapters/`) and infrastructure
-(`src/mcp/`, `src/cli.ts`) depend on domain interfaces — never the reverse.
+Business logic lives in `packages/domain/src/` (the `src/domain/` monorepo-extraction source
+directory is now a residual with only `calibration/` remaining there). Adapters (`src/adapters/`)
+and infrastructure (`src/mcp/`, `src/cli.ts`) depend on domain interfaces — never the reverse.
 
 ### Directory structure
 
 ```
-src/domain/
+packages/domain/src/
 ├── ai/                  AI integration utilities
 ├── changeset/           Changeset creation and management
 ├── configuration/       Config loading, merging, validation
@@ -101,6 +102,11 @@ src/domain/
 └── workspace/           Workspace path resolution
 ```
 
+Not exhaustive: the extraction to `packages/domain/src/` also grew ~30 further subdomains not
+present when this list was written (`detectors/`, `transcripts/`, `observability/`, `mesh/`,
+`presence/`, `ask/`, `provenance/`, `compile/`, and others) — see the directory listing for the
+current complete set.
+
 ### Subdomains
 
 | Subdomain       | Responsibility                                                                                               |
@@ -115,7 +121,7 @@ src/domain/
 | `changeset`     | Structured change tracking for session diffs                                                                 |
 | `knowledge`     | External knowledge source integration (Notion, Confluence, Google Docs), ingestion pipeline, semantic search |
 
-Formal concept definitions: `src/domain/concepts.md`
+Formal concept definitions: `packages/domain/src/concepts.md`
 
 ---
 
@@ -146,10 +152,10 @@ base type and cannot accidentally call vector methods.
 
 ### DB schemas
 
-Schema files under `src/domain/storage/schemas/` define the Postgres table layouts:
+Schema files under `packages/domain/src/storage/schemas/` define the Postgres table layouts:
 
 ```
-src/domain/storage/schemas/
+packages/domain/src/storage/schemas/
 ├── embeddings-schema-factory.ts   shared factory for embeddings tables
 ├── rule-embeddings.ts             rule vector storage schema
 ├── session-schema.ts              session records table
@@ -158,7 +164,7 @@ src/domain/storage/schemas/
 └── tool-embeddings.ts             MCP tool vector storage schema
 ```
 
-Migrations live in `src/domain/storage/migrations/`.
+Migrations live in `packages/domain/src/storage/migrations/`.
 
 ### Design principles (from ADR-002)
 
@@ -196,7 +202,7 @@ interface SessionRecord {
 }
 ```
 
-Source: `src/domain/session/types.ts`
+Source: `packages/domain/src/session/types.ts`
 
 ### Lifecycle
 
@@ -227,7 +233,7 @@ Source: `src/domain/session/types.ts`
 
 ### SessionService
 
-`SessionService` (`src/domain/session/session-service.ts`) is a class that holds injected
+`SessionService` (`packages/domain/src/session/session-service.ts`) is a class that holds injected
 `SessionDeps` and delegates each operation to a pure function in a sub-module:
 
 | Method         | Sub-module                          |
@@ -281,16 +287,47 @@ interface Rule {
   CompileTarget.compile()        format-specific rendering
        |
        +--> agents-md.ts         → AGENTS.md  (Codex / OpenAI Agents)
-       +--> claude-md.ts         → CLAUDE.md  (Claude Code)
-       +--> cursor-rules.ts      → .cursor/rules/*.mdc  (Cursor)
+       +--> claude-md.ts         → CLAUDE.md  (Claude Code — always-loaded)
+       +--> cursor-rules.ts      → .cursor/rules/*.mdc  (Cursor — per-rule files)
+       +--> claude-rules.ts      → .claude/rules/*.md  (Claude Code — path-scoped, lazy-loaded)
 ```
 
-`CompileService` (`src/domain/rules/compile/compile-service.ts`) manages a registry of
-`CompileTarget` implementations and routes `compile(targetId, options)` calls to the correct
-one. Each target applies its own section layout and frontmatter stripping.
+`CompileService` (`packages/domain/src/rules/compile/compile-service.ts`) manages a registry
+of `CompileTarget` implementations and routes `compile(targetId, options)` calls to the
+correct one. Each target applies its own section layout and frontmatter stripping.
 
 Rule selection configuration (presets, explicitly enabled/disabled IDs) is stored in
 `.minsky/config.yaml` under the `rules` key.
+
+#### `claude-rules` target (mt#2868) — path-scoped delivery for Claude Code
+
+`claude-md.ts` emits ONE monolithic `CLAUDE.md` that loads unconditionally every session —
+every rule in it counts against the always-loaded context budget (mt#1876/mt#1877/mt#2802).
+`claude-rules.ts` is the escape valve: it emits one `.claude/rules/<id>.md` file PER ELIGIBLE
+rule, each carrying `paths:` frontmatter (a YAML list of globs) that Claude Code uses to load
+the rule's content only when a matching file enters context — never at session start.
+
+**Eligibility predicate (hard constraint):** a rule is emitted ONLY when it has a non-empty
+`globs` array AND `alwaysApply` is the literal boolean `false`. A `.claude/rules/*.md` file
+WITHOUT `paths:` frontmatter loads unconditionally, at the same priority as `CLAUDE.md` — so a
+rule with no globs, or with `alwaysApply: true`, is never emitted here (it stays covered by
+`claude-md.ts`'s monolithic file instead). As of 2026-07-15 this excludes the majority of the
+non-`alwaysApply` corpus outright: most rules describe conversational/process guidance rather
+than a file-scoped concern, and forcing a glob onto them to gain lazy-loading would either be
+semantically wrong or so broad (e.g. `**/*.ts`) that it recreates always-loading through the
+back door — the target's own unit tests reject that pattern.
+
+Stale-file removal is active (unlike `cursor-rules.ts`, which never deletes orphaned `.mdc`
+files): a `.claude/rules/<id>.md` whose source rule loses its globs, flips to
+`alwaysApply: true`, or is disabled via selection config is removed on the next compile. Only
+files carrying the generation banner are ever removed — hand-authored files in
+`.claude/rules/` are left untouched.
+
+`.claude/rules/` is excluded from Prettier (`.prettierignore`) for the same reason
+`.claude/agents/` is: the emitter single-quotes each glob so a `\[`-escaped literal bracket
+(design decision 4 — Claude Code's matcher requires `[` escaped or it silently fails to match)
+survives YAML round-trip untouched, and Prettier would rewrite that to double quotes. The
+compile-check guard (`src/hooks/pre-commit.ts` `runRulesCompileCheck`) owns staleness instead.
 
 ---
 
@@ -302,7 +339,7 @@ typed dependency bundles (e.g., `SessionDeps`) assembled by composition roots.
 
 ### Container
 
-`TsyringeContainer` (`src/composition/container.ts`) wraps tsyringe's `DependencyContainer`,
+`TsyringeContainer` (`packages/domain/src/composition/container.ts`) wraps tsyringe's `DependencyContainer`,
 implementing `AppContainerInterface` with async lifecycle support:
 
 - `register(key, factory, options?)` — stores a factory; returns `this` for chaining
@@ -333,7 +370,7 @@ export const TOKENS = {
 } as const;
 ```
 
-These match the keys in the `AppServices` interface (`src/composition/types.ts`).
+These match the keys in the `AppServices` interface (`packages/domain/src/composition/types.ts`).
 
 ### Service map
 
@@ -351,7 +388,7 @@ interface AppServices {
 }
 ```
 
-Source: `src/composition/types.ts`
+Source: `packages/domain/src/composition/types.ts`
 
 ### Decorators
 
@@ -412,9 +449,9 @@ class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (tes
 ```
 
 Classes are used for stateful services; pure functions for stateless logic.
-The container is wired in `src/composition/domain.ts` (portable domain bootstrap),
+The container is wired in `packages/domain/src/composition/domain.ts` (portable domain bootstrap),
 `src/composition/cli.ts` (CLI entry, delegates to domain bootstrap), and
-`src/composition/test.ts` (test fakes via `set()`).
+`packages/domain/src/composition/test.ts` (test fakes via `set()`).
 
 ---
 
@@ -423,13 +460,13 @@ The container is wired in `src/composition/domain.ts` (portable domain bootstrap
 Configuration is loaded from four sources in ascending priority order:
 
 ```
-  1. Defaults         (src/domain/configuration/sources/defaults.ts)    lowest priority
+  1. Defaults         (packages/domain/src/configuration/sources/defaults.ts)    lowest priority
   2. Project config   (.minsky/config.yaml in the project root)
   3. User config      (~/.config/minsky/config.yaml)
   4. Environment vars (MINSKY_* prefix)                                  highest priority
 ```
 
-The loader (`src/domain/configuration/loader.ts`) merges these sources, validates the merged
+The loader (`packages/domain/src/configuration/loader.ts`) merges these sources, validates the merged
 result against `configurationSchema` (Zod), and returns a `ConfigurationLoadResult` that
 includes per-key source tracking (which source set each value).
 
@@ -456,7 +493,7 @@ ai:
   model: text-embedding-3-small
 ```
 
-Source: `src/domain/configuration/`
+Source: `packages/domain/src/configuration/`
 
 ---
 
@@ -487,7 +524,7 @@ Currently only GitHub is implemented (`GitHubBackend`). GitLab and Bitbucket are
 
 The active backend is read from `.minsky/config.yaml` (`repository.backend`). All session operations route through the sub-interfaces, which are resolved by `createRepositoryBackend()` at runtime.
 
-Source: `src/domain/repository/`
+Source: `packages/domain/src/repository/`
 
 ---
 
@@ -514,9 +551,9 @@ interface KnowledgeSourceProvider {
 
 Shipped providers:
 
-- `NotionKnowledgeProvider` (`src/domain/knowledge/providers/notion-provider.ts`) — walks a
+- `NotionKnowledgeProvider` (`packages/domain/src/knowledge/providers/notion-provider.ts`) — walks a
   Notion page tree via the Notion REST API.
-- `GoogleDocsKnowledgeProvider` (`src/domain/knowledge/providers/google-docs-provider.ts`) —
+- `GoogleDocsKnowledgeProvider` (`packages/domain/src/knowledge/providers/google-docs-provider.ts`) —
   syncs documents from a Google Drive folder or an explicit document ID list. Supports OAuth
   access tokens and service account JSON key authentication.
 
@@ -541,7 +578,7 @@ type is configured.
   VectorStorage.store(id, vector, metadata)
 ```
 
-`chunkContent` (`src/domain/knowledge/ingestion/chunker.ts`) uses a four-level strategy:
+`chunkContent` (`packages/domain/src/knowledge/ingestion/chunker.ts`) uses a four-level strategy:
 
 1. If the whole document fits (≤ 8 192 tokens), return it as-is.
 2. Split on `##` level-2 headings.
@@ -552,13 +589,13 @@ type is configured.
 Each chunk ID is `{sourceName}:{documentId}:{chunkIndex}`, stored alongside metadata that
 includes `contentHash`, `totalChunks`, `url`, `title`, `lastModified`, and `stale` flag.
 
-`runSync` (`src/domain/knowledge/ingestion/sync-runner.ts`) orchestrates the pipeline for a
+`runSync` (`packages/domain/src/knowledge/ingestion/sync-runner.ts`) orchestrates the pipeline for a
 single provider and returns a `SyncReport` with counts of added, updated, skipped, and removed
 documents.
 
 ### Sync scheduler
 
-`KnowledgeSyncScheduler` (`src/domain/knowledge/ingestion/scheduler.ts`) fires sync jobs
+`KnowledgeSyncScheduler` (`packages/domain/src/knowledge/ingestion/scheduler.ts`) fires sync jobs
 according to each source's `sync.schedule` setting. Supported values:
 
 - Named presets: `on-demand`, `startup`, `hourly`, `daily`, `weekly`
@@ -595,7 +632,7 @@ next scheduled fire time.
 
 ### KnowledgeService
 
-`KnowledgeService` (`src/domain/knowledge/knowledge-service.ts`) is the entry point for
+`KnowledgeService` (`packages/domain/src/knowledge/knowledge-service.ts`) is the entry point for
 application code. It reads `knowledgeBases` from config, instantiates the correct provider,
 and delegates to `runSync`:
 
@@ -610,7 +647,7 @@ interface KnowledgeServiceDeps {
 ### Search output shape (Phase 2a)
 
 `knowledge.search` now returns a structured `KnowledgeSearchResponse` (defined in
-`src/domain/knowledge/types.ts`) instead of a bare chunk list:
+`packages/domain/src/knowledge/types.ts`) instead of a bare chunk list:
 
 ```typescript
 interface KnowledgeSearchResponse {
@@ -632,7 +669,7 @@ interface KnowledgeSearchResponse {
 **Backward compat:** existing consumers that read only `response.chunks` keep working — the
 response is a strict superset.
 
-**Freshness classification** (`src/domain/knowledge/reconciliation/freshness.ts`):
+**Freshness classification** (`packages/domain/src/knowledge/reconciliation/freshness.ts`):
 
 - `fresh` — modified within `agingDays` (default 30 days)
 - `aging` — modified between `agingDays` and `staleDays` (default 30–90 days)
@@ -642,7 +679,7 @@ Thresholds are configurable via `knowledgeReconciliation.staleness` (see Configu
 The MCP/CLI output surfaces staleness inline per chunk (e.g. stale chunks appear with a warning
 in the freshness map).
 
-**Authority ranking** (`src/domain/knowledge/reconciliation/authority-ranker.ts`):
+**Authority ranking** (`packages/domain/src/knowledge/reconciliation/authority-ranker.ts`):
 When two chunks' relevance scores are within `epsilon` (default 0.05), the higher-authority
 source is preferred. Authority scores are set via `knowledgeReconciliation.sourceAuthority`
 (unlisted sources default to 0). `authority` is a parallel ordering — `chunks` retains
@@ -708,9 +745,9 @@ knowledgeReconciliation:
   epsilon: 0.05 # max relevance delta for authority tiebreaking
 ```
 
-The `KnowledgeSourceConfig` type is defined in `src/domain/knowledge/types.ts`. The
+The `KnowledgeSourceConfig` type is defined in `packages/domain/src/knowledge/types.ts`. The
 `knowledgeReconciliation` section is defined in
-`src/domain/configuration/schemas/knowledge-reconciliation.ts` and validated by Zod.
+`packages/domain/src/configuration/schemas/knowledge-reconciliation.ts` and validated by Zod.
 
 Auth tokens can be provided directly (`token:`) or via an environment variable name
 (`tokenEnvVar:`); Google Docs additionally supports `serviceAccountJsonEnvVar:` for service
@@ -741,4 +778,4 @@ Additional architectural context:
 - `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
 - `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
 - `docs/architecture/stdio-proxy.md` — Minsky stdio respawn proxy (supervisor-below pattern): opt-in via `minsky mcp proxy`; transparently absorbs the inner server's staleness-exit (mt#1322) and respawns the child without Claude Code observing a disconnect
-- `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling
+- `packages/domain/src/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling

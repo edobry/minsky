@@ -15,6 +15,10 @@ import { deleteSessionImpl } from "./session-lifecycle-operations";
 import { FakeGitService } from "../git/fake-git-service";
 import type { SessionRecord } from "./types";
 
+// mt#3105: this file tests remote-branch cleanup, not the live-actor gate —
+// stub the gate as not-live so deletes proceed to the code under test.
+const notLiveActor = async () => ({ verdict: "not-live" as const, reason: "test: nobody live" });
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -63,8 +67,8 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const gitService = new FakeGitService();
 
     const result = await deleteSessionImpl(
-      { sessionId: SESSION_ID, force: false },
-      { sessionDB, gitService }
+      { sessionId: SESSION_ID },
+      { sessionDB, gitService, resolveActor: notLiveActor }
     );
 
     expect(result.deleted).toBe(true);
@@ -89,7 +93,10 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const sessionDB = makeSessionDB([sessionRecord]);
 
     // No gitService passed — deletion should still succeed
-    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: false }, { sessionDB });
+    const result = await deleteSessionImpl(
+      { sessionId: SESSION_ID },
+      { sessionDB, resolveActor: notLiveActor }
+    );
 
     expect(result.deleted).toBe(true);
     expect(await sessionDB.getSession(SESSION_ID)).toBeNull();
@@ -105,8 +112,8 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     );
 
     const result = await deleteSessionImpl(
-      { sessionId: SESSION_ID, force: false },
-      { sessionDB, gitService }
+      { sessionId: SESSION_ID },
+      { sessionDB, gitService, resolveActor: notLiveActor }
     );
 
     expect(result.deleted).toBe(true);
@@ -118,7 +125,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
     const gitService = new FakeGitService();
 
     const result = await deleteSessionImpl(
-      { sessionId: "nonexistent-session", force: false },
+      { sessionId: "nonexistent-session" },
       { sessionDB, gitService }
     );
 
@@ -129,7 +136,7 @@ describe("deleteSessionImpl — remote branch cleanup", () => {
   it("returns error when no identifier is provided", async () => {
     const sessionDB = makeSessionDB([]);
 
-    const result = await deleteSessionImpl({ force: false }, { sessionDB });
+    const result = await deleteSessionImpl({}, { sessionDB });
 
     expect(result.deleted).toBe(false);
     expect(result.error).toContain("Session delete requires");

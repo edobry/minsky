@@ -4,10 +4,10 @@
  * Commands for editing existing tasks (title and specification content).
  * Supports multi-backend editing with proper delegation to backend implementations.
  */
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
 import { getErrorMessage } from "@minsky/domain/errors/index";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams } from "@minsky/domain/tasks";
 import type { Task } from "@minsky/domain/tasks/types";
@@ -19,20 +19,12 @@ import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
-
-/**
- * Parameters for tasks edit command
- */
-interface TasksEditParams extends BaseTaskParams {
-  taskId: string;
-  title?: string;
-  spec?: boolean;
-  specFile?: string;
-  specContent?: string;
-  tag?: string | string[];
-  kind?: string;
-  execute?: boolean;
-}
+import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
+import {
+  checkKindChangeStatusCompatibility,
+  describeKindChangeStatusConflict,
+  type KindChangeStatusConflict,
+} from "@minsky/domain/tasks/workflows";
 
 /**
  * Task edit command implementation
@@ -43,7 +35,7 @@ interface TasksEditParams extends BaseTaskParams {
  *
  * By default shows a preview of changes. Use --execute to apply the changes.
  */
-export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
+export class TasksEditCommand extends BaseTaskCommand<typeof tasksEditParams> {
   readonly id = "tasks.edit";
   readonly name = "edit";
   readonly description =
@@ -57,7 +49,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     super();
   }
 
-  async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksEditParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
 
     // Validate required parameters
@@ -68,6 +60,13 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
     const hasTagOperation = params.tag !== undefined;
     const hasKindOperation = params.kind !== undefined;
+
+    // Validate kind against the workflow registry up front; mirrors create-time validation
+    // so a typo can't slip through to a backend write that silently succeeds.
+    if (hasKindOperation && !isKnownKind(params.kind as string)) {
+      const known = Object.keys(WORKFLOWS).join(", ");
+      throw new ValidationError(`Unknown task kind: "${params.kind}". Valid kinds: ${known}.`);
+    }
 
     if (!params.title && !hasSpecOperation && !hasTagOperation && !hasKindOperation) {
       throw new ValidationError(
@@ -183,21 +182,37 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
 
-    // Handle workflow kind update (mt#1812 / mt#2661)
-    if (params.kind !== undefined) {
+    // Handle kind update (reclassification across workflow registry; mt#1812 / mt#2661)
+    if (hasKindOperation) {
       updates.kind = params.kind;
       this.debug(`Kind update: "${params.kind}"`);
     }
+
+    // mt#3137: a kind change selects WHICH state machine applies, so a status
+    // that is legal today can be absent from the target kind's states — leaving
+    // the task with zero valid transitions. Computed here (after the task is
+    // fetched, so the CURRENT status is known) and surfaced two ways: the
+    // dry-run preview names the consequence, and `--execute` refuses outright.
+    const kindStatusConflict: KindChangeStatusConflict | null = updates.kind
+      ? checkKindChangeStatusCompatibility(currentTask.status, currentTask.kind, updates.kind)
+      : null;
 
     // Show preview if not executing
     if (!params.execute && (updates.title || updates.spec || updates.tags || updates.kind)) {
       return this.formatResult(
         this.createSuccessResult(
           validatedTaskId,
-          this.buildPreviewMessage(currentTask, updates, validatedTaskId)
+          this.buildPreviewMessage(currentTask, updates, validatedTaskId, kindStatusConflict)
         ),
         params.json
       );
+    }
+
+    // Refuse the write rather than strand the task. Deliberately AFTER the
+    // preview branch: the operator running a dry-run must SEE the conflict, not
+    // an error in place of the diff.
+    if (kindStatusConflict) {
+      throw new ValidationError(describeKindChangeStatusConflict(kindStatusConflict));
     }
 
     // Apply the updates using the backend's setTaskMetadata method
@@ -268,7 +283,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Updated task tags");
       }
 
-      // Apply kind update separately (mt#2661 back-annotation support)
+      // Apply kind update separately (mt#2661 back-annotation support; unsupported
+      // backends were already rejected by the up-front setTaskKind check above)
       if (updates.kind && backend.setTaskKind) {
         await backend.setTaskKind(validatedTaskId, updates.kind);
         this.debug(`Updated task kind to "${updates.kind}"`);
@@ -461,7 +477,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
   private buildPreviewMessage(
     currentTask: Task,
     updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
-    taskId: string
+    taskId: string,
+    kindStatusConflict: KindChangeStatusConflict | null
   ): string {
     let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
 
@@ -507,6 +524,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       message += `${chalk.bold("Kind change:")}\n`;
       message += `  ${chalk.red("- ")}${currentTask.kind || "implementation"}\n`;
       message += `  ${chalk.green("+ ")}${updates.kind}\n\n`;
+    }
+
+    if (kindStatusConflict) {
+      message += `${chalk.bold("Kind change consequence:")}\n`;
+      message += `  ${chalk.yellow(describeKindChangeStatusConflict(kindStatusConflict))}\n\n`;
     }
 
     message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;

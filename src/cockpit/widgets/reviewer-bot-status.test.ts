@@ -11,11 +11,15 @@
  *   4. Failure-rate spike (A3) → a3FailureRateSpike:true
  *   5. Latency regression (A4) → a4LatencyRegression:true
  *   6. extractTaskIdFromBranch unit tests
+ *   7. Verdict distribution + A6 drift (mt#2287)
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import {
   createReviewerBotStatusWidget,
+  createUnsafeQueryRows,
+  buildQueryRows,
+  runQueriesWithLimit,
   extractTaskIdFromBranch,
   type ReviewerBotStatusPayload,
   type ReviewerHealthProbeResult,
@@ -54,7 +58,11 @@ function unreachableProbe(): Promise<ReviewerHealthProbeResult> {
   });
 }
 
-type QueryRows = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+type QueryRows = (
+  sql: string,
+  params?: unknown[],
+  onFailure?: () => void
+) => Promise<Record<string, unknown>[]>;
 
 /**
  * Create a QueryRowsFn that returns stub data based on the SQL statement.
@@ -71,6 +79,14 @@ function makeQueryRows(overrides: {
   staleInflightCount?: number;
   rateLimitCount?: number;
   lastWebhookAt?: string | null;
+  medianTokens?: number | null;
+  medianCostUsd?: number | null;
+  cacheHitRatio?: number | null;
+  /** Verdict counts — used for BOTH the 24h and 7d GROUP BY verdict queries
+   * (mirrors the medianTokens/medianCostUsd single-value-for-both-windows
+   * pattern), so the default healthy fixture has equal 24h/7d ratios and
+   * a6VerdictDrift stays false. */
+  verdictCounts?: { approve: number; requestChanges: number; comment: number };
 }): QueryRows {
   const {
     throughputCount = 10,
@@ -82,9 +98,25 @@ function makeQueryRows(overrides: {
     staleInflightCount = 0,
     rateLimitCount = 0,
     lastWebhookAt = "2026-06-04T11:55:00Z",
+    medianTokens = 42_000,
+    medianCostUsd = 0.15,
+    cacheHitRatio = 0.6,
+    verdictCounts = { approve: 7, requestChanges: 2, comment: 1 },
   } = overrides;
 
   return async (sql: string, _params?: unknown[]): Promise<Record<string, unknown>[]> => {
+    // mt#2288 median queries — MUST be routed before the latency PERCENTILE_CONT
+    // branch below (both hit review_timing + PERCENTILE_CONT).
+    if (sql.includes("median_tokens")) {
+      return [{ median_tokens: medianTokens }];
+    }
+    if (sql.includes("median_cost")) {
+      return [{ median_cost: medianCostUsd }];
+    }
+    // mt#2721 cache-hit ratio (SUM/SUM, no PERCENTILE — distinct branch).
+    if (sql.includes("cache_hit_ratio")) {
+      return [{ cache_hit_ratio: cacheHitRatio }];
+    }
     // Throughput query
     if (sql.includes("review_submitted") && sql.includes("COUNT")) {
       return [{ count: throughputCount }];
@@ -120,8 +152,31 @@ function makeQueryRows(overrides: {
     if (sql.includes("reviewer_webhook_events") && sql.includes("received_at")) {
       return lastWebhookAt ? [{ received_at: lastWebhookAt }] : [];
     }
+    // mt#2287 verdict distribution (24h and 7d — same stub value for both,
+    // see the verdictCounts doc comment above).
+    if (sql.includes("GROUP BY verdict")) {
+      return verdictCountsToRows(verdictCounts);
+    }
     return [];
   };
+}
+
+/** Convert a { approve, requestChanges, comment } counts object into
+ * GROUP-BY-verdict-shaped rows, matching the real query's row shape
+ * (`{ verdict: "approve" | "request_changes" | "comment", count: n }`).
+ * Zero-count classes are omitted, matching a real GROUP BY (mt#2287). */
+function verdictCountsToRows(counts: {
+  approve: number;
+  requestChanges: number;
+  comment: number;
+}): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  if (counts.approve > 0) rows.push({ verdict: "approve", count: counts.approve });
+  if (counts.requestChanges > 0) {
+    rows.push({ verdict: "request_changes", count: counts.requestChanges });
+  }
+  if (counts.comment > 0) rows.push({ verdict: "comment", count: counts.comment });
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +218,27 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     expect(db.staleInflightCount).toBe(0);
     expect(db.rateLimitHitCount24h).toBe(0);
     expect(db.lastWebhookReceivedAt).toBe("2026-06-04T11:55:00Z");
+    // Cost fields (mt#2288) — same value for 24h and 7d → no cost trend
+    expect(db.medianTokens24h).toBe(42_000);
+    expect(db.medianTokens7d).toBe(42_000);
+    expect(db.medianCostUsd24h).toBe(0.15);
+    expect(db.medianCostUsd7d).toBe(0.15);
+    // Cache-hit ratio (mt#2721)
+    expect(db.cacheHitRatio24h).toBe(0.6);
+    // Verdict distribution (mt#2287) — same counts for 24h and 7d → no drift
+    expect(db.verdictCounts24h).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
+    expect(db.verdictCounts7d).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
+    // Query-failure indicator (mt#2758): no failures on the happy path.
+    expect(db.queryFailureCount).toBe(0);
+    expect(db.queryTotalCount).toBe(15);
 
     // All anomalies false
     expect(payload.anomalies.a1ServiceUnreachable).toBe(false);
     expect(payload.anomalies.a2StaleInflight).toBe(false);
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
+    expect(payload.anomalies.a5CostTrend).toBe(false);
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
   });
 });
 
@@ -334,6 +404,56 @@ describe("createReviewerBotStatusWidget — A4 latency regression", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 5b. Cost trend → A5 (mt#2288)
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — A5 cost trend", () => {
+  const WINDOW_7D_ISO = new Date(FIXED_NOW - 7 * 24 * 60 * 60 * 1_000).toISOString();
+
+  test("a5CostTrend fires when 24h median cost diverges >50% from 7d median", async () => {
+    // 24h median $0.20 is 100% above the 7d median $0.10 → >50% divergence.
+    const costTrendQueryRows: QueryRows = async (sql, params) => {
+      if (sql.includes("median_cost")) {
+        const is7d = params?.[0] === WINDOW_7D_ISO;
+        return [{ median_cost: is7d ? 0.1 : 0.2 }];
+      }
+      if (sql.includes("median_tokens")) {
+        return [{ median_tokens: 40_000 }];
+      }
+      return makeQueryRows({})(sql, params);
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: costTrendQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.medianCostUsd24h).toBe(0.2);
+    expect(payload.db.medianCostUsd7d).toBe(0.1);
+    expect(payload.anomalies.a5CostTrend).toBe(true);
+  });
+
+  test("a5CostTrend is false when both median-cost windows are null (no priced reviews)", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeQueryRows({ medianCostUsd: null }),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.medianCostUsd24h).toBeNull();
+    expect(payload.anomalies.a5CostTrend).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 6. DB failure degrades gracefully without crashing
 // ---------------------------------------------------------------------------
 
@@ -365,10 +485,20 @@ describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () 
     expect(payload.db.avgLatencyMs).toBeNull();
     expect(payload.db.p95LatencyMs).toBeNull();
     expect(payload.db.staleInflightCount).toBe(0);
+    // Verdict distribution defaults to zero counts on every query rejecting (mt#2287)
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
     // Anomalies that require DB data must be false when all queries produce empty results
     expect(payload.anomalies.a2StaleInflight).toBe(false);
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+    // Query-failure indicator (mt#2758): every query rejected this cycle, so
+    // the failure count equals the total — this is the "indicator data
+    // present" signal that distinguishes this scenario from genuine no-data.
+    expect(payload.db.queryFailureCount).toBe(payload.db.queryTotalCount);
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBeGreaterThan(0);
   });
 });
 
@@ -456,5 +586,488 @@ describe("extractTaskIdFromBranch", () => {
   test("returns null for null and undefined inputs", () => {
     expect(extractTaskIdFromBranch(null)).toBeNull();
     expect(extractTaskIdFromBranch(undefined)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Verdict distribution + A6 drift (mt#2287)
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — verdict distribution (mt#2287)", () => {
+  const WINDOW_7D_ISO_VERDICT = new Date(FIXED_NOW - 7 * 24 * 60 * 60 * 1_000).toISOString();
+
+  /**
+   * Build a QueryRowsFn where the 24h and 7d GROUP BY verdict queries can be
+   * given independent counts (distinguished via the window-start param, same
+   * technique as the "5b. Cost trend" describe block above). All other
+   * queries fall back to the standard makeQueryRows({}) stub.
+   */
+  function makeVerdictDriftQueryRows(
+    counts24h: { approve: number; requestChanges: number; comment: number },
+    counts7d: { approve: number; requestChanges: number; comment: number }
+  ): QueryRows {
+    const fallback = makeQueryRows({});
+    return async (sql, params) => {
+      if (sql.includes("GROUP BY verdict")) {
+        const is7d = params?.[0] === WINDOW_7D_ISO_VERDICT;
+        return verdictCountsToRows(is7d ? counts7d : counts24h);
+      }
+      return fallback(sql, params);
+    };
+  }
+
+  test("parses GROUP BY verdict rows into counts keyed by camelCase class", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 8, requestChanges: 4, comment: 2 },
+        { approve: 8, requestChanges: 4, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 8, requestChanges: 4, comment: 2 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 8, requestChanges: 4, comment: 2 });
+  });
+
+  test("a verdict class with zero rows in the GROUP BY result parses to a zero count", async () => {
+    // No request_changes or comment rows at all — GROUP BY only returns the
+    // classes with >= 1 matching row (mirrors real Postgres GROUP BY behavior).
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 5, requestChanges: 0, comment: 0 },
+        { approve: 5, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 5, requestChanges: 0, comment: 0 });
+  });
+
+  test("a6VerdictDrift fires when a verdict's 24h ratio diverges >20pp from its 7d ratio", async () => {
+    // 24h: 9 approve / 10 total = 90% approve.
+    // 7d: 5 approve / 10 total = 50% approve. Divergence = 40pp > 20pp threshold.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 9, requestChanges: 1, comment: 0 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 9, requestChanges: 1, comment: 0 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 5, requestChanges: 3, comment: 2 });
+    expect(payload.anomalies.a6VerdictDrift).toBe(true);
+  });
+
+  test("a6VerdictDrift is false when ratios diverge <= 20pp", async () => {
+    // 24h: 6/10 = 60% approve. 7d: 5/10 = 50% approve. Divergence = 10pp <= threshold.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 6, requestChanges: 3, comment: 1 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when the 24h sample is below the minimum size, even with a huge ratio gap", async () => {
+    // 24h: 2 approve / 2 total = 100% approve, but total < A6_MIN_SAMPLE_SIZE (3).
+    // 7d: 5 approve / 10 total = 50% approve — would be a 50pp gap if not gated.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 2, requestChanges: 0, comment: 0 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when the 7d baseline sample is below the minimum size", async () => {
+    // 7d total = 2 (below A6_MIN_SAMPLE_SIZE), even though 24h has ample volume.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 9, requestChanges: 1, comment: 0 },
+        { approve: 2, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when both windows have zero verdict data", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 0, requestChanges: 0, comment: 0 },
+        { approve: 0, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Query wiring (mt#2757) — the real buildQueryRows path was never covered;
+// the original wiring called the postgres-js Sql instance as a plain function
+// (NOT_TAGGED_CALL on every query) and read `.rows` off an array result, so
+// every DB field rendered as zero since birth. These tests pin the corrected
+// shape: raw string queries go through `.unsafe(query, params)` and the
+// resolved value IS the row array.
+// ---------------------------------------------------------------------------
+
+describe("createUnsafeQueryRows / buildQueryRows wiring (mt#2757)", () => {
+  test("routes queries through sql.unsafe(query, params) and returns the row array", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ count: "7" }]));
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    const rows = await queryRows("SELECT 1", ["a"]);
+
+    expect(unsafe).toHaveBeenCalledTimes(1);
+    expect(unsafe).toHaveBeenCalledWith("SELECT 1", ["a"]);
+    expect(rows).toEqual([{ count: "7" }]);
+  });
+
+  test("non-array resolution degrades to [] (defensive against driver-shape drift)", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.resolve({ rows: [{ count: "7" }] } as unknown)
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("query rejection returns [] AND invokes the warn seam (no silent fail-open)", async () => {
+    const warn = mock((_err: unknown) => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.reject(new Error("NOT_TAGGED_CALL"))
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe }, warn);
+
+    const rows = await queryRows("SELECT 1");
+
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  test("query rejection also invokes the onFailure param (mt#2758 counting seam)", async () => {
+    const warn = mock((_err: unknown) => {});
+    const onFailure = mock(() => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.reject(new Error("NOT_TAGGED_CALL"))
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe }, warn);
+
+    const rows = await queryRows("SELECT 1", undefined, onFailure);
+
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  test("query success does NOT invoke the onFailure param", async () => {
+    const onFailure = mock(() => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ ok: 1 }]));
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    await queryRows("SELECT 1", undefined, onFailure);
+
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  test("buildQueryRows wires provider.getRawSqlConnection().unsafe (not a plain call)", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ ok: 1 }]));
+    const provider = { getRawSqlConnection: () => Promise.resolve({ unsafe }) };
+
+    const queryRows = await buildQueryRows(() => Promise.resolve(provider));
+    const rows = await queryRows("SELECT ok", [1]);
+
+    expect(unsafe).toHaveBeenCalledWith("SELECT ok", [1]);
+    expect(rows).toEqual([{ ok: 1 }]);
+  });
+
+  test("buildQueryRows degrades to empty results when the provider has no raw SQL support", async () => {
+    const queryRows = await buildQueryRows(() => Promise.resolve({}));
+    expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("buildQueryRows's no-raw-SQL fallback invokes onFailure (mt#2758 — a structurally dead connection counts as a failure, not silent no-data)", async () => {
+    const onFailure = mock(() => {});
+    const queryRows = await buildQueryRows(() => Promise.resolve({}));
+    expect(await queryRows("SELECT 1", undefined, onFailure)).toEqual([]);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  test("buildQueryRows degrades to empty results when the provider loader throws", async () => {
+    const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
+    expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("buildQueryRows's loader-throw fallback invokes onFailure (mt#2758)", async () => {
+    const onFailure = mock(() => {});
+    const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
+    expect(await queryRows("SELECT 1", undefined, onFailure)).toEqual([]);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Query-failure indicator (mt#2758) — distinguishes "the query layer failed"
+// from "the query legitimately returned zero rows." Both previously produced
+// identical zero/null/[] output; this counter is the payload-level signal
+// that tells them apart.
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — query-failure indicator (mt#2758)", () => {
+  test("all queries failing: queryFailureCount equals queryTotalCount (indicator data present)", async () => {
+    const throwingQueryRows: QueryRows = async () => {
+      throw new Error("connection refused");
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: throwingQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(15);
+  });
+
+  test("no failures with genuinely empty result windows: queryFailureCount is 0 (no indicator)", async () => {
+    // Every query resolves successfully but returns no rows — the "genuinely
+    // no data yet" case this counter must NOT flag as a failure.
+    const emptyTablesQueryRows: QueryRows = async () => [];
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: emptyTablesQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryFailureCount).toBe(0);
+    expect(payload.db.queryTotalCount).toBe(15);
+    // Confirm this really is the "empty tables" shape, not the "failure" shape:
+    // fields read their honest empty defaults, same as the failure case would
+    // produce — proving the counter (not the field values) is what
+    // distinguishes the two scenarios.
+    expect(payload.db.reviewCount24h).toBe(0);
+    expect(payload.db.recentTaskIds).toEqual([]);
+  });
+
+  test("partial failure: queryFailureCount reflects only the queries that actually failed", async () => {
+    // Only the stale in-flight query fails ("reviewer_inflight_reviews" is a
+    // unique substring — no other query text matches it). Every other query
+    // succeeds via the standard healthy stub.
+    const singleFailureQueryRows: QueryRows = async (sql, params) => {
+      if (sql.includes("reviewer_inflight_reviews")) {
+        throw new Error('relation "reviewer_inflight_reviews" does not exist');
+      }
+      return makeQueryRows({})(sql, params);
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: singleFailureQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(1);
+    // The failed query's own field degrades to its default...
+    expect(payload.db.staleInflightCount).toBe(0);
+    // ...while unrelated fields from the successful queries are untouched.
+    expect(payload.db.reviewCount24h).toBe(10);
+    expect(payload.db.recentTaskIds).toEqual(["mt#2076", "mt#2075"]);
+  });
+
+  test("a QueryRowsFn that BOTH calls onFailure AND rejects counts each failure exactly once (PR #1921 R1)", async () => {
+    // The QueryRowsFn contract doesn't forbid an implementation from invoking
+    // the onFailure callback and then rejecting anyway (e.g. signal-then-cleanup).
+    // Every query here fires both paths; the count must still be 15, not 30.
+    const doubleSignalQueryRows: QueryRows = async (_sql, _params, onFailure) => {
+      onFailure?.();
+      throw new Error("boom after signaling");
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: doubleSignalQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(15);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency discipline (mt#2765) — >pool-max concurrent queries wedge the
+// shared postgres-js pool forever, and the frontend's timeout-less polling
+// turned that into a permanently hung endpoint. These tests pin the three
+// defenses: bounded query fan-out, single-flighted concurrent fetches, and a
+// hard deadline on the DB-stats phase.
+// ---------------------------------------------------------------------------
+
+describe("concurrency discipline (mt#2765)", () => {
+  test("runQueriesWithLimit never exceeds its bound and preserves order", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const thunks = Array.from({ length: 15 }, (_, i) => async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return i;
+    });
+
+    const results = await runQueriesWithLimit(thunks, 4, -1);
+
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+    expect(results).toEqual(Array.from({ length: 15 }, (_, i) => i));
+  });
+
+  test("runQueriesWithLimit maps a rejecting thunk to the fallback for only its slot", async () => {
+    const thunks = [
+      async () => "a",
+      async () => {
+        throw new Error("boom");
+      },
+      async () => "c",
+    ];
+    expect(await runQueriesWithLimit(thunks, 2, "FALLBACK")).toEqual(["a", "FALLBACK", "c"]);
+  });
+
+  test("widget query fan-out stays within the concurrency limit", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let calls = 0;
+    const countingQueryRows = async (): Promise<Record<string, unknown>[]> => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight--;
+      return [];
+    };
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: countingQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+
+    expect((data as { state: string }).state).toBe("ok");
+    expect(calls).toBe(15);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+  });
+
+  test("concurrent fetches are single-flighted: one probe, one stats pass, all callers resolve", async () => {
+    let probeCalls = 0;
+    let queryCalls = 0;
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: async () => {
+        probeCalls++;
+        await new Promise((r) => setTimeout(r, 5));
+        return healthyProbe();
+      },
+      queryRows: async () => {
+        queryCalls++;
+        await new Promise((r) => setTimeout(r, 2));
+        return [];
+      },
+      now: () => FIXED_NOW,
+    });
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => widget.fetch(fakeCtx())));
+
+    expect(probeCalls).toBe(1);
+    expect(queryCalls).toBe(15);
+    for (const r of results) expect((r as { state: string }).state).toBe("ok");
+  });
+
+  test("sequential fetches are NOT coalesced (fresh data per poll)", async () => {
+    let probeCalls = 0;
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: async () => {
+        probeCalls++;
+        return healthyProbe();
+      },
+      queryRows: async () => [],
+      now: () => FIXED_NOW,
+    });
+
+    await widget.fetch(fakeCtx());
+    await widget.fetch(fakeCtx());
+
+    expect(probeCalls).toBe(2);
+  });
+
+  test("DB-stats deadline: never-settling queries resolve to db:null within the deadline", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: () => new Promise<Record<string, unknown>[]>(() => {}),
+      now: () => FIXED_NOW,
+      dbStatsTimeoutMs: 25,
+    });
+
+    // If the deadline were broken this await would never settle and the test
+    // itself would time out — no elapsed-time assertion needed.
+    const data = await widget.fetch(fakeCtx());
+
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.db).toBeNull();
+    expect(payload.health.ok).toBe(true);
   });
 });

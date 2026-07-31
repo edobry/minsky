@@ -31,10 +31,17 @@
 // @see mt#1012 — Phase 1 memory-system migration (bridge-policy b)
 // @see feedback_temporary_mechanism_budget — discipline this hook is bound by
 
-import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
+import { execWithPath, readHostCap, readInput, writeOutput, CANARY_MODE_ENV } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { emitBraintrustEvent } from "../../packages/domain/src/observability/braintrust";
-import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  readFileSync,
+} from "node:fs";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +148,23 @@ export const AFFIRMATIVE_WORDS = new Set([
 
 /** Debug log file path. */
 export const LOG_PATH = "/tmp/claude-memory-search-hook.log";
+
+/**
+ * Canary stub seam (mt#3004). Honored ONLY when the process is in canary
+ * mode (`CANARY_MODE_ENV === "1"`, set exclusively by the canary runner and
+ * unit tests — PR #2145 R1): when active AND this env var names a readable
+ * file, the subprocess call to `minsky memory search` is replaced by reading
+ * that file's content and running it through the SAME `parseSearchOutput`
+ * path a real CLI response takes — so the guard-canary suite can exercise
+ * this hook's real parsing/formatting/injection plumbing hermetically (the
+ * live CLI round trip is not isolatable; this was the mt#2889 KNOWN GAP that
+ * left this guard canary-less). A production process with this var set but
+ * no canary mode behaves exactly as before. Registered in
+ * `HOOK_ONLY_ENV_VARS` (mt#1788) so setting it can never crash CLI boot;
+ * deliberately NOT in `known-override-env-vars.ts` — it is not an operator
+ * escape hatch.
+ */
+export const CANARY_STUB_ENV = "MINSKY_MEMORY_SEARCH_CANARY_STUB";
 
 /** Rotate log when size exceeds this. */
 const LOG_ROTATE_BYTES = 1_000_000;
@@ -614,6 +638,17 @@ export async function emitBraintrust(entry: LogEntry): Promise<void> {
  * hardcoded-timeout drift this PR's first round flagged. We use a single
  * 70% ratio rather than `deriveBudgets`'s git-tailored ratios because this
  * hook makes one external call (not a sequence of git probes).
+ *
+ * **mt#3073: this self-lookup is DEAD on the dispatcher path.** ADR-028
+ * Phase 2b (mt#2687) removed this hook's own standalone `settings.json`
+ * matcher entry — `run()` (the dispatcher-invoked entry point, below) now
+ * derives its timeout from `ctx.budgets` via `deriveDispatchSearchTimeoutMs`
+ * instead (mirrors `inject-git-state.ts`'s `ctx.budgets.gitTimeoutMs` fix).
+ * This function remains in use ONLY by the standalone `main()` entrypoint at
+ * the bottom of this file (local/manual invocation) — calling it from the
+ * dispatcher path always hits the "No matcher entry found" warning and
+ * silently falls back to `DEFAULT_HOST_CAP_SEC` (15s), which is exactly the
+ * bug this task fixes.
  */
 export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string } {
   const cap = readHostCap(HOOK_FILENAME, undefined, { events: ["UserPromptSubmit"] });
@@ -622,6 +657,61 @@ export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string }
     Math.floor(cap.hostCapSec * 1000 * SEARCH_TIMEOUT_RATIO)
   );
   return { timeoutMs, warning: cap.warning };
+}
+
+/**
+ * This guard's own per-guard budget in `registry.ts`'s `GUARD_REGISTRY`
+ * (`timeoutMs: 10000` on the `"memory-search"` entry as of mt#2687/mt#3073).
+ * `ctx.budgets` is derived from the DISPATCHER's aggregate host cap (145s —
+ * the SUM of every UserPromptSubmit guard's declared `timeoutMs`, per
+ * `hook-files.mdc`'s "Dispatcher host-cap budget model"), so a raw
+ * `ctx.budgets.fetchTimeoutMs` (~47.85s at that aggregate) is sized for the
+ * WHOLE shared process, not this one guard's 10s slice of it. Capping at
+ * this constant keeps the derived subprocess timeout a strict subset of
+ * what this guard is actually budgeted for, closing the PR #2202 R1
+ * BLOCKING finding: an uncapped derivation risks the guard still awaiting
+ * its subprocess when the shared dispatcher process (or a future per-guard
+ * enforcement mechanism keyed on this registry value) preempts it. Kept as
+ * a literal (not imported from `registry.ts`) to avoid a
+ * hooks-tree-internal import cycle risk between `memory-search.ts` and
+ * `registry.ts` (the latter already dynamically imports the former); update
+ * this constant in lockstep if the registry entry's `timeoutMs` changes.
+ */
+const GUARD_REGISTRY_TIMEOUT_MS = 10_000;
+
+/**
+ * Derive the per-call search timeout for the DISPATCHER path from the
+ * dispatcher-provided `ctx.budgets` (D6 — resolved once by the dispatcher
+ * from the dispatcher's own host cap) rather than a per-guard `readHostCap`
+ * self-lookup. Mirrors `inject-git-state.ts`'s `run()`, which uses
+ * `ctx.budgets.gitTimeoutMs` instead of calling its own now-orphaned
+ * `computeGitTimeoutMs()` — see that file's `run()` doc comment for the full
+ * rationale, which applies identically here: after Phase 2b migration this
+ * hook no longer has its own `settings.json` matcher entry for `readHostCap`
+ * to find, so a standalone lookup silently falls back to the 15s default
+ * instead of the correctly-derived per-family budget (145s as of
+ * mt#2687/mt#3073's dispatcher-family sum — see `hook-files.mdc`'s
+ * "Dispatcher host-cap budget model").
+ *
+ * `DerivedBudgets` (`./types`) exposes `overallBudgetMs` / `fetchTimeoutMs` /
+ * `gitTimeoutMs` — no field is memory-search-specific. `fetchTimeoutMs` is
+ * the closest existing analogue: it is sized for "the ONE network/external-
+ * bound call" (originally the git-fetch case), which is exactly
+ * `SEARCH_TIMEOUT_RATIO`'s own doc comment's framing of this hook's single
+ * external subprocess call. Reusing it (rather than adding a new
+ * `DerivedBudgets` field) keeps this fix scoped to `memory-search.ts`, per
+ * mt#3073's explicit scope boundary (no change to K=3 or the 800-token
+ * injection budget).
+ *
+ * Capped at `GUARD_REGISTRY_TIMEOUT_MS` (PR #2202 R1 BLOCKING fix): the raw
+ * `ctx.budgets` value is sized for the shared dispatcher-family aggregate,
+ * not this guard's own smaller registry slice — see that constant's doc
+ * comment. The `Math.min` still lets the derived value scale DOWN correctly
+ * for a host cap smaller than the ceiling (e.g. the historical 15s default
+ * derives ~4.95s here, well under the 10s cap); it only clips the upper end.
+ */
+export function deriveDispatchSearchTimeoutMs(ctx: DispatchContext): number {
+  return Math.min(ctx.budgets.fetchTimeoutMs, GUARD_REGISTRY_TIMEOUT_MS);
 }
 
 /**
@@ -652,6 +742,34 @@ export function runMemorySearch(
   // Truncate overlong queries — embeddings degrade past ~500 chars and we don't
   // want to ship multi-page prompts as the search input.
   const truncatedQuery = query.length > MAX_QUERY_LENGTH ? query.slice(0, MAX_QUERY_LENGTH) : query;
+
+  // Canary stub seam (mt#3004): only in canary mode (PR #2145 R1 — never
+  // honored in production), and replaces ONLY the subprocess call;
+  // everything downstream (parse, degraded/empty branches, injection build)
+  // is the real production path.
+  const stubPath = process.env[CANARY_MODE_ENV] === "1" ? process.env[CANARY_STUB_ENV] : undefined;
+  if (stubPath) {
+    const stubStart = Date.now();
+    let raw: string;
+    try {
+      raw = readFileSync(stubPath, "utf8");
+    } catch (err) {
+      return {
+        response: null,
+        latencyMs: Date.now() - stubStart,
+        error: `canary-stub-read-failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    const stubParsed = parseSearchOutput(raw);
+    if (!stubParsed) {
+      return {
+        response: null,
+        latencyMs: Date.now() - stubStart,
+        error: "canary-stub-unparseable",
+      };
+    }
+    return { response: stubParsed, latencyMs: Date.now() - stubStart };
+  }
 
   let effectiveTimeout: number;
   let derivationWarning: string | undefined;
@@ -706,10 +824,21 @@ export function runMemorySearch(
  * (D1). Logging (`writeLog`) and Braintrust telemetry (`emitBraintrust`) are
  * preserved as side effects on every branch, matching `main()` exactly; this
  * guard has no calibration log — `additionalContext` only.
+ *
+ * **mt#3073:** the subprocess search timeout is derived from
+ * `ctx.budgets` via `deriveDispatchSearchTimeoutMs(ctx)` (D6 — resolved once
+ * by the dispatcher from the DISPATCHER's own host cap) rather than calling
+ * `deriveSearchTimeoutMs()` (which self-looks-up THIS hook's basename in
+ * `.claude/settings.json`) — after ADR-028 Phase 2b migration this hook no
+ * longer has its own matcher entry there, so that self-lookup always missed
+ * and silently fell back to the 15s default (~10.5s effective timeout)
+ * instead of the correctly-derived per-family budget, plus emitting a "No
+ * matcher entry found" warning on every fire. Mirrors
+ * `inject-git-state.ts`'s identical `ctx.budgets.gitTimeoutMs` fix.
  */
 export async function run(
   input: ClaudeHookInput,
-  _ctx: DispatchContext
+  ctx: DispatchContext
 ): Promise<GuardOutcome | null> {
   // Explicit event guard, matching the sibling injection hooks
   // (inject-current-time, inject-git-state, inject-prod-state,
@@ -746,7 +875,11 @@ export async function run(
     );
   }
 
-  const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
+  const { response, latencyMs, error, warning } = runMemorySearch(
+    prompt,
+    DEFAULT_K,
+    deriveDispatchSearchTimeoutMs(ctx)
+  );
 
   if (!response) {
     return logAndReturn(

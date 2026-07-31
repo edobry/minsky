@@ -15,6 +15,7 @@ import { getErrorMessage } from "../errors/index";
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope, type ScopeResolverDb } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
+import { UnconfiguredPersistenceProvider } from "../persistence/unconfigured-provider";
 
 /**
  * Returns true for any string that identifies the github-issues backend.
@@ -231,9 +232,31 @@ export async function createConfiguredTaskService(options: {
             log.debug("Minsky backend database connection returned null");
           }
         } catch (error) {
-          log.warn("Minsky backend database connection failed", {
-            error: getErrorMessage(error),
-          });
+          // mt#2949: distinguish "deliberately unconfigured" (local/dev, no
+          // Postgres connection anywhere — expected, quiet) from "configured
+          // but unavailable" (a connection string WAS configured but
+          // persistence failed to initialize — a genuine outage). The
+          // latter used to swallow silently into this same log.warn, and
+          // the "mt" task backend simply wasn't registered — surfacing only
+          // much later, and confusingly, as "No backends registered" from
+          // multi-backend-service.ts when something finally tried to use
+          // the task service. Surface it loudly instead so a
+          // configured-but-down backend doesn't degrade silently.
+          if (
+            persistenceProvider instanceof UnconfiguredPersistenceProvider &&
+            persistenceProvider.configuredButUnavailable
+          ) {
+            log.error(
+              "Minsky task backend unavailable: Postgres is configured but persistence " +
+                "failed to initialize — the 'mt' task backend will NOT be registered. " +
+                "This is a genuine outage, not the expected local/dev degraded mode.",
+              { error: getErrorMessage(error) }
+            );
+          } else {
+            log.warn("Minsky backend database connection failed", {
+              error: getErrorMessage(error),
+            });
+          }
         }
       }
 

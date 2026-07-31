@@ -1,8 +1,19 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- the `runAtCoverageCalibration` /
+   `appendAtCoverageCalibration` regression tests below exercise the real, unmocked
+   calibration-log write path (mirrors `guard-health-write-isolation.test.ts`'s
+   rationale) against a real mkdtemp scratch directory — a real-fs round-trip is the
+   point of that suite, not something injectable-fs mocking can substitute for. */
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { join } from "node:path";
 
 import {
   isTestFile,
+  isOperationalScript,
   findNewTestFiles,
+  findNewOperationalScripts,
   hasExecutionEvidence,
   hasBypassPrefix,
   checkExecutionEvidence,
@@ -11,6 +22,23 @@ import {
   type PrFile,
   type FetchPrFilesResult,
   type ExecFn,
+  // mt#3033: AT-cross-reference (calibration-first)
+  extractAcceptanceTestsSection,
+  parseAcceptanceTests,
+  isFindingsShapedAcceptanceTest,
+  isExecutableAcceptanceTest,
+  extractExecutionEvidenceText,
+  isAtReferencedByNumber,
+  isAtReferencedByKeyword,
+  extractAtDeferralMarker,
+  isAtDeferred,
+  checkAcceptanceTestCoverage,
+  isAtCoverageSkipped,
+  AT_COVERAGE_SKIP_ENV_VAR,
+  fetchTaskSpecForAtCoverage,
+  runAtCoverageCalibration,
+  type AcceptanceTestItem,
+  type AtCoverageResult,
 } from "./require-execution-evidence-before-merge";
 
 // ---------------------------------------------------------------------------
@@ -802,5 +830,1014 @@ describe("makeProdPrDeps.fetchPrFiles — warning propagation", () => {
     const result = checkExecutionEvidence([], "Add tests", "## Summary\nNo evidence.");
     expect(result.blocked).toBe(false);
     expect(result.newTestFiles).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operational-script coverage (mt#2776)
+// ---------------------------------------------------------------------------
+
+const FIXTURE_SCRIPT = "scripts/backfill-foo.ts";
+
+describe("isOperationalScript", () => {
+  it("matches top-level scripts/<name>.ts", () => {
+    expect(isOperationalScript(FIXTURE_SCRIPT)).toBe(true);
+    expect(isOperationalScript("scripts/migrate.ts")).toBe(true);
+  });
+
+  it("does not match a test file under scripts/", () => {
+    expect(isOperationalScript("scripts/foo.test.ts")).toBe(false);
+  });
+
+  it("matches nested scripts at any depth (scripts/**.ts)", () => {
+    expect(isOperationalScript("scripts/sub/x.ts")).toBe(true);
+    expect(isOperationalScript("scripts/migrations/backfill.ts")).toBe(true);
+  });
+
+  it("does not match non-scripts .ts or non-.ts scripts", () => {
+    expect(isOperationalScript(FIXTURE_FOO_TS)).toBe(false);
+    expect(isOperationalScript("scripts/foo.js")).toBe(false);
+  });
+});
+
+describe("findNewOperationalScripts", () => {
+  it("returns added operational scripts, ignoring modified/removed and non-scripts", () => {
+    const files: PrFile[] = [
+      { filename: FIXTURE_SCRIPT, status: "added" },
+      { filename: "scripts/existing.ts", status: "modified" },
+      { filename: "scripts/gone.ts", status: "removed" },
+      { filename: FIXTURE_FOO_TS, status: "added" },
+    ];
+    expect(findNewOperationalScripts(files)).toEqual([FIXTURE_SCRIPT]);
+  });
+
+  it("includes a rename/copy promotion into scripts/ from a non-script path, excludes script→script renames", () => {
+    const files: PrFile[] = [
+      {
+        filename: "scripts/promoted.ts",
+        status: "renamed",
+        previous_filename: "tools/promoted.ts",
+      },
+      {
+        filename: "scripts/moved.ts",
+        status: "renamed",
+        previous_filename: "scripts/moved-old.ts",
+      },
+    ];
+    expect(findNewOperationalScripts(files)).toEqual(["scripts/promoted.ts"]);
+  });
+});
+
+describe("checkExecutionEvidence — operational scripts (mt#2776)", () => {
+  const SCRIPT: PrFile = { filename: FIXTURE_SCRIPT, status: "added" };
+
+  it("blocks a new operational script with no execution evidence", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_PLAIN, BODY_NO_EVIDENCE);
+    expect(result.blocked).toBe(true);
+    expect(result.newScripts).toEqual([FIXTURE_SCRIPT]);
+    expect(result.reason).toContain("operational script");
+  });
+
+  it("allows a new operational script when execution evidence is present", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_PLAIN, BODY_WITH_EVIDENCE);
+    expect(result.blocked).toBe(false);
+    expect(result.newScripts).toEqual([FIXTURE_SCRIPT]);
+  });
+
+  it("allows a new operational script with the [unverified-tests] bypass", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_BYPASS, BODY_NO_EVIDENCE);
+    expect(result.blocked).toBe(false);
+    expect(result.bypassDetected).toBe(true);
+  });
+
+  it("is silent when a script is only modified (not added)", () => {
+    const result = checkExecutionEvidence(
+      [{ filename: "scripts/existing.ts", status: "modified" }],
+      TITLE_PLAIN,
+      BODY_NO_EVIDENCE
+    );
+    expect(result.blocked).toBe(false);
+    expect(result.newScripts).toHaveLength(0);
+  });
+
+  it("blocks on a combined new test + new script diff and names both classes", () => {
+    const result = checkExecutionEvidence(
+      [SCRIPT, { filename: FIXTURE_FOO_TEST_TS, status: "added" }],
+      TITLE_PLAIN,
+      BODY_NO_EVIDENCE
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("test file");
+    expect(result.reason).toContain("operational script");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3033: Acceptance-test cross-reference (CALIBRATION-FIRST, log-only)
+// ---------------------------------------------------------------------------
+
+/** AT3 text fixture (mt#2542's literal, unaddressed acceptance test) — hoisted once. */
+const AT3_TEXT = "All deployed services boot and operate on the DML-only role.";
+/** Distinctive keyword fragment shared by every AT3-related assertion below. */
+const AT3_KEYWORD_FRAGMENT = "services boot and operate";
+/** Shared section heading, reused across bullet-list fixtures (mt#3078) to satisfy `custom/no-magic-string-duplication`. */
+const AT_SECTION_HEADING = "## Acceptance Tests\n\n";
+
+/** mt#2542 incident-shaped fixture: 3 ATs, AT3 is the literal, unaddressed test. */
+const SPEC_MT2542_3_AT = `## Summary
+Adds a DML-only Postgres role.
+
+## Acceptance Tests
+
+1. CREATE TABLE is denied for the DML-only role.
+2. All 37 tables are granted DML privileges to the role.
+3. ${AT3_TEXT}
+`;
+
+/** Proxy-only evidence — covers AT1/AT2 but never exercises AT3 (the mt#2542 gap). */
+const PROXY_EVIDENCE_BODY = `## Summary
+Adds a DML-only Postgres role.
+
+## Execution evidence:
+CREATE TABLE denied: confirmed.
+37/37 tables granted DML privileges.
+`;
+
+const SPEC_FINDINGS_ONLY = `## Acceptance Tests
+
+1. Audit produces a list of affected records.
+2. Decision recorded in the task spec.
+`;
+
+const SPEC_NO_AT_SECTION = `## Summary
+Docs-only change.
+
+## Testing
+N/A.
+`;
+
+/**
+ * mt#3306 Defect 1 fixture — trimmed from the REAL mt#3117 spec (PR #2234), preserving
+ * the exact heading shapes/nesting that produced the false positive: 4 numbered ATs
+ * immediately followed by a `### Covers` / `### Does NOT cover` pair (the
+ * `work-completion.mdc §Recovery layer spec discipline` convention), then a `## Context`
+ * sibling. Pre-fix, `extractAcceptanceTestsSection`'s `\n##\s` lookahead never fired on
+ * `### Covers` (its third `#` fails the `\s` check), so extraction ran past both
+ * subsections and the live check reported "2 of 10 executable acceptance tests" against
+ * a spec that declares exactly 4.
+ */
+const SPEC_MT3117_AT = `## Summary
+Reviewer deploy-keyed migration, replacing Railway's native auto-trigger.
+
+## Acceptance Tests
+
+1. **Sole-path test.** A push to \`main\` touching only \`services/reviewer/**\` results in exactly one deploy, driven by the new workflow; Railway's native trigger produces no independent deployment.
+2. **Migrate-gates-traffic test.** With a deliberately failing reviewer migration on a test branch, the workflow fails at the migrate step, no new image is promoted, and the previously-deployed reviewer continues serving \`/health\` 200.
+3. **Real migration-bearing deploy.** A commit adding a real (no-op-safe) reviewer migration deploys through the workflow: migrate applies as \`postgres\`, image is promoted, \`/health\` returns 200, and the new row is present in \`drizzle.__drizzle_migrations_reviewer\`.
+4. **Credential-boundary test.** The reviewer's Railway service environment contains no DDL-capable Postgres credential attributable to this workflow; the migrate step's credential resolves only from the CI secret.
+
+### Covers
+
+- Reviewer migration never applied before dependent reviewer code takes traffic (the ordering hazard above).
+- Boot-time migrate failures taking the service down during a DB outage (once mt#3030 removes boot migrate).
+- Unsynchronized branch-wide reviewer redeploys on unrelated pushes.
+
+### Does NOT cover
+
+- Main-domain migration ordering vs reviewer migration when a single change spans BOTH trees — no cross-tree ordering primitive is introduced here. **No current owner — file if such a change is attempted.**
+- Schema drift introduced out-of-band (manual SQL against prod) — \`verifyExpectedTables\` catches missing expected tables only.
+- Pre-merge detection of Dockerfile/runtime contract breaks — mt#1557.
+
+## Context
+
+Parent: mt#3059.
+`;
+
+/**
+ * mt#3306 Defect 2 fixture — trimmed from the REAL mt#3142 spec (PR #2365), preserving
+ * the exact document order that produced the false positive: a `### Remaining acceptance
+ * tests` section (3 items) appended near the TOP under a "current scope, read this
+ * first" rescoping preface, with the ORIGINAL `## Acceptance Tests` section (5 items,
+ * dispositioned DONE) kept further down as an audit trail. Pre-fix,
+ * `.match()`'s first-match semantics meant extraction always read the stale 5-item
+ * section, and the live check reported "3 of 5 executable acceptance tests not
+ * addressed" naming AT2/AT3/AT4 — all three satisfied days earlier.
+ */
+const SPEC_MT3142_AT = `## Current scope (rescoped 2026-07-24 during \`/plan-task\`) — READ THIS FIRST
+
+**The production outage this task was filed for is RESOLVED.**
+
+**Success-criteria disposition:**
+
+- SC#2, SC#3, SC#4 (reviewer serves; \`/retrigger\` reached; a live PR gets reviewed) — **DONE**,
+  verified at the 17:28Z recovery.
+
+### Remaining success criteria (supersede the original SC list above, which is fully dispositioned)
+
+- [ ] \`docs/deploy-minsky-railway.md\` states that a Railway service can hold \`source.image\` AND a
+      standing native GitHub **deployment trigger** at the same time.
+
+### Remaining acceptance tests
+
+- \`grep -c 'deploymentTrigger' docs/deploy-minsky-railway.md\` returns non-zero, and the surrounding
+  text states the trigger survives \`sourceRepo: null\`.
+- \`grep -c 'railway open --print' docs/deploy-minsky-railway.md\` returns non-zero.
+- A reader following only that doc can answer "why did a service with \`sourceImage\` set still deploy
+  from the repo?" without consulting this task's incident narrative.
+
+## Summary
+
+The Railway service behind \`minsky-reviewer-webhook-production.up.railway.app\` was serving the
+Minsky MCP server, not the reviewer webhook service.
+
+## Success Criteria
+
+- [ ] Root cause identified and named.
+- [ ] The reviewer-webhook service serves the reviewer application again.
+
+## Scope
+
+**In scope:** identifying and fixing the entrypoint/config defect.
+
+## Acceptance Tests
+
+- \`deployment_logs(service: "reviewer", type: "deploy")\` on the current deployment shows the
+  reviewer's startup banner and no \`Minsky MCP Server\` line.
+- \`curl -X POST .../retrigger\` with no auth header returns 401 (route reached), not 404.
+- \`reviewer_retrigger(pr: <open PR>)\` returns \`ok: true\`.
+- An open PR receives a bot review within the normal window, observed live.
+- Deliberately mis-pointing the service entrypoint in a test/preview environment causes the new
+  deploy check to FAIL — proving the check discriminates, rather than passing on any 200.
+
+## Context
+
+Found 2026-07-23 while driving a PR to convergence.
+`;
+
+/**
+ * mt#3059 FP-3 fixture (mt#3316 fix) — trimmed from the REAL mt#3174 spec (PR #2264). AT2's
+ * text is quoted verbatim from mt#3059's `## Observed false positives` FP-3 entry.
+ */
+const SPEC_MT3174_AT = `## Summary
+Cockpit entity-reference layer: label channel, hover primitive, EntityRef.
+
+## Acceptance Tests
+
+1. Stub the label channel to fail; render \`<Prose>\` with a known \`mt#NNNN\`: renders, links, bare id, no badge shell/spinner/layout shift.
+2. Render a surface with K>1 references and count label requests: one, not K.
+3. \`entity-linkifier.test.ts\` unmodified: passes (62/62).
+4. Single-line string through the inline-only path: linkified, no block wrapper.
+5. \`<EntityRef>\` per entity type (task shows title+status; five payload-backed types show label; unknown id degrades to plain linked id).
+6. Hover disabled: title still readable inline.
+`;
+
+/**
+ * mt#3059 FP-3 fixture (mt#3316 fix) — trimmed from the REAL PR #2264 body (see
+ * mcp__minsky__changeset_get id "2264" for the untrimmed original). The literal
+ * `## Execution evidence:` block ends at the `### Acceptance tests (mt#3174 spec, by
+ * number)` heading; AT2's reference lives entirely in that SIBLING section, outside the
+ * pre-fix `extractExecutionEvidenceText` scan boundary (which stopped at the next heading
+ * of any level). Pre-fix, the AT-coverage check reported AT2 as unaddressed against real,
+ * already-satisfied evidence — the false positive recorded as FP-3 in mt#3059's running FP
+ * log (fired live 2026-07-24 against this exact PR).
+ */
+const PR_BODY_MT3174_FP3 = `## Summary
+Entity-reference layer.
+
+## Execution evidence:
+
+Server-side (no DOM):
+\`\`\`
+bun test --preload ./tests/setup.ts --timeout=15000 src/cockpit/task-title-cache.test.ts
+
+14 pass
+0 fail
+\`\`\`
+
+### Acceptance tests (mt#3174 spec, by number)
+
+1. Stub the label channel to fail; render \`<Prose>\` with a known \`mt#NNNN\`:
+   renders, links, bare id, no badge shell/spinner/layout shift —
+   \`Prose.test.tsx\` "acceptance test: label channel stubbed to fail...".
+2. K>1 references → one label request, not K —
+   \`use-entity-index.test.tsx\` "K simultaneously-mounted... issue ONE
+   /api/tasks/meta request, not K".
+3. \`entity-linkifier.test.ts\` unmodified: passes (62/62, included above).
+4. Single-line string through the inline-only path: linkified, no block
+   wrapper — \`entity-linkifier.mt3174.test.tsx\` "Inline-only linkify path".
+5. \`<EntityRef>\` per entity type (task shows title+status; five
+   payload-backed types show label; unknown id degrades to plain linked id)
+   — \`EntityRef.test.tsx\` "per-type label resolution".
+6. Hover disabled: title still readable inline — \`EntityRef.test.tsx\`
+   "hover is supplementary, not load-bearing".
+
+## Out of scope (per mt#3174/mt#3165)
+
+Adoption at any render surface (mt#3175).
+`;
+
+describe("extractAcceptanceTestsSection", () => {
+  it("extracts content between the heading and the next heading", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
+    expect(section).not.toBeNull();
+    expect(section).toContain("CREATE TABLE is denied");
+    expect(section).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("returns null when no Acceptance Tests section exists", () => {
+    expect(extractAcceptanceTestsSection(SPEC_NO_AT_SECTION)).toBeNull();
+  });
+
+  it("stops at the next ## heading", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n## Context\n\nUnrelated.`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Unrelated");
+  });
+
+  it("stops at a --- divider", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n---\n\nFooter.`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Footer");
+  });
+
+  // mt#3306 Defect 1 regression: a following `### <heading>` (nested, three hashes) must
+  // terminate the section just like a `##` sibling does. Pre-fix the old `\n##\s`
+  // lookahead never fired on a three-hash heading, so extraction ran past it.
+  it("stops at a following ### heading, not just an exact ## sibling", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n### Covers\n\n- Not an AT.\n`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Not an AT");
+  });
+
+  // mt#3306 Defect 1, real-spec fixture (mt#3117 / PR #2234): the section body must not
+  // include either of the sibling `### Covers` / `### Does NOT cover` subsections.
+  it("stops before ### Covers / ### Does NOT cover for the real mt#3117 fixture", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT3117_AT) ?? "";
+    expect(section).toContain("Credential-boundary test");
+    expect(section).not.toContain("### Covers");
+    expect(section).not.toContain("### Does NOT cover");
+    expect(section).not.toContain("Schema drift introduced out-of-band");
+  });
+
+  // mt#3306 Defect 2, real-spec fixture (mt#3142 / PR #2365): a superseding
+  // `### Remaining acceptance tests` section — appended EARLIER in the document than the
+  // stale original `## Acceptance Tests` section it replaces — must win.
+  it("returns the superseding section for the real mt#3142 fixture, not the earlier-matched original", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT3142_AT) ?? "";
+    expect(section).toContain("grep -c 'deploymentTrigger'");
+    expect(section).toContain("railway open --print");
+    // The stale original section's content (further down in the document) must be absent.
+    expect(section).not.toContain("Minsky MCP Server` line");
+    expect(section).not.toContain("mis-pointing the service entrypoint");
+  });
+
+  // mt#3306 regression pin: an ordinary spec with a single, plain `## Acceptance Tests`
+  // section and no nested subsections or superseding heading must parse byte-identically
+  // to the pre-fix behavior. Guards against the fix silently changing the common case.
+  it("regression: a plain single Acceptance Tests section with no nesting is unaffected", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
+    expect(section).toBe(
+      "1. CREATE TABLE is denied for the DML-only role.\n2. All 37 tables are granted DML privileges to the role.\n3. All deployed services boot and operate on the DML-only role.\n"
+    );
+  });
+});
+
+describe("parseAcceptanceTests", () => {
+  it("parses a numbered list into items", () => {
+    const items = parseAcceptanceTests(SPEC_MT2542_3_AT);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toEqual({ number: 1, text: "CREATE TABLE is denied for the DML-only role." });
+    expect(items[2]?.number).toBe(3);
+    expect(items[2]?.text).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("joins multi-line continuation onto the preceding item", () => {
+    const spec = `## Acceptance Tests\n\n1. First line of item one\n   continues here.\n2. Second item.\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe("First line of item one continues here.");
+    expect(items[1]?.text).toBe("Second item.");
+  });
+
+  it("returns an empty array when there is no Acceptance Tests section", () => {
+    expect(parseAcceptanceTests(SPEC_NO_AT_SECTION)).toHaveLength(0);
+  });
+
+  it("returns an empty array when the section has no numbered items", () => {
+    const spec = `## Acceptance Tests\n\nSee above.\n`;
+    expect(parseAcceptanceTests(spec)).toHaveLength(0);
+  });
+
+  // mt#3078: bullet-list support. The canonical `/create-task` skill template
+  // (`.claude/skills/create-task/SKILL.md`) writes `## Acceptance Tests` as a
+  // bullet list, never a numbered one — pre-fix, every task spec authored via
+  // that standard workflow parsed to `[]` here, silently making the AT-coverage
+  // check inapplicable for the common case.
+  it("parses a bullet list ('- ') into sequentially-numbered items", () => {
+    const spec = `${AT_SECTION_HEADING}- The widget renders a blue button on the settings page.
+- Clicking the button opens the export dialog.
+- The cancel button discards the draft without saving.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toEqual({
+      number: 1,
+      text: "The widget renders a blue button on the settings page.",
+    });
+    expect(items[1]?.number).toBe(2);
+    expect(items[2]?.number).toBe(3);
+    expect(items[2]?.text).toBe("The cancel button discards the draft without saving.");
+  });
+
+  it("parses a '* ' bullet list the same way as '- '", () => {
+    const spec = "## Acceptance Tests\n\n* First test.\n* Second test.\n";
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({ number: 1, text: "First test." });
+    expect(items[1]).toEqual({ number: 2, text: "Second test." });
+  });
+
+  it("joins multi-line continuation onto the preceding bullet item", () => {
+    const spec =
+      "## Acceptance Tests\n\n- First line of item one\n  continues here.\n- Second item.\n";
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe("First line of item one continues here.");
+    expect(items[1]?.text).toBe("Second item.");
+  });
+
+  it("parses this task's OWN spec-shaped bullet Acceptance Tests (mt#3078 regression fixture)", () => {
+    // Mirrors mt#3078's real spec verbatim shape (verified via a live
+    // `fetchTaskSpecForAtCoverage` call against the actual task during
+    // diagnosis) — a direct regression guard against the exact format that
+    // motivated this fix.
+    const spec = `${AT_SECTION_HEADING}- Synthetic matching input -> a calibration record appears in each log.
+- Negative control: non-matching input -> no record (confirms the fire isn't unconditional).
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.number).toBe(1);
+    expect(items[1]?.number).toBe(2);
+  });
+
+  // PR #2207 R1 (non-blocking #1): GitHub-style checklist items and nested
+  // bullets under an AT must not be mis-parsed as extra top-level ATs.
+  it("strips a GitHub-style checkbox marker ('- [ ] ...') from bullet AT text", () => {
+    const spec = `${AT_SECTION_HEADING}- [ ] Unchecked test description.
+- [x] Checked test description.
+- [X] Checked (capital X) test description.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(3);
+    expect(items[0]?.text).toBe("Unchecked test description.");
+    expect(items[1]?.text).toBe("Checked test description.");
+    expect(items[2]?.text).toBe("Checked (capital X) test description.");
+  });
+
+  it("folds an indented (nested) bullet into the parent item instead of counting it as a new AT", () => {
+    const spec = `${AT_SECTION_HEADING}- Parent AT covers the main behavior.
+  - Sub-detail: covers edge case A.
+  - Sub-detail: covers edge case B.
+- Second top-level AT.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe(
+      "Parent AT covers the main behavior. - Sub-detail: covers edge case A. - Sub-detail: covers edge case B."
+    );
+    expect(items[1]?.text).toBe("Second top-level AT.");
+  });
+
+  // mt#3306 Defect 1, real-spec fixture (mt#3117 / PR #2234). Pre-fix this returned 10
+  // items (4 real ATs + 3 "### Covers" bullets + 3 "### Does NOT cover" bullets), which
+  // is exactly the inflated denominator the live check reported ("2 of 10 executable").
+  it("returns exactly 4 items for the real mt#3117 fixture, none of them a Does NOT cover bullet", () => {
+    const items = parseAcceptanceTests(SPEC_MT3117_AT);
+    expect(items).toHaveLength(4);
+    expect(items[0]?.text).toContain("Sole-path test");
+    expect(items[1]?.text).toContain("Migrate-gates-traffic test");
+    expect(items[2]?.text).toContain("Real migration-bearing deploy");
+    expect(items[3]?.text).toContain("Credential-boundary test");
+    for (const item of items) {
+      expect(item.text).not.toContain("cross-tree ordering primitive");
+      expect(item.text).not.toContain("Schema drift introduced out-of-band");
+      expect(item.text).not.toContain("Pre-merge detection of Dockerfile");
+    }
+  });
+
+  // mt#3306 Defect 2, real-spec fixture (mt#3142 / PR #2365). Pre-fix this returned the
+  // stale, already-dispositioned 5-item original section; the live check reported "3 of
+  // 5 executable acceptance tests not addressed", naming AT2/AT3/AT4 — all three
+  // satisfied days earlier. Post-fix, only the 3 items under the superseding
+  // `### Remaining acceptance tests` heading are returned.
+  it("returns exactly the 3 remaining items for the real mt#3142 fixture", () => {
+    const items = parseAcceptanceTests(SPEC_MT3142_AT);
+    expect(items).toHaveLength(3);
+    expect(items[0]?.text).toContain("grep -c 'deploymentTrigger'");
+    expect(items[1]?.text).toContain("grep -c 'railway open --print'");
+    expect(items[2]?.text).toContain("A reader following only that doc");
+    for (const item of items) {
+      expect(item.text).not.toContain("Minsky MCP Server` line");
+      expect(item.text).not.toContain("mis-pointing the service entrypoint");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3059 PR #2386: additions beyond mt#3306's own regression suite above.
+// mt#3306's SPEC_MT3117_AT / SPEC_MT3142_AT fixtures and their
+// extractAcceptanceTestsSection/parseAcceptanceTests-level tests already cover the
+// "exactly 4 ATs" / "exactly 3 ATs" real-spec regressions — reused here rather than
+// duplicated. What follows is coverage mt#3306's suite did not have: (a)
+// checkAcceptanceTestCoverage-level assertions on those same two real-spec fixtures,
+// and (b) the "next heading immediately follows, zero AT content" boundary edge case
+// that PR #2386 R1 review caught in the ORIGINAL split-regex implementation and that
+// turned out to affect mt#3306's combined-regex form identically (verified empirically
+// against this exact fixture before merging the two implementations) — see
+// SUPERSEDING_ACCEPTANCE_TESTS_RE's doc comment for the fix.
+// ---------------------------------------------------------------------------
+
+describe("checkAcceptanceTestCoverage — mt#3059 FP-1/FP-2 real-spec fixtures", () => {
+  it("FP-1: never flags the Does-NOT-cover bullets as unaddressed executable ATs (mt#3117 fixture)", () => {
+    const evidenceReferencingAllFour = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified. AT4 verified.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3117_AT,
+      "implementation",
+      evidenceReferencingAllFour
+    );
+    expect(result.executableAts).toHaveLength(4);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("FP-2: evaluates only the 3 superseding ATs, not the original 5 (mt#3142 fixture)", () => {
+    const evidenceReferencingAllThree = `## Execution evidence:\nAT1 verified via grep. AT2 verified via grep. AT3 verified by reading the doc.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3142_AT,
+      "implementation",
+      evidenceReferencingAllThree
+    );
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("FP-3 (mt#3316 fix): AT2's reference in a sibling 'Acceptance tests (by number)' section is no longer missed (real mt#3174 / PR #2264 fixture)", () => {
+    // Pre-fix, extractExecutionEvidenceText stopped at the "### Acceptance tests (mt#3174
+    // spec, by number)" heading (the next heading after the Execution evidence block), so
+    // AT2's reference — living entirely in that sibling section — was invisible to the
+    // coverage check. It fired live against this exact PR (2026-07-24), recorded as FP-3
+    // in mt#3059's running FP log. With the mt#3316 widening, the sibling section's content
+    // is scanned too, and AT2 is found via its shared "references" keyword.
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3174_AT,
+      "implementation",
+      PR_BODY_MT3174_FP3
+    );
+    expect(result.executableAts).toHaveLength(6);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+});
+
+describe("extractAcceptanceTestsSection / parseAcceptanceTests — boundary edge case: heading immediately follows, zero AT content", () => {
+  // PR #2386 R1 BLOCKING fix: a boundary construction requiring a literal preceding
+  // "\n" before the next heading cannot match when that heading is the very FIRST line
+  // of the section body (zero AT content, no blank line separating the opening heading
+  // from the sibling subsection) — the "\n" that would satisfy it was already consumed
+  // by the OPENING heading's own match. That off-by-one lets extraction fall through to
+  // whatever heading appears NEXT in the document, over-capturing everything in
+  // between. Confirmed this affects mt#3306's combined-regex form identically before
+  // merging; both ACCEPTANCE_TESTS_RE and SUPERSEDING_ACCEPTANCE_TESTS_RE now share the
+  // `^`-anchored / `(?![\s\S])`-terminated boundary construction that closes it.
+  it("plain-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
+    const spec = `## Acceptance Tests\n### Covers\n- Something this recovery layer covers.\n\n## Context\nUnrelated.\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
+
+  it("superseding-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
+    const spec = `### Remaining acceptance tests\n## Summary\nUnrelated context immediately after, no blank line.\n\n## Acceptance Tests\n\n1. Original AT, should be ignored (superseded).\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
+});
+
+describe("isFindingsShapedAcceptanceTest", () => {
+  it("matches 'audit produces' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Audit produces a list of affected records.")).toBe(true);
+  });
+
+  it("matches 'decision recorded' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Decision recorded in the task spec.")).toBe(true);
+  });
+
+  it("matches 'documented in/as' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Findings documented in the memory entry.")).toBe(true);
+  });
+
+  it("does not match a normal executable AT", () => {
+    expect(isFindingsShapedAcceptanceTest(AT3_TEXT)).toBe(false);
+  });
+});
+
+describe("isExecutableAcceptanceTest", () => {
+  it("returns false for a state-ops task regardless of text", () => {
+    expect(isExecutableAcceptanceTest("The gate blocks the merge.", "state-ops")).toBe(false);
+  });
+
+  it("returns false for findings-shaped text", () => {
+    expect(
+      isExecutableAcceptanceTest("Decision recorded in the task spec.", "implementation")
+    ).toBe(false);
+  });
+
+  it("returns false for empty text", () => {
+    expect(isExecutableAcceptanceTest("   ", "implementation")).toBe(false);
+  });
+
+  it("returns true for a normal executable AT under a non-state-ops kind", () => {
+    expect(isExecutableAcceptanceTest(AT3_TEXT, "implementation")).toBe(true);
+  });
+
+  it("returns true when taskKind is undefined and text is executable", () => {
+    expect(
+      isExecutableAcceptanceTest("The gate blocks the merge, naming the unaddressed AT.")
+    ).toBe(true);
+  });
+});
+
+describe("extractExecutionEvidenceText", () => {
+  it("extracts content following the Execution evidence marker", () => {
+    const text = extractExecutionEvidenceText(PROXY_EVIDENCE_BODY);
+    expect(text).toContain("CREATE TABLE denied");
+    expect(text).toContain("37/37 tables granted");
+  });
+
+  it("returns an empty string when no marker is present", () => {
+    expect(extractExecutionEvidenceText(BODY_NO_EVIDENCE)).toBe("");
+  });
+
+  it("ignores a negated 'No Execution evidence:' marker", () => {
+    expect(extractExecutionEvidenceText("No Execution evidence: nothing was run.")).toBe("");
+  });
+
+  it("mt#3316 FP-3 fix: also includes content from a sibling 'Acceptance tests (by number)' heading, not just the literal Execution evidence block", () => {
+    const text = extractExecutionEvidenceText(PR_BODY_MT3174_FP3);
+    expect(text).toContain("14 pass");
+    expect(text).toContain("K>1 references");
+  });
+
+  it("PR #2410 R1 BLOCKING #1 fix: a heading-lookalike line INSIDE a fenced code block does not truncate Execution-evidence collection early", () => {
+    // Pasted test output can legitimately contain a line starting with "###" (e.g. a
+    // markdown snippet under test, or a stack-trace line). Pre-fix, the "stop at next
+    // heading" check matched that fence-internal line and cut collection off before
+    // reaching real evidence further down in the SAME fenced block.
+    const body = [
+      "## Execution evidence:",
+      "",
+      "```",
+      "bun test output:",
+      "### This looks like a heading but is inside a fence",
+      "5 pass, 0 fail",
+      "```",
+      "",
+      "## Testing",
+      "Unrelated section.",
+    ].join("\n");
+    const text = extractExecutionEvidenceText(body);
+    expect(text).toContain("5 pass, 0 fail");
+  });
+
+  it("PR #2410 R1 BLOCKING #1 fix: a fenced 'Acceptance tests' heading lookalike is not treated as a real section boundary by the mt#3316 widening", () => {
+    // No "Execution evidence:" heading anywhere in this body, so the ONLY way the fake
+    // AT content could appear in the extracted text is if the acceptance-tests widening
+    // pass incorrectly treats the fence-internal "### Acceptance tests (by number)" line
+    // as a real heading trigger.
+    const body = [
+      "## Summary",
+      "Some PR.",
+      "",
+      "## Testing",
+      "",
+      "```",
+      "Example markdown template:",
+      "### Acceptance tests (by number)",
+      "1. Fake AT reference: UNIQUEKEYWORDXYZ",
+      "```",
+      "",
+      "No execution evidence block at all here.",
+    ].join("\n");
+    const text = extractExecutionEvidenceText(body);
+    expect(text).not.toContain("UNIQUEKEYWORDXYZ");
+  });
+});
+
+describe("isAtReferencedByNumber", () => {
+  const at3: AcceptanceTestItem = { number: 3, text: AT3_KEYWORD_FRAGMENT };
+
+  it("matches 'AT3'", () => {
+    expect(isAtReferencedByNumber(at3, "Verified AT3 by booting the reviewer service.")).toBe(true);
+  });
+
+  it("matches 'AT#3'", () => {
+    expect(isAtReferencedByNumber(at3, "See AT#3 for the boot verification.")).toBe(true);
+  });
+
+  it("matches 'acceptance test 3'", () => {
+    expect(isAtReferencedByNumber(at3, "Acceptance test 3 was exercised live.")).toBe(true);
+  });
+
+  it("matches 'at-3'", () => {
+    expect(isAtReferencedByNumber(at3, "Covered by at-3 verification.")).toBe(true);
+  });
+
+  it("does not match an unrelated AT number", () => {
+    expect(isAtReferencedByNumber(at3, "AT1 and AT2 were verified.")).toBe(false);
+  });
+
+  it("does not false-positive-match AT30 against AT3", () => {
+    expect(isAtReferencedByNumber(at3, "AT30 was exercised.")).toBe(false);
+  });
+});
+
+describe("isAtReferencedByKeyword", () => {
+  const at3: AcceptanceTestItem = { number: 3, text: AT3_TEXT };
+
+  it("matches when the evidence shares a distinctive keyword", () => {
+    expect(isAtReferencedByKeyword(at3, "Confirmed all services booted successfully.")).toBe(true);
+  });
+
+  it("does not match when there is no keyword overlap", () => {
+    expect(isAtReferencedByKeyword(at3, "CREATE TABLE denied: confirmed.")).toBe(false);
+  });
+});
+
+describe("extractAtDeferralMarker / isAtDeferred", () => {
+  it("extracts the deferral target for the given AT number", () => {
+    const body = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    expect(extractAtDeferralMarker(body, 3)).toBe("mt#9999");
+    expect(isAtDeferred(body, 3)).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    const body = "[AT3-DEFERRED: mt#9999]";
+    expect(isAtDeferred(body, 3)).toBe(true);
+  });
+
+  it("returns null/false when no marker exists for this AT number", () => {
+    expect(extractAtDeferralMarker(PROXY_EVIDENCE_BODY, 3)).toBeNull();
+    expect(isAtDeferred(PROXY_EVIDENCE_BODY, 3)).toBe(false);
+  });
+
+  it("does not match a marker for a different AT number", () => {
+    const body = "[at1-deferred: mt#1234]";
+    expect(isAtDeferred(body, 3)).toBe(false);
+  });
+});
+
+describe("checkAcceptanceTestCoverage", () => {
+  it("reproduces the mt#2542 scenario: AT3 unaddressed by proxy-only evidence", () => {
+    const result: AtCoverageResult = checkAcceptanceTestCoverage(
+      SPEC_MT2542_3_AT,
+      "implementation",
+      PROXY_EVIDENCE_BODY
+    );
+    expect(result.applicable).toBe(true);
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.number).toBe(3);
+  });
+
+  it("allows when a per-AT deferral marker addresses the unaddressed AT", () => {
+    const bodyWithDeferral = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT2542_3_AT,
+      "implementation",
+      bodyWithDeferral
+    );
+    expect(result.applicable).toBe(true);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("is not applicable when the task kind is state-ops", () => {
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "state-ops", BODY_NO_EVIDENCE);
+    expect(result.applicable).toBe(false);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("is not applicable when all ATs are findings-shaped", () => {
+    const result = checkAcceptanceTestCoverage(
+      SPEC_FINDINGS_ONLY,
+      "implementation",
+      BODY_NO_EVIDENCE
+    );
+    expect(result.applicable).toBe(false);
+  });
+
+  it("is not applicable when the spec has no Acceptance Tests section (docs-only)", () => {
+    const result = checkAcceptanceTestCoverage(
+      SPEC_NO_AT_SECTION,
+      "implementation",
+      BODY_NO_EVIDENCE
+    );
+    expect(result.applicable).toBe(false);
+  });
+
+  it("allows when every executable AT is referenced by number in the evidence block", () => {
+    const body = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified live boot.\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  // mt#3078: same mt#2542-shaped scenario, but the spec's Acceptance Tests are written
+  // as bullets — the CANONICAL `/create-task` template's format — instead of a numbered
+  // list. Pre-fix this returned `applicable: false` (parseAcceptanceTests found nothing),
+  // silently skipping the check for the common case.
+  it("is applicable and flags the unaddressed AT for a bullet-shaped spec (mt#3078)", () => {
+    const bulletSpec = `${AT_SECTION_HEADING}- CREATE TABLE is denied for the DML-only role.
+- All 37 tables are granted DML privileges to the role.
+- ${AT3_TEXT}
+`;
+    const result = checkAcceptanceTestCoverage(bulletSpec, "implementation", PROXY_EVIDENCE_BODY);
+    expect(result.applicable).toBe(true);
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.text).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+});
+
+describe("isAtCoverageSkipped", () => {
+  const ORIGINAL = process.env[AT_COVERAGE_SKIP_ENV_VAR];
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    else process.env[AT_COVERAGE_SKIP_ENV_VAR] = ORIGINAL;
+  });
+
+  it("is false by default", () => {
+    delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    expect(isAtCoverageSkipped()).toBe(false);
+  });
+
+  it("is true when set to '1'", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "1";
+    expect(isAtCoverageSkipped()).toBe(true);
+  });
+
+  it("is true when set to 'true' (case-insensitive)", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "TRUE";
+    expect(isAtCoverageSkipped()).toBe(true);
+  });
+});
+
+describe("fetchTaskSpecForAtCoverage", () => {
+  it("parses a successful CLI response", () => {
+    const exec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        success: true,
+        task: { kind: "implementation" },
+        content: SPEC_MT2542_3_AT,
+      }),
+      stderr: "",
+    });
+    const result = fetchTaskSpecForAtCoverage("mt#2542", "/tmp", exec);
+    expect(result.ok).toBe(true);
+    expect(result.kind).toBe("implementation");
+    expect(result.content).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("fails open (ok: false) on non-zero exit", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    expect(fetchTaskSpecForAtCoverage("mt#9999999", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) on unparseable JSON", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "not json", stderr: "" });
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) when the content field is missing", () => {
+    const exec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ success: true, task: { kind: "implementation" } }),
+      stderr: "",
+    });
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) when exec itself throws", () => {
+    const exec: ExecFn = () => {
+      throw new Error("spawn failed");
+    };
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+});
+
+describe("runAtCoverageCalibration — never emits deny, only warns/logs", () => {
+  const ORIGINAL_SKIP = process.env[AT_COVERAGE_SKIP_ENV_VAR];
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "at-coverage-calibration-"));
+    delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_SKIP === undefined) delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    else process.env[AT_COVERAGE_SKIP_ENV_VAR] = ORIGINAL_SKIP;
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- cleans up the real mkdtemp scratch directory created in beforeEach above.
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function execFor(specContent: string, kind = "implementation"): ExecFn {
+    return () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ success: true, task: { kind }, content: specContent }),
+      stderr: "",
+    });
+  }
+
+  it("returns a warning (never a block-shaped result) for the mt#2542 scenario, naming AT3", () => {
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("AT3");
+    expect(result.warning).toContain("CALIBRATION");
+    // Structural guarantee: the result shape has no field resembling a deny/block signal.
+    expect(Object.keys(result).sort()).toEqual(["ranCheck", "warning"]);
+    expect(JSON.stringify(result)).not.toContain("permissionDecision");
+    expect(JSON.stringify(result).toLowerCase()).not.toContain('"blocked"');
+
+    // A calibration record was appended to the log under the given repo root.
+    const logPath = join(tmpDir, ".minsky/execution-evidence-at-coverage-calibration.jsonl");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- reads back the real calibration-log file `runAtCoverageCalibration` just wrote, to verify the on-disk record shape.
+    const written = readFileSync(logPath, "utf-8");
+    const record = JSON.parse(written.trim().split("\n")[0] ?? "{}");
+    expect(record.task).toBe("mt#2542");
+    expect(record.unaddressedAts?.[0]?.number).toBe(3);
+  });
+
+  it("returns no warning when every executable AT is deferred or covered", () => {
+    const bodyWithDeferral = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      bodyWithDeferral,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("returns no warning for a docs-only PR bound to a task with no executable ATs", () => {
+    const result = runAtCoverageCalibration(
+      "mt#1",
+      1,
+      BODY_NO_EVIDENCE,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_NO_AT_SECTION)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("is silent (ranCheck: false) when the spec fetch fails — fail-open, no noise", () => {
+    const failingExec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    const result = runAtCoverageCalibration(
+      "mt#nonexistent",
+      1,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      failingExec
+    );
+    expect(result.ranCheck).toBe(false);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("is skipped entirely when MINSKY_SKIP_AT_COVERAGE is set", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "1";
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(false);
+    expect(result.warning).toBeUndefined();
   });
 });

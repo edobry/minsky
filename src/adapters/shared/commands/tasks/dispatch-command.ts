@@ -44,11 +44,17 @@ import {
 } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors";
+import { isDispatchModelId, DISPATCH_MODELS } from "@minsky/domain/ai/dispatch-models";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 import {
   validateEvidenceArgument,
   type EvidenceArgument,
 } from "@minsky/domain/validation/evidence-argument";
+import {
+  analyzeNegativeConstraints,
+  buildBareProhibitionMessage,
+  ENFORCEMENT_ENABLED as BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+} from "@minsky/domain/validation/negative-constraint";
 
 const tasksDispatchParams = {
   title: {
@@ -102,7 +108,49 @@ const tasksDispatchParams = {
   },
   scope: {
     schema: z.string().optional(),
-    description: "Comma-separated file paths to constrain the subagent to",
+    description:
+      "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is " +
+      "comma-split, each chunk is rendered as a bullet under 'Only modify the following " +
+      "files:', and the parallel-work guard re-reads it directly to detect PR collisions. " +
+      "A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' " +
+      "or ends in a file extension; anything else (a prose fragment, or a bare word like " +
+      "'tests') is REJECTED with an error naming it, rather than rendered as a fabricated " +
+      "path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+    required: false,
+  },
+  scopeNotes: {
+    schema: z.string().optional(),
+    description:
+      "Free-prose description of what this dispatch covers (mt#1279). Renders as its own " +
+      "'## Scope Notes' section in the generated prompt, kept separate from the `scope` " +
+      "file list so prose can never be mistaken for a path. Use this for qualifications " +
+      "like 'plus tests' or 'do NOT convert the render sites'.",
+    required: false,
+  },
+  intent: {
+    schema: z.enum(["read-only", "implementation"]).optional(),
+    description:
+      'Dispatch intent (mt#2865). Defaults to "implementation" — no behavior change from before ' +
+      'this param existed. "read-only" adds an explicit read-only-bound section to the generated ' +
+      "prompt AND writes a TTL-bound declaration to the dispatch-intent store for the dispatched " +
+      "session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES " +
+      "session-mutating/PR-mutating tools for ANY subagent operating in this session while the " +
+      'declaration is live. IMPORTANT: on "read-only" the generated prompt also SILENTLY OMITS ' +
+      "the commit/PR instructions (`session_commit`/`session_pr_create`) and forces the " +
+      "read-only Operating Envelope regardless of `type` — since those tools are structurally " +
+      "denied for this dispatch, the prompt never tells the agent to use them. Use for bounded " +
+      "lookups, never for a task expected to write code.",
+    required: false,
+  },
+  model: {
+    schema: z.string().optional(),
+    description:
+      "Dispatch model (mt#3043) — which model the subagent should run on. One of the " +
+      "dispatch-model registry ids (sonnet | opus | haiku | fable; see " +
+      "packages/domain/src/ai/dispatch-models.ts, the same registry the cockpit launch picker " +
+      "uses). Returned to the caller as `suggestedModel` so it can be passed as the harness " +
+      "Agent-spawn `model` arg. Omitted → the registry default. An unrecognized id is REJECTED " +
+      "rather than silently defaulting, so a typo never quietly downgrades the dispatch.",
     required: false,
   },
   description: {
@@ -137,18 +185,7 @@ const tasksDispatchParams = {
   },
 } satisfies CommandParameterMap;
 
-interface DispatchParams {
-  title?: string;
-  taskId?: string;
-  instructions: string;
-  parentTaskId?: string;
-  type: "implementation" | "refactor" | "review" | "cleanup" | "audit";
-  scope?: string;
-  description?: string;
-  premiseClaim: string;
-  premiseFalsifier: string;
-  premiseEvidence: string;
-}
+type DispatchParams = InferParams<typeof tasksDispatchParams>;
 
 /**
  * Validate the mode-selection params (mt#2657): exactly one of `taskId`/`title` must be
@@ -189,6 +226,89 @@ function validateDispatchMode(p: DispatchParams): void {
         "operator confusion — omit `description` when dispatching an existing task."
     );
   }
+  if (p.model !== undefined && !isDispatchModelId(p.model)) {
+    throw new ValidationError(
+      `Unknown dispatch model "${p.model}". Valid ids: ` +
+        `${DISPATCH_MODELS.map((m) => m.id).join(" | ")}. The dispatch-model registry is the ` +
+        "single source of truth — an unrecognized id is rejected rather than silently falling " +
+        "back to the default, so a typo'd model never quietly downgrades the dispatch."
+    );
+  }
+}
+
+/**
+ * Bare-prohibition check for the dispatch `instructions` body (mt#3162).
+ *
+ * The mt#2488 evidence gate binds the dispatch's own POSITIVE premise ("the load-bearing
+ * assumption this action rests on"). It never looks at `instructions`, where a NEGATIVE
+ * constraint lives — and a prohibition written into a subagent's prompt is the worse failure:
+ * it removes the receiving agent's standing to falsify it (mem#702). This closes that half.
+ *
+ * Declared at module scope (not inline in `execute()`) for the same ADR-004 /
+ * `custom/no-validation-error-in-execute` reason as `validateDispatchMode` above, and wired via
+ * `validateEvidenceArgument`'s existing `structuralCheck` option — the callback closes over the
+ * call's `instructions`, so the shared primitive needs no signature change.
+ *
+ * CALIBRATION-FIRST (mt#3162 SC5, graduation tracked by mt#3167): while
+ * `ENFORCEMENT_ENABLED` is false this WARNS and returns null (never blocks). Returning the
+ * message instead is the one-line flip.
+ */
+function checkInstructionsForBareProhibition(instructions: string | undefined): string | null {
+  const report = analyzeNegativeConstraints(instructions);
+  if (report.bare.length === 0) return null;
+
+  const message = buildBareProhibitionMessage(report);
+
+  if (!BARE_PROHIBITION_ENFORCEMENT_ENABLED) {
+    log.warn("[tasks.dispatch] Bare prohibition in dispatch instructions (mt#3162, calibration)", {
+      phrases: report.bare.map((f) => f.phrase),
+      hasLicenceToFalsify: report.hasLicenceToFalsify,
+      enforcementEnabled: BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+    });
+    return null;
+  }
+
+  return message;
+}
+
+/**
+ * Bound applied ON TOP OF `getTracker`'s own (registry-setup.ts) timeout,
+ * scoped specifically to Step 5's best-effort telemetry write (mt#3017 R1
+ * BLOCKING #2). Deliberately much shorter than registry-setup.ts's 5s bound
+ * — that bound exists to give `tasks.dispatch-recover` a real chance at a
+ * genuine classification; Step 5 here is "write a row if the tracker is
+ * already warm," not something the dispatch pipeline should ever wait
+ * seconds for.
+ */
+const DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Resolve the tracker for Step 5's invocation-row write, bounded by
+ * `timeoutMs` (default `DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS`) so a
+ * slow-to-warm or hung tracker degrades to "skip the write" (same as the
+ * pre-mt#3017 behavior) instead of adding latency to the dispatch pipeline
+ * (mt#3017 R1 BLOCKING #2). Exported + timeout-injectable so a test can
+ * exercise the timeout-loss branch with a small `timeoutMs` instead of
+ * waiting out the real production bound.
+ */
+export async function getTrackerForDispatch(
+  getTracker: (() => Promise<SubagentDispatchTracker | null>) | undefined,
+  timeoutMs: number = DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS
+): Promise<SubagentDispatchTracker | null> {
+  if (!getTracker) return null;
+  const TIMEOUT_SENTINEL = Symbol("dispatch-tracker-lookup-timeout");
+  const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+    setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([getTracker(), timeout]);
+    return result === TIMEOUT_SENTINEL ? null : result;
+  } catch (err: unknown) {
+    log.debug("[tasks.dispatch] getTracker threw while resolving for Step 5", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 export function createTasksDispatchCommand(
@@ -203,8 +323,23 @@ export function createTasksDispatchCommand(
    * When provided, a pending row is written at dispatch time so that
    * crashed subagents leave a stale-pending row that is classifiable later.
    * When absent (e.g., DB unavailable at startup), the write is skipped silently.
+   *
+   * Async (mt#3017) — `registry-setup.ts`'s `getTracker` now AWAITS an
+   * in-flight DB-connection resolution (bounded by its OWN 5s timeout)
+   * instead of returning null immediately on every call that races the
+   * async init. Without awaiting here, the very first `tasks.dispatch` call
+   * after every process restart would silently skip writing the invocation
+   * row even though the DB was healthy and about to become available.
+   *
+   * mt#3017 R1 BLOCKING #2: awaiting registry-setup.ts's full 5s timeout
+   * directly at this callsite would couple the WHOLE dispatch pipeline's
+   * latency to DB availability for what is documented as a best-effort
+   * telemetry write. `getTrackerForDispatch` below applies its OWN, much
+   * shorter bound (`DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS`) on top, so a slow
+   * or warming-up tracker degrades to "skip the write" — same as the
+   * pre-mt#3017 behavior — well before it could stall Step 5.
    */
-  getTracker?: () => SubagentDispatchTracker | null
+  getTracker?: () => Promise<SubagentDispatchTracker | null>
 ) {
   return {
     id: "tasks.dispatch",
@@ -213,7 +348,7 @@ export function createTasksDispatchCommand(
       "Create a subtask, start a session, and generate a subagent prompt — all in one call",
     parameters: tasksDispatchParams,
     execute: async (params: InferParams<typeof tasksDispatchParams>) => {
-      const p = params as DispatchParams;
+      const p = params;
 
       // Defensive default (mt#2695): `defaultValue: "implementation"` on the `type` param def
       // above is what actually applies the default at the MCP/CLI boundaries — the Zod
@@ -234,7 +369,12 @@ export function createTasksDispatchCommand(
           falsifier: p.premiseFalsifier,
           evidence: p.premiseEvidence,
         },
-        { action: "tasks.dispatch" }
+        {
+          action: "tasks.dispatch",
+          // mt#3162: the negative half of the same gate — a prohibition in `instructions`
+          // must carry its basis and an explicit licence to falsify.
+          structuralCheck: () => checkInstructionsForBareProhibition(p.instructions),
+        }
       );
       log.info("[tasks.dispatch] Evidence gate passed", {
         claim: premise.claim,
@@ -288,6 +428,14 @@ export function createTasksDispatchCommand(
           "@minsky/domain/tasks"
         );
         const { TASK_STATUS } = await import("@minsky/domain/tasks/taskConstants");
+        // mt#3010: the walk's shape (TODO -> PLANNING -> READY) is now derived
+        // from the "implementation" workflow's transition graph in the
+        // registry instead of hand-chained `if (status === TODO) ...` /
+        // `if (status === PLANNING) ...` branches — same registry
+        // BIND_ADVANCE_SEAM_STATUS the spec-read guard keys on.
+        const { computeStatusWalkPath, BIND_ADVANCE_SEAM_STATUS } = await import(
+          "@minsky/domain/tasks/workflows"
+        );
         const persistenceProvider = getPersistenceProvider();
         const taskService = getTaskService();
 
@@ -296,22 +444,16 @@ export function createTasksDispatchCommand(
           { persistenceProvider, taskService }
         );
 
-        if (status === TASK_STATUS.TODO) {
+        const walkPath = status
+          ? (computeStatusWalkPath(status, BIND_ADVANCE_SEAM_STATUS) ?? [])
+          : [];
+        for (const nextStatus of walkPath) {
           await setTaskStatusFromParams(
-            { taskId, status: TASK_STATUS.PLANNING },
+            { taskId, status: nextStatus },
             { persistenceProvider, taskService }
           );
-          statusWalk.push(TASK_STATUS.PLANNING);
-          status = TASK_STATUS.PLANNING;
-        }
-
-        if (status === TASK_STATUS.PLANNING) {
-          await setTaskStatusFromParams(
-            { taskId, status: TASK_STATUS.READY },
-            { persistenceProvider, taskService }
-          );
-          statusWalk.push(TASK_STATUS.READY);
-          status = TASK_STATUS.READY;
+          statusWalk.push(nextStatus);
+          status = nextStatus;
         }
 
         if (status !== TASK_STATUS.READY) {
@@ -468,7 +610,9 @@ export function createTasksDispatchCommand(
 
       // Step 4: Generate the subagent prompt
       log.debug("[tasks.dispatch] Generating prompt", { taskId, type: p.type });
-      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
+      const { generateSubagentPrompt, parseScopeFileList } = await import(
+        "@minsky/domain/session/prompt-generation"
+      );
       const { resolveSessionDirectory } = await import(
         "@minsky/domain/session/resolve-session-directory"
       );
@@ -477,13 +621,9 @@ export function createTasksDispatchCommand(
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 
-      const scope = p.scope
-        ? p.scope
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
-            .map((s) => (s.startsWith("/") ? s : `${sessionDir}/${s}`))
-        : undefined;
+      // mt#1279: shared with session.generate_prompt — one split, one prose
+      // rejection, one session-dir prefixing rule.
+      const scope = parseScopeFileList(p.scope, sessionDir);
 
       const promptResult = generateSubagentPrompt({
         sessionDir,
@@ -492,7 +632,37 @@ export function createTasksDispatchCommand(
         type: p.type,
         instructions: p.instructions,
         scope,
+        scopeNotes: p.scopeNotes,
+        intent: p.intent,
+        model: p.model,
       });
+
+      // mt#2865: write the dispatch-intent declaration BEFORE returning the
+      // prompt to the caller — see the parallel comment in
+      // session/prompt-command.ts for the full rationale. Best-effort;
+      // never blocks dispatch on a store-write failure.
+      if (p.intent === "read-only") {
+        try {
+          const { declareReadOnlyIntent } = await import(
+            "@minsky/domain/session/dispatch-intent-writer"
+          );
+          const declared = declareReadOnlyIntent(sessionId, {
+            issuedBy: `tasks.dispatch:${taskId}`,
+            // Not pre-truncated here — the writer itself sanitizes (strips
+            // newlines, caps length) at declaration time (mt#2865 PR #2033
+            // R1 BLOCKING #2), so every caller gets the same guaranteed-clean
+            // persisted shape regardless of what it passes.
+            reason: p.instructions,
+          });
+          if (!declared) {
+            log.warn(
+              `[tasks.dispatch] Failed to write read-only dispatch-intent declaration for session ${sessionId}`
+            );
+          }
+        } catch (err) {
+          log.warn(`[tasks.dispatch] dispatch-intent declaration write threw: ${err}`);
+        }
+      }
 
       // TODO(mt#441): When native subagent dispatch ships, set _meta["io.minsky/agent_id"]
       // on each MCP request the dispatched subagent makes. The value should be:
@@ -519,9 +689,9 @@ export function createTasksDispatchCommand(
       // separately in `agentSessionId` at Stop time. Without this correlation
       // the upsert would fail and the dispatch row would orphan as a duplicate.
       try {
-        const tracker = getTracker?.();
+        const tracker = await getTrackerForDispatch(getTracker);
         if (tracker) {
-          await tracker.recordSubagentInvocation({
+          const invocationId = await tracker.recordSubagentInvocation({
             taskId,
             subagentSessionId: sessionId, // Minsky session id of the subagent's workspace
             agentType: promptResult.agentType ?? p.type,
@@ -529,7 +699,42 @@ export function createTasksDispatchCommand(
             startedAt: new Date(),
             outcome: "crashed-no-output",
           });
-          log.debug("[tasks.dispatch] Pending invocation row written", { taskId });
+          log.debug("[tasks.dispatch] Pending invocation row written", { taskId, invocationId });
+
+          // mt#2831 R1 BLOCKING #1: write the current-invocation marker so the
+          // SubagentStop hook can bind its eventual Stop-time update to THIS exact
+          // row (strong binding) instead of guessing by subagentSessionId — see
+          // SubagentDispatchTracker.recordSubagentInvocation's docstring. Best-effort;
+          // a write failure here just means the Stop hook falls back to the
+          // heuristic upsert path, same as before this mechanism existed.
+          //
+          // mt#2831 R3 NB #3: nested try/catch for symmetry with
+          // dispatch-recover-command.ts's marker-write guard (R3 BLOCKING #2) —
+          // this whole Step 5 block is already inside the OUTER try/catch below,
+          // so a throw here was already non-fatal to `tasks.dispatch`, but an
+          // inner guard keeps a marker-write failure from masking whether the
+          // INVOCATION ROW write (the more important of the two) itself
+          // succeeded, and gives the marker failure its own distinct log line.
+          if (invocationId) {
+            try {
+              const { writeCurrentInvocationMarker } = await import(
+                "@minsky/domain/session/current-invocation-marker"
+              );
+              const wrote = await writeCurrentInvocationMarker(sessionDir, sessionId, invocationId);
+              if (!wrote) {
+                log.warn("[tasks.dispatch] Failed to write current-invocation marker", {
+                  taskId,
+                  sessionDir,
+                });
+              }
+            } catch (err) {
+              log.warn("[tasks.dispatch] current-invocation marker write threw unexpectedly", {
+                taskId,
+                sessionDir,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
         }
       } catch (err) {
         // Non-fatal: fail-safe. The invocation row is best-effort telemetry.

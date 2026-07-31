@@ -1,33 +1,16 @@
-import { TASK_STATUS } from "./taskConstants";
+/**
+ * Task-listing filter utilities, built on the registry's canonical
+ * hidden-by-default predicate (mt#3010 single-authority consolidation —
+ * DEFAULT_HIDDEN_STATUSES / isHiddenByDefaultStatus moved to workflows.ts;
+ * this module now consumes them rather than maintaining its own copy).
+ */
+import { isHiddenByDefaultStatus } from "./workflows";
+
+export { isHiddenByDefaultStatus };
 
 export interface TaskFilterOptions {
   status?: string;
   all?: boolean;
-}
-
-/**
- * Statuses hidden by default in task listings (terminal success/cancellation states).
- *
- * Union across all task kinds (mt#1812):
- * - `DONE`: implementation-kind success terminal
- * - `CLOSED`: terminal for both kinds (cancellation / no-longer-needed)
- * - `COMPLETED`: umbrella-kind success terminal
- *
- * `BLOCKED` is NOT hidden — blocked tasks need operator attention.
- *
- * Note: exposed as a readonly tuple (not a Set) to satisfy the
- * `custom/no-domain-singleton` lint rule. Callers should use the
- * `isHiddenByDefaultStatus()` helper instead of building their own Set.
- */
-export const TASK_STATUSES_HIDDEN_BY_DEFAULT = [
-  TASK_STATUS.DONE,
-  TASK_STATUS.CLOSED,
-  TASK_STATUS.COMPLETED,
-] as const;
-
-export function isHiddenByDefaultStatus(status: string | undefined): boolean {
-  if (status === undefined) return false;
-  return (TASK_STATUSES_HIDDEN_BY_DEFAULT as readonly string[]).includes(status);
 }
 
 export function shouldIncludeTaskStatus(
@@ -41,7 +24,14 @@ export function shouldIncludeTaskStatus(
   const desiredStatus = options.status?.trim();
   const includeAll = Boolean(options.all);
 
-  if (desiredStatus) {
+  // "all" is a sentinel meaning "no specific status filter" (both
+  // minskyTaskBackend.ts and githubIssuesTaskBackend.ts's pre-mt#3010
+  // listTasks() implementations special-cased it this way — a bare
+  // desiredStatus === status comparison would instead filter OUT every task,
+  // since none literally has status "all"; caught by reviewer at mt#3010
+  // PR #2171 R1 when githubIssuesTaskBackend.ts was wired onto this shared
+  // predicate for the first time, exposing the gap).
+  if (desiredStatus && desiredStatus !== "all") {
     return status === desiredStatus;
   }
 

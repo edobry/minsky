@@ -74,6 +74,7 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
   },
   session: {
     sessionId: "abc12345-1234-1234-1234-abc123456789",
+    shortId: "ws#42",
     taskId: "mt#2535",
     taskTitle: "Changeset detail page",
     status: "IN-PROGRESS",
@@ -97,6 +98,29 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
       url: "https://github.com/edobry/minsky/commit/abc1234abc1234abc1234abc1234abc1234abc1234",
     },
   ],
+  detail: {
+    body: "This PR adds the changeset detail route.",
+    author: "minsky-ai[bot]",
+    additions: 66,
+    deletions: 8,
+    changedFiles: 2,
+    mergedAt: null,
+    mergedBy: null,
+    reviewCount: 1,
+  },
+  checks: {
+    allPassed: true,
+    total: 3,
+    passed: 3,
+    failed: 0,
+    pending: 0,
+    checks: [
+      { name: "build", status: "completed", conclusion: "success", url: null },
+      { name: "bundle-boot-smoke", status: "completed", conclusion: "success", url: null },
+      { name: "docker-build-smoke", status: "completed", conclusion: "success", url: null },
+    ],
+  },
+  checksUnavailableReason: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -126,7 +150,7 @@ function mockChangesetFetch(
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 function mockChangesetFetchError(id: string, errorMessage: string) {
@@ -136,7 +160,7 @@ function mockChangesetFetchError(id: string, errorMessage: string) {
       return Promise.reject(new Error(errorMessage));
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,11 +219,11 @@ describe("ChangesetDetailPage — found state", () => {
     });
   });
 
-  test("renders external GitHub link as secondary affordance", async () => {
+  test("renders external GitHub link as a primary affordance", async () => {
     mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
     renderChangesetPage("1234");
     await waitFor(() => {
-      const link = screen.getByRole("link", { name: /view on github/i });
+      const link = screen.getByRole("link", { name: /open on github/i });
       expect(link).toBeDefined();
       expect((link as HTMLAnchorElement).href).toContain("/pull/1234");
       // External link opens in new tab — not a redirect
@@ -286,9 +310,272 @@ describe("ChangesetDetailPage — not-found / empty state", () => {
 describe("ChangesetDetailPage — loading / pending state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
     renderChangesetPage("1234");
     // Pending state message is present synchronously (before any microtask)
     expect(screen.getByText(/loading changeset/i)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: mt#3096 — live-PR sourcing, title fallback, honest degradation
+// ---------------------------------------------------------------------------
+
+describe("ChangesetDetailPage — live PR sourcing (mt#3096)", () => {
+  test("renders the PR description from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/adds the changeset detail route/i)).toBeDefined();
+    });
+  });
+
+  test("renders the diffstat from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("+66")).toBeDefined();
+      expect(screen.getByText(/2 files/)).toBeDefined();
+    });
+  });
+
+  test("renders the author from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("minsky-ai[bot]")).toBeDefined();
+    });
+  });
+
+  /**
+   * The originating bug: a null PR title rendered as the literal "(no title)"
+   * even though the row this page is reached from already fell back to the
+   * task title. Both surfaces now share `changesetDisplayTitle`.
+   */
+  test("falls back to the task title instead of rendering a placeholder", async () => {
+    const noTitlePayload: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, title: null },
+    };
+    mockChangesetFetch("1234", { status: 200, body: noTitlePayload });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Changeset detail page")).toBeDefined();
+    });
+    expect(screen.queryByText(/\(no title\)/i)).toBeNull();
+  });
+
+  test("falls back to the branch when neither PR title nor task title exists", async () => {
+    const barePayload: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, title: null },
+      session: { ...FOUND_PAYLOAD.session!, taskTitle: null, taskId: null },
+    };
+    mockChangesetFetch("1234", { status: 200, body: barePayload });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getAllByText("task/mt-2535").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/\(no title\)/i)).toBeNull();
+  });
+
+  /**
+   * A merged PR whose session was cleaned up: `session` is null. The page must
+   * still render from live PR data rather than 404ing or crashing.
+   */
+  test("renders a merged PR that has no Minsky session", async () => {
+    const mergedNoSession: ChangesetDetailPayload = {
+      pr: {
+        number: 2222,
+        url: "https://github.com/edobry/minsky/pull/2222",
+        state: "merged",
+        title: "feat(mt#3055): check-premise cue",
+        headBranch: "task/mt-3055",
+        approved: null,
+      },
+      session: null,
+      commits: [],
+      detail: {
+        body: null,
+        author: "minsky-ai[bot]",
+        additions: 66,
+        deletions: 8,
+        changedFiles: 2,
+        mergedAt: new Date(Date.now() - 600_000).toISOString(),
+        mergedBy: "edobry",
+        reviewCount: 0,
+      },
+      checks: null,
+      checksUnavailableReason: "fetch-failed",
+    };
+    mockChangesetFetch("2222", { status: 200, body: mergedNoSession });
+    renderChangesetPage("2222");
+    await waitFor(() => {
+      expect(screen.getByText("feat(mt#3055): check-premise cue")).toBeDefined();
+    });
+    // "Merged" now appears twice: the state chip AND mt#3097's needs-you strip
+    // headline (a merged PR settles to "Merged"). Both are intended.
+    expect(screen.getAllByText("Merged").length).toBeGreaterThan(0);
+    expect(screen.getByText("edobry")).toBeDefined();
+  });
+
+  /**
+   * Honest degradation: when the live fetch failed the page says so, rather
+   * than presenting a stale snapshot as if it were current.
+   */
+  test("shows a degraded notice when live PR data is unavailable", async () => {
+    const degraded: ChangesetDetailPayload = { ...FOUND_PAYLOAD, detail: null };
+    mockChangesetFetch("1234", { status: 200, body: degraded });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/live pull-request data unavailable/i)).toBeDefined();
+    });
+  });
+
+  test("does not show the degraded notice when live data is present", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("feat(mt#2535): changeset detail route")).toBeDefined();
+    });
+    expect(screen.queryByText(/live pull-request data unavailable/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: mt#3097 — needs-you strip + CI section
+// ---------------------------------------------------------------------------
+
+describe("ChangesetDetailPage — needs-you strip and CI (mt#3097)", () => {
+  /** AT1: approved + all checks passing → the merge is the principal's move. */
+  test("AT1: shows 'Awaiting your merge' when approved with CI green", async () => {
+    const readyToMerge: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: readyToMerge });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Awaiting your merge")).toBeDefined();
+    });
+    const strip = screen.getByTestId("needs-you-strip");
+    expect(strip.getAttribute("data-level")).toBe("needs-you");
+    // CI green is observed, so no "unknown" qualifier.
+    expect(screen.queryByText(/CI state unknown/i)).toBeNull();
+  });
+
+  /** AT2: a failing check outranks review state and names the failure. */
+  test("AT2: surfaces a failing check and names it", async () => {
+    const ciFailing: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+      checks: {
+        allPassed: false,
+        total: 3,
+        passed: 2,
+        failed: 1,
+        pending: 0,
+        checks: [
+          { name: "build", status: "completed", conclusion: "failure", url: null },
+          { name: "bundle-boot-smoke", status: "completed", conclusion: "success", url: null },
+          { name: "docker-build-smoke", status: "completed", conclusion: "success", url: null },
+        ],
+      },
+    };
+    mockChangesetFetch("1234", { status: 200, body: ciFailing });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("CI failing")).toBeDefined();
+    });
+    expect(screen.getByTestId("needs-you-strip").getAttribute("data-level")).toBe("needs-you");
+    // The failing check is named, not just counted.
+    expect(screen.getAllByText(/build/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/1 failing/)).toBeDefined();
+  });
+
+  /** AT3: a merged PR is settled — no alarm, regardless of CI/review. */
+  test("AT3: a merged PR renders as settled with no alarm", async () => {
+    const merged: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, state: "merged", approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: merged });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByTestId("needs-you-strip").getAttribute("data-level")).toBe("settled");
+    });
+    expect(screen.queryByText("Awaiting your merge")).toBeNull();
+  });
+
+  /** AT4: unknown CI renders as unknown — never as passing, never a 500. */
+  test("AT4: renders CI as unavailable when the check fetch failed", async () => {
+    const unknownCi: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+      checks: null,
+      checksUnavailableReason: "fetch-failed",
+    };
+    mockChangesetFetch("1234", { status: 200, body: unknownCi });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/could not read check runs for this commit/i)).toBeDefined();
+    });
+    // The merge verdict must disclose that CI was not observed.
+    expect(screen.getByText(/CI state unknown/i)).toBeDefined();
+  });
+
+  /**
+   * PR #2233 R1: a null `checks` with NO resolved commit must not claim the
+   * query failed — there was no commit to query.
+   */
+  test("distinguishes 'no commit to check' from 'the check query failed'", async () => {
+    const noCommit: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      checks: null,
+      checksUnavailableReason: "no-commit",
+    };
+    mockChangesetFetch("1234", { status: 200, body: noCommit });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/No commit resolved for this changeset/i)).toBeDefined();
+    });
+    // Must NOT assert a failed read that never happened.
+    expect(screen.queryByText(/could not read check runs/i)).toBeNull();
+  });
+
+  test("names a missing GitHub connection as the reason when unconfigured", async () => {
+    const unconfigured: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      checks: null,
+      checksUnavailableReason: "not-configured",
+    };
+    mockChangesetFetch("1234", { status: 200, body: unconfigured });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/no GitHub connection is configured/i)).toBeDefined();
+    });
+  });
+
+  /** AT5: the page stays read-only — no merge/approve control (mt#3097 decision 1). */
+  test("AT5: renders no merge or approve control", async () => {
+    const readyToMerge: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: readyToMerge });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Awaiting your merge")).toBeDefined();
+    });
+    expect(screen.queryByRole("button", { name: /^merge$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+  });
+
+  test("shows the CI passing count", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("3/3")).toBeDefined();
+    });
   });
 });

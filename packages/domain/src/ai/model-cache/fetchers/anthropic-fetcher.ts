@@ -1,13 +1,35 @@
 /**
  * Anthropic Model Fetcher
  *
- * Provides static model definitions for Anthropic models since they don't have a public models API.
- * Validates API connectivity and returns predefined model specifications.
+ * Fetches Claude model definitions from Anthropic's `GET /v1/models` endpoint.
+ * Token limits and capability data come from that same response rather than a
+ * hand-maintained table — see `convertToAnthropicCachedModel` for the mapping.
  */
 
 import { ModelFetcher, CachedProviderModel, ModelFetchConfig, ModelFetchError } from "../types";
-import { AICapability, TokenizerInfo } from "../../types";
+import { AICapability } from "../../types";
 import { log } from "@minsky/shared/logger";
+
+/**
+ * One entry of Anthropic's `GET /v1/models` response.
+ *
+ * `max_input_tokens` is the context window and `max_tokens` the output cap.
+ * There is no `context_window` field.
+ *
+ * The limit fields are declared optional only so that a missing value is
+ * representable: every model in the live listing carries both (all 11 entries,
+ * measured 2026-07-30 — see mt#3379). `convertToAnthropicCachedModel` drops a
+ * model that lacks them rather than substituting a number.
+ */
+interface AnthropicApiModel {
+  id: string;
+  display_name?: string;
+  created_at?: string;
+  type?: string;
+  max_input_tokens?: number;
+  max_tokens?: number;
+  capabilities?: Record<string, unknown>;
+}
 
 /**
  * Anthropic model fetcher implementation
@@ -16,7 +38,6 @@ export class AnthropicModelFetcher implements ModelFetcher {
   readonly provider = "anthropic";
 
   private readonly defaultBaseURL = "https://api.anthropic.com/v1";
-  private readonly testEndpoint = "/messages";
 
   /**
    * Fetch models from Anthropic's /v1/models API endpoint
@@ -47,27 +68,16 @@ export class AnthropicModelFetcher implements ModelFetcher {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = (await response.json()) as {
-          data?: Array<{ id: string; display_name?: string; created_at?: string; type?: string }>;
-        };
+        const data = (await response.json()) as { data?: AnthropicApiModel[] };
         const models = data.data || [];
 
-        const cachedModels: CachedProviderModel[] = models
-          .filter((model: { id: string }) => this.isSupportedModel(model.id))
-          .map((model: { id: string; display_name?: string; created_at?: string; type?: string }) =>
-            this.convertToAnthropicCachedModel(model)
-          );
+        const cachedModels = models
+          .filter((model) => this.isSupportedModel(model.id))
+          .map((model) => this.convertToAnthropicCachedModel(model))
+          .filter((model): model is CachedProviderModel => model !== null);
 
-        // Enhance with static model information
-        const enhancedModels = cachedModels.map((model) => ({
-          ...model,
-          ...this.getStaticModelInfo(model.id),
-          fetchedAt: new Date(),
-          status: "available" as const,
-        }));
-
-        log.info(`Fetched ${enhancedModels.length} Anthropic models from API`);
-        return enhancedModels;
+        log.info(`Fetched ${cachedModels.length} Anthropic models from API`);
+        return cachedModels;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -88,19 +98,35 @@ export class AnthropicModelFetcher implements ModelFetcher {
   }
 
   /**
-   * Get capabilities for a specific Anthropic model
+   * Get capabilities for a specific Anthropic model.
+   *
+   * Interface method: it receives an id and nothing else, so it can only return
+   * what the id alone supports. The richer, listing-derived form is used on the
+   * fetch path — see `deriveCapabilities`.
    */
   async getModelCapabilities(modelId: string): Promise<AICapability[]> {
-    return this.getStaticCapabilities(modelId);
+    return this.getCapabilitiesFromModelId(modelId);
   }
 
   /**
-   * Validate API connectivity by attempting a minimal request
+   * Validate API connectivity by listing models.
+   *
+   * Probes the SAME endpoint `fetchModels` is about to call (`GET /v1/models`,
+   * GA — no beta header). This is deliberate: the previous implementation POSTed
+   * a real completion to `/v1/messages` with a hardcoded `claude-3-haiku-20240307`
+   * and accepted only HTTP 200 or 400. That model was retired, so the probe got a
+   * 404 (`not_found_error`), returned false, and the caller surfaced the generic
+   * "Failed to connect to provider: anthropic" — while the API was fully reachable
+   * and completions kept working. The whole model registry sat empty and stale
+   * from 2026-07-10 on account of a dead string constant (mt#3337).
+   *
+   * Probing the listing endpoint has no model-id coupling, so it cannot rot the
+   * same way when a model is retired, and it costs no tokens.
    */
   async validateConnection(config: ModelFetchConfig): Promise<boolean> {
     try {
       const baseURL = config.baseURL || this.defaultBaseURL;
-      const url = `${baseURL}${this.testEndpoint}`;
+      const url = `${baseURL}/models`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(
@@ -109,32 +135,22 @@ export class AnthropicModelFetcher implements ModelFetcher {
       );
 
       try {
-        // Make a minimal request to test connectivity
         const response = await fetch(url, {
-          method: "POST",
+          method: "GET",
           headers: {
             "x-api-key": config.apiKey,
-            "Content-Type": "application/json",
             "anthropic-version": "2023-06-01",
           },
-          body: JSON.stringify({
-            model: "claude-3-haiku-20240307",
-            max_tokens: 1,
-            messages: [
-              {
-                role: "user",
-                content: "test",
-              },
-            ],
-          }),
           signal: controller.signal,
         });
 
-        clearTimeout(timeoutId);
-
-        // We expect this to return 200 (success) or sometimes 400 (bad request due to minimal content)
-        // Both indicate the API is accessible and the key is valid
-        return response.status === 200 || response.status === 400;
+        if (!response.ok) {
+          log.debug("Anthropic connection validation got a non-OK response", {
+            status: response.status,
+            statusText: response.statusText,
+          });
+        }
+        return response.ok;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -145,153 +161,21 @@ export class AnthropicModelFetcher implements ModelFetcher {
   }
 
   /**
-   * Get static model definitions for Anthropic
+   * Capabilities derivable from a model id alone.
+   *
+   * Used by `getModelCapabilities`, and as the base the listing-derived form
+   * refines. `maxTokens` is deliberately omitted: the context window is not
+   * knowable from an id, and stating a plausible-looking number for it is the
+   * defect mt#3379 removed. The one distinction an id does carry is generation
+   * — the claude-2 family predates tool use, vision, and prompt caching.
    */
-  private getStaticModels(): CachedProviderModel[] {
-    const fetchedAt = new Date();
+  private getCapabilitiesFromModelId(modelId: string): AICapability[] {
+    const predatesModernCapabilities =
+      modelId.startsWith("claude-2") || modelId.startsWith("claude-instant");
 
-    return [
-      {
-        id: "claude-3-5-sonnet-20241022",
-        provider: this.provider,
-        name: "Claude 3.5 Sonnet",
-        description: "Most capable Claude model with improved reasoning and coding",
-        capabilities: this.getStaticCapabilities("claude-3-5-sonnet-20241022"),
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        costPer1kTokens: { input: 0.003, output: 0.015 },
-        tokenizer: this.getTokenizerInfo("claude-3-5-sonnet-20241022"),
-        fetchedAt,
-        status: "available",
-        providerMetadata: {
-          family: "claude-3-5",
-          variant: "sonnet",
-          release_date: "2024-10-22",
-        },
-      },
-      {
-        id: "claude-3-5-haiku-20241022",
-        provider: this.provider,
-        name: "Claude 3.5 Haiku",
-        description: "Fast and cost-effective model for everyday tasks",
-        capabilities: this.getStaticCapabilities("claude-3-5-haiku-20241022"),
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        costPer1kTokens: { input: 0.0008, output: 0.004 },
-        tokenizer: this.getTokenizerInfo("claude-3-5-haiku-20241022"),
-        fetchedAt,
-        status: "available",
-        providerMetadata: {
-          family: "claude-3-5",
-          variant: "haiku",
-          release_date: "2024-10-22",
-        },
-      },
-      {
-        id: "claude-3-opus-20240229",
-        provider: this.provider,
-        name: "Claude 3 Opus",
-        description: "Most powerful Claude 3 model for complex reasoning tasks",
-        capabilities: this.getStaticCapabilities("claude-3-opus-20240229"),
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.015, output: 0.075 },
-        tokenizer: this.getTokenizerInfo("claude-3-opus-20240229"),
-        fetchedAt,
-        status: "available",
-        providerMetadata: {
-          family: "claude-3",
-          variant: "opus",
-          release_date: "2024-02-29",
-        },
-      },
-      {
-        id: "claude-3-sonnet-20240229",
-        provider: this.provider,
-        name: "Claude 3 Sonnet",
-        description: "Balanced model for a wide range of tasks",
-        capabilities: this.getStaticCapabilities("claude-3-sonnet-20240229"),
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.003, output: 0.015 },
-        tokenizer: this.getTokenizerInfo("claude-3-sonnet-20240229"),
-        fetchedAt,
-        status: "available",
-        providerMetadata: {
-          family: "claude-3",
-          variant: "sonnet",
-          release_date: "2024-02-29",
-        },
-      },
-      {
-        id: "claude-3-haiku-20240307",
-        provider: this.provider,
-        name: "Claude 3 Haiku",
-        description: "Fast and cost-effective model for simple tasks",
-        capabilities: this.getStaticCapabilities("claude-3-haiku-20240307"),
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.00025, output: 0.00125 },
-        tokenizer: this.getTokenizerInfo("claude-3-haiku-20240307"),
-        fetchedAt,
-        status: "available",
-        providerMetadata: {
-          family: "claude-3",
-          variant: "haiku",
-          release_date: "2024-03-07",
-        },
-      },
-      {
-        id: "claude-2.1",
-        provider: this.provider,
-        name: "Claude 2.1",
-        description: "Previous generation Claude model",
-        capabilities: this.getStaticCapabilities("claude-2.1"),
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.008, output: 0.024 },
-        tokenizer: this.getTokenizerInfo("claude-2.1"),
-        fetchedAt,
-        status: "deprecated",
-        providerMetadata: {
-          family: "claude-2",
-          variant: "standard",
-          release_date: "2023-11-21",
-        },
-      },
-    ];
-  }
-
-  /**
-   * Get static capabilities for Anthropic models
-   */
-  private getStaticCapabilities(modelId: string): AICapability[] {
-    // Claude 3.5 family
-    if (modelId.startsWith("claude-3-5")) {
+    if (predatesModernCapabilities) {
       return [
-        { name: "reasoning", supported: true, maxTokens: 200000 },
-        { name: "tool-calling", supported: true },
-        { name: "structured-output", supported: true },
-        { name: "image-input", supported: true },
-        { name: "prompt-caching", supported: true },
-      ];
-    }
-
-    // Claude 3 family
-    if (modelId.startsWith("claude-3")) {
-      return [
-        { name: "reasoning", supported: true, maxTokens: 200000 },
-        { name: "tool-calling", supported: true },
-        { name: "structured-output", supported: true },
-        { name: "image-input", supported: true },
-        { name: "prompt-caching", supported: true },
-      ];
-    }
-
-    // Claude 2 family
-    if (modelId.startsWith("claude-2")) {
-      return [
-        { name: "reasoning", supported: true, maxTokens: 200000 },
+        { name: "reasoning", supported: true },
         { name: "tool-calling", supported: false },
         { name: "structured-output", supported: false },
         { name: "image-input", supported: false },
@@ -299,18 +183,59 @@ export class AnthropicModelFetcher implements ModelFetcher {
       ];
     }
 
-    // Legacy models
     return [
-      { name: "reasoning", supported: true, maxTokens: 100000 },
-      { name: "tool-calling", supported: false },
-      { name: "structured-output", supported: false },
-      { name: "image-input", supported: false },
-      { name: "prompt-caching", supported: false },
+      { name: "reasoning", supported: true },
+      { name: "tool-calling", supported: true },
+      { name: "structured-output", supported: true },
+      { name: "image-input", supported: true },
+      { name: "prompt-caching", supported: true },
     ];
   }
 
   /**
-   * Test if a specific model is currently available by making a minimal API call
+   * Capabilities for a model we have the full listing entry for.
+   *
+   * The API's capability tree is NOT renamed wholesale onto `AICapability`:
+   * its keys (`batch`, `citations`, `code_execution`, `context_management`,
+   * `effort`, `image_input`, `pdf_input`, `structured_outputs`, `thinking`)
+   * overlap `AICapability["name"]`'s closed union on exactly two entries. Those
+   * two are read from the response; the rest of the union has no API equivalent
+   * and stays id-derived. The untruncated tree is kept in
+   * `providerMetadata.api_capabilities` so nothing is lost to the projection.
+   */
+  private deriveCapabilities(apiModel: AnthropicApiModel): AICapability[] {
+    const supportedInApi = (key: string): boolean | undefined => {
+      const entry = apiModel.capabilities?.[key];
+      if (entry !== null && typeof entry === "object" && "supported" in entry) {
+        return Boolean((entry as { supported?: unknown }).supported);
+      }
+      return undefined;
+    };
+
+    return this.getCapabilitiesFromModelId(apiModel.id).map((capability) => {
+      if (capability.name === "reasoning") {
+        // The one place a real number belongs: the model's actual context window.
+        return { ...capability, maxTokens: apiModel.max_input_tokens };
+      }
+      if (capability.name === "image-input") {
+        return { ...capability, supported: supportedInApi("image_input") ?? capability.supported };
+      }
+      if (capability.name === "structured-output") {
+        return {
+          ...capability,
+          supported: supportedInApi("structured_outputs") ?? capability.supported,
+        };
+      }
+      return capability;
+    });
+  }
+
+  /**
+   * Test if a specific model is currently available by making a minimal API call.
+   *
+   * Unlike `validateConnection`, this legitimately POSTs to `/messages`: it is
+   * probing ONE named model's availability, and the id comes from the caller
+   * rather than a hardcoded constant, so it cannot rot when a model is retired.
    */
   private async testModelAvailability(
     model: CachedProviderModel,
@@ -318,7 +243,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
   ): Promise<boolean> {
     try {
       const baseURL = config.baseURL || this.defaultBaseURL;
-      const url = `${baseURL}${this.testEndpoint}`;
+      const url = `${baseURL}/messages`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -367,75 +292,52 @@ export class AnthropicModelFetcher implements ModelFetcher {
   }
 
   /**
-   * Convert Anthropic API model response to our CachedProviderModel format
+   * Convert an Anthropic listing entry into our `CachedProviderModel` format.
+   *
+   * Returns `null` for an entry the API described without token limits, which
+   * excludes it from the cache. That is deliberate: `contextWindow` and
+   * `maxOutputTokens` are exactly the fields a caller consults to decide whether
+   * a payload fits or which model to route to, so a fabricated value is worse
+   * than an absent model — and an absence is visible in `modelCount` where a
+   * plausible-looking default is not. This is the failure mt#3379 fixed, in
+   * which every current model silently reported 200000/8192.
    */
-  private convertToAnthropicCachedModel(apiModel: {
-    id: string;
-    display_name?: string;
-    created_at?: string;
-    type?: string;
-  }): CachedProviderModel {
+  private convertToAnthropicCachedModel(apiModel: AnthropicApiModel): CachedProviderModel | null {
+    const contextWindow = apiModel.max_input_tokens;
+    const maxOutputTokens = apiModel.max_tokens;
+
+    if (contextWindow === undefined || maxOutputTokens === undefined) {
+      log.warn("Anthropic model excluded from cache: listing carried no token limits", {
+        modelId: apiModel.id,
+        hasMaxInputTokens: contextWindow !== undefined,
+        hasMaxTokens: maxOutputTokens !== undefined,
+      });
+      return null;
+    }
+
+    const name = apiModel.display_name || apiModel.id;
+
     return {
       id: apiModel.id,
       provider: this.provider,
-      name: apiModel.display_name || apiModel.id,
-      description: `Anthropic's ${apiModel.display_name || apiModel.id}`,
-      capabilities: [], // Will be enhanced with static info
-      contextWindow: 200000, // Default, will be enhanced with static info
-      maxOutputTokens: 8192, // Default, will be enhanced with static info
+      name,
+      description: `Anthropic's ${name}`,
+      capabilities: this.deriveCapabilities(apiModel),
+      contextWindow,
+      maxOutputTokens,
+      // `costPer1kTokens` is deliberately unset. `GET /v1/models` returns no
+      // pricing field of any kind — verified against the live listing, not
+      // assumed (mt#3379) — and the hand-maintained price table this fetcher
+      // used to carry had gone entirely stale: all six of its entries were
+      // retired models, so no model the API returns had ever matched one.
+      // Sourcing pricing has its own maintenance story and is tracked
+      // separately rather than guessed at here.
       fetchedAt: new Date(),
       status: "available",
       providerMetadata: {
         created_at: apiModel.created_at,
         type: apiModel.type,
-      },
-    };
-  }
-
-  /**
-   * Get static model information to enhance API response
-   */
-  private getStaticModelInfo(modelId: string): Partial<CachedProviderModel> {
-    const staticModels = this.getStaticModels();
-    const staticModel = staticModels.find((model) => model.id === modelId);
-
-    if (staticModel) {
-      return {
-        capabilities: staticModel.capabilities,
-        contextWindow: staticModel.contextWindow,
-        maxOutputTokens: staticModel.maxOutputTokens,
-        costPer1kTokens: staticModel.costPer1kTokens,
-        description: staticModel.description,
-      };
-    }
-
-    // Return defaults for unknown models
-    return {
-      capabilities: [
-        { name: "reasoning", supported: true, maxTokens: 200000 },
-        { name: "tool-calling", supported: true },
-      ],
-      contextWindow: 200000,
-      maxOutputTokens: 8192,
-    };
-  }
-
-  /**
-   * Get tokenizer information for Claude models
-   */
-  private getTokenizerInfo(modelId: string): TokenizerInfo {
-    // All Claude models use the same tokenizer approach
-    // For now, we fallback to tiktoken since we don't have direct Claude tokenizer
-    return {
-      encoding: "cl100k_base", // Fallback encoding until we have proper Claude tokenizer
-      library: "tiktoken", // Will be "anthropic" when proper tokenizer is available
-      source: "fallback",
-      config: {
-        modelFamily: modelId.includes("claude-3-5")
-          ? "claude-3-5"
-          : modelId.includes("claude-3")
-            ? "claude-3"
-            : "claude-2",
+        api_capabilities: apiModel.capabilities,
       },
     };
   }

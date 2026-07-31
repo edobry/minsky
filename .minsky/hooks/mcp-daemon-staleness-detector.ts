@@ -27,7 +27,7 @@
 // @see src/mcp/daemon-state.ts — writes the daemon state file on startup
 // @see src/mcp/server.ts — calls writeDaemonState("minsky") in start()
 
-import { readInput, writeOutput, execWithPath } from "./types";
+import { readInput, writeOutput, execWithPath, CANARY_MODE_ENV } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -80,6 +80,21 @@ export interface SessionTracker {
 
 /** Env var that disables the hook when set to a truthy value. */
 export const OPT_OUT_ENV = "MINSKY_SKIP_DAEMON_STALENESS";
+
+/**
+ * Canary-only env override for the session-tracker HOME root (mt#3004).
+ * Honored ONLY when the process is in canary mode (`CANARY_MODE_ENV ===
+ * "1"`, set exclusively by the canary runner and unit tests — PR #2145 R1);
+ * a production process with this var set but no canary mode behaves exactly
+ * as before. The tracker lives under `<home>/.claude/mcp-daemon-staleness/
+ * ...`; `run()` has no dependency-injection path, so without this a
+ * guard-canary invocation would write tracker state under the developer's
+ * REAL `~/.claude` (the mt#2876 isolation class). `args.homeOverride` still
+ * takes precedence. Registered in `HOOK_ONLY_ENV_VARS` (mt#1788) so setting
+ * it can never crash CLI boot; deliberately NOT in
+ * `known-override-env-vars.ts` — it is not an operator escape hatch.
+ */
+export const TRACKER_HOME_ENV = "MINSKY_DAEMON_TRACKER_HOME";
 
 /**
  * Prefix that file paths must match to be counted as changed. Only changes
@@ -384,7 +399,9 @@ export function decideAndUpdate(args: {
 }): DecideResult {
   const fs = args.fs ?? REAL_FS;
   const git = args.git ?? REAL_GIT;
-  const home = args.homeOverride ?? homedir();
+  const canaryTrackerHome =
+    args.env[CANARY_MODE_ENV] === "1" ? args.env[TRACKER_HOME_ENV] : undefined;
+  const home = args.homeOverride ?? canaryTrackerHome ?? homedir();
   const trackerPath =
     args.trackerPathOverride ?? resolveTrackerPath(args.projectDir, args.sessionId, home);
 

@@ -39,6 +39,78 @@ import { dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
 
+// ─── Canonical bun-build invocation (mt#3091) ─────────────────────────────────
+
+/**
+ * Single source of truth for the `bun build` invocation shared across the
+ * three previously hand-maintained build sites: `package.json`'s `build`
+ * script, this file's own self-rebuild (below), and the Dockerfile's
+ * Profile-B image-build `RUN` line. Before mt#3091 a flag change in one
+ * place had to be manually copied to the other two — mt#3006 aligned two
+ * sites and found the third late via a reviewer sweep; mt#3023 existed
+ * solely to align that third site.
+ *
+ * Lives here — rather than a new shared module under `src/` — because
+ * `scripts/cli-entry.ts` is the ONLY script file, besides `dist/` and
+ * `package.json` itself, listed in package.json's `files` array (what
+ * ships to a published-npm install, Profile D). A module living outside
+ * that set would fail to resolve at import time for a Profile D install
+ * even though the codepath using it never executes there (ESM imports are
+ * resolved eagerly, before any `if (isSourceInstall)` guard runs). Every
+ * other consumer of this function (the Dockerfile generator, the
+ * package.json drift check) runs in a full-repo dev/CI context and can
+ * freely import this file — it only touches Node/Bun builtins itself, and
+ * importing it for these exports does not execute the CLI (guarded by
+ * `import.meta.main` below).
+ *
+ * `--outdir` + `--entry-naming`, NOT `--outfile`: bun rejects an external
+ * source map written through `--outfile` outright (mt#3023). Flag
+ * CHOICE (`--minify --sourcemap=external`) is out of scope for mt#3091 —
+ * this only removes the duplication, not the decision.
+ */
+export const BUN_BUILD_TARGET = "bun";
+export const BUN_BUILD_OUTDIR = "dist";
+export const BUN_BUILD_ENTRY_NAME = "minsky.js";
+export const BUN_BUILD_SOURCE_ENTRY = "src/cli.ts";
+
+/**
+ * Build the full `bun build` argv (everything after the `bun` binary
+ * itself, i.e. starting with the `build` subcommand) for the given
+ * output directory / entry filename / source entry point. Order and flag
+ * set are canonical — every one of the three build sites either calls
+ * this directly or is mechanically checked/generated against it.
+ */
+export function bunBuildArgs(opts?: {
+  outDir?: string;
+  entryName?: string;
+  sourceEntry?: string;
+}): string[] {
+  const outDir = opts?.outDir ?? BUN_BUILD_OUTDIR;
+  const entryName = opts?.entryName ?? BUN_BUILD_ENTRY_NAME;
+  const sourceEntry = opts?.sourceEntry ?? BUN_BUILD_SOURCE_ENTRY;
+  return [
+    "build",
+    `--target=${BUN_BUILD_TARGET}`,
+    `--outdir=${outDir}`,
+    "--entry-naming",
+    entryName,
+    "--sourcemap=external",
+    "--minify",
+    sourceEntry,
+  ];
+}
+
+/**
+ * `bunBuildArgs()` rendered as a single shell-ready command string
+ * (`"bun build --target=bun ... src/cli.ts"`), prefixed with the `bun`
+ * binary itself. Used by consumers that need a literal command string
+ * rather than an argv array — the Dockerfile `RUN` line and the
+ * package.json build-script drift check.
+ */
+export function bunBuildCommand(opts?: Parameters<typeof bunBuildArgs>[0]): string {
+  return ["bun", ...bunBuildArgs(opts)].join(" ");
+}
+
 // ─── Dependency interfaces (for testability) ─────────────────────────────────
 
 /**
@@ -60,7 +132,7 @@ export interface FsDeps {
 export interface ExecDeps {
   /** Run `git rev-parse HEAD` in the given cwd. Returns stdout or "" on failure. */
   gitRevParseHead(cwd: string): string;
-  /** Run `bun build --target=bun --outdir=<dir> --entry-naming <name> --sourcemap=external <sourcePath>` in cwd. Returns exit code. */
+  /** Run the canonical `bunBuildArgs()` invocation (see above) in cwd. Returns exit code. */
   bunBuild(args: { cwd: string; bundlePath: string; sourcePath: string }): number;
 }
 
@@ -172,15 +244,7 @@ function makeProductionExecDeps(): ExecDeps {
       const entryName = basename(bundlePath);
       const result = spawnSync(
         "bun",
-        [
-          "build",
-          "--target=bun",
-          `--outdir=${outDir}`,
-          "--entry-naming",
-          entryName,
-          "--sourcemap=external",
-          sourcePath,
-        ],
+        bunBuildArgs({ outDir, entryName, sourceEntry: sourcePath }),
         { cwd, stdio: "inherit" }
       );
       return result.status ?? 1;

@@ -1,5 +1,5 @@
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import { createTaskSimilarityService } from "./similarity-commands";
 import { tasksIndexEmbeddingsParams } from "./task-parameters";
 import { listTasksFromParams, getTaskFromParams } from "@minsky/domain/tasks/taskCommands";
@@ -7,13 +7,9 @@ import { elementAt } from "@minsky/shared/array-safety";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
-interface TasksIndexEmbeddingsParams extends BaseTaskParams {
-  limit?: number;
-  task?: string;
-  concurrency?: number;
-}
-
-export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbeddingsParams> {
+export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
+  typeof tasksIndexEmbeddingsParams
+> {
   readonly id = "tasks.index-embeddings";
   readonly name = "index-embeddings";
   readonly description = "Generate and store embeddings for tasks";
@@ -26,17 +22,22 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     super();
   }
 
-  async execute(params: TasksIndexEmbeddingsParams, ctx: CommandExecutionContext) {
+  async execute(
+    params: InferParams<typeof tasksIndexEmbeddingsParams>,
+    ctx: CommandExecutionContext
+  ) {
     const service = await createTaskSimilarityService(
       this.getPersistenceProvider(),
       this.getTaskService()
     );
 
-    // If a specific task is provided, index just that one
-    if (params.task) {
+    // If a specific task is provided (canonical `taskId`, or the `task` alias),
+    // index just that one (mt#2741). Absent => index all (below).
+    const singleTaskId = params.taskId ?? params.task;
+    if (singleTaskId) {
       const task = await getTaskFromParams(
         {
-          taskId: params.task,
+          taskId: singleTaskId,
           backend: params.backend,
           repo: params.repo,
           workspace: params.workspace,
@@ -45,9 +46,14 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
         { taskService: this.getTaskService?.() }
       );
       const { log } = await import("@minsky/shared/logger");
-      const changed = await service.indexTask(task.id);
+      const changed = await service.indexTask(task.id, { force: params.reindex });
       if (!(params.json || ctx.format === "json")) {
-        log.cli(`${task.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+        const verb = changed
+          ? params.reindex
+            ? "re-indexed (forced)"
+            : "indexed"
+          : "up-to-date (skipped)";
+        log.cli(`${task.id}: ${verb}`);
       }
       return this.formatResult(
         { success: true, indexed: changed ? 1 : 0, skipped: changed ? 0 : 1 },
@@ -91,9 +97,14 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
         if (idx >= tasks.length) break;
         const t = elementAt(tasks, idx, "index-embeddings worker tasks");
         try {
-          const changed = await service.indexTask(t.id);
+          const changed = await service.indexTask(t.id, { force: params.reindex });
           if (!(params.json || ctx.format === "json")) {
-            log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+            const verb = changed
+              ? params.reindex
+                ? "re-indexed (forced)"
+                : "indexed"
+              : "up-to-date (skipped)";
+            log.cli(`- ${t.id}: ${verb}`);
           }
           if (changed) indexed++;
           else skipped++;

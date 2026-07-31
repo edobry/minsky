@@ -6,6 +6,7 @@ import {
   CommandCategory,
   type CommandDefinition,
   type CommandExecutionContext,
+  type InferParams,
 } from "../../command-registry";
 import {
   MinskyError,
@@ -13,6 +14,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "@minsky/domain/errors/index";
+import { GitHubApiError } from "@minsky/domain/repository/index";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
 import { log } from "@minsky/shared/logger";
@@ -52,21 +54,7 @@ export function buildSessionPrCreateDeps(
 /**
  * Parameters accepted by the session PR create command.
  */
-export interface SessionPrCreateParams {
-  sessionId?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  title?: string;
-  body?: string;
-  bodyPath?: string;
-  type?: string;
-  noStatusUpdate?: boolean;
-  debug?: boolean;
-  autoResolveDeleteConflicts?: boolean;
-  skipConflictCheck?: boolean;
-  draft?: boolean;
-}
+export type SessionPrCreateParams = InferParams<typeof sessionPrCreateCommandParams>;
 
 /**
  * Check whether an existing PR is eligible for refresh. Exported for tests.
@@ -112,7 +100,7 @@ export async function validateNoPrExists(
   const currentDir = process.cwd();
   const isSessionWorkspace = currentDir.includes("/sessions/");
 
-  let sessionId = params.sessionId;
+  let sessionId: string | undefined = params.sessionId;
   if (!sessionId && isSessionWorkspace) {
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
@@ -163,8 +151,101 @@ export async function validateNoPrExists(
   }
 }
 
-function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
+/** JSON-stringify that never throws (cyclic payloads, exotic getters). */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return "<unserializable>";
+  }
+}
+
+/**
+ * Render the upstream diagnostic payload for `--debug` / `debug: true` (mt#3169).
+ *
+ * The originating incident: `session_pr_create` failed seven times during the
+ * 2026-07-24 GitHub outage, its message told the operator to re-run with
+ * `--debug`, and doing so produced BYTE-IDENTICAL output — the flag was
+ * threaded into the domain call and read by nothing. ~35 minutes went into
+ * disproving alternatives the upstream payload would have settled at once.
+ *
+ * Two things had to be true for this to be renderable at all, and only the
+ * first was:
+ *   1. the flag reaches a site that also holds the error — `handlePrError`
+ *      already did, and
+ *   2. the upstream payload still EXISTS by then — it did not, because
+ *      `handleOctokitError` threw a replacement without a `cause`. mt#3169
+ *      restores that link, which is what this reads.
+ *
+ * Deliberately additive: this never changes the default message. mt#3171 made
+ * that carry GitHub's own text, and `documentation_url` was declined there as
+ * noise — a debug block is exactly where it belongs instead.
+ *
+ * Returns null when nothing diagnostic is available, so the caller appends
+ * nothing rather than an empty header.
+ *
+ * Exported for direct unit testing — see pr-create-command.test.ts.
+ */
+export function buildDebugDetail(error: unknown): string | null {
+  const lines: string[] = [];
+
+  if (error instanceof GitHubApiError) {
+    lines.push(`classification: ${safeJson(error.classification)}`);
+  }
+
+  // The Octokit error carrying the payload is one level down the cause chain;
+  // fall back to the error itself for paths that throw the raw value.
+  const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  const raw = (cause ?? error) as {
+    status?: unknown;
+    response?: { status?: unknown; data?: unknown };
+    request?: { method?: unknown; url?: unknown };
+  } | null;
+
+  if (raw && typeof raw === "object") {
+    const status = raw.status ?? raw.response?.status;
+    if (status !== undefined && status !== null) {
+      lines.push(`http status: ${String(status)}`);
+    }
+
+    const req = raw.request;
+    if (req && typeof req === "object" && (req.method || req.url)) {
+      lines.push(`request: ${String(req.method ?? "?")} ${String(req.url ?? "?")}`);
+    }
+
+    const data = raw.response?.data;
+    if (data && typeof data === "object") {
+      const docUrl = (data as { documentation_url?: unknown }).documentation_url;
+      if (typeof docUrl === "string" && docUrl.length > 0) {
+        lines.push(`documentation_url: ${docUrl}`);
+      }
+      const errors = (data as { errors?: unknown }).errors;
+      if (errors !== undefined) {
+        lines.push(`response.data.errors: ${safeJson(errors)}`);
+      }
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return `🔎 Debug detail:\n${lines.map((line) => `• ${line}`).join("\n")}`;
+}
+
+/**
+ * Map a thrown value to the operator-facing error for `session pr create`.
+ *
+ * Exported for direct unit testing — see pr-create-command.test.ts (mt#3169
+ * pins that `debug` actually changes the output).
+ */
+export function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
   const errorMessage = getErrorMessage(error);
+  // mt#3169: the message text advises `--debug` twice, but `debug` was passed
+  // into the domain call and never read by anything on this path — an
+  // advertised affordance that burned a probe during the 2026-07-24 outage.
+  // This is where it is honored: `handlePrError` already receives BOTH the
+  // thrown error and `params`, so no new threading is required.
+  const debugDetail = params.debug ? buildDebugDetail(error) : null;
+  const withDebug = (message: string): string =>
+    debugDetail ? `${message}\n\n${debugDetail}` : message;
 
   if (error instanceof SessionConflictError) {
     // Structured error: MCP clients can branch on code === "CONFLICT"
@@ -175,6 +256,7 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
         sessionBranch: error.sessionBranch,
         baseBranch: error.baseBranch,
         originalMessage: errorMessage,
+        ...(debugDetail ? { debug: debugDetail } : {}),
       },
     });
   } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
@@ -182,14 +264,19 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
     return mcpStructuredError({
       code: McpErrorCode.CONFLICT,
       summary: "Git merge conflict detected while creating PR branch",
-      details: { originalMessage: errorMessage },
+      details: {
+        originalMessage: errorMessage,
+        ...(debugDetail ? { debug: debugDetail } : {}),
+      },
     });
   } else if (
     errorMessage.includes("Permission denied") ||
     errorMessage.includes("authentication")
   ) {
     return new MinskyError(
-      `🔐 Git authentication error.\n\nPlease check:\n• Your SSH keys are properly configured\n• You have push access to the repository\n• Your git credentials are valid\n\nTechnical details: ${errorMessage}`
+      withDebug(
+        `🔐 Git authentication error.\n\nPlease check:\n• Your SSH keys are properly configured\n• You have push access to the repository\n• Your git credentials are valid\n\nTechnical details: ${errorMessage}`
+      )
     );
   } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
     const sessionDisplay = params.task
@@ -198,11 +285,15 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
         ? `session '${params.sessionId}'`
         : "the requested session";
     return new MinskyError(
-      `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
+      withDebug(
+        `🔍 Session not found.\n\n${sessionDisplay} could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session ID or task ID\n\nTechnical details: ${errorMessage}`
+      )
     );
   } else {
     return new MinskyError(
-      `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+      withDebug(
+        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+      )
     );
   }
 }
@@ -340,7 +431,9 @@ export async function executeSessionPrCreate(
   }
 }
 
-export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionPrCreateCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionPrCreateCommandParams> {
   return {
     id: "session.pr.create",
     category: CommandCategory.SESSION,
@@ -351,7 +444,7 @@ export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandD
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
-        return await executeSessionPrCreate(deps, params as SessionPrCreateParams, context);
+        return await executeSessionPrCreate(deps, params, context);
       } catch (error) {
         log.debug(`Error in session.pr.create`, {
           params,

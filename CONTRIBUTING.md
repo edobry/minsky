@@ -174,7 +174,7 @@ Run the formatter and linter:
 bun run format:check   # check formatting (Prettier)
 bun run format:all     # format and auto-fix lint issues
 bun run lint           # ESLint only
-bun run typecheck      # tsgo --noEmit
+bun run typecheck      # @typescript/native-preview --noEmit (root tsconfig + src/cockpit/web/tsconfig.json)
 bun run validate-all   # run all checks (format + lint + typecheck + tests)
 ```
 
@@ -310,7 +310,11 @@ quality gates in order from fastest to slowest:
    and re-stage the regenerated output.
 
 The **commit-msg** hook validates commit message format (Conventional Commits style:
-`type(scope): description`).
+`type(scope): description`). It runs automatically via `.husky/commit-msg` on every
+commit. To validate a message manually without committing, run it directly against a
+message file: `bun src/hooks/commit-msg.ts <path-to-message-file>` — e.g.
+`bun src/hooks/commit-msg.ts .git/COMMIT_EDITMSG` to re-check the most recent commit
+message.
 
 The **pre-push** hook runs the unit test suite again before pushing to the remote.
 

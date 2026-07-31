@@ -82,14 +82,20 @@ async function runCliEdit(
   try {
     const result = (await command.execute(
       {
-        session: "test-session",
+        sessionId: "test-session",
+        // mt#2816: `task` is now part of the params map (convenience-resolution
+        // alias). Empty string keeps resolveSessionId's `if (params.task)` check
+        // falsy so this test still exercises the explicit-sessionId path.
+        task: "",
         path: params.path,
         instruction: "equivalence test",
         patternFile: patternFilePath,
         dryRun: params.dryRun ?? false,
         createDirs: params.createDirs ?? false,
         fullReplace: params.fullReplace ?? false,
+        allowShrink: false,
         json: true,
+        debug: false,
       },
       {}
     )) as Record<string, unknown>;

@@ -4,6 +4,8 @@ import { buildGrantFromArgs } from "./grant-guard-override";
 const NOW_ISO = "2026-07-08T20:00:00.000Z";
 const GUARD_NAME = "duplicate-child-matcher";
 const REASON = "concurrent decomposition — distinct sibling";
+/** mt#2989 — the merge-review guard that requires an --ask on its grants. */
+const REVIEW_GATE = "require-review-before-merge";
 
 describe("buildGrantFromArgs", () => {
   it("returns null when --guard is missing", () => {
@@ -96,5 +98,45 @@ describe("buildGrantFromArgs", () => {
       NOW_ISO
     );
     expect(grant?.scope).toBe("mt2581");
+  });
+
+  // mt#2989 — --ask
+  it("passes through --ask as askId", () => {
+    const grant = buildGrantFromArgs(
+      { guard: GUARD_NAME, scope: "mt#2581", reason: REASON, ask: "ask-42" },
+      NOW_ISO
+    );
+    expect(grant?.askId).toBe("ask-42");
+  });
+
+  it("omits askId when --ask is not given (optional for plain guards)", () => {
+    const grant = buildGrantFromArgs(
+      { guard: GUARD_NAME, scope: "mt#2581", reason: REASON },
+      NOW_ISO
+    );
+    expect(grant?.askId).toBeUndefined();
+  });
+
+  it("REQUIRES --ask for the require-review-before-merge guard (mt#2989)", () => {
+    expect(
+      buildGrantFromArgs(
+        { guard: REVIEW_GATE, scope: "edobry/minsky#42@abc", reason: REASON },
+        NOW_ISO
+      )
+    ).toBeNull();
+  });
+
+  it("builds a require-review-before-merge grant when --ask is present", () => {
+    const grant = buildGrantFromArgs(
+      {
+        guard: REVIEW_GATE,
+        scope: "edobry/minsky#42@abc",
+        reason: REASON,
+        ask: "ask-99",
+      },
+      NOW_ISO
+    );
+    expect(grant?.guardName).toBe(REVIEW_GATE);
+    expect(grant?.askId).toBe("ask-99");
   });
 });

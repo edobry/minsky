@@ -4,6 +4,8 @@ You are designing or implementing UI for Minsky's Cockpit web app (`src/cockpit/
 
 The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read it first if you haven't. This skill is the depth layer; CLAUDE.md is the breadth.
 
+The product/derivation layer ABOVE this skill is `/product-thinking` — deriving what a surface should BE from the principal's supervision loop (job, owning question, altitude, decision-forcing principles). Invoke it first when the question is surface purpose or IA rather than rendering.
+
 ## When to invoke
 
 - Designing a new Cockpit widget
@@ -18,6 +20,8 @@ The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read 
 Cockpit is **one organ inside the cyberbrain frame, not an independent design language**. The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, vocabulary inventory, bridge-as-affect discipline — lives in [`/minsky-brand`](../minsky-brand/SKILL.md). Load it before any cockpit visual decision so cockpit's mission-control register stays coherent with the marketing site, position papers, and any future Minsky surface.
 
 The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets.
+
+**Design-system layer (mt#2915).** [`docs/design-system.md`](../../../docs/design-system.md) carries what brand-system.md explicitly defers for cockpit: the type scale, the spacing-scale decision, a component inventory with interaction states (hover/focus/active/disabled/loading), status/severity color semantics (including the red-scarcity rule's exact boundary and the blessed healthy/warning raw-palette exception's exact boundary), and the icon decision (Lucide, blessed for cockpit product UI). Consult it alongside brand-system.md for any cockpit component or token decision.
 
 **Migration status (mt#1935, shipped 2026-05-20).** Cockpit's `src/cockpit/web/index.css` now stores tokens as raw OKLCH triplets (lightness chroma hue) consumed via `oklch(var(--X) / <alpha-value>)` in `tailwind.config.ts`. The brand palette is in the Tailwind config under these utility classes:
 
@@ -140,7 +144,7 @@ Recommended status mapping:
 
 Don't fall back to raw hex (e.g., `bg-yellow-500`) — that bypasses the dark-mode-first theming and creates per-widget drift. Always go through the semantic layer.
 
-**Existing inline hex colors in `Workstreams.tsx` / `TaskGraph.tsx` `statusStyle()` are pending refactor** to the tokens above. They were left in place by mt#1935 (foundation-layer migration only) so the refactor can land as a focused entity-display change; track or fold into a follow-up cockpit-design task when entity-display work next runs.
+**Implementation (mt#2909, shipped 2026-07-18):** all four `statusStyle()` call sites (`TaskGraph.tsx`, `Workstreams.tsx`, `TaskList.tsx`, `TaskDetail.tsx`) previously carried byte-identical raw-hex copies of this mapping — consolidated into one shared module, `src/cockpit/web/lib/status-colors.ts`. It expresses the mapping above as `oklch(var(--token) / alpha)` CSS color strings (the pattern `plant-gestures.ts` / `PlantFlowPage.tsx` already use) rather than Tailwind `className` strings, because several consumers apply status color via inline `style` and can't take a `className` directly — a react-flow node fill/edge stroke (`TaskGraph.tsx`), and a toggle-pill that swaps background/foreground on select (`TaskList.tsx`'s status filter row). Every consumer still resolves to the same token family named above; the module also derives a border color per status (not specified by the className list, which targets borderless badges) so call sites that previously rendered a `1px solid <border>` keep a visible outline. New status-color call sites should import `statusStyle` from this module rather than reintroducing a local copy.
 
 ### Sessions
 
@@ -482,6 +486,7 @@ The widget framework (mt#1144) lets each widget declare its data dependencies an
 
 ## Cross-references
 
+- `docs/design-system.md` (mt#2915) — type scale, spacing decision, component inventory + interaction states, status/severity semantics, icon decision. The layer brand-system.md defers; consult alongside it for cockpit component/token work.
 - Reference memory `8d3d4f06` — _Whole-system observability view — design canon + build playbook_ (the plant-board canon this skill's §Whole-system view condenses)
 - `docs/architecture/adr-020-plant-board-rendering-substrate.md` — node-link substrate decision (Accepted)
 - mt#2375 — plant-board / whole-system-view umbrella (canon, four timescales, honest motion)

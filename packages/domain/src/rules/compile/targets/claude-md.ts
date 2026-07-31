@@ -13,9 +13,19 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../../../compile/size-budget";
+import { DEFAULT_CLAUDE_MD_SIZE_BUDGET } from "../../../compile/claude-md-size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
+
+// `DEFAULT_CLAUDE_MD_SIZE_BUDGET` is imported (not declared here) so both
+// compile pipelines' `claude-md.ts` targets share ONE constant (mt#3075) —
+// see `../../../compile/claude-md-size-budget.ts` for the full rationale
+// behind the specific thresholds and why a prior two-copy setup drifted.
+// Re-exported for existing consumers (`compile-service.ts`'s dynamic import,
+// this target's own test file).
+export { DEFAULT_CLAUDE_MD_SIZE_BUDGET };
 
 /**
  * Build CLAUDE.md content from always-apply rules.
@@ -97,6 +107,19 @@ export const claudeMdTarget: CompileTarget = {
 
     const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
 
+    // Evaluate BEFORE writing so the reported evaluation always describes the
+    // exact content string being emitted, and a failed/partial write can't
+    // yield an evaluation that doesn't match what's on disk (reviewer R1).
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+      // mt#2874: per-rule 15K ceiling — claude.md only, per the spec's scope.
+      perRuleCeiling: DEFAULT_PER_RULE_CEILING_CHARS,
+    });
+
     await fs.writeFile(outputPath, content, "utf-8");
 
     return {
@@ -104,6 +127,12 @@ export const claudeMdTarget: CompileTarget = {
       filesWritten: [outputPath],
       rulesIncluded,
       rulesSkipped,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
+      perRuleViolations: sizeEvaluation.perRuleViolations,
     };
   },
 };

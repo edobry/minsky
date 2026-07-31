@@ -17,6 +17,22 @@ Optional: task ID (e.g., `/prepare-pr mt#123`). If omitted, uses the current ses
 
 ## Process
 
+### 0. Load the PR toolset bundle (mt#2822, when invoked standalone)
+
+When this skill is entered directly (not chain-walked from `/implement-task`, which already
+loaded the lifecycle bundle in its own Step 0b), load the tools this skill needs in one
+`ToolSearch` call instead of discovering them one at a time across steps 1-6:
+
+```
+ToolSearch(query: "select:mcp__minsky__tasks_spec_get,mcp__minsky__session_commit,mcp__minsky__session_pr_create", max_results: 10)
+```
+
+All three tools here (`tasks_spec_get`, `session_commit`, `session_pr_create`) are also named in
+`/implement-task`'s Step 0b bundle (`.minsky/skills/implement-task/skill.ts`) — if that step
+already ran this conversation, skip this step rather than re-requesting the same tools. This is
+a cross-skill coupling: if the implement-task bundle's tool list changes, re-check that it still
+covers these three names (or drops this skip-condition and always loads its own bundle).
+
 ### 1. Verify implementation completeness
 
 Before creating a PR:
@@ -73,6 +89,8 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 
 **Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts,cts}` that are newly created (not just modified).
 
+**Does this PR MODIFY an existing test file, and is it a bugfix?** (mt#3244) If the title carries a `fix(` type — or the bound task's spec describes a defect — the evidence block should also record a **negative control**: the changed test run against the un-fixed tree, observed FAILING. A test written after the fix passes whether or not the fix works, so a passing run alone says nothing about it. Accepted forms inside the evidence block: a `Negative control:` / `Failing-first:` label line (colon required), or a heading naming either; `[negative-control-deferred: mt#NNNN]` if it truly cannot run pre-merge. Log-only today — it warns, it does not block.
+
 > Note: the repo currently uses only `.ts` extensions for tests. If `.mts`/`.cts` variants are adopted, also update the merge-time hook (mt#1459) in lockstep.
 
 **Background:** Tests and probes are behavior-detecting artifacts whose correctness cannot be verified by code-shape alone. A test file that exists but was never run before merge may have wrong assertions, import errors, or setup that silently skips all cases. This is a recurring failure mode — see memory entry `feedback_behavior_detecting_artifacts_need_execution_evidence`. The merge-time hook (mt#1459) enforces the `[unverified-tests]` escape hatch at merge; this step is the earlier, lower-cost enforcement at PR-open time.
@@ -119,6 +137,12 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 The `[unverified-tests]` tag is detected anywhere in the visible PR title by the merge-time PreToolUse hook (mt#1459), which will block merge until the tag is removed or a maintainer explicitly clears it. Making the convention legible here ensures the agent opening the PR and the hook guarding the merge share the same signal.
 
 **Reviewer-side:** when reviewing a PR that adds new test files, confirm the PR body either contains `Execution evidence:` output OR the PR title carries `[unverified-tests]` with a documented reason. If neither is present, request the evidence before approving.
+
+**Per-AT coverage (mt#3033, calibration-first).** Independent of the new-test-file trigger above, the mt#1459 gate also cross-references the bound task's `## Acceptance Tests`. For each AT the gate classifies as executable (skipping `state-ops`-kind tasks and findings-shaped ATs like "audit produces…" / "decision recorded…"), the `Execution evidence:` block should address it — either a reference by number (`AT3`, `AT#3`, `acceptance test 3`) or a distinctive keyword from its text, or an explicit `[atN-deferred: mt#NNNN]` marker naming a tracked follow-up task for that specific AT. As of mt#3033 this is **log-only** (mt#2263 calibration ladder): an unaddressed AT logs a calibration record and surfaces a WARN, it does not block merge — but treat it as real signal, not noise to ignore. The originating incident (mt#2542) merged with evidence for a proxy (role permissions) while the spec's literal AT ("services boot on the role") was silently deferred and later crashed production; a per-AT deferral marker would have made that gap visible pre-merge. Override (should not normally be needed): `MINSKY_SKIP_AT_COVERAGE=1`.
+
+**Per-criterion coverage of `## Success Criteria` (mt#3350, calibration-first).** A sibling of the AT check above, on a DIFFERENT spec section — one that until mt#3350 was cross-referenced by nothing at all. It considers only the mechanically-EXECUTABLE criteria: those naming a runnable check plus an expected result (a backticked `grep`/`rg`/`wc`/`find`, a `$ <cmd>` line, "returns zero hits", "the count is N"). The classifier's default is NON-executable — the inverse of the AT classifier's — because a criteria list is mostly judgment prose. For each executable criterion, the `Execution evidence:` block should carry that command's ACTUAL output, or reference it by number (`SC3`), or the PR body should carry a dedicated `## SC3` section; if one genuinely cannot run pre-merge, use an explicit `[scN-deferred: mt#NNNN]` marker for that specific criterion. The marker is NUMBERED — `[sc1-deferred: ...]` does not excuse criterion 2. Log-only (mt#2263 ladder). Override: `MINSKY_SKIP_SC_COVERAGE=1`.
+
+A criterion that names a command is its own check, and running it costs a second. mt#3347 shipped with its headline criterion ("a grep for `<select` returns zero hits") never run — 21 of 22 call sites migrated, the 22nd being the exact control the principal had screenshotted — past clean typecheck, clean lint and 1487 passing tests. The criteria are also injected at `session_pr_create` time by `inject-success-criteria.ts`, so you should be looking at them as you write the body.
 
 ### 2. Commit all changes
 

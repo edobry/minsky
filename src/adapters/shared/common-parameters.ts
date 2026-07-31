@@ -9,11 +9,22 @@
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
 import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
-import { getAvailableBackendsString } from "@minsky/domain/tasks/taskConstants";
+import {
+  getAvailableBackendsString,
+  TASK_STATUS_VALUES,
+  type TaskStatus,
+} from "@minsky/domain/tasks/taskConstants";
 import { WORKFLOWS, type TaskKind } from "@minsky/domain/tasks/workflows";
 
 /** Known task kinds, derived from the workflow registry (mt#1812 / mt#2661). */
 const TASK_KIND_VALUES = Object.keys(WORKFLOWS) as [TaskKind, ...TaskKind[]];
+
+/**
+ * Known task statuses, derived from the centralized TaskStatus enum (mt#3010 —
+ * single-authority consolidation; this z.enum used to hand-list all 8 status
+ * strings, a duplicate that would silently miss a new/renamed status).
+ */
+const TASK_STATUS_ENUM_VALUES = TASK_STATUS_VALUES as [TaskStatus, ...TaskStatus[]];
 
 /**
  * Core common parameters used across multiple command categories
@@ -285,21 +296,11 @@ export const TaskParameters = {
    * Task status parameter
    *
    * Includes all statuses across all task kinds. The gate in
-   * validateStatusTransition() enforces per-kind state machine rules —
-   * e.g., COMPLETED is valid only for umbrella tasks (mt#1812).
+   * validateStatusTransition() enforces per-kind state machine rules.
+   * (COMPLETED was removed by mt#2311 — single success terminal DONE.)
    */
   status: {
-    schema: z.enum([
-      "TODO",
-      "PLANNING",
-      "READY",
-      "IN-PROGRESS",
-      "IN-REVIEW",
-      "DONE",
-      "BLOCKED",
-      "CLOSED",
-      "COMPLETED",
-    ]),
+    schema: z.enum(TASK_STATUS_ENUM_VALUES),
     description: "Task status",
     required: false,
   } as CommandParameterDefinition,

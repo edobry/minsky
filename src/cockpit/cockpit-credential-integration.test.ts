@@ -35,10 +35,21 @@ function makeTempConfigDir(): string {
   return mkdtempSync(join(tmpdir(), "minsky-cred-test-"));
 }
 
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden, and requires that token (or the bootstrap
+// cookie) on every mutation — pass a fixed test token so these tests never
+// touch ~/.local/state/minsky/cockpit-token and can authenticate the
+// POST /api/credentials/add calls below.
+const TEST_TOKEN = "test-cred-integration-token";
+const AUTH_HEADERS = {
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${TEST_TOKEN}`,
+} as const;
+
 async function startTestServer(
   opts?: Parameters<typeof createCockpitServer>[0]
 ): Promise<{ url: string; close: () => Promise<void> }> {
-  const app = createCockpitServer(opts);
+  const app = createCockpitServer({ overrideToken: TEST_TOKEN, ...opts });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
@@ -149,7 +160,27 @@ describe("Credential schema integration", () => {
     });
   }
 
-  test("unknown top-level key is rejected by strictObject schema", async () => {
+  // mt#2664: this test's original premise ("unknown top-level key is rejected
+  // by strictObject schema") is stale. mt#2161 deliberately replaced the root
+  // `configurationSchema`'s top-level shape from `z.strictObject` to
+  // `z.object` -- see packages/domain/src/configuration/schemas/index.ts's
+  // "Strictness policy (mt#2161, replaces mt#1612)" docstring -- so an
+  // unrecognized top-level key no longer fails `configurationSchema.safeParse`.
+  // That change shipped in commit 5860fbc4c ("fix(mt#2161): warn-and-continue
+  // on unknown top-level config keys"), landing AFTER this test was authored
+  // in mt#2146 (commit f23fa0b6f, whose own message still describes "the real
+  // Zod strictObject schema").
+  //
+  // Note this ConfigWriter code path itself does NOT strip the unknown key --
+  // `setConfigValue` writes the raw `currentConfig` object to disk (see
+  // config-writer.ts), not `validationResult.data`, so the unrecognized key is
+  // persisted verbatim. The "stripped, with a warning" half of mt#2161's
+  // warn-and-continue policy is implemented separately, at config-LOAD time,
+  // by `loader.ts`'s `KNOWN_TOP_LEVEL_KEYS` check -- not exercised by this
+  // ConfigWriter-focused test. What changed here, and what this test now
+  // asserts, is narrower: an unrecognized top-level key no longer makes
+  // `setConfigValue` reject the write.
+  test("unknown top-level key no longer fails schema validation on write -- mt#2161", async () => {
     const tempDir = makeTempConfigDir();
     try {
       const writer = createConfigWriter({
@@ -159,8 +190,8 @@ describe("Credential schema integration", () => {
         createBackup: false,
       });
       const result = await writer.setConfigValue("bogusTopLevel.key", "value");
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -181,7 +212,7 @@ describe("Credential server-route integration", () => {
       try {
         const res = await fetch(`${url}/api/credentials/add`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: AUTH_HEADERS,
           body: JSON.stringify({ provider: providerId, token: "test-token-value" }),
         });
 
@@ -211,7 +242,7 @@ describe("Credential server-route integration", () => {
     try {
       const res = await fetch(`${url}/api/credentials/add`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: AUTH_HEADERS,
         body: JSON.stringify({ provider: "nonexistent", token: "test-token" }),
       });
 

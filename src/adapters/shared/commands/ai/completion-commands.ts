@@ -10,12 +10,11 @@ import {
   CommandCategory,
   type CommandParameterMap,
 } from "../../command-registry";
-import { log } from "@minsky/shared/logger";
-import { exit } from "@minsky/shared/process";
 import { createCompletionService } from "@minsky/domain/ai/service-factory";
 import { executeFastApply } from "@minsky/domain/ai/fast-apply-service";
 import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
-import { getResolvedConfig } from "./shared-helpers";
+import { getResolvedConfig, withTimeout, DEFAULT_AI_COMPLETE_TIMEOUT_MS } from "./shared-helpers";
+import { buildCompleteResult } from "./result-builders";
 
 /**
  * Parameters for AI completion command
@@ -55,6 +54,13 @@ const aiCompleteParams = {
   system: {
     schema: z.string(),
     description: "System prompt",
+    required: false,
+  },
+  timeoutMs: {
+    schema: z.number().min(1000),
+    description:
+      `Timeout in milliseconds for the provider call (default ${DEFAULT_AI_COMPLETE_TIMEOUT_MS}). ` +
+      "The call fails fast with an actionable error instead of hanging when exceeded.",
     required: false,
   },
 } satisfies CommandParameterMap;
@@ -106,51 +112,82 @@ export function registerCompletionCommands(): void {
     name: "complete",
     description: "Generate AI completion for a prompt",
     parameters: aiCompleteParams,
-    execute: async (params, _context) => {
-      try {
-        const { prompt, model, provider, temperature, maxTokens, stream, system } = params;
+    execute: async (params, context) => {
+      // mt#2727: return structured data ({content, usage, model, provider})
+      // instead of writing the completion directly to Bun.stdout. The old
+      // unconditional Bun.stdout write corrupted the MCP server's stdio
+      // JSON-RPC transport framing, which — combined with never returning a
+      // valid MCP response — caused every MCP caller to hang to the full
+      // client-side idle timeout. The bounded timeout below is the second
+      // half of the fix: fail fast with an actionable error instead of
+      // hanging indefinitely on a wedged provider call.
+      const { prompt, model, provider, temperature, maxTokens, stream, system, timeoutMs } = params;
 
-        const config = getResolvedConfig();
-        requireAIProviders(config);
+      const config = getResolvedConfig();
+      requireAIProviders(config);
 
-        const completionService = createCompletionService(config);
+      const completionService = createCompletionService(config);
 
-        const request = {
-          prompt,
-          model,
-          provider,
-          temperature,
-          maxTokens,
-          stream,
-          systemPrompt: system,
-        };
+      const request = {
+        prompt,
+        model,
+        provider,
+        temperature,
+        maxTokens,
+        stream,
+        systemPrompt: system,
+      };
 
-        if (request.stream) {
-          for await (const response of completionService.stream(request)) {
-            await Bun.write(Bun.stdout, response.content);
-          }
-          await Bun.write(Bun.stdout, "\n");
-        } else {
-          const response = await completionService.complete(request);
-          await Bun.write(Bun.stdout, `${response.content}\n`);
+      const effectiveTimeoutMs = timeoutMs ?? DEFAULT_AI_COMPLETE_TIMEOUT_MS;
+      const timeoutMessage =
+        `AI completion timed out after ${effectiveTimeoutMs}ms ` +
+        `(provider=${provider ?? "default"}, model=${model ?? "default"}). ` +
+        "The provider call did not return in time. Check network connectivity and " +
+        "provider/API-key status (ai.validate), or pass a larger timeoutMs.";
 
-          if (response.usage) {
-            log.info(
-              `Usage: ${response.usage.totalTokens} tokens ` +
-                `(${response.usage.promptTokens} prompt + ` +
-                `${response.usage.completionTokens} completion)`
-            );
-            if (response.usage.cost) {
-              log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
+      if (request.stream) {
+        // Live-typing to the terminal is CLI-only UX. Gating the Bun.stdout
+        // write on context.interface === "cli" (rather than writing
+        // unconditionally, as the old code did) is what removes the direct
+        // write from the MCP-exposed path — MCP callers get the assembled
+        // `content` in the structured return value instead.
+        const consumeStream = async (): Promise<{ content: string }> => {
+          let content = "";
+          for await (const chunk of completionService.stream(request)) {
+            content += chunk.content;
+            if (context.interface === "cli") {
+              await Bun.write(Bun.stdout, chunk.content);
             }
           }
-        }
-      } catch (error) {
-        log.cliError(
-          `AI completion failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
+          if (context.interface === "cli") {
+            await Bun.write(Bun.stdout, "\n");
+          }
+          return { content };
+        };
+
+        const { content } = await withTimeout(consumeStream(), effectiveTimeoutMs, timeoutMessage);
+
+        return buildCompleteResult({
+          content,
+          model: model ?? null,
+          provider: provider ?? null,
+          streamed: true,
+        });
       }
+
+      const response = await withTimeout(
+        completionService.complete(request),
+        effectiveTimeoutMs,
+        timeoutMessage
+      );
+
+      return buildCompleteResult({
+        content: response.content,
+        model: response.model ?? model ?? null,
+        provider: response.provider ?? provider ?? null,
+        usage: response.usage ?? null,
+        streamed: false,
+      });
     },
   });
 
@@ -164,71 +201,52 @@ export function registerCompletionCommands(): void {
       "(supports both instruction and Cursor edit pattern modes)",
     parameters: aiFastApplyParams,
     execute: async (params, _context) => {
-      try {
-        const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
+      // mt#2727: return structured data; CLI diff/summary rendering lives in
+      // src/adapters/cli/customizations/ai-customizations.ts.
+      const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
 
-        if (!instructions && !codeEdit) {
-          log.cliError("Either 'instructions' or 'codeEdit' parameter must be provided");
-          exit(1);
-        }
-
-        const fs = await import("fs/promises");
-
-        let originalContent: string;
-        try {
-          originalContent = (await fs.readFile(filePath, "utf-8")) as string;
-        } catch (error) {
-          log.cliError(
-            `Failed to read file ${filePath}: ` +
-              `${error instanceof Error ? error.message : String(error)}`
-          );
-          return { success: false, error: "Failed to read file" };
-        }
-
-        const config = getResolvedConfig();
-        requireAIProviders(config);
-
-        const result = await executeFastApply(config, {
-          filePath,
-          originalContent,
-          instructions,
-          codeEdit,
-          provider,
-          model,
-        });
-
-        if (dryRun) {
-          log.cli("🔍 Dry run - showing proposed changes:");
-          log.cli("\n--- Original ---");
-          log.cli(originalContent);
-          log.cli("\n--- Edited ---");
-          log.cli(result.editedContent);
-          log.cli(
-            `\nTokens used: ${result.response.usage.totalTokens} ` +
-              `(${result.response.usage.promptTokens} prompt + ` +
-              `${result.response.usage.completionTokens} completion)`
-          );
-          if (result.response.usage.cost) {
-            log.cli(`Cost: $${result.response.usage.cost.toFixed(4)}`);
-          }
-        } else {
-          await fs.writeFile(filePath, result.editedContent, "utf-8");
-          log.cli(`✅ Successfully applied edits to ${filePath}`);
-          log.info(
-            `Tokens used: ${result.response.usage.totalTokens} ` +
-              `(${result.response.usage.promptTokens} prompt + ` +
-              `${result.response.usage.completionTokens} completion)`
-          );
-          if (result.response.usage.cost) {
-            log.info(`Cost: $${result.response.usage.cost.toFixed(4)}`);
-          }
-        }
-      } catch (error) {
-        log.cliError(
-          `Fast-apply failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
+      if (!instructions && !codeEdit) {
+        throw new Error("Either 'instructions' or 'codeEdit' parameter must be provided");
       }
+
+      const fs = await import("fs/promises");
+
+      let originalContent: string;
+      try {
+        originalContent = (await fs.readFile(filePath, "utf-8")) as string;
+      } catch (error) {
+        throw new Error(
+          `Failed to read file ${filePath}: ` +
+            `${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+
+      const config = getResolvedConfig();
+      requireAIProviders(config);
+
+      const result = await executeFastApply(config, {
+        filePath,
+        originalContent,
+        instructions,
+        codeEdit,
+        provider,
+        model,
+      });
+
+      if (!dryRun) {
+        await fs.writeFile(filePath, result.editedContent, "utf-8");
+      }
+
+      return {
+        success: true,
+        filePath,
+        dryRun: !!dryRun,
+        mode: result.mode,
+        provider: result.provider,
+        editedContent: result.editedContent,
+        originalContent: dryRun ? originalContent : undefined,
+        usage: result.response.usage,
+      };
     },
   });
 
@@ -256,20 +274,15 @@ export function registerCompletionCommands(): void {
       },
     },
     execute: async (_params, _context) => {
-      try {
-        const config = getResolvedConfig();
-        requireAIProviders(config);
+      // mt#2727: throw instead of exit(1) — the old exit(1) called
+      // process.exit() directly, which would kill the entire MCP server
+      // process (not just fail this one tool call) on any MCP caller of
+      // ai.chat. Throwing is the MCP-safe error-signaling convention;
+      // CLI errors surface the same way via handleCliError.
+      const config = getResolvedConfig();
+      requireAIProviders(config);
 
-        log.cliError(
-          "Interactive chat is not yet implemented. " + "Use 'minsky ai complete' instead."
-        );
-        exit(1);
-      } catch (error) {
-        log.cliError(
-          `Chat session failed: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
-      }
+      throw new Error("Interactive chat is not yet implemented. Use 'ai.complete' instead.");
     },
   });
 }

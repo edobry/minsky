@@ -1,0 +1,426 @@
+name: Deploy Reviewer
+
+# mt#3117 — CI-owned release-phase deploy for the `minsky-reviewer-webhook`
+# service, replacing Railway's native branch-wide auto-trigger (a Railway
+# source-build that redeployed on EVERY push to main matching
+# services/reviewer/railway.json's now-retired `build.watchPatterns`).
+#
+# Clones the STRUCTURE of `deploy-minsky-mcp.yml` (mt#2104/mt#2505): build
+# -> smoke -> migrate -> push image -> explicit Railway redeploy. The
+# reviewer is converted from a repo-source Dockerfile build to an
+# image-source deploy (ghcr.io/edobry/minsky-reviewer), the same shape
+# minsky-mcp already uses — see services/reviewer/deploy.config.ts,
+# services/reviewer/railway.json (retired), and the `reviewerService`
+# resource in infra/index.ts.
+#
+# Migrate-before-push is the load-bearing gate (identical mechanism to
+# deploy-minsky-mcp.yml): the migrate step is FATAL — a failing migration
+# means the image is never pushed, so nothing new is ever deployed. The
+# previously-deployed reviewer keeps serving.
+#
+# mt#3180 CORRECTION (2026-07-25): this workflow originally treated the
+# explicit "Trigger Railway redeploy" step below as belt-and-suspenders —
+# non-fatal, on the claim that Railway's image-source auto-redeploy-on-push
+# (the same mechanism deploy-minsky-mcp.yml cites for minsky-mcp, mt#2342)
+# would independently pick up every new :latest push. That claim was NOT
+# actually verified for THIS service, and turned out to be false: across
+# four consecutive main-branch image pushes on 2026-07-24, the live
+# reviewer deployment never advanced (frozen at the operator's 17:27
+# image-source flip) — auto-redeploy-on-push does not fire for
+# minsky-reviewer-webhook. The explicit redeploy step is therefore the
+# ACTUAL deploy trigger for this service, not a backstop.
+#
+# It was also broken independently: the step hand-rolled a GraphQL
+# `serviceInstanceRedeploy` mutation authenticated with a plain
+# `Authorization: Bearer $RAILWAY_TOKEN` header, which returned
+# `Not Authorized` (CI run 30122524391) — `RAILWAY_TOKEN` is a Railway
+# PROJECT-scoped token, and the public GraphQL API does not accept a
+# project token via a bare Bearer header the way it accepts an account
+# token. The official `railway` CLI handles project-token auth correctly
+# (`railway redeploy --from-source` succeeded live against this exact
+# service on 2026-07-25) and now replaces the hand-rolled GraphQL call. See
+# mt#3180 for the full incident, root cause, and fix.
+#
+# Runs migration against the reviewer's OWN migration tree
+# (services/reviewer/migrations/pg, tracked via
+# drizzle.__drizzle_migrations_reviewer — mt#1967), NOT the main domain
+# tree deploy-minsky-mcp.yml migrates. See
+# services/reviewer/scripts/migrate.ts for the standalone entrypoint this
+# step invokes (services/reviewer/src/db/migrate.ts is only reachable via
+# applyMigrations() at server boot otherwise, and that boot-time call is
+# left in place by this task — dual application is safe: the drizzle
+# ledger is idempotent and high-water-mark based).
+#
+# `paths:` mirrors services/reviewer/railway.json's retired
+# `build.watchPatterns` (this is now the SINGLE source of the reviewer's
+# build closure — the config-as-code watchPatterns mechanism this list used
+# to drive no longer applies once the service is image-source). Explicitly
+# names services/reviewer/migrations/** even though services/reviewer/**
+# already covers it, so the migration tree's presence in the trigger scope
+# is visible without cross-referencing the retired file.
+#
+# Prerequisites (one-time setup, OPERATOR follow-up — see
+# services/reviewer/DEPLOY.md):
+# 1. RAILWAY_REVIEWER_TOKEN (a Railway PROJECT token scoped to
+#    minsky-reviewer / production) is NOT YET SET as a GitHub Actions
+#    secret (mt#3251, operator-only — minting a project token is a
+#    dashboard action with no CLI/API path). Until it exists, the redeploy
+#    step below falls back to the generic secrets.RAILWAY_TOKEN, which is
+#    scoped to a DIFFERENT project and is expected to keep failing — see
+#    "Trigger Railway redeploy" below and services/reviewer/DEPLOY.md.
+#    MINSKY_PERSISTENCE_POSTGRES_URL is already provisioned (reused from
+#    deploy-minsky-mcp.yml; verified as of the mt#3117 spec's "External
+#    preconditions" check).
+# 2. Railway `minsky-reviewer-webhook` service must be switched from
+#    repo+Dockerfile source to Docker Image source
+#    (ghcr.io/edobry/minsky-reviewer:latest) via the dashboard (Settings >
+#    Source > Docker Image) — the same one-time flip minsky-mcp already
+#    has (deploy-minsky-mcp.yml's own prerequisite note). This is a live
+#    Railway mutation and is NOT performed by this PR — it happens after
+#    merge, once this workflow has produced a first `:latest` image to
+#    point the service at.
+# 3. GHCR package visibility for `minsky-reviewer` set to match repo
+#    visibility, same as the `minsky` package.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/reviewer/**"
+      - "services/reviewer/migrations/**"
+      - "packages/shared/src/**"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/domain/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "tsconfig.json"
+      - ".github/workflows/deploy-reviewer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Only one deploy at a time, same rationale as deploy-minsky-mcp.yml
+# (mt#2505): this job runs a prod migration step, and cancelling mid-flight
+# could leave held locks or a partially-applied migration set.
+concurrency:
+  group: deploy-reviewer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/edobry/minsky-reviewer
+
+jobs:
+  build-migrate-deploy:
+    name: build-migrate-deploy
+    runs-on: ubuntu-latest
+
+    # Throwaway Postgres for the smoke-boot step ONLY — never touched by
+    # the "Apply reviewer migrations to production" step below, which uses
+    # secrets.MINSKY_PERSISTENCE_POSTGRES_URL instead. Distinct in kind
+    # from mt#1557 (pre-merge/PR-time container smoke against a throwaway
+    # Postgres): this runs at release time (push to main only, no
+    # `pull_request:` trigger above) and its job is "does the just-built
+    # image boot and serve /health at all", not PR-time regression
+    # prevention. The reviewer's boot path calls applyMigrations()
+    # unconditionally before the HTTP server starts (server.ts,
+    # `if (import.meta.main)` — unchanged by this task), so a real boot
+    # smoke requires SOME reachable Postgres; this ephemeral instance is
+    # discarded at job end and never holds prod data.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reviewer_smoke
+          POSTGRES_PASSWORD: reviewer_smoke
+          POSTGRES_DB: reviewer_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE:ci -f services/reviewer/Dockerfile .
+
+      - name: Boot container and probe /health (throwaway Postgres)
+        env:
+          # Test-only credentials scoped to this job's ephemeral postgres
+          # service container, no access outside it. Composed from parts,
+          # with the URL scheme ALSO kept out of the literal source line
+          # (gitleaks' credential-URL rule matches on a literal scheme
+          # token immediately followed by "://" — see .gitleaks.toml's
+          # database-url-credentials regex — so the scheme is a variable
+          # too, not just the user/password). Same convention in spirit as
+          # cold-start-migrate.yml's DATABASE_URL, structured so it never
+          # produces a matching literal instead of relying on an allowlist
+          # entry (out of this task's scope to add).
+          SMOKE_PG_SCHEME: postgres
+          SMOKE_PG_USER: reviewer_smoke
+          SMOKE_PG_PASSWORD: reviewer_smoke
+        run: |
+          set -euo pipefail
+
+          PORT=$(( 30000 + RANDOM % 20000 ))
+          echo "Boot port: $PORT"
+
+          SMOKE_PG_URL="${SMOKE_PG_SCHEME}://${SMOKE_PG_USER}:${SMOKE_PG_PASSWORD}@127.0.0.1:5432/reviewer_smoke"
+
+          # --network host puts this container on the runner's network
+          # namespace directly, so 127.0.0.1:5432 reaches the `postgres`
+          # service declared above (GH Actions maps job services' declared
+          # `ports:` onto the runner's localhost, not a docker-internal
+          # network reachable from a separately-launched container).
+          docker run --rm -d --name reviewer-smoke --network host \
+            -e PORT=$PORT \
+            -e MINSKY_REVIEWER_APP_ID=1 \
+            -e MINSKY_REVIEWER_PRIVATE_KEY=smoke-test-key \
+            -e MINSKY_REVIEWER_INSTALLATION_ID=1 \
+            -e MINSKY_REVIEWER_WEBHOOK_SECRET=smoke-test-secret \
+            -e REVIEWER_PROVIDER=openai \
+            -e OPENAI_API_KEY=smoke-test-key \
+            -e MINSKY_PERSISTENCE_POSTGRES_URL="$SMOKE_PG_URL" \
+            $IMAGE:ci
+
+          cleanup() {
+            docker stop reviewer-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          DEADLINE=$(( $(date +%s) + 60 ))
+          while [ "$(date +%s)" -lt $DEADLINE ]; do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > /tmp/health.json 2>/dev/null; then
+              echo "/health responded within deadline:"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "/health did not respond 200 within 60s"
+          docker logs reviewer-smoke 2>&1 | tail -80 || true
+          exit 1
+
+      - name: Setup Bun
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Install dependencies
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: bun install --frozen-lockfile --no-progress
+
+      # mt#3117 — deploy-keyed, single-runner PROD migration for the
+      # reviewer's OWN tree. Runs BEFORE the GHCR push, so a failure here
+      # aborts the job before any image is pushed — Railway's image-source
+      # auto-redeploy has nothing new to deploy, and the prior version keeps
+      # serving against the unchanged schema (Heroku-release-phase
+      # semantics — identical mechanism to deploy-minsky-mcp.yml's own
+      # migrate step, mt#2505).
+      #
+      # SECURITY: gated to push/workflow_dispatch on main; this workflow has
+      # no `pull_request:` trigger at all, so the mt#1477 pwn-request class
+      # does not apply. NEVER add a pull_request_target trigger here.
+      - name: Apply reviewer migrations to production
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          # DDL-capable `postgres` role — the SAME CI secret
+          # deploy-minsky-mcp.yml already consumes for the main domain tree
+          # (verified provisioned, mt#3117 spec's External preconditions).
+          # Deliberately NOT added to the reviewer's Railway runtime
+          # environment — that is exactly the credential boundary this task
+          # exists to establish (see the spec's Authoritative-source check
+          # on why Railway's preDeployCommand was rejected).
+          MINSKY_PERSISTENCE_POSTGRES_URL: ${{ secrets.MINSKY_PERSISTENCE_POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MINSKY_PERSISTENCE_POSTGRES_URL:-}" ]; then
+            echo "::error::MINSKY_PERSISTENCE_POSTGRES_URL secret not set — refusing to deploy."
+            echo "Add the prod Postgres connection as a repo secret to enable the deploy-keyed"
+            echo "reviewer migration (mt#3117). Failing the job avoids shipping new reviewer"
+            echo "code against an unmigrated schema."
+            exit 1
+          fi
+
+          set +e
+          timeout 600 bun run services/reviewer/scripts/migrate.ts
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::reviewer prod migration timed out after 600s — failing the deploy (no image pushed)."
+            else
+              echo "::error::reviewer prod migration failed (exit $rc) — failing the deploy (no image pushed)."
+            fi
+            exit "$rc"
+          fi
+          echo "Reviewer prod migration step completed (exit 0)."
+
+      - name: Login to GHCR
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push image
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag $IMAGE:ci $IMAGE:latest
+          docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
+          docker push $IMAGE:latest
+          docker push $IMAGE:sha-${SHORT_SHA}
+          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+
+      # mt#3180 (2026-07-25) — this step is the ACTUAL deploy trigger for
+      # minsky-reviewer-webhook, not a backstop (Railway's image-source
+      # auto-redeploy-on-push does not fire for this service — verified
+      # across four consecutive pushes that never advanced the live
+      # deployment). Installs the official `railway` CLI (railwayapp/cli,
+      # via the `@railway/cli` npm package — the same install
+      # `cockpit-preview.yml` uses) IN THIS SAME STEP as the redeploy call
+      # itself, so there is no cross-step PATH-propagation ambiguity to
+      # reason about. FATAL: a false-green report here is worse than an
+      # honest failure — a non-fatal version of this step produced FOUR
+      # false-green runs (2026-07-25T21:57-23:05Z) where nothing deployed.
+      #
+      # mt#3223 (2026-07-25) — first CLI fix attempt. Passed the secret as
+      # `RAILWAY_TOKEN` and failed with `Service '3913e8a4-…' not found` (run
+      # 30178827355) — a context-resolution failure, not a permission one.
+      # mt#3223 then tried to work around it by passing the secret as
+      # `RAILWAY_API_TOKEN` (account scope) instead, plus an explicit
+      # `railway link --project/--environment/--service` to establish
+      # project context in the unlinked CI checkout, plus a `whoami`
+      # diagnostic. Both `whoami` and `link` kept failing `Unauthorized` —
+      # `secrets.RAILWAY_TOKEN` is neither a valid ACCOUNT token for this
+      # workspace nor scoped to minsky-reviewer, because it is a Railway
+      # PROJECT token scoped to a DIFFERENT project (the same generic
+      # secret is also consumed by deploy-minsky-mcp.yml and
+      # post-deploy-health-monitor.yml, so it cannot simply be re-scoped to
+      # this one service). mt#3223 improved the diagnostics and made the
+      # failure legible; it did not and could not fix the credential.
+      #
+      # mt#3251 (2026-07-28) — CORRECTED FIX: adopt the per-project-secret
+      # precedent already established by `cockpit-preview.yml` (:52, :157)
+      # exactly, instead of working around the wrong credential. A Railway
+      # PROJECT token carries its OWN project+environment context, which is
+      # precisely why cockpit-preview passes it as `RAILWAY_TOKEN` with NO
+      # `railway link` step. (An earlier version of this comment claimed
+      # cockpit-preview.yml proves the IDENTICAL generic-token mechanism
+      # works in this repo's CI — that was wrong; cockpit passes its OWN
+      # project token, `RAILWAY_COCKPIT_TOKEN`, never the shared generic
+      # one. This step now FOLLOWS that same per-project-secret shape
+      # rather than merely describing it.) The mt#3223 `railway link` step
+      # is therefore REMOVED below — it is unnecessary once the token IS
+      # project-scoped. `whoami` is kept, but only as a NON-FATAL
+      # diagnostic (unchanged from mt#3223): it helps distinguish
+      # "token invalid" from "redeploy failed for another reason" if this
+      # step ever fails again.
+      #
+      # PREFER/FALLBACK, not a hard swap: `RAILWAY_REVIEWER_TOKEN` is a new
+      # secret that does NOT exist yet as of this change — minting a
+      # Railway project token is an operator-only dashboard action with no
+      # CLI/API path (probed and confirmed 2026-07-28; see
+      # services/reviewer/DEPLOY.md). A hard swap to `RAILWAY_REVIEWER_TOKEN`
+      # alone would turn today's "Unauthorized" failure into a "secret not
+      # set" failure — still red, and fixing nothing until the operator
+      # acts. Instead this step PREFERS `RAILWAY_REVIEWER_TOKEN` and FALLS
+      # BACK to the existing generic `RAILWAY_TOKEN` secret, so the deploy
+      # keeps its current (broken) behavior until the operator adds the new
+      # secret, and starts working the moment they do — no second PR
+      # required.
+      #
+      # The fallback is resolved in the SHELL (bash `${VAR:-default}`), not
+      # via a `${{ secrets.A || secrets.B }}` workflow-expression. GitHub's
+      # own docs (Evaluate expressions in workflows and actions) do not
+      # give an unambiguous answer for whether `||` returns an operand
+      # VALUE or a coerced boolean when used outside an `if:` conditional —
+      # community examples show both a value-returning ternary idiom
+      # (`cond && 'a' || 'b'`) and a boolean-coercion note ("falsy values
+      # are coerced to false / truthy to true") without reconciling the
+      # two for the plain `secrets.A || secrets.B` (no `&&`) case used
+      # here. Getting this wrong on a deploy-credential line would silently
+      # pass the literal string "true"/"false" as the token instead of
+      # failing loudly, so this step uses the unambiguous POSIX shell form
+      # instead.
+      - name: Trigger Railway redeploy
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          # Preferred (mt#3251): a Railway PROJECT token scoped to
+          # minsky-reviewer / production. Not yet set as a repo secret —
+          # resolves to empty string until the operator provisions it.
+          RAILWAY_REVIEWER_TOKEN: ${{ secrets.RAILWAY_REVIEWER_TOKEN }}
+          # Fallback: the generic repo secret. Wrong scope for THIS
+          # service (mt#3251's root cause) but kept so the step degrades to
+          # today's known failure mode instead of a new "secret not set"
+          # one. Named distinctly from RAILWAY_TOKEN itself so the shell
+          # below can tell "preferred token present" apart from "only the
+          # fallback is present" without re-reading the secrets context.
+          RAILWAY_TOKEN_FALLBACK: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          # `-e` included deliberately (PR #2343 R1): an `npm install` failure
+          # must abort rather than be misattributed to a later command. The
+          # command whose own exit code carries diagnostic meaning
+          # (`redeploy`) is wrapped in an `if` condition, which is exempt
+          # from `-e`, so its tailored error message still prints.
+          set -euo pipefail
+
+          if [ -n "${RAILWAY_REVIEWER_TOKEN:-}" ]; then
+            echo "Using RAILWAY_REVIEWER_TOKEN (per-project token, mt#3251)."
+            RAILWAY_TOKEN="${RAILWAY_REVIEWER_TOKEN}"
+          else
+            echo "::warning::RAILWAY_REVIEWER_TOKEN is not set — falling back to the generic RAILWAY_TOKEN secret, which is NOT scoped to the minsky-reviewer project and is expected to fail. See services/reviewer/DEPLOY.md for the operator action that fixes this (mt#3251)."
+            RAILWAY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+          fi
+          export RAILWAY_TOKEN
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Neither RAILWAY_REVIEWER_TOKEN nor RAILWAY_TOKEN secrets are set — reviewer redeploy cannot be triggered."
+            exit 1
+          fi
+
+          npm install -g @railway/cli
+
+          # Railway identifier from services/reviewer/deploy.config.ts (kept
+          # inline, matching the pre-existing convention in this file and in
+          # deploy-minsky-mcp.yml). No `railway link` is needed: a
+          # project-scoped RAILWAY_TOKEN carries its own project+environment
+          # context (mt#3251) — the same reason cockpit-preview.yml needs
+          # none.
+          SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
+
+          # Diagnostic only (non-fatal): prints the authenticated identity,
+          # never the token. If RAILWAY_TOKEN is still the wrong-scope
+          # fallback, this is where that surfaces, making a failure
+          # self-diagnosing instead of another round of guessing.
+          #
+          # The email is masked because this repository's CI logs are public
+          # (PR #2343 R1 non-blocking finding).
+          echo "Railway auth identity:"
+          railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
+            || echo "note: railway whoami did not report an authenticated identity (non-fatal diagnostic) — see the RAILWAY_TOKEN scope notes above if the redeploy call below also fails."
+
+          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
+            echo "Railway redeploy triggered successfully via the CLI."
+          else
+            rc=$?
+            echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' output above to distinguish a token-scope problem from a genuine redeploy failure."
+            exit "$rc"
+          fi

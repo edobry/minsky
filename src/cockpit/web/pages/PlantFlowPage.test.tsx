@@ -38,7 +38,6 @@ const _origConsoleError = console.error;
 beforeEach(() => {
   // Provide a no-op ResizeObserver if JSDOM doesn't have one
   if (typeof globalThis.ResizeObserver === "undefined") {
-    // @ts-expect-error - JSDOM polyfill
     globalThis.ResizeObserver = class {
       observe() {}
       unobserve() {}
@@ -121,7 +120,7 @@ function mockTasksFetch(tasks: Array<{ id: string; title: string; status: string
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 /**
@@ -253,7 +252,7 @@ function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
     }
 
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +365,7 @@ describe("PlantFlowPage", () => {
   test("shows loading indicator while READY count is fetching", () => {
     globalThis.fetch = mock(
       () => new Promise(() => {}) // never resolves — keeps query in loading state
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     renderPlantFlow();
     expect(screen.getByText("…")).toBeDefined();

@@ -59,6 +59,8 @@ a status transition; everything else is investigation and gate-check.
   - (l) Authoritative-source check for third-party-system decisions (security surfaces,
     designing a mechanism on a third-party's internals, or how to use a named tool with docs)
   - (m) Factual-claim citation verification
+  - (n) External-system integration provisioning enumeration
+  - (o) Problem-statement verification (reproduce a spec's asserted runtime/causal failure before accepting it)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -81,6 +83,12 @@ a status transition; everything else is investigation and gate-check.
 3. Note any file:line references and verify them against the current codebase (use
    `mcp__minsky__session_exec` or `mcp__minsky__session_grep_search` to confirm they exist
    and point to the right code).
+4. **Heartbeat reminder (mt#2824).** This investigation step and the premise audit below
+   commonly chain several tool calls back-to-back with no interstitial prose. Emit a
+   one-line heartbeat (current activity + health signal) at least every 10 minutes or 15
+   consecutive tool calls, whichever comes first — see `user-preferences.mdc §Progress
+   heartbeats during tool-only stretches`. Don't hold a genuine blocking finding for the
+   next scheduled heartbeat; report it immediately.
 
 ### Step 2.5: Premise audit
 
@@ -172,6 +180,14 @@ If no structural issue is suspected: "(iv) No recurring pattern identified; tact
 Evaluate each criterion in order. A single **fail** halts promotion to READY; surface all
 failures together so the user can address them in one pass.
 
+**Gate letters are append-only (mt#2964).** Each `#### Gate criterion (X)` letter is a stable
+identifier — NEVER reuse a letter for a different check; a new gate claims the next FREE letter
+(letter `(i)` is permanently skipped, see (j) below). Reusing an occupied letter silently deletes
+the gate that held it — mt#2445 reused `(l)` and deleted mt#2091's problem-statement gate,
+unnoticed until mt#2958. The `plan-task-gate-letters` test enforces the full gate-letter manifest
+(every shipped gate present at its own letter, in the exact append-only sequence, no reuse or
+deletion) against BOTH the source skill definition and the generated `.claude/skills` output.
+
 #### Gate criterion (a) — Required spec sections present
 
 The spec must have **all five** of the following top-level sections (exact heading text):
@@ -194,6 +210,12 @@ human reviewer. Reject criteria that:
 - Are aspirational rather than observable
 
 For each weak criterion, write a concrete revision and surface it as a gap.
+
+**state-ops kind (mt#455):** findings-shaped criteria are acceptable — "audit produces a
+report identifying classes X/Y/Z", "decision recorded with rationale and options considered".
+The verifiability test still applies: a reader must be able to check the resulting
+`## Findings` / `## Outcome` section against the criterion. Reject only criteria whose
+satisfaction cannot be judged from the findings text.
 
 #### Gate criterion (c) — Scope is bounded
 
@@ -269,7 +291,7 @@ Run all three:
      duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
      mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
    - For **each** child surface its `(taskId, status, title)` — **including children in a
-     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     terminal status** (DONE / CLOSED are both valid Minsky terminal task statuses; see
      CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
      or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
      open-PR/recent-merge checks above do not catch a terminal-status sibling outside the
@@ -293,6 +315,11 @@ overlap.
 If no check hits, this criterion passes.
 
 #### Gate criterion (h) — Contract-propagation enumeration
+
+**state-ops kind (mt#455):** report this criterion as **N/A** in the gate output —
+state-ops tasks are no-code/pure-state work and modify no code contracts. (If a
+"state-ops" spec DOES describe contract changes, that's a kind-misclassification gap:
+surface it and recommend `kind: "implementation"` instead.)
 
 When the task retires or modifies a contract — a function/type signature, skill text, command
 name, env-var name, config key, or schema field — the spec's `## Scope` → `In scope` section
@@ -682,13 +709,230 @@ ships, that memory's job becomes historical record + pointer here. Sibling gates
 verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
 runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
 
+#### Gate criterion (n) — External-system integration provisioning enumeration
+
+When the task introduces a **new external-system integration** — a new GitHub App permission or
+API scope, a new outbound API host/endpoint requiring a credential, or a new webhook
+subscription — the spec must (a) enumerate the required external provisioning and (b) confirm
+it is provisioned OR link an explicit provisioning task, before the task can be READY. A spec
+that names the new integration surface without enumerating and gating its external precondition
+is incomplete and must not proceed to READY.
+
+This is the external-system-contract analog of gate (h): gate (h) propagates a changed
+first-party contract to its downstream consumers; gate (n) propagates a new external-system
+dependency to the provisioning step required for it to actually function once deployed. Unlike
+the deploy-CRASH class covered by the deploy-surface merge gate (mt#2353) — which asks "will the
+container start?" — this criterion asks "will the feature actually WORK once the container
+starts?" A change can pass CI, deploy cleanly, and return healthy on `/health`, and still be
+INERT in production because the external precondition (a scope, a permission, a credential) was
+never provisioned. CI cannot catch this: CI runs against test credentials or fake/mocked
+clients, never the live external system.
+
+**Originating incident — mt#2435 (2026-07-10/11).** mt#2435 wired `services/reviewer/src/*` to
+post a GitHub check-run per review, which requires the `minsky-reviewer[bot]` GitHub App to
+hold the `checks:write` permission. That external precondition WAS tracked — as a separate
+task, mt#2500 — but mt#2500 was still TODO at merge and the spec never enumerated the
+precondition or gated on its provisioning status. The PR merged green,
+`deployment_wait-for-latest` returned SUCCESS, and the task was reported done. In production,
+`POST /check-runs` returned 403; `publishCheckRun` degraded silently (no crash, no alert); the
+feature was inert for a day+ until a follow-up session (mt#2736) drove a live check and the
+operator granted the permission (verified 2026-07-11, checkRunId 86533407554). Walking gate (n)
+against mt#2435's diff at plan time would have produced: (a) `checks:write` enumerated as a
+required precondition, (b) a gate hit linking mt#2500 (still TODO — provisioning NOT yet
+satisfied), (c) a blocking gap surfaced BEFORE merge instead of the 403 surfacing a day later.
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- A new GitHub App permission or API scope the integration did not previously require (e.g.
+  `checks:write`, `contents:write`, a new webhook event subscription)
+- A new outbound API host or endpoint that requires a credential, token, or API key not already
+  configured (a new `octokit.rest.*` call class requiring a scope the App doesn't hold, a new
+  third-party API integration, a new outbound `fetch` target requiring auth)
+- A new webhook subscription — either registering to receive a new webhook event type, or
+  exposing a new webhook-receiving endpoint that a third party must be configured to call
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(n) No new external-system integration — criterion passes."
+
+**Heuristic for recognizing a new external-system integration (best-effort, v1).** Grep the
+diff/spec for:
+
+- A new `octokit.rest.<resource>.<method>` call whose GitHub REST scope isn't already held by
+  the calling App/token (cross-check against the App's current permission set, e.g. the App's
+  manifest or its settings page)
+- A new outbound `fetch(...)` / HTTP client call whose target host doesn't appear in any
+  existing outbound-call site in the codebase
+- A new webhook route registration (e.g. `app.post("/webhooks/...")`) or a new
+  `octokit.webhooks.on(...)` event subscription
+
+This heuristic is a starting point for the agent to apply manually during plan-time review — it
+is NOT a mechanical/automated detector. An automated semantic detector (e.g. AST-diffing
+`octokit.rest.*` call sites against a known-scope table) is explicitly a stretch follow-on, not
+required for v1.
+
+**Required enumeration (when triggered).** For each identified new external-system integration:
+
+1. **Name the precondition** — the specific permission/scope/credential/webhook required (e.g.
+   "`checks:write` App permission", "new `SLACK_BOT_TOKEN` credential", "webhook subscription
+   to `pull_request.closed`").
+2. **State provisioning status** — one of:
+   - **Provisioned** — the precondition is already granted/configured in the target
+     environment; cite how this was verified (e.g. "confirmed via `gh api /app` → permissions
+     include `checks: write`" or "confirmed via a live API call in the target environment").
+   - **Linked to a provisioning task** — an explicit task ID that owns granting the
+     precondition, with that task's current status. If the provisioning task is not yet DONE,
+     this is a **blocking gap** — merging before provisioning is what produced the mt#2435
+     incident.
+   - **Neither** — a blocking gap. The spec must add one of the two above before READY.
+3. **Record in the spec** — the enumeration lives in the spec's `## Scope` → `In scope` section
+   (mirroring gate (h)'s placement) or a dedicated `## External preconditions` subsection.
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition integration
+   types. If not, record "(n) passes — no new external-system integration."
+2. If triggered, identify the specific precondition(s) using the heuristic above.
+3. For each precondition, verify the spec states provisioning status per the three-step
+   enumeration above.
+4. A provisioning-task link to a task that is NOT DONE is a blocking gap — do not accept "will
+   provision later" without either provisioning now or making the merge/READY transition
+   contingent on that task's completion being verified (not merely linked).
+5. A spec that names the new integration without stating provisioning status does not satisfy
+   this criterion — the claim must be grounded in a verified check, not an assumption.
+
+**Counter-case (no over-fire).** A pure in-repo change with no new external-system integration —
+a refactor, a logic fix, a change to an EXISTING already-provisioned integration surface —
+passes automatically with the explicit "(n) No new external-system integration — criterion
+passes" statement.
+
+**Enforcement tier + mechanization path (mt#2740 PR #1886 R1).** Gate (n) is a plan-time
+**discipline** criterion — process-enforced by the `/plan-task` skill (the agent walks it every
+planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
+hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
+this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
+gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
+currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
+the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
+mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the `/plan-task` process that
+runs it: no stronger, and no weaker than its discipline-tier peers.
+
+**Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
+"can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
+crash-on-start) and fires on `infra/**`, `services/*/Dockerfile`, `services/*/railway.json`,
+etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
+integration surface regardless of whether the change touches deploy-config files at all — the
+mt#2435 diff touched only `services/reviewer/src/*` application code, not deploy config. Do not
+conflate the two; a change can trip one, both, or neither.
+
+Cross-reference: this task (mt#2740) formalizes the gate; bridge memory `2de33884`. Sibling
+verify-time enforcement: `/implement-task` §7a/§10 (live-exercise requirement, same task).
+
+#### Gate criterion (o) — Problem-statement verification
+
+When the spec (or a plan-decision) asserts a **causal claim about runtime behavior** — "X fails
+because Y", "the timeout fires and both retries fail", "the guard degrades because Z", "users see W
+when V" — the investigation MUST verify the problem actually occurs as described BEFORE designing or
+accepting a fix. Plausibility from reading the code ("the code COULD fail this way") is confirmation
+bias, not verification; the missing step is checking whether the failure ACTUALLY occurs. Reproduce
+it — run the failing command, read the live health/log signal, trace the actual event sequence — and
+record the observed evidence in the spec.
+
+**Why this gate exists (and why it was re-added).** It originally shipped as gate (l)
+"problem-statement verification" via mt#2091 / PR #1272 (2026-05-24), after mt#2083 shipped three
+fixes for a reviewer-timeout "problem" that production logs showed never happened (both timeouts
+recovered via existing retry; one fix actively degraded review quality and was reverted). mt#2445
+later reused letter (l) for the authoritative-source gate and **silently deleted** this gate; the
+loss went unnoticed until mt#2958 (2026-07-20), where an agent inherited a spec's simulation-based
+root cause (`execWithPath` omits `~/.bun/bin` → `minsky` ENOENT → the guard fails) as settled and
+spent a multi-hour investigation on wrong theories — the actual cause was a CLI-boot-vs-timeout
+issue and the alarming signal was stale. Running the one command the claim rested on, on turn one,
+would have falsified it immediately.
+
+**Trigger condition.** Fires when the spec makes a causal/behavioral claim about runtime — trigger
+phrases: "X fails/throws/crashes/times out because Y", "the parser doesn't handle Q", "users see Y
+when Z", "the config doesn't support W", "the mechanism degrades under V", or any "reproduced" /
+"definitive diagnosis" claim whose evidence is a SIMULATION rather than an observation of the actual
+failing context. If the spec makes no runtime causal claim (a pure refactor, a docs edit, a
+greenfield feature with no "X is broken" premise), it passes automatically. State that explicitly:
+"(o) No runtime causal claim to verify — criterion passes."
+
+**Required when triggered.** Reproduce the asserted failure against the real system and record the
+observed evidence in the spec's `## Context` (or a `## Diagnosis` section):
+
+1. **Identify the cheapest falsifier** — the single command / query / log read that, if the claim
+   were false, would show it. (mt#2958: `minsky tasks search ...` runs fine + `debug_systemInfo`
+   shows the streak is stale — either falsifies the ENOENT premise in seconds.)
+2. **Run it against the ACTUAL failing context**, not a simulation. A simulation (`env PATH=... cmd`)
+   proves a CONDITIONAL ("IF the PATH lacks X THEN it fails"), NOT the ANTECEDENT ("the hook's PATH
+   lacks X"). A "reproduced (definitive)" claim whose repro is a conditional is not verified.
+3. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
+   rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
+   surface the gap and re-scope BEFORE designing a fix.
+
+**Rigor-theater callout.** A confident "Diagnosis (definitive — reproduced)" section is exactly the
+shape that invites inheritance without re-verification. Treat a spec's own diagnosis as a HYPOTHESIS
+to reproduce, not a settled premise — especially a spec you did not author, or authored in a prior
+session.
+
+**Disambiguation from adjacent gates.** Gate (m) verifies a spec's cited MEMORY/RULE/DOC claim
+against its source; gate (o) verifies a spec's asserted RUNTIME-BEHAVIOR claim against the live
+system. Premise-audit check (i) asks whether the parent investigation leaves premises open; gate (o)
+is the stronger, action-forcing requirement to REPRODUCE a runtime claim before building on it.
+
+Cross-references: mt#2091 / PR #1272 (original gate); mt#2083 (originating incident); mt#2445 (the
+letter-(l) reuse that clobbered it); mt#2958 (the recurrence that surfaced the loss); mt#2964 (this
+restore + the append-only convention above); memories `d77d2bd4` (problem-statement verification),
+`dc9f7ad8` (the mt#2958 retro), `7c83fed0` ("reproduce error before theorizing"), `8814a2e1`
+(verify diagnostic tools before building theories).
+
 ### Step 4: Act on gate results
+
+**Output altitude (both branches).** Chat carries a plain-language account for the principal;
+the **task record** carries the structured detail (premise-audit answers, per-criterion
+verdicts, gap report). Never inline the structured half in chat — write it to the spec via
+`mcp__minsky__tasks_spec_patch` and emit a `minsky://task/mt%23<id>` deeplink so the
+principal can open it if they want. Chat is brief plain-language prose (1-3 sentences —
+fewer on a clean pass, more on a fail) covering what the task is trying to do, what the
+investigation found, and what happens next — with NO gate letters, premise-audit labels, or
+criterion tables in the message. Each branch below specifies its own sentence count within
+that range. Per `user-preferences.mdc §Plain-language first
+in chat reports` (mt#2801) and `communication-contract.mdc §The Tier-1 turn-report contract`
+("detail lives behind a pointer, never inline"; originating incident mt#3369 R5+: a 599-word
+gate-failure report that duplicated content already written into the spec). This changes
+DESTINATION, not rigor — every premise-audit answer and criterion verdict is still produced in
+full; it lives in the spec instead of the chat scrollback.
+
+**Chat is a terminal, not GitHub — emit no raw HTML.** The paragraph above sets the
+destination; this one bounds the FORM chat may take. Chat is rendered as GitHub-flavored
+markdown by a terminal renderer that does NOT execute HTML: a `<details>`/`<summary>` block
+does not collapse, it prints its own tags as literal text directly above the content it was
+meant to hide. So a collapsible cannot be used to smuggle the structured half back into chat —
+it is not a pointer, it is the detail plus two visible tags. The same renderer means the same
+failure for every other HTML affordance, so the prohibition covers them too (`<br>`,
+`<sub>`, inline `<table>`). PR bodies and Notion pages are a different surface, where
+`<details>` does work and stays available. Incident: mt#3371 (19 collapsibles across 12
+conversations, all of them this skill's gate reports).
 
 **All gate criteria pass:**
 
-1. Report the gate summary (all green).
-2. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
-3. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
+1. Write the full premise-audit answers and per-criterion verdicts to the task spec via
+   `mcp__minsky__tasks_spec_patch` — append a `## Planning Audit (READY)` section carrying
+   the checklist. This is the audit trail; chat does not carry it.
+2. Report in plain language in chat: 1-2 sentences on what was checked and why the task is
+   ready, plus a `minsky://task/mt%23<id>` deeplink so the principal can open the recorded
+   audit if they want. No criterion dump inline, no gate letters.
+3. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
+
+   **state-ops kind — no-session walk (mt#455).** For `kind: "state-ops"` tasks, SKIP
+   item 4 below (the `/implement-task` chain-walk) entirely — state-ops work runs WITHOUT a session
+   (`session_start` refuses the kind). Instead, walk the task in main-agent context:
+   (i) `tasks_status_set` READY → IN-PROGRESS (a legal direct transition for this kind);
+   (ii) do the investigation / state operation; (iii) record the deliverable in the spec
+   via `tasks_spec_patch` under `## Findings`, `## Outcome`, or `## Closeout evidence`;
+   (iv) `tasks_status_set` → DONE — the transition is refused unless that evidence
+   section is populated. Then continue the conversation's next step as usual.
+
+4. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
 
    **Only halt before `/implement-task` if** one of these explicit halt conditions holds:
 
@@ -725,10 +969,12 @@ runtime-diagnosis sibling surface (citing a stale warning while debugging) is ow
 
 1. Do **not** call `tasks_status_set` → READY.
 2. Task remains in PLANNING.
-3. Present a structured gap report:
+3. **Write the structured gap report to the task spec** via `mcp__minsky__tasks_spec_patch` —
+   append a `## Gap Report (PLANNING — not yet READY)` section using the template below.
+   This is the audit trail; the gap report does NOT go in chat.
 
 ```
-## Gap Report for mt#X (PLANNING — not yet READY)
+## Gap Report (PLANNING — not yet READY)
 
 ### Blocking gaps
 - [criterion letter] <description of gap>
@@ -738,10 +984,23 @@ runtime-diagnosis sibling surface (citing a stale warning while debugging) is ow
 1. <concrete action the user or agent must take>
 2. <concrete action the user or agent must take>
 
-To re-run the gate after fixes: `/plan-task mt#X`
+To re-run the gate after fixes: `/plan-task <task-id>`
 ```
 
-4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
+4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming
+   call, a framework selection, an architectural fork the user reserves) — route it through
+   `AskUserQuestion` (options inline) or `mcp__minsky__asks_create`, per
+   `humility.mdc §Escalation packaging`. Do NOT bury the decision as a bullet inside the
+   spec's "Required actions" — chat/spec prose is not the attention surface for a decision
+   the user has to make (originating half of the mt#3369 incident: an operator was asked to
+   "decide the fix shape" via a prose bullet and replied that they could not see what they
+   were deciding between).
+
+5. **Emit a plain-language chat message**: 2-3 sentences naming what the task is trying to
+   do, what actually blocks it (in plain words — no gate letters, no premise-audit labels),
+   and a `minsky://task/mt%23<id>` deeplink to the recorded gap report. If step 4 filed an
+   ask, cite the ask id (`[ask#N](minsky://ask/<uuid>)`) so the principal knows a decision
+   is queued for them. Then stop.
 
 **Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
 `sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":
@@ -837,6 +1096,33 @@ producing the three-step citation-and-mapping protocol:
    or cite a different source that actually supports the direct-connection bypass.
 
 To re-run the gate after fixes: `/plan-task mt#1852`
+```
+
+**Example (n) failure.** For a task (modeled on mt#2435) that wires a service to post a GitHub
+check-run per review, requiring the App's `checks:write` permission, without enumerating the
+precondition or gating on its provisioning status:
+
+```
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (n) External-system integration provisioning enumeration: spec adds a new
+  `octokit.rest.checks.create` call requiring the `checks:write` App permission, but does not
+  enumerate this precondition or state its provisioning status. Cross-checking the App's current
+  permission set: `checks:write` is NOT currently granted. A separate provisioning task exists
+  (mt#2500) but the spec does not link it, and mt#2500 is still TODO — provisioning is not yet
+  satisfied.
+
+### Required actions before READY
+1. Add an `## External preconditions` subsection (or extend `## Scope` → `In scope`) naming
+   `checks:write` as a required App permission.
+2. Link mt#2500 as the provisioning task, and state explicitly that READY/merge is contingent on
+   mt#2500 reaching DONE (verified, not merely linked) before the check-run path is considered
+   live-functional.
+3. Per `/implement-task` §7a/§10, plan for a live `POST /check-runs` exercise post-deploy —
+   deploy-SUCCESS alone does not verify the permission is actually granted.
+
+To re-run the gate after fixes: `/plan-task mt#XXXX`
 ```
 
 ## State transition map

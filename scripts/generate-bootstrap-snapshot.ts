@@ -72,13 +72,17 @@ export default {
       `Expected exactly 1 generated SQL file in the scratch out-dir, got ${generated.length}: ${generated.join(", ")}`
     );
   }
+  const generatedFile = generated[0];
+  if (generatedFile === undefined) {
+    throw new Error("internal: generated[0] missing despite length check");
+  }
   // The schema uses pgvector's `vector` type, but no migration (and no
   // drizzle-kit output) creates the extension — production environments
   // (Supabase) pre-enable it, and the runtime vector storage layer runs its
   // own CREATE EXTENSION on init. A fresh vanilla Postgres has neither, so
   // the bootstrap artifact must be self-contained.
   const snapshotSql = `CREATE EXTENSION IF NOT EXISTS vector;\n--> statement-breakpoint\n${readFileSync(
-    join(scratchOut, "out", generated[0]),
+    join(scratchOut, "out", generatedFile),
     "utf8"
   )}`;
 

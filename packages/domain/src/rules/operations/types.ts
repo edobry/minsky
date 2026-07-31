@@ -7,6 +7,7 @@
 
 import type { RuleFormat } from "../../rules";
 import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
+import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../../compile/size-budget";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
@@ -123,10 +124,19 @@ export interface CompileRulesOptions {
   dryRun?: boolean;
   check?: boolean;
   memoryLoadingMode?: MemoryLoadingMode;
+  /** Per-target size-budget override (mt#2802). See `TargetOptions.sizeBudget`. */
+  sizeBudget?: Partial<SizeBudget>;
 }
 
 export interface CompileRulesResult {
   success: boolean;
+  /**
+   * The target id this result is for (mt#2803). Populated on every return
+   * path: a single target id (`"agents.md"`, `"claude.md"`, `"claude-rules"`)
+   * for explicit-`--target` and single-probed-target invocations, or a
+   * comma-joined list of ids for the multi-target aggregate (see `targets`).
+   */
+  target?: string;
   check?: boolean;
   stale?: boolean;
   staleFile?: string;
@@ -135,7 +145,43 @@ export interface CompileRulesResult {
   filesWritten?: string[];
   rulesIncluded?: string[];
   rulesSkipped?: string[];
+  /** Compiled output size in characters (mt#2802). */
+  sizeChars?: number;
+  /** The effective budget this compile was evaluated against. */
+  sizeBudget?: SizeBudget;
+  /** Where `sizeChars` falls relative to `sizeBudget`. */
+  sizeBudgetStatus?: SizeBudgetStatus;
+  /** Rules ranked by compiled contribution size, descending (top N). */
+  topContributors?: RuleContribution[];
+  /** Total chars of included rules' emitted content (remainder = target scaffolding). */
+  ruleContentChars?: number;
+  /**
+   * `alwaysApply: true` rules whose own compiled contribution exceeds the
+   * per-rule ceiling (mt#2874). Only populated for targets that opt into
+   * the check (currently `claude.md`).
+   */
+  perRuleViolations?: RuleContribution[];
+  /**
+   * Populated when a bare (no explicit `--target`) invocation probed and
+   * compiled MULTIPLE applicable targets (mt#2803). Each entry mirrors this
+   * result shape, scoped to one target. When present, the top-level fields
+   * above carry the cross-target aggregate (`filesWritten` etc. concatenated,
+   * `success`/`stale` reduced via AND/OR) — consumers that want per-target
+   * detail (e.g. size-budget status, which is not aggregable) should iterate
+   * `targets` instead. Absent for explicit `--target` invocations and for
+   * bare invocations that probe to exactly one applicable target.
+   */
+  targets?: CompileRulesTargetResult[];
 }
+
+/**
+ * Per-target outcome inside a multi-target `CompileRulesResult.targets`
+ * array (mt#2803). Mirrors `CompileRulesResult` (minus `targets` itself,
+ * which does not nest) plus the `target` id it was compiled for.
+ */
+export type CompileRulesTargetResult = Omit<CompileRulesResult, "targets"> & {
+  target: string;
+};
 
 // ─── Get Rule ────────────────────────────────────────────────────────────────
 

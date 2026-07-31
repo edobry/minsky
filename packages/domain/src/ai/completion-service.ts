@@ -20,7 +20,8 @@ import {
   ValidationWarning,
 } from "./types";
 import { DefaultAIConfigurationService, type AnyConfigService } from "./config-service";
-import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
+import { DefaultModelCacheService } from "./model-cache";
+import { createModelCacheServiceWithFetchers } from "./service-factory";
 import { resolveLanguageModel } from "./provider-model-factory";
 import {
   getPrimaryModels,
@@ -42,10 +43,12 @@ export class DefaultAICompletionService implements AICompletionService {
   constructor(configurationService: AnyConfigService) {
     this.configService = new DefaultAIConfigurationService(configurationService);
 
-    // Initialize model cache service with fetchers
-    this.modelCacheService = new DefaultModelCacheService();
-    this.modelCacheService.registerFetcher(new OpenAIModelFetcher());
-    this.modelCacheService.registerFetcher(new AnthropicModelFetcher());
+    // Register every fetcher the registry declares, rather than a hardcoded
+    // pair. This used to construct OpenAI + Anthropic directly, which meant
+    // PROVIDER_FETCHER_REGISTRY and this constructor were two independent
+    // sources of truth: a fetcher added to the registry was silently absent
+    // here (mt#3337).
+    this.modelCacheService = createModelCacheServiceWithFetchers();
   }
 
   /**
@@ -86,7 +89,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
-        temperature: request.temperature,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         maxTokens: request.maxTokens,
         tools,
         maxSteps: request.maxSteps,
@@ -171,7 +174,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
-        temperature: request.temperature,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         maxTokens: request.maxTokens,
         tools,
         maxSteps: request.maxSteps,
@@ -242,7 +245,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         messages: request.messages as import("ai").CoreMessage[],
         schema: jsonSchema(schemaJson as Record<string, unknown>),
-        temperature: request.temperature || 0.3,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
       });
 
       // Post-parse validation: the AI may return a shape the JSON Schema

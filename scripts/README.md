@@ -8,19 +8,20 @@ Index last audited: 2026-07-06 (mt#2610 dead-code sweep).
 
 ## Operator tools (invoked directly, part of the normal dev/build/deploy flow)
 
-| Script                           | Description                                                                                                                                                                                                                                     |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cli-entry.ts`                   | Bin entry for the `minsky` CLI (mt#1740). Referenced by `package.json`'s `bin` and `postinstall`.                                                                                                                                               |
-| `build-completion-manifest.ts`   | Builds the shell-completion manifest by force-loading the CLI command tree. Wired: `bun run build:completion-manifest`.                                                                                                                         |
-| `check-variable-naming.ts`       | Checks codebase for non-ASCII variable/symbol names.                                                                                                                                                                                            |
-| `fix-variable-naming.ts`         | Auto-fixes non-ASCII variable names found by `check-variable-naming.ts`.                                                                                                                                                                        |
-| `create-github-app.ts`           | Creates a GitHub App via the manifest flow. Canonical user-facing path is `minsky setup github-app` (mt#1087) — this is the underlying script.                                                                                                  |
-| `deploy-minsky-mcp.ts`           | Deployment helper for the hosted Minsky MCP server on Railway (mt#1130).                                                                                                                                                                        |
-| `drizzle-config-loader.ts`       | Loads DB credentials from Minsky config for `drizzle-kit` (works around its lack of top-level-await support).                                                                                                                                   |
-| `generate-bootstrap-snapshot.ts` | Regenerates the fresh-DB bootstrap snapshot (mt#2439). Wired: `bun run db:generate:bootstrap-snapshot`.                                                                                                                                         |
-| `generate-icons.ts`              | Generates icon assets from `assets/icon/minsky-icon.svg`. Wired: `bun run icons:generate`.                                                                                                                                                      |
-| `set-branch-protection.ts`       | Applies the mt#1938 branch-protection config to `edobry/minsky:main`. Dry-run by default; `--execute` to apply. Canonical audit-logged write path (see CLAUDE.md `§Turnkey, not portal`).                                                       |
-| `grant-subagent-merge.ts`        | Orchestrator-side surface for issuing an ADR-028 D5 subagent merge-capability grant (mt#2651). Writes a TTL-bound grant to the shared store `.minsky/hooks/block-subagent-merge-without-grant.ts` checks. `--dry-run` previews without writing. |
+| Script                           | Description                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli-entry.ts`                   | Bin entry for the `minsky` CLI (mt#1740). Referenced by `package.json`'s `bin` and `postinstall`.                                                                                                                                                                                                                                                                                            |
+| `build-completion-manifest.ts`   | Builds the shell-completion manifest by force-loading the CLI command tree. Wired: `bun run build:completion-manifest`.                                                                                                                                                                                                                                                                      |
+| `check-variable-naming.ts`       | Checks codebase for non-ASCII variable/symbol names.                                                                                                                                                                                                                                                                                                                                         |
+| `fix-variable-naming.ts`         | Auto-fixes non-ASCII variable names found by `check-variable-naming.ts`.                                                                                                                                                                                                                                                                                                                     |
+| `create-github-app.ts`           | Creates a GitHub App via the manifest flow. Canonical user-facing path is `minsky setup github-app` (mt#1087) — this is the underlying script.                                                                                                                                                                                                                                               |
+| `deploy-minsky-mcp.ts`           | Deployment helper for the hosted Minsky MCP server on Railway (mt#1130).                                                                                                                                                                                                                                                                                                                     |
+| `drizzle-config-loader.ts`       | Loads DB credentials from Minsky config for `drizzle-kit` (works around its lack of top-level-await support).                                                                                                                                                                                                                                                                                |
+| `generate-bootstrap-snapshot.ts` | Regenerates the fresh-DB bootstrap snapshot (mt#2439). Wired: `bun run db:generate:bootstrap-snapshot`.                                                                                                                                                                                                                                                                                      |
+| `generate-icons.ts`              | Generates icon assets from `assets/icon/minsky-icon.svg`. Wired: `bun run icons:generate`.                                                                                                                                                                                                                                                                                                   |
+| `set-branch-protection.ts`       | Applies the mt#1938 branch-protection config to `edobry/minsky:main`. Dry-run by default; `--execute` to apply. Canonical audit-logged write path (see CLAUDE.md `§Turnkey, not portal`).                                                                                                                                                                                                    |
+| `grant-subagent-merge.ts`        | Orchestrator-side surface for issuing an ADR-028 D5 subagent merge-capability grant (mt#2651). Writes a TTL-bound grant to the shared store `.minsky/hooks/block-subagent-merge-without-grant.ts` checks. `--dry-run` previews without writing.                                                                                                                                              |
+| `export-gource-log.ts`           | Exports a Gource custom-log for an ingested agent session — the watchable-world Phase 0 affect probe (mt#3157). `bun scripts/export-gource-log.ts <conversationId> [--out <path>]` or `--coverage [--limit N]`; `--help` for full usage. Refuses sessions ingested before the mt#2864 credential-scrub cutoff unless `--verified-rescrubbed`. View with `gource --log-format custom <file>`. |
 
 ## CI-wired verification
 
@@ -66,6 +67,7 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                |
 | `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                |
 | `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                            |
+| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)           |
 | `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                        |
 | `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                   |
 | `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                    |
@@ -76,9 +78,61 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                  |
 | `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                        |
 | `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081) |
+| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                |
+| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
+
+### Running the browser-driving scripts
+
+`verify-cockpit-shell-scroll.ts` and `verify-conversation-live-tail.ts` are the scripts here that
+drive a real browser, so their shared prerequisites are worth stating (everything below is checked
+at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
+absent).
+
+They exist because the component suite runs under happy-dom, which has **no layout engine**: every
+`clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
+can be written in it. Reach for one of these when the thing you need to prove is a real box-model
+property; reach for a component test for anything else. For LOOKING at a rendered cockpit (rather
+than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Operator dev loop.
+
+1. **A running cockpit, started WITHOUT `--no-dev-chromium`** — that flag disables exactly the
+   dev chromium the script attaches to:
+
+   ```bash
+   bun run cockpit:build                      # prod bundle; Vite HMR is unreliable here
+   bun src/cli.ts cockpit start --port=3839
+   ```
+
+   To verify a change that is not yet on `main`, run both commands from the SESSION workspace and
+   point the script at that port — a cockpit started from `main` serves `main`'s build, not yours.
+
+2. **A CDP endpoint at `127.0.0.1:9222`** — the shared dev chromium the cockpit launches
+   (`src/cockpit/dev-chromium.ts`). If one is already listening from another cockpit, that one is
+   used; the script opens its own tab via `PUT /json/new` and closes it on exit. Check with
+   `curl -s localhost:9222/json/version`.
+
+3. **A cockpit auth token at `~/.local/state/minsky/cockpit-token`** — written by the cockpit
+   daemon on first start; no manual step. Needed only by `verify-conversation-live-tail.ts`, which
+   reads it for the driven-session API calls; `verify-cockpit-shell-scroll.ts` makes no authed
+   request and does not require it.
+
+Note that `verify-cockpit-shell-scroll.ts` reads the cockpit's identity from **`/api/health`**, not
+`/health` — the latter falls through to the SPA's `index.html` and answers 200 with HTML, which
+would satisfy a bare reachability check and then fail to parse as JSON.
+
+Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`) and `MINSKY_CDP_URL` (default
+`http://127.0.0.1:9222`).
+
+```bash
+MINSKY_COCKPIT_URL=http://127.0.0.1:3839 bun scripts/verify-conversation-live-tail.ts
+```
+
+The run SPAWNS a real `claude` process through the cockpit's driven-session API, sends it a prompt
+that streams as one long turn, and stops it again on exit — so it costs tokens and takes 30–60s.
+That is the point: the defect it checks for (content growing INSIDE an already-rendered turn) does
+not exist in a test DOM, which has no height to grow.
 
 ## One-shot backfills / migrations / repairs (already executed; kept for reference)
 

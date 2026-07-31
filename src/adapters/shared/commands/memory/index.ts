@@ -35,106 +35,20 @@ import type {
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
-  MemoryAssociations,
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import { emitSystemEventBestEffort } from "../system-event-emit";
+import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
+import {
+  classifyIdInput,
+  resolveEntityIdPrefixOrThrow,
+} from "@minsky/domain/utils/id-prefix-resolver";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
 const memoryTypeValues = Object.values(MEMORY_TYPES) as [MemoryType, ...MemoryType[]];
 const memoryScopeValues = Object.values(MEMORY_SCOPES) as [MemoryScope, ...MemoryScope[]];
-
-// ─── Parameter shapes ─────────────────────────────────────────────────────────
-
-export interface MemorySearchParams {
-  query: string;
-  limit?: number;
-  type?: MemoryType;
-  scope?: MemoryScope;
-  projectId?: string;
-  excludeSuperseded?: boolean;
-  allProjects?: boolean;
-}
-
-export interface MemoryGetParams {
-  id: string;
-}
-
-export interface MemoryListParams {
-  type?: MemoryType;
-  scope?: MemoryScope;
-  projectId?: string;
-  excludeSuperseded?: boolean;
-  stale?: boolean;
-  stalenessDays?: number;
-  limit?: number;
-  associationType?: string;
-  associationTarget?: string;
-  allProjects?: boolean;
-}
-
-export interface MemoryLineageParams {
-  id: string;
-}
-
-export interface MemoryCreateParams {
-  type: MemoryType;
-  name: string;
-  description: string;
-  content: string;
-  /** Scope of the memory. Optional — defaults to "project" when omitted (mt#2663). */
-  scope?: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  associations?: MemoryAssociations;
-  force?: boolean;
-}
-
-export interface MemoryUpdateParams {
-  id: string;
-  type?: MemoryType;
-  name?: string;
-  description?: string;
-  content?: string;
-  scope?: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  associations?: MemoryAssociations;
-}
-
-export interface MemoryDeleteParams {
-  id: string;
-}
-
-export interface MemorySimilarParams {
-  id: string;
-  limit?: number;
-  threshold?: number;
-}
-
-export interface MemorySupersededParams {
-  oldId: string;
-  // newInput fields — flattened into top-level params (mirrors knowledge convention)
-  type: MemoryType;
-  name: string;
-  description: string;
-  content: string;
-  scope: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  reason?: string;
-}
 
 // ─── Parameter definitions (Zod schemas) ─────────────────────────────────────
 
@@ -182,7 +96,9 @@ const memorySearchParams = {
 const memoryGetParams = {
   id: {
     schema: z.string(),
-    description: "Memory record identifier",
+    description:
+      "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+      "or a mem#N short id (mt#2966)",
     required: true as const,
   },
 } satisfies CommandParameterMap;
@@ -243,6 +159,31 @@ const memoryListParams = {
     description:
       "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)",
     required: false as const,
+  },
+  // mt#2817: time-window filters, mirroring tasks_list's since/until (both accept
+  // YYYY-MM-DD or relative 7d/24h/30m). Filters on createdAt — see
+  // MemoryListFilter's doc comment in packages/domain/src/memory/types.ts for why.
+  since: {
+    schema: z.string(),
+    description: "Only include memories created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false as const,
+  },
+  until: {
+    schema: z.string(),
+    description: "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false as const,
+  },
+  // mt#2817: opt-in compact projection — id/name/type/description/tags/dates,
+  // NO content body. Default is false (full records) because at least one
+  // known consumer (.minsky/skills/verify-task/skill.ts's bridge-memory audit
+  // step) reads `content`/`description` off memory_list results directly; an
+  // opt-in flag avoids silently breaking that consumer's default call shape.
+  summary: {
+    schema: z.boolean(),
+    description:
+      "When true, return compact rows (id, name, type, description, tags, createdAt, updatedAt) with no content body",
+    required: false as const,
+    defaultValue: false,
   },
 } satisfies CommandParameterMap;
 
@@ -408,6 +349,12 @@ const memorySimilarParams = {
   threshold: {
     schema: z.number(),
     description: "Minimum similarity score threshold",
+    required: false as const,
+  },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)",
     required: false as const,
   },
 } satisfies CommandParameterMap;
@@ -637,6 +584,74 @@ async function resolveMemoryProjectScope(
   }
 }
 
+// ─── mt#2696: id-prefix resolution ────────────────────────────────────────────
+
+/**
+ * Resolve the raw Postgres connection for a prefix-resolution lookup, without
+ * building a full MemoryService. Fails soft (returns null) on any resolution
+ * problem — the caller falls back to passing the raw input through, letting
+ * `resolveMemoryService` (called immediately after in every command) surface
+ * its own descriptive "persistence provider required" error.
+ */
+async function resolveMemoryDbForPrefix(
+  ctx: CommandExecutionContext
+): Promise<MemoryServiceDb | null> {
+  const persistence = ctx?.container?.has("persistence")
+    ? ctx.container.get("persistence")
+    : undefined;
+  if (!persistence) return null;
+
+  try {
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    return connection ? (connection as MemoryServiceDb) : null;
+  } catch (err: unknown) {
+    log.debug("[memory] DB resolution for id-prefix lookup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Resolve a caller-supplied memory id — a full UUID, an unambiguous 8-char
+ * hex prefix (mt#2696), or a `mem#N` short id (mt#2966/mt#2963) — to the
+ * full UUID `memories.id` before it reaches any `eq(memoriesTable.id, ...)`
+ * comparison. A full UUID passes through unchanged with no query. A
+ * short/no-match/ambiguous prefix, or a `mem#N` with no matching row, throws
+ * a clean tool-level error (never a raw Postgres "invalid input syntax for
+ * type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input is passed through —
+ * the immediately-following `resolveMemoryService` call in every command
+ * surfaces the "persistence provider required" error instead.
+ *
+ * Exported for unit testing (memory-commands.test.ts) — not part of the
+ * public command surface.
+ */
+export async function resolveMemoryIdInput(
+  id: string,
+  ctx: CommandExecutionContext
+): Promise<string> {
+  const db = await resolveMemoryDbForPrefix(ctx);
+  if (!db) return id;
+
+  return resolveEntityIdPrefixOrThrow({
+    db,
+    table: memoriesTable,
+    idColumn: memoriesTable.id,
+    labelColumn: memoriesTable.name,
+    input: id,
+    entityName: "memory",
+    shortIdColumn: memoriesTable.shortId,
+    shortIdPrefix: "mem",
+  });
+}
+
 // ─── Registration function ────────────────────────────────────────────────────
 
 export function registerMemoryCommands(
@@ -653,7 +668,7 @@ export function registerMemoryCommands(
     description:
       "Semantic search over memory records. Returns ranked results with similarity scores.",
     parameters: memorySearchParams,
-    execute: async (params: MemorySearchParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.search", { query: params.query, limit: params.limit });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -686,16 +701,39 @@ export function registerMemoryCommands(
     id: "memory.get",
     category: CommandCategory.MEMORY,
     name: "get",
-    description: "Fetch a single memory record by its identifier.",
+    description:
+      "Fetch a single memory record by its identifier. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — " +
+      "or a mem#N short id (mt#2966).",
     parameters: memoryGetParams,
-    execute: async (params: MemoryGetParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.get", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation to the full uuid before it
+      // ever reaches a Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const record = await service.get(params.id);
+      const record = await service.get(id);
 
       if (!record) {
-        throw new Error(`Memory not found: "${params.id}"`);
+        // mt#2696 R1: name both what the caller passed AND how it was
+        // interpreted (full UUID vs prefix) rather than echoing the raw
+        // input unconditionally — a resolved prefix that no longer matches
+        // a live row (e.g. deleted between resolution and this read) reads
+        // very differently from a syntactically full UUID that never
+        // existed, and the diagnostic should say which happened.
+        const classification = classifyIdInput(params.id);
+        // Only claim a resolution happened when one actually did — when no DB
+        // was available, resolveMemoryIdInput passes the prefix through
+        // unchanged, and "(resolved to <the same prefix>)" would be false.
+        const message =
+          classification.kind === "prefix"
+            ? id !== params.id
+              ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+              : `Memory not found for id prefix "${params.id}"`
+            : `Memory not found with id "${id}"`;
+        throw new Error(message);
       }
 
       return record;
@@ -709,11 +747,12 @@ export function registerMemoryCommands(
     name: "list",
     description: "Browse memory records with optional type/scope/project filters.",
     parameters: memoryListParams,
-    execute: async (params: MemoryListParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.list", {
         type: params.type,
         scope: params.scope,
         limit: params.limit,
+        summary: params.summary,
       });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -721,7 +760,14 @@ export function registerMemoryCommands(
       // ADR-021 / mt#2416: resolve project scope for this query.
       const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
 
-      let records = await service.list({
+      // mt#2817: since/until accept the same YYYY-MM-DD / 7d/24h/30m forms as
+      // tasks_list's since/until — resolve to ISO strings before handing to
+      // the domain filter, which pushes the window down into the SQL query.
+      const { parseTime } = await import("../../../../utils/result-handling/filters");
+      const sinceTs = parseTime(params.since);
+      const untilTs = parseTime(params.until);
+
+      const records = await service.list({
         type: params.type,
         scope: params.scope,
         projectId: params.projectId,
@@ -733,13 +779,34 @@ export function registerMemoryCommands(
           params.associationType && params.associationTarget
             ? { type: params.associationType, targetId: params.associationTarget }
             : undefined,
+        since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
+        until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
       });
 
-      if (params.limit !== undefined) {
-        records = records.slice(0, params.limit);
-      }
+      // mt#2817: loud cap — never silently drop rows past a default limit.
+      // `total` is the true count of everything matching the filters above
+      // (the SQL query already applied since/until/type/scope/etc, so the
+      // fetched array IS the full matching set before this cap).
+      const { applyListCap } = await import("@minsky/domain/utils/list-pagination");
+      const { items: cappedRecords, meta: truncation } = applyListCap(records, params.limit);
 
-      return { records };
+      // mt#2817: opt-in compact projection — strip content (and every other
+      // non-summary field) so a browse-style query doesn't ship multi-KB
+      // bodies the caller didn't ask for. Default (summary:false) is
+      // unchanged from the pre-mt#2817 shape.
+      const outputRecords = params.summary
+        ? cappedRecords.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            description: r.description,
+            tags: r.tags,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+          }))
+        : cappedRecords;
+
+      return { records: outputRecords, ...truncation };
     },
   });
 
@@ -752,7 +819,7 @@ export function registerMemoryCommands(
       "Create a new memory record. Validates content against the derivation-discipline " +
       "rubric (mt#960) — use force=true to bypass.",
     parameters: memoryCreateParams,
-    execute: async (params: MemoryCreateParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.create", { name: params.name, force: params.force });
 
       // Derivation-discipline check
@@ -816,18 +883,26 @@ export function registerMemoryCommands(
     id: "memory.update",
     category: CommandCategory.MEMORY,
     name: "update",
-    description: "Update fields on an existing memory record.",
+    description:
+      "Update fields on an existing memory record. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `id`.",
     parameters: memoryUpdateParams,
-    execute: async (params: MemoryUpdateParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.update", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
+      // Resolve BEFORE building the service, matching the read commands'
+      // ordering (PR #2348 R1). Same resolver they use (mt#3108): a full uuid,
+      // an unambiguous >=8-hex prefix, or a `mem#N` short id, throwing a named
+      // error rather than letting a non-uuid reach the driver as a cast.
+      const { id: rawId, ...updateFields } = params;
+      const id = await resolveMemoryIdInput(rawId, ctx ?? {});
 
-      const { id, ...updateFields } = params;
+      const service = await resolveMemoryService(deps, ctx ?? {});
       const record = await service.update(id, updateFields);
 
       if (!record) {
-        throw new Error(`Memory not found: "${id}"`);
+        throw new Error(`Memory not found: "${rawId}"`);
       }
 
       return record;
@@ -839,15 +914,22 @@ export function registerMemoryCommands(
     id: "memory.delete",
     category: CommandCategory.MEMORY,
     name: "delete",
-    description: "Delete a memory record by its identifier.",
+    description:
+      "Delete a memory record by its identifier. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966).",
     parameters: memoryDeleteParams,
-    execute: async (params: MemoryDeleteParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.delete", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
-      await service.delete(params.id);
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
 
-      return { deleted: true, id: params.id };
+      const service = await resolveMemoryService(deps, ctx ?? {});
+      await service.delete(id);
+
+      // Report the RESOLVED id: echoing the caller's `mem#N` back would leave
+      // them without the canonical id of the row that was actually removed.
+      return { deleted: true, id };
     },
   });
 
@@ -858,15 +940,26 @@ export function registerMemoryCommands(
     name: "similar",
     description:
       "Find memory records semantically similar to an existing one. " +
-      "Excludes the source memory from results.",
+      "Excludes the source memory from results. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `id`.",
     parameters: memorySimilarParams,
-    execute: async (params: MemorySimilarParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.similar", { id: params.id, limit: params.limit });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const results: MemorySearchResult[] = await service.similar(params.id, {
+
+      // ADR-021 / mt#2939: resolve project scope for this similarity query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
+      const results: MemorySearchResult[] = await service.similar(id, {
         limit: params.limit ?? 10,
         threshold: params.threshold,
+        projectScope,
       });
 
       return { results };
@@ -880,10 +973,14 @@ export function registerMemoryCommands(
     name: "supersede",
     description:
       "Atomically replace an existing memory with a new one. " +
-      "The old memory is retained but marked superseded.",
+      "The old memory is retained but marked superseded. Accepts a full UUID, " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `oldId`.",
     parameters: memorySupersededParams,
-    execute: async (params: MemorySupersededParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.supersede", { oldId: params.oldId });
+
+      const oldId = await resolveMemoryIdInput(params.oldId, ctx ?? {});
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
@@ -901,7 +998,7 @@ export function registerMemoryCommands(
       };
 
       const result: { old: MemoryRecord; replacement: MemoryRecord } = await service.supersede(
-        params.oldId,
+        oldId,
         newInput,
         params.reason
       );
@@ -917,13 +1014,18 @@ export function registerMemoryCommands(
     name: "lineage",
     description:
       "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. " +
-      "Each step carries the supersession_reason in its metadata.",
+      "Each step carries the supersession_reason in its metadata. Accepts a full UUID, " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
     parameters: memoryLineageParams,
-    execute: async (params: MemoryLineageParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.lineage", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const result = await service.lineage(params.id);
+      const result = await service.lineage(id);
       return result;
     },
   });

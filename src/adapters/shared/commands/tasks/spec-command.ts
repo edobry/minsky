@@ -4,25 +4,17 @@
  * Command for retrieving task specifications.
  * Extracted from tasks.ts as part of modularization effort.
  */
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { getTaskSpecContentFromParams } from "@minsky/domain/tasks";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import { tasksSpecParams } from "./task-parameters";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 /**
- * Parameters for tasks spec command
- */
-interface TasksSpecParams extends BaseTaskParams {
-  taskId: string;
-  section?: string;
-}
-
-/**
  * Task specification command implementation
  */
-export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> {
+export class TasksSpecCommand extends BaseTaskCommand<typeof tasksSpecParams, unknown> {
   readonly id = "tasks.spec.get";
   readonly name = "get";
   readonly description = "Get task specification content";
@@ -35,7 +27,7 @@ export class TasksSpecCommand extends BaseTaskCommand<TasksSpecParams, unknown> 
     super();
   }
 
-  async execute(params: TasksSpecParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksSpecParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.spec execution");
 
     // Validate and normalize task ID

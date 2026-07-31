@@ -381,3 +381,92 @@ describe("GitHubChangesetAdapter.isAvailable (sessionless factory path)", () => 
     expect(await adapter.isAvailable()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3096 — PR metadata surfaced onto metadata.github
+// ---------------------------------------------------------------------------
+
+/** Single-PR (`GET /pulls/{n}`) response: carries diffstat + merge metadata. */
+const RAW_PR_DETAIL = {
+  ...RAW_PR,
+  merged_at: "2026-07-23T19:09:35Z",
+  merged_by: { login: "edobry" },
+  additions: 66,
+  deletions: 8,
+  changed_files: 2,
+};
+
+/**
+ * List (`GET /pulls`) response: carries NEITHER diffstat NOR mergeability.
+ * `mergeable` is omitted deliberately — that is the real shape of a list item.
+ */
+const RAW_PR_LIST_SHAPE = {
+  number: 43,
+  title: "List PR",
+  body: null,
+  user: { login: "octocat", name: null, email: null },
+  state: "open" as const,
+  draft: false,
+  merged_at: null,
+  base: { ref: "main", sha: "base-sha" },
+  head: { ref: "feature", sha: "head-sha" },
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-02T00:00:00Z",
+  url: "https://api.github.com/repos/edobry/minsky/pulls/43",
+  html_url: "https://github.com/edobry/minsky/pull/43",
+  mergeable_state: "unknown",
+};
+
+describe("GitHubChangesetAdapter metadata mapping (mt#3096)", () => {
+  test("surfaces diffstat and merge metadata from the single-PR response", async () => {
+    const octokit = makeFakeOctokit({ pulls: { get: async () => ({ data: RAW_PR_DETAIL }) } });
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    const gh = (await adapter.get("42"))?.metadata.github;
+
+    expect(gh?.additions).toBe(66);
+    expect(gh?.deletions).toBe(8);
+    expect(gh?.changedFiles).toBe(2);
+    expect(gh?.mergedAt).toBe("2026-07-23T19:09:35Z");
+    expect(gh?.mergedBy).toBe("edobry");
+  });
+
+  /**
+   * The no-false-value rule: a list item carries none of these. Reporting 0
+   * additions or `isMergeable: false` would state as fact something the
+   * response never said.
+   */
+  test("leaves diffstat and merge metadata undefined for a list-shaped response", async () => {
+    const octokit = makeFakeOctokit({
+      pulls: { list: async () => ({ data: [RAW_PR_LIST_SHAPE] }) },
+    });
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    const gh = (await adapter.list())[0]?.metadata.github;
+
+    expect(gh?.additions).toBeUndefined();
+    expect(gh?.deletions).toBeUndefined();
+    expect(gh?.changedFiles).toBeUndefined();
+    expect(gh?.mergedAt).toBeUndefined();
+    expect(gh?.mergedBy).toBeUndefined();
+  });
+
+  test("reports unknown mergeability as undefined, not false", async () => {
+    const octokit = makeFakeOctokit({
+      pulls: { list: async () => ({ data: [RAW_PR_LIST_SHAPE] }) },
+    });
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    const gh = (await adapter.list())[0]?.metadata.github;
+
+    expect(gh?.isMergeable).toBeUndefined();
+    expect(gh?.mergeableState).toBe("unknown");
+  });
+
+  test("still reports a known mergeability", async () => {
+    const octokit = makeFakeOctokit({ pulls: { get: async () => ({ data: RAW_PR_DETAIL }) } });
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    expect((await adapter.get("42"))?.metadata.github?.isMergeable).toBe(true);
+  });
+});

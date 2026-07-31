@@ -21,7 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChangesetDetail, type ChangesetDetailPayload } from "../widgets/ChangesetDetail";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
-import { shortenId } from "../lib/format";
+import { CopyId } from "../components/CopyId";
 
 async function fetchChangeset(id: string): Promise<ChangesetDetailPayload | null> {
   const res = await fetch(`/api/changeset/${encodeURIComponent(id)}`);
@@ -57,9 +57,7 @@ export function ChangesetDetailPage() {
           Changesets
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono text-foreground" title={changesetId}>
-          {shortenId(changesetId)}
-        </span>
+        <CopyId type="changeset" id={changesetId} />
       </nav>
 
       {query.isError ? (

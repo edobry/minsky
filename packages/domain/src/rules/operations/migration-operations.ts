@@ -91,7 +91,7 @@ export async function migrateRules(options: MigrateRulesOptions): Promise<Migrat
     sourceDir,
     destDir,
     nextSteps: [
-      "Run `minsky rules compile --target cursor-rules` to regenerate " +
+      "Run `minsky compile --target cursor-rules-ts` to regenerate " +
         ".cursor/rules/ from the new canonical source",
       "Add `.cursor/rules/` to your .gitignore",
       "Run `git rm -r --cached .cursor/rules/` to untrack the old files",

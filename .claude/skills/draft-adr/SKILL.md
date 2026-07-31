@@ -74,6 +74,8 @@ Use this skeleton:
 ```markdown
 # ADR-NNN: <Topic>
 
+**The call: <the decision in one directive sentence — what we will do, written so a reader who stops here still knows what was decided>.**
+
 ## Status
 
 Proposed
@@ -99,6 +101,8 @@ We will <do X>. <Optionally one paragraph elaborating mechanism.>
 
 Keep prose tight. Don't pad consequences with restatements of the decision; consequences are what changes about the future, not a summary of the past.
 
+**Why the one-line call sits above the Status header.** An ADR is a decision artifact and its reader is usually deciding or auditing a decision, so the decision must be readable before the reasoning — the same requirement `/draft-rfc` enforces with its executive-summary block. It is ONE line here rather than that skill's multi-bullet block because an ADR is already short and Nygard's `Decision` / `Consequences` sections carry the detail a page later; five summary bullets atop a one-page document is padding, and padding is the same disease as burying. If an ADR ever grows long enough that the call is not visible on the first screen, it has outgrown this format — use the RFC-sized block, or reconsider whether it should have been an RFC.
+
 ### 6. Place + commit in a session
 
 ADRs are repo-versioned code changes. Land them via the session workflow:
@@ -121,6 +125,7 @@ Don't try to delete or rewrite an Accepted ADR. The lifecycle is append-only for
 When the skill completes, verify:
 
 - [ ] File at `docs/architecture/adr-NNN-<slug>.md` with the next sequential NNN
+- [ ] One-line bolded **The call** sits immediately under the title, above Status
 - [ ] Status header reads `Proposed`
 - [ ] Context names the problem and acknowledges alternatives
 - [ ] Decision is one or two sentences in active voice

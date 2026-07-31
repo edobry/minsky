@@ -8,6 +8,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { sessionPrDrive, type SessionPrDriveDependencies } from "./pr-drive-subcommand";
+import { FINAL_CHECK_DEADLINE_MS } from "./pr-wait-for-review-subcommand";
 import type { ChecksResult, RepositoryBackend, ReviewListEntry } from "../../repository/index";
 import type { SessionProviderInterface, SessionRecord } from "../types";
 
@@ -324,8 +325,20 @@ describe("sessionPrDrive", () => {
       expect(result.pollCount).toBeGreaterThan(0);
       expect(result.sinceUsed).toBeDefined();
       expect(result.lastSeenReviews).toEqual([]);
+      // mt#2777 SC#1: the final-authoritative-check's opportunistic
+      // check-run-state fetch (fetchReviewerCheckRunState) also calls
+      // backend.ci.getChecksForPR once — this test's mock backend shares
+      // that method with the checks-WAIT step's polling, so checksCalls is
+      // no longer a pure "did sessionPrChecks run" signal on its own.
+      expect(result.finalCheckPerformed).toBe(true);
     }
-    expect(deps.checksCalls).toBe(0);
+    // Exactly 1 (SC#1's single opportunistic fetch), not 0 — but critically
+    // NOT more than 1: sessionPrDrive returns REVIEW_TIMEOUT before ever
+    // reaching the checks-wait section (see the early `if (!waitResult.matched)
+    // return {...}` in pr-drive-subcommand.ts), so a real checks-wait poll
+    // loop running here (which would call getChecksForPR repeatedly, or at
+    // least once MORE on top of SC#1's fetch) would push this above 1.
+    expect(deps.checksCalls).toBe(1);
   });
 
   test("DISMISSED review is never treated as approval — UNRECOGNIZED_REVIEW_STATE", async () => {
@@ -428,13 +441,18 @@ describe("sessionPrDrive", () => {
       const elapsedMs = performance.now() - start;
 
       expect(result.state).toBe("REVIEW_TIMEOUT");
-      // Bounded by the configured 1s deadline, not the caller's real 1800s
-      // MCP idle-timeout (the actual failure mode in all three live hangs).
-      // Generous 3x margin (1000ms nominal -> 3000ms cap) absorbs CI
-      // scheduling jitter without weakening what the test proves (a real
-      // setTimeout-based deadline, not the fake now/sleep seams elsewhere
-      // in this suite, genuinely bounds the stalled call).
-      expect(elapsedMs).toBeLessThan(1000 + 2000);
+      // Bounded by the configured 1s deadline PLUS the mt#2777 SC#1 final
+      // authoritative check's own budget (FINAL_CHECK_DEADLINE_MS) — the
+      // final check deliberately re-reads via the SAME stalled `listReviews`
+      // mock immediately before reporting timeout, so it too hits its bound
+      // rather than resolving. This is NOT the caller's real 1800s MCP
+      // idle-timeout (the actual failure mode in all three live hangs) —
+      // the total is still a small, fixed cap, just larger than pre-SC#1.
+      // 2s margin absorbs CI scheduling jitter without weakening what the
+      // test proves (real setTimeout-based deadlines, not the fake
+      // now/sleep seams elsewhere in this suite, genuinely bound both the
+      // main poll loop AND the final check).
+      expect(elapsedMs).toBeLessThan(1000 + FINAL_CHECK_DEADLINE_MS + 2000);
     });
   });
 });

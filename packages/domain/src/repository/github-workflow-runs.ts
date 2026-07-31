@@ -4,6 +4,7 @@
  * Provides:
  *   - listWorkflowRuns  — list workflow runs for a repo with optional filters
  *   - viewWorkflowRunLogs — download and decode logs for a specific run ID
+ *   - rerunWorkflowRun — re-run a completed run (all jobs, or just failed jobs)
  *
  * Auth goes through `gh.getToken()` (TokenProvider-aware), consistent with
  * the rest of the GitHub subinterface family.
@@ -11,11 +12,14 @@
  * GitHub API reference:
  *   https://docs.github.com/en/rest/actions/workflow-runs
  *   https://docs.github.com/en/rest/actions/workflow-runs#download-workflow-run-logs
+ *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-workflow
+ *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-workflow-run-and-return-the-run-attempt
+ *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run
  */
 
 import { MinskyError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
-import { handleOctokitError } from "./github-error-handler";
+import { handleOctokitError, classifyOctokitError } from "./github-error-handler";
 import { type GitHubContext, createOctokit } from "./github-pr-operations";
 import { inflateRawSync } from "node:zlib";
 
@@ -274,6 +278,209 @@ export async function viewWorkflowRunLogs(
     });
     throw error;
   }
+}
+
+// ── rerunWorkflowRun ──────────────────────────────────────────────────────
+
+/** Options controlling how a workflow run is re-run. */
+export interface RerunWorkflowRunOptions {
+  /**
+   * When true, re-run the ENTIRE workflow (every job), via
+   * `POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun`.
+   *
+   * Default `false`: re-run only the FAILED jobs, via
+   * `POST .../rerun-failed-jobs` — the narrower default (retry only what
+   * actually failed) chosen for mt#2775's motivating case: a single unrelated
+   * flaky job on an otherwise-green required check.
+   */
+  fullRerun?: boolean;
+}
+
+/** Result of a rerun request. */
+export interface RerunWorkflowRunResult {
+  /** The run ID that was re-run (echoed back for convenience). */
+  runId: number;
+  /** Which endpoint was used to satisfy the request. */
+  mode: "rerun-failed-jobs" | "full-rerun";
+  /**
+   * GitHub's own run-attempt counter (`run_attempt`), read via a best-effort
+   * refetch immediately after the rerun request succeeds. Surfaces how many
+   * times this run has already been attempted so callers/reviewers can see
+   * repeated retries at a glance (mt#2775 guard-posture decision: the tool
+   * itself is left unrestricted, but every result carries this count for
+   * visibility rather than silently allowing unlimited retry-until-green).
+   *
+   * `undefined` when the refetch itself failed — this is a best-effort
+   * observability read; a failure here must never fail the rerun call that
+   * already succeeded.
+   */
+  rerunCount?: number;
+  /** Direct link to the run, for the caller to watch progress. */
+  htmlUrl?: string;
+}
+
+/**
+ * Re-run a workflow run by its numeric ID.
+ *
+ * Dispatches to one of two GitHub endpoints depending on `options.fullRerun`:
+ *   - `false` (default): `POST .../rerun-failed-jobs` — re-runs only the jobs
+ *     that failed on the prior attempt.
+ *   - `true`: `POST .../rerun` — re-runs every job in the workflow.
+ *
+ * Both endpoints require the "Actions" repository permission (write) on the
+ * authenticated GitHub App / token — a fine-grained scope distinct from
+ * "Contents" or "Pull requests". Reruns are only valid for runs in a
+ * COMPLETED state (queued/in_progress runs cannot be re-run) and are subject
+ * to GitHub's own limits: reruns are only accepted within 30 days of the
+ * run's initial creation, and a single run can be re-run at most 50 times
+ * (full reruns and failed-jobs reruns combined) — GitHub itself is the
+ * backstop against unbounded retry-until-green on a single run.
+ *
+ * @param gh    — GitHub context (owner, repo, token resolver)
+ * @param runId — numeric workflow run ID
+ * @param options — rerun mode (default: failed-jobs only)
+ * @param octokitOverride — optional DI-injected Octokit for testing
+ */
+export async function rerunWorkflowRun(
+  gh: GitHubContext,
+  runId: number,
+  options: RerunWorkflowRunOptions = {},
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<RerunWorkflowRunResult> {
+  if (!runId || runId <= 0) {
+    throw new MinskyError("rerunWorkflowRun: runId must be a positive integer");
+  }
+
+  const octokit = octokitOverride ?? createOctokit(await gh.getToken());
+  const mode: "rerun-failed-jobs" | "full-rerun" = options.fullRerun
+    ? "full-rerun"
+    : "rerun-failed-jobs";
+
+  try {
+    if (options.fullRerun) {
+      await octokit.rest.actions.reRunWorkflow({
+        owner: gh.owner,
+        repo: gh.repo,
+        run_id: runId,
+      });
+    } else {
+      await octokit.rest.actions.reRunWorkflowFailedJobs({
+        owner: gh.owner,
+        repo: gh.repo,
+        run_id: runId,
+      });
+    }
+  } catch (error) {
+    throw classifyRerunError(error, gh, runId);
+  }
+
+  // Best-effort refetch for rerunCount/htmlUrl observability (mt#2775 guard
+  // posture). A failure here must never fail the rerun call that already
+  // succeeded — the rerun was accepted regardless of whether we can report
+  // its attempt count back to the caller.
+  let rerunCount: number | undefined;
+  let htmlUrl: string | undefined;
+  try {
+    const resp = await octokit.rest.actions.getWorkflowRun({
+      owner: gh.owner,
+      repo: gh.repo,
+      run_id: runId,
+    });
+    const raw = resp.data as Record<string, unknown>;
+    rerunCount =
+      typeof raw["run_attempt"] === "number" ? (raw["run_attempt"] as number) : undefined;
+    htmlUrl = typeof raw["html_url"] === "string" ? (raw["html_url"] as string) : undefined;
+  } catch (refetchError) {
+    log.debug("rerunWorkflowRun: post-rerun refetch failed (non-fatal)", {
+      runId,
+      error: refetchError instanceof Error ? refetchError.message : String(refetchError),
+    });
+  }
+
+  return { runId, mode, rerunCount, htmlUrl };
+}
+
+/**
+ * Classify a rerun-specific Octokit error into a structured, actionable
+ * MinskyError. Handles the three failure modes named in mt#2775's spec
+ * before falling back to the shared `handleOctokitError` classifier:
+ *
+ *   1. Missing "Actions" (write) permission — GitHub returns 403 with
+ *      "Resource not accessible by integration" (the standard GitHub App
+ *      insufficient-scope error text, consistent across the Actions/Checks
+ *      REST surface) when the token lacks the scope this endpoint requires.
+ *   2. Run not in a completed state — GitHub returns 403 with
+ *      "This workflow is already running" when the run is still
+ *      queued/in_progress (reruns are only valid for completed runs).
+ *   3. Nonexistent run ID — 404.
+ *
+ * Always throws.
+ */
+function classifyRerunError(error: unknown, gh: GitHubContext, runId: number): never {
+  const info = classifyOctokitError(error);
+
+  // ── Missing "Actions" write permission ──────────────────────────
+  if (
+    info.status === 403 &&
+    (info.messageLower.includes("resource not accessible by integration") ||
+      info.ghErrorsText.includes("resource not accessible by integration"))
+  ) {
+    throw new MinskyError(
+      `GitHub Permission Denied: Missing "Actions" Write Permission\n\n` +
+        `Rerunning a workflow run requires the "Actions" repository permission ` +
+        `(write) on the GitHub App / token Minsky is configured with. The ` +
+        `current token does not have it.\n\n` +
+        `To fix this:\n` +
+        `  - Grant the "Actions" repository permission (Read and write) to the ` +
+        `GitHub App installed on ${gh.owner}/${gh.repo}\n` +
+        `    (App settings -> Permissions & events -> Repository permissions -> Actions)\n` +
+        `  - Accept the updated permission set on the installation if GitHub prompts for it\n\n` +
+        `Reference: GitHub REST docs for "Re-run a workflow" / "Re-run failed jobs from a ` +
+        `workflow run" (https://docs.github.com/en/rest/actions/workflow-runs) — required ` +
+        `fine-grained/App permission: Actions (write).\n\n` +
+        `Run: https://github.com/${gh.owner}/${gh.repo}/actions/runs/${runId}`
+    );
+  }
+
+  // ── Run not in a completed state ────────────────────────────────
+  if (
+    info.status === 403 &&
+    (info.messageLower.includes("already running") || info.ghErrorsText.includes("already running"))
+  ) {
+    throw new MinskyError(
+      `Cannot Rerun: Workflow Run Is Not Completed\n\n` +
+        `Run ${runId} in ${gh.owner}/${gh.repo} is still queued or in progress. ` +
+        `GitHub only allows reruns of runs in a COMPLETED state.\n\n` +
+        `To fix this:\n` +
+        `  - Wait for the run to finish, then retry\n` +
+        `  - Check current status via forge.ci_run_list, or the run URL below\n\n` +
+        `Run: https://github.com/${gh.owner}/${gh.repo}/actions/runs/${runId}`
+    );
+  }
+
+  // ── Nonexistent run ──────────────────────────────────────────────
+  if (
+    info.status === 404 ||
+    info.messageLower.includes("404") ||
+    info.messageLower.includes("not found")
+  ) {
+    throw new MinskyError(
+      `Workflow Run Not Found\n\n` +
+        `No workflow run with id ${runId} was found in ${gh.owner}/${gh.repo}.\n\n` +
+        `To fix this:\n` +
+        `  - Verify the run id with forge.ci_run_list\n` +
+        `  - Confirm the run has not aged out of GitHub's retention window`
+    );
+  }
+
+  // ── Fallback to the shared classifier (auth/rate-limit/network/etc.) ────
+  handleOctokitError(error, {
+    operation: `rerun workflow run ${runId}`,
+    owner: gh.owner,
+    repo: gh.repo,
+  });
+  // handleOctokitError always throws; this satisfies TypeScript
+  throw error;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────

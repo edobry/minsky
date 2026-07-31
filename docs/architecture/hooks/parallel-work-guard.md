@@ -52,19 +52,40 @@ colliding PR, overlapping files, and four recommended actions (wait / coordinate
 override). A **recently-merged** overlap does NOT block — it emits a non-blocking advisory warning
 naming the commit and overlapping files (mt#2337).
 
-**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
+**Override mechanism (mt#1637 — two channels):** the sweep resolves its override via
+`resolveOpenPrSweepOverride` (a thin wrapper over the shared `resolveGuardChannelOverride`
+core both this sweep and the duplicate-child matcher use), which checks, in order:
 
-```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
-```
+1. **Legacy env var** — `MINSKY_FORCE_PARALLEL=1`, set before the harness launches
+   (launch-time-only; a value set mid-session via Bash never reaches the hook subprocess):
 
-The override is **logged to session stdout** (task ID, ISO timestamp).
-The line is visible in the session transcript but is **not** written to a durable
-audit file — once the session log is rotated, the record is gone. Use only when
-parallel work has been explicitly acknowledged and coordinated. After mt#1587 the
+   ```bash
+   MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
+   ```
+
+2. **Unified env var** — `MINSKY_HOOK_OVERRIDE=parallel-work-open-pr` (same launch-time
+   constraint; recognized via `checkOverride()`).
+3. **Mid-session grant** (mt#2658 channel) — TTL-bound, reason-mandatory, reachable from
+   inside the running session, scoped to the task id being started/dispatched:
+
+   ```bash
+   bun scripts/grant-guard-override.ts --guard parallel-work-open-pr \
+     --scope mt#<id> --reason "<why the overlap is non-conflicting>"
+   ```
+
+Any active override is **logged to session stdout** — the legacy env path keeps its
+original audit-line shape (`OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=<id> ts=<iso>`);
+the unified-env and grant paths log `OVERRIDE active — task=<id> source=<env|grant>` with the
+grant's reason verbatim when present. The line is visible in the session transcript but is
+**not** written to a durable audit file — once the session log is rotated, the record is gone
+(the grant FILE itself persists as the durable record for grant-sourced overrides). Use only
+when parallel work has been explicitly acknowledged — the grant's mandatory `--reason` is
+where the agent's overlap analysis (e.g. region-disjointness verified against the PR diff)
+belongs. After mt#1587 the
 override is rarely needed for routine hook PRs (settings.json append-only diffs
 no longer collide); it remains in scope for non-append-only changes,
-non-allowlisted files, and operator-judgment overrides.
+non-allowlisted files, and coordination-class agent overrides (the mt#1635-shape case this
+channel exists for).
 
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
@@ -179,3 +200,82 @@ umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a con
 agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
 ~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
 complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
+
+### Standalone-duplicate probe (mt#2813)
+
+The duplicate-child matcher above needs a `parent`/`parentTaskId` to enumerate a sibling pool —
+a **standalone** (non-subtask) `tasks_create` call has no such pool, and was structurally
+outside every parallel-work check until mt#2813. Evidence this was a real gap: mt#2734 was
+filed standalone on 2026-07-10 and turned out to be a full duplicate of mt#2351+mt#2407, caught
+only by a manual `/plan-task` gate-(g) pass three days later. Fresh evidence (2026-07-16):
+mt#2887 and mt#2888 were filed 4 minutes apart by two independent agents describing the SAME
+incident (a `gh api` 503 breaking `session_pr_merge`'s check-runs query) under completely
+different titles — zero cross-detection until a human closed mt#2887 as subsumed.
+
+**How it works:**
+
+1. On a `tasks_create` (or new-task-mode `tasks_dispatch`) call with **no** `parent`/
+   `parentTaskId`, build a similarity-search query from `title + "\n\n" + spec` — the exact
+   join `TaskSimilarityService.extractTaskContent` uses to build the embedding INDEX
+   (`packages/domain/src/tasks/task-similarity-service.ts`), so the query embedding lands in
+   the same representation space the corpus was indexed with. Falls back to title-only when no
+   `spec` was supplied.
+2. Run the tasks similarity search **in-process** (`standalone-dup-probe.ts`, mt#2958 — through
+   mt#2813 this shelled out `minsky tasks search <query> --json --all --limit 10`, paying a full
+   second CLI boot per probe against an 8s spawn-kill whose only failure signature was empty
+   stdout). The probe mirrors the CLI path piece by piece: service assembly per
+   `createTaskSimilarityService`, project scoping per `resolveTaskSimilarityProjectScope`
+   (ADR-021/mt#2939), NO status filter (the CLI's `--all`) so the guard can apply the SAME
+   `TERMINAL_TASK_STATUSES` discipline as the duplicate-child matcher itself, and {title, status}
+   hydration per `enhanceSearchResults`. Failures are caught Error objects whose message lands in
+   the GUARD DEGRADED stderr line and the guard-health event; the deadline
+   (`STANDALONE_DUP_PROBE_TIMEOUT_MS`, 8s) is a Promise race, and a hanging-DB connect fails in
+   ~2s via the mt#2982 connect timeout (applied programmatically, operator env wins).
+3. Exclude TERMINAL-status (DONE/CLOSED/COMPLETED) hits, keep only results at or under
+   `STANDALONE_DUP_MAX_DISTANCE = 0.65` (an embedding DISTANCE — lower is closer), sort
+   closest-first, cap at `STANDALONE_DUP_CANDIDATE_CAP = 5`.
+4. Any surviving candidates emit a **non-blocking WARN** naming each candidate's id, status,
+   and distance — this check NEVER blocks (`base rates differ from the sibling case` per the
+   mt#2813 spec; the duplicate-child matcher's block/warn split doesn't apply here since there
+   is no equivalent "concurrent decomposition in flight" signal for a standalone create).
+
+**Calibration (mt#2813 PR body has the full replay-corpus table).** Live-probed against the two
+evidence pairs above plus 20 recent legitimately-distinct standalone creations:
+
+- mt#2734 (title+spec) → mt#2351 at distance 0.478
+- mt#2887 (title+spec, at-creation content) → mt#2892 at 0.579, mt#2888 at 0.632 (both ACTIVE
+  at replay time) — the hard case: the two titles use completely different vocabulary/framing
+  for the same underlying incident, so a **title-only** query does NOT separate this pair from
+  calibration noise (title-only distances for both entries land in the same 0.94-0.99 band as
+  several legitimately-distinct false-positive-corpus entries); only the richer title+spec
+  query — matching the actual embedding-index content — gives clean separation.
+- 20-task false-positive corpus: 17/20 landed above the 0.65 threshold; the 3 that landed under
+  it are genuinely topically-adjacent sibling work (a "flaky CI test" pair, a "reviewer-service
+  reliability churn" pair, an "execution-evidence gate" pair) — not spurious noise, though this
+  puts the empirical false-warn rate slightly above the spec's "~1 in 20" target. Accepted given
+  the check is advisory-only.
+
+**Fail-open posture:** a missing `title` is a no-op; a `tasks.search` CLI failure (non-zero
+exit or unparseable JSON) is a loud "GUARD DEGRADED" skip (stderr) that also records to the
+hook-health tracker (mt#2812, `recordGuardCheckSkip`); a response that reports
+`degraded: true` (the search backend fell back to lexical matching) is treated the same as a
+hard failure, since the threshold above is calibrated for embeddings distances only and would
+misapply to a different scoring scale; any unexpected exception is caught, logged to stderr,
+recorded to the hook-health tracker (`recordGuardError`), and fails OPEN (permit).
+
+**Fail-fast Postgres connect (mt#2982).** The CLI's default postgres-js `connect_timeout` is
+10s — longer than every CLI-shelling guard budget (8s here, 4s for the sibling matcher's pure-DB
+calls) — so during a slow/reconnecting-DB window a fresh CLI connect used to hang until the
+spawn-kill, surfacing as the vague empty-output "unparseable" skip. `execWithPath` (and the
+direct-spawn hook sites) now inject `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT=2` (seconds;
+mapped to `persistence.postgres.connectTimeout`, an operator-set parent-env value wins) so the
+CLI fails in ~2.5s with a clearly attributed `CONNECT_TIMEOUT` error that the GUARD DEGRADED
+stderr line reports verbatim. Same fail-open outcome, minus the hang and the vague signature.
+
+**No override mechanism.** This check is advisory-only and never blocks, so there is nothing to
+bypass — unlike the duplicate-child matcher's `MINSKY_FORCE_DUPLICATE_OK`/grant-file channel.
+
+**Out of scope (mt#2813 spec):** blocking semantics (advisory only in v1); the duplicate-child
+matcher's parent-title token discounting (unchanged, and not applicable — a standalone create
+has no parent title to discount against); `/plan-task` gate (g), which remains the deeper,
+human-reviewed check for both the parent-gated and standalone cases.

@@ -6,8 +6,6 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { log } from "@minsky/shared/logger";
-import { exit } from "@minsky/shared/process";
 import {
   createCompletionService,
   createConfigService,
@@ -19,6 +17,7 @@ import {
   getProviderStatuses,
 } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig } from "./shared-helpers";
+import { buildValidateResult, buildProvidersListResult } from "./result-builders";
 
 /**
  * Register AI provider shared commands (validate, providers.list)
@@ -44,65 +43,34 @@ export function registerProviderCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { provider, json } = params;
+      // mt#2727: return structured data — never print via log.cli/exit()
+      // here. MCP serializes this return value directly; CLI rendering
+      // (including the invalid-config exit(1)) lives in
+      // src/adapters/cli/customizations/ai-customizations.ts.
+      const { provider, json } = params;
 
-        const config = getResolvedConfig();
-        const aiConfig = requireAIProviders(config);
+      const config = getResolvedConfig();
+      const aiConfig = requireAIProviders(config);
 
-        const completionService = createCompletionService(config);
-        const result = await completionService.validateConfiguration();
+      const completionService = createCompletionService(config);
+      const result = await completionService.validateConfiguration();
 
-        const validationResults = {
-          valid: result.valid,
-          errors: result.errors,
-          warnings: result.warnings,
-          providers: [] as Array<{
-            name: string;
-            configured: boolean;
-            hasApiKey: boolean;
-            connectionTest: {
-              attempted: boolean;
-              successful: boolean;
-              error?: string;
-            };
-          }>,
-        };
-
-        if (result.valid) {
-          const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
-
-          validationResults.providers = await testProviderConnectivity(
+      const providers = result.valid
+        ? await testProviderConnectivity(
             completionService,
             aiConfig,
-            providersToTest,
+            provider ? [provider] : Object.keys(aiConfig.providers || {}),
             { silent: !!json }
-          );
-        }
+          )
+        : [];
 
-        if (json) {
-          log.cli(JSON.stringify(validationResults, null, 2));
-        } else {
-          if (result.valid) {
-            log.cli("AI configuration is valid!");
-          } else {
-            log.cliError("AI configuration is invalid:");
-            for (const error of result.errors) {
-              log.cliError(`  - ${error.field}: ${error.message}`);
-            }
-
-            for (const warning of result.warnings) {
-              log.cliWarn(`  - ${warning.field}: ${warning.message}`);
-            }
-            exit(1);
-          }
-        }
-      } catch (error) {
-        log.cliError(
-          `Validation failed: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
-      }
+      return buildValidateResult({
+        valid: result.valid,
+        json: !!json,
+        errors: result.errors,
+        warnings: result.warnings,
+        providers,
+      });
     },
   });
 
@@ -127,49 +95,18 @@ export function registerProviderCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { format, json } = params;
-        const outputFormat = json ? "json" : format;
+      // mt#2727: return structured data; CLI table rendering lives in
+      // src/adapters/cli/customizations/ai-customizations.ts.
+      const { format, json } = params;
 
-        const config = getResolvedConfig();
-        const aiConfig = requireAIProviders(config);
+      const config = getResolvedConfig();
+      const aiConfig = requireAIProviders(config);
 
-        const configService = createConfigService(config);
-        const cacheService = createModelCacheServiceWithFetchers();
-        const providers = await getProviderStatuses(configService, cacheService, aiConfig);
+      const configService = createConfigService(config);
+      const cacheService = createModelCacheServiceWithFetchers();
+      const providers = await getProviderStatuses(configService, cacheService, aiConfig);
 
-        if (outputFormat === "json") {
-          log.cli(JSON.stringify(providers, null, 2));
-        } else {
-          log.cli("CONFIGURED AI PROVIDERS");
-          log.cli("=".repeat(60));
-
-          for (const provider of providers) {
-            const status = !provider.hasApiKey
-              ? "🚫 Not Configured"
-              : provider.lastSuccess === false
-                ? "❌ Error"
-                : provider.isStale
-                  ? "⚠️  Cache Stale"
-                  : "✅ Ready";
-
-            log.cli(`\n${provider.name.toUpperCase()}`);
-            log.cli(`  Status: ${status}`);
-            log.cli(`  Models Cached: ${provider.modelCount}`);
-            if (provider.lastFetched) {
-              log.cli(`  Last Fetched: ` + `${new Date(provider.lastFetched).toLocaleString()}`);
-            }
-            if (provider.error) {
-              log.cli(`  Error: ${provider.error}`);
-            }
-          }
-        }
-      } catch (error) {
-        log.cliError(
-          `Failed to list providers: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
-      }
+      return buildProvidersListResult(providers, !!json, json ? "json" : (format ?? "table"));
     },
   });
 }

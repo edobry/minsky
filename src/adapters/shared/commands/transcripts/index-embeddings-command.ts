@@ -50,14 +50,13 @@ import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-sourc
 // ── Result shape ──────────────────────────────────────────────────────────────
 
 export interface TranscriptIndexEmbeddingsResult {
-  /** Extraction reconciliation result (turns materialized from transcripts). */
-  extraction: {
-    transcriptsScanned: number;
-    transcriptsProcessed: number;
-    transcriptsSkipped: number;
-    transcriptsErrored: number;
-    turnsWritten: number;
-  } | null;
+  /**
+   * Extraction reconciliation result (turns materialized from transcripts).
+   * Reuses `ExtractAllTurnsResult` directly (rather than a hand-duplicated
+   * inline shape) so the single-session path below cannot silently drift
+   * from the `--all` path's field set (mt#2457 R1 review).
+   */
+  extraction: ExtractAllTurnsResult | null;
   /** Per-turn embedding (vector-only) backfill result (null if it failed). */
   perTurn: {
     turnsScanned: number;
@@ -180,7 +179,9 @@ export function registerTranscriptIndexEmbeddingsCommand(
       const { PerTurnEmbeddingPipeline } = await import(
         "@minsky/domain/transcripts/per-turn-embedding-pipeline"
       );
-      const { SummaryPipeline } = await import("@minsky/domain/transcripts/summary-pipeline");
+      const { SummaryPipeline, SUMMARY_BATCH_UNBOUNDED } = await import(
+        "@minsky/domain/transcripts/summary-pipeline"
+      );
 
       const perTurnPipeline = new PerTurnEmbeddingPipeline(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -190,7 +191,11 @@ export function registerTranscriptIndexEmbeddingsCommand(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
         cognitionProvider,
         embeddingService,
-        { force }
+        // Explicit full pass (mt#3441). SummaryPipeline is bounded by default so
+        // the summary sweeper inherits a safe shape; this operator-invoked
+        // backfill deliberately opts back out, preserving the behavior this
+        // command has always had.
+        { force, batchSize: SUMMARY_BATCH_UNBOUNDED }
       );
 
       // turn-writer: extraction reconciliation (ADR-019). Extraction is a
@@ -269,17 +274,24 @@ export function registerTranscriptIndexEmbeddingsCommand(
           .from(agentTranscriptsTable)
           .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
           .limit(1);
-        const turnsWritten = await writeTurnsForTranscript(
-          pgDb,
-          sessionId as string,
-          trows[0]?.transcript ?? null
-        );
+        const {
+          written: turnsWritten,
+          nonEmptyYieldedZero,
+          erroredChunks,
+        } = await writeTurnsForTranscript(pgDb, sessionId as string, trows[0]?.transcript ?? null);
+        // mt#2457 R1 review: mirror extractTurnsForAllTranscripts's per-row
+        // classification exactly (turn-writer.ts) so the single-session path
+        // reports the same degraded-state signal as the --all sweep and the
+        // forward ingest path, instead of a plain skip with zero errors.
+        const hasWriteError = erroredChunks > 0;
         extractionResult = {
           transcriptsScanned: 1,
-          transcriptsProcessed: turnsWritten > 0 ? 1 : 0,
-          transcriptsSkipped: turnsWritten > 0 ? 0 : 1,
-          transcriptsErrored: 0,
+          transcriptsProcessed: !hasWriteError && turnsWritten > 0 ? 1 : 0,
+          transcriptsSkipped: !hasWriteError && turnsWritten === 0 ? 1 : 0,
+          transcriptsErrored: hasWriteError ? 1 : 0,
           turnsWritten,
+          nonEmptyYieldedZero: nonEmptyYieldedZero ? 1 : 0,
+          aborted: false,
         };
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: extraction failed`, {

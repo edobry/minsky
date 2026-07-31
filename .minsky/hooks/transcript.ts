@@ -23,7 +23,15 @@
 // @see mt#2255 — this task
 // @see .claude/hooks/types.ts — sibling cross-hook util home (readInput, readHostCap, deriveBudgets)
 
-import { readFileSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +48,28 @@ export interface TranscriptLine {
   name?: string;
   tool_name?: string;
   input?: Record<string, unknown>;
+  /**
+   * ISO-8601 wall-clock timestamp Claude Code stamps on every transcript
+   * line (user/assistant/tool_result alike). Optional here because not
+   * every caller-constructed synthetic TranscriptLine in tests sets it, but
+   * real on-disk transcripts always carry it. Added for mt#2824 (silent-
+   * stretch detector) — the first consumer that needs wall-clock gap
+   * measurement rather than just line-order/content.
+   */
+  timestamp?: string;
+  /**
+   * Harness-synthetic-message marker (mt#2357). Claude Code stamps
+   * `isMeta: true` on user-role lines it synthesizes itself — Skill-tool
+   * invocation bodies ("Base directory for this skill: ..."), skill
+   * re-invocation notices, and some local-command caveat lines. Verified
+   * across recent live transcripts (2026-07-21): all 31 skill-body lines
+   * sampled carry `isMeta: true`; typed and queued human prompts never do.
+   * Excluded from {@link isRealUserPrompt} so a skill launch does not split
+   * the logical turn.
+   */
+  isMeta?: boolean;
+  /** Line identity stamped by Claude Code; used for stable turn keying (mt#2357). */
+  uuid?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +173,240 @@ export function resolveTranscriptCandidates(transcriptPath: string, agentId?: st
 }
 
 // ---------------------------------------------------------------------------
+// Parent-scoped turn resolution (mt#3003 — shared anchoring fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * True iff `path` is a per-agent subagent transcript file — i.e. its
+ * basename starts with `agent-` AND its containing directory is named
+ * `subagents`. Mirrors the exact shape check `resolveTranscriptCandidates`
+ * itself uses to recognize a per-agent path. A parent (session-level)
+ * transcript never lives directly under a `subagents/` directory, so this
+ * is the structural discriminator `resolveParentTranscriptLines` uses to
+ * find the true parent candidate instead of assuming positional order
+ * (PR #2175 R1 — `transcriptCandidates[0]` is NOT always the parent).
+ * Accepts `undefined` defensively (a malformed/synthetic candidates entry —
+ * the real `resolveTranscriptCandidates` never produces one) and treats it
+ * as "not a subagent path" rather than throwing, so a bogus entry degrades
+ * to the next fallback in `resolveParentTranscriptLines` instead of crashing.
+ */
+function isSubagentTranscriptPath(path: string | undefined): boolean {
+  if (!path) return false;
+  return basename(path).startsWith("agent-") && basename(dirname(path)) === "subagents";
+}
+
+/**
+ * Resolve the transcript lines to measure THIS conversation's own
+ * turn/silence signal against, scoped to the PARENT transcript alone
+ * whenever more than one transcript candidate is in play.
+ *
+ * **Why this exists.** A guard's `ctx.transcriptLines` (registry.ts D6) is
+ * `transcriptCandidates.flatMap(parseTranscript)` — the PARENT transcript
+ * concatenated with EVERY sibling subagent transcript under the session's
+ * `subagents/` dir ({@link resolveTranscriptCandidates}'s unconditional
+ * "every sibling" fallback, mt#2637), with no per-line file-origin marker.
+ * `findRealPromptIndices`/`extractLastAssistantTurn` operating over that
+ * flattened array can therefore anchor on a prompt boundary that lives
+ * inside a SUBAGENT's own (already-completed, no-longer-growing) transcript
+ * file rather than the live, growing parent conversation. Because
+ * `resolveTranscriptCandidates` always places subagent files AFTER the
+ * parent file in candidate order, and `flatMap` preserves that order, a
+ * subagent's own final real-prompt boundary is ALWAYS later in the flattened
+ * array than every parent-transcript line — no matter how much the parent
+ * conversation grows afterward. The last-two-real-prompt anchor
+ * (`findRealPromptIndices`) therefore gets permanently stuck inside that
+ * static subagent segment, and every subsequent hook firing re-measures the
+ * exact same frozen turn.
+ *
+ * This is the actual root cause of the "stale turn re-measurement" bug
+ * originally hypothesized (mt#3003 planning) as `findRealPromptIndices`
+ * missing some NEW-PROMPT shape. Investigation against the three named
+ * calibration sessions (3bf59029, 2c9ac5e6, 762cde32 — all of which have a
+ * populated `subagents/` dir) found no missed real-prompt shape:
+ * {@link isRealUserPrompt} correctly classified every plain-text human
+ * prompt, slash-command echo, and tool_result line encountered. The
+ * repeated-identical-record shape is fully explained by cross-transcript
+ * contamination instead. wall-of-text-detector.ts independently diagnosed
+ * and fixed this exact mechanism for its own consumption (mt#3028,
+ * `resolveTurnLines`) before this task's investigation concluded; this
+ * hoists that fix here as the SHARED primitive scope names
+ * (`.minsky/hooks/transcript.ts (anchoring/dedup helpers)`) so
+ * silent-stretch-detector.ts — which had the identical latent vulnerability,
+ * never having been given its own copy of the mt#3028 fix — gets the same
+ * guarantee instead of re-diagning/re-implementing it.
+ *
+ * Behavior: trusts `flatLines` as-is when there is at most one resolved
+ * candidate (the common case — no subagents dispatched this conversation).
+ * When `transcriptCandidates` names more than one file, re-parses the
+ * PARENT candidate — never a per-agent `subagents/agent-*.jsonl` file — ALONE,
+ * so a dispatched subagent's own content can never be measured as if it
+ * were part of the live conversation's own turn.
+ *
+ * **Parent identification (PR #2175 R1 BLOCKING fix).** Does NOT assume
+ * `transcriptCandidates[0]` is the parent. Per
+ * {@link resolveTranscriptCandidates}'s own doc comment, when the GIVEN
+ * `transcriptPath` is itself a per-agent file (the "tree semantics in the
+ * other direction" branch — basename starts with `agent-` under a
+ * `subagents/` dir), the candidate array places THAT per-agent file FIRST
+ * and pushes the true parent session transcript LATER. Trusting
+ * `candidates[0]` in that shape would scope this function to the SUBAGENT's
+ * own transcript instead of the parent — silently reintroducing the exact
+ * stale-turn-freeze bug this function exists to fix. Instead, the parent is
+ * identified structurally: the first candidate whose path is NOT itself a
+ * per-agent `subagents/agent-*.jsonl` file (a parent-transcript path never
+ * lives directly under a `subagents/` directory). Falls back to
+ * `transcriptCandidates[0]` only if every candidate looks agent-shaped (a
+ * defensive case `resolveTranscriptCandidates` should never actually
+ * produce, since it always includes the true parent as one entry whenever
+ * `transcriptPath` ends in `.jsonl`).
+ *
+ * `parseTranscriptFn` is injectable (defaults to the real
+ * {@link parseTranscript}) so callers/tests can exercise the multi-candidate
+ * branch against an in-memory fixture instead of a real file
+ * (`custom/no-real-fs-in-tests`).
+ *
+ * @see resolveTranscriptCandidates — mt#2637, produces the candidate order this relies on
+ * @see mt#3028 — the wall-of-text-detector.ts fix this generalizes
+ * @see mt#3003 — this task (hoists the fix to a shared helper + wires silent-stretch-detector.ts to it)
+ */
+export function resolveParentTranscriptLines(
+  transcriptPath: string | undefined,
+  transcriptCandidates: string[] | undefined,
+  flatLines: TranscriptLine[],
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  if (Array.isArray(transcriptCandidates) && transcriptCandidates.length > 1) {
+    const parentPath =
+      transcriptCandidates.find((c) => !isSubagentTranscriptPath(c)) ??
+      (transcriptPath && !isSubagentTranscriptPath(transcriptPath) ? transcriptPath : undefined) ??
+      transcriptCandidates[0];
+    if (parentPath) return parseTranscriptFn(parentPath);
+  }
+  return flatLines;
+}
+
+/**
+ * CLI-entrypoint convenience wrapper (PR #2175 R1 BLOCKING fix): resolves
+ * the parent-scoped transcript lines for a STANDALONE (non-dispatcher) hook
+ * invocation, given only the hook's own `transcriptPath` and optional
+ * `agentId` — no `DispatchContext`/`transcriptCandidates` is available in
+ * that mode, so a standalone `main()` previously called `parseTranscript`
+ * on the raw path alone and got NONE of `resolveParentTranscriptLines`'s
+ * contamination guarantee (the dispatcher `run()` path got it via `ctx`,
+ * the CLI path silently didn't — divergent, and a stale-turn-freeze risk
+ * whenever the CLI is invoked with a per-agent `transcriptPath`, or more
+ * generally against a session with dispatched subagents).
+ *
+ * Reconstructs the SAME candidate set the dispatcher resolves
+ * ({@link resolveTranscriptCandidates}), then applies
+ * {@link resolveParentTranscriptLines}'s parent-only scoping on top — so a
+ * standalone CLI invocation gets the identical guarantee as the dispatcher
+ * path from a single call.
+ *
+ * Only flattens (parses) every candidate when there is at most one — the
+ * common case, where `resolveParentTranscriptLines` trusts that flattened
+ * result as-is. When more than one candidate is resolved,
+ * `resolveParentTranscriptLines` always discards the flattened array in
+ * favor of re-parsing the parent alone, so eagerly parsing every subagent
+ * transcript first (only to throw the result away) would be pure wasted
+ * I/O — this passes `[]` in that branch instead.
+ */
+export function resolveParentTranscriptLinesForPath(
+  transcriptPath: string,
+  agentId: string | undefined,
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  const candidates = resolveTranscriptCandidates(transcriptPath, agentId);
+  const flatLines = candidates.length > 1 ? [] : candidates.flatMap((p) => parseTranscriptFn(p));
+  return resolveParentTranscriptLines(transcriptPath, candidates, flatLines, parseTranscriptFn);
+}
+
+// ---------------------------------------------------------------------------
+// Per-session dedupe-log primitives (mt#3003 — shared dedup helpers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default bound on how much of a calibration log a dedupe check reads,
+ * regardless of how large the file grows over time — these logs have no
+ * rotation, so an unbounded read would grow with them (originally sized in
+ * wall-of-text-detector.ts, mt#3028 / PR #2165 R1 BLOCKING #2). 256 KiB is
+ * generously many hundreds of JSONL records at these logs' typical line
+ * size (~100-250 bytes) — comfortably more history than any realistic
+ * same-session dedupe window needs.
+ */
+export const DEFAULT_MAX_DEDUPE_READ_BYTES = 262144;
+
+/**
+ * Real on-disk read of (at most) the last `maxBytes` of `logPath`. Bounded
+ * per-invocation disk-I/O cost regardless of total log size; never throws —
+ * returns undefined on any read error or a missing file. Hoisted from
+ * wall-of-text-detector.ts's `readCalibrationLogText` (mt#3028) so any
+ * calibration-log-backed dedupe check (silent-stretch-detector.ts included,
+ * mt#3003) gets the identical bounded-read guarantee without
+ * re-implementing the byte-offset seek.
+ */
+export function readLogTailText(
+  logPath: string,
+  maxBytes: number = DEFAULT_MAX_DEDUPE_READ_BYTES
+): string | undefined {
+  try {
+    if (!existsSync(logPath)) return undefined;
+    const size = statSync(logPath).size;
+    if (size <= maxBytes) {
+      return readFileSync(logPath, "utf-8");
+    }
+    const fd = openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(maxBytes);
+      readSync(fd, buf, 0, maxBytes, size - maxBytes);
+      return buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True iff `sessionId` has a calibration record in `logText` (raw JSONL
+ * contents, or a bounded TAIL of it — see {@link readLogTailText}) whose
+ * `keyField` property equals `keyValue`. Scans EVERY record for this
+ * session, not just the most recent one — an A -> B -> A sequence must
+ * still dedupe the repeat A even though B is the most recent record for the
+ * session (wall-of-text-detector.ts mt#3028 / PR #2165 R1 BLOCKING #1).
+ * Generalized from that file's `sessionHasLoggedHash` (which always
+ * compared a fixed `"textHash"` field) to an arbitrary `keyField` so a
+ * detector can dedupe on whatever notion of "unchanged" fits its own
+ * measurement — a content hash (wall-of-text) or a turn-boundary anchor
+ * (silent-stretch-detector.ts, mt#3003 — see its `buildTurnAnchor`). Pure —
+ * operates on a string, not a file path, so tests exercise it with an
+ * in-memory fixture (`custom/no-real-fs-in-tests`).
+ */
+export function sessionHasLoggedKey(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  keyField: string,
+  keyValue: string
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] === sessionId && rec[keyField] === keyValue) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Real-user-prompt discriminator
 // ---------------------------------------------------------------------------
 
@@ -151,34 +415,102 @@ function isUserRole(line: TranscriptLine): boolean {
 }
 
 /**
+ * Claude Code-synthesized markers recorded with `role: "user"` and a single
+ * `{ type: "text" }` content block that are NOT actual human input — they
+ * mark a harness-internal event (the user cancelled an in-flight tool call).
+ * Excluded from {@link isRealUserPrompt} so they don't spuriously reset a
+ * turn boundary at the exact instant of interruption.
+ *
+ * Discovered (mt#2824) while replaying the two originating silent-stretch
+ * incident transcripts: in both, this exact marker landed ~20ms before the
+ * operator's actual complaint message. Naively treating it as a real prompt
+ * boundary collapsed the measured "turn" down to those 20ms — hiding the
+ * real ~24/28-minute silent stretch that precedes it, which is exactly the
+ * signal the silent-stretch detector needs to see. Confirmed exhaustive
+ * (only two literal variants found) via a corpus scan across ~300 local
+ * transcript files.
+ */
+const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
+  "[Request interrupted by user for tool use]",
+  "[Request interrupted by user]",
+]);
+
+/**
+ * Skill-tool invocation bodies are recorded as user-role TEXT lines whose
+ * text opens with this prefix (mt#2357). They are harness plumbing — the
+ * Skill tool returning the skill's instructions — not human input, so they
+ * must not bound a logical turn. The primary discriminator is the
+ * `isMeta: true` flag ({@link TranscriptLine.isMeta}); this prefix check is
+ * the belt-and-suspenders fallback for any harness version or transcript
+ * that does not stamp the flag. Originating incident: every `/skill`
+ * invocation split the scanned turn at the skill launch, corrupting all
+ * eight turn-boundary consumers (e.g. resetting the silent-stretch silence
+ * clock mid-turn, and the mt#2467 substrate-bypass suppression FP).
+ */
+const SKILL_BODY_PREFIX = "Base directory for this skill:";
+
+function isSkillBodyText(trimmedText: string): boolean {
+  return trimmedText.startsWith(SKILL_BODY_PREFIX);
+}
+
+/**
+ * True iff `trimmedText` is exactly one of {@link SYNTHETIC_INTERRUPT_MARKERS}.
+ * Shared by BOTH content shapes `isRealUserPrompt` checks (string content and
+ * array-of-text-blocks content) — PR #1963 R2 finding: the original fix only
+ * covered the array-content-block shape (the shape actually observed in the
+ * two originating transcripts) and asserted, without defensive justification,
+ * that the string shape "needs no exclusion check" because the marker hadn't
+ * been OBSERVED there. That the array shape's exact form was itself a
+ * surprise (Claude Code's transcript format is not a schema this repo
+ * controls or can assume is stable) means "not yet observed in one shape" is
+ * not evidence the OTHER shape is safe — both shapes get the same check.
+ */
+function isSyntheticInterruptText(trimmedText: string): boolean {
+  return SYNTHETIC_INTERRUPT_MARKERS.has(trimmedText);
+}
+
+function isRealTextBlock(block: unknown): boolean {
+  if (!block || typeof block !== "object") return false;
+  const b = block as Record<string, unknown>;
+  if (b["type"] !== "text") return false;
+  const text = typeof b["text"] === "string" ? b["text"].trim() : undefined;
+  if (text !== undefined && isSyntheticInterruptText(text)) return false;
+  if (text !== undefined && isSkillBodyText(text)) return false;
+  return true;
+}
+
+/**
  * True iff `line` is a REAL user prompt (text from the human), as opposed to a
- * `tool_result` line that Claude Code also records with user role.
+ * `tool_result` line that Claude Code also records with user role, or a
+ * {@link SYNTHETIC_INTERRUPT_MARKERS} harness-internal marker.
  *
  * A real prompt carries text content:
- *   - `message.content` is a STRING (always — even empty/whitespace; a
- *     string-content user line is never a `tool_result`, which is always an
- *     array, so it is a genuine human boundary), OR
+ *   - `message.content` is a STRING that is not itself (once trimmed) a
+ *     synthetic interrupt marker — even empty/whitespace otherwise still
+ *     counts as real (a string-content user line is never a `tool_result`,
+ *     which is always an array, so an ordinary string is a genuine human
+ *     boundary — review NON-BLOCKING, mt#2255), OR
  *   - `message.content` is an array containing at least one `{ type: "text" }`
- *     block.
+ *     block whose text is not a synthetic interrupt marker.
  *
  * A tool_result line is a user-role content array whose blocks are all
- * `tool_result` (no `text` block) — it returns false here.
+ * `tool_result` (no `text` block) — it returns false here. A
+ * synthetic-interrupt-marker-only line is likewise excluded, in EITHER
+ * content shape (PR #1963 R2 — both shapes must be covered, not just the
+ * array-content-block shape actually observed in the wild).
  */
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
+  // Harness-synthetic user-role lines (skill bodies, re-invocation notices)
+  // are marked isMeta and are never human prompts (mt#2357).
+  if (line.isMeta === true) return false;
   const content = line.message?.content;
-  // String content is always a real prompt: tool_result lines are always
-  // content ARRAYS, so a string-content user line is unambiguously human input
-  // (an empty/whitespace prompt still resets the turn boundary, matching the
-  // prior user-role-split behavior — review NON-BLOCKING, mt#2255).
-  if (typeof content === "string") return true;
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    return !isSyntheticInterruptText(trimmed) && !isSkillBodyText(trimmed);
+  }
   if (Array.isArray(content)) {
-    return content.some(
-      (block) =>
-        !!block &&
-        typeof block === "object" &&
-        (block as Record<string, unknown>)["type"] === "text"
-    );
+    return content.some(isRealTextBlock);
   }
   return false;
 }
@@ -188,31 +520,142 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Extract the just-completed logical turn: every line between the
- * second-to-last and the last REAL user prompt (the last real prompt is the
- * current prompt that fired the hook and is excluded).
+ * Return the transcript-line index of every REAL user prompt, in order.
  *
- * Because the bounds are real prompts (not every user-role line), interleaved
- * `tool_result` user-role lines fall INSIDE the returned span rather than
- * splitting it. The result therefore covers all assistant segments AND all
- * tool_result lines of the turn — a full multi-round turn.
- *
- * Returns [] when there are fewer than 2 real user prompts (first turn of a
- * session, or no prior assistant turn).
+ * Factored out of {@link extractLastAssistantTurn} (mt#2824) so callers that
+ * need the boundary LINES themselves — not just the turn slice between them
+ * — can locate them without re-implementing the real-prompt scan. The
+ * silent-stretch detector is the first such consumer: it needs the previous
+ * and current prompts' `timestamp` fields to measure wall-clock silence,
+ * which `extractLastAssistantTurn`'s turn-slice return value (exclusive of
+ * both boundary lines) does not expose.
  */
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
+export function findRealPromptIndices(lines: TranscriptLine[]): number[] {
   const promptIndices: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     if (isRealUserPrompt(line)) promptIndices.push(i);
   }
+  return promptIndices;
+}
 
-  if (promptIndices.length < 2) return [];
+/** The just-completed turn plus the boundary a caller should treat as its start. */
+export interface CompletedTurn {
+  /** Every line of the turn that just completed, in transcript order. */
+  turnLines: TranscriptLine[];
+  /**
+   * Index of the real user prompt that OPENED `turnLines`, or undefined when
+   * no turn could be resolved. Consumers that need the opening prompt's own
+   * timestamp, or a lookback window over prompts at-or-before it, must read it
+   * from here rather than recomputing `promptIndices[length - 2]` — that
+   * expression is only correct in one of the two shapes below.
+   */
+  openingPromptIndex: number | undefined;
+  /** Whether the prompt that fired this hook had already been written to the transcript. */
+  firingPromptLanded: boolean;
+}
 
-  const startIdx = (promptIndices[promptIndices.length - 2] as number) + 1;
-  const endIdx = promptIndices[promptIndices.length - 1] as number;
-  return lines.slice(startIdx, endIdx);
+/**
+ * Resolve the just-completed turn from what the transcript ACTUALLY contains,
+ * rather than from an assumed prompt count.
+ *
+ * At `UserPromptSubmit` the prompt that fired the hook is usually not in the
+ * transcript yet, so the pre-mt#3280 rule — "the span between the last two
+ * real prompts, the last one being the firing prompt" — returned the turn
+ * BEFORE the one that just completed. Claude Code's hooks reference documents
+ * the underlying property (`transcript_path`, common input fields): the
+ * transcript "is written asynchronously and may lag the in-memory
+ * conversation, so it may not yet include the current turn's most recent
+ * messages when a hook fires."
+ *
+ * Because that lag is asynchronous, NEITHER shape can be assumed and a fixed
+ * one-boundary correction would be wrong whenever the prompt does land in
+ * time. The transcript answers the question itself:
+ *
+ * - Lines exist AFTER the last real prompt. Nothing can follow the firing
+ *   prompt at `UserPromptSubmit` time, so that prompt has not landed; the last
+ *   real prompt is the one that OPENED the completed turn, and the lines after
+ *   it are the turn.
+ * - Nothing follows the last real prompt. It is the newest line in the file —
+ *   the firing prompt, which landed before the read. The completed turn is
+ *   then the span between the last two real prompts, which is exactly what
+ *   this function returned before mt#3280 and is correct in this shape.
+ *
+ * Under the first shape a conversation's FIRST turn now resolves too (one real
+ * prompt is enough), where the two-prompt guard previously returned [].
+ *
+ * Returns empty `turnLines` when the transcript holds no real prompt at all,
+ * and when the firing prompt landed but no earlier prompt exists to bound the
+ * turn against.
+ *
+ * @see extractFinalTurn — the Stop-event sibling, which takes the same tail
+ *   unconditionally because at Stop time no subsequent prompt exists yet.
+ */
+export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) {
+    return { turnLines: [], openingPromptIndex: undefined, firingPromptLanded: false };
+  }
+
+  const lastPromptIdx = promptIndices[promptIndices.length - 1] as number;
+  const tail = lines.slice(lastPromptIdx + 1);
+  if (tail.length > 0) {
+    return { turnLines: tail, openingPromptIndex: lastPromptIdx, firingPromptLanded: false };
+  }
+
+  if (promptIndices.length < 2) {
+    return { turnLines: [], openingPromptIndex: undefined, firingPromptLanded: true };
+  }
+  const openingPromptIndex = promptIndices[promptIndices.length - 2] as number;
+  return {
+    turnLines: lines.slice(openingPromptIndex + 1, lastPromptIdx),
+    openingPromptIndex,
+    firingPromptLanded: true,
+  };
+}
+
+/**
+ * Extract the just-completed logical turn.
+ *
+ * Thin accessor over {@link resolveCompletedTurn} — see that function for how
+ * the turn's boundaries are resolved and why they cannot be derived from a
+ * fixed prompt offset. Callers that also need the turn's opening boundary
+ * should call `resolveCompletedTurn` directly so their boundary can never
+ * disagree with the window scanned here.
+ *
+ * Because the bounds are real prompts (not every user-role line), interleaved
+ * `tool_result` user-role lines fall INSIDE the returned span rather than
+ * splitting it. The result therefore covers all assistant segments AND all
+ * tool_result lines of the turn — a full multi-round turn.
+ *
+ * Returns [] when no turn can be resolved.
+ */
+export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
+  return resolveCompletedTurn(lines).turnLines;
+}
+
+/**
+ * Extract the FINAL (just-completed) turn: every line AFTER the last real
+ * user prompt through end-of-transcript. This is the Stop-event counterpart
+ * of {@link extractLastAssistantTurn} (mt#2357): at Stop time no subsequent
+ * prompt exists yet, so the completed turn is the transcript's tail — a
+ * shape extractLastAssistantTurn (which needs two bounding prompts) returns
+ * [] for. Also returns the bounding prompt line itself so callers can key
+ * the turn stably (`uuid` / `timestamp`) across a later prompt-time re-scan
+ * of the same turn.
+ *
+ * Returns { turnLines: [], openingPrompt: undefined } when the transcript
+ * has no real user prompt at all.
+ */
+export function extractFinalTurn(lines: TranscriptLine[]): {
+  turnLines: TranscriptLine[];
+  openingPrompt: TranscriptLine | undefined;
+} {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) return { turnLines: [], openingPrompt: undefined };
+  const lastIdx = promptIndices[promptIndices.length - 1] as number;
+  return { turnLines: lines.slice(lastIdx + 1), openingPrompt: lines[lastIdx] };
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +760,139 @@ export function findToolUseInputs(
     }
   }
   return inputs;
+}
+
+/**
+ * Concatenate the text content of a `tool_result` block's `content` field.
+ * `content` is either a plain string or an array of blocks. The common shape
+ * observed in real Claude Code transcripts is `{ type: "text", text }`, but
+ * (PR #1982 review) matching is deliberately not pinned to `type === "text"`
+ * exactly — ANY block carrying a string `text` field is accepted, so a
+ * differently-tagged text block (a future harness format change, or an
+ * alternate MCP content-block variant) is not silently dropped. A block
+ * whose text is nested one level deeper — e.g. an embedded-resource-style
+ * `{ content: [...] }` wrapper — is recursed into once. Non-text, non-nested
+ * blocks are ignored; a malformed or absent content contributes "".
+ */
+function extractToolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (typeof b["text"] === "string") {
+        parts.push(b["text"] as string);
+        continue;
+      }
+      if (b["content"] !== undefined) {
+        const nested = extractToolResultText(b["content"]);
+        if (nested) parts.push(nested);
+      }
+    }
+    return parts.join("");
+  }
+  return "";
+}
+
+/**
+ * JSON-parse `text` into an object, or undefined if `text` is absent /
+ * unparseable / not a JSON object (e.g. an error-path plain-text result).
+ */
+function parseResultJson(text: string | undefined): Record<string, unknown> | undefined {
+  if (!text) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Extract every `tool_use` block for `toolName`, each paired with (a) its own
+ * call input, (b) the id its JSON result reports under `idField`, and (c) the
+ * full parsed result object — for tools that MINT a new resource id
+ * server-side rather than taking one as input (e.g. `mcp__minsky__tasks_create`,
+ * which never receives a `taskId`: the backend assigns one and returns it in
+ * the result). Contrast {@link findToolUseInputs}, which only reads the
+ * CALL's input and cannot see a server-assigned id or confirm the call
+ * actually succeeded.
+ *
+ * Correlation: Claude Code stamps every `tool_use` block with an `id`
+ * (`toolu_...`); the matching outcome is a LATER user-role line whose
+ * `message.content` array contains a `{ type: "tool_result", tool_use_id,
+ * content }` block carrying that same id. `content` is JSON-parsed (via
+ * {@link extractToolResultText} + {@link parseResultJson}). A `tool_use` with
+ * no correlated result in `lines`, or whose result isn't parseable JSON,
+ * contributes `createdId: undefined` and `result: undefined` rather than
+ * throwing; `createdId` is additionally `undefined` when the parsed result
+ * lacks a non-empty string at `idField` (including the error-path case — a
+ * thrown command's result has no `taskId`). Exposing the full `result` object
+ * (not just the extracted id) lets a caller apply its own additional
+ * server-side-confirmation checks — e.g. requiring `result.success === true`
+ * — without this generic helper needing tool-specific knowledge of what
+ * "confirmed" means for every possible `toolName`.
+ *
+ * Handles both transcript shapes for tool_use, mirroring
+ * {@link findToolUseInputs}: a top-level `type === "tool_use"` line, or an
+ * assistant line whose `message.content` array contains a `tool_use` block.
+ */
+export function findCreatedResourceIds(
+  lines: TranscriptLine[],
+  toolName: string,
+  idField: string
+): Array<{
+  input: Record<string, unknown>;
+  createdId: string | undefined;
+  result: Record<string, unknown> | undefined;
+}> {
+  // Pass 1: tool_use_id -> concatenated result text, from every tool_result
+  // block anywhere in the transcript (not scoped to toolName — a tool_result
+  // only carries its correlating id, not the originating tool's name).
+  const resultTextById = new Map<string, string>();
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      const text = extractToolResultText(block["content"]);
+      if (text) resultTextById.set(useId, (resultTextById.get(useId) ?? "") + text);
+    }
+  }
+
+  // Pass 2: tool_use blocks for toolName, resolving each against pass 1's map.
+  const results: Array<{
+    input: Record<string, unknown>;
+    createdId: string | undefined;
+    result: Record<string, unknown> | undefined;
+  }> = [];
+  const pushResult = (id: unknown, rawInput: unknown): void => {
+    const input =
+      rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+    const resultText = typeof id === "string" ? resultTextById.get(id) : undefined;
+    const result = parseResultJson(resultText);
+    const idValue = result?.[idField];
+    const createdId = typeof idValue === "string" && idValue.length > 0 ? idValue : undefined;
+    results.push({ input, createdId, result });
+  };
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      const n = line.name ?? line.tool_name;
+      if (n === toolName) pushResult((line as Record<string, unknown>)["id"], line.input);
+    }
+    const content = line.message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (block && block["type"] === "tool_use" && block["name"] === toolName) {
+          pushResult(block["id"], block["input"]);
+        }
+      }
+    }
+  }
+  return results;
 }
 
 /**

@@ -9,7 +9,7 @@ import type { GitHubConfig } from "../configuration/schemas/github";
 
 export type { TokenProvider };
 export { FallbackTokenProvider } from "./fallback-token-provider";
-export { GitHubAppTokenProvider } from "./github-app-token-provider";
+export { GitHubAppTokenProvider, type GitHubAppPermissions } from "./github-app-token-provider";
 
 /**
  * Creates the appropriate TokenProvider based on the GitHub configuration.

@@ -1,0 +1,178 @@
+/**
+ * Markdown-stripped display snippet helper (mt#2770 — conversation labeling).
+ *
+ * Turns raw first-user-turn text (which may contain markdown, code fences,
+ * links, etc.) into a short, plain-text label suitable for a list row or a
+ * page header. Deliberately NOT a full markdown parser — just enough
+ * pattern-stripping to keep common syntax from leaking into the label, with
+ * a hard length cap and word-boundary-aware truncation.
+ *
+ * mt#2784 adds harness-wrapper stripping ({@link stripHarnessMarkup}), run
+ * BEFORE markdown-stripping in {@link toDisplaySnippet}: a slash-command or
+ * hook-injected turn's `<command-message>`/`<command-name>`/
+ * `<local-command-stdout>`/`<system-reminder>` blocks are harness structural
+ * markup, not operator prose, so the whole block (tag markers AND contained
+ * text) is discarded — the same "discard the block" treatment already
+ * applied to fenced code above, not a partial unwrap.
+ *
+ * mt#2818 lifted this module from `src/cockpit/text-snippet.ts` into the
+ * domain layer (`packages/domain/src/transcripts/`) so BOTH the cockpit app
+ * (mt#2770's conversation labels) and the shared-command layer
+ * (`transcripts_get`'s text projection) import the SAME
+ * {@link stripHarnessMarkup} heuristic instead of the command layer
+ * depending on cockpit's app layer (or vice versa). The old
+ * `src/cockpit/text-snippet.ts` copy was deleted; cockpit consumers
+ * (`widgets/context-inspector.ts`, `widgets/run-merge.ts`) now import
+ * directly from this module.
+ */
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+import { HARNESS_MARKUP_TAGS } from "@minsky/shared/harness-markup";
+
+/**
+ * Harness-injected structural wrapper tags whose CONTENTS are never operator
+ * prose (mt#2784). `<command-message>` is a deliberate judgment call, not an
+ * oversight: its body is just the invoked skill/command's display name (e.g.
+ * "error-handling"), which reads like plausible label text — but it is
+ * harness boilerplate the operator never typed, so it is discarded entirely
+ * along with the other tags rather than unwrapped (contrast with a markdown
+ * link, where the visible text IS operator-authored and is kept).
+ *
+ * mt#3322 replaced this module's hand-maintained four-tag list with the
+ * shared inventory in `./harness-markup`, which the cockpit's render-surface
+ * detector also consumes. The two lists had drifted:
+ * `local-command-caveat` was missing here (125 turns in the corpus carry it),
+ * and `command-args` / `skill-format` were covered only incidentally by
+ * {@link stripLeadingWrapperBlocks}'s position-based pass — so a wrapper
+ * appearing mid-text leaked. Adopting the shared set closes both gaps.
+ */
+const HARNESS_WRAPPER_TAGS = HARNESS_MARKUP_TAGS;
+
+/**
+ * Strip harness command-wrapper / system-reminder blocks — tag markers AND
+ * everything between them, discarded as a single unit (mt#2784). Applied
+ * BEFORE {@link stripMarkdown} in {@link toDisplaySnippet} so a slash-command
+ * turn like `<command-message>error-handling</command-message>` reduces to
+ * an empty string rather than leaking raw XML into a label.
+ *
+ * **Heuristic limits** (mt#2818): this is a FIXED tag allowlist (the four
+ * names above), not a general parser. A harness-injected wrapper using a tag
+ * name outside this list is NOT detected and passes through unflagged. It is
+ * also a regex match, not a real XML/HTML parser, so pathological
+ * malformed/nested tags could mismatch.
+ */
+export function stripHarnessMarkup(text: string): string {
+  let s = text;
+  for (const tag of HARNESS_WRAPPER_TAGS) {
+    // `(?:\s+[^>]*)?` tolerates an attribute-bearing or whitespace-padded
+    // opening tag (e.g. `<command-message kind="slash">` or
+    // `<command-message >`) — a bare `<${tag}>` match alone would miss those
+    // variants and leak raw XML back into the label (reviewer-bot PR #1919
+    // R1). Case-insensitive since the harness's exact tag casing isn't a
+    // guaranteed contract.
+    const re = new RegExp(`<${tag}(?:\\s+[^>]*)?>[\\s\\S]*?</${tag}>`, "gi");
+    s = s.replace(re, " ");
+  }
+  return s;
+}
+
+/**
+ * Bound on how many consecutive LEADING wrapper blocks
+ * {@link stripLeadingWrapperBlocks} removes. Defensive: harness injections
+ * prepend at most a couple of blocks; an unbounded loop on pathological input
+ * is not worth the risk.
+ */
+const MAX_LEADING_WRAPPER_BLOCKS = 5;
+
+/**
+ * Strip XML-ish wrapper blocks at the START of the text, whatever their tag
+ * name (mt#2883). {@link stripHarnessMarkup}'s fixed allowlist misses any
+ * harness wrapper it doesn't know about — the observed leak was
+ * `<skill-format>true</skill-format> Base directory…` rendering verbatim as a
+ * conversation label (the tag postdates the allowlist). Rather than chase tag
+ * names one by one, treat ANY matched tag pair (or lone opening tag) at the
+ * head of the text as structural markup: operator prose essentially never
+ * BEGINS with a matched XML pair, while harness injections routinely do.
+ * Mid-prose angle brackets (e.g. "use the <Card> primitive here") are
+ * untouched — only leading blocks are stripped, at most
+ * {@link MAX_LEADING_WRAPPER_BLOCKS} of them.
+ */
+export function stripLeadingWrapperBlocks(text: string): string {
+  let s = text.trimStart();
+  for (let i = 0; i < MAX_LEADING_WRAPPER_BLOCKS; i++) {
+    // Matched pair: <tag ...>content</tag> — non-greedy, tolerates attributes
+    // and closing-tag whitespace, case-insensitive backreference via the
+    // same-case source (harness tags are consistent within one injection).
+    const paired = s.match(/^<([a-zA-Z][\w-]*)(?:\s+[^>]*)?>[\s\S]*?<\/\1\s*>/);
+    if (paired) {
+      s = s.slice(paired[0].length).trimStart();
+      continue;
+    }
+    // Lone leading tag (self-closing or unpaired opener): <tag ...> / <tag/>.
+    const solo = s.match(/^<[a-zA-Z][\w-]*(?:\s+[^>]*)?\/?>/);
+    if (solo) {
+      s = s.slice(solo[0].length).trimStart();
+      continue;
+    }
+    break;
+  }
+  return s;
+}
+
+/** Strip common markdown syntax, collapsing the result to a single line. */
+export function stripMarkdown(text: string): string {
+  let s = text;
+
+  // Code fences: strip the whole block (fence markers AND contained text) to
+  // a single placeholder space — a code block rarely reads as a useful label
+  // fragment. Inline code: keep the contained text, drop only the backtick
+  // markers.
+  s = s.replace(/```[\s\S]*?```/g, " ");
+  s = s.replace(/`([^`]*)`/g, "$1");
+
+  // Images and links: ![alt](url) -> alt ; [text](url) -> text
+  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+
+  // Heading / blockquote / list markers at line start.
+  s = s.replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "");
+
+  // Emphasis markers (bold/italic), non-greedy.
+  s = s.replace(/(\*\*\*|___)([^*_]+)\1/g, "$2");
+  s = s.replace(/(\*\*|__)([^*_]+)\1/g, "$2");
+  s = s.replace(/(\*|_)([^*_]+)\1/g, "$2");
+
+  // Collapse all whitespace (including newlines) to single spaces.
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
+/**
+ * Truncate a plain-text string to at most `maxLen` characters, preferring a
+ * word boundary and appending an ellipsis when truncated. Never throws.
+ */
+export function truncateSnippet(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  // safeTruncate avoids splitting a UTF-16 surrogate pair (custom/no-unsafe-string-truncation).
+  const cut = safeTruncate(text, maxLen, "head");
+  const lastSpace = cut.lastIndexOf(" ");
+  // Only break at the word boundary if it doesn't throw away too much text.
+  const base = lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return `${base.trimEnd()}…`;
+}
+
+/**
+ * Convenience wrapper: strip markdown then truncate. Returns `""` for
+ * null/undefined/empty input so callers can treat it as "no snippet" without
+ * a separate null check.
+ */
+export function toDisplaySnippet(text: string | null | undefined, maxLen: number): string {
+  if (!text) return "";
+  // Allowlist strip first (removes known wrapper blocks anywhere in the
+  // text), then the generic leading-wrapper strip (kills unknown harness
+  // tags at the head — mt#2883), then markdown.
+  const stripped = stripMarkdown(stripLeadingWrapperBlocks(stripHarnessMarkup(text)));
+  if (!stripped) return "";
+  return truncateSnippet(stripped, maxLen);
+}

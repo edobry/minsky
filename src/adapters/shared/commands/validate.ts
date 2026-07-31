@@ -8,7 +8,7 @@
 
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join, relative, resolve } from "path";
+import { join, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -106,7 +106,15 @@ interface TypecheckResult {
   errorCount: number;
   errors: TypecheckError[];
   status: "pass" | "fail";
-  /** Workspaces that were typechecked (labels), e.g. ["." , "services/reviewer"]. */
+  /**
+   * Every project that was typechecked. Entries are either a workspace LABEL (`.`,
+   * `services/reviewer`, `src/cockpit/web`) or, for a standalone root-level project, its
+   * tsconfig PATH (`tsconfig.hooks.json` — mt#3183). The two forms are deliberately mixed
+   * because the underlying things differ: a workspace is a directory with its own
+   * `tsconfig.json`, a standalone project IS a tsconfig file. Each entry is what a reader
+   * would pass to reproduce that specific check, and each error's `workspace` field carries
+   * the matching value, so the two are always joinable.
+   */
   workspaces: string[];
   /** The base directory that was actually validated — prevents silent main-repo checks. */
   validatedWorkspace: string;
@@ -250,6 +258,12 @@ const defaultWorkspaceFs: WorkspaceFs = {
 };
 
 /**
+ * The cockpit frontend's dedicated typecheck project (mt#2424). Not discovered via
+ * {@link discoverTypecheckWorkspaces} — see its usage site below for why.
+ */
+const COCKPIT_WEB_TSCONFIG_REL = "src/cockpit/web";
+
+/**
  * Directory names a `<glob>/*` workspace pattern must never enumerate into — heavy or
  * irrelevant trees that can never be a declared workspace. Guards against a stray pattern
  * like `*` or `./*` walking `node_modules` on some layouts. Dot-directories are also skipped.
@@ -335,6 +349,61 @@ export async function discoverTypecheckWorkspaces(
 
   result.sort();
   return result;
+}
+
+/**
+ * Discover standalone tsconfig PROJECTS the root `package.json` typechecks via its own
+ * `typecheck:*` scripts — `tsconfig.hooks.json`, `tsconfig.scripts.json`, and any future
+ * sibling.
+ *
+ * {@link discoverTypecheckWorkspaces} finds sub-WORKSPACES (a directory with its own
+ * `package.json` + `tsconfig.json`). These projects are neither: they are extra tsconfigs at
+ * the repo root, each covering a directory the root tsconfig excludes. Nothing about a
+ * workspace glob can reach them, which is why `scripts/**` and `.claude/hooks/**` type errors
+ * passed a default `validate_typecheck` and then failed CI (mt#3183).
+ *
+ * **Why the package.json scripts are the source of truth, not a `tsconfig.*.json` glob.** The
+ * invariant that broke is "this tool checks what CI checks," and CI's `build` job runs exactly
+ * these scripts as separate steps. Deriving from the same declaration makes the two agree by
+ * construction. A glob would diverge in both directions: it would claim coverage for a tsconfig
+ * no CI step runs, and miss a project whose script points somewhere the glob does not match.
+ *
+ * Returns tsconfig paths relative to `rootDir`, in script-declaration order, deduplicated.
+ * `typecheck:root` (no `-p`) is skipped — the root project is always checked directly by the
+ * caller. Fail-open: any read/parse error returns [] so the root typecheck still runs.
+ */
+export async function discoverStandaloneTypecheckProjects(
+  rootDir: string,
+  fsImpl: WorkspaceFs = defaultWorkspaceFs
+): Promise<string[]> {
+  let rootPkg: { scripts?: Record<string, string> };
+  try {
+    rootPkg = JSON.parse(await fsImpl.readFile(join(rootDir, "package.json"))) as {
+      scripts?: Record<string, string>;
+    };
+  } catch {
+    return [];
+  }
+
+  const scripts = rootPkg.scripts ?? {};
+  const found: string[] = [];
+
+  for (const [name, body] of Object.entries(scripts)) {
+    if (!name.startsWith("typecheck:")) continue;
+    if (typeof body !== "string") continue;
+    // `-p <path>`, `--project <path>`, and their equals forms (`-p=<path>`,
+    // `--project=<path>`) — npm/bun scripts use both spellings, and a project declared with
+    // the equals form would otherwise be silently dropped, recreating this task's own bug in
+    // a new shape. The value may be quoted with either quote style.
+    const match = /(?:^|\s)(?:-p|--project)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|([^\s"']+))/.exec(body);
+    const projectPath = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (!projectPath) continue;
+    if (found.includes(projectPath)) continue;
+    if (!(await fsImpl.exists(join(rootDir, projectPath)))) continue;
+    found.push(projectPath);
+  }
+
+  return found;
 }
 
 /**
@@ -484,9 +553,14 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
       name: "typecheck",
       description:
         "Run TypeScript type checker and return structured results. By default covers the root " +
-        "tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass " +
-        "`workspace` to typecheck a single directory only. Error `file` paths are root-relative " +
-        "in both modes. Pass `task` or `sessionId` to run against a session workspace.",
+        "tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), " +
+        "src/cockpit/web (the cockpit frontend's own project, mt#2424), AND every standalone " +
+        "tsconfig project the root package.json typechecks via a `typecheck:*` script " +
+        "(tsconfig.hooks.json, tsconfig.scripts.json — mt#3183), so a clean result means the " +
+        "same set CI checks. Pass `workspace` to " +
+        "typecheck a single directory only (error `file` paths are then relative to THAT " +
+        "workspace, not the overall root — multi-workspace mode's `file` paths are " +
+        "root-relative). Pass `task` or `sessionId` to run against a session workspace.",
       parameters: typecheckParams,
       execute: async (params): Promise<TypecheckResult> => {
         const explicitWorkspace = params.workspace as string | undefined;
@@ -497,24 +571,34 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
         // - explicit `workspace` → single-workspace mode (backward compat)
         // - task / sessionId   → session workdir (multi-workspace mode, base = session dir)
         // - neither            → process.cwd() (multi-workspace mode, base = main repo)
-        const rootDir = await resolveValidateWorkspace(
-          { workspace: explicitWorkspace, task, sessionId },
-          resolveSessionDir
+        //
+        // `resolve(...)` normalizes to an ABSOLUTE path unconditionally: a no-op when the
+        // value is already absolute (an explicit `workspace` from `session_dir`, or a
+        // session workdir from `resolveSessionDir`), and resolves against `process.cwd()`
+        // when it's relative (an explicit `workspace` like "services/reviewer", or the
+        // process.cwd() fallback itself). Without this, a RELATIVE explicit `workspace`
+        // flowed unresolved into the single-workspace branch below and got joined against
+        // itself a second time, producing a nonexistent nested path and a synthetic
+        // TSGO_RUNNER crash instead of a real typecheck result (reviewer finding, PR #2057
+        // R1; also independently found and filed as mt#2930 before the review landed).
+        const rootDir = resolve(
+          await resolveValidateWorkspace(
+            { workspace: explicitWorkspace, task, sessionId },
+            resolveSessionDir
+          )
         );
 
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
 
-        // Every target is spawned from the repo root (reuses the root-installed checker binary)
-        // and selects the workspace's tsconfig via `-p`, so error `file` paths are consistently
-        // root-relative in BOTH single- and multi-workspace modes.
         if (explicitWorkspace) {
-          // Single-workspace mode (backward compatible). `-p <rel>/tsconfig.json` keeps file
-          // paths root-relative; an explicit root (rel === ".") falls back to the root tsconfig.
+          // Single-workspace mode (backward compatible). `rootDir` (now guaranteed
+          // absolute, see above) already IS the target workspace directory itself — no
+          // `-p` needed, tsgo picks up that directory's own tsconfig.json, mirroring the
+          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".")`)
+          // below.
           checked.push(explicitWorkspace);
-          const rel = relative(rootDir, resolve(rootDir, explicitWorkspace)) || ".";
-          const projectPath = rel === "." ? undefined : `${rel}/tsconfig.json`;
-          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace, projectPath)));
+          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace)));
         } else {
           // Multi-workspace mode: root tsconfig + every workspace with its own `typecheck`
           // script. When task/sessionId was given, rootDir is the session workspace; otherwise
@@ -526,6 +610,47 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           for (const ws of workspaces) {
             checked.push(ws);
             errors.push(...(await runTypecheckTarget(rootDir, ws, `${ws}/tsconfig.json`)));
+          }
+
+          // src/cockpit/web (mt#2424) is a dedicated typecheck project but NOT a
+          // package.json `workspaces` entry (it has no package.json of its own — it's
+          // a subdirectory of the root package, built by vite, not a monorepo package),
+          // so discoverTypecheckWorkspaces' package.json-workspaces-glob discovery
+          // never finds it. Check for its tsconfig directly instead. The root
+          // tsconfig's own `exclude` list excludes this directory, and `vite build`
+          // transpiles it without type-checking, so without this it has NO static
+          // type coverage under a default validate.typecheck run.
+          if (existsSync(join(rootDir, COCKPIT_WEB_TSCONFIG_REL, "tsconfig.json"))) {
+            checked.push(COCKPIT_WEB_TSCONFIG_REL);
+            errors.push(
+              ...(await runTypecheckTarget(
+                rootDir,
+                COCKPIT_WEB_TSCONFIG_REL,
+                `${COCKPIT_WEB_TSCONFIG_REL}/tsconfig.json`
+              ))
+            );
+          }
+
+          // Standalone root-level tsconfig projects (mt#3183): tsconfig.hooks.json and
+          // tsconfig.scripts.json cover `.claude/hooks/**` and `scripts/**`, directories the
+          // root tsconfig excludes and no workspace glob can reach. CI runs them as separate
+          // build steps; before this pass a default run reported a clean pass while CI failed
+          // on exactly those trees — the worst shape of dev-vs-CI drift, because the local
+          // signal an agent reads as permission to open a PR was the one that was wrong.
+          //
+          // Deduped against everything already checked: the cockpit-web project above is ALSO
+          // declared as a `typecheck:cockpit-web` script, so without this it would run twice
+          // and report each of its errors twice.
+          const alreadyCheckedProjects = new Set(
+            checked.map((label) =>
+              label === "." ? "tsconfig.json" : `${label.replace(/\/$/, "")}/tsconfig.json`
+            )
+          );
+          for (const projectPath of await discoverStandaloneTypecheckProjects(rootDir)) {
+            if (alreadyCheckedProjects.has(projectPath)) continue;
+            alreadyCheckedProjects.add(projectPath);
+            checked.push(projectPath);
+            errors.push(...(await runTypecheckTarget(rootDir, projectPath, projectPath)));
           }
         }
 

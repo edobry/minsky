@@ -1,4 +1,5 @@
 import { validateProcess } from "../schemas/runtime";
+import { runGitCommandWithLockHandling, type LockDependencies } from "./lock-operations";
 
 /**
  * Options for pull operations.
@@ -8,6 +9,11 @@ export interface PullOptions {
   repoPath?: string;
   remote?: string;
   branch?: string;
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and the pull retried once.
+   */
+  repairLock?: boolean;
 }
 
 /**
@@ -26,12 +32,7 @@ export interface PullImplResult {
 /**
  * Dependencies for pull operations
  */
-export interface PullDependencies {
-  execAsync: (
-    command: string,
-    options?: Record<string, unknown>
-  ) => Promise<{ stdout: string; stderr: string }>;
-}
+export type PullDependencies = LockDependencies;
 
 // POSIX shell single-quote escape: wrap in '...', and replace each ' with '\''.
 function shellQuote(s: string): string {
@@ -87,8 +88,10 @@ export async function pullImpl(
   const qBranch = shellQuote(branch);
 
   try {
-    const { stdout } = await deps.execAsync(
-      `git -C ${qWorkdir} pull --ff-only ${qRemote} ${qBranch}`
+    const { stdout } = await runGitCommandWithLockHandling(
+      `git -C ${qWorkdir} pull --ff-only ${qRemote} ${qBranch}`,
+      deps,
+      { repoPath: workdir, repairLock: options.repairLock }
     );
     const alreadyUpToDate =
       stdout.includes("Already up to date") || stdout.includes("Already up-to-date");

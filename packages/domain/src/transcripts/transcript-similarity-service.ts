@@ -62,6 +62,61 @@ export interface TranscriptTurnResult {
   /** Cosine-distance score from pgvector (<=> operator). Lower = more similar. */
   score: number;
   sessionMetadata: TranscriptSessionMetadata;
+  /**
+   * Ready-to-run resume hint for this turn's conversation (mt#2523) — the
+   * exact command an operator can paste to resume the harness conversation
+   * this turn belongs to. Derived purely from `agentSessionId`; kept as a
+   * field (not left for callers to compose) so every search surface (CLI,
+   * MCP, cockpit) renders the identical string.
+   */
+  resumeHint: string;
+}
+
+/**
+ * Single-quote a path for safe use in a shell command.
+ *
+ * A recorded `cwd` is arbitrary filesystem text — it can contain spaces, and in
+ * principle a quote. Wrapping in single quotes neutralises everything except a
+ * single quote itself, which is closed/escaped/reopened in the usual way.
+ */
+function shellQuote(path: string): string {
+  return `'${path.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Build the ready-to-run resume hint for a harness conversation (mt#2523,
+ * corrected by mt#3440). Single source of truth so CLI/MCP output and the
+ * cockpit search surface never drift on the exact command string.
+ *
+ * **The `cd` is load-bearing, not cosmetic.** Claude Code keys its transcript
+ * directory off the working directory, so `claude --resume <id>` run anywhere
+ * other than the conversation's original `cwd` fails with
+ * `No conversation found with session ID: <id>` — which reads as "the
+ * conversation is gone" rather than "you are in the wrong directory."
+ * Reproduced against the live binary (mt#3440 `## Planning Audit`): the same id
+ * fails from `/tmp` and succeeds from its recorded cwd, same machine, same
+ * minute. The same requirement is documented at `driven-session-host.ts`'s
+ * `missingCwdReason`.
+ *
+ * When `cwd` is unknown (52 of 2,061 rows at time of writing), the hint says so
+ * inline rather than emitting a bare command that will silently fail from
+ * wherever the operator happens to be standing.
+ *
+ * **On embedding an absolute path in a rendered string** (PR #2489 review): the
+ * path is what makes the command work — there is no directory-independent form
+ * of `claude --resume`. It is also not newly exposed by this function: the same
+ * `agent_transcripts.cwd` is already served to the same local surface by
+ * `routes/conversations.ts` (the Overview tab's `conversationMeta`) and
+ * `routes/session-film.ts`, and the cockpit binds loopback behind a token +
+ * Host-allowlist. If conversation data ever becomes multi-tenant or
+ * remotely-served, the path belongs in that review — not this one function.
+ */
+export function buildResumeHint(conversationId: string, cwd?: string | null): string {
+  const resume = `claude --resume ${conversationId}`;
+  if (!cwd) {
+    return `${resume}  # run from the conversation's original directory (not recorded)`;
+  }
+  return `cd ${shellQuote(cwd)} && ${resume}`;
 }
 
 /**
@@ -91,6 +146,13 @@ export interface TranscriptSearchOptions {
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
   sessionId?: string;
+  /**
+   * Project scoping (mt#2417, Phase 1.4). A `projects.id` uuid restricts
+   * results to transcripts whose `agent_transcripts.project_id` matches;
+   * `undefined`/omitted returns unscoped (all-projects) results — same
+   * "unidentified -> ALL_PROJECTS" fail-open convention as ADR-021.
+   */
+  projectId?: string;
 }
 
 /**
@@ -99,6 +161,8 @@ export interface TranscriptSearchOptions {
 export interface FindSimilarTurnOptions {
   /** Max results to return. Default: 10. */
   limit?: number;
+  /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
+  projectId?: string;
 }
 
 /**
@@ -107,6 +171,8 @@ export interface FindSimilarTurnOptions {
 export interface FindSimilarSessionOptions {
   /** Max results to return. Default: 10. */
   limit?: number;
+  /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
+  projectId?: string;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -162,6 +228,13 @@ export class TranscriptSimilarityService {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
     }
 
+    // Project scoping (mt#2417, Phase 1.4): filter via the JOIN'd parent
+    // session's project_id. Omitted -> unscoped (all-projects), same
+    // fail-open convention as ADR-021's other scoped read sites.
+    if (opts.projectId) {
+      conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
+
     // Date window binds the TURN's started_at (not the parent session's) — see
     // buildTurnDateRangeConditions / mt#2319.
     conditions.push(...buildTurnDateRangeConditions(opts.dateRange));
@@ -180,6 +253,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -214,6 +288,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(`TranscriptSimilarityService.search: query failed: ${getErrorMessage(err)}`, {
@@ -284,10 +359,14 @@ export class TranscriptSimilarityService {
     const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Exclude the seed turn itself.
-    const conditions = [
+    const conditions: SQL[] = [
       sql`${agentTranscriptTurnsTable.embedding} IS NOT NULL`,
       sql`NOT (${agentTranscriptTurnsTable.agentSessionId} = ${agentSessionId} AND ${agentTranscriptTurnsTable.turnIndex} = ${turnIndex})`,
     ];
+    // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
+    if (opts.projectId) {
+      conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
 
     try {
       const rows = await this.db
@@ -302,6 +381,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -335,6 +415,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null,
         },
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(
@@ -385,6 +466,15 @@ export class TranscriptSimilarityService {
     const embeddingLiteral = `'[${(seedRow.summaryEmbedding as number[]).join(",")}]'`;
     const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
 
+    // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
+    const scopeConditions: SQL[] = [
+      sql`${agentTranscriptsTable.summaryEmbedding} IS NOT NULL`,
+      ne(agentTranscriptsTable.agentSessionId, sessionId),
+    ];
+    if (opts.projectId) {
+      scopeConditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
+
     try {
       const rows = await this.db
         .select({
@@ -397,12 +487,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
         })
         .from(agentTranscriptsTable)
-        .where(
-          and(
-            sql`${agentTranscriptsTable.summaryEmbedding} IS NOT NULL`,
-            ne(agentTranscriptsTable.agentSessionId, sessionId)
-          )
-        )
+        .where(and(...scopeConditions))
         .orderBy(distanceExpr)
         .limit(limit);
 

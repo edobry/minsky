@@ -29,7 +29,10 @@ describe("triggerStartupTranscriptIngest", () => {
       getDatabaseConnection,
     } as unknown as BasePersistenceProvider;
 
-    await triggerStartupTranscriptIngest(provider);
+    // mt#2980: inject a near-zero retry delay in place of the real 5s
+    // INIT_RETRY_DELAY_MS — this test only asserts the retry-once behavior,
+    // not the actual production delay duration.
+    await triggerStartupTranscriptIngest(provider, { initRetryDelayMs: 0 });
     expect(getDatabaseConnection).toHaveBeenCalledTimes(2);
   });
 });

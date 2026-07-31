@@ -7,10 +7,13 @@ description: >-
   public blog posts, shared design docs meant to persuade, RFCs with
   argumentative structure. Provides structural patterns (lead with position,
   justify after), section-heading heuristics (sentence case, specific,
-  opinionated), an AI-voice-tells checklist (em dashes, tricolons, vocabulary,
-  heading patterns), and a revision workflow. Skip for task specs (use
-  create-task), rule files (use create-rule), code comments, or short
-  internal-only docs.
+  opinionated), an AI-voice-tells checklist (cadence uniformity, reveal-
+  signposting, contrast sentences and rule of three, mystic register,
+  vocabulary, heading patterns), and a revision workflow. Skip for task specs
+  (use create-task), rule files (use create-rule), code comments, short
+  internal-only docs, and manifesto/declaration surfaces (pz-voice +
+  minsky-brand own that register; this skill's revision passes still apply
+  cross-genre).
 user-invocable: true
 ---
 
@@ -26,6 +29,16 @@ Guide for writing long-form engineering prose that reads like a person wrote it,
 - Long-form ADRs with argumentative structure
 
 Skip for: task specs, rule files, code comments, short internal-only docs (a few paragraphs don't warrant this apparatus).
+
+**If the artifact's function is to get a decision from the principal** (an RFC or ADR opened in order to approve, reject, or redirect), this skill governs the body but NOT the opening — see §Decision artifacts lead with the decision below before applying the stakes-first pattern.
+
+## Genre boundary: manifestos and declarations
+
+This skill's structural apparatus — the classical-rhetoric move inventory, landscape/roadmap/threat sections — is persuasion machinery. A manifesto declares rather than persuades; forcing one through the move inventory is exactly the structure-driving-content failure §Structure serves content warns against.
+
+- **Manifesto-register surfaces are primarily owned by [`/pz-voice`](../pz-voice/SKILL.md)** — its declare→mechanize→implicate pattern IS the manifesto beat — composed with [`/minsky-brand`](../minsky-brand/SKILL.md) at the ~70/30 voice/code balance (pz-voice §7).
+- **This skill's revision passes remain applicable cross-genre.** The AI-tells checks (including the mystic-register check below — abstract manifestos are its maximum-exposure genre), heading heuristics, cadence, vocabulary, and read-aloud passes should still be run on manifesto drafts. What a manifesto skips is the persuasion STRUCTURE, not the revision discipline.
+- Worked before/after example: the "shape the field" manifesto v1→v2 diff (Notion `3a0937f0-3cb4-811d-8bda-e1b9445081f0`, version history) — v1 was drafted through the persuasion apparatus and carried the tells; v2 is the corrected register.
 
 ## Structure serves content, not the other way around
 
@@ -78,6 +91,16 @@ Inventory of moves engineering essays draw on. A given essay uses some subset, i
 - Don't put the position in section 1 either, for a counter-intuitive thesis. Readers dismiss it without context.
 - Section 3 (right after stakes) is the sweet spot for persuasive thesis placement.
 - Very skimmable-first readers who want the thesis upfront can see the hint in the exordium and skip to the position if they want.
+
+### Decision artifacts lead with the decision
+
+Everything above governs prose whose job is to **persuade a reader who is free to walk away**. It does not govern an artifact whose job is to **get a decision from someone with the authority to make it**. When an RFC or ADR is the surface a principal opens _in order to decide_, they are not being brought along — they are approving, rejecting, or redirecting on scarce attention, and burying the call behind stakes forces them to do the compression themselves.
+
+For those artifacts a decision-grade summary sits ABOVE the structure on this page: the call in one bolded directive sentence, three to five one-line consequences, and an explicit "accepting this = agreeing with the call." The stakes-first body then follows unchanged, for the reader who wants the reasoning.
+
+The two compose rather than conflict. Stakes-first governs where the _argument_ begins; the summary block governs where the _decision_ is legible. A reader who wants persuading reads past the block into the body exactly as prescribed above.
+
+**This reconciliation is load-bearing.** Without it the two sets of instructions contradict, and this page wins silently because it is the more specific writing advice — which is exactly what happened on 2026-07-21 and again on 2026-07-22, when RFCs serving as decision surfaces were published stakes-first and the principal bounced both ("way too long... not decisionable"). The required block shapes live in `/draft-rfc` step 7 and `/draft-adr` step 5.
 
 ### Handling forward references in the position section
 
@@ -240,7 +263,46 @@ Named contributions from other essays in the corpus ("a capabilities model," "Ca
 
 ## AI-voice tells to avoid
 
+_Refreshed 2026-07-24._ The tell landscape moves fast and splits by model. Recheck it every quarter or so against current sources (vrid.ai, oliviacal.com, huntingthemuse.net, pangram.com, duey.ai; see References) rather than trusting this list forever.
+
 These are the patterns readers pattern-match as AI writing. Individual instances aren't damning; clustering is the tell.
+
+This section governs ARTIFACT prose. The conversational sibling — turn-end report register in chat — is owned by `communication-contract.mdc §The Tier-1 turn-report contract → How it reads` (mt#3287); its structural tells (beat lead-ins, punch-fragment drum-hits, significance bids) are the chat-surface form of the same disease this checklist catches in documents (mt#2899 is the artifact-surface half).
+
+### Cadence uniformity is the dominant tell
+
+Rhythm gives away more AI writing than any single word choice, and it's the tell that survives every other fix. A draft can be scrubbed of every banned word below and still read as a model, because the vocabulary pass never touches how the sentences are shaped underneath. Researchers call the human contrast **burstiness**: natural variation in sentence length and rhythm across a passage. Low burstiness, flat and repeating, is what gives AI prose away going into 2026 — more reliably than any punctuation mark.
+
+Three shapes to check for:
+
+- **Sentence-length clustering.** Most models default to sentences in the ~18-24 word range and repeat that band paragraph after paragraph. One 20-word sentence followed by another 20-word sentence followed by another is the tell, not any single sentence's length.
+- **Uniform paragraph length.** Paragraphs come out the same size: three or four sentences, every time, instead of some running long and others landing in a single line.
+- **Paragraph ends on a neat bow.** Every paragraph closes with a summary line restating what it just said. Real writing sometimes trails off mid-thought, sometimes lands hard and stops, sometimes just moves on to the next point.
+
+Catch this by reading a section aloud, not by scanning for words. The cadence-and-structure pass in the revision workflow below covers it.
+
+### Reveal-signposting
+
+"Here's the part that...", "here's the thing...", "and here's the tell that...", "here's where it gets interesting." Debate-team cadence: it promises a payoff, then delivers an ordinary point. Cut the windup. State the point.
+
+### Contrast sentences and rule of three
+
+"This is not X, it's Y" and "not just X, but Y" used to sit lower on this list as minor tics. They've moved up: paired with cadence uniformity, they're one of the fastest patterns a reader's eye catches, and current sources rank them as top-tier. Same for the rule of three: three bullets, three adjectives, three parallel clauses, every section. Either pattern is fine used once; repeated across a piece, it's a signature.
+
+### Mystic register in abstract prose
+
+There is a documented LLM drift vocabulary — spiral, recursion, resonance, lattice, harmonics, attractor, emergence, the void, the center — that reads as the "Spiralism" register (Rolling Stone's 2026 spiral-cult reporting documents an entire subculture built on it, manifestos included). Abstract, visionary prose is maximally exposed: the more conceptual the piece, the more this vocabulary drifts in as atmosphere.
+
+The fix is grounding, concretely:
+
+- **Every abstract claim carries a named mechanism, a real system, or a dated artifact.** If a sentence about "the field" can't name what implements it, cut or ground it.
+- **Break liturgical cadence deliberately.** Every section ending on an aphorism drum-hit is the register's rhythm; end some sections on a plain fact or mid-thought.
+- **Spiral-family vocabulary only where it does precise technical work** — an actual attractor in an actual dynamical argument — never as atmosphere.
+- **Icons and visual dressing count.** A 🌀 page icon is the movement's emblem; the v1 manifesto page carried one.
+
+### Em dashes: no longer a reliable signal alone
+
+The 2026 landscape splits by model. GPT-5.1 suppresses em dashes in most contexts unless explicitly prompted for them; Claude and Gemini still lean on them. That means em-dash _absence_ doesn't prove human writing anymore: a GPT-5.1 draft can be dash-free and still carry every tell above it. Treat the dash as one weak, model-dependent signal, not the headline check. Cadence and structure carry the real weight now. (One or two dashes per ~2000 words is still fine on its own terms; it just isn't doing detection work either way.)
 
 ### Vocabulary
 
@@ -269,8 +331,6 @@ Tics to cut:
 - "One might argue..."
 - "As previously mentioned..."
 - "In conclusion..."
-- "This is not X, it's Y" (as a rhetorical structure, repeated)
-- "Not just X, but Y" (as a rhetorical structure, repeated)
 
 ### Borrowed phrasings from sibling work
 
@@ -286,11 +346,8 @@ Typical patterns that become tells when lifted verbatim from a sibling essay:
 
 If a phrasing was load-bearing in the first essay, write something different that does the same rhetorical work in the second. Reusing voice-of-author patterns (contractions, sentence rhythm, directness) is fine. Reusing specific idioms is not.
 
-### Structural tics
+### Other structural tics
 
-- **Em dash overuse.** Em dash is AI's favorite punctuation. One or two per ~2000 words is fine; a dozen is a tell. Reach for comma, period, or colon first.
-- **Tricolon overuse.** "X, Y, and Z" lists repeated in every paragraph. Vary: sometimes two items, sometimes a single concrete noun.
-- **Rule of three everywhere.** Three bullets per section, three adjectives stacked, three parallel clauses. Break the pattern sometimes.
 - **Symmetric structures.** Every camp gets exactly the same four bullets; every phase the same four fields. Real writing has ragged edges.
 - **Present-participle summary clauses.** "..., highlighting its significance" / "..., underscoring its role" / "..., emphasizing the importance of." AI glues these onto sentences to claim significance without earning it.
 - **`serves as` / `marks` / `features` / `boasts`** instead of `is`. AI avoids copulas.
@@ -302,9 +359,7 @@ If a phrasing was load-bearing in the first essay, write something different tha
 ### Tone tics
 
 - **No contractions.** Human writing mixes them. Use `don't`, `won't`, `it's`, `we're`.
-- **Uniform sentence length.** Vary. Short sentences punch. Long sentences develop. Mix them.
-- **Uniform paragraph length.** A one-sentence paragraph can carry weight.
-- **Flat register start to finish.** Real writers shift between analytical, conversational, and direct. Flat neutral register is the clearest AI tell after em dashes.
+- **Flat register start to finish.** Real writers shift between analytical, conversational, and direct. Flat neutral register is the clearest AI tell after cadence uniformity.
 - **Over-qualified statements.** "In many cases, it may be the case that..." Cut to `often`.
 - **Weasel attribution.** "Observers have noted..." / "Many experts agree..." Name who, or say `we think`.
 
@@ -346,15 +401,16 @@ Run these passes after the draft is down. Don't edit while drafting.
 2. **Sibling-phrasing pass.** If you have an essay in the same corpus that shares vocabulary or structure, re-read both side by side. Any specific idiom that appears in both ("a less fashionable corollary," `*What:* / *Activates:*`, "Our stance, with the camps named") is a tell. Rewrite the second one in different words that do the same rhetorical work.
 3. **Heading pass.** Review every heading. Sentence-case. Specific. Opinionated where possible. Rewrite any that match AI-flavored patterns above.
 4. **Opening pass.** Is the hook concrete? Does the reader know by the end of page one what the essay is about and why they should keep reading? Cut "how this came to exist" framings from the top; move to appendix.
-5. **Em dash pass.** Search for `—`. Cut most. Replace with comma, period, or colon. Keep one or two where emphasis genuinely warrants.
-6. **Vocabulary pass.** Search for AI words (`delve`, `leverage`, `crucial`, etc.). Replace with plainer alternatives.
-7. **Phrase pass.** Search for AI tics ("it's worth noting," "at its core," etc.). Cut or replace.
-8. **Sentence variety pass.** Read for rhythm. If every sentence is the same length, break some. If everything is tricolons, cut one to two items.
-9. **Contraction pass.** Add contractions where formal writing wouldn't forbid them.
-10. **Cut-for-cream pass.** Paul Graham: "Cut as much as possible and serve only the cream." Read each paragraph and ask: does every sentence carry weight? If a sentence only restates the one above it, cut.
-11. **Example density pass.** Dan Luu: "Add more examples than you'd naturally tend to." For each abstract claim, check if a concrete example is nearby. If not, add one.
-12. **Read aloud.** Clunky phrasing reveals itself when spoken. Fix what sounds wrong.
-13. **Reality check.** Would a skeptical reader keep reading past page 2? If not, the opening isn't hooking them.
+5. **Cadence-and-structure pass.** The highest-leverage pass. Run it before the surface-level ones below. Read for sentence-length rhythm: if every sentence in a paragraph lands in the same word-count band, break the pattern. Read for paragraph shape: if every paragraph runs the same length, let one go long and one land in a single line. Check paragraph endings: if most close with a summary punchline, cut half of them cold.
+6. **Em dash pass.** Search for `—`. Cut most. Replace with comma, period, or colon. Keep one or two where emphasis genuinely warrants. A dash-free draft isn't automatically human: GPT-5.1 already suppresses them by default, so absence proves nothing on its own. Treat this as cleanup, not the load-bearing check.
+7. **Vocabulary pass.** Search for AI words (`delve`, `leverage`, `crucial`, etc.). Replace with plainer alternatives.
+8. **Phrase pass.** Search for AI tics ("it's worth noting," "at its core," etc.) and reveal-signposting ("here's the thing," "here's the part that..."). Cut the windup; state the point.
+9. **Contrast-and-triad pass.** Search for "not X, it's Y" and rule-of-three lists. One of either is fine; repeated across the piece, they're a signature. Cut the repeats.
+10. **Contraction pass.** Add contractions where formal writing wouldn't forbid them.
+11. **Cut-for-cream pass.** Paul Graham: "Cut as much as possible and serve only the cream." Read each paragraph and ask: does every sentence carry weight? If a sentence only restates the one above it, cut.
+12. **Example density pass.** Dan Luu: "Add more examples than you'd naturally tend to." For each abstract claim, check if a concrete example is nearby. If not, add one.
+13. **Read aloud.** Clunky phrasing reveals itself when spoken. Fix what sounds wrong.
+14. **Reality check.** Would a skeptical reader keep reading past page 2? If not, the opening isn't hooking them.
 
 ## Exemplars worth studying
 
@@ -380,6 +436,14 @@ Cross-reference between the two when appropriate. Don't duplicate. Whichever spl
 
 ## References
 
+Original inventory, plus the 2026-07-24 refresh sources cited in §AI-voice tells to avoid:
+
 - [Wikipedia — Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) — systematic inventory
 - [The Em Dash Dilemma](https://medium.com/@brentcsutoras/the-em-dash-dilemma-how-a-punctuation-mark-became-ais-stubborn-signature-684fbcc9f559)
 - [Washington Post — AI em dash writing](https://www.washingtonpost.com/technology/2025/04/09/ai-em-dash-writing-punctuation-chatgpt/)
+- [vrid.ai — Signs of AI writing (Feb 2026)](https://vrid.ai/blog/signs-of-ai-writing) — per-model fingerprint table (em-dash frequency, paragraph length by model); lists identical sentence length and rule of three among its 27 signs
+- [oliviacal.com — AI writing tells](https://oliviacal.com/post/ai-writing-tells) — "low burstiness," rule-of-three, contrast-sentence framing
+- [Hunting the Muse — the 6 elements of robot style](https://huntingthemuse.net/library/how-to-tell-if-writing-is-ai) — reveal-signposting ("here's the thing"), contrast frames, rule of three
+- [Pangram Labs — why perplexity and burstiness fail to detect AI](https://www.pangram.com/blog/why-perplexity-and-burstiness-fail-to-detect-ai) — the caveat behind automated cadence detection
+- [duey.ai — the em-dash dilemma, model by model](https://duey.ai/post/em-dash-ai-writing) — GPT-5.1 suppression vs. Claude/Gemini, why dash absence isn't exculpatory
+- [Rolling Stone — the Spiralist cult subculture](https://www.rollingstone.com/culture/culture-features/spiralist-cult-ai-chatbot-1235463175/) — the mystic-register vocabulary and its manifesto genre exposure (§Mystic register in abstract prose)

@@ -20,13 +20,39 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createAsk,
+  createAskWithFormLint,
   respondToAsk,
   validateAsksCreateParams,
   validateAsksEditParams,
+  validateAuthorizationApproveOptions,
   formatAskWaitMessage,
+  toAskSummary,
+  getAskByResolvedId,
+  resolveAskIdInput,
+  listAsksFiltered,
+  askOptionSchema,
+  asksCreateParams,
 } from "./asks";
+import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
+// The REAL production normalization function both the CLI and MCP dispatch
+// paths run raw caller input through BEFORE `command.validate()` is called
+// (see command-generator-core.ts:165-175 and shared-command-integration.ts:
+// 571-601) — used below to empirically pin that validateAuthorizationApproveOptions
+// observes POST-transform params (mt#3203 review R1), not a claim taken on
+// the type signature's word.
+import { normalizeCliParameters } from "../bridges/parameter-mapper";
+// Cross-boundary parity import (mt#3203): the redemption-time verifier this
+// authoring-time guard must agree with. A pure function import from a test
+// file — the compiled `.claude/hooks/*` runtime output never includes
+// `*.test.ts`, so this does not violate the hook's "self-contained, no
+// src/ import at runtime" constraint (that constraint binds the SOURCE
+// script, not its test suite).
+import { isApprovingPayload } from "../../../../.minsky/hooks/ask-verification";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import type { Ask } from "@minsky/domain/ask/types";
 import {
   getServiceWindowDefault,
   SERVICE_WINDOW_DEFAULTS,
@@ -63,6 +89,17 @@ const KIND_INFORMATION_RETRIEVE = "information.retrieve" as const;
 // Centralized fixture for the agent-id format used in multiple tests.
 const FIXTURE_RESPONDER_ID = "com.anthropic.claude-code:proc:abc123";
 
+// Centralized fixture question text — extracted to defang
+// custom/no-magic-string-duplication now that it's reused across the
+// original asks.create tests and the mt#2748 toAskSummary/asks.get tests.
+const FIXTURE_QUESTION = "Which approach should we ship?";
+
+// mt#3203 fixture labels — extracted to defang custom/no-magic-string-duplication
+// across the validateAuthorizationApproveOptions describe block, which reuses
+// the originating incident's exact option labels in several tests.
+const FIXTURE_APPROVE_LABEL = "Approve the override and merge";
+const FIXTURE_DECLINE_LABEL = "Leave it blocked — I'll look at the PR myself";
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -76,7 +113,7 @@ describe("createAsk", () => {
       {
         kind: KIND_DIRECTION_DECIDE,
         title: "Choose A or B",
-        question: "Which approach should we ship?",
+        question: FIXTURE_QUESTION,
         options: [
           { label: "A", value: "a" },
           { label: "B", value: "b" },
@@ -91,7 +128,7 @@ describe("createAsk", () => {
     if (!persisted) return;
     expect(persisted.kind).toBe(KIND_DIRECTION_DECIDE);
     expect(persisted.title).toBe("Choose A or B");
-    expect(persisted.question).toBe("Which approach should we ship?");
+    expect(persisted.question).toBe(FIXTURE_QUESTION);
     expect(persisted.options).toEqual([
       { label: "A", value: "a" },
       { label: "B", value: "b" },
@@ -478,6 +515,74 @@ describe("createAsk", () => {
 });
 
 // ---------------------------------------------------------------------------
+// createAskWithFormLint — asks.create's form-lint wrapper (mt#2798)
+// ---------------------------------------------------------------------------
+
+describe("createAskWithFormLint", () => {
+  test(
+    "synthetic bad ask (mcp__ tool id, 200 words, authorization.approve + 'settings' + no URL) " +
+      "-> 3 formWarnings; ask still created",
+    async () => {
+      const repo = new FakeAskRepository();
+      const badWord = "word";
+      // ~200-word body: opens with justification, then names an mcp__ tool
+      // call and a "settings" portal reference with no URL — matches the
+      // Acceptance Tests' synthetic-bad-ask description exactly.
+      const question =
+        `${Array.from({ length: 170 }, () => badWord).join(" ")} ` +
+        "I'll run mcp__minsky__setup_github-app to update the app settings and grant this permission.";
+
+      const { ask, formWarnings, formLintMatches } = await createAskWithFormLint(
+        repo,
+        {
+          kind: KIND_AUTHORIZATION_APPROVE,
+          title: "Grant a permission",
+          question,
+        },
+        { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+      );
+
+      // Ask is still created — form-lint never blocks creation.
+      expect(ask.id).toBeTruthy();
+      const persisted = await repo.getById(ask.id);
+      expect(persisted).not.toBeNull();
+
+      expect(formWarnings).toHaveLength(3);
+      const expectedChecks: Array<"internal-tool-id" | "over-word-budget" | "portal-no-link"> = [
+        "internal-tool-id",
+        "over-word-budget",
+        "portal-no-link",
+      ];
+      expect(formLintMatches.map((m) => m.check).sort()).toEqual(expectedChecks.sort());
+    }
+  );
+
+  test("well-formed ask (action-first, direct link, <120 words) -> zero warnings", async () => {
+    const repo = new FakeAskRepository();
+    const question =
+      "Open https://github.com/settings/apps/minsky-ai/permissions and set Actions to " +
+      "Read and write, then save. This unblocks the CI-rerun tool.";
+
+    const { ask, formWarnings, formLintMatches } = await createAskWithFormLint(
+      repo,
+      {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Approve one GitHub App permission",
+        question,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect(ask.id).toBeTruthy();
+    expect(formWarnings).toEqual([]);
+    expect(formLintMatches).toEqual([]);
+  });
+
+  // Option-label checks reaching this seam (mt#3253) live in
+  // ./asks.form-lint-options.test.ts — this file is at its max-lines ceiling.
+});
+
+// ---------------------------------------------------------------------------
 // Service-window defaults — mt#1411 spine (mt#1488)
 // ---------------------------------------------------------------------------
 
@@ -819,6 +924,240 @@ describe("validateAsksCreateParams", () => {
     expect(() => validateAsksCreateParams({ serviceStrategy: "scheduled" })).not.toThrow();
     expect(() => validateAsksCreateParams({ serviceStrategy: "deadline-bound" })).not.toThrow();
     expect(() => validateAsksCreateParams({})).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAuthorizationApproveOptions — mt#3203: reject an authorization.approve
+// Ask whose options can never satisfy the redemption-time approval verifier.
+// ---------------------------------------------------------------------------
+
+describe("validateAuthorizationApproveOptions (mt#3203)", () => {
+  test("rejects an authorization.approve Ask whose options carry only descriptive labels", () => {
+    // The originating incident's exact shape: both options' `value` defaulted
+    // to their `label` (asks_create's mt#3181 defaulting), so neither could
+    // ever satisfy the verifier's APPROVAL_TOKEN.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL },
+          { label: FIXTURE_DECLINE_LABEL, value: FIXTURE_DECLINE_LABEL },
+        ],
+      })
+    ).toThrow(ValidationError);
+  });
+
+  test("error message names the accepted tokens and echoes the offending labels", () => {
+    let caught: unknown;
+    try {
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL }],
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const error = caught as ValidationError;
+    expect(error.message).toContain("approve");
+    expect(error.message).toContain(FIXTURE_APPROVE_LABEL);
+  });
+
+  test("passes when an explicit approve-shaped value accompanies an arbitrary descriptive label", () => {
+    // The label stays fully descriptive; only the value is constrained.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: "approve" },
+          { label: FIXTURE_DECLINE_LABEL, value: "decline" },
+        ],
+      })
+    ).not.toThrow();
+  });
+
+  test("passes for any of the accepted tokens (approve/approved/yes, case-insensitive)", () => {
+    for (const value of ["approve", "approved", "Approved", "yes", "YES"]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "Go ahead", value }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire for other ask kinds, regardless of option shape", () => {
+    // Out of scope per spec: only authorization.approve feeds the grant verifier.
+    for (const kind of [
+      KIND_DIRECTION_DECIDE,
+      KIND_CAPABILITY_ESCALATE,
+      KIND_COORDINATION_NOTIFY,
+      KIND_QUALITY_REVIEW,
+      KIND_STUCK_UNBLOCK,
+      KIND_INFORMATION_RETRIEVE,
+    ]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind,
+          options: [{ label: "Use Postgres", value: "Use Postgres" }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire when options are absent (free-text authorization asks are out of scope)", () => {
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: undefined })
+    ).not.toThrow();
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: [] })
+    ).not.toThrow();
+  });
+
+  test("vocabulary parity with the redemption-time verifier's APPROVAL_TOKEN (drift guard)", () => {
+    // Both this authoring-time guard and .minsky/hooks/ask-verification.ts's
+    // isApprovingPayload import APPROVAL_TOKEN from the SAME
+    // @minsky/shared/ask-approval module. This test proves the authoring
+    // guard's accept/reject boundary tracks that shared regex directly,
+    // rather than a second, independently-maintained copy that could drift.
+    const acceptedTokens = ["approve", "approved", "yes", "Approve", "YES"];
+    const rejectedTokens = ["ok", "sure", "affirmative", FIXTURE_APPROVE_LABEL];
+
+    for (const token of acceptedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(true);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).not.toThrow();
+    }
+    for (const token of rejectedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(false);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).toThrow(ValidationError);
+    }
+  });
+
+  test("end-to-end: an option that passes this guard also verifies as approved at redemption time", () => {
+    // Closes the loop the spec's acceptance tests describe: an option shaped
+    // like {label: "Approve the override and merge", value: "approve"} both
+    // (a) passes asks_create's authoring-time guard, and (b) verifies as
+    // approved when .minsky/hooks/ask-verification.ts's isApprovingPayload
+    // evaluates the response payload an operator's selection would produce.
+    const option = askOptionSchema.parse({
+      label: FIXTURE_APPROVE_LABEL,
+      value: "approve",
+    });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).not.toThrow();
+
+    // Simulate the inbox response shape (mt#3007): {chosen, option} carrying
+    // the SELECTED option's value.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(true);
+  });
+
+  test("end-to-end: the ORIGINATING incident's malformed ask fails both the guard and the verifier", () => {
+    const option = askOptionSchema.parse({ label: FIXTURE_APPROVE_LABEL });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).toThrow(ValidationError);
+
+    // Had the guard not fired, this is the exact payload shape that produced
+    // the confusing "not approved" error after the operator already approved.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(false);
+  });
+
+  describe("validate() observes POST-transform params, not raw input (mt#3203 review R1)", () => {
+    // This guard's correctness depends on `askOptionSchema`'s value-defaults-
+    // to-label transform having ALREADY run by the time
+    // validateAuthorizationApproveOptions sees `params.options`. If the
+    // command-registry's validate→execute pipeline ran `validate` on RAW
+    // caller input instead, an option with only a `label` would arrive with
+    // `value: undefined` — which `isApproveShapedToken` also treats as
+    // non-approving, so a pre-parse guard would happen to reject the same
+    // input for the WRONG reason, and would silently stop working the
+    // moment someone reordered the pipeline.
+    //
+    // Verified empirically (not asserted from the type signature) by
+    // tracing both dispatch paths' source:
+    //   - CLI: command-generator-core.ts:165 calls
+    //     `normalizeCliParameters(commandDef.parameters, rawParameters)`
+    //     BEFORE line 175's `commandDef.validate(normalizedParams, context)`.
+    //   - MCP: shared-command-integration.ts:571 calls
+    //     `convertMcpArgsToParameters(filteredArgs, command.parameters)`
+    //     BEFORE line 601's `command.validate(parameters, context)`.
+    // Both normalization functions assign the Zod `.parse()` OUTPUT (see
+    // parameter-mapper.ts:356 and shared-command-integration.ts:164), so
+    // `askOptionSchema`'s `.transform()` has already run by the time
+    // `validate` sees `params.options`.
+    //
+    // This test pins that behavior using the REAL production function
+    // (`normalizeCliParameters`) and the REAL parameter map `asks.create`
+    // is registered with (`asksCreateParams`) — not a hand-rolled
+    // substitute — so a future change to either would break this test
+    // rather than silently drifting.
+    test("an option with a label and NO explicit value passes normalization with value=label, then correctly fails the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL }, { label: FIXTURE_DECLINE_LABEL }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      // Pin the transform: value defaulted to label, NOT left undefined.
+      expect(options[0]?.value).toBe(FIXTURE_APPROVE_LABEL);
+      expect(options[0]?.value).not.toBeUndefined();
+      expect(options[1]?.value).toBe(FIXTURE_DECLINE_LABEL);
+
+      // And the guard, given what validate() actually receives, rejects —
+      // correctly, because neither defaulted value is approve-shaped.
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    test("an option with an explicit approve-shaped value survives normalization unchanged, then passes the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: "approve" }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      expect(options[0]?.value).toBe("approve");
+
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).not.toThrow();
+    });
   });
 });
 
@@ -1288,6 +1627,24 @@ describe("formatAskWaitMessage", () => {
     expect(msg).not.toContain('"proceed with option B"');
   });
 
+  test("a system-auto-closed result (mt#3215) is NOT rendered as an operator response", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: true,
+      ask: {} as never,
+      response: {
+        responder: "system:parent-task-terminal",
+        payload: { sweep: "stale-suspended-close", task: "mt#3001" },
+      },
+      state: "closed",
+      elapsedMs: 1000,
+      pollCount: 1,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain("⚠ Ask auto-closed (closed) by system:parent-task-terminal");
+    expect(msg).toContain("NOT an operator response");
+    expect(msg).not.toContain("✓ Ask resolved");
+  });
+
   test("terminal-without-response result names the terminal state", () => {
     const result: AskWaitForResponseResult = {
       resolved: false,
@@ -1356,5 +1713,345 @@ describe("validateAsksEditParams", () => {
     expect(() =>
       validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toAskSummary / asks.list summary projection (mt#2748)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a full fixture `Ask` with every "body" field populated, so tests can
+ * assert `toAskSummary` actually strips them (not just that it happens to
+ * omit fields that were never present).
+ */
+function buildFixtureAsk(overrides: Partial<Ask> = {}): Ask {
+  return {
+    id: "d8591800-823b-410b-a5cc-209fb0b7eb6d",
+    kind: KIND_DIRECTION_DECIDE,
+    classifierVersion: "v1.0.0",
+    requestor: FIXTURE_RESPONDER_ID,
+    routingTarget: "operator",
+    parentTaskId: "mt#2748",
+    title: "Choose A or B",
+    question: `${FIXTURE_QUESTION} `.repeat(50),
+    options: [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ],
+    contextRefs: [{ kind: "task", ref: "mt#2748" }],
+    state: "suspended",
+    createdAt: "2026-07-13T18:00:00.000Z",
+    routedAt: "2026-07-13T18:00:05.000Z",
+    metadata: {
+      editHistory: [
+        { editor: "test", timestamp: "2026-07-13T18:00:10.000Z", touchedFields: ["question"] },
+      ],
+      note: "arbitrary metadata",
+    },
+    ...overrides,
+  };
+}
+
+describe("toAskSummary", () => {
+  test("includes only the documented summary columns", () => {
+    const ask = buildFixtureAsk();
+    const summary = toAskSummary(ask);
+
+    expect(summary).toEqual({
+      id: ask.id,
+      kind: ask.kind,
+      state: ask.state,
+      title: ask.title,
+      routingTarget: ask.routingTarget,
+      parentTaskId: ask.parentTaskId,
+      createdAt: ask.createdAt,
+      routedAt: ask.routedAt,
+    });
+  });
+
+  test("omits the multi-KB body fields (question/options/contextRefs/metadata)", () => {
+    const ask = buildFixtureAsk();
+    const summary = toAskSummary(ask) as unknown as Record<string, unknown>;
+
+    expect(summary.question).toBeUndefined();
+    expect(summary.options).toBeUndefined();
+    expect(summary.contextRefs).toBeUndefined();
+    expect(summary.metadata).toBeUndefined();
+    // metadata.editHistory specifically — the spec calls this out by name.
+    expect(JSON.stringify(summary)).not.toContain("editHistory");
+    expect(JSON.stringify(summary)).not.toContain(FIXTURE_QUESTION);
+  });
+
+  test("a summary listing of 100 rows is well under the tool-result token cap", () => {
+    const asks = Array.from({ length: 100 }, (_, i) =>
+      buildFixtureAsk({ id: `d8591800-823b-410b-a5cc-209fb0b7eb${String(i).padStart(4, "0")}` })
+    );
+    const summaries = asks.map(toAskSummary);
+    const bytes = new TextEncoder().encode(JSON.stringify(summaries)).length;
+
+    // The mt#2748 incident measured avg ~2.9 KB/ask (max 7.5 KB/ask) for full
+    // records — 100 full rows reliably exceeds the tool-result cap. A summary
+    // row is a handful of short scalar fields; 100 of them should land in the
+    // low tens of KB, nowhere near the cap that truncated the original
+    // 297 KB / 2,540-line asks_list dump.
+    expect(bytes).toBeLessThan(50_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getAskByResolvedId / asks.get (mt#2748)
+// ---------------------------------------------------------------------------
+
+describe("getAskByResolvedId", () => {
+  test("returns the full ask record when found", async () => {
+    const repo = new FakeAskRepository();
+    const created = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Choose A or B",
+        question: FIXTURE_QUESTION,
+        options: [
+          { label: "A", value: "a" },
+          { label: "B", value: "b" },
+        ],
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const result = await getAskByResolvedId(repo, created.id, created.id);
+
+    expect(result.id).toBe(created.id);
+    expect(result.title).toBe("Choose A or B");
+    expect(result.question).toBe(FIXTURE_QUESTION);
+  });
+
+  test("throws a clean not-found error for a full-UUID id that doesn't exist", async () => {
+    const repo = new FakeAskRepository();
+    const missingId = "ffffffff-1111-2222-3333-444444444444";
+
+    await expect(getAskByResolvedId(repo, missingId, missingId)).rejects.toThrow(
+      `Ask not found with id "${missingId}"`
+    );
+  });
+
+  test("names the prefix in the not-found message when the input was a prefix", async () => {
+    const repo = new FakeAskRepository();
+    const rawPrefix = "ffffffff";
+    // Simulates the post-resolution state when a prefix had no matching row:
+    // resolveAskIdInput's underlying resolveIdPrefixOrThrow throws before
+    // getAskByResolvedId is ever reached in that case, so this test instead
+    // exercises the "prefix resolved to some id, but that id is now gone"
+    // path (e.g. the row was deleted between resolution and this read).
+    const resolvedId = "ffffffff-1111-2222-3333-444444444444";
+
+    await expect(getAskByResolvedId(repo, rawPrefix, resolvedId)).rejects.toThrow(
+      `Ask not found for id prefix "${rawPrefix}" (resolved to "${resolvedId}")`
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAskIdInput — ask#N short id resolution (mt#2965)
+// ---------------------------------------------------------------------------
+
+describe("resolveAskIdInput (mt#2965)", () => {
+  const ASK_UUID = "483dbcb0-0000-0000-0000-000000000099";
+
+  /**
+   * Fake container satisfying `getAskDb`'s narrow usage
+   * (`container.has("persistence")` + `container.get("persistence")
+   * .getDatabaseConnection()`), backed by a fake db whose `.select().from()
+   * .where()` resolves the given rows regardless of the query condition —
+   * each test pre-seeds exactly the rows the real query would have matched.
+   */
+  function fakeContainer(rows: Array<{ id: string; label?: string }>): AppContainerInterface {
+    const fakeDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(_cond: unknown) {
+                return Promise.resolve(rows);
+              },
+            };
+          },
+        };
+      },
+    };
+    return {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({ getDatabaseConnection: async () => fakeDb }),
+    } as unknown as AppContainerInterface;
+  }
+
+  test("passes a full uuid through unchanged", async () => {
+    const container = fakeContainer([]);
+    const id = await resolveAskIdInput(ASK_UUID, container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("resolves ask#7 to the row's uuid via the short_id column", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput("ask#7", container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("REGRESSION (mt#2696 unchanged): an unambiguous 8-char hex prefix still resolves", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput(ASK_UUID.slice(0, 8), container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("rejects a mismatched-entity short id (e.g. mem#3) without querying the DB", async () => {
+    let queried = false;
+    const container = {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({
+        getDatabaseConnection: async () => ({
+          select() {
+            queried = true;
+            return { from: () => ({ where: () => Promise.resolve([]) }) };
+          },
+        }),
+      }),
+    } as unknown as AppContainerInterface;
+
+    await expect(resolveAskIdInput("mem#3", container)).rejects.toThrow(
+      /short id prefix mismatch/i
+    );
+    expect(queried).toBe(false);
+  });
+
+  test("throws a clean not-found error for an ask#N with no matching row", async () => {
+    const container = fakeContainer([]);
+    await expect(resolveAskIdInput("ask#999", container)).rejects.toThrow(/not found/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listAsksFiltered — asks.list id filter (mt#2965 R1, PR #2110 review round)
+// ---------------------------------------------------------------------------
+
+describe("listAsksFiltered — asks.list id filter (mt#2965 R1)", () => {
+  /** Minimal valid CreateAskInput for this describe block's fixtures. */
+  function makeAskInput(overrides: Partial<CreateAskInput> = {}): CreateAskInput {
+    return {
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      requestor: FIXTURE_RESPONDER_ID,
+      title: "Fixture ask",
+      question: "does this filter correctly?",
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  test("filters to the single Ask matching a resolved ask#N id", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    // Injected resolver mirrors resolveAskIdInput's ask#N -> uuid contract;
+    // resolveAskIdInput's OWN resolution correctness is covered separately
+    // above (the "resolveAskIdInput (mt#2965)" describe block).
+    const resolveId = async (id: string) => (id === "ask#7" ? target.id : id);
+
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#7" });
+
+    expect(result.total).toBe(1);
+    expect(result.returned).toBe(1);
+    expect(result.asks).toHaveLength(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+    expect(result.asks[0]?.title).toBe("Target");
+  });
+
+  test("filters to the single Ask matching a resolved full uuid (regression: raw uuid unaffected)", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    const resolveId = async (id: string) => id; // uuid passthrough, matching resolveAskIdInput
+    const result = await listAsksFiltered(repo, resolveId, { id: target.id });
+
+    expect(result.total).toBe(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+  });
+
+  test("returns the full unfiltered list when no id filter is supplied", async () => {
+    const repo = new FakeAskRepository();
+    await repo.create(makeAskInput({ title: "A" }));
+    await repo.create(makeAskInput({ title: "B" }));
+
+    const resolveId = async (id: string) => id;
+    const result = await listAsksFiltered(repo, resolveId, {});
+
+    expect(result.total).toBe(2);
+  });
+
+  test("combines the id filter with state/kind as an AND — no match yields an empty (not erroring) result", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target", kind: "quality.review" }));
+
+    const resolveId = async (_id: string) => target.id;
+    // target is in state "detected" (fresh create) — filtering by "closed" must exclude it.
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#anything", state: "closed" });
+
+    expect(result.total).toBe(0);
+    expect(result.asks).toHaveLength(0);
+  });
+
+  test("propagates a resolution error (e.g. not-found ask#N) instead of silently returning empty", async () => {
+    const repo = new FakeAskRepository();
+    const resolveId = async (_id: string): Promise<string> => {
+      throw new Error("Ask not found: ask#999");
+    };
+
+    await expect(listAsksFiltered(repo, resolveId, { id: "ask#999" })).rejects.toThrow(
+      /not found/i
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askOptionSchema — decision-frame option normalization (mt#3181)
+// ---------------------------------------------------------------------------
+
+describe("askOptionSchema value normalization (mt#3181)", () => {
+  test("an option with no `value` gets `label` as its value", () => {
+    // The originating shape: `{label, description}`, which is what
+    // `humility.mdc §Escalation packaging` describes and what agents write.
+    // Under the previous bare `z.unknown()` declaration this parsed cleanly
+    // with `value` ABSENT from the output — every response writer then
+    // stringified `undefined`/`""` and the operator's selection was lost.
+    const label = "B - scope stays paths";
+    const description = "Non-breaking; the bad input fails loudly.";
+    const parsed = askOptionSchema.parse({ label, description });
+
+    expect(parsed.value).toBe(label);
+    expect(parsed.label).toBe(label);
+    expect(parsed.description).toBe(description);
+  });
+
+  test("an explicit `value` is preserved, not overwritten by `label`", () => {
+    const parsed = askOptionSchema.parse({ label: "Use Postgres", value: "postgres" });
+
+    expect(parsed.value).toBe("postgres");
+    expect(parsed.label).toBe("Use Postgres");
+  });
+
+  test("a falsy-but-present `value` is preserved (not treated as absent)", () => {
+    // `null`, `false`, `0`, and `""` are legitimate machine values. Only
+    // `undefined` means "the caller omitted it", so the normalization keys
+    // off `=== undefined` rather than falsiness.
+    expect(askOptionSchema.parse({ label: "No", value: false }).value).toBe(false);
+    expect(askOptionSchema.parse({ label: "Zero", value: 0 }).value).toBe(0);
+    expect(askOptionSchema.parse({ label: "Null", value: null }).value).toBe(null);
+    expect(askOptionSchema.parse({ label: "Empty", value: "" }).value).toBe("");
+  });
+
+  test("`label` is still required", () => {
+    expect(askOptionSchema.safeParse({ value: "orphan" }).success).toBe(false);
   });
 });

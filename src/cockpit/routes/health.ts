@@ -23,10 +23,19 @@ import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
+import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getDbStatus } from "../shared-persistence";
+import { getSchemaReadiness } from "../schema-readiness";
 import type { WidgetModule } from "../types";
 
 const serverStartTime = Date.now();
+
+/**
+ * Hard cap on a single widget's fetch when serving /api/widget/:id/data
+ * (mt#2765). Generous relative to any healthy widget (slowest observed ~3s)
+ * but bounded so one wedged widget cannot pin browser connections forever.
+ */
+const WIDGET_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Consecutive DB-degraded poll counter (mt#2578 watchdog TS slice).
@@ -43,6 +52,13 @@ let consecutiveDegradedCount = 0;
 // `fatal: not a git repository` from non-repo cwds — on commands that never
 // touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
 // the parent's output either way.
+//
+// Names the DAEMON, not the bundle (mt#3241). The memo freezes this at the first
+// /api/health call, which is correct: this process runs the code it loaded at
+// start. Do NOT "fix" it to recompute per request — that reports the workspace's
+// HEAD, which this process is not executing. The web bundle is versioned
+// separately (rebuilt by mt#2297's watcher without a restart) and carries its own
+// `__BUILD_COMMIT__`; `RailFooter` renders and labels both.
 let gitCommit: string | undefined;
 function getGitCommit(): string {
   if (gitCommit === undefined) {
@@ -95,6 +111,12 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // Dispatch-watchdog sweep observability (mt#2646 R1 non-blocking #2):
     // same in-process-singleton shape as the transcript sweep tracker above.
     const dispatchWatchdogSweepTracker = DispatchWatchdogSweepTracker.getInstance();
+    // Prod-state sweep observability (mt#3039): same in-process-singleton
+    // shape as the trackers above. Distinguishes "the sweep's DOMAIN work
+    // (the cache write) is actually succeeding" from "the interval is still
+    // attempting ticks" (`/api/sweeps`) — the mt#3039 incident showed these
+    // two can diverge for hours with no other visible signal.
+    const prodStateSweepTracker = ProdStateSweepTracker.getInstance();
 
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
@@ -107,6 +129,13 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
 
     res.json({
       status: "ok",
+      // mt#3148: the discriminator a healthcheck asserts on. A bare
+      // `status: "ok"` cannot tell "this service is healthy" from "a DIFFERENT
+      // application is answering on this host" — mt#3142 is the proof (the MCP
+      // server answered /health 200 on the reviewer's host for ~1h while every
+      // reviewer route 404'd). Declared in contract/cockpit-health-shape.json
+      // and asserted by BOTH sides of the tray/cockpit split.
+      service: "minsky-cockpit",
       version,
       commit: getGitCommit(),
       uptimeSec,
@@ -126,8 +155,16 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
         ...watcherTracker.getSummary(),
         activeSessions: watcherTracker.getActiveSessions(),
       },
+      // mt#3297: whether the DB has the schema this build expects. The status
+      // code cannot carry this — the daemon boots fine and answers 200 whether
+      // or not its migrations are applied, which is exactly how a merged
+      // migration left every ingest failing for hours while /health stayed
+      // green. `current: null` means the check could not run, and is
+      // deliberately NOT reported as current.
+      schema: getSchemaReadiness(),
       transcriptSweep: sweepTracker.getSummary(),
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
+      prodStateSweep: prodStateSweepTracker.getSummary(),
     });
   });
 
@@ -153,8 +190,38 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       for (const [k, v] of Object.entries(req.query)) {
         if (typeof v === "string") query[k] = v;
       }
-      const data = await widget.fetch({ id: req.params.id, query });
-      res.json(data);
+      // Deadline (mt#2765): a wedged widget fetch must degrade, never hold the
+      // request open forever — the reviewer widget's pool wedge left the
+      // overview card on "Loading…" indefinitely because this await had no
+      // bound. The losing fetch keeps running (no cancellation seam on
+      // WidgetModule.fetch today); the deadline only caps the HTTP response.
+      //
+      // Contract note (PR #1895 R1): the timeout response is HTTP 200 with
+      // `{ state: "degraded" }` — DELIBERATELY, not an oversight. The widget
+      // data contract is state-keyed, not HTTP-status-keyed: the pre-existing
+      // crash path below returns 200 + degraded the same way, and the sole
+      // consumer (`src/cockpit/web/lib/widget-client.ts` fetchWidgetData)
+      // never inspects `res.ok`/status — it parses the body and branches on
+      // `state`. A 503 here would diverge from every other degraded response
+      // for zero consumer benefit.
+      let deadlineHandle: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<{ state: "degraded"; reason: string }>((resolve) => {
+        deadlineHandle = setTimeout(
+          () =>
+            resolve({
+              state: "degraded",
+              reason: `widget fetch timed out after ${WIDGET_FETCH_TIMEOUT_MS / 1000}s`,
+            }),
+          WIDGET_FETCH_TIMEOUT_MS
+        );
+        deadlineHandle.unref?.();
+      });
+      try {
+        const data = await Promise.race([widget.fetch({ id: req.params.id, query }), deadline]);
+        res.json(data);
+      } finally {
+        if (deadlineHandle) clearTimeout(deadlineHandle);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });

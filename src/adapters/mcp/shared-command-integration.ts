@@ -17,6 +17,8 @@ import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { formatZodError } from "@minsky/domain/schemas/validation-utils";
 import type { StrikeTracker } from "@minsky/domain/ask/strike-tracker";
 import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
 import type { AskRepository } from "@minsky/domain/ask/repository";
@@ -45,7 +47,7 @@ export function convertParametersToZodSchema(
 ): z.ZodObject<Record<string, z.ZodType>> {
   // If no parameters, return empty object schema
   if (!parameters || Object.keys(parameters).length === 0) {
-    return z.object({});
+    return z.strictObject({});
   }
 
   const shape: Record<string, z.ZodType> = {};
@@ -80,7 +82,12 @@ export function convertParametersToZodSchema(
     shape[key] = schema;
   }
 
-  const zodSchema = z.object(shape);
+  // mt#2778: strictObject, not object — declaration hygiene matching the
+  // runtime undeclared-key rejection in command-mapper.ts. Note the emitted
+  // JSON Schema is unchanged (Zod 4 emits `additionalProperties: false` for
+  // plain strip-mode objects too); the strict marker matters if anything ever
+  // parses args with this schema directly.
+  const zodSchema = z.strictObject(shape);
 
   log.debug("Converting parameters to Zod schema", {
     parameterCount: Object.keys(parameters).length,
@@ -95,6 +102,32 @@ export function convertParametersToZodSchema(
 
 /**
  * Convert MCP args to the format expected by shared commands
+ *
+ * mt#2705: the omitted-value branch consults the parameter's Zod schema
+ * FIRST via `schema.safeParse(undefined)`, so a schema-embedded
+ * `.default(...)` is authoritative. Previously only the sibling
+ * `defaultValue` field (below) was ever consulted here, silently leaving a
+ * `.default(...)`-only parameter `undefined` at runtime — see
+ * `normalizeCliParameters` in `parameter-mapper.ts` for the CLI-side mirror
+ * of the same gap.
+ *
+ * This also closes the MCP-only "required is unenforced" gap (mt#3144): the
+ * MCP dispatch pipeline never runs `.parse()`/`.safeParse()` against incoming
+ * tool-call args anywhere else. `src/mcp/server.ts`'s CallTool handler passes
+ * `request.params.arguments` straight to `tool.handler(...)` with no schema
+ * validation (server.ts:1032-1150), and `src/mcp/command-mapper.ts`'s
+ * `enforceDeclaredParams` (mt#2778) checks only the KEY SET, not values —
+ * its own comment says so explicitly: "Value/type/required/default
+ * enforcement is deliberately out of scope here (mt#2705 / mt#1638 own that
+ * trajectory)" (command-mapper.ts:111-112). So a `required: true` parameter
+ * previously reached `execute()` as `undefined` when omitted and crashed on
+ * first dereference with an unhelpful raw error (the memory.create
+ * incident: `content: z.string()`, `required: true`, no defensive guard,
+ * threw `undefined is not an object (evaluating '$.trimStart')`). The
+ * `paramDef.required` check below rejects it here instead, naming the field
+ * — mirroring the CLI path's pre-existing, unchanged
+ * `Required parameter '<name>' is missing` behavior
+ * (`normalizeCliParameters`, parameter-mapper.ts:311).
  */
 function convertMcpArgsToParameters(
   args: Record<string, unknown>,
@@ -106,13 +139,93 @@ function convertMcpArgsToParameters(
     const value = args[key];
 
     if (value !== undefined) {
-      // Use the value as-is since it should already be validated by MCP
-      result[key] = value;
-    } else if (paramDef.defaultValue !== undefined) {
-      // Use default value
-      result[key] = paramDef.defaultValue;
+      // mt#3155: validate the PROVIDED value against its declared schema and
+      // assign the PARSE OUTPUT, so Zod coercions/transforms apply — mirroring
+      // `normalizeCliParameters` (parameter-mapper.ts), which has always done
+      // this on the CLI side. Nothing upstream on the MCP dispatch path
+      // validates values: `src/mcp/server.ts`'s CallTool handler is registered
+      // via the low-level `setRequestHandler(CallToolRequestSchema, ...)`,
+      // which checks only the JSON-RPC envelope, and the per-tool
+      // `inputSchema` is merely ADVERTISED in `tools/list` — which harness
+      // clients demonstrably do not enforce (mt#2737). `enforceDeclaredParams`
+      // (mt#2778) checks the KEY SET only. So this is the single point where a
+      // wrong-typed provided value can be rejected before `execute()` runs.
+      const providedSchema = paramDef.schema as z.ZodTypeAny | undefined;
+
+      // Plain-object (non-Zod) legacy schemas have no `.parse()` — pass them
+      // through unvalidated, matching `convertParametersToZodSchema`'s
+      // existing tolerance for commands registered with `{ type: "string" }`.
+      if (typeof providedSchema?.parse !== "function") {
+        result[key] = value;
+        continue;
+      }
+
+      try {
+        result[key] = providedSchema.parse(value);
+      } catch (error) {
+        // Same message shape as the CLI path so both boundaries report a
+        // wrong-typed value identically, naming the offending parameter.
+        const detail =
+          error instanceof z.ZodError ? formatZodError(error, key) : getErrorMessage(error);
+
+        // Emergency rollback, mirroring the sibling key-set gate's
+        // MINSKY_MCP_ALLOW_UNKNOWN_PARAMS (mt#2778) at this same boundary.
+        // This gate tightens EVERY MCP tool call at once, so a single
+        // over-strict declared schema could break callers fleet-wide; the
+        // hatch restores pre-mt#3155 passthrough without a revert + redeploy.
+        // The offending VALUE is deliberately not logged — only the parameter
+        // name and the Zod message, which describes types rather than content.
+        if (process.env.MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES === "1") {
+          log.warn("mcp.invalid_param_value_allowed", {
+            event: "mcp.invalid_param_value_allowed",
+            parameter: key,
+            detail,
+          });
+          result[key] = value;
+          continue;
+        }
+
+        // Message matches the CLI path's exactly (`normalizeCliParameters`) so
+        // both boundaries report a wrong-typed value identically. The
+        // MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES hatch is deliberately NOT named
+        // here (PR #2261 R1): it is an OPERATOR action on the server process —
+        // an MCP client cannot set a server env var, so telling callers how to
+        // disable a validation gate is guidance they can neither act on nor
+        // should follow. It is documented for operators in
+        // `docs/architecture/interface-agnostic-commands.md` instead.
+        throw new Error(`Invalid value for parameter '${key}': ${detail}`);
+      }
+      continue;
     }
-    // For required parameters, rely on Zod validation to catch missing values
+
+    // Omitted value: try to materialize a Zod-level default first.
+    const schema = paramDef.schema as z.ZodTypeAny | undefined;
+    const parsed =
+      typeof schema?.safeParse === "function" ? schema.safeParse(undefined) : undefined;
+
+    if (parsed?.success && parsed.data !== undefined) {
+      // Zod-level `.default(...)` materialized from `undefined`.
+      result[key] = parsed.data;
+      continue;
+    }
+
+    if (paramDef.defaultValue !== undefined) {
+      // Sibling `defaultValue` field (legacy convention, or a schema with no
+      // Zod-level default). Applied regardless of `required` to preserve
+      // pre-mt#2705 behavior for that (unusual) combination.
+      result[key] = paramDef.defaultValue;
+      continue;
+    }
+
+    if (paramDef.required) {
+      const issues =
+        parsed && !parsed.success
+          ? parsed.error.issues.map((i) => i.message).join("; ")
+          : undefined;
+      throw new Error(`Required parameter '${key}' is missing${issues ? `: ${issues}` : ""}`);
+    }
+    // Genuinely optional, no default of any kind — leave omitted so the
+    // handler sees `undefined`, matching prior behavior.
   }
 
   return result;

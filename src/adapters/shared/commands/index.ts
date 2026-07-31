@@ -46,6 +46,8 @@ import { registerObservabilityCommands } from "./observability";
 import { registerPrincipalCorpusCommands } from "./principal-corpus";
 import { registerForgeCommands } from "./forge";
 import { registerEventsCommands } from "./events";
+import { registerRefsCommands } from "./refs";
+import { registerPrincipalCommands } from "./principal";
 import { registerCalibrationCommands } from "./calibration";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -174,6 +176,12 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register events commands (system_events table — event log Phase 1a — mt#2092)
   registerEventsCommands(container);
 
+  // Register refs commands (id-set cross-reference, mt#2819)
+  registerRefsCommands(container);
+
+  // Register principal-channel commands (agent -> principal's phone, mt#3228)
+  registerPrincipalCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -217,4 +225,6 @@ export {
   registerPrincipalCorpusCommands,
   registerForgeCommands,
   registerEventsCommands,
+  registerRefsCommands,
+  registerPrincipalCommands,
 };

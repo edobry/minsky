@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { registerTranscriptGetCommand } from "./get-command";
+import { registerTranscriptGetCommand, projectTurnsToText } from "./get-command";
+import type { TranscriptTextProjectionEntry } from "./get-command";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const COMMAND_ID = "transcripts.get";
@@ -48,6 +49,19 @@ describe("transcripts.get command", () => {
       expect(params.conversationId).toBeDefined();
       expect(params.sessionId).toBeDefined(); // back-compat alias (mt#2526)
       expect(params.turnRange).toBeDefined();
+    });
+
+    test("declares role and projection params (mt#2818)", () => {
+      const command = getCommand();
+      const params = command.parameters as Record<
+        string,
+        { required?: boolean; defaultValue?: unknown } | undefined
+      >;
+      expect(params.role).toBeDefined();
+      expect(params.role?.required).toBeFalsy();
+      expect(params.projection).toBeDefined();
+      expect(params.projection?.required).toBeFalsy();
+      expect(params.projection?.defaultValue).toBe("full");
     });
 
     test("conversation id is required at runtime (not a schema flag); turnRange optional", () => {
@@ -130,5 +144,101 @@ describe("transcripts.get command", () => {
         getCommand().execute({ sessionId: "session-abc", turnRange: "bad-range" }, ctx)
       ).rejects.toThrow(/turnRange|start-end|Invalid/i);
     });
+  });
+});
+
+// ── projectTurnsToText (mt#2818) ─────────────────────────────────────────────
+
+describe("projectTurnsToText", () => {
+  test("emits one entry per present role when no role filter is given", () => {
+    const entries = projectTurnsToText([
+      { turnIndex: 0, userText: "hello", assistantText: "hi there" },
+    ]);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toEqual({ turnIndex: 0, role: "user", text: "hello", injected: false });
+    expect(entries[1]).toEqual({
+      turnIndex: 0,
+      role: "assistant",
+      text: "hi there",
+      injected: false,
+    });
+  });
+
+  test("role filter restricts to only that role's text", () => {
+    const entries = projectTurnsToText(
+      [{ turnIndex: 0, userText: "hello", assistantText: "hi there" }],
+      "user"
+    );
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.role).toBe("user");
+    expect(entry.text).toBe("hello");
+  });
+
+  test("a turn with a null role-text is skipped, not emitted as empty", () => {
+    const entries = projectTurnsToText([{ turnIndex: 0, userText: null, assistantText: "hi" }]);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.role).toBe("assistant");
+  });
+
+  test("a turn whose text is ENTIRELY harness markup is excluded", () => {
+    const entries = projectTurnsToText([
+      {
+        turnIndex: 0,
+        userText: "<system-reminder>injected context</system-reminder>",
+        assistantText: null,
+      },
+    ]);
+    expect(entries).toHaveLength(0);
+  });
+
+  test("a turn MIXING real content with markup is included, markup stripped, injected: true", () => {
+    const entries = projectTurnsToText([
+      {
+        turnIndex: 0,
+        userText: "please fix the bug <system-reminder>ignore this</system-reminder>",
+        assistantText: null,
+      },
+    ]);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.injected).toBe(true);
+    expect(entry.text).not.toContain("system-reminder");
+    expect(entry.text).toContain("please fix the bug");
+  });
+
+  test("a turn with no markup is included verbatim with injected: false", () => {
+    const entries = projectTurnsToText([
+      { turnIndex: 0, userText: "plain user prompt", assistantText: null },
+    ]);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.injected).toBe(false);
+    expect(entry.text).toBe("plain user prompt");
+  });
+
+  test("multiple turns preserve turnIndex ordering in output", () => {
+    const entries = projectTurnsToText(
+      [
+        { turnIndex: 0, userText: "first", assistantText: null },
+        { turnIndex: 1, userText: "second", assistantText: null },
+      ],
+      "user"
+    );
+    expect(entries.map((e) => e.turnIndex)).toEqual([0, 1]);
+    expect(entries.map((e) => e.text)).toEqual(["first", "second"]);
+  });
+
+  test("a slash-command turn (<command-message> wrapper) is excluded entirely", () => {
+    const entries = projectTurnsToText([
+      {
+        turnIndex: 0,
+        userText:
+          "<command-message>error-handling</command-message>\n<command-name>error-handling</command-name>",
+        assistantText: null,
+      },
+    ]);
+    expect(entries).toHaveLength(0);
   });
 });

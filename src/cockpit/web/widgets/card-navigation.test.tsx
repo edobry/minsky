@@ -46,7 +46,7 @@ function mockFetch(handler: (url: string) => unknown, status = 200) {
         headers: { "Content-Type": "application/json" },
       })
     )
-  ) as typeof globalThis.fetch;
+  ) as unknown as typeof globalThis.fetch;
 }
 
 /** Assert `container` holds exactly one whole-card anchor to `href` with the
@@ -82,7 +82,7 @@ describe("Home-page status card navigability (mt#2246)", () => {
   test("CredentialsSummary is a link even in the loading state", () => {
     // Never-resolving fetch keeps the widget in its loading state.
     originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
 
     const { container } = renderWidget(<CredentialsSummary />);
 

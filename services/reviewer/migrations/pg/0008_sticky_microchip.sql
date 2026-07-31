@@ -1,0 +1,1 @@
+ALTER TABLE "reviewer_convergence_metrics" ADD COLUMN "verdict" text;

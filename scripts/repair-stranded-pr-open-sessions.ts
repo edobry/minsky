@@ -92,13 +92,44 @@ if (!GITHUB_TOKEN) {
 // ---------------------------------------------------------------------------
 
 // Dynamic import to allow the script to exit cleanly if env is missing.
+//
+// `createSessionProvider`/`createConfiguredTaskService` both require an
+// initialized PersistenceProvider dependency to be passed explicitly (they
+// throw "unavailable: no persistence dependency provided" otherwise) -
+// bootstrapped here via the canonical createCliContainer + persistence
+// pattern the sibling backfill-*.ts scripts use. `@minsky/domain/tasks/
+// taskService` does not export a bare `createTaskService` (that lives in
+// `./multi-backend-service` and returns an unconfigured service with no
+// registered backends) - `createConfiguredTaskService` is the one that
+// returns a fully-configured TaskServiceInterface, matching what
+// applyPostMergeStateSync's PostMergeStateSyncDeps actually needs.
 async function bootstrapMinsky() {
   try {
+    const { initializeConfiguration, CustomConfigFactory } = await import(
+      "@minsky/domain/configuration"
+    );
+    const { createCliContainer } = await import("../src/composition/cli");
     const { createSessionProvider } = await import(
       "@minsky/domain/session/drizzle-session-repository"
     );
-    const createSessionDbAdapter = createSessionProvider;
-    const { createTaskService } = await import("@minsky/domain/tasks/taskService");
+    const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+
+    await initializeConfiguration(new CustomConfigFactory(), {
+      workingDirectory: process.cwd(),
+    });
+    const container = await createCliContainer();
+    await container.initialize();
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) {
+      throw new Error("Repair pass requires a persistence provider (Postgres).");
+    }
+
+    const createSessionDbAdapter = async () => await createSessionProvider(undefined, persistence);
+    const createTaskService = async () =>
+      await createConfiguredTaskService({
+        workspacePath: process.cwd(),
+        persistenceProvider: persistence,
+      });
     return { createSessionDbAdapter, createTaskService };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -192,7 +223,10 @@ function parseGitHubUrl(repoUrl: string): { owner: string; repo: string } | null
   // Matches: https://github.com/owner/repo or https://github.com/owner/repo.git
   const match = /github\.com[/:]([^/]+)\/([^/.]+)(\.git)?$/.exec(repoUrl);
   if (!match) return null;
-  return { owner: match[1], repo: match[2] };
+  const owner = match[1];
+  const repo = match[2];
+  if (owner === undefined || repo === undefined) return null;
+  return { owner, repo };
 }
 
 // ---------------------------------------------------------------------------

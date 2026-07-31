@@ -101,7 +101,10 @@ describe("buildReplaySchedule", () => {
     ];
     const schedule = buildReplaySchedule(events, 10);
     for (let i = 1; i < schedule.length; i++) {
-      expect(schedule[i].offsetMs).toBeGreaterThanOrEqual(schedule[i - 1].offsetMs);
+      const curr = schedule[i];
+      const prev = schedule[i - 1];
+      if (!curr || !prev) throw new Error("expected consecutive schedule entries");
+      expect(curr.offsetMs).toBeGreaterThanOrEqual(prev.offsetMs);
     }
   });
 
@@ -142,9 +145,10 @@ describe("buildReplaySchedule", () => {
     ];
     const slow = buildReplaySchedule(events, 1);
     const fast = buildReplaySchedule(events, 60);
-    const slowTotal = slow[slow.length - 1].offsetMs;
-    const fastTotal = fast[fast.length - 1].offsetMs;
-    expect(fastTotal).toBeLessThanOrEqual(slowTotal);
+    const slowLast = slow[slow.length - 1];
+    const fastLast = fast[fast.length - 1];
+    if (!slowLast || !fastLast) throw new Error("expected non-empty schedules");
+    expect(fastLast.offsetMs).toBeLessThanOrEqual(slowLast.offsetMs);
   });
 
   test("empty input produces an empty schedule", () => {

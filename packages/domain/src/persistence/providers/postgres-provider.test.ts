@@ -100,7 +100,7 @@ describe("PostgresPersistenceProvider", () => {
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
-  test("getRawSqlConnection() returns connection when initialized", async () => {
+  test("getRawSqlConnection() returns the pooler-guarded view when initialized (mt#2773)", async () => {
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
     await provider.initialize({ sqlClient: mockSql as any });
@@ -108,8 +108,16 @@ describe("PostgresPersistenceProvider", () => {
     const connection = await provider.getRawSqlConnection();
 
     expect(connection).toBeDefined();
-    // Should return the mocked SQL connection
-    expect(connection).toBe(mockSql as any);
+    // mt#2773: NOT the raw instance — a guarded Proxy that caps in-flight
+    // .unsafe() queries at pool max (see raw-sql-pooler-guard.ts)...
+    expect(connection).not.toBe(mockSql as any);
+    // ...whose other properties forward to the underlying instance...
+    expect((connection as unknown as { options: unknown }).options).toBe(
+      (mockSql as { options: unknown }).options
+    );
+    expect(typeof connection.unsafe).toBe("function");
+    // ...and which is cached across calls.
+    expect(await provider.getRawSqlConnection()).toBe(connection);
   });
 
   test("getCapabilities() returns correct PostgreSQL capabilities (base provider)", () => {
@@ -424,44 +432,148 @@ describe("PostgresVectorPersistenceProvider", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#2973 — factory-probed client reuse (eliminates the redundant second
+// cold-boot handshake). The factory hands the provider an already-open,
+// SELECT-1-validated client via the constructor; initialize() must adopt it
+// WITHOUT opening a second connection or re-running SELECT 1, and the vector
+// provider must skip its redundant pgvector re-probe.
+// ---------------------------------------------------------------------------
+
+describe("PostgresPersistenceProvider factory-probed client reuse (mt#2973)", () => {
+  const reuseConfig: PersistenceConfig = {
+    backend: "postgres",
+    postgres: {
+      connectionString: TEST_CONNECTION_STRING,
+      connectTimeout: 10,
+      idleTimeout: 60,
+    },
+  };
+
+  function makeReusableClient() {
+    // The template-tag function stands in for `sql\`SELECT 1\`` / probe queries.
+    // If the reuse path is correct, initialize() never invokes it (the factory
+    // already ran SELECT 1 + the pgvector probe before handing the client over).
+    const tag = mock(() => Promise.resolve([]));
+    const client = Object.assign(tag, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: mock(() => Promise.resolve()),
+    });
+    return { tag, client };
+  }
+
+  test("adopts the probed client without a second connect or SELECT 1 (base provider)", async () => {
+    const { tag, client } = makeReusableClient();
+    // Must never be called on the reuse path — asserts no second handshake.
+    const factoryMustNotRun = mock(() => {
+      throw new Error("postgres factory must not be called on the reuse path");
+    });
+
+    const provider = new PostgresPersistenceProvider(reuseConfig, {
+      sql: client as any,
+      pgvectorVerified: false,
+    });
+    await provider.initialize({ postgresFactory: factoryMustNotRun as any });
+
+    expect(factoryMustNotRun).not.toHaveBeenCalled(); // no second connection opened
+    expect(tag).not.toHaveBeenCalled(); // redundant SELECT 1 skipped
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+
+    // close() must end the adopted client (ownership transferred to the provider).
+    await provider.close();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  test("vector provider with factory-verified pgvector skips the redundant re-probe", async () => {
+    const { tag, client } = makeReusableClient();
+
+    const provider = new PostgresVectorPersistenceProvider(reuseConfig, {
+      sql: client as any,
+      pgvectorVerified: true,
+    });
+    await provider.initialize();
+
+    // Both the base SELECT 1 AND the vector re-probe must be skipped → 0 tag calls.
+    expect(tag).not.toHaveBeenCalled();
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+    expect(provider.getCapabilities().vectorStorage).toBe(true);
+  });
+
+  test("close() ends a probed client that was never adopted (orphan cleanup)", async () => {
+    const { client } = makeReusableClient();
+
+    // Constructed with a probed client but initialize() is never called.
+    const provider = new PostgresPersistenceProvider(reuseConfig, {
+      sql: client as any,
+      pgvectorVerified: false,
+    });
+    await provider.close();
+
+    // The orphaned client must still be ended so the pool doesn't leak.
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // shouldAutoMigrate — pure predicate (mt#1763 R1 BLOCKING #3 / mt#1767)
 // ---------------------------------------------------------------------------
 
-describe("shouldAutoMigrate (mt#1767)", () => {
-  test("true when no deps and env has no MINSKY_AUTO_MIGRATE", () => {
-    expect(shouldAutoMigrate(undefined, {})).toBe(true);
+describe("shouldAutoMigrate (default OFF, mt#2560)", () => {
+  test("false when no deps and MINSKY_AUTO_MIGRATE is unset (default off)", () => {
+    expect(shouldAutoMigrate(undefined, {})).toBe(false);
   });
 
-  test("true when no deps and MINSKY_AUTO_MIGRATE is unset/empty", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "" })).toBe(true);
+  test("false when no deps and MINSKY_AUTO_MIGRATE is empty (default off)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "" })).toBe(false);
   });
 
-  test("true when no deps and MINSKY_AUTO_MIGRATE is 'true'", () => {
+  test("true when no deps and MINSKY_AUTO_MIGRATE is 'true' (opt-in)", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "true" })).toBe(true);
   });
 
-  test("false when MINSKY_AUTO_MIGRATE is 'false' (explicit opt-out)", () => {
+  test("true when no deps and MINSKY_AUTO_MIGRATE is '1' (numeric opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "1" })).toBe(true);
+  });
+
+  test("opt-in is case-insensitive (TRUE)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "TRUE" })).toBe(true);
+  });
+
+  test("false when MINSKY_AUTO_MIGRATE is 'false'", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
   });
 
-  test("false when MINSKY_AUTO_MIGRATE is '0' (numeric opt-out)", () => {
+  test("false when MINSKY_AUTO_MIGRATE is '0'", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "0" })).toBe(false);
   });
 
-  test("false-opt-out is case-insensitive (FALSE)", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "FALSE" })).toBe(false);
+  test("true when MINSKY_AUTO_MIGRATE is 'yes' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "yes" })).toBe(true);
+  });
+
+  test("true when MINSKY_AUTO_MIGRATE is 'on' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "on" })).toBe(true);
+  });
+
+  test("false for a non-opt-in value (e.g. 'maybe')", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "maybe" })).toBe(false);
   });
 
   test("false when caller injected sqlClient (test seam)", () => {
-    expect(shouldAutoMigrate({ sqlClient: {} }, {})).toBe(false);
+    expect(shouldAutoMigrate({ sqlClient: {} }, { MINSKY_AUTO_MIGRATE: "true" })).toBe(false);
   });
 
   test("false when caller injected postgresFactory (test seam)", () => {
-    expect(shouldAutoMigrate({ postgresFactory: () => ({}) as unknown as never }, {})).toBe(false);
+    expect(
+      shouldAutoMigrate(
+        { postgresFactory: () => ({}) as unknown as never },
+        { MINSKY_AUTO_MIGRATE: "true" }
+      )
+    ).toBe(false);
   });
 
-  test("env opt-out wins over no-deps (false even without injected client)", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
+  test("injected deps win over opt-in (false even with MINSKY_AUTO_MIGRATE=true)", () => {
+    expect(shouldAutoMigrate({ sqlClient: {} }, { MINSKY_AUTO_MIGRATE: "1" })).toBe(false);
   });
 });
 

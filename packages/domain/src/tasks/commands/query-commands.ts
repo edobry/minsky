@@ -2,6 +2,20 @@
  * Task Query Commands
  *
  * Interface-agnostic read operations: list, get, getStatus, getSpecContent.
+ *
+ * Every function here is the canonical implementation the facade
+ * (`packages/domain/src/tasks.ts`) delegates to: `listTasksFromParams` (mt#2783,
+ * resolving ADR-021 project scope per mt#2416 and forwarding
+ * status/kind/tags/projectScope filters to `taskService.listTasks`),
+ * `getTaskSpecContentFromParams` (mt#3194, forwarding `section` and doing
+ * markdown-heading-range extraction), and `getTaskFromParams` /
+ * `getTaskStatusFromParams` (mt#3190, adding taskId normalization and
+ * session/repo-aware workspace resolution over the facade's former
+ * process.cwd()-only bodies). Both the CLI/MCP resolution path
+ * (`@minsky/domain/tasks` → `tasks/index.ts` → `../tasks.ts`, which delegates
+ * here) and the `taskCommands.ts` barrel (e.g. `index-embeddings-command.ts`)
+ * terminate at these bodies — see `../../tasks.ts`'s header for the full
+ * cross-function delegation map.
  */
 
 import { z } from "zod";
@@ -26,6 +40,10 @@ import {
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import type { BasePersistenceProvider } from "../../persistence/types";
+import { assertKnownKind } from "../workflows";
+import { ALL_PROJECTS, type ProjectScope } from "../../project/scope";
+import { resolveProjectIdentity } from "../../project/identity";
+import { resolveProjectScope } from "../../project/scope-resolver";
 
 function requirePersistence(
   provider: BasePersistenceProvider | undefined
@@ -68,6 +86,10 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
+    // Validate kind against the workflow registry up front (mt#2762) — a typo
+    // must not slip through to a backend query that silently returns zero rows.
+    assertKnownKind(validParams.kind);
+
     // Use DI-provided taskService when available
     let taskService = deps?.taskService;
     if (!taskService) {
@@ -91,10 +113,58 @@ export async function listTasksFromParams(
           });
     }
 
-    // Get tasks with filters - delegate filtering to domain layer
+    // Resolve project scope (ADR-021, mt#2416; ported from the former tasks.ts-only
+    // duplicate — mt#2783). allProjects=true skips the scope filter entirely;
+    // otherwise resolve per-process identity and fall back to ALL_PROJECTS on any
+    // resolution failure.
+    //
+    // The persistenceProvider/getDatabaseConnection capability check is done
+    // FIRST, before touching process.cwd() at all (PR #2281 R1): this function
+    // is now reached by non-CLI-entry-point callers too (e.g.
+    // index-embeddings-command.ts, via the taskCommands.ts barrel), for whom cwd
+    // may be meaningless — they never pass a persistenceProvider, so with the
+    // check ordered this way they never invoke resolveProjectIdentity(cwd) at
+    // all. CLI/MCP behavior is unchanged: crud-commands.ts always injects a
+    // persistenceProvider (registry-setup.ts's getPersistenceProvider either
+    // returns one or throws before this function is even called), so the
+    // identity resolution still runs on that path exactly as it did in the
+    // former tasks.ts-only implementation.
+    let projectScope: ProjectScope = ALL_PROJECTS;
+    if (!validParams.allProjects) {
+      const persistenceProvider = deps?.persistenceProvider;
+      if (persistenceProvider && "getDatabaseConnection" in persistenceProvider) {
+        try {
+          const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+          if (identity.kind === "resolved") {
+            const sqlProvider =
+              persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
+            const db = await sqlProvider.getDatabaseConnection?.();
+            if (db) {
+              projectScope = await resolveProjectScope(identity, db);
+            }
+          }
+        } catch (err) {
+          log.debug(
+            "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",
+            {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          );
+        }
+      }
+    }
+
+    // Get tasks with filters - delegate filtering to domain layer (server-side;
+    // kind/tags/projectScope are forwarded to taskService.listTasks so backends
+    // filter server-side rather than the adapter post-filtering the result,
+    // mt#2762 / mt#2783).
     let tasks = await taskService.listTasks({
       status: validParams.status,
       all: validParams.all,
+      backend: validParams.backend,
+      tags: validParams.tags,
+      projectScope,
+      kind: validParams.kind,
     });
     // Apply limit client-side if provided
     const limit = validParams.limit;
@@ -307,25 +377,36 @@ export async function getTaskSpecContentFromParams(
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);
 
-    // If a specific section is requested, extract it
+    // If a specific section is requested, extract it. A section name that does
+    // not match any `## <heading>` in the spec is an explicit error, never a
+    // silent fallback to the full document (mt#3194) — that silent fallback is
+    // what let `--section` go unenforced on the live CLI/MCP path for as long
+    // as it did: the envelope echoed `section` back while quietly returning
+    // everything.
     let sectionContent = result.content;
-    if (validParams.section && result.content) {
+    if (validParams.section) {
       const section = validParams.section;
-      const lines = result.content.toString().split("\n");
+      const lines = (result.content ?? "").toString().split("\n");
       const sectionStart = lines.findIndex((line) =>
         line.toLowerCase().startsWith(`## ${section.toLowerCase()}`)
       );
 
-      if (sectionStart !== -1) {
-        let sectionEnd = lines.length;
-        for (let i = sectionStart + 1; i < lines.length; i++) {
-          if (lines[i]?.startsWith("## ")) {
-            sectionEnd = i;
-            break;
-          }
-        }
-        sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
+      if (sectionStart === -1) {
+        throw new ResourceNotFoundError(
+          `Section "${section}" not found in spec for task ${taskId}`,
+          "task-spec-section",
+          `${taskId}#${section}`
+        );
       }
+
+      let sectionEnd = lines.length;
+      for (let i = sectionStart + 1; i < lines.length; i++) {
+        if (lines[i]?.startsWith("## ")) {
+          sectionEnd = i;
+          break;
+        }
+      }
+      sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
     }
 
     return {

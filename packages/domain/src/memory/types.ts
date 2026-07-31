@@ -55,6 +55,17 @@ export type MemoryScope = (typeof MEMORY_SCOPES)[keyof typeof MEMORY_SCOPES];
  */
 export interface MemoryRecord {
   id: string;
+  /**
+   * Numeric `mem#N` short id (mt#2966, ADR-029), added alongside the
+   * canonical uuid `id`. Minted sequentially on create via `nextShortId`
+   * (monotonic-counter-over-tombstones pattern, generalized from tasks'
+   * `mt#NNNN`). Absent (`undefined`) for legacy rows that predate the
+   * backfill (`scripts/backfill-memory-short-ids.ts`) until that script
+   * runs. The uuid `id` remains the canonical PK and
+   * `minsky://memory/<uuid>` deeplink target — this field is a
+   * human-readable display/reference alias, never a replacement.
+   */
+  shortId?: string;
   type: MemoryType;
   name: string;
   description: string;
@@ -161,6 +172,16 @@ export interface MemoryListFilter {
    * Example: { type: "tracksTask", targetId: "mt#2053" }
    */
   association?: { type: string; targetId: string };
+  /**
+   * Lower bound (inclusive) on `createdAt` — ISO-8601 timestamp (mt#2817).
+   * Memory records are largely create-once/rarely-mutated facts, so `since`/
+   * `until` filter on `createdAt` (when the fact was recorded) rather than
+   * `updatedAt` (unlike tasks_list, whose `since`/`until` filter on
+   * `updatedAt` since tasks are actively mutated over their lifecycle).
+   */
+  since?: string;
+  /** Upper bound (inclusive) on `createdAt` — ISO-8601 timestamp (mt#2817). */
+  until?: string;
 }
 
 /**

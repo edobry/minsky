@@ -1,0 +1,66 @@
+name: Infra Preview
+
+# mt#2738 — Pulumi GitOps Phase 1 (DETECTION). On PRs touching infra/**, runs
+# `pulumi preview` against the prod stack (state on Pulumi Cloud) and posts the
+# diff as a PR comment, so infra changes are visible/reviewable before merge.
+#
+# This workflow NEVER applies. The operator's manual `pulumi up` remains the
+# apply path; apply-on-merge is deferred to Phase 2 (mt#2738). Pairs with
+# infra-drift-cron.yml (scheduled drift detection).
+#
+# Prerequisites (one-time):
+#   - PULUMI_ACCESS_TOKEN repo secret — a Pulumi Cloud access token with read
+#     access to edobry/minsky-infra/prod. Used for state access + secret decrypt
+#     (the Cloud-KMS-encrypted config secrets are decrypted at runtime; no
+#     passphrase). Create a dedicated token (Pulumi Cloud > Personal access
+#     tokens) rather than reusing your CLI login token, so it's revocable.
+#   - infra/Pulumi.prod.yaml is committed (Cloud-KMS-encrypted ciphertext).
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+
+# One preview per PR; cancel superseded runs.
+concurrency:
+  group: infra-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # post the preview diff comment
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Install the Pulumi CLI up front so `pulumi install` (below) can run.
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+
+      # Regenerate the Railway terraform-bridge provider SDK (gitignored,
+      # declared in Pulumi.yaml `packages:`) and install npm deps.
+      - name: Install infra dependencies + provider SDK
+        working-directory: infra
+        run: pulumi install
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Pulumi preview (diff comment on PR)
+        uses: pulumi/actions@v6
+        with:
+          command: preview
+          stack-name: edobry/minsky-infra/prod
+          work-dir: infra
+          comment-on-pr: true
+          diff: true
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

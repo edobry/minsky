@@ -36,6 +36,13 @@
 import { join, isAbsolute } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
+
+/** This guard's legacy override env var — registered in HOOK_ONLY_ENV_VARS (mirrored here via known-override-env-vars.ts), so classifyOverride() resolves it as authorized_exception. */
+const OVERRIDE_ENV_VAR = "MINSKY_FORCE_EDIT_GENERATED";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-generated-file-edit";
 
 // ---------------------------------------------------------------------------
 // Budget derivation from host cap (mt#1546 pattern)
@@ -290,12 +297,57 @@ const GUARDED_TOOLS = new Set([
   "Write",
 ]);
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mt#2889 PR #2012 CI fix,
+ * mt#2900) rather than left as a bare top-level `if (import.meta.main) {
+ * ... }` block — matching the established convention every OTHER guard with
+ * multi-step narrowing uses (e.g. `causal-premise-detector.ts`'s `main()`).
+ * A bare top-level block is not a function body, so `return` is invalid
+ * there; CI's `tsconfig.hooks.json` typecheck (tsgo, a native-preview
+ * compiler) also does not narrow `targetPath`/`scanResult` from their
+ * nullable types after a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the way it does after an explicit `return` —
+ * wrapping in a real function makes `return recordAndExit(...)` both valid
+ * AND the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // including the common "not a guarded tool" / "path unresolvable" /
+  // "file missing" / "no banner" silent-allow paths, exactly once per
+  // invocation regardless of which early-return fires. This guard's
+  // override is a legacy per-guard var (MINSKY_FORCE_EDIT_GENERATED), not
+  // the dispatcher's unified MINSKY_HOOK_OVERRIDE channel — mt#2889 PR #2012
+  // R1 NON-BLOCKING #5: classify it via the shared classifyOverride() the
+  // same way check-branch-fresh.ts's MINSKY_SKIP_FRESHNESS override is
+  // classified, so override-rate aggregation over this guard isn't silently
+  // missing every audited bypass (it was already surfaced on stdout via
+  // emitOverrideAuditLog — that's a human-readable audit LINE, not the
+  // structured fire-log field this override metric needs).
+  const recordAndExit = (
+    decision: "allow" | "deny",
+    overrideFields?: {
+      overrideEnvVar: string;
+      overrideClassification: ReturnType<typeof classifyOverride>;
+    }
+  ): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+      ...overrideFields,
+    });
+    process.exit(0);
+  };
 
   // Only act on the guarded tools
   if (!GUARDED_TOOLS.has(input.tool_name)) {
-    process.exit(0);
+    return recordAndExit("allow");
   }
 
   // Read host cap from settings.json and apply derived budgets. Deferred from
@@ -309,8 +361,8 @@ if (import.meta.main) {
   // Extract target file path from tool input
   const targetPath = extractTargetPath(input.tool_name, input.tool_input, input.cwd);
   if (!targetPath) {
-    // Can't extract path — fail-open (shape mismatch or unsupported tool variant)
-    process.exit(0);
+    // Can't extract path — fail-open (shape mismatch or unsupported tool variant).
+    return recordAndExit("allow");
   }
 
   // Scan the file's first 5 lines for generation-banner markers FIRST so that
@@ -322,19 +374,22 @@ if (import.meta.main) {
 
   if (scanResult.skipReason) {
     // File missing or unreadable — fail-open
-    process.exit(0);
+    return recordAndExit("allow");
   }
 
   if (!scanResult.found) {
     // No banner marker — permit
-    process.exit(0);
+    return recordAndExit("allow");
   }
 
   // Banner found. Check for override; if set, audit-log with the matched
   // marker and permit. Otherwise emit denial.
   if (isOverrideSet()) {
     emitOverrideAuditLog(input.tool_name, targetPath, scanResult.patternName);
-    process.exit(0);
+    return recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+    });
   }
 
   const denialReason = formatDenialReason(
@@ -352,5 +407,9 @@ if (import.meta.main) {
       permissionDecisionReason: denialReason,
     },
   });
-  process.exit(0);
+  return recordAndExit("deny");
+}
+
+if (import.meta.main) {
+  await main();
 }

@@ -35,15 +35,53 @@
         },
         {
           "name": "ci_run_view_log",
-          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library."
+          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library.",
+          "arguments": [
+            {
+              "name": "runId",
+              "required": true,
+              "description": "Numeric workflow run ID (from forge.ci_run_list)."
+            }
+          ]
+        },
+        {
+          "name": "ci_run_rerun",
+          "description": "Re-run a GitHub Actions workflow run by its run ID (mt#2775). By default re-runs only the FAILED jobs (POST .../rerun-failed-jobs) — the narrower retry for a verified-unrelated flake on an otherwise-green required check. Pass fullRerun:true to re-run every job in the workflow instead. Reruns are only valid for COMPLETED runs (queued/in_progress runs cannot be re-run) and are subject to GitHub's own limits (30-day window, 50 reruns per run, combining full and failed-jobs reruns). Requires the 'Actions' repository permission (write) on the configured GitHub App/token — a 403 'Resource not accessible by integration' means that permission is missing and must be granted by an operator (see the tool's error message for exact steps). The result includes rerunCount (GitHub's own run_attempt counter) so callers/reviewers can see how many times this run has already been retried.",
+          "options": [
+            {
+              "flags": ["--full-rerun"],
+              "description": "If true, re-run the entire workflow (every job). Default false: re-run only the jobs that failed on the prior attempt."
+            }
+          ],
+          "arguments": [
+            {
+              "name": "runId",
+              "required": true,
+              "description": "Numeric workflow run ID to re-run (from forge.ci_run_list)."
+            }
+          ]
         },
         {
           "name": "check_runs_list",
-          "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context)."
+          "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context).",
+          "arguments": [
+            {
+              "name": "sha",
+              "required": true,
+              "description": "The full or abbreviated commit SHA to query check-runs for."
+            }
+          ]
         },
         {
           "name": "branch_protection_get",
-          "description": "Get branch protection settings for a branch (e.g. 'main')."
+          "description": "Get branch protection settings for a branch (e.g. 'main').",
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch name (e.g. 'main', 'develop')."
+            }
+          ]
         },
         {
           "name": "branch_protection_set",
@@ -53,6 +91,13 @@
               "flags": ["--config"],
               "description": "Branch protection configuration as a JSON object. See BranchProtection interface for all fields. Example: {required_status_checks: {strict: true, contexts: ['build']}, enforce_admins: true}",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch name to protect (e.g. 'main')."
             }
           ]
         },
@@ -69,6 +114,13 @@
               "flags": ["--description"],
               "description": "Optional label description (up to 100 characters).",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "name",
+              "required": true,
+              "description": "Label name (must be unique within the repo)."
             }
           ]
         },
@@ -102,11 +154,25 @@
               "description": "New description (up to 100 characters).",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "currentName",
+              "required": true,
+              "description": "Current name of the label to update."
+            }
           ]
         },
         {
           "name": "label_delete",
-          "description": "Delete a label from the repository by name."
+          "description": "Delete a label from the repository by name.",
+          "arguments": [
+            {
+              "name": "name",
+              "required": true,
+              "description": "Label name to delete."
+            }
+          ]
         }
       ]
     },
@@ -145,6 +211,13 @@
               "description": "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized).",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Commit message"
+            }
           ]
         },
         {
@@ -173,6 +246,16 @@
               "flags": ["--remote"],
               "description": "Git remote name",
               "takesValue": true
+            },
+            {
+              "flags": ["--push-timeout-ms"],
+              "description": "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout, the remote branch head is verified directly before reporting an outcome.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--verify-timeout-ms"],
+              "description": "Override the remote-ref verification wall-clock bound in milliseconds (only used when the push itself times out). Defaults to 15 seconds.",
+              "takesValue": true
             }
           ]
         },
@@ -195,6 +278,13 @@
               "description": "Target directory for the clone",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "url",
+              "required": true,
+              "description": "URL of the Git repository to clone"
+            }
           ]
         },
         {
@@ -213,6 +303,13 @@
               "flags": ["--name"],
               "description": "Name of the branch to create",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "session",
+              "required": true,
+              "description": "Name of the session to use"
             }
           ]
         },
@@ -244,6 +341,13 @@
               "takesValue": true,
               "values": ["automatic", "guided", "manual"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch to merge"
+            }
           ]
         },
         {
@@ -271,6 +375,13 @@
             {
               "flags": ["--auto-stash"],
               "description": "Automatically stash uncommitted changes before checkout"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch to checkout"
             }
           ]
         },
@@ -301,6 +412,13 @@
               "description": "Choose conflict resolution strategy",
               "takesValue": true,
               "values": ["automatic", "guided", "manual"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "baseBranch",
+              "required": true,
+              "description": "Base branch to rebase onto"
             }
           ]
         },
@@ -412,6 +530,13 @@
               "flags": ["--ignore-case"],
               "description": "Perform case-insensitive search"
             }
+          ],
+          "arguments": [
+            {
+              "name": "pattern",
+              "required": true,
+              "description": "Search pattern"
+            }
           ]
         },
         {
@@ -472,6 +597,13 @@
               "description": "End of line range",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "path",
+              "required": true,
+              "description": "File to blame"
+            }
           ]
         },
         {
@@ -497,6 +629,10 @@
               "flags": ["--branch"],
               "description": "Branch to pull (default: main)",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -513,6 +649,10 @@
               "flags": ["--session"],
               "description": "Session identifier",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -539,6 +679,10 @@
               "flags": ["--paths"],
               "description": "Optional list of paths to stash selectively",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -560,6 +704,10 @@
               "flags": ["--ref"],
               "description": "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -599,6 +747,13 @@
               "takesValue": true,
               "values": ["true"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "ref",
+              "required": true,
+              "description": "Stash ref to drop (required). E.g. stash@{0}."
+            }
           ]
         },
         {
@@ -614,6 +769,17 @@
               "flags": ["--session"],
               "description": "Session identifier",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
+            }
+          ],
+          "arguments": [
+            {
+              "name": "paths",
+              "required": true,
+              "description": "Paths to restore (discard unstaged working-tree changes). At least one required."
             }
           ]
         },
@@ -641,6 +807,17 @@
               "description": "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
               "takesValue": true,
               "values": ["true"]
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
+            }
+          ],
+          "arguments": [
+            {
+              "name": "mode",
+              "required": true,
+              "description": "Reset mode: soft (HEAD only), mixed (HEAD + index), hard (HEAD + index + working tree, DESTRUCTIVE)."
             }
           ]
         },
@@ -688,6 +865,70 @@
               "takesValue": true
             }
           ]
+        },
+        {
+          "name": "repair_lock",
+          "description": "Inspect (and, with confirm: true, repair) a .git/index.lock. Reports age, size, and owning-process liveness. Only removes the lock when provably stale (no live process AND age above the staleness threshold) — a lock held by a live process is reported busy and never removed.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--confirm"],
+              "description": "Set to true to attempt removal. The lock is ONLY removed when provably stale (no live owning process AND age above the staleness threshold); otherwise the call throws describing why (busy, or ambiguous — present but not yet stale-eligible). Omit to just inspect the lock's diagnostic without mutating anything.",
+              "takesValue": true,
+              "values": ["true"]
+            },
+            {
+              "flags": ["--stale-threshold-ms"],
+              "description": "Override the default 10-minute staleness threshold (LOCK_STALE_THRESHOLD_MS) for this call. Use when an environment's legitimate git_* operations routinely run longer or shorter than the incident-grounded default.",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "repair_refs",
+          "description": "Identify a corrupt/stale remote-tracking ref (e.g. `fatal: bad object refs/remotes/origin/...`). Without `ref`, scans all refs under refPrefix (read-only). With `ref` + confirm: true, deletes the confirmed-bad ref (`git update-ref -d`) and re-fetches — refuses to delete a ref that turns out to be healthy.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Specific ref to check/repair (e.g. refs/remotes/origin/task/mt-2304). Omit to scan all refs under refPrefix (read-only scan, no repair possible without a specific ref).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--ref-prefix"],
+              "description": "Ref prefix to scan when `ref` is omitted (default refs/remotes/origin).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--confirm"],
+              "description": "Set to true, together with `ref`, to delete the confirmed-bad ref and re-fetch. Refuses (throws) if the ref turns out to be healthy — never deletes a ref that isn't actually corrupt.",
+              "takesValue": true,
+              "values": ["true"]
+            },
+            {
+              "flags": ["--remote"],
+              "description": "Remote to re-fetch from after deleting the bad ref (default origin).",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },
@@ -709,6 +950,13 @@
               "description": "Maximum number of lines to return",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "path",
+              "required": true,
+              "description": "File path relative to workspace root"
+            }
           ]
         },
         {
@@ -723,6 +971,13 @@
             {
               "flags": ["--ignore-case"],
               "description": "Perform case-insensitive search"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "pattern",
+              "required": true,
+              "description": "Search pattern (regex)"
             }
           ]
         },
@@ -822,6 +1077,12 @@
                 {
                   "flags": ["--search-commits"]
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "query",
+                  "required": true
+                }
               ]
             },
             {
@@ -839,6 +1100,12 @@
                 },
                 {
                   "flags": ["--details"]
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true
                 }
               ]
             },
@@ -897,6 +1164,13 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to get status for"
+                }
               ]
             },
             {
@@ -926,6 +1200,18 @@
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to update"
+                },
+                {
+                  "name": "status",
+                  "required": false,
+                  "description": "New status for the task (optional, will prompt if omitted)"
                 }
               ]
             }
@@ -968,6 +1254,50 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to retrieve specification content for"
+                }
+              ]
+            },
+            {
+              "name": "freshness",
+              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Backend type (available: github, minsky)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (supports md#123, gh#456)"
+                }
               ]
             }
           ]
@@ -992,8 +1322,7 @@
                 "IN-REVIEW",
                 "DONE",
                 "BLOCKED",
-                "CLOSED",
-                "COMPLETED"
+                "CLOSED"
               ]
             },
             {
@@ -1005,6 +1334,12 @@
               "flags": ["--limit"],
               "description": "Maximum number of tasks to return",
               "takesValue": true
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
             },
             {
               "flags": ["--tag"],
@@ -1103,6 +1438,13 @@
               "flags": ["--include-session"],
               "description": "Include associated session info (status, liveness) in the response"
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task identifier (supports md#123, gh#456)"
+            }
           ]
         },
         {
@@ -1142,6 +1484,12 @@
               "flags": ["--tag"],
               "description": "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
               "takesValue": true
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
             },
             {
               "flags": ["--repo"],
@@ -1231,6 +1579,75 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to edit"
+            }
+          ]
+        },
+        {
+          "name": "bulk-edit",
+          "description": "Bulk-edit tasks (kind, tag add/remove) with a mandatory dry-run: the dry-run returns the full change set and a token; execute requires the token and aborts on any state drift since the dry-run",
+          "options": [
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
+              "flags": ["--add-tag"],
+              "description": "Tag to add to every target task",
+              "takesValue": true
+            },
+            {
+              "flags": ["--remove-tag"],
+              "description": "Tag to remove from every target task",
+              "takesValue": true
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Apply the approved change set (default is dry-run preview; requires the dry-run token)"
+            },
+            {
+              "flags": ["--token"],
+              "description": "Dry-run token binding the approved change set (required with execute)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "ids",
+              "required": true,
+              "description": "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids (e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted."
+            }
           ]
         },
         {
@@ -1265,6 +1682,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to delete"
+            }
           ]
         },
         {
@@ -1284,6 +1708,39 @@
             {
               "flags": ["--details"],
               "description": "Show detailed output including scores and diagnostics"
+            },
+            {
+              "flags": ["--all"],
+              "description": "Include all tasks regardless of status"
+            },
+            {
+              "flags": ["--status"],
+              "description": "Task status",
+              "takesValue": true,
+              "values": [
+                "TODO",
+                "PLANNING",
+                "READY",
+                "IN-PROGRESS",
+                "IN-REVIEW",
+                "DONE",
+                "BLOCKED",
+                "CLOSED"
+              ]
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return similar tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             },
             {
               "flags": ["--repo"],
@@ -1308,6 +1765,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task identifier (supports md#123, gh#456)"
             }
           ]
         },
@@ -1345,13 +1809,22 @@
                 "IN-REVIEW",
                 "DONE",
                 "BLOCKED",
-                "CLOSED",
-                "COMPLETED"
+                "CLOSED"
               ]
             },
             {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--quiet"],
-              "description": "Suppress output"
+              "description": "Suppress progress and degraded-search warnings on stderr (results are unaffected)"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return matching tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             },
             {
               "flags": ["--repo"],
@@ -1377,12 +1850,24 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural language query"
+            }
           ]
         },
         {
           "name": "index-embeddings",
           "description": "Generate and store embeddings for tasks",
           "options": [
+            {
+              "flags": ["--task-id"],
+              "description": "Single-task target: index just this task (prefer over the `task` alias)",
+              "takesValue": true
+            },
             {
               "flags": ["--task"],
               "description": "Task identifier",
@@ -1498,6 +1983,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "to",
+              "required": true,
+              "description": "Target backend"
+            }
           ]
         },
         {
@@ -1509,9 +2001,21 @@
               "description": "Add a dependency edge (task depends on prerequisite)",
               "options": [
                 {
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--depends-on"],
                   "description": "Task that is the dependency",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "The dependent task (the task that will depend on another)"
                 }
               ]
             },
@@ -1520,9 +2024,21 @@
               "description": "Remove a dependency edge",
               "options": [
                 {
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--depends-on"],
                   "description": "Task that is the dependency",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "The dependent task (the task that depends on another)"
                 }
               ]
             },
@@ -1531,8 +2047,20 @@
               "description": "List dependencies for a task",
               "options": [
                 {
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--verbose"],
                   "description": "Use more detailed output format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "ID of the task to list dependencies for"
                 }
               ]
             },
@@ -1541,9 +2069,21 @@
               "description": "Show dependency tree for a specific task",
               "options": [
                 {
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--max-depth"],
                   "description": "Maximum depth to show in the tree",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "ID of the task to show dependency tree for"
                 }
               ]
             },
@@ -1605,11 +2145,35 @@
         },
         {
           "name": "children",
-          "description": "List subtasks (children) of a parent task"
+          "description": "List subtasks (children) of a parent task",
+          "options": [
+            {
+              "flags": ["--task-id"],
+              "description": "ID of the parent task to list children for",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "parent",
-          "description": "Show the parent task of a subtask"
+          "description": "Show the parent task of a subtask",
+          "options": [
+            {
+              "flags": ["--task-id"],
+              "description": "ID of the task to find parent of",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "reparent",
@@ -1619,6 +2183,13 @@
               "flags": ["--parent"],
               "description": "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to reparent (e.g. mt#123)"
             }
           ]
         },
@@ -1635,6 +2206,12 @@
               "flags": ["--backend"],
               "description": "Filter by specific backend (mt, md, gh, etc.)",
               "takesValue": true
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
             },
             {
               "flags": ["--limit"],
@@ -1671,12 +2248,15 @@
               "values": ["shortest-path", "value-first", "ready-first"]
             },
             {
-              "flags": ["--parallel"],
-              "description": "Show parallel execution opportunities"
-            },
-            {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "target",
+              "required": true,
+              "description": "Target task ID to generate route for"
             }
           ]
         },
@@ -1712,7 +2292,23 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated file paths to constrain the subagent to",
+              "description": "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is comma-split, each chunk is rendered as a bullet under 'Only modify the following files:', and the parallel-work guard re-reads it directly to detect PR collisions. A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' or ends in a file extension; anything else (a prose fragment, or a bare word like 'tests') is REJECTED with an error naming it, rather than rendered as a fabricated path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--scope-notes"],
+              "description": "Free-prose description of what this dispatch covers (mt#1279). Renders as its own '## Scope Notes' section in the generated prompt, kept separate from the `scope` file list so prose can never be mistaken for a path. Use this for qualifications like 'plus tests' or 'do NOT convert the render sites'.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--intent"],
+              "description": "Dispatch intent (mt#2865). Defaults to \"implementation\" — no behavior change from before this param existed. \"read-only\" adds an explicit read-only-bound section to the generated prompt AND writes a TTL-bound declaration to the dispatch-intent store for the dispatched session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES session-mutating/PR-mutating tools for ANY subagent operating in this session while the declaration is live. IMPORTANT: on \"read-only\" the generated prompt also SILENTLY OMITS the commit/PR instructions (`session_commit`/`session_pr_create`) and forces the read-only Operating Envelope regardless of `type` — since those tools are structurally denied for this dispatch, the prompt never tells the agent to use them. Use for bounded lookups, never for a task expected to write code.",
+              "takesValue": true,
+              "values": ["read-only", "implementation"]
+            },
+            {
+              "flags": ["--model"],
+              "description": "Dispatch model (mt#3043) — which model the subagent should run on. One of the dispatch-model registry ids (sonnet | opus | haiku | fable; see packages/domain/src/ai/dispatch-models.ts, the same registry the cockpit launch picker uses). Returned to the caller as `suggestedModel` so it can be passed as the harness Agent-spawn `model` arg. Omitted → the registry default. An unrecognized id is REJECTED rather than silently defaulting, so a typo never quietly downgrades the dispatch.",
               "takesValue": true
             },
             {
@@ -1738,6 +2334,17 @@
           ]
         },
         {
+          "name": "dispatch-recover",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID whose most recent subagent dispatch should be probed for recovery (e.g. \"mt#2831\")."
+            }
+          ]
+        },
+        {
           "name": "orchestrate",
           "description": "Find unblocked subtasks of a parent task, ready for dispatch via tasks_dispatch",
           "options": [
@@ -1745,6 +2352,13 @@
               "flags": ["--status"],
               "description": "Subtask statuses to include (comma-separated, default: TODO)",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Parent task ID to find dispatchable subtasks for"
             }
           ]
         },
@@ -1757,6 +2371,13 @@
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
+            }
           ]
         },
         {
@@ -1768,6 +2389,13 @@
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
+            }
           ]
         },
         {
@@ -1778,6 +2406,13 @@
               "flags": ["--similar-limit"],
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
             }
           ]
         },
@@ -1797,6 +2432,13 @@
                 {
                   "flags": ["--include-stale"],
                   "description": "Include stale claims in the result (default: false)"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (e.g. \"mt#2562\" or \"2562\")"
                 }
               ]
             }
@@ -1884,6 +2526,13 @@
               "description": "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID (optional, alternative to --task)"
+            }
           ]
         },
         {
@@ -1936,6 +2585,13 @@
               "flags": ["--recover"],
               "description": "Recover abandoned session: if existing session for this task is stale/orphaned, delete it and create a fresh one"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID (optional, alternative to --task)"
+            }
           ]
         },
         {
@@ -1956,6 +2612,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
+            }
           ]
         },
         {
@@ -1967,6 +2630,13 @@
               "description": "Maximum number of results to return",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Search query (searches in session ID, repo name, branch, task ID)"
+            }
           ]
         },
         {
@@ -1975,7 +2645,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -1993,6 +2663,133 @@
               "description": "Timeout in milliseconds (default: 30000, max: 120000)",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "command",
+              "required": true,
+              "description": "Shell command to execute"
+            }
+          ]
+        },
+        {
+          "name": "ps",
+          "description": "List sessions with a live runtime attachment (self-registered), cross-checked against a local `lsof -d cwd` scan. Reports stored-but-not-live and live-but-not-stored discrepancies distinctly. Local-host only (v0).",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--reap"],
+              "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
+            }
+          ]
+        },
+        {
+          "name": "attached",
+          "description": "List sessions with a live runtime attachment (self-registered), cross-checked against a local `lsof -d cwd` scan. Reports stored-but-not-live and live-but-not-stored discrepancies distinctly. Local-host only (v0). (alias of `session ps`)",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--reap"],
+              "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
+            }
+          ]
+        },
+        {
+          "name": "focus",
+          "description": "Raise the terminal where a session's agent is running to the foreground, using the live attachment recorded by `session ps` (mt#2284). Supports tmux, iTerm2, Terminal.app, WezTerm, and kitty, with a window-raise degraded fallback for other emulators. Never silently no-ops: every outcome (focused, degraded, permission denied, no attachment) is reported with an actionable message.",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--attachment"],
+              "description": "Attachment id to focus when the session has more than one live attachment. Omit when there is only one; a bare invocation against a multi-attachment session lists the candidate ids to choose from.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "goto",
+          "description": "Raise the terminal where a session's agent is running to the foreground, using the live attachment recorded by `session ps` (mt#2284). Supports tmux, iTerm2, Terminal.app, WezTerm, and kitty, with a window-raise degraded fallback for other emulators. Never silently no-ops: every outcome (focused, degraded, permission denied, no attachment) is reported with an actionable message. (alias of `session focus`)",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--attachment"],
+              "description": "Attachment id to focus when the session has more than one live attachment. Omit when there is only one; a bare invocation against a multi-attachment session lists the candidate ids to choose from.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "bindings",
+          "description": "bindings commands",
+          "subcommands": [
+            {
+              "name": "refresh",
+              "description": "refresh commands",
+              "subcommands": [
+                {
+                  "name": "bindings-refresh",
+                  "description": "Run one iTerm-tab correlation pass (mt#1628): classifies every session with a live runtime attachment (mt#2284) as bound to a currently-open iTerm2 tab (`iterm-tab`) or not (`unbound`), and persists the result on the session record. Local-macOS-Minsky only -- skips gracefully (no `osascript` invoked) on hosted Minsky or non-darwin hosts.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ]
+                }
+              ]
+            }
           ]
         },
         {
@@ -2005,10 +2802,6 @@
               "takesValue": true
             },
             {
-              "flags": ["--force"],
-              "description": "Force the operation"
-            },
-            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -2016,6 +2809,18 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--override-reason"],
+              "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
             }
           ]
         },
@@ -2070,6 +2875,13 @@
               "flags": ["--skip-if-already-merged"],
               "description": "Skip if changes already merged"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
+            }
           ]
         },
         {
@@ -2078,7 +2890,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2152,6 +2964,11 @@
               "takesValue": true
             },
             {
+              "flags": ["--task"],
+              "description": "Task identifier",
+              "takesValue": true
+            },
+            {
               "flags": ["--json"],
               "description": "Output in JSON format"
             },
@@ -2174,6 +2991,28 @@
             {
               "flags": ["--no-files"],
               "description": "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits"
+            },
+            {
+              "flags": ["--commit-timeout-ms"],
+              "description": "Override the commit-phase (staging + pre-commit hooks) wall-clock bound in milliseconds. Defaults to 10 minutes.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--push-timeout-ms"],
+              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--override-reason"],
+              "description": "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Commit message"
             }
           ]
         },
@@ -2193,7 +3032,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2391,7 +3230,7 @@
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2416,7 +3255,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Filter PRs by specific session ID",
+                  "description": "Filter PRs by specific session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2507,6 +3346,10 @@
                 {
                   "flags": ["--content"],
                   "description": "Include PR description and diff content"
+                },
+                {
+                  "flags": ["--reviews"],
+                  "description": "Include posted GitHub reviews: reviewer login, state, submitted_at, full body text, and per-review inline comments (path, line, body), in submission order (mt#2829). Bodies are included but capped if enormous (truncation stated explicitly); diffs are never included. A confirmed-zero-reviews PR returns `reviews: []` (not an error); a fetch failure returns `reviewsFetchError` instead — the two are never conflated."
                 }
               ]
             },
@@ -2516,7 +3359,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2537,7 +3380,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2553,6 +3396,11 @@
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--review-comment"],
+                  "description": "Optional review comment posted alongside the approval",
+                  "takesValue": true
                 }
               ]
             },
@@ -2562,7 +3410,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2601,7 +3449,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2643,7 +3491,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2682,7 +3530,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)",
+                  "description": "Session ID (positional) — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2735,7 +3583,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2821,7 +3669,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2850,7 +3698,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -2882,6 +3730,13 @@
                           "flags": ["--json"],
                           "description": "Output in JSON format"
                         }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "body",
+                          "required": true,
+                          "description": "Review body text (overall comment)"
+                        }
                       ]
                     }
                   ]
@@ -2896,7 +3751,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -2918,6 +3773,13 @@
                           "flags": ["--json"],
                           "description": "Output in JSON format"
                         }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "reviewId",
+                          "required": true,
+                          "description": "GitHub review ID to dismiss (numeric — see PR review URLs)"
+                        }
                       ]
                     }
                   ]
@@ -2936,7 +3798,7 @@
                           "options": [
                             {
                               "flags": ["--session-id"],
-                              "description": "Session ID",
+                              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                               "takesValue": true
                             },
                             {
@@ -2957,6 +3819,13 @@
                             {
                               "flags": ["--json"],
                               "description": "Output in JSON format"
+                            }
+                          ],
+                          "arguments": [
+                            {
+                              "name": "threadId",
+                              "required": true,
+                              "description": "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: (1) session_pr_review_context.reviewThreads[].id, (2) GraphQL pullRequest.reviewThreads.nodes[].id, or (3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type."
                             }
                           ]
                         }
@@ -2980,7 +3849,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -3001,6 +3870,13 @@
                         {
                           "flags": ["--json"],
                           "description": "Output in JSON format"
+                        }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "findings",
+                          "required": true,
+                          "description": "List of reviewer findings to compile into check-run annotations. severity: 'BLOCKING' → failure, 'NON-BLOCKING' → warning, other → notice. An empty list produces a check run with conclusion 'success' and no annotations."
                         }
                       ]
                     }
@@ -3030,7 +3906,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -3062,7 +3938,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -3126,12 +4002,30 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated list of file paths to constrain to",
+              "description": "Comma-separated list of FILE PATHS to constrain the subagent to. Paths only — this value is comma-split, each chunk is rendered as a bullet under 'Only modify the following files:', and the parallel-work guard re-reads it to detect PR collisions. A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' or ends in a file extension; anything else (a prose fragment, or a bare word like 'tests') is REJECTED with an error naming it, rather than rendered as a fabricated path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--scope-notes"],
+              "description": "Free-prose description of what this dispatch covers (mt#1279). Renders as its own '## Scope Notes' section in the generated prompt, kept separate from the `scope` file list so prose can never be mistaken for a path. Use this for qualifications like 'plus tests' or 'do NOT convert the render sites'.",
               "takesValue": true
             },
             {
               "flags": ["--omit-operating-envelope"],
               "description": "Suppress the Operating Envelope block (budget awareness, graceful exit, handoff-note convention). Default: envelope is included."
+            },
+            {
+              "flags": ["--intent"],
+              "description": "Dispatch intent (mt#2865). Defaults to \"implementation\" — no behavior change from before this param existed. \"read-only\" adds an explicit read-only-bound section to the generated prompt AND writes a TTL-bound declaration to the dispatch-intent store for this session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit for ANY subagent operating in this session while the declaration is live, regardless of which specific agent_id makes the call (covers a context-inheriting `fork`, not just the dispatched agent itself). IMPORTANT: on \"read-only\" the generated prompt also SILENTLY OMITS the commit/PR instructions (the `session_commit`/`session_pr_create` sections present in an `implementation`-intent prompt) and forces the read-only Operating Envelope regardless of `type` — since those tools are structurally denied for this dispatch, the prompt never tells the agent to use them. Use this for bounded lookups (memory search, code investigation, review) dispatched from inside an active implementation context — never fork for those; see subagent-routing.mdc.",
+              "takesValue": true,
+              "values": ["read-only", "implementation"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "task",
+              "required": true,
+              "description": "Task ID (required)"
             }
           ]
         },
@@ -3141,7 +4035,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID to sync (resolved from task if omitted)",
+              "description": "Session ID to sync (resolved from task if omitted) — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -3176,7 +4070,12 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
               "takesValue": true
             },
             {
@@ -3205,6 +4104,10 @@
             {
               "flags": ["--full-replace"],
               "description": "Override the marker-less fail-closed guard (mt#2400) to intentionally replace an existing file's entire content"
+            },
+            {
+              "flags": ["--allow-shrink"],
+              "description": "Override the marker-spanning-collapse guard (mt#2577). When false (default), a marker-based edit whose apply result is dramatically smaller than the original is REFUSED (the apply model likely mis-resolved a marker and dropped content). Set true only for an intentional large deletion."
             },
             {
               "flags": ["--json"],
@@ -3340,6 +4243,13 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
+            }
           ]
         },
         {
@@ -3438,6 +4348,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
+            }
           ]
         },
         {
@@ -3482,6 +4399,13 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
+            }
           ]
         },
         {
@@ -3490,7 +4414,7 @@
           "options": [
             {
               "flags": ["--target"],
-              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+              "description": "Target file type to compile to (e.g., agents.md, claude.md, cursor-rules). When omitted (bare invocation), compiles every target whose output already exists on disk with the generated banner — a partial regen is never silently reported as success (mt#2803). Falls back to agents.md when none exist yet (fresh repo / init flows).",
               "takesValue": true
             },
             {
@@ -3505,6 +4429,16 @@
             {
               "flags": ["--check"],
               "description": "Check if the output file is up-to-date (staleness detection). Exits non-zero if stale."
+            },
+            {
+              "flags": ["--warn-chars"],
+              "description": "Override the target's default WARN size-budget threshold (chars). mt#2802 — only claude.md and agents.md enforce a size budget.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--fail-chars"],
+              "description": "Override the target's default FAIL size-budget threshold (chars, --check mode only). mt#2802 — only claude.md and agents.md enforce a size budget.",
+              "takesValue": true
             }
           ]
         },
@@ -3524,11 +4458,35 @@
         },
         {
           "name": "enable",
-          "description": "Add a rule ID to the enabled list in the project config"
+          "description": "Add a rule ID to the enabled list in the project config",
+          "options": [
+            {
+              "flags": ["--id"],
+              "description": "The rule ID to enable",
+              "takesValue": true
+            },
+            {
+              "flags": ["--rule-id"],
+              "description": "Legacy alias for id (also accepted; prefer id)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "disable",
-          "description": "Add a rule ID to the disabled list in the project config"
+          "description": "Add a rule ID to the disabled list in the project config",
+          "options": [
+            {
+              "flags": ["--id"],
+              "description": "The rule ID to disable",
+              "takesValue": true
+            },
+            {
+              "flags": ["--rule-id"],
+              "description": "Legacy alias for id (also accepted; prefer id)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "config",
@@ -3622,6 +4580,13 @@
               "flags": ["--sources"],
               "description": "Show configuration sources and precedence"
             }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
+            }
           ]
         },
         {
@@ -3656,6 +4621,18 @@
               "takesValue": true,
               "values": ["yaml", "json"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
+            },
+            {
+              "name": "value",
+              "required": true,
+              "description": "Value to set"
+            }
           ]
         },
         {
@@ -3689,6 +4666,13 @@
               "description": "File format to use",
               "takesValue": true,
               "values": ["yaml", "json"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
             }
           ]
         },
@@ -3745,6 +4729,10 @@
             {
               "flags": ["--verbose"],
               "description": "Show detailed diagnostic results"
+            },
+            {
+              "flags": ["--fix"],
+              "description": "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)"
             }
           ]
         },
@@ -3768,6 +4756,13 @@
                       "flags": ["--token"],
                       "description": "Token value (MCP / scripted path). Omit on CLI to get a masked interactive prompt.",
                       "takesValue": true
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -3800,6 +4795,13 @@
                     {
                       "flags": ["--json"],
                       "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -3874,15 +4876,22 @@
             },
             {
               "flags": ["--execute"],
-              "description": "Actually perform the migration (default is preview mode)"
+              "description": "Actually perform the migration (default is preview mode). Ignored when --dry-run is also set — --dry-run always wins."
             },
             {
               "flags": ["-n", "--dry-run"],
-              "description": "Simulate migration without making changes"
+              "description": "Force preview mode; takes precedence over --execute, so `--dry-run --execute` previews rather than applies"
             },
             {
               "flags": ["--debug"],
               "description": "Enable debug mode for detailed output"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "to",
+              "required": false,
+              "description": "Target backend (postgres)"
             }
           ]
         },
@@ -3944,6 +4953,18 @@
               "flags": ["--system"],
               "description": "System prompt",
               "takesValue": true
+            },
+            {
+              "flags": ["--timeout-ms"],
+              "description": "Timeout in milliseconds for the provider call (default 60000). The call fails fast with an actionable error instead of hanging when exceeded.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "prompt",
+              "required": true,
+              "description": "The prompt to complete"
             }
           ]
         },
@@ -3974,6 +4995,13 @@
             {
               "flags": ["--dry-run"],
               "description": "Show the proposed changes without applying them"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "filePath",
+              "required": true,
+              "description": "Path to the file to edit"
             }
           ]
         },
@@ -4175,6 +5203,12 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true
+            }
           ]
         },
         {
@@ -4196,6 +5230,12 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "toolId",
+              "required": true
+            }
           ]
         },
         {
@@ -4204,8 +5244,13 @@
           "subcommands": [
             {
               "name": "list",
-              "description": "List Asks with optional state and kind filters",
+              "description": "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Returns full ask records by default; pass `summary: true` for compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body — safe to page through at any store size (mt#2748). To inspect one specific Ask by id, `asks_get` returns exactly one full record with a bare (non-list-wrapped) shape.",
               "options": [
+                {
+                  "flags": ["--id"],
+                  "description": "Filter to a single Ask by id — accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Resolved via the same generalized resolver used by asks.respond/edit/wait-for-response; throws if the id does not resolve to exactly one Ask.",
+                  "takesValue": true
+                },
                 {
                   "flags": ["--state"],
                   "description": "Filter by Ask state (detected | classified | routed | ...)",
@@ -4224,6 +5269,21 @@
                 {
                   "flags": ["--all-projects"],
                   "description": "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+                },
+                {
+                  "flags": ["--summary"],
+                  "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id. The result echoes `summary` (mt#2748 R1 review) so callers can branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; absent/false means `asks` is the full `Ask[]`."
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks instead.",
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID to fetch. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965) — resolved via the same generalized resolver asks.list/respond/edit/wait-for-response use."
                 }
               ]
             },
@@ -4233,7 +5293,7 @@
             },
             {
               "name": "respond",
-              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error.",
+              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--message"],
@@ -4244,6 +5304,13 @@
                   "flags": ["--responder"],
                   "description": "AgentId or 'operator' identifier; defaults to 'operator'",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to respond to"
                 }
               ]
             },
@@ -4314,12 +5381,23 @@
                 {
                   "flags": ["--force-immediate"],
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
+                },
+                {
+                  "flags": ["--acknowledge-form-warnings"],
+                  "description": "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A deliberate, per-call override for a genuinely long/complex ask — never a default. Recorded on the form-lint calibration log so override frequency stays reviewable via /calibration-review. Without it, a create whose question/options fail any form-lint check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, letter-prefixed-option-label) is rejected with the violations listed."
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "kind",
+                  "required": true,
+                  "description": "Ask kind (one of the 7 ADR-008 taxonomy values)"
                 }
               ]
             },
             {
               "name": "wait-for-response",
-              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
@@ -4331,11 +5409,18 @@
                   "description": "Polling interval in seconds (default 15; clamped to [5, 60])",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to wait on until it reaches responded/closed"
+                }
               ]
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata.",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--title"],
@@ -4366,6 +5451,13 @@
                   "flags": ["--editor"],
                   "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to edit"
                 }
               ]
             }
@@ -4417,6 +5509,13 @@
                       "description": "Alias for session. The first non-empty value of session/sessionId is used.",
                       "takesValue": true
                     }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "owner",
+                      "required": true,
+                      "description": "GitHub repository owner (user or org)"
+                    }
                   ]
                 },
                 {
@@ -4437,7 +5536,14 @@
                 },
                 {
                   "name": "cancel",
-                  "description": "Cancel (delete) a PR watch by ID"
+                  "description": "Cancel (delete) a PR watch by ID",
+                  "arguments": [
+                    {
+                      "name": "id",
+                      "required": true,
+                      "description": "Watch ID to cancel (from pr.watch.list output)"
+                    }
+                  ]
                 },
                 {
                   "name": "run",
@@ -4461,12 +5567,12 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "description": "GitHub repo owner. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_OWNER, configured github.organization, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "description": "GitHub repo name. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_REPO, configured github.repository, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
@@ -4487,12 +5593,12 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "description": "GitHub repo owner. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_OWNER, configured github.organization, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "description": "GitHub repo name. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_REPO, configured github.repository, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
@@ -4516,7 +5622,7 @@
             },
             {
               "name": "retrigger",
-              "description": "Trigger a fresh review on a PR's current HEAD. Calls the reviewer service's /retrigger endpoint.",
+              "description": "Trigger a fresh review on a PR's current HEAD. Uses the reviewer service's /retrigger endpoint (mcp.auth.token), falling back to a GitHub-auth `/review` comment when only github.token is available (mt#2679).",
               "options": [
                 {
                   "flags": ["--owner"],
@@ -4527,6 +5633,13 @@
                   "flags": ["--repo"],
                   "description": "GitHub repo name",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "pr",
+                  "required": true,
+                  "description": "PR number to retrigger review on"
                 }
               ]
             }
@@ -4559,7 +5672,7 @@
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), src/cockpit/web (the cockpit frontend's own project, mt#2424), AND every standalone tsconfig project the root package.json typechecks via a `typecheck:*` script (tsconfig.hooks.json, tsconfig.scripts.json — mt#3183), so a clean result means the same set CI checks. Pass `workspace` to typecheck a single directory only (error `file` paths are then relative to THAT workspace, not the overall root — multi-workspace mode's `file` paths are root-relative). Pass `task` or `sessionId` to run against a session workspace.",
               "options": [
                 {
                   "flags": ["--workspace"],
@@ -4612,11 +5725,25 @@
             },
             {
               "name": "open",
-              "description": "Explicitly open a named attention window. Emits a Postgres NOTIFY event."
+              "description": "Explicitly open a named attention window. Emits a Postgres NOTIFY event.",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key (e.g. ask-hours, weekly-review)"
+                }
+              ]
             },
             {
               "name": "close",
-              "description": "Explicitly close a named attention window. Emits a Postgres NOTIFY event."
+              "description": "Explicitly close a named attention window. Emits a Postgres NOTIFY event.",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key to close (e.g. ask-hours)"
+                }
+              ]
             },
             {
               "name": "status",
@@ -4624,7 +5751,14 @@
             },
             {
               "name": "service",
-              "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses"
+              "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key to service (e.g. ask-hours)"
+                }
+              ]
             }
           ]
         },
@@ -4638,7 +5772,7 @@
               "options": [
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 },
                 {
@@ -4659,7 +5793,7 @@
               "options": [
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 }
               ]
@@ -4680,8 +5814,15 @@
                 },
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "deploymentId",
+                  "required": true,
+                  "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
                 }
               ]
             }
@@ -4747,6 +5888,13 @@
               "description": "Maximum number of results to return (default 5)",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Search query"
+            }
           ]
         },
         {
@@ -4757,6 +5905,13 @@
               "flags": ["--document-id"],
               "description": "ID of the document to fetch",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "source",
+              "required": true,
+              "description": "Name of the knowledge source"
             }
           ]
         },
@@ -4819,11 +5974,25 @@
               "flags": ["--all-projects"],
               "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Semantic search query"
+            }
           ]
         },
         {
           "name": "get",
-          "description": "Fetch a single memory record by its identifier."
+          "description": "Fetch a single memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — or a mem#N short id (mt#2966).",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
+            }
+          ]
         },
         {
           "name": "list",
@@ -4877,6 +6046,20 @@
             {
               "flags": ["--all-projects"],
               "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Only include memories created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--summary"],
+              "description": "When true, return compact rows (id, name, type, description, tags, createdAt, updatedAt) with no content body"
             }
           ]
         },
@@ -4939,11 +6122,18 @@
               "flags": ["--force"],
               "description": "Bypass the derivation-discipline validator"
             }
+          ],
+          "arguments": [
+            {
+              "name": "type",
+              "required": true,
+              "description": "Memory type"
+            }
           ]
         },
         {
           "name": "update",
-          "description": "Update fields on an existing memory record.",
+          "description": "Update fields on an existing memory record. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
           "options": [
             {
               "flags": ["--type"],
@@ -5002,15 +6192,29 @@
               "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to update"
+            }
           ]
         },
         {
           "name": "delete",
-          "description": "Delete a memory record by its identifier."
+          "description": "Delete a memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to delete"
+            }
+          ]
         },
         {
           "name": "similar",
-          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results.",
+          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5021,12 +6225,23 @@
               "flags": ["--threshold"],
               "description": "Minimum similarity score threshold",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "ID of the source memory to find neighbours for"
             }
           ]
         },
         {
           "name": "supersede",
-          "description": "Atomically replace an existing memory with a new one. The old memory is retained but marked superseded.",
+          "description": "Atomically replace an existing memory with a new one. The old memory is retained but marked superseded. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `oldId`.",
           "options": [
             {
               "flags": ["--type"],
@@ -5085,11 +6300,25 @@
               "description": "Reason the old memory is being superseded",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "oldId",
+              "required": true,
+              "description": "ID of the memory to supersede"
+            }
           ]
         },
         {
           "name": "lineage",
-          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata."
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to trace lineage for"
+            }
+          ]
         }
       ]
     },
@@ -5106,6 +6335,13 @@
               "description": "Type of artifact. One of: commit, pr, review, issue_comment",
               "takesValue": true,
               "values": ["commit", "pr", "review", "issue_comment"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "artifactId",
+              "required": true,
+              "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
           ]
         },
@@ -5134,6 +6370,13 @@
               "description": "Type of artifact. One of: commit, pr, review, issue_comment",
               "takesValue": true,
               "values": ["commit", "pr", "review", "issue_comment"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "artifactId",
+              "required": true,
+              "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
           ]
         },
@@ -5172,21 +6415,30 @@
       "subcommands": [
         {
           "name": "ingest",
-          "description": "Ingest agent session transcripts into the agent_transcripts table. Pass --all to sweep every discoverable session, or --session=<uuid> to target one. Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. --ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
           "options": [
             {
               "flags": ["--all"],
-              "description": "Sweep and ingest all discoverable sessions"
+              "description": "Sweep and ingest all discoverable conversations"
+            },
+            {
+              "flags": ["--conversation-id"],
+              "description": "Ingest a single conversation by its agent session UUID",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Ingest a single session by its agent session UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             },
             {
               "flags": ["--harness"],
               "description": "Source harness label (default: claude_code)",
               "takesValue": true
+            },
+            {
+              "flags": ["--ended"],
+              "description": "mt#3131 (D2): mark this ingest as carrying positive evidence the session has terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert termination for a still-running conversation. Single-session mode only."
             }
           ]
         },
@@ -5248,6 +6500,17 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language search query to embed and match against transcript turns"
             }
           ]
         },
@@ -5274,6 +6537,10 @@
               "flags": ["--limit"],
               "description": "Maximum number of results to return (default 10)",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ]
         },
@@ -5332,11 +6599,18 @@
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language search query for full-text matching against transcript turns"
+            }
           ]
         },
         {
           "name": "get",
-          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--conversation-id"],
@@ -5352,6 +6626,33 @@
               "flags": ["--turn-range"],
               "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive).",
               "takesValue": true
+            },
+            {
+              "flags": ["--role"],
+              "description": "Filter to turns by role: 'user' returns only turns with a non-null userText; 'assistant' returns only turns with a non-null assistantText.",
+              "takesValue": true,
+              "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--projection"],
+              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected }[] — see the command description for the injected-markup heuristic and its documented limits.",
+              "takesValue": true,
+              "values": ["full", "text"]
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "description": "List recent harness conversations, most-recent-first, with summary metadata: turn count, first/last turn timestamps, an mt#2770 content-derived label, LLM summary (when generated), and workspace/task linkage where known. Zero disk access by default (see checkDiskCoverage for the opt-in disk-discovery sweep). Loud-cap truncation metadata (mt#2817): { returned, total, truncated }. Coverage: reports whether a disk-discovery sweep ran, and surfaces lastIngestedJsonlTimestamp per conversation so staleness is never silently invisible.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of conversations to return (default: 500)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--check-disk-coverage"],
+              "description": "Opt into a live on-disk discovery sweep (reuses the same discovery the ingest sweep uses) to detect conversations that exist on disk but have never been ingested. Off by default — this touches disk (stats every project dir, reads JSONL heads for cwd recovery) and is NOT part of the tool's zero-disk-access default contract."
             }
           ]
         }
@@ -5394,6 +6695,13 @@
                   "description": "Optional operator note attached to the verdict",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "sessionId",
+                  "required": true,
+                  "description": "Session whose finding is being verdicted"
+                }
               ]
             },
             {
@@ -5409,6 +6717,13 @@
                   "flags": ["--note"],
                   "description": "Optional operator note attached to the verdict",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "sessionId",
+                  "required": true,
+                  "description": "Session whose finding is being verdicted"
                 }
               ]
             }
@@ -5431,6 +6746,13 @@
                   "flags": ["--min-overlap-signals"],
                   "description": "Minimum signal types that must overlap (1-3, default 1: any of file/identifier/keyword)",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "epic",
+                  "required": true,
+                  "description": "Epic task ID (e.g., mt#1552) whose children to audit for Sprint-A-superseded TODOs"
                 }
               ]
             }
@@ -5455,6 +6777,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language query (semantic search)"
+            }
           ]
         },
         {
@@ -5469,6 +6798,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "tweetId",
+              "required": true,
+              "description": "Tweet ID to find similar tweets for"
             }
           ]
         },
@@ -5509,6 +6845,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "archivePath",
+              "required": true,
+              "description": "Path to the Twitter archive ZIP"
+            }
           ]
         }
       ]
@@ -5523,7 +6866,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -5531,6 +6874,8 @@
                 "pr.review_posted",
                 "subagent.failed",
                 "embeddings.provider_degraded",
+                "principal.message_rejected",
+                "principal.message_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -5545,7 +6890,13 @@
                 "deploy.smoke",
                 "deploy.live",
                 "deploy.fail",
-                "ask.policy_closed"
+                "ask.policy_closed",
+                "authorization.policy_covered",
+                "task.bulk_edit.dry_run",
+                "task.bulk_edit.executed",
+                "guard.overridden",
+                "principal.message_received",
+                "principal.poll_advanced"
               ]
             },
             {
@@ -5599,6 +6950,69 @@
               "flags": ["--related-session-id"],
               "description": "Related Minsky session ID",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "eventType",
+              "required": true,
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "refs",
+      "description": "REFS commands",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call, with not-found explicit per ref",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "refs",
+              "required": true,
+              "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), short ids (ask#12 / mem#34 / ws#5), and uuids for asks, memories, and workspaces"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal",
+      "description": "PRINCIPAL commands",
+      "subcommands": [
+        {
+          "name": "notify",
+          "description": "Send the principal a message on their configured channel (Telegram). For notifications only — anything needing an answer belongs in asks.create.",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "Optional leading line rendered above the body (e.g. a task id).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Message body to deliver to the principal. Plain text."
             }
           ]
         }
@@ -5688,6 +7102,13 @@
             {
               "flags": ["--inspector"],
               "description": "Use MCP inspector CLI (legacy, slower)"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "tool-name",
+              "required": true,
+              "description": "Name of the tool to call"
             }
           ]
         },
@@ -5825,6 +7246,13 @@
               "flags": ["--workspace-path"],
               "description": "Workspace path for context",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural language description of what you want to accomplish"
             }
           ]
         },
@@ -6039,15 +7467,15 @@
             },
             {
               "flags": ["--update"],
-              "description": "Update an existing App's events/permissions via PATCH /app"
+              "description": "Show drift between an existing App's live and requested events/permissions, with a link to the settings page to fix it (GitHub has no API to apply this)"
             },
             {
               "flags": ["--execute"],
-              "description": "Apply changes (without this flag, --update shows a dry-run preview)"
+              "description": "No effect with --update (there is no API to apply an events/permissions change); accepted for backward compatibility"
             },
             {
               "flags": ["--permissions"],
-              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)",
+              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:write,metadata:read — contents:write is required for session_commit's App-token push, mt#1477/mt#3210)",
               "takesValue": true
             },
             {
@@ -6116,6 +7544,15 @@
           "flags": ["--workspace-path"],
           "description": "Workspace path",
           "takesValue": true
+        },
+        {
+          "flags": ["--connection-string"],
+          "description": "Postgres connection string, used only if no connection can be inherited from existing config (otherwise captured via the setup db wizard)",
+          "takesValue": true
+        },
+        {
+          "flags": ["--yes"],
+          "description": "Skip the DB-setup confirmation prompt if the interactive wizard runs"
         }
       ]
     },
@@ -6125,7 +7562,7 @@
       "options": [
         {
           "flags": ["--target"],
-          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\".",
+          "description": "Compile target to run (e.g. \"claude-skills\"). When omitted (bare invocation), compiles every target whose .minsky/ source dir exists (mt#2803) — a partial regen is never silently reported as success. Falls back to \"claude-skills\" when no source dir exists yet (fresh repo).",
           "takesValue": true
         },
         {
@@ -6140,6 +7577,16 @@
         {
           "flags": ["--check"],
           "description": "Check whether output files are up-to-date. Exits non-zero when stale."
+        },
+        {
+          "flags": ["--warn-chars"],
+          "description": "Override the target's default WARN size-budget threshold (chars). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
+        },
+        {
+          "flags": ["--fail-chars"],
+          "description": "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
         }
       ]
     },
@@ -6171,6 +7618,11 @@
             {
               "flags": ["--dev"],
               "description": "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. Use with `bun --watch` for server-side auto-restart."
+            },
+            {
+              "flags": ["--host"],
+              "description": "Interface to bind to (default: 127.0.0.1 — loopback only). Binding to any other interface exposes the cockpit's data (tasks, sessions, transcripts, live events) and command surface to that interface — e.g. your whole LAN for a bare IP or 0.0.0.0. Only opt in if you understand that risk.",
+              "takesValue": true
             }
           ]
         },

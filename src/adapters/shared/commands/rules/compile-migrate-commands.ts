@@ -11,8 +11,117 @@ import {
 import { log } from "@minsky/shared/logger";
 import { resolveWorkspacePath } from "@minsky/domain/workspace";
 import { compileRules, migrateRules } from "@minsky/domain/rules/rules-command-operations";
+import type { CompileRulesResult } from "@minsky/domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
 import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
+import { formatTopContributors } from "@minsky/domain/compile/size-budget";
+
+/**
+ * Log per-target compile diagnostics (size report, staleness, and mt#2802
+ * size-budget status) for a single target's `CompileRulesResult`. Extracted
+ * from the original single-target inline logic so the bare-invocation
+ * multi-target loop (mt#2803) can call it once per probed target. Returns a
+ * short failure descriptor when --check mode failed for this target (stale
+ * or size-budget exceeded) so callers can aggregate failures across ALL
+ * probed targets instead of throwing on the first one found. Returns
+ * undefined when the target passed (or when not in --check mode).
+ *
+ * Exported for unit testing (mt#2874 R1 — this function previously had ZERO
+ * direct unit tests despite four distinct branches; see
+ * `compile-migrate-commands.test.ts`).
+ */
+export function reportSingleTargetCompile(
+  target: string,
+  result: CompileRulesResult
+): string | undefined {
+  // Report output size on every compile (mt#2802 success criterion #1).
+  if (result.sizeChars !== undefined) {
+    log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);
+  }
+
+  // --check mode: report + fail when output is stale so CI/hooks can detect it.
+  if (result.check && result.stale) {
+    const staleFile = result.staleFile || "(unknown file)";
+    log.cli(`[rules compile --check] Target "${target}" is STALE`);
+    log.cli(`  Stale file: ${staleFile}`);
+    log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
+    return `target "${target}" is stale (${staleFile})`;
+  }
+
+  // --check mode: report + fail when output exceeds its fail threshold (mt#2802).
+  // Only reachable when NOT stale — a stale target is fixed by regenerating first,
+  // at which point the next --check run evaluates the budget against fresh content.
+  if (result.check && result.sizeBudgetStatus === "fail" && result.sizeBudget) {
+    log.cli(`[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`);
+    log.cli(
+      `  Size: ${result.sizeChars} chars (fail threshold: ${result.sizeBudget.failChars} chars)`
+    );
+    log.cli(`  Top contributing rules:`);
+    for (const line of formatTopContributors(result.topContributors ?? [])) {
+      log.cli(`    ${line}`);
+    }
+    if (result.ruleContentChars !== undefined) {
+      log.cli(
+        `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+          `remainder is target scaffolding — banner/headers)`
+      );
+    }
+    log.cli(
+      `  Trim the rules above, or override via target options / MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
+    );
+    return (
+      `target "${target}" exceeds size budget ` +
+      `(${result.sizeChars} > ${result.sizeBudget.failChars} chars)`
+    );
+  }
+
+  // --check mode: report + fail when any alwaysApply:true rule's OWN compiled
+  // contribution exceeds the per-rule ceiling (mt#2874 — makes mt#1877's per-rule
+  // 15KB budget mechanical). Independent of the aggregate budget check above — a
+  // target can pass the aggregate budget while still having one oversized always-on
+  // rule. Only reachable when the aggregate check above did not already fail (same
+  // "fix the bigger problem first" precedence as the stale-vs-budget check above).
+  if (result.check && result.perRuleViolations && result.perRuleViolations.length > 0) {
+    log.cli(`[rules compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`);
+    for (const violation of result.perRuleViolations) {
+      log.cli(`  Rule "${violation.id}": ${violation.size} chars`);
+    }
+    log.cli(
+      `  Trim the rule(s) above, or override via MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
+    );
+    const violationsList = result.perRuleViolations.map((v) => `${v.id} (${v.size} chars)`);
+    return `target "${target}" has rule(s) exceeding the per-rule ceiling: ${violationsList.join(", ")}`;
+  }
+
+  // Non-check compiles never fail on budget — warn loudly instead (mt#2802 criterion #6),
+  // for either threshold crossed (warn or fail) since only --check hard-fails.
+  if (
+    !result.check &&
+    (result.sizeBudgetStatus === "warn" || result.sizeBudgetStatus === "fail") &&
+    result.sizeBudget
+  ) {
+    const thresholdChars =
+      result.sizeBudgetStatus === "fail"
+        ? result.sizeBudget.failChars
+        : result.sizeBudget.warnChars;
+    log.cli(
+      `[rules compile] WARNING: target "${target}" output (${result.sizeChars} chars) ` +
+        `exceeds its ${result.sizeBudgetStatus} threshold (${thresholdChars} chars).`
+    );
+    log.cli(`  Top contributing rules:`);
+    for (const line of formatTopContributors(result.topContributors ?? [])) {
+      log.cli(`    ${line}`);
+    }
+    if (result.ruleContentChars !== undefined) {
+      log.cli(
+        `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+          `remainder is target scaffolding — banner/headers)`
+      );
+    }
+  }
+
+  return undefined;
+}
 
 export function registerCompileMigrateCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -23,10 +132,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
     name: "compile",
     description: "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
     parameters: rulesCompileCommandParams,
-    execute: async (
-      params: { target?: string; output?: string; dryRun?: boolean; check?: boolean },
-      _ctx?: CommandExecutionContext
-    ) => {
+    execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.compile command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
@@ -41,6 +147,15 @@ export function registerCompileMigrateCommands(targetRegistry: {
           // Config not yet initialized or unavailable — use target default (on_demand)
         }
 
+        // mt#2802: build the override with ONLY the fields actually supplied —
+        // never `{ warnChars: undefined, failChars: undefined }` (reviewer R1);
+        // an absent field falls back to the target default in resolveSizeBudget.
+        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
+        if (params.warnChars !== undefined) sizeBudgetOverride.warnChars = params.warnChars;
+        if (params.failChars !== undefined) sizeBudgetOverride.failChars = params.failChars;
+        const sizeBudget =
+          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
+
         const result = await compileRules({
           workspacePath,
           target: params.target,
@@ -48,16 +163,46 @@ export function registerCompileMigrateCommands(targetRegistry: {
           dryRun: params.dryRun,
           check: params.check,
           memoryLoadingMode,
+          sizeBudget,
         });
 
-        // --check mode: exit non-zero when output is stale so CI/hooks can detect it.
-        if (result.check && result.stale) {
-          const target = params.target || "agents.md";
-          const staleFile = result.staleFile || "(unknown file)";
-          log.cli(`[rules compile --check] Target "${target}" is STALE`);
-          log.cli(`  Stale file: ${staleFile}`);
-          log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
-          throw new Error(`rules compile --check: target "${target}" is stale (${staleFile})`);
+        // mt#2803: bare invocation compiled multiple targets — report each
+        // one via reportSingleTargetCompile so a partial regen is visible,
+        // then aggregate --check / size-budget failures across ALL probed
+        // targets rather than stopping at the first.
+        if (result.targets && result.targets.length > 0) {
+          const failures: string[] = [];
+          for (const targetResult of result.targets) {
+            const failure = reportSingleTargetCompile(targetResult.target, targetResult);
+            if (failure) failures.push(failure);
+          }
+          if (failures.length > 0) {
+            throw new Error(
+              `rules compile --check: ${failures.length} target(s) failed: ${failures.join("; ")}`
+            );
+          }
+          return result;
+        }
+
+        // mt#3058 cutover: a bare `rules compile` with no legacy targets left on
+        // disk is a no-op — the monolithic (claude.md/agents.md) and claude-rules
+        // targets moved to the new `compile` pipeline. Report it plainly and exit
+        // 0 rather than falling through to the single-target path below (which
+        // would mislabel the no-op as "agents.md").
+        if (!params.target && !result.target && (!result.targets || result.targets.length === 0)) {
+          log.cli(
+            "[rules compile] No legacy compile targets remain — nothing to regenerate. " +
+              "CLAUDE.md / AGENTS.md / .claude/rules are compiled by `minsky compile` (mt#3058)."
+          );
+          return result;
+        }
+
+        // Single-target path (explicit --target, or a bare invocation that
+        // probed to exactly one applicable target) — unchanged behavior.
+        const target = result.target || params.target || "agents.md";
+        const failure = reportSingleTargetCompile(target, result);
+        if (failure) {
+          throw new Error(`rules compile --check: ${failure}`);
         }
 
         return result;
@@ -77,7 +222,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
     name: "migrate",
     description: "Migrate rules from .cursor/rules/ to .minsky/rules/",
     parameters: rulesMigrateCommandParams,
-    execute: async (params: { dryRun?: boolean; force?: boolean }) => {
+    execute: async (params) => {
       log.debug("Executing rules.migrate command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});

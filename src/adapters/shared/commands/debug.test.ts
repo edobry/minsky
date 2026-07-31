@@ -20,16 +20,29 @@
  * @see mt#1738 — this test
  * @see src/adapters/shared/commands/debug.ts — implementation under test
  * @see src/mcp/subagent-dispatch-tracker.ts — tracker implementation
+ *
+ * The guardHealth suite (mt#2812, near the bottom of this file) uses real
+ * filesystem operations against temp files — it exercises GuardHealthTracker's
+ * actual on-disk read behavior end-to-end through debug.systemInfo, the same
+ * rationale disconnect-tracker.test.ts documents for its own real-fs suites.
  */
+/* eslint-disable custom/no-real-fs-in-tests */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 import type { SubagentInvocationInput } from "../../../mcp/subagent-dispatch-tracker";
+import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
-import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import {
+  SUBAGENT_INVOCATION_OUTCOME_VALUES,
+  subagentInvocationsTable,
+} from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { registerDebugCommands } from "./debug";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -115,11 +128,13 @@ const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
   id: "id",
   outcome: "outcome",
   started_at: "startedAt",
+  ended_at: "endedAt",
   parent_session_id: "parentSessionId",
   subagent_session_id: "subagentSessionId",
   agent_type: "agentType",
   task_id: "taskId",
   session_id: "sessionId",
+  actual_model: "actualModel",
 };
 
 const pgDialect = new PgDialect();
@@ -168,6 +183,15 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
     const field = COLUMN_TO_FIELD[colName];
     if (!field) throw new Error(`parseWhere: unknown column in IS NOT NULL clause: ${colName}`);
     return (row) => row[field] != null;
+  }
+  // mt#2831: isNull(endedAt) — the tracker's heuristic upsert target selector.
+  const isNullMatch = clause.match(/"[^"]+"\."([^"]+)" is null/i);
+  if (isNullMatch) {
+    const colName = isNullMatch[1];
+    if (!colName) throw new Error(`parseWhere: malformed IS NULL clause: ${clause}`);
+    const field = COLUMN_TO_FIELD[colName];
+    if (!field) throw new Error(`parseWhere: unknown column in IS NULL clause: ${colName}`);
+    return (row) => row[field] == null;
   }
   const cmpMatch = clause.match(/"[^"]+"\."([^"]+)"\s*(=|>=|<=|>|<)\s*\$(\d+)/);
   if (cmpMatch) {
@@ -250,7 +274,9 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
     selectedFields: Record<string, unknown>;
     wherePred: ((row: FakeRow) => boolean) | null;
     groupByFn: ((row: FakeRow) => string) | null;
-    orderByDescStartedAt: boolean;
+    // mt#2831: distinguish ASC (bare column) from DESC (desc()-wrapped) — see the
+    // matching comment in subagent-dispatch-tracker.test.ts's fake DB.
+    orderDirection: "asc" | "desc" | null;
     limitVal: number | null;
     countField: string | null;
   };
@@ -268,8 +294,8 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         ctx.groupByFn = buildGroupByFn(ctx.selectedFields);
         return chain;
       },
-      orderBy(_col: unknown) {
-        ctx.orderByDescStartedAt = true;
+      orderBy(col: unknown) {
+        ctx.orderDirection = col === subagentInvocationsTable.startedAt ? "asc" : "desc";
         return chain;
       },
       limit(n: number) {
@@ -288,6 +314,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
   ): ((row: FakeRow) => string) | null {
     if ("outcome" in selectedFields) return (row) => row.outcome;
     if ("agentType" in selectedFields) return (row) => row.agentType;
+    if ("model" in selectedFields) return (row) => row.actualModel ?? "";
     if ("hour" in selectedFields) {
       return (row) => {
         const d = row.startedAt;
@@ -314,13 +341,16 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         const entry: Record<string, unknown> = { cnt: groupRows.length };
         if ("outcome" in ctx.selectedFields && firstRow) entry.outcome = firstRow.outcome;
         if ("agentType" in ctx.selectedFields && firstRow) entry.agentType = firstRow.agentType;
+        if ("model" in ctx.selectedFields && firstRow) entry.model = firstRow.actualModel;
         if ("hour" in ctx.selectedFields) entry.hour = key;
         result.push(entry);
       }
       return result;
     }
-    if (ctx.orderByDescStartedAt) {
+    if (ctx.orderDirection === "desc") {
       rs = [...rs].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    } else if (ctx.orderDirection === "asc") {
+      rs = [...rs].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     }
     if (ctx.limitVal !== null) rs = rs.slice(0, ctx.limitVal);
     if (ctx.countField) return [{ [ctx.countField]: rs.length }];
@@ -334,7 +364,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         selectedFields: fields,
         wherePred: null,
         groupByFn: null,
-        orderByDescStartedAt: false,
+        orderDirection: null,
         limitVal: null,
         countField,
       };
@@ -346,6 +376,11 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
           const row = inputToRow(input);
           store.set(row.id, row);
           return {
+            // mt#2831: recordSubagentInvocation now calls `.returning({ id: ... })`
+            // after `.values(...)` on the INSERT path.
+            returning(_fields?: unknown): Promise<Array<{ id: string }>> {
+              return Promise.resolve([{ id: row.id }]);
+            },
             then(resolve: (v: void) => void, _reject: (e: unknown) => void): Promise<void> {
               return Promise.resolve().then(resolve);
             },
@@ -535,8 +570,24 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
     expect("lastDispatch" in dispatches).toBe(true);
     expect("byOutcome" in dispatches).toBe(true);
     expect("byAgentType" in dispatches).toBe(true);
+    expect("byModel" in dispatches).toBe(true);
     expect("byHourLast24h" in dispatches).toBe(true);
     expect("escalation" in dispatches).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 3 (mt#2796): one dispatch → non-empty byModel
+  // -------------------------------------------------------------------------
+
+  test("one dispatch with a classified actualModel → byModel is non-empty", async () => {
+    await tracker.recordSubagentInvocation(makeInput({ actualModel: "claude-sonnet-5" }));
+
+    const result = await callSystemInfo();
+    const dispatches = result.subagentDispatches as Record<string, unknown>;
+    const byModel = dispatches.byModel as Record<string, number>;
+    expect(byModel).toBeDefined();
+    expect(Object.keys(byModel).length).toBeGreaterThan(0);
+    expect(byModel["claude-sonnet-5"]).toBe(1);
   });
 
   // -------------------------------------------------------------------------
@@ -547,5 +598,131 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
     const result = await callSystemInfo();
     expect("mcpDisconnects" in result).toBe(true);
     expect("subagentDispatches" in result).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// debug.systemInfo guardHealth surface tests (mt#2812)
+// ---------------------------------------------------------------------------
+
+const GUARD_HEALTH_TEST_GUARD_NAME = "require-deploy-verification-before-merge";
+
+describe("debug.systemInfo guardHealth surface (mt#2812)", () => {
+  const cleanupPaths: string[] = [];
+
+  afterEach(() => {
+    while (cleanupPaths.length > 0) {
+      const p = cleanupPaths.pop();
+      if (p && fs.existsSync(p)) fs.rmSync(p, { force: true });
+    }
+    GuardHealthTracker.resetForTest();
+  });
+
+  function makeTempLogPath(name: string): string {
+    return path.join(os.tmpdir(), `mt2812-debug-guardhealth-test-${name}-${Date.now()}.jsonl`);
+  }
+
+  function guardEvent(overrides: {
+    guardName?: string;
+    timestamp: string;
+    kind?: "error" | "check-skip";
+  }): Record<string, unknown> {
+    return {
+      guardName: overrides.guardName ?? "test-guard",
+      event: "PreToolUse",
+      kind: overrides.kind ?? "error",
+      message: "boom",
+      timestamp: overrides.timestamp,
+    };
+  }
+
+  test("3 consecutive guard errors -> guardHealth.escalation is critical and names the guard", async () => {
+    const logPath = makeTempLogPath("critical");
+    cleanupPaths.push(logPath);
+    // mt#2814: timestamps must be RECENT relative to real wall-clock "now" —
+    // GuardHealthTracker.getSummary() (the production path debug.systemInfo
+    // exercises here) ages a guard's consecutiveStreak out to 0 once its
+    // last event is more than STREAK_RESET_GAP_MS (24h) stale, since this
+    // call is made with no injected `now` (matching production behavior:
+    // debug.ts calls getInstance().getSummary() with zero args). A FIXED
+    // past ISO string (e.g. "2026-07-14T11:00:00.000Z") eventually falls
+    // outside that 24h window purely from real time elapsing, breaking this
+    // test with no code change — exactly what happened when this test's
+    // original fixed dates aged past 24h. Compute offsets from `Date.now()`
+    // instead so the fixture is always "3 recent consecutive failures"
+    // regardless of when the suite actually runs.
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
+    const lines = [
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(3) }),
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(2) }),
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(1) }),
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n");
+    fs.writeFileSync(logPath, `${lines}\n`);
+
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("critical");
+    expect(guardHealth.criticalGuards).toEqual([GUARD_HEALTH_TEST_GUARD_NAME]);
+  });
+
+  // mt#2814: the age-out contract, end-to-end through the SAME production
+  // surface (debug.systemInfo -> GuardHealthTracker.getSummary() with no
+  // injected `now`) the test above exercises for the "recent" case. A guard
+  // whose 3 consecutive failures are all >24h stale must NOT escalate.
+  test("3 consecutive guard errors older than 24h -> guardHealth.escalation ages out to none", async () => {
+    const logPath = makeTempLogPath("stale");
+    cleanupPaths.push(logPath);
+    const now = Date.now();
+    const staleGuardName = "stale-test-guard";
+    const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
+    const lines = [
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(27) }),
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(26) }),
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(25) }), // last event still >24h ago
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n");
+    fs.writeFileSync(logPath, `${lines}\n`);
+
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("none");
+    expect(guardHealth.criticalGuards).toEqual([]);
+    const byGuard = guardHealth.byGuard as Record<string, { consecutiveStreak: number }>;
+    expect(byGuard[staleGuardName]?.consecutiveStreak).toBe(0);
+  });
+
+  test("no guard-health log -> zero-filled aggregates and escalation none", async () => {
+    const logPath = makeTempLogPath("missing");
+    // Deliberately never created.
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("none");
+    expect(guardHealth.byGuard).toEqual({});
+  });
+
+  test("guardHealth result has all required fields", async () => {
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect("byGuard" in guardHealth).toBe(true);
+    expect("criticalGuards" in guardHealth).toBe(true);
+    expect("attentionGuards" in guardHealth).toBe(true);
+    expect("escalation" in guardHealth).toBe(true);
+  });
+
+  test("guardHealth co-exists with mcpDisconnects and subagentDispatches in result", async () => {
+    const result = await callSystemInfo();
+    expect("mcpDisconnects" in result).toBe(true);
+    expect("subagentDispatches" in result).toBe(true);
+    expect("guardHealth" in result).toBe(true);
   });
 });

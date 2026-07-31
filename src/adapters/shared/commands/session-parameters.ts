@@ -83,6 +83,20 @@ export const sessionDirCommandParams = composeParams(
 
 /**
  * Parameters for the session delete command
+ *
+ * NOTE (mt#3021 R2): this export is DEAD CODE — the `session.delete` command
+ * actually registered in `management-commands.ts` imports its
+ * `sessionDeleteCommandParams` from the SIBLING file
+ * `src/adapters/shared/commands/session/session-parameters.ts` (relative
+ * import `"./session-parameters"` from inside the `session/` directory,
+ * distinct from this file at `src/adapters/shared/commands/session-parameters.ts`).
+ * The two files share several export names by coincidence; only
+ * `sessionCommitCommandParams` in THIS file is live (consumed by
+ * `workflow-commands.ts` via `"../session-parameters"`). The
+ * `overrideReason` field for `session delete` lives in the other
+ * file's `sessionDeleteCommandParams` — see it for the real implementation.
+ * Left unedited here to avoid maintaining two copies of a param that only
+ * one of which does anything.
  */
 export const sessionDeleteCommandParams = composeParams(
   {
@@ -133,6 +147,18 @@ export const sessionUpdateCommandParams = composeParams(
       description: "Skip update if session changes are already in base branch",
       required: false,
       defaultValue: false,
+    },
+    // mt#3205: mirrors session.commit's commitTimeoutMs/pushTimeoutMs pattern
+    // — operator-configurable, not just a test-injection seam. Bounds the
+    // push step's wall-clock wait (see pushWithConfirmation's
+    // DEFAULT_PUSH_CONFIRM_TIMEOUT_MS in push-operations.ts for the default).
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout, the remote branch head is verified directly via `git ls-remote` before " +
+        "reporting an outcome — see pushConfirmedVia/pushUnconfirmed in mt#3177/mt#3205.",
+      required: false,
     },
   }
 ) satisfies CommandParameterMap;
@@ -218,6 +244,11 @@ export const sessionInspectCommandParams = {
 export const sessionCommitCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
+    // mt#2816: convenience-resolution alias — same semantics as
+    // session_start/session_exec (`task` resolves to the session bound to
+    // that task via resolveSessionIdForCommand). sessionId still wins when
+    // both are supplied.
+    task: CommonParameters.task,
     json: CommonParameters.json,
   },
   {
@@ -256,6 +287,33 @@ export const sessionCommitCommandParams = composeParams(
         "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits",
       required: false,
       defaultValue: false,
+    },
+    // mt#3049 review R1: exposed as operator-configurable, not just a
+    // test-injection seam — a slower environment (larger repo, loaded
+    // machine) may legitimately need more headroom than the defaults
+    // (DEFAULT_COMMIT_PHASE_TIMEOUT_MS / DEFAULT_PUSH_PHASE_TIMEOUT_MS in
+    // session-commands.ts) without a code change.
+    commitTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the commit-phase (staging + pre-commit hooks) wall-clock bound in milliseconds. Defaults to 10 minutes.",
+      required: false,
+    },
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` " +
+        "before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
+      required: false,
+    },
+    // mt#3021 SC3: justification required to push a commit whose staged
+    // delta trips the mass-deletion sanity gate.
+    overrideReason: {
+      schema: z.string().min(1),
+      description:
+        "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
+      required: false,
     },
   }
 ) satisfies CommandParameterMap;

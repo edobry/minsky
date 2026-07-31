@@ -14,7 +14,9 @@ import { attentionWidget } from "./widgets/attention";
 import { basicHealthWidget } from "./widgets/basic-health";
 import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
+import { drivenSessionCostWidget } from "./widgets/driven-session-cost";
 import { embeddingsHealthWidget } from "./widgets/embeddings-health";
+import { guardHealthWidget } from "./widgets/guard-health";
 import { mcpServerStatusWidget } from "./widgets/mcp-server-status";
 import { reviewerBotStatusWidget } from "./widgets/reviewer-bot-status";
 import { memoriesDetailWidget } from "./widgets/memories-detail";
@@ -39,7 +41,9 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "basic-health": basicHealthWidget,
   "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
+  "driven-session-cost": drivenSessionCostWidget,
   "embeddings-health": embeddingsHealthWidget,
+  "guard-health": guardHealthWidget,
   "mcp-server-status": mcpServerStatusWidget,
   "reviewer-bot-status": reviewerBotStatusWidget,
   "memories-detail": memoriesDetailWidget,

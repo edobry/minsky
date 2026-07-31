@@ -23,7 +23,6 @@ import type {
 } from "@minsky/domain/persistence/types";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
-import { SessionConflictError } from "@minsky/domain/errors/index";
 import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -294,7 +293,22 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
         const { log } = await import("@minsky/shared/logger");
         const { createTokenProvider } = await import("@minsky/domain/auth");
         const { getConfiguration } = await import("@minsky/domain/configuration");
+        const { resolveSessionIdForCommand } = await import(
+          "@minsky/domain/session/session-context-resolver"
+        );
         const deps = await getDeps();
+
+        // mt#2816: accept `task` as a convenience-resolution alias for `sessionId`,
+        // matching session_start/session_exec semantics. An explicit sessionId still
+        // wins outright (unchanged from prior behavior); when neither is supplied,
+        // resolvedSessionId stays undefined and sessionCommit()'s own
+        // "Session parameter is required" check below fires exactly as before.
+        const resolvedSessionId = await resolveSessionIdForCommand({
+          sessionId: params.sessionId as string | undefined,
+          task: params.task as string | undefined,
+          sessionProvider: deps.sessionProvider,
+        });
+
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
         // unconditionally still triggers an async DB-init path and log.warn noise
@@ -313,15 +327,35 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
           }
         }
 
+        // mt#2935: the detection-time policy consult records policy-covered
+        // commits as `authorization.policy_covered` events; the emit needs the
+        // provider itself (emitSystemEventFromProvider duck-types the SQL
+        // capability internally, so a non-SQL provider degrades to a no-op).
+        let persistenceProvider: PersistenceProvider | undefined;
+        if (context.container?.has("persistence")) {
+          try {
+            persistenceProvider = context.container.get("persistence") as PersistenceProvider;
+          } catch {
+            persistenceProvider = undefined;
+          }
+        }
+
         try {
           const result = await sessionCommit(
             {
-              session: (params.sessionId as string | undefined) ?? "",
+              session: resolvedSessionId ?? "",
               message: (params.message as string | undefined) ?? "",
               all: params.all as boolean | undefined,
               amend: params.amend as boolean | undefined,
               noStage: params.noStage as boolean | undefined,
               noFiles: params.noFiles as boolean | undefined,
+              // mt#3049 review R1: forward operator-supplied overrides for
+              // the commit/push phase timeout bounds — undefined here falls
+              // through to sessionCommit's own DEFAULT_*_PHASE_TIMEOUT_MS.
+              commitTimeoutMs: params.commitTimeoutMs as number | undefined,
+              pushTimeoutMs: params.pushTimeoutMs as number | undefined,
+              // mt#3021 SC3: mass-deletion sanity gate override.
+              overrideReason: params.overrideReason as string | undefined,
             },
             deps.sessionProvider,
             askRepository ?? undefined,
@@ -333,12 +367,25 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               } catch {
                 return undefined;
               }
-            })()
+            })(),
+            persistenceProvider
           );
 
           return {
-            success: result.success,
-            sessionId: params.sessionId,
+            // mt#3205 (Gap 2): `success` must not read as a pass when the
+            // push is genuinely unconfirmed — `git.push`'s adapter already
+            // overrides `success` to track `pushed` (mt#3177); this mirrors
+            // that, but narrower: `pushUnconfirmed` is the specific
+            // ambiguous-outcome flag (push timed out AND the remote-ref
+            // check could not confirm it landed). A definite `pushError`
+            // (rejected, no upstream, etc.) or a legitimate no-op
+            // (`nothingToCommit` with nothing to push) intentionally keep
+            // `success: true` — those are already distinguishable via the
+            // `pushError`/`nothingToCommit` fields and existing callers
+            // (see workflow-commands-commit-push-outcome.test.ts) rely on
+            // `success: true` alongside a definite `pushError`.
+            success: result.success && !result.pushUnconfirmed,
+            sessionId: resolvedSessionId,
             commitHash: result.commitHash,
             shortHash: result.shortHash,
             subject: result.subject,
@@ -352,6 +399,30 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             deletions: result.deletions,
             files: result.files,
             pushed: result.pushed,
+            credentialPath: result.credentialPath,
+            // mt#3210: set when an App-token push was denied (403) and
+            // pushSessionCommitWithFallback retried via keychain — preserved
+            // for the caller even when the retry succeeded, so a
+            // convergence-driving agent still knows the App-token
+            // permission gap exists and CI-trigger reliability may be
+            // reduced for this push (mt#1477 rationale).
+            appTokenPushError: result.appTokenPushError,
+            // mt#3049: surface the structured partial-outcome fields — without
+            // these, a committed-but-push-failed/timed-out/resumed result
+            // would report success:true, pushed:false to an MCP caller with
+            // NO way to tell WHY, defeating the point of returning a
+            // structured outcome instead of throwing.
+            nothingToCommit: result.nothingToCommit,
+            pushError: result.pushError,
+            pushTimedOut: result.pushTimedOut,
+            // mt#3177: on a pushTimedOut outcome, a remote-ref check now runs
+            // before this result is returned — `pushConfirmedVia` names HOW
+            // `pushed:true` was established when it wasn't the ordinary
+            // fast-success path; `pushUnconfirmed` is the explicit "genuinely
+            // unknown" state (pushed:false) no caller should read as success.
+            pushConfirmedVia: result.pushConfirmedVia,
+            pushUnconfirmed: result.pushUnconfirmed,
+            resumedPush: result.resumedPush,
             oneline: params.oneline === true,
             noFiles: params.noFiles === true,
           };
@@ -397,6 +468,10 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
+          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
+          // reviewComment) with session.pr.approve — thread it here too so --review-comment
+          // isn't silently dropped on this command.
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
@@ -540,8 +615,9 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       const reviewResult = await sessionReviewImpl(
         {
-          sessionId:
-            (params.sessionId as string | undefined) || (params.session as string | undefined),
+          // mt#2742: session_review declares `sessionId`, not `session`; the
+          // `|| params.session` fallback was dead (always undefined).
+          sessionId: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -642,8 +718,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
-          reviewComment:
-            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
@@ -677,21 +752,21 @@ export function buildSessionMergeDeps(
   };
 }
 
-/**
- * Return true when an error from a PR merge operation indicates a git conflict.
- */
-function isMergeConflictError(err: unknown): boolean {
-  if (err instanceof SessionConflictError) return true;
-  const msg =
-    err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
-  return (
-    msg.includes("CONFLICT") ||
-    msg.includes("conflict") ||
-    msg.includes("merge conflict") ||
-    msg.includes("Cannot merge") ||
-    msg.includes("mergeable")
-  );
-}
+// mt#2888: the classifier + excerpt-folding helper moved to
+// merge-error-classification.ts (extended to non-merge GitHub-read command
+// surfaces) — re-exported here unchanged so existing imports from
+// "./workflow-commands" (e.g. workflow-commands-merge-error-
+// classification.test.ts) keep working without modification.
+import {
+  MERGE_ERROR_SUMMARY_EXCERPT_LIMIT,
+  classifyMergeError,
+  withOriginalMessage,
+  mergeErrorMessage,
+  type MergeErrorClass,
+} from "./merge-error-classification";
+
+export { MERGE_ERROR_SUMMARY_EXCERPT_LIMIT, classifyMergeError, withOriginalMessage };
+export type { MergeErrorClass };
 
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
@@ -746,15 +821,45 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
           return { success: true, result, printed: true };
         } catch (err) {
-          if (isMergeConflictError(err)) {
-            const msg = err instanceof Error ? err.message : String(err);
+          const errorClass = classifyMergeError(err);
+          if (errorClass.kind === "other") {
+            throw err;
+          }
+
+          const originalMessage = mergeErrorMessage(err);
+
+          if (errorClass.kind === "conflict") {
             throw mcpStructuredError({
               code: McpErrorCode.CONFLICT,
-              summary: "Merge conflict prevented PR from merging",
-              details: { originalMessage: msg },
+              summary: withOriginalMessage(
+                "Merge conflict prevented PR from merging",
+                originalMessage
+              ),
+              details: { originalMessage },
             });
           }
-          throw err;
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded — wait a few minutes before retrying the merge",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          // errorClass.kind === "degraded"
+          const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+          throw mcpStructuredError({
+            code: McpErrorCode.SERVICE_DEGRADED,
+            summary: withOriginalMessage(
+              `GitHub API degraded/unavailable${statusSuffix}`,
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
         }
       }
     ),

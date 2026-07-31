@@ -1,6 +1,8 @@
 ---
+import { Picture } from "astro:assets";
 import CtaButton from "./CtaButton.astro";
 import ProductFrame from "./ProductFrame.astro";
+import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
 ---
 
 <section class="hero">
@@ -8,12 +10,12 @@ import ProductFrame from "./ProductFrame.astro";
     <div class="hero-caption">
       <p class="eyebrow">Minsky · cyberbrain substrate</p>
       <h1 class="hero-headline tracking-display">
-        The cyberbrain for software organizations led by a principal.
+        The cyberbrain for software organizations.
       </h1>
       <p class="hero-sub">
         Minsky orchestrates tasks, sessions, and review across a flock of
-        agents — a substrate that extends a principal's cognition without
-        becoming a team tool.
+        agents — a substrate that extends one principal's cognition, not a
+        synthetic workforce that replaces your team.
       </p>
       <div class="hero-cta-row">
         <CtaButton href="https://github.com/edobry/minsky" variant="primary" external>
@@ -25,7 +27,17 @@ import ProductFrame from "./ProductFrame.astro";
       </div>
     </div>
     <div class="hero-product">
-      <ProductFrame />
+      <ProductFrame>
+        <Picture
+          src={heroImage}
+          alt="Real CLI output: this task's own session lifecycle, from session get through PR creation"
+          formats={["avif", "webp"]}
+          fallbackFormat="png"
+          width={heroImage.width > 900 ? 900 : heroImage.width}
+          densities={[1]}
+          loading="eager"
+        />
+      </ProductFrame>
     </div>
   </div>
 </section>

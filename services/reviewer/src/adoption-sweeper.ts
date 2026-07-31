@@ -198,12 +198,21 @@ async function callMcpTool(
 // ---------------------------------------------------------------------------
 
 /**
- * Count production callsites for a given adoption signal by searching
- * the spec text of DONE tasks for the grep pattern.
+ * Count production callsites for a given adoption signal by grepping the
+ * repo via the MCP `repo_search` tool. Falls back to 0 on error (non-fatal).
  *
- * In a real deployment this would grep the filesystem; in the reviewer
- * service context we use the MCP `repo_search` tool (which runs ripgrep
- * against the repo). Falls back to 0 on error (non-fatal).
+ * `repo.search` runs `git grep -n` and returns `{ success, output }` where
+ * `output` is the raw grep text — one `<path>:<line>:<content>` line per
+ * match. (mt#2781: this function previously parsed imagined `matches` /
+ * `results` keys the tool never returns, so the count was ALWAYS 0 and the
+ * sweeper filed adoption follow-ups even for adopted signals. The test
+ * fixture asserted the same imagined shape, masking the bug.)
+ *
+ * Counting semantics: one count per matching grep line in a production
+ * TypeScript file (see {@link isProductionTsPath}). Lines without a
+ * `<path>:` prefix — blanks, and `git grep`'s "Binary file X matches"
+ * shape — carry no colon-terminated path and are dropped by the parse
+ * guard below.
  */
 async function countCallsites(
   mcpUrl: string,
@@ -214,10 +223,6 @@ async function countCallsites(
 
   const resultText = await callMcpTool(mcpUrl, mcpToken, "repo_search", {
     pattern,
-    // Exclude test files and the spec itself from the callsite count.
-    // Only count production source callsites.
-    includePattern: "src/**/*.ts",
-    excludePattern: "**/*.test.ts",
   });
 
   if (!resultText) return 0;
@@ -225,18 +230,49 @@ async function countCallsites(
   try {
     const parsed = JSON.parse(resultText) as {
       success?: boolean;
-      matches?: unknown[];
-      results?: unknown[];
-      count?: number;
+      output?: string;
     };
-    // Different MCP server versions return results under different keys.
-    const matches = parsed.matches ?? parsed.results ?? [];
-    if (Array.isArray(matches)) return matches.length;
-    if (typeof parsed.count === "number") return parsed.count;
-    return 0;
+    if (parsed.success === false || typeof parsed.output !== "string") return 0;
+
+    return parsed.output.split("\n").filter((line) => {
+      const sep = line.indexOf(":");
+      if (sep <= 0) return false; // blank, malformed, or "Binary file ... matches" line
+      return isProductionTsPath(line.slice(0, sep));
+    }).length;
   } catch {
     return 0;
   }
+}
+
+/**
+ * Test-infrastructure path segments excluded from the production-callsite
+ * count (mt#2781, PR #1947 R1): suffix-based test files plus the repo's
+ * test-infrastructure directory conventions.
+ */
+const TEST_PATH_SEGMENTS = [
+  "/tests/",
+  "/__tests__/",
+  "/__fixtures__/",
+  "/test-utils/",
+  "/test-helpers/",
+] as const;
+
+/**
+ * Path-based predicate: is this a production (non-test) TypeScript file?
+ *
+ * Production means any `.ts` file in the repo — `src/`, `packages/`,
+ * `services/`, `scripts/`, hooks — that is not a test file (`.test.ts`,
+ * `.spec.ts`) and does not live under a test-infrastructure directory.
+ * Deliberately repo-wide (PR #1947 R1 BLOCKING): production source spans
+ * multiple roots post-`packages/` extraction, so scoping the grep to `src/`
+ * would undercount adopted signals and re-create the false-positive
+ * follow-up bug this task fixes.
+ */
+function isProductionTsPath(filePath: string): boolean {
+  if (!filePath.endsWith(".ts")) return false;
+  if (filePath.endsWith(".test.ts") || filePath.endsWith(".spec.ts")) return false;
+  const normalized = `/${filePath}`;
+  return !TEST_PATH_SEGMENTS.some((segment) => normalized.includes(segment));
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +567,10 @@ async function checkTaskAdoption(
         const createResult = await callMcpTool(deps.mcpUrl, deps.mcpToken, "tasks_create", {
           title: followUpTitle,
           spec: followUpSpec,
-          status: "TODO",
+          // mt#2778 caller audit: `status: "TODO"` removed — tasks.create does
+          // not declare a status param (new tasks default to TODO), so the key
+          // was silently dropped at the boundary; post-mt#2778 it would be
+          // rejected. Behavior unchanged.
         });
 
         if (createResult) {

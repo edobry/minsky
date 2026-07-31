@@ -8,7 +8,7 @@ import { Command } from "commander";
 // none of them run. Each is converted to function-local dynamic import
 // at its sole use site below. Type positions (`import("express").Request`)
 // remain top-level since TS erases them at runtime.
-import { MinskyMCPServer } from "../../mcp/server";
+import type { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
 import { log } from "@minsky/shared/logger";
@@ -24,6 +24,8 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
+import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
 // `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
@@ -41,6 +43,7 @@ import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { EventEmitterWithTryEmit } from "@minsky/domain/events/emitter";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import {
   isInstructionsBundleEnabled,
@@ -386,7 +389,8 @@ async function startHttpServer(
     requireAuth?: boolean;
   },
   projectContext?: ReturnType<typeof createProjectContext>,
-  oauthProvider?: OAuthIdentityProvider
+  oauthProvider?: OAuthIdentityProvider,
+  container?: AppContainerInterface
 ): Promise<void> {
   // mt#1719 Intervention 2: function-local dynamic import. Express is only
   // needed in HTTP mode; deferring this off the stdio-mode import graph
@@ -557,12 +561,46 @@ async function startHttpServer(
 
   // Health check endpoint — always public, minimal body (safe to expose).
   // Railway and other uptime probes hit this; don't leak internal state.
+  //
+  // mt#2949: persistence liveness now gates the status code. During the
+  // 2026-07-19 outage this endpoint stayed a static 200 regardless of
+  // persistence state, so Railway reported the deployment SUCCESS while
+  // every DB-backed tool was dead. `assessPersistenceHealth` distinguishes
+  // "deliberately unconfigured" (no Postgres connection anywhere — the
+  // expected local/dev/offline boot path, and the bundle-boot-smoke CI
+  // gate's exact boot state) from "configured but unavailable" (a
+  // connection string WAS configured but initialization failed — a genuine
+  // outage): only the latter flips this endpoint to 503. See
+  // packages/domain/src/persistence/health.ts for the full rationale.
   app.get("/health", (_req, res) => {
-    res.json({
-      status: "ok",
+    // `container.get()` is synchronous by design: `AppServices["persistence"]`
+    // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
+    // factory resolution already happened inside `container.initialize()`
+    // (awaited eagerly for HTTP mode in `src/cli.ts`'s preAction hook, before
+    // this route is ever registered) — `.get()` just reads the already-
+    // resolved value out of the container. Same synchronous-`.get()` pattern
+    // as `buildWakeServiceForBridge` / `buildMemoryServiceForSpike` /
+    // `buildSubagentDispatchTracker` / the OAuth provider wiring above, all in
+    // this file. No `await` belongs here.
+    const persistence = container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined;
+    const persistenceHealth = assessPersistenceHealth(persistence);
+    res.status(persistenceHealth.healthy ? 200 : 503).json({
+      status: persistenceHealth.healthy ? "ok" : "unhealthy",
+      // mt#3148: `service` is the uniform, assertable identity key every
+      // Minsky service emits. `server` is retained UNCHANGED alongside it —
+      // mt#3142's own diagnosis read `server` to identify the wrong app on the
+      // reviewer host, and mem#704's probe recipe still cites it. Renaming
+      // would break the diagnostic path this field exists to strengthen.
+      service: "minsky-mcp",
       server: "Minsky MCP Server",
       transport: "http",
       timestamp: new Date().toISOString(),
+      persistence: {
+        mode: persistenceHealth.mode,
+        ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
+      },
     });
   });
 
@@ -909,10 +947,17 @@ async function buildMemoryServiceForSpike(
  * connection, or construction failure) — the singleton stays as the no-op
  * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
  *
+ * A single attempt — no retry of its own. See `wireSubagentDispatchTrackerWithRetry`
+ * below for the promise-memoized, bounded-timeout retry wrapper (mt#3044)
+ * that callers should generally use instead of calling this directly.
+ *
  * @see mt#1738 — this wiring
  * @see mt#1736 — SubagentDispatchTracker implementation
+ * @see mt#3044 — retry wrapper (this function had no retry at all before)
  */
-async function buildSubagentDispatchTracker(container: AppContainerInterface): Promise<boolean> {
+export async function buildSubagentDispatchTracker(
+  container: AppContainerInterface
+): Promise<boolean> {
   try {
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return false;
@@ -928,6 +973,27 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
     const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    // mt#3044 R1 BLOCKING #1 (R3: import moved above this check — an
+    // awaited dynamic import BETWEEN the check and `setInstance` would
+    // reopen the exact race this guard exists to close, since another
+    // concurrent attempt could pass its own `isWired()` check during that
+    // yield): `wireSubagentDispatchTrackerWithRetry` clears its memo and
+    // returns `false` once `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS` elapses, but
+    // the `getDatabaseConnection()` call THIS function is awaiting keeps
+    // running in the background — it is not cancelable. If it later
+    // resolves successfully, without this guard it would call `setInstance`
+    // even though a NEWER attempt (triggered by a subsequent retry) may
+    // have already wired the singleton first. Re-check immediately before
+    // the side effect: NO `await` sits between this check and `setInstance`
+    // below (only the synchronous `createEventEmitter(db)` call), so this
+    // is genuinely race-free — nothing else can run between them on
+    // Node/Bun's single-threaded event loop. Skip entirely when already
+    // wired, rather than replacing a working instance with a stale one and
+    // leaking the discarded EventEmitter this attempt would otherwise
+    // construct.
+    if (SubagentDispatchTracker.isWired()) {
+      return true;
+    }
     SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
@@ -939,30 +1005,153 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
 }
 
 /**
+ * Bounded-timeout used by `wireSubagentDispatchTrackerWithRetry` below.
+ * Mirrors `TRACKER_INIT_TIMEOUT_MS` in registry-setup.ts's `getTracker()`.
+ */
+const SUBAGENT_TRACKER_WIRE_TIMEOUT_MS = 5000;
+
+/**
+ * Promise-memoized state for `wireSubagentDispatchTrackerWithRetry`. Module
+ * scoped (not per-call) because there is exactly one MCP server — and
+ * therefore exactly one SubagentDispatchTracker singleton — per process,
+ * same lifetime assumption `buildSubagentDispatchTracker`'s call site
+ * already made.
+ */
+let subagentTrackerWireAttemptInFlight: Promise<boolean> | null = null;
+
+/**
+ * Promise-memoized, bounded-timeout retry wrapper around
+ * `buildSubagentDispatchTracker` (mt#3044).
+ *
+ * Mirrors the pattern mt#3017 added to registry-setup.ts's `getTracker()`
+ * for the sibling (closure-cached) tracker path used by `tasks.dispatch` /
+ * `tasks.dispatch-recover`:
+ *   - A concurrent caller during an in-flight attempt awaits the SAME
+ *     resolution rather than kicking off a duplicate DB-connection attempt.
+ *   - On failure OR timeout the memo clears, so the NEXT call retries
+ *     instead of the singleton latching to the no-op null-DB tracker for
+ *     the rest of the process's life (the exact gap `buildSubagentDispatchTracker`
+ *     had before mt#3044: it ran exactly once, fire-and-forget, at server
+ *     startup, with no way for a failed attempt to ever be retried).
+ *   - A hung `getDatabaseConnection()` call (neither resolves nor rejects)
+ *     doesn't pin the memo forever — the `Promise.race` against `timeoutMs`
+ *     bounds how long a caller (or the retry driver below) waits before the
+ *     memo is freed for the next attempt.
+ *
+ * This function is BOTH the eager first attempt at MCP server startup (see
+ * the call site) AND the callback `SubagentDispatchTracker.getInstance()`
+ * invokes on every call while the singleton is unwired (registered once via
+ * `SubagentDispatchTracker.registerWireAttempt` — see the call site). Using
+ * the SAME memoized entry point for both means an eager startup attempt and
+ * a `getInstance()`-triggered retry can never race into two concurrent DB
+ * connection attempts.
+ *
+ * `timeoutMs` is exposed (default `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS`) so
+ * tests can exercise the bounded-timeout branch without a real 5s wait —
+ * mirrors `getTrackerForDispatch`'s `timeoutMs` parameter in
+ * dispatch-command.ts.
+ *
+ * @see mt#3017 — the reference implementation this mirrors (registry-setup.ts's getTracker)
+ * @see mt#3044 — this task
+ */
+export function wireSubagentDispatchTrackerWithRetry(
+  container: AppContainerInterface,
+  timeoutMs: number = SUBAGENT_TRACKER_WIRE_TIMEOUT_MS
+): Promise<boolean> {
+  if (subagentTrackerWireAttemptInFlight) {
+    return subagentTrackerWireAttemptInFlight;
+  }
+
+  const TIMEOUT_SENTINEL = Symbol("subagent-tracker-wire-timeout");
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+  });
+
+  // Assigns directly to the outer `subagentTrackerWireAttemptInFlight` — no
+  // local binding referencing itself — mirroring registry-setup.ts's
+  // `getTracker()` inner-IIFE pattern exactly (`_trackerInitPromise = (async
+  // () => { ... finally { _trackerInitPromise = null } })();`). On settle
+  // (success, failure, OR timeout — `Promise.race` above is INSIDE this same
+  // IIFE, not a separate outer race, so there is no case where a caller times
+  // out while this IIFE keeps running independently) the memo unconditionally
+  // clears so the NEXT call retries.
+  subagentTrackerWireAttemptInFlight = (async () => {
+    try {
+      const result = await Promise.race([buildSubagentDispatchTracker(container), timeout]);
+      return result === TIMEOUT_SENTINEL ? false : result;
+    } catch (err) {
+      log.debug("[mt#3044] SubagentDispatchTracker wire-retry attempt threw", {
+        error: getErrorMessage(err),
+      });
+      return false;
+    } finally {
+      // mt#3044 R2 NON-BLOCKING: clear the timer when buildSubagentDispatchTracker
+      // wins the race — otherwise it stays pending and fires later, resolving
+      // the now-unused `timeout` promise. A tiny leak on its own, but one that
+      // can accumulate across many quick retries with a short timeoutMs.
+      clearTimeout(timeoutHandle);
+      subagentTrackerWireAttemptInFlight = null;
+    }
+  })();
+  return subagentTrackerWireAttemptInFlight;
+}
+
+/**
+ * Build an EventEmitter for the EmbeddingsHealthTracker from the container's
+ * persistence provider, or null when persistence is unavailable (mt#2568).
+ *
+ * Shared by the eager one-shot wiring attempt (`wireEmbeddingsHealthTracker`
+ * below) and the per-call fallback builder registered with
+ * `EmbeddingsHealthTracker.registerEventEmitterBuilder` at the call site —
+ * so a degradation event that races the eager attempt still resolves the
+ * SAME construction path on demand instead of being lost.
+ */
+async function buildEmbeddingsEventEmitter(
+  container: AppContainerInterface
+): Promise<EventEmitterWithTryEmit | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    return createEventEmitter(db);
+  } catch (err) {
+    log.debug("[mt#2568] buildEmbeddingsEventEmitter threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Wire the EmbeddingsHealthTracker singleton to a production EventEmitter (mt#2147).
  *
  * Called once the DB connection is resolved. After this call, the tracker can
  * emit `embeddings.provider_degraded` events to the `system_events` table.
  * Without this wiring, the tracker still tracks health in-memory (for
  * debug_systemInfo) but cannot persist events.
+ *
+ * A single eager attempt — no retry of its own. `registerEventEmitterBuilder`
+ * (registered at the call site, mt#2568) gives the tracker a per-call
+ * fallback so a degradation that races this eager attempt still emits.
  */
 async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Promise<boolean> {
   try {
-    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence) return false;
+    const emitter = await buildEmbeddingsEventEmitter(container);
+    if (!emitter) return false;
 
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    if (!(persistence instanceof PersistenceProvider)) return false;
-    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-      return false;
-    }
-    const connection = await persistence.getDatabaseConnection();
-    if (!connection) return false;
-
-    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { EmbeddingsHealthTracker } = await import("@minsky/domain/ai/embeddings-health-tracker");
-    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
-    EmbeddingsHealthTracker.getInstance().setEventEmitter(createEventEmitter(db));
+    EmbeddingsHealthTracker.getInstance().setEventEmitter(emitter);
     return true;
   } catch (err) {
     log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
@@ -1109,7 +1298,19 @@ export function createStartCommand(
           httpConfig: serverConfig.httpConfig,
         });
 
-        // Create server with the specified transport
+        // Create server with the specified transport.
+        // mt#1816: defer the server.ts + @modelcontextprotocol/sdk load (~60-80ms measured on the
+        // `before_mcp_command_load → mcp_command_module_loaded` stage) off the command-registration
+        // path. `--version`/`--help`/bare `minsky` load the mcp command module to build the full
+        // command tree (cli.ts needsAll) but never run THIS action, so they should not pay the SDK
+        // cost. server.ts is the SOLE runtime importer of the SDK; importing MinskyMCPServer here at
+        // its only construction site (mirroring this file's function-local dynamic-import pattern for
+        // express/persistence/memory above, and mt#1719's lazy command-group loading) keeps loading
+        // the mcp command SDK-free until `mcp start` actually runs. The top-level `import type` keeps
+        // the MinskyMCPServer type annotation (used below) erased at build time.
+        profileCheckpoint("before_sdk_load");
+        const { MinskyMCPServer } = await import("../../mcp/server");
+        profileCheckpoint("after_sdk_load");
         const server = new MinskyMCPServer(serverConfig);
         profileCheckpoint("server_constructed");
 
@@ -1268,11 +1469,44 @@ export function createStartCommand(
 
         // mt#1738: wire the SubagentDispatchTracker singleton so debug.systemInfo
         // returns real dispatch cadence aggregates instead of the zero-filled
-        // no-op defaults. The call is fire-and-forget — if the DB is unavailable,
-        // the singleton stays as the no-op tracker and subagentDispatches returns
-        // zero-filled aggregates (graceful degradation).
+        // no-op defaults. The initial call is fire-and-forget — if the DB is
+        // unavailable at THIS moment, the singleton stays as the no-op tracker
+        // and subagentDispatches returns zero-filled aggregates (graceful
+        // degradation).
+        //
+        // mt#3044: a transient failure here is no longer permanent. Register
+        // `wireSubagentDispatchTrackerWithRetry` as the singleton's retry
+        // callback (`SubagentDispatchTracker.getInstance()` invokes it on every
+        // call while the singleton is unwired — see subagent-dispatch-tracker.ts)
+        // so a LATER `debug.systemInfo` or `session.generate_prompt` call
+        // retries the wiring instead of the failure latching for the rest of
+        // the process's life.
+        //
+        // R1 BLOCKING #2 fix: registration is AWAITED (not fire-and-forget)
+        // so it completes deterministically before this function reaches
+        // `server.start()` further down — mirrors the mt#1625 bundle-
+        // composition pattern elsewhere in this file ("this MUST be awaited
+        // before server.start() so [it] is in place when the first
+        // ... handshake arrives"). Without this, a consumer that manages to
+        // call `getInstance()` before the dynamic import resolves would see
+        // no registered retry callback and get no retry until some LATER
+        // call happened to land after registration — a timing-dependent
+        // blind window undermining SC#2's "eventually reflects real data"
+        // guarantee. The eager wire attempt below stays fire-and-forget
+        // (unchanged) — only the REGISTRATION needed the ordering guarantee.
         if (container) {
-          buildSubagentDispatchTracker(container)
+          try {
+            const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+            SubagentDispatchTracker.registerWireAttempt(() =>
+              wireSubagentDispatchTrackerWithRetry(container)
+            );
+          } catch (err) {
+            log.debug("[mt#3044] Could not register SubagentDispatchTracker wire-retry callback", {
+              error: getErrorMessage(err),
+            });
+          }
+
+          wireSubagentDispatchTrackerWithRetry(container)
             .then((wired) => {
               if (wired) {
                 log.debug("[mt#1738] SubagentDispatchTracker wired");
@@ -1286,9 +1520,39 @@ export function createStartCommand(
         }
 
         // mt#2265: wire the ask state-counts provider so debug.systemInfo
-        // surfaces asks count-by-state (the stuck-pipeline detector). Same
-        // fire-and-forget pattern as SubagentDispatchTracker above.
+        // surfaces asks count-by-state (the stuck-pipeline detector).
+        //
+        // mt#2568: the eager setAskStateCountsRepository() attempt below has
+        // no retry of its own — if it hasn't completed (or fails outright)
+        // by the time getAskStateCounts() is first called (e.g. a proxy/
+        // staleness-respawned server, the exact race mt#2562/mt#2567
+        // diagnosed for the presence write-path), the provider would stay
+        // permanently unavailable for the life of the process, silently
+        // defeating the stuck-pipeline detector. registerAskStateCountsBuilder
+        // gives getAskStateCounts() a per-call fallback that builds a fresh
+        // AskRepository from the container on demand (mirrors
+        // buildAskRepository / server.ts's getPresenceClaimRepo, mt#2567) so
+        // every call is correct regardless of startup-wiring timing.
+        // Registration is AWAITED (not fire-and-forget) so it is in place
+        // before server.start() — mirrors the mt#3044
+        // SubagentDispatchTracker.registerWireAttempt ordering fix.
         if (container) {
+          try {
+            const { registerAskStateCountsBuilder } = await import(
+              "@minsky/domain/ask/state-counts-provider"
+            );
+            registerAskStateCountsBuilder(async () => {
+              const { buildAskRepository } = await import("../../adapters/shared/commands/asks");
+              return buildAskRepository(container);
+            });
+          } catch (err) {
+            log.debug("[mt#2568] Could not register Ask state-counts builder", {
+              error: getErrorMessage(err),
+            });
+          }
+
+          // Eager fast-path attempt (fire-and-forget warm-up; the per-call
+          // fallback above means this is purely a perf optimization now).
           import("../../adapters/shared/commands/asks")
             .then(async ({ buildAskRepository }) => {
               const repo = await buildAskRepository(container);
@@ -1308,9 +1572,38 @@ export function createStartCommand(
         }
 
         // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
-        // embeddings.provider_degraded events to system_events. Same fire-and-
-        // forget pattern as SubagentDispatchTracker above.
+        // embeddings.provider_degraded events to system_events.
+        //
+        // mt#2568: the eager wireEmbeddingsHealthTracker() attempt below has
+        // no retry — and emitDegradationEvent's emittedForCurrentDegradation
+        // latch means a degradation that races this wiring PERMANENTLY loses
+        // that degradation cycle's event (not just delayed), even though the
+        // wiring itself eventually succeeds. registerEventEmitterBuilder
+        // gives emitDegradationEvent a per-call fallback that builds a fresh
+        // EventEmitter from the container on demand (mirrors
+        // buildAskRepository / server.ts's getPresenceClaimRepo, mt#2567).
+        // Registration is AWAITED so it is in place before server.start() —
+        // mirrors the mt#3044 SubagentDispatchTracker.registerWireAttempt
+        // ordering fix.
         if (container) {
+          try {
+            const { EmbeddingsHealthTracker } = await import(
+              "@minsky/domain/ai/embeddings-health-tracker"
+            );
+            EmbeddingsHealthTracker.registerEventEmitterBuilder(() =>
+              buildEmbeddingsEventEmitter(container)
+            );
+          } catch (err) {
+            log.debug(
+              "[mt#2568] Could not register EmbeddingsHealthTracker event-emitter builder",
+              {
+                error: getErrorMessage(err),
+              }
+            );
+          }
+
+          // Eager fast-path attempt (fire-and-forget warm-up; the per-call
+          // fallback above means this is purely a perf optimization now).
           wireEmbeddingsHealthTracker(container)
             .then((wired) => {
               if (wired) {
@@ -1472,7 +1765,8 @@ export function createStartCommand(
               requireAuth: options.requireAuth,
             },
             projectContext,
-            oauthProvider
+            oauthProvider,
+            container
           );
         } else {
           // Stdio transport
@@ -1495,7 +1789,18 @@ export function createStartCommand(
               container.get("taskService")
             );
           })
-          .catch(() => {}); // Embedding sweep is best-effort
+          // mt#3370: de-silenced, for the same reason mt#2192 de-silenced the
+          // transcript ingest registered directly below. This was a bare
+          // `.catch(() => {})`, so the recovery layer for missing embeddings
+          // could fail entirely and produce no signal anywhere — which is why
+          // mt#2861 sat unindexed for 16 days with no explanation available.
+          // Best-effort means it must not BLOCK boot; it does not mean it must
+          // be invisible when it breaks.
+          .catch((err) => {
+            log.warn("Startup embedding sweep failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
         // Fire-and-forget background transcript ingest for new JSONL sessions (mt#2051)
         import("../../adapters/shared/commands/transcripts/startup-transcript-ingest")

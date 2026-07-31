@@ -20,6 +20,12 @@
 // in-process, so no top-level `tasks_create` call ever fires, and the matcher must run on
 // the dispatch call itself when `parentTaskId` is present.
 //
+// mt#2813 note: `tasks_create` WITHOUT a parent (a standalone, non-subtask create) is
+// covered by neither the open-PR sweep above nor the duplicate-CHILD matcher (mt#2683,
+// which needs a parent to enumerate a sibling pool) — it falls through to a THIRD check,
+// the standalone-duplicate probe (see that section below), which runs an embeddings
+// similarity search against ALL active tasks instead of a sibling pool.
+//
 // Two checks are run:
 //   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
 //      in-scope paths. This is the genuine merge-conflict signal.
@@ -39,11 +45,15 @@
 // @see mt#1305 — Tier-2 skill-step enforcement (floor)
 // @see feedback_check_parallel_work_before_decomposing — four-incident history
 
-import { readInput, writeOutput, execWithPath } from "./types";
+import { readInput, writeOutput, execWithPath, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
-import { checkOverride } from "./dispatcher";
-import type { OverrideResult } from "./dispatcher";
-import { GUARD_REGISTRY } from "./registry";
+import {
+  DUPLICATE_CHILD_GUARD_NAME,
+  OPEN_PR_SWEEP_GUARD_NAME,
+  resolveDuplicateGuardOverride,
+  resolveOpenPrSweepOverride,
+} from "./parallel-work-guard-overrides";
+import { runStandaloneDuplicateGuard } from "./parallel-work-guard-standalone";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
 // This avoids duplicating the PATH-augmentation logic across hooks.
@@ -80,6 +90,191 @@ export interface ParallelWorkCheckResult {
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse the `## Scope Constraints` section that `session_generate_prompt`'s
+ * `renderScopeSection` (packages/domain/src/session/prompt-generation.ts)
+ * renders into a subagent prompt: a bare bullet list of (typically absolute)
+ * file paths under "Only modify the following files:" — NO bold "In scope:"
+ * marker, unlike the task-spec format below. mt#2811 added this parser and
+ * binds it to that render function via a contract test
+ * (parallel-work-guard.test.ts) so future drift in either side fails loudly
+ * in CI instead of silently at guard-fire time.
+ *
+ * Returns `[]` (not an error) when the heading isn't present — this lets
+ * `extractInScopeFiles` try this format first, unconditionally, since a
+ * task-spec's own "## Scope" section never collides with this heading text.
+ */
+export function extractScopeConstraintsFiles(content: string): string[] {
+  const headingMatch = content.match(/^##\s+Scope Constraints\s*$/m);
+  if (!headingMatch || headingMatch.index === undefined) return [];
+
+  const start = headingMatch.index + headingMatch[0].length;
+  const rest = content.slice(start);
+  const nextHeadingMatch = rest.match(/^##\s+/m);
+  const end =
+    nextHeadingMatch !== null && nextHeadingMatch.index !== undefined
+      ? nextHeadingMatch.index
+      : rest.length;
+  const section = rest.slice(0, end);
+
+  const files: string[] = [];
+  for (const line of section.split("\n")) {
+    const trimmed = line.trim();
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bulletMatch && bulletMatch[1]) {
+      const path = bulletMatch[1].trim();
+      if (path.length > 0) files.push(path);
+    }
+  }
+  return files;
+}
+
+/**
+ * Extract backtick-wrapped path-like tokens (containing `/` or starting with
+ * `.`) from anywhere in `content`. mt#2811 fallback-extraction primitive: the
+ * CURRENT `/create-task` spec convention (`.claude/skills/create-task/SKILL.md`,
+ * compiled from `.minsky/skills/create-task/SKILL.md`) writes `**In scope:**`
+ * as a PROSE sentence describing scope AREAS — e.g. "extractor + enumeration
+ * fixes, parser<->prompt-format contract test" — never a bullet list of
+ * literal file paths. Every real task spec inspected during mt#2811's
+ * root-cause investigation (this task's own spec, mt#2766's spec, and the
+ * `/create-task` skill's own worked example) confirms this. Concrete file
+ * references, when present, are backtick-wrapped and conventionally live in
+ * the `## Context` section (the skill's own guidance: "Context: ... Link to
+ * ... code paths"). Requiring `/` or a leading `.` filters out non-path
+ * backtick content (code identifiers, command names) the same way the
+ * original bullet-list extractor already did.
+ */
+function extractBacktickPaths(content: string): string[] {
+  const files: string[] = [];
+  const backtickRe = /`([^`]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = backtickRe.exec(content)) !== null) {
+    const raw = (match[1] ?? "").trim();
+    if (raw.length === 0) continue;
+    // mt#2811 R1 (PR #1953 review, NON-BLOCKING #4): exclude URLs
+    // (`https://...`) and CLI-flag-shaped tokens (`--foo/bar`) — both
+    // contain `/` but are not file-path references. A URL's `://` never
+    // appears in a real repo-relative path; a leading `-` never starts one
+    // either (paths in this repo are relative or absolute, never flag-shaped).
+    if (raw.includes("://") || raw.startsWith("-")) continue;
+    if (raw.includes("/") || raw.startsWith(".")) {
+      const cleaned = raw.replace(/[),.;:]+$/, "");
+      if (cleaned.length > 0 && !files.includes(cleaned)) {
+        files.push(cleaned);
+      }
+    }
+  }
+  return files;
+}
+
+/**
+ * Slice out the content of a `## <headingName>` section (up to the next `##`
+ * heading or end of document). Returns `null` when the heading isn't found.
+ */
+/**
+ * Escape RegExp metacharacters in `s` so it can be safely interpolated into
+ * a `new RegExp(...)` template as a LITERAL substring match. Only the
+ * current call site passes a fixed literal ("Context"), but escaping makes
+ * `extractNamedSection` safe for any future heading name (PR #1953 review
+ * 4708851338 R2 nit).
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractNamedSection(specContent: string, headingName: string): string | null {
+  const headingRe = new RegExp(`^##\\s+${escapeRegex(headingName)}:?\\s*$`, "m");
+  const match = specContent.match(headingRe);
+  if (!match || match.index === undefined) return null;
+  const start = match.index + match[0].length;
+  const rest = specContent.slice(start);
+  const nextHeading = rest.match(/^##\s+/m);
+  const end =
+    nextHeading !== null && nextHeading.index !== undefined ? nextHeading.index : rest.length;
+  return rest.slice(0, end);
+}
+
+/**
+ * mt#2811 fallback chain, invoked when the strict `**In scope:**` bullet-list
+ * extraction (the original mt#1362 format) finds nothing. Tries, in order:
+ *   1. Backtick-wrapped paths in the spec's `## Context` section — the
+ *      current `/create-task` convention's home for concrete file references.
+ *   2. Backtick-wrapped paths anywhere in the whole spec (last resort, for
+ *      specs that mention files inline without a dedicated Context section).
+ * When NEITHER strategy finds anything, appends a LOUD, SPECIFIC terminal
+ * warning naming every strategy that was tried (mt#2811 success criterion
+ * #3) — the caller (the hook entrypoint) writes this to stderr so it reads
+ * as a guard degradation, not routine info.
+ */
+function extractWithFallback(
+  specContent: string,
+  priorWarnings: string[]
+): { files: string[]; warnings: string[] } {
+  const contextSection = extractNamedSection(specContent, "Context");
+  if (contextSection) {
+    const contextFiles = extractBacktickPaths(contextSection);
+    if (contextFiles.length > 0) {
+      return {
+        files: contextFiles,
+        warnings: [
+          ...priorWarnings,
+          `Fell back to '## Context' backtick-path scan (the current /create-task convention ` +
+            `writes '**In scope:**' as prose, not a file-path bullet list) — found ${contextFiles.length} path(s)`,
+        ],
+      };
+    }
+  }
+
+  const wholeDocFiles = extractBacktickPaths(specContent);
+  if (wholeDocFiles.length > 0) {
+    return {
+      files: wholeDocFiles,
+      warnings: [
+        ...priorWarnings,
+        `'## Context' had no backtick paths — fell back to a whole-spec backtick-path scan, ` +
+          `found ${wholeDocFiles.length} path(s)`,
+      ],
+    };
+  }
+
+  return {
+    files: [],
+    warnings: [
+      ...priorWarnings,
+      `No extractable file references found anywhere in the spec (checked '**In scope:**' ` +
+        `bullet list, '## Context' section, and a whole-document backtick scan) — the ` +
+        `parallel-work file-overlap check is SKIPPED for this dispatch; open-PR and ` +
+        `recently-merged collisions on this task's files will NOT be detected`,
+    ],
+  };
+}
+
+export interface ExtractInScopeFilesResult {
+  files: string[];
+  warnings: string[];
+  /**
+   * mt#2811 R1 (PR #1953 review 4708851338, BLOCKING #3): true iff the
+   * extractor located a parseable `**In scope:**` bullet-list block but
+   * extracted ZERO file paths from it — a genuine extraction FAILURE (the
+   * original mt#2811 incident class: "Could not extract file paths from
+   * '**In scope:**' block"), AND the fallback chain (Context section /
+   * whole-doc backtick scan) ALSO found nothing.
+   *
+   * `false`/`undefined` for the ROUTINE "no scope structure present at all"
+   * cases — no `## Scope` section, or a `## Scope` section with no
+   * `**In scope:**` sub-block — since those are not parser failures, just
+   * specs with nothing to check (the guard has always tolerated this
+   * gracefully; it is NOT the mt#2811 regression class).
+   *
+   * Consumed by the hook entrypoint (`resolveInScopeFiles` /
+   * `import.meta.main`) to route ONLY genuine failures to stderr
+   * ("GUARD DEGRADED"); routine no-scope-anywhere cases stay on stdout,
+   * matching pre-mt#2811 behavior.
+   */
+  genuineExtractionFailure?: boolean;
+}
+
+/**
  * Extract the `## Scope` → `**In scope:**` file paths from a task spec.
  * Returns the list of paths found and any parse warnings.
  *
@@ -87,19 +282,30 @@ export interface ParallelWorkCheckResult {
  * heading or end of content. Extract lines that look like file paths
  * (contain `/` or start with `.`).
  */
-export function extractInScopeFiles(specContent: string): {
-  files: string[];
-  warnings: string[];
-} {
+export function extractInScopeFiles(specContent: string): ExtractInScopeFilesResult {
+  // Format A (mt#2811): the exact shape session_generate_prompt's
+  // renderScopeSection emits for a subagent prompt ("## Scope Constraints" +
+  // bare bullet list). Tried first, unconditionally — a task spec's own
+  // "## Scope" section never collides with this heading text, so this is
+  // side-effect-free for ordinary specs and lets this SAME function serve as
+  // the contract-tested parser for both artifact types.
+  const scopeConstraintsFiles = extractScopeConstraintsFiles(specContent);
+  if (scopeConstraintsFiles.length > 0) {
+    return { files: scopeConstraintsFiles, warnings: [] };
+  }
+
   const warnings: string[] = [];
 
-  // Find ## Scope section. Loosened from strict `^##\s+Scope\s*$` to allow an
-  // optional trailing colon (`## Scope:`) since some specs in this repo use
-  // that variant. Still anchors at start-of-line and requires `## ` prefix.
+  // Format B (mt#1362, original): "## Scope" -> "**In scope:**" -> bullet
+  // list of backtick-wrapped or bare file paths. Loosened from strict
+  // `^##\s+Scope\s*$` to allow an optional trailing colon (`## Scope:`)
+  // since some specs in this repo use that variant. Still anchors at
+  // start-of-line and requires `## ` prefix.
   const scopeMatch = specContent.match(/^##\s+Scope:?\s*$/m);
   if (!scopeMatch) {
     warnings.push("No '## Scope' section found in spec — parallel-work check skipped");
-    return { files: [], warnings };
+    // Routine: no scope structure present at all — not a parser failure.
+    return extractWithFallback(specContent, warnings);
   }
 
   const scopeStart = (scopeMatch.index ?? 0) + scopeMatch[0].length;
@@ -121,7 +327,9 @@ export function extractInScopeFiles(specContent: string): {
     warnings.push(
       "No '**In scope:**' block found in ## Scope section — parallel-work check skipped"
     );
-    return { files: [], warnings };
+    // Routine: has a '## Scope' section but no '**In scope:**' sub-block —
+    // still not a parser failure (nothing to extract from).
+    return extractWithFallback(specContent, warnings);
   }
 
   const inScopeStart = (inScopeMatch.index ?? 0) + inScopeMatch[0].length;
@@ -172,6 +380,13 @@ export function extractInScopeFiles(specContent: string): {
     warnings.push(
       "Could not extract file paths from '**In scope:**' block — parallel-work check skipped"
     );
+    // GENUINE failure: a '**In scope:**' block WAS located but extraction
+    // found nothing in it — the original mt#2811 incident class. Try the
+    // fallback chain; only report as a genuine failure if the fallback ALSO
+    // recovers nothing (if it recovers files, the check runs — no
+    // degradation to report).
+    const fallback = extractWithFallback(specContent, warnings);
+    return { ...fallback, genuineExtractionFailure: fallback.files.length === 0 };
   }
 
   return { files, warnings };
@@ -1289,9 +1504,16 @@ export function formatBlockMessage(
   lines.push("  1. WAIT — let the parallel PR merge first, then start your session.");
   lines.push("  2. COORDINATE — rebase on that PR's branch and open a single combined PR.");
   lines.push("  3. REFRAME — adjust the task scope to avoid the conflicting files.");
-  lines.push("  4. OVERRIDE — if parallel work is intentional and acknowledged:");
-  lines.push("       Set MINSKY_FORCE_PARALLEL=1 in your environment and retry.");
-  lines.push("       The override is audit-logged.");
+  lines.push("  4. OVERRIDE — if parallel work is intentional and acknowledged, via ONE of:");
+  lines.push("       a. Set MINSKY_FORCE_PARALLEL=1 (only reachable BEFORE the harness launches —");
+  lines.push(
+    "          an env var set mid-session via Bash never reaches this hook's subprocess)."
+  );
+  lines.push("       b. Issue a mid-session, reason-mandatory grant (mt#2658 channel, mt#1637):");
+  lines.push(
+    `          bun scripts/grant-guard-override.ts --guard ${OPEN_PR_SWEEP_GUARD_NAME} --scope ${taskId} --reason "<why the overlap is non-conflicting>"`
+  );
+  lines.push("       Either override is audit-logged.");
 
   return lines.join("\n");
 }
@@ -1336,6 +1558,103 @@ export function fetchTaskSpec(taskId: string): string | null {
   }
 
   return result.stdout;
+}
+
+/** Where `resolveInScopeFiles` sourced its file list from. */
+export type InScopeFilesSource = "dispatch-scope-param" | "spec-parse" | "spec-fetch-failed";
+
+export interface ResolvedInScopeFiles {
+  files: string[];
+  warnings: string[];
+  source: InScopeFilesSource;
+  /**
+   * mt#2811 R1: propagated from `extractInScopeFiles` when `source ===
+   * "spec-parse"` — true iff the spec HAD a parseable '**In scope:**' block
+   * but extraction genuinely found nothing in it (not "no scope structure
+   * present at all"). Always `undefined` for `dispatch-scope-param` (no
+   * parsing happened) and irrelevant for `spec-fetch-failed` (that source is
+   * ALWAYS treated as a genuine failure — see `shouldReportAsGuardDegraded`).
+   */
+  genuineExtractionFailure?: boolean;
+}
+
+/**
+ * mt#2811 R1 (PR #1953 review, BLOCKING #3): the single decision point for
+ * whether a zero-files resolution should be reported LOUD (stderr, "GUARD
+ * DEGRADED") or QUIET (stdout, routine). Exported and pure so it is
+ * unit-testable directly — the entrypoint (`import.meta.main`) calls this
+ * rather than re-deriving the logic inline, so a test asserting `false` here
+ * is a direct, literal proxy for "this call would not write to stderr."
+ *
+ * LOUD (true) for exactly two genuine-failure classes:
+ *   1. `source === "spec-fetch-failed"` — the `minsky tasks spec get` CLI
+ *      call itself errored (infrastructure failure, same class as
+ *      child-enumeration CLI failures).
+ *   2. `source === "spec-parse" && genuineExtractionFailure === true` — a
+ *      `**In scope:**` block WAS found but extraction found nothing in it
+ *      (the original mt#2811 incident class).
+ *
+ * QUIET (false) for everything else, including the routine "no scope
+ * structure present anywhere in the spec" case (no '## Scope' section, or a
+ * '## Scope' section with no '**In scope:**' sub-block) — this is NOT a
+ * parser failure, just a spec with nothing to check, and has always been
+ * tolerated gracefully (pre-mt#2811 behavior). Also quiet for
+ * `dispatch-scope-param` resolutions (an explicit, empty/absent `scope` is
+ * simply "not supplied," never a failure).
+ */
+export function shouldReportAsGuardDegraded(resolved: ResolvedInScopeFiles): boolean {
+  if (resolved.source === "spec-fetch-failed") return true;
+  if (resolved.source === "spec-parse" && resolved.genuineExtractionFailure === true) return true;
+  return false;
+}
+
+/**
+ * Resolve the in-scope file list for the open-PR sweep (session_start /
+ * tasks_dispatch existing-task mode). mt#2811: PREFERS the `tasks_dispatch`
+ * call's own `scope` parameter — a comma-separated file-path string,
+ * available directly in `tool_input` at PreToolUse time, and the SAME
+ * structured input `session_generate_prompt`'s `renderScopeSection` renders
+ * into the subagent's "## Scope Constraints" section (see
+ * packages/domain/src/session/prompt-generation.ts) — over parsing the
+ * task's persisted spec. Reading the parameter directly cannot drift from
+ * whatever prose/markdown convention the spec happens to use, and it
+ * guarantees the guard checks EXACTLY the files the subagent will be told to
+ * constrain to. Falls back to fetching + parsing the task's spec
+ * (`extractInScopeFiles`) when `scope` is absent — the only path available
+ * for `session_start` (no `scope` param exists on that tool) and for
+ * `tasks_dispatch` calls that omit `scope`.
+ *
+ * Pure given the injected `fetchSpec` — hermetically testable without
+ * invoking the CLI.
+ */
+export function resolveInScopeFiles(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  fetchSpec: (taskId: string) => string | null,
+  taskId: string
+): ResolvedInScopeFiles {
+  if (toolName === DISPATCH_TOOL_NAME && typeof toolInput["scope"] === "string") {
+    const raw = toolInput["scope"] as string;
+    const files = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (files.length > 0) {
+      return { files, warnings: [], source: "dispatch-scope-param" };
+    }
+  }
+
+  const specContent = fetchSpec(taskId);
+  if (!specContent) {
+    return {
+      files: [],
+      warnings: [`Could not fetch spec for ${taskId}`],
+      source: "spec-fetch-failed",
+    };
+  }
+
+  const { files, warnings, genuineExtractionFailure } = extractInScopeFiles(specContent);
+  return { files, warnings, source: "spec-parse", genuineExtractionFailure };
 }
 
 // ---------------------------------------------------------------------------
@@ -1447,11 +1766,13 @@ export interface DuplicateMatch {
 /** Minimum shared substantive tokens to flag a duplicate. */
 export const DUPLICATE_TOKEN_THRESHOLD = 2;
 
-/**
- * Statuses that cannot represent a concurrent decomposition in flight
- * (mt#2683). A terminal sibling match warns instead of blocking.
- */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
+// Statuses that cannot represent a concurrent decomposition in flight
+// (mt#2683). A terminal sibling match warns instead of blocking. Re-exported
+// (mt#2813 R1) so existing importers of `TERMINAL_TASK_STATUSES` from this
+// module keep working — the canonical definition now lives in `./types.ts`,
+// shared with parallel-work-guard-standalone.ts (closes the mt#2813 review
+// R1 drift-risk finding: two independently-maintained copies of the same set).
+export { TERMINAL_TASK_STATUSES };
 
 // Latency bounds for the N+1 `tasks get` fetch. The PreToolUse host cap for this
 // hook is 30s (.claude/settings.json); blowing it gets the hook SIGTERM'd
@@ -1648,11 +1969,60 @@ export function parseTaskListJson(stdout: string): Map<string, { title: string; 
 }
 
 /**
+ * CLI argv for `minsky tasks children --task <parent>`. Exported (mt#2811)
+ * so the exact flag shape is unit-testable without invoking the CLI.
+ *
+ * mt#2811 root-caused a 100%-failure-rate bug on the prior positional-
+ * argument form (`minsky tasks children <parent>`): live probe —
+ *
+ *     $ minsky tasks children mt#2806
+ *     error: too many arguments for 'children'. Expected 0 arguments but got 1.
+ *     $ echo $?
+ *     1
+ *
+ * `tasks.children`'s parameter map (`tasksChildrenParams` in
+ * `src/adapters/shared/commands/tasks/deps-commands.ts`) declares both
+ * `taskId` and its legacy alias `task` as OPTIONAL, and — unlike every
+ * sibling `tasks.*` command — `tasks-customizations.ts` had no CLI
+ * customization registering either as a positional argument (the bridge's
+ * auto-promotion only promotes the first REQUIRED param). So Commander
+ * rejected the bare positional outright, and `fetchTaskChildren` always
+ * returned `null`, which is exactly the observed "could not enumerate
+ * children of mt#2766" failure (4/9 `tasks_create` fires, 2026-07-13..15).
+ * The `--task` flag form has always worked (confirmed live). This task
+ * ALSO fixes the CLI's own positional-arg registration
+ * (`src/adapters/cli/customizations/tasks-customizations.ts`) so direct
+ * human/CLI use is fixed at the root, not just this guard's callsite — this
+ * argv helper additionally hardens the guard against depending on that
+ * registration existing/staying correct.
+ *
+ * DIVERGENCE RISK (mt#2811 R1, PR #1953 review, NON-BLOCKING #5): this argv
+ * shape is NOT mechanically bound to `tasksChildrenParams` / the CLI
+ * customization — it is a hand-maintained mirror of what was verified live
+ * to work. If `--task` is ever renamed or the flag contract changes on the
+ * `tasks.children` command, this function will silently start failing again
+ * with no compile-time or test-time signal (a hook test binding it to the
+ * CLI definition would re-introduce the .minsky/hooks <-> src package-
+ * boundary import risk this same review flagged for the prompt-generation
+ * contract test — see BLOCKING #2 / `extractScopeConstraintsFiles`'s
+ * fixture-based binding above). Mitigation until a lighter-weight binding
+ * exists: `buildTasksChildrenArgv`'s unit test
+ * (parallel-work-guard.test.ts) locks the exact argv array so an
+ * ACCIDENTAL edit to this function is caught immediately, even though an
+ * upstream CLI contract change would not be. If this class of drift
+ * recurs, the fix is a checked-in CLI-help-output fixture (mirroring the
+ * prompt-fixture pattern above), not a live cross-package import.
+ */
+export function buildTasksChildrenArgv(parent: string): string[] {
+  return ["minsky", "tasks", "children", "--task", parent];
+}
+
+/**
  * Fetch children of `parent` (id + title + status). Hybrid strategy that avoids
  * the per-child N+1 the reviewer flagged (PR #1660 R1 BLOCKING — ~2s of CLI
  * startup PER `tasks get`):
  *
- *   1. `minsky tasks children <parent>` → child IDs (one call).
+ *   1. `minsky tasks children --task <parent>` → child IDs (one call).
  *   2. `minsky tasks list --json` → one bulk call resolving every ACTIVE child
  *      (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED) by title+status.
  *   3. Only TERMINAL-state children (DONE/CLOSED/COMPLETED — excluded from the
@@ -1665,7 +2035,10 @@ export function parseTaskListJson(stdout: string): Map<string, { title: string; 
  * cannot blow the 30s PreToolUse host cap.
  *
  * Returns null when the children LIST itself can't be read (warn-and-permit
- * upstream). Unreadable/malformed children are skipped. If the wall-clock
+ * upstream). On that failure, the exact CLI exit code + stderr/stdout is
+ * written to stderr immediately (mt#2811 loud-degradation requirement) — the
+ * caller's "could not enumerate children" skip message names WHAT failed;
+ * this is WHY. Unreadable/malformed children are skipped. If the wall-clock
  * budget is hit during the terminal-child fallback, the loop breaks early and
  * a visible `[parallel-work-guard]` warning is written (fail-open-on-budget).
  * The optional `now` injection keeps the budget path deterministically testable.
@@ -1675,10 +2048,18 @@ export function fetchTaskChildren(
   now: () => number = Date.now
 ): ChildTask[] | null {
   const startedAt = now();
-  const listed = execWithPath(["minsky", "tasks", "children", parent], {
+  const childrenArgv = buildTasksChildrenArgv(parent);
+  const listed = execWithPath(childrenArgv, {
     timeout: DUP_GUARD_CLI_TIMEOUT_MS,
   });
-  if (listed.exitCode !== 0) return null;
+  if (listed.exitCode !== 0) {
+    process.stderr.write(
+      `[parallel-work-guard] GUARD DEGRADED: could not enumerate children of ${parent} — ` +
+        `\`${childrenArgv.join(" ")}\` exited ${listed.exitCode}: ` +
+        `${(listed.stderr || listed.stdout || "(no output)").trim()}\n`
+    );
+    return null;
+  }
 
   const ids = parseChildIdsFromChildrenOutput(listed.stdout).slice(0, TASKS_CHILDREN_FETCH_CAP);
   if (ids.length === 0) return [];
@@ -1811,7 +2192,19 @@ export function formatTerminalSiblingWarning(
 
 /** The decision a tasks_create call resolves to (pure; I/O injected). */
 export type DuplicateGuardDecision =
-  | { action: "skip"; reason: string }
+  | {
+      action: "skip";
+      reason: string;
+      /**
+       * mt#2811: true iff this skip represents a genuine check FAILURE (the
+       * child-enumeration CLI call errored) rather than a normal, expected
+       * no-op (no parent — top-level create; no title). The entrypoint uses
+       * this to route the message to stderr ("GUARD DEGRADED") only for the
+       * genuine-failure case — a top-level create is not a degradation and
+       * would be noise on stderr.
+       */
+      degraded?: boolean;
+    }
   | { action: "permit" }
   | { action: "warn"; message: string }
   | { action: "override"; auditMatch: string }
@@ -1894,7 +2287,13 @@ export function decideTasksCreateGuard(
 
   const children = deps.fetchChildren(parent);
   if (children === null) {
-    return { action: "skip", reason: `could not enumerate children of ${parent}` };
+    return {
+      action: "skip",
+      reason:
+        `could not enumerate children of ${parent} — the duplicate-child overlap check is ` +
+        `SKIPPED for this create (see stderr for the CLI failure detail)`,
+      degraded: true,
+    };
   }
 
   const activeMatch = detect(children.filter((c) => !TERMINAL_TASK_STATUSES.has(c.status)));
@@ -1909,103 +2308,32 @@ export function decideTasksCreateGuard(
 
   return { action: "permit" };
 }
+// ---------------------------------------------------------------------------
+// Override resolution (guard names, env-var + grant-file channels) — split
+// into ./parallel-work-guard-overrides.ts (mt#1637) to stay under the
+// custom/max-lines 1500-line hard error; imported above. See that module for
+// `resolveGuardChannelOverride` and the two per-guard wrappers.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Override resolution — env var + grant-file channel (Phase-7 adjunct, mt#2658)
+// Standalone-creation duplicate probe (mt#2813) — split into its own module,
+// parallel-work-guard-standalone.ts, to stay under the custom/max-lines
+// 1500-line hard error. That module exports `runStandaloneDuplicateGuard`
+// (imported above) plus the pure decision/formatting/CLI-fetch functions
+// (`decideStandaloneDuplicateGuard`, `detectStandaloneDuplicates`,
+// `buildStandaloneDuplicateQuery`, `fetchSimilarActiveTasks`, etc.) — see
+// that file's module doc comment for the full mechanism + calibration
+// writeup, and docs/architecture/hooks/parallel-work-guard.md for the
+// operator-facing summary. Wired in below: `runTasksCreateGuardInner` routes
+// any parentless `tasks_create`/new-task-mode `tasks_dispatch` call here
+// instead of falling through the duplicate-CHILD matcher (which needs a
+// parent to enumerate a sibling pool).
 // ---------------------------------------------------------------------------
-
-/**
- * This guard's name in the grant-file channel (`.minsky/hooks/guard-grant-
- * store.ts`) — mt#2658's tracking task and originating incident. NOT
- * dispatcher-migrated (this hook remains a standalone `PreToolUse`
- * registration, matched directly in `.claude/settings.json`), so it is not
- * part of `GUARD_REGISTRY` — but `checkOverride()` (imported from
- * `./dispatcher`) is a plain exported function usable outside the
- * dispatcher's own `runDispatcher()` loop, and this guard uses it directly
- * for BOTH the unified `MINSKY_HOOK_OVERRIDE` env var (a bonus — this guard
- * previously only recognized its own bespoke `MINSKY_FORCE_DUPLICATE_OK`)
- * and the new grant-file channel.
- */
-export const DUPLICATE_CHILD_GUARD_NAME = "duplicate-child-matcher";
-
-/**
- * The `checkOverride()`-known-guard-names universe for this guard's calls:
- * the live `GUARD_REGISTRY` names, plus this guard's own name (which isn't
- * itself a dispatcher registration). Without this, an operator correctly
- * setting `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` would still be
- * honored (the match check doesn't consult `knownGuardNames`), but would
- * ALSO get a spurious "does not match any registered guard name" stderr
- * warning — this constant prevents that false-typo signal.
- */
-const KNOWN_GUARD_NAMES_WITH_SELF: readonly string[] = [
-  ...GUARD_REGISTRY.map((r) => r.name),
-  DUPLICATE_CHILD_GUARD_NAME,
-];
-
-/** Resolution of whether the duplicate-child guard's override is active, and why. */
-export type DuplicateGuardOverrideResolution =
-  | { active: false }
-  | { active: true; source: "env"; reason?: undefined }
-  | { active: true; source: "grant"; reason: string | undefined };
-
-/**
- * Pure decision (given an injected `checkOverrideFn`) for whether the
- * duplicate-child guard's override is active, and — when it is — whether
- * that came from an env var (the legacy `MINSKY_FORCE_DUPLICATE_OK=1`, OR
- * the unified `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` that
- * `checkOverrideFn` also recognizes) or a grant-file match (mt#2658).
- * `parent` is the scope qualifier for the grant-file lookup; when absent
- * (no parent on the `tasks_create` call), the grant-file channel cannot be
- * consulted (there is nothing to scope the grant to) — only the env-var
- * channels are checked.
- *
- * `checkOverrideFn`'s `OverrideResult` conflates two provenances behind one
- * `overridden: true` — `grantReason` is present ONLY for a grant-file match
- * (`.minsky/hooks/guard-grant-store.ts` grants always carry a mandatory
- * `reason`); an env-var-sourced override (either channel) never sets it. So
- * `result.grantReason !== undefined` is the correct discriminator for
- * `source` below — NOT "did `checkOverrideFn` return `overridden: true`,"
- * which would mislabel a `MINSKY_HOOK_OVERRIDE`-sourced hit as `"grant"`.
- *
- * `checkOverrideFn` is injected so this stays hermetically testable without
- * touching the filesystem (mirrors `decideTasksCreateGuard`'s
- * `fetchChildren` injection pattern).
- */
-export function resolveDuplicateGuardOverride(
-  parent: string | undefined,
-  env: NodeJS.ProcessEnv,
-  checkOverrideFn: (
-    guardName: string,
-    env: NodeJS.ProcessEnv,
-    options?: { knownGuardNames?: readonly string[]; scope?: string }
-  ) => OverrideResult = checkOverride
-): DuplicateGuardOverrideResolution {
-  if (env["MINSKY_FORCE_DUPLICATE_OK"] === "1") {
-    return { active: true, source: "env" };
-  }
-
-  const result = checkOverrideFn(DUPLICATE_CHILD_GUARD_NAME, env, {
-    knownGuardNames: KNOWN_GUARD_NAMES_WITH_SELF,
-    scope: parent,
-  });
-  if (result.overridden && result.grantReason !== undefined) {
-    return { active: true, source: "grant", reason: result.grantReason };
-  }
-  if (result.overridden) {
-    return { active: true, source: "env" };
-  }
-  return { active: false };
-}
 
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
-function runTasksCreateGuard(input: ToolHookInput): void {
-  // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
-  // stderr and then fails OPEN (permit). A silent crash on the deny path would
-  // otherwise create block/allow ambiguity. The latency-bound budget above
-  // means the host should not SIGTERM us mid-run; this catch covers logic
-  // exceptions, not the host timeout.
+async function runTasksCreateGuard(input: ToolHookInput): Promise<void> {
   try {
-    runTasksCreateGuardInner(input);
+    await runTasksCreateGuardInner(input);
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] tasks_create dup-guard errored — failing open (permit): ${
@@ -2015,8 +2343,18 @@ function runTasksCreateGuard(input: ToolHookInput): void {
   }
 }
 
-function runTasksCreateGuardInner(input: ToolHookInput): void {
+async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
   const parentForScope = resolveDuplicateGuardParent(input.tool_input) || undefined;
+
+  if (!parentForScope) {
+    // Standalone (parentless) create — mt#2813. The duplicate-CHILD matcher
+    // below needs a parent to enumerate a sibling pool; a standalone create
+    // has none, so it falls through to the STANDALONE-duplicate probe
+    // instead (embeddings search against ACTIVE tasks repo-wide).
+    await runStandaloneDuplicateGuard(input);
+    return;
+  }
+
   const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
   const decision = decideTasksCreateGuard(input.tool_input, {
     fetchChildren: (parent) => fetchTaskChildren(parent),
@@ -2026,9 +2364,17 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
 
   switch (decision.action) {
     case "skip":
-      process.stdout.write(
-        `[parallel-work-guard] tasks_create dedup skipped — ${decision.reason}\n`
-      );
+      if (decision.degraded) {
+        // mt#2811 loud degradation: a real check failure (child-enumeration
+        // CLI call errored), not a routine no-op — stderr, not stdout.
+        process.stderr.write(
+          `[parallel-work-guard] GUARD DEGRADED (tasks_create dedup skipped): ${decision.reason}\n`
+        );
+      } else {
+        process.stdout.write(
+          `[parallel-work-guard] tasks_create dedup skipped — ${decision.reason}\n`
+        );
+      }
       return;
     case "warn":
       // stdout for log-grep compatibility; additionalContext so host UIs
@@ -2128,7 +2474,7 @@ if (import.meta.main) {
   // tasks_create with a parent → duplicate-child guard (mt#1435). Fires at the
   // mutating action, upstream of where session_start would catch it.
   if (input.tool_name === "mcp__minsky__tasks_create") {
-    runTasksCreateGuard(input);
+    await runTasksCreateGuard(input);
     process.exit(0);
   }
 
@@ -2139,7 +2485,7 @@ if (import.meta.main) {
   // `parentTaskId`; without it the guard skips (root create, nothing to dedup).
   // Existing-task mode falls through to the open-PR sweep below.
   if (input.tool_name === DISPATCH_TOOL_NAME && isNewTaskModeDispatch(input.tool_input)) {
-    runTasksCreateGuard(input);
+    await runTasksCreateGuard(input);
     process.exit(0);
   }
 
@@ -2160,37 +2506,70 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Check for override env var
-  const forceParallel = process.env["MINSKY_FORCE_PARALLEL"];
-  if (forceParallel === "1") {
-    // Audit-log the override
+  // Override resolution (mt#1637): legacy MINSKY_FORCE_PARALLEL=1 env var,
+  // unified MINSKY_HOOK_OVERRIDE=parallel-work-open-pr, or a mid-session
+  // reason-mandatory grant (mt#2658 channel) scoped to this task id.
+  const sweepOverride = resolveOpenPrSweepOverride(taskId, process.env);
+  if (sweepOverride.active) {
     const ts = new Date().toISOString();
-    process.stdout.write(
-      `[parallel-work-guard] OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=${taskId} ts=${ts}\n`
-    );
+    if (process.env["MINSKY_FORCE_PARALLEL"] === "1") {
+      // Legacy env path: audit line format preserved verbatim (spec SC —
+      // log-grep consumers key on this exact shape).
+      process.stdout.write(
+        `[parallel-work-guard] OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=${taskId} ts=${ts}\n`
+      );
+    } else {
+      const reasonPart =
+        sweepOverride.source === "grant" && sweepOverride.reason
+          ? ` reason="${sweepOverride.reason}"`
+          : "";
+      process.stdout.write(
+        `[parallel-work-guard] OVERRIDE active — task=${taskId} source=${sweepOverride.source}${reasonPart} ts=${ts}\n`
+      );
+    }
     process.exit(0);
   }
 
-  // Fetch and parse spec
-  const specContent = fetchTaskSpec(taskId);
-  if (!specContent) {
-    // Can't fetch spec — warn and allow (non-blocking failure)
-    process.stdout.write(
-      `[parallel-work-guard] Could not fetch spec for ${taskId} — check skipped\n`
-    );
+  // Resolve in-scope files (mt#2811: prefers tasks_dispatch's own `scope`
+  // param over spec parsing — see resolveInScopeFiles docstring).
+  const resolved = resolveInScopeFiles(input.tool_name, input.tool_input, fetchTaskSpec, taskId);
+
+  if (resolved.files.length === 0) {
+    // mt#2811 R1 (PR #1953 review, BLOCKING #3): only report LOUD (stderr,
+    // "GUARD DEGRADED") for a GENUINE failure — see shouldReportAsGuardDegraded.
+    // A routine "this spec has no scope structure at all" resolution stays
+    // quiet on stdout, matching pre-mt#2811 behavior — that was never the
+    // regression this task fixes, and making every such dispatch noisy on
+    // stderr would be its own new failure mode.
+    const degraded = shouldReportAsGuardDegraded(resolved);
+    const prefix = degraded ? "GUARD DEGRADED: " : "";
+    const stream = degraded ? process.stderr : process.stdout;
+    if (resolved.warnings.length > 0) {
+      for (const w of resolved.warnings) {
+        stream.write(`[parallel-work-guard] ${prefix}${w}\n`);
+      }
+    } else {
+      stream.write(
+        `[parallel-work-guard] ${prefix}no in-scope files resolved for ${taskId} ` +
+          `(source=${resolved.source}) — parallel-work file-overlap check SKIPPED\n`
+      );
+    }
     process.exit(0);
   }
 
-  const { files: inScopeFiles, warnings: parseWarnings } = extractInScopeFiles(specContent);
-
-  for (const w of parseWarnings) {
+  // Extraction succeeded (possibly via a fallback strategy) — surface how on
+  // stdout (informational: the check DOES run).
+  if (resolved.source === "dispatch-scope-param") {
+    process.stdout.write(
+      `[parallel-work-guard] Using tasks_dispatch 'scope' parameter directly ` +
+        `(${resolved.files.length} file(s)) — spec parse skipped\n`
+    );
+  }
+  for (const w of resolved.warnings) {
     process.stdout.write(`[parallel-work-guard] ${w}\n`);
   }
 
-  if (inScopeFiles.length === 0) {
-    // No in-scope files parseable — warn and allow
-    process.exit(0);
-  }
+  const inScopeFiles = resolved.files;
 
   const repoDir = input.cwd;
 

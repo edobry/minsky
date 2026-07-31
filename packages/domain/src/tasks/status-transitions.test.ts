@@ -1,34 +1,36 @@
 import { describe, test, expect } from "bun:test";
 import { TaskStatus } from "./taskConstants";
+import { getWorkflow } from "./workflows";
 import {
   validateStatusTransition,
-  VALID_TRANSITIONS,
   hasCloseoutEvidence,
   CLOSEOUT_EVIDENCE_HEADING,
   READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
 } from "./status-transitions";
 
 describe("status-transitions", () => {
-  describe("VALID_TRANSITIONS map (implementation kind backward-compat)", () => {
+  // mt#3010: the legacy VALID_TRANSITIONS backward-compat export was removed —
+  // "implementation" workflow transitions are now asserted directly against the
+  // registry (getWorkflow), the single source of truth.
+  describe("implementation workflow transitions (registry)", () => {
     test("every TaskStatus has a transitions entry", () => {
+      const { transitions } = getWorkflow("implementation");
       for (const status of Object.values(TaskStatus)) {
-        expect(VALID_TRANSITIONS).toHaveProperty(status);
+        expect(transitions).toHaveProperty(status);
       }
     });
 
     test("CLOSED is reachable from every non-CLOSED status (implementation kind)", () => {
+      const { transitions } = getWorkflow("implementation");
       for (const status of Object.values(TaskStatus)) {
-        // Skip CLOSED (the terminal) and COMPLETED (umbrella-kind terminal — has its
-        // own per-kind workflow in WORKFLOWS.umbrella; the implementation-kind
-        // VALID_TRANSITIONS table only lists it for type exhaustivity with an
-        // empty outgoing array per mt#1812).
-        if (status === TaskStatus.CLOSED || status === TaskStatus.COMPLETED) continue;
-        expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
+        if (status === TaskStatus.CLOSED) continue;
+        expect(transitions[status]).toContain(TaskStatus.CLOSED);
       }
     });
 
-    test("READY → DONE is listed in VALID_TRANSITIONS (guarded by spec check in setTaskStatusFromParams)", () => {
-      expect(VALID_TRANSITIONS[TaskStatus.READY]).toContain(TaskStatus.DONE);
+    test("READY → DONE is listed (guarded by spec check in setTaskStatusFromParams)", () => {
+      const { transitions } = getWorkflow("implementation");
+      expect(transitions[TaskStatus.READY]).toContain(TaskStatus.DONE);
     });
   });
 
@@ -195,22 +197,22 @@ describe("status-transitions", () => {
       expect(() => validateStatusTransition("PLANNING", "IN-PROGRESS", "umbrella")).not.toThrow();
     });
 
-    test("IN-PROGRESS → COMPLETED is valid for umbrella", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella")).not.toThrow();
+    test("IN-PROGRESS → DONE is valid for umbrella (single terminal, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "umbrella")).not.toThrow();
     });
 
-    test("COMPLETED → CLOSED is valid for umbrella", () => {
-      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "umbrella")).not.toThrow();
+    test("DONE → CLOSED is valid for umbrella", () => {
+      expect(() => validateStatusTransition("DONE", "CLOSED", "umbrella")).not.toThrow();
     });
 
     test("CLOSED → TODO is valid for umbrella (reopen)", () => {
       expect(() => validateStatusTransition("CLOSED", "TODO", "umbrella")).not.toThrow();
     });
 
-    // Umbrella does not have DONE state
-    test("IN-PROGRESS → DONE is invalid for umbrella (use COMPLETED)", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "umbrella")).toThrow(
-        /Cannot transition from IN-PROGRESS to DONE/
+    // COMPLETED was removed by mt#2311 — it is no longer a state in any workflow.
+    test("IN-PROGRESS → COMPLETED is invalid for umbrella (state removed, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella")).toThrow(
+        /Cannot transition from IN-PROGRESS to COMPLETED/
       );
     });
 
@@ -231,7 +233,7 @@ describe("status-transitions", () => {
     // Error messages include kind label for non-implementation kinds
     test("error message includes kind label for umbrella transitions", () => {
       try {
-        validateStatusTransition("IN-PROGRESS", "DONE", "umbrella");
+        validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "umbrella");
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
         const message = (error as Error).message;
@@ -278,12 +280,12 @@ describe("status-transitions", () => {
       expect(() => validateStatusTransition("READY", "IN-PROGRESS", "state-ops")).not.toThrow();
     });
 
-    test("IN-PROGRESS → COMPLETED is valid for state-ops", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "state-ops")).not.toThrow();
+    test("IN-PROGRESS → DONE is valid for state-ops (single terminal, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "state-ops")).not.toThrow();
     });
 
-    test("COMPLETED → CLOSED is valid for state-ops", () => {
-      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "state-ops")).not.toThrow();
+    test("DONE → CLOSED is valid for state-ops", () => {
+      expect(() => validateStatusTransition("DONE", "CLOSED", "state-ops")).not.toThrow();
     });
 
     test("CLOSED → TODO is valid for state-ops (reopen)", () => {
@@ -295,9 +297,9 @@ describe("status-transitions", () => {
     });
 
     // Absent states
-    test("IN-PROGRESS → DONE is invalid for state-ops (use COMPLETED)", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "state-ops")).toThrow(
-        /Cannot transition from IN-PROGRESS to DONE/
+    test("IN-PROGRESS → COMPLETED is invalid for state-ops (state removed, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "state-ops")).toThrow(
+        /Cannot transition from IN-PROGRESS to COMPLETED/
       );
     });
 
@@ -316,7 +318,7 @@ describe("status-transitions", () => {
     // Error messages include kind label for non-implementation kinds
     test("error message includes kind label for state-ops transitions", () => {
       try {
-        validateStatusTransition("IN-PROGRESS", "DONE", "state-ops");
+        validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "state-ops");
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
         const message = (error as Error).message;
@@ -406,6 +408,33 @@ describe("status-transitions", () => {
       expect(hasCloseoutEvidence(spec)).toBe(true);
     });
 
+    // --- Synonym headings (mt#455: investigation-shaped closeout) ---
+
+    test("accepts ## Findings as a synonym", () => {
+      const spec = `## Summary\n...\n\n## Findings\nThe root cause is X; see the trace at Y.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("accepts ## Outcome as a synonym", () => {
+      const spec = `## Outcome\nDecision: fold research into state-ops (ask 0480a4c3).\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("synonyms are case-insensitive and accept trailing colon", () => {
+      expect(hasCloseoutEvidence(`## FINDINGS:\ncontent\n`)).toBe(true);
+      expect(hasCloseoutEvidence(`## outcome\ncontent\n`)).toBe(true);
+    });
+
+    test("an empty evidence section does not mask a later populated synonym section", () => {
+      const spec = `## Outcome\n\n## Notes\nfiller\n\n## Findings\nActual findings here.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("does not match ## Findings-adjacent headings", () => {
+      expect(hasCloseoutEvidence(`## Findings summary\ncontent\n`)).toBe(false);
+      expect(hasCloseoutEvidence(`## Outcomes\ncontent\n`)).toBe(false);
+    });
+
     // --- Negative cases ---
 
     test("returns false when spec is empty string", () => {
@@ -459,6 +488,11 @@ describe("status-transitions", () => {
 
     test("CLOSEOUT_EVIDENCE_HEADING does not match ## without the words", () => {
       expect(CLOSEOUT_EVIDENCE_HEADING.test("## Summary")).toBe(false);
+    });
+
+    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE names the synonym headings (mt#455)", () => {
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Findings");
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Outcome");
     });
   });
 });

@@ -1,7 +1,4 @@
 {
-  "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
-  },
   "autoMemoryEnabled": false,
   "hooks": {
     "PreToolUse": [
@@ -34,6 +31,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-growth-justification-before-merge.ts",
+            "timeout": 90,
+            "statusMessage": "Checking for size-budget justification on rules-touching PRs that grow CLAUDE.md..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
             "timeout": 15,
             "statusMessage": "Checking for coupled out-of-band steps in PR body..."
@@ -48,6 +51,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-prompt-watermark.ts",
             "timeout": 5,
             "statusMessage": "Checking prompt provenance..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-nested-fork-dispatch.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for undeclared nested fork dispatch..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-bare-prohibition-dispatch.ts",
+            "timeout": 10,
+            "statusMessage": "Checking dispatch prompt for bare prohibitions..."
           }
         ]
       },
@@ -84,6 +99,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
             "timeout": 15,
             "statusMessage": "Checking for coupled out-of-band steps in PR body..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#2823 approved-Ask permission bridge. Deliberately STANDALONE (not GUARD_REGISTRY/dispatcher): it emits permissionDecision ALLOW, which the dispatcher's deny-aggregation contract does not carry — mirrors parallel-work-guard's standalone precedent. Harness deny-precedence means any sibling hook's deny still outranks this hook's allow.",
+        "matcher": "Bash|mcp__minsky__session_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ask-permission-bridge.ts",
+            "timeout": 60,
+            "statusMessage": "Checking approved-Ask action grants..."
           }
         ]
       },
@@ -161,6 +188,17 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the ask for an unprobed operator deferral..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__tasks_status_set",
         "hooks": [
           {
@@ -203,6 +241,41 @@
             "statusMessage": "Checking for generated file edit..."
           }
         ]
+      },
+      {
+        "_comment": "mt#2865 dispatch-intent write gate. Deliberately STANDALONE, not GUARD_REGISTRY/dispatcher: dispatch-pretooluse.ts is registered only under the 'Bash|mcp__minsky__session_exec' matcher block above — the session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit tool family this guard gates is NOT among the tool names that already spawn the dispatcher process, so migrating would require widening THAT block's matcher (extra dispatcher spawns for every guard already registered there, for zero benefit — none of them match this tool family). A standalone registration is the cheaper correct choice here, mirroring block-subagent-merge-without-grant.ts's precedent for the sibling D5 merge guard. session_pr_merge is deliberately excluded — already D5-covered by block-subagent-merge-without-grant.ts above. Timeout=30 (PR #2033 R1 NON-BLOCKING #4): matched to parallel-work-guard.ts's timeout (also 30, below) rather than invented — both are standalone PreToolUse guards reacting to session/dispatch-lifecycle tool calls, a closer shape match than ask-permission-bridge.ts's 60 (that guard does live Ask server verification, a heavier network-bound workload this guard never does — it only reads a local JSON file, plus this PR's new exclusive-create lock retry loop, which itself caps at ~1s well inside 30).",
+        "matcher": "mcp__minsky__session_commit|mcp__minsky__session_edit_file|mcp__minsky__session_write_file|mcp__minsky__session_search_replace|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-intent-write-gate.ts",
+            "timeout": 30,
+            "statusMessage": "Checking dispatch-intent write gate..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3350 success-criteria injection. Surfaces the bound task's `## Success Criteria` verbatim at PR-creation time, so they are confronted at the moment of shipping rather than recalled from having written them (mem#736 R2; the prose tier for this class — /implement-task §7 item 5 — has a measured 14x recurrence across 13 PRs). Matcher is session_pr_create ALONE, deliberately: the two PreToolUse blocks above that mention the tool are multi-tool matchers that also cover session_commit, and injecting the criteria on every commit would be noise that trains the reader to skip them. Not migrated into the dispatcher/GUARD_REGISTRY for the same reason recorded on the dispatch-intent gate above — session_pr_create is not among the tool names that already spawn the dispatcher. Timeout=20: one `minsky tasks spec get` CLI call (budgeted 15s internally) plus process spawn; matched to the sibling stamp-pr-author-link.ts registration on the same tool rather than invented. Fail-open and silent — no task id, no spec, or no criteria section all exit 0 with no output.",
+        "matcher": "mcp__minsky__session_pr_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-success-criteria.ts",
+            "timeout": 20,
+            "statusMessage": "Surfacing the task's success criteria..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records the in-flight tool call (name + start time) so elapsed time is renderable, which the mt#3130 vocabulary makes mandatory rather than optional. matcher '*' fires on EVERY tool. No statusMessage: this runs on every tool call and a per-call status line would be pure UI noise. Budget: the hook's own forward is capped at 500ms internally; timeout 5 covers process spawn.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -223,6 +296,23 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-stop.ts",
             "timeout": 60,
             "statusMessage": "Final type check..."
+          },
+          {
+            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY (currently two: turn-end-retro-scan, the framework's first Stop-event guard — advisory turn-end retrospective-trigger scan; and turn-end-untaken-action-scan (mt#3179) — advisory scan for a turn ending with an announced-but-untaken next action). Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout=21 (host-cap budget model, hook-files.mdc): the family's worst-case SUM — turn-end-retro-scan at timeoutMs 10s plus turn-end-untaken-action-scan at timeoutMs 5s — plus dispatcher overhead margin. Bump this whenever a Stop guard is added or its timeoutMs changes. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
+            "timeout": 21,
+            "statusMessage": "Running guard dispatcher (Stop)..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records the turn going idle. Standalone, not a GUARD_REGISTRY entry (observer, not a guard).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
           }
         ]
       }
@@ -255,6 +345,16 @@
             "statusMessage": "Ingesting finished session transcript..."
           }
         ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records a SessionEnd HINT only. Per ADR-017, /exit and /clear do NOT fire SessionEnd, so its absence proves nothing; authoritative end/stall detection is the Phase 2 absence sweep.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -266,6 +366,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-edit.ts",
             "timeout": 30,
             "statusMessage": "Type checking..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3257 subagent model verification — observer, never blocks. Compares tool_input.model (requested alias) against tool_response.resolvedModel (both measured in the Agent PostToolUse payload, sync AND async-launch modes — mt#3257 probes) and warns via additionalContext on mismatch, so a dropped tier override can't silently produce false provenance again (the mt#3151 pin incident). Degraded payloads log to .minsky/subagent-model-mismatch.jsonl instead of warning. Matcher covers Task, the same tool's older name, to stay aligned with the hook's TARGET_TOOL_NAMES (PR #2388 R1). Timeout 10: the hook spawns one bun process and does at most one local file append — no subprocess, no network, no DB — so 10s is generous headroom over sibling 5s reminders purely for cold-start jitter. Override: MINSKY_SKIP_SUBAGENT_MODEL_CHECK.",
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/verify-subagent-model.ts",
+            "timeout": 10,
+            "statusMessage": "Verifying subagent model tier..."
           }
         ]
       },
@@ -300,6 +412,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-session-start.ts",
             "timeout": 10,
             "statusMessage": "Labeling session..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-session-creator-link.ts",
+            "timeout": 20,
+            "statusMessage": "Recording the creating conversation for this workspace..."
           }
         ]
       },
@@ -311,6 +429,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/drive-pr-to-convergence.ts",
             "timeout": 5,
             "statusMessage": "Reminding agent to drive PR to convergence..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-pr-author-link.ts",
+            "timeout": 20,
+            "statusMessage": "Recording the authoring conversation for this PR..."
           }
         ]
       },
@@ -326,6 +450,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/drive-ready-to-implementation.ts",
+            "timeout": 10,
+            "statusMessage": "Reminding agent to walk the chain to /implement-task..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
         "hooks": [
           {
@@ -335,17 +470,99 @@
             "statusMessage": "Recording 2-strikes streak..."
           }
         ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — clears the in-flight tool call so a finished call does not read as running for the rest of the turn. matcher '*' fires on EVERY tool; no statusMessage, same per-call-noise reason as the PreToolUse sibling.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
-            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b (mt#2652, mt#2687): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector, calibration-review-cadence-detector). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=115 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all fifteen UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Built from the Phase 2a entry's already-calibrated 60s (covering the six Phase 2a guards' worst-case 65s summed budget, minus a small process-spawn-overhead saving) plus the nine Phase 2b guards' individual worst-case budgets summed (5+5+5+5+5+10+5+5+10=55s): 60+55=115s.",
+            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b+mt#2812+mt#2824+mt#2870+mt#2923+mt#2708 (mt#2652, mt#2687, mt#2812, mt#2824, mt#2870, mt#2923, mt#2708): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated (or, for mt#2812/mt#2824/mt#2870/mt#2923/mt#2708, authored directly) onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector; mt#2812: guard-health-escalation-detector; mt#2824: silent-stretch-detector; mt#2870: wall-of-text-detector; mt#2923: build-claim-injection-detector; mt#2708: knowledge-acquisition-detector; mt#3125: constructed-identifier-batch-detector; mt#2459: operator-deferral-detector; calibration-review-cadence-detector kept last per registry.ts). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=185 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all twenty-two UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Re-verified 2026-07-24 (mt#2459) by SUMMING the live registry rather than trusting this comment's own arithmetic — `GUARD_REGISTRY.filter(g => g.event === 'UserPromptSubmit').reduce((a, g) => a + g.timeoutMs, 0)` returns 185000ms across 22 guards. That check also caught a pre-existing drift this comment had carried since mt#2708: the prose said \"Timeout=165\" while its own breakdown computed 175s and the field was already 175 — so the narrative figure, not the field, was stale. Prior breakdown, unchanged and still additive: 145s computed 2026-07-17 (mt#2870) + build-claim-injection-detector 10s (mt#2923) + knowledge-acquisition-detector 10s (mt#2708) + constructed-identifier-batch-detector 10s (mt#3125) = 175s, + operator-deferral-detector 10s (mt#2459) = 185s. The sibling PreToolUse dispatcher entries stay at timeout=15: that family's registry sum is 15s total (check-guessed-session-path 5s + operator-deferral-ask-surface 10s), and no single matcher selects both.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 115,
+            "timeout": 185,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 conversation run-state writer. Deliberately STANDALONE rather than a GUARD_REGISTRY entry: it makes no permission decision and denies nothing, so it is an observer in the record-subagent-invocation.ts family, not a guard. Registering it inside the dispatcher would also put a fleet-wide per-event forward behind the dispatcher's 175s host cap. Fail-open: exits 0 on every path.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "_comment": "mt#3161: the harness-native turn-failure signal (error_type/error_message). Ten documented matchers; no matcher here so every failure class is recorded. Stored raw — the Rate-limited-vs-Errored split is a render-layer mapping.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "_comment": "mt#3161: source for the NEEDS INPUT reason sub-label (permission_prompt / idle_prompt / agent_needs_input). Registered for capture only — no render logic is built on it yet (mt#3130 subscribe-only discipline).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "_comment": "mt#3161: the unambiguous source for NEEDS INPUT (permission). Without it that reason sub-label — which mt#3130 decision (2) makes mandatory — would have to be inferred.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "_comment": "mt#3161: records the compaction trigger (manual/auto) ONLY. The harness exposes no token-usage field on this event.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "_comment": "mt#3161: records when compaction completed, so a context-boundary divider can be placed against a real interval rather than an inferred one.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
           }
         ]
       }

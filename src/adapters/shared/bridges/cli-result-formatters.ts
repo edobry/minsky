@@ -25,6 +25,24 @@ function formatLivenessIndicator(status?: string, liveness?: string): string {
 }
 
 /**
+ * Returns a runtime-attachment indicator (mt#2284), visually and
+ * semantically distinct from the liveness dot above: a SQUARE glyph rather
+ * than a circle, so the two axes are never visually confusable.
+ *
+ * `attached` is `undefined` when the attachment set could not be resolved
+ * (e.g. no DB connection) — rendered as a dim square, distinct from both
+ * attached and detached, so "unknown" is never misread as "detached".
+ */
+function formatAttachmentIndicator(attached: boolean | undefined): string {
+  const noColor = process.env.NO_COLOR || !process.stdout.isTTY;
+  const colorize = (code: string, text: string) => (noColor ? text : `\x1b[${code}m${text}\x1b[0m`);
+
+  if (attached === true) return colorize("36", "■"); // cyan filled square — attached
+  if (attached === false) return colorize("90", "□"); // gray hollow square — detached
+  return colorize("90", "▫"); // dim small square — unknown (attachment set unresolved)
+}
+
+/**
  * Format session details for human-readable output
  */
 export function formatSessionDetails(session: Record<string, unknown>): void {
@@ -41,6 +59,10 @@ export function formatSessionDetails(session: Record<string, unknown>): void {
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
   if (session.liveness) log.cli(`   Liveness: ${session.liveness}`);
+  if (session.attached !== undefined) {
+    const indicator = formatAttachmentIndicator(session.attached as boolean);
+    log.cli(`   Attached: ${indicator} ${session.attached ? "yes" : "no"}`);
+  }
   if (session.lastActivityAt) {
     const date = new Date(session.lastActivityAt as string);
     log.cli(`   Last activity: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
@@ -84,18 +106,23 @@ export function formatSessionSummary(session: Record<string, unknown>): void {
   const status = session.status as string | undefined;
   const liveness = session.liveness as string | undefined;
   const indicator = formatLivenessIndicator(status, liveness);
+  // mt#2284: attachment indicator, distinct glyph shape from the liveness dot.
+  const attachedIndicator =
+    session.attached !== undefined
+      ? `${formatAttachmentIndicator(session.attached as boolean)} `
+      : "";
 
   // TASK 643: Lead with task ID and branch; UUID is secondary debug info
   if (session.taskId) {
     const taskDisplay = formatTaskIdForDisplay(session.taskId as string);
     const branchName = session.branch ? ` (${session.branch})` : "";
     const uuid = session.sessionId ? ` [${(session.sessionId as string).substring(0, 8)}...]` : "";
-    log.cli(`${indicator} ${taskDisplay}${branchName}${uuid}`);
+    log.cli(`${indicator} ${attachedIndicator}${taskDisplay}${branchName}${uuid}`);
   } else {
     // Taskless session: just show UUID
     const sessionId = session.sessionId || "unknown";
     const branchName = session.branch ? ` [${session.branch}]` : "";
-    log.cli(`${indicator} ${sessionId}${branchName}`);
+    log.cli(`${indicator} ${attachedIndicator}${sessionId}${branchName}`);
   }
 }
 

@@ -1,0 +1,490 @@
+// Guard-health capture + aggregation — mt#2812.
+//
+// Makes guard-layer failures a visible, escalating signal instead of silent
+// fail-open permits. Architectural precedent (deliberately copied, per the
+// task spec): src/mcp/disconnect-tracker.ts (mt#1645/1682) and
+// src/mcp/subagent-dispatch-tracker.ts (mt#1735-1738) — same shape:
+// append-only log + aggregate surface + threshold escalation.
+//
+// Dependency-free (per .minsky/hooks/SPEC.md's invariant): no `src/`
+// imports. This lets every guard keep working even when the main codebase
+// has type errors.
+//
+// Two capture paths (per mt#2812 spec item 1):
+//   (a) dispatcher-migrated guards — dispatcher.ts's guard loop calls
+//       recordGuardError() from its `mod.run()` catch block automatically,
+//       IN ADDITION to the existing stderr line. Zero per-guard changes
+//       needed for any guard registered in registry.ts's GUARD_REGISTRY.
+//   (b) standalone (non-dispatcher) hooks — recordGuardError /
+//       recordGuardCheckSkip are exported here for a standalone hook's own
+//       catch block to call directly (see two-strikes-record.ts for the
+//       reference wiring).
+//
+// Read side: computeGuardHealthSummary() aggregates the on-disk JSONL log
+// into per-guard failure counts (24h/7d, errors + check-skips), consecutive-failure streaks, and an
+// escalation tier (none | attention | critical). Guard processes are
+// SHORT-LIVED — one fresh Bun process per hook event, not a long-running
+// server — so unlike disconnect-tracker's in-memory ring buffer (built up
+// across one server process's lifetime), this module keeps no persistent
+// in-memory state: every read re-parses the log fresh from disk.
+//
+// The src/-side reader (src/mcp/guard-health-tracker.ts, consumed by
+// debug.systemInfo) duplicates this read+aggregate logic rather than
+// importing it: the root tsconfig.json's "include" is `["src", "types",
+// "tests", ...]` — `.minsky/` is not part of that program — and this
+// hooks tree is intentionally self-contained per SPEC.md. Precedent for the
+// duplication-over-cross-import choice: mcp-daemon-staleness-detector.ts
+// inlines its own daemon-state reader rather than importing
+// src/mcp/daemon-state.ts, for the same reason in the opposite direction.
+//
+// @see mt#2812 — this task
+// @see src/mcp/disconnect-tracker.ts — architectural precedent
+// @see src/mcp/subagent-dispatch-tracker.ts — architectural precedent
+// @see src/mcp/guard-health-tracker.ts — the src/-side reader for debug.systemInfo
+// @see .minsky/hooks/dispatcher.ts — capture path (a)
+// @see .minsky/hooks/guard-health-escalation-detector.ts — the UserPromptSubmit
+//      consumer that surfaces `escalation: "critical"` to the operator/agent
+
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+
+// ---------------------------------------------------------------------------
+// Persisted event shape
+// ---------------------------------------------------------------------------
+
+/**
+ * `"error"`      — the guard threw (dispatcher-caught, or a standalone hook's
+ *                  own top-level catch).
+ * `"check-skip"` — the guard took its fail-open path due to an internal
+ *                  condition WITHOUT throwing (e.g. an unreachable
+ *                  dependency it chose to degrade past). Covers the
+ *                  "check-skips on fail-open paths" class named in the
+ *                  spec's Covers section.
+ */
+export type GuardHealthEventKind = "error" | "check-skip";
+
+export interface GuardHealthEvent {
+  timestamp: string;
+  guardName: string;
+  /** Lifecycle event the guard was running under (e.g. "PreToolUse", "UserPromptSubmit"). */
+  event: string;
+  kind: GuardHealthEventKind;
+  /** `error.constructor.name` (e.g. "TypeError") when kind === "error". */
+  errorClass?: string;
+  /** Error message, or the check-skip's reason string. */
+  message: string;
+  /**
+   * mt#3072 SC2 — "distinguish infra-unavailable from probe-logic failure in
+   * the health accounting". Optional, `kind: "check-skip"`-only (a guard that
+   * THREW is already distinguished from a deliberate degrade by `kind` itself):
+   * `"infra"` for a NAMED, anticipated dependency-unavailable condition,
+   * `"logic"` for an unanticipated failure that reached a catch-all. Omitted
+   * by guards that don't yet classify their check-skips — absence carries no
+   * meaning beyond "not classified," never treated as either bucket.
+   */
+  causeClass?: "infra" | "logic";
+  /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
+  toolName?: string;
+  sessionId?: string;
+  /**
+   * mt#3358 SC3 — identifies WHICH operation went unchecked, so "was MY create
+   * checked?" is answerable after the fact instead of only "some create in this
+   * session wasn't". `toolName` + `sessionId` narrow it to a session; this names
+   * the individual call (for `tasks_create`, the title being created).
+   *
+   * Deliberately NOT the created task id: this guard runs **PreToolUse**, so the
+   * id does not exist yet — the tool that mints it has not run. Truncated by the
+   * writer; the health log is a diagnostic, not an archive.
+   *
+   * Optional and additive: existing log lines without it stay readable, and
+   * absence means "not recorded", never "no subject".
+   */
+  subject?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Log path resolution (mirrors disconnect-tracker.ts's getStateDir/getLogPath)
+// ---------------------------------------------------------------------------
+
+export function getGuardHealthStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  const envDir = env["MINSKY_STATE_DIR"];
+  if (envDir) return envDir;
+  return join(homedir(), ".local", "state", "minsky");
+}
+
+export function getGuardHealthLogPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(getGuardHealthStateDir(env), "guard-health-log.jsonl");
+}
+
+// ---------------------------------------------------------------------------
+// Fs dependency seam (testability — no real fs touched in unit tests)
+// ---------------------------------------------------------------------------
+
+export interface GuardHealthFsDeps {
+  existsSync: (p: string) => boolean;
+  mkdirSync: (p: string, opts?: { recursive?: boolean }) => void;
+  appendFileSync: (p: string, data: string) => void;
+  readFileSync: (p: string, encoding: "utf-8") => string;
+}
+
+const REAL_FS: GuardHealthFsDeps = { existsSync, mkdirSync, appendFileSync, readFileSync };
+
+export interface GuardHealthRecordOptions {
+  logPath?: string;
+  fs?: GuardHealthFsDeps;
+  env?: NodeJS.ProcessEnv;
+  now?: () => Date;
+}
+
+export interface GuardHealthReadOptions {
+  logPath?: string;
+  fs?: GuardHealthFsDeps;
+  env?: NodeJS.ProcessEnv;
+}
+
+// ---------------------------------------------------------------------------
+// Recording (capture side) — best-effort, MUST NEVER throw into a guard
+// ---------------------------------------------------------------------------
+
+export interface RecordGuardHealthInput {
+  guardName: string;
+  event: string;
+  toolName?: string;
+  sessionId?: string;
+}
+
+function appendEvent(ev: GuardHealthEvent, options?: GuardHealthRecordOptions): void {
+  try {
+    const fs = options?.fs ?? REAL_FS;
+    const logPath = options?.logPath ?? getGuardHealthLogPath(options?.env);
+    const dir = dirname(logPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(logPath, `${JSON.stringify(ev)}\n`);
+  } catch {
+    // Best-effort — recording must never break guard execution. Mirrors
+    // logCalibrationRecord's swallow-all posture (dispatcher.ts D4).
+  }
+}
+
+/**
+ * Record a thrown guard error. Called automatically from dispatcher.ts's
+ * `mod.run()` catch block for every ADR-028-migrated guard, or from a
+ * standalone hook's own catch block.
+ */
+export function recordGuardError(
+  input: RecordGuardHealthInput & { error: unknown },
+  options?: GuardHealthRecordOptions
+): void {
+  try {
+    const now = options?.now ?? (() => new Date());
+    const err = input.error;
+    const message = err instanceof Error ? err.message : String(err);
+    const errorClass = err instanceof Error ? err.constructor.name : typeof err;
+    const ev: GuardHealthEvent = {
+      timestamp: now().toISOString(),
+      guardName: input.guardName,
+      event: input.event,
+      kind: "error",
+      errorClass,
+      message,
+      ...(input.toolName ? { toolName: input.toolName } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    };
+    appendEvent(ev, options);
+  } catch {
+    // Never throw into a guard's catch block.
+  }
+}
+
+/**
+ * Record a check-skip: a guard took its fail-open path due to an internal
+ * condition WITHOUT throwing. `causeClass` (mt#3072 SC2, optional) lets a
+ * guard that already classifies its own degradation causes (e.g.
+ * standalone-duplicate-matcher's infra/logic split) carry that distinction
+ * into the health accounting.
+ */
+/** Cap on a recorded `subject` — the health log is a diagnostic, not an archive. */
+export const MAX_SUBJECT_LENGTH = 120;
+
+/** Truncate a subject to {@link MAX_SUBJECT_LENGTH}, marking that it was cut. */
+function truncateSubject(subject: string): string {
+  return subject.length <= MAX_SUBJECT_LENGTH
+    ? subject
+    : `${subject.slice(0, MAX_SUBJECT_LENGTH - 1)}…`;
+}
+
+export function recordGuardCheckSkip(
+  input: RecordGuardHealthInput & {
+    reason: string;
+    causeClass?: "infra" | "logic";
+    subject?: string;
+  },
+  options?: GuardHealthRecordOptions
+): void {
+  try {
+    const now = options?.now ?? (() => new Date());
+    const subject = input.subject?.trim();
+    const ev: GuardHealthEvent = {
+      timestamp: now().toISOString(),
+      guardName: input.guardName,
+      event: input.event,
+      kind: "check-skip",
+      message: input.reason,
+      ...(input.causeClass ? { causeClass: input.causeClass } : {}),
+      ...(input.toolName ? { toolName: input.toolName } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(subject ? { subject: truncateSubject(subject) } : {}),
+    };
+    appendEvent(ev, options);
+  } catch {
+    // Never throw into a guard's catch block.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reading (pure read of the on-disk log — fail-safe, never throws)
+// ---------------------------------------------------------------------------
+
+function isValidEvent(item: unknown): item is GuardHealthEvent {
+  if (!item || typeof item !== "object") return false;
+  const r = item as Record<string, unknown>;
+  return (
+    typeof r.timestamp === "string" &&
+    typeof r.guardName === "string" &&
+    typeof r.event === "string" &&
+    (r.kind === "error" || r.kind === "check-skip") &&
+    typeof r.message === "string" &&
+    // mt#3072 (reviewer finding, mirrored from the kept-in-sync
+    // src/mcp/guard-health-tracker.ts copy): causeClass is OPTIONAL, but when
+    // present it must be one of the two known values — an unrecognized
+    // string would otherwise pass through as a validated event and render as
+    // a raw, unexpected tag in the escalation banner.
+    (r.causeClass === undefined || r.causeClass === "infra" || r.causeClass === "logic")
+  );
+}
+
+/** Read + parse the JSONL log. Malformed lines are skipped. Missing file/read error -> []. */
+export function readGuardHealthEvents(options?: GuardHealthReadOptions): GuardHealthEvent[] {
+  try {
+    const fs = options?.fs ?? REAL_FS;
+    const logPath = options?.logPath ?? getGuardHealthLogPath(options?.env);
+    if (!fs.existsSync(logPath)) return [];
+    const raw = fs.readFileSync(logPath, "utf-8");
+    const events: GuardHealthEvent[] = [];
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (isValidEvent(parsed)) events.push(parsed);
+      } catch {
+        // Skip malformed line.
+      }
+    }
+    return events;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Escalation thresholds
+// ---------------------------------------------------------------------------
+//
+// Grounded per the mt#2812 spec's explicit calibration ("a gate that errors
+// on 3+ consecutive fires is already pathological per this week's data") and
+// decision-defaults.mdc §Thresholds ("ground in observed cadence, not round
+// numbers"; "burst-detection windows: 24h").
+
+/**
+ * Gap (ms) beyond which two consecutive failures for the same guard are
+ * treated as separate incidents rather than one ongoing streak. 24h mirrors
+ * decision-defaults.mdc's project-wide "burst-detection windows: 24h"
+ * calibration — chosen so a guard firing sparsely-but-reliably across a
+ * multi-day incident (the mt#2806 evidence: "one gate crashed 18/18 times
+ * over two days") still counts as one continuous streak, while an isolated
+ * failure a week later starts a fresh count.
+ */
+export const STREAK_RESET_GAP_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Consecutive-streak length at which a single guard's escalation reaches
+ * "attention" (streak > this threshold, i.e. 2+ consecutive failures) — an
+ * early-warning tier, one step below "critical".
+ */
+export const ATTENTION_STREAK_THRESHOLD = 1;
+
+/**
+ * Consecutive-streak length at which a single guard's escalation reaches
+ * "critical" (streak > this threshold, i.e. 3+ consecutive failures) — the
+ * mt#2812 spec's explicit calibration.
+ */
+export const CRITICAL_STREAK_THRESHOLD = 2;
+
+/**
+ * Freshness window (ms) after a guard's most recent failure beyond which its
+ * escalation is flagged `stale`. guard-health records only FAILURES, never
+ * successes (mt#2969), so a recovered guard cannot reset its own streak: between
+ * its last failure and the 24h age-out (STREAK_RESET_GAP_MS) a quiet streak
+ * still reads as an ACTIVE "critical" incident — a ~19h-old streak drove a
+ * multi-hour misdiagnosis. 1h is shorter than the 24h age-out (it fills the
+ * "recovered-but-not-yet-aged-out" gap) and long enough not to flap during a
+ * brief pause between a guard's fires. Tunable.
+ */
+export const STALE_ESCALATION_WINDOW_MS = 60 * 60 * 1000;
+
+export type GuardEscalation = "none" | "attention" | "critical";
+
+export interface GuardHealthEntry {
+  failureCount24h: number;
+  failureCount7d: number;
+  /** Consecutive-failure streak (see STREAK_RESET_GAP_MS for the reset rule). */
+  consecutiveStreak: number;
+  lastEvent: GuardHealthEvent | null;
+  escalation: GuardEscalation;
+  /**
+   * ms since this guard's most recent recorded failure (null if none). Optional:
+   * always populated by `computeGuardHealthSummary`, but may be omitted by
+   * hand-built entries (so the addition stays additive/non-breaking). Because
+   * only failures are recorded, a large value means "no failure seen recently" —
+   * NOT necessarily "recovered" (the guard may simply not have fired). mt#2969.
+   */
+  lastFailureAgeMs?: number | null;
+  /**
+   * True when `escalation` is non-"none" but the most recent failure is older
+   * than STALE_ESCALATION_WINDOW_MS — likely stale (recovered or dormant), not an
+   * active incident. Optional (always set by `computeGuardHealthSummary`,
+   * omittable by hand-built entries). Consumers should de-alarm a stale
+   * escalation rather than present it as live. mt#2969.
+   */
+  stale?: boolean;
+}
+
+export interface GuardHealthSummary {
+  byGuard: Record<string, GuardHealthEntry>;
+  /** Guard names currently at "critical" escalation. */
+  criticalGuards: string[];
+  /** Guard names currently at "attention" escalation (disjoint from criticalGuards). */
+  attentionGuards: string[];
+  /** Overall escalation = the max severity across every guard. */
+  escalation: GuardEscalation;
+}
+
+function guardEscalationFor(streak: number): GuardEscalation {
+  if (streak > CRITICAL_STREAK_THRESHOLD) return "critical";
+  if (streak > ATTENTION_STREAK_THRESHOLD) return "attention";
+  return "none";
+}
+
+/**
+ * Pure aggregation — given events + "now", compute the summary. No fs, no
+ * side effects; the sole seam under fault-injection test.
+ */
+export function computeGuardHealthSummary(
+  events: readonly GuardHealthEvent[],
+  now: Date = new Date()
+): GuardHealthSummary {
+  const nowMs = now.getTime();
+  const cutoff24h = nowMs - 24 * 60 * 60 * 1000;
+  const cutoff7d = nowMs - 7 * 24 * 60 * 60 * 1000;
+
+  const byGuardEvents = new Map<string, GuardHealthEvent[]>();
+  for (const ev of events) {
+    const arr = byGuardEvents.get(ev.guardName) ?? [];
+    arr.push(ev);
+    byGuardEvents.set(ev.guardName, arr);
+  }
+
+  const byGuard: Record<string, GuardHealthEntry> = {};
+  const criticalGuards: string[] = [];
+  const attentionGuards: string[] = [];
+
+  for (const [guardName, guardEvents] of byGuardEvents) {
+    const sorted = [...guardEvents].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const failureCount24h = sorted.filter(
+      (e) => new Date(e.timestamp).getTime() >= cutoff24h
+    ).length;
+    const failureCount7d = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff7d).length;
+
+    let streak = sorted.length > 0 ? 1 : 0;
+    for (let i = sorted.length - 1; i > 0; i--) {
+      const cur = sorted[i];
+      const prev = sorted[i - 1];
+      if (!cur || !prev) break;
+      const gap = new Date(cur.timestamp).getTime() - new Date(prev.timestamp).getTime();
+      if (gap <= STREAK_RESET_GAP_MS) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    const lastEvent = sorted.length > 0 ? (sorted[sorted.length - 1] ?? null) : null;
+
+    // mt#2814: a streak computed purely from gaps BETWEEN past events never
+    // resets once the log stops receiving NEW events for a guard — e.g. a
+    // test-fixture guard name (mt#2812's acceptance-test events, guardName
+    // "throws") that will never fire again in production. Without a recency
+    // check, that guard's last historical streak pins its escalation tier
+    // forever, since every future read recomputes the SAME streak from the
+    // SAME frozen events. Age the streak out once its most recent event is
+    // itself stale relative to `now` — reusing STREAK_RESET_GAP_MS (24h) as
+    // the recency window mirrors its existing role as the "how long is one
+    // incident" cutoff: a guard that hasn't failed in over 24h is not an
+    // ONGOING incident, so its streak (and any escalation derived from it)
+    // resets to 0 rather than persisting indefinitely.
+    if (lastEvent && nowMs - new Date(lastEvent.timestamp).getTime() > STREAK_RESET_GAP_MS) {
+      streak = 0;
+    }
+
+    const escalation = guardEscalationFor(streak);
+
+    // mt#2969: age since the most recent failure, and a `stale` flag for an
+    // escalation whose last failure predates the freshness window — likely
+    // recovered/dormant, since successes are never recorded and cannot reset
+    // the streak before the 24h age-out.
+    const lastFailureAgeMs = lastEvent ? nowMs - new Date(lastEvent.timestamp).getTime() : null;
+    const stale =
+      escalation !== "none" &&
+      lastFailureAgeMs !== null &&
+      lastFailureAgeMs > STALE_ESCALATION_WINDOW_MS;
+
+    byGuard[guardName] = {
+      failureCount24h,
+      failureCount7d,
+      consecutiveStreak: streak,
+      lastEvent,
+      escalation,
+      lastFailureAgeMs,
+      stale,
+    };
+
+    if (escalation === "critical") criticalGuards.push(guardName);
+    else if (escalation === "attention") attentionGuards.push(guardName);
+  }
+
+  const escalation: GuardEscalation =
+    criticalGuards.length > 0 ? "critical" : attentionGuards.length > 0 ? "attention" : "none";
+
+  return { byGuard, criticalGuards, attentionGuards, escalation };
+}
+
+/**
+ * Convenience: read the log fresh from disk and compute the summary.
+ * Fail-safe — an unreadable/missing log resolves to the zero-filled summary,
+ * never a throw (mt#2812 acceptance test: "Tracker DB/log unavailable ->
+ * guards still run normally").
+ */
+export function getGuardHealthSummary(
+  options?: GuardHealthReadOptions & { now?: Date }
+): GuardHealthSummary {
+  try {
+    const events = readGuardHealthEvents(options);
+    return computeGuardHealthSummary(events, options?.now ?? new Date());
+  } catch {
+    return { byGuard: {}, criticalGuards: [], attentionGuards: [], escalation: "none" };
+  }
+}

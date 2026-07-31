@@ -104,11 +104,16 @@ describe("commitImpl shell-safety (mt#1742)", () => {
 
   test("amend flag still works with the new quoting", async () => {
     const { execAsync, calls } = makeFakeExecAsync();
-    await commitImpl(execAsync, "msg", WORKDIR, /* amend */ true);
+    // mt#2821: commitImpl now validates message FORMAT before shelling out
+    // (packages/domain/src/git/commit-message-format.ts), so these
+    // shell-quoting fixtures must use a conventional-commit-shaped message —
+    // a bare "msg" would be rejected before execAsync is ever called. The
+    // fixture's job is still purely to exercise quoting, not format.
+    await commitImpl(execAsync, "chore: msg", WORKDIR, /* amend */ true);
 
     const cmd = findCommitCommand(calls);
     expect(cmd).toContain("--amend");
-    expect(cmd).toContain("-m 'msg'");
+    expect(cmd).toContain("-m 'chore: msg'");
   });
 
   // ---------------------------------------------------------------------------
@@ -125,10 +130,12 @@ describe("commitImpl shell-safety (mt#1742)", () => {
     const { execAsync, calls } = makeFakeExecAsync();
     const workdirWithSpaces = "/Users/me/path with spaces/session";
 
-    await commitImpl(execAsync, "msg", workdirWithSpaces);
+    // mt#2821: conventional-commit-shaped message — see the comment on the
+    // "amend flag" test above for why a bare "msg" no longer works here.
+    await commitImpl(execAsync, "chore: msg", workdirWithSpaces);
 
     const cmd = findCommitCommand(calls);
-    // Post-R1: `git -C '/Users/me/path with spaces/session' commit ... -m 'msg'`
+    // Post-R1: `git -C '/Users/me/path with spaces/session' commit ... -m 'chore: msg'`
     expect(cmd).toContain(`git -C '${workdirWithSpaces}' commit`);
     // Pre-R1 shape — workdir unquoted — must be ABSENT:
     expect(cmd).not.toContain(`git -C ${workdirWithSpaces} commit`);
@@ -142,7 +149,7 @@ describe("commitImpl shell-safety (mt#1742)", () => {
     // - Spaces would split the argument
     const evilWorkdir = "/tmp/`bun install`/$HOME/work dir";
 
-    await commitImpl(execAsync, "msg", evilWorkdir);
+    await commitImpl(execAsync, "chore: msg", evilWorkdir);
 
     const cmd = findCommitCommand(calls);
     expect(cmd).toContain(`git -C '${evilWorkdir}' commit`);
@@ -159,7 +166,7 @@ describe("commitImpl shell-safety (mt#1742)", () => {
     );
     const workdirWithSpaces = "/Users/me/path with spaces/session";
 
-    await commitImpl(execAsync, "msg", workdirWithSpaces);
+    await commitImpl(execAsync, "chore: msg", workdirWithSpaces);
 
     const logCall = calls.find((c) => c.command.includes("log -1"));
     if (!logCall) {

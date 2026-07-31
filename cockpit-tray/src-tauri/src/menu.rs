@@ -23,7 +23,41 @@ const BUILD_MENU_ID: &str = "build_status";
 const UPTIME_MENU_ID: &str = "uptime";
 
 pub(crate) const COCKPIT_URL: &str = "http://localhost:3737";
+/// The port in COCKPIT_URL, typed for the on_navigation same-origin check
+/// (mt#2942). Must stay in sync with COCKPIT_URL's port.
+const COCKPIT_PORT: u16 = 3737;
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
+
+/// Init script injected into the cockpit webview so external-link clicks reach
+/// the `on_navigation` handler below (mt#2942). Only anchors that open a NEW
+/// window/tab need help: WKWebView routes a `target="_blank"` click to a
+/// new-window request Tauri drops, so `on_navigation` never sees it. A plain
+/// same-frame anchor already navigates the top frame (which `on_navigation`
+/// intercepts directly), so the shim deliberately leaves those alone. For a
+/// new-window-targeted EXTERNAL link it rewrites the click into a top-frame
+/// navigation so `on_navigation` can open it in the OS browser -- the only way
+/// to honor "open elsewhere" intent in a tab-less WKWebView. Injected ONLY into
+/// the tray webview, so a browser-viewed cockpit keeps native `target="_blank"`
+/// behavior.
+const EXTERNAL_LINK_SHIM: &str = r#"
+(function () {
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    var target = a.getAttribute('target');
+    if (!target || target === '_self') return;
+    var href = a.getAttribute('href');
+    if (!href) return;
+    var url;
+    try { url = new URL(href, window.location.href); } catch (_) { return; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    if (url.origin === window.location.origin) return;
+    e.preventDefault();
+    window.location.href = url.href;
+  }, true);
+})();
+"#;
 
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
@@ -42,8 +76,13 @@ pub(crate) fn init_zoom_state(app: &tauri::App<Wry>) {
 /// handlers. Registers `StatusMenuItem`, `BuildMenuItem`, and `UptimeMenuItem`
 /// as managed state so the supervisor loop (which runs on a separate OS
 /// thread, spawned afterward by `supervisor::spawn`) can push status text to
-/// them. Called once from `main()`'s setup closure, after `init_zoom_state`.
-pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
+/// them. Called once from `main()`'s setup closure, after `init_zoom_state`
+/// and `hotkey::register` -- `hotkey_registered` reflects whether the OS
+/// actually accepted the summon-hotkey binding, so the "Open Cockpit" label
+/// can advertise the shortcut only when it will actually fire (PR #2051
+/// review R1: a label advertising a hotkey that silently failed to register
+/// would mislead users).
+pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Result<()> {
     let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
         .enabled(false)
         .build(app)?;
@@ -59,7 +98,13 @@ pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
         .enabled(false)
         .build(app)?;
     app.manage(UptimeMenuItem(uptime_item.clone()));
-    let open_window_item = MenuItemBuilder::with_id("open_window", "Open Cockpit").build(app)?;
+    let open_window_label = if hotkey_registered {
+        format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL)
+    } else {
+        "Open Cockpit".to_string()
+    };
+    let open_window_item =
+        MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
@@ -281,8 +326,27 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
     create_cockpit_window(app);
 }
 
+/// Hide the cockpit window and restore menu-bar-only presence (mt#2676: the
+/// global-hotkey toggle's "visible+focused -> hide" direction). Mirrors the
+/// hide-on-close `CloseRequested` handler in `create_cockpit_window` below --
+/// same behavior, triggered by the hotkey instead of the window's close
+/// button / Cmd+W.
+pub(crate) fn hide_cockpit_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        if let Err(e) = window.hide() {
+            eprintln!("[cockpit-tray] failed to hide cockpit window: {e}");
+        }
+    }
+    set_dock_presence(app, false);
+}
+
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
-fn open_cockpit_window(app: &AppHandle) {
+///
+/// Also the entry point the mt#2676 global hotkey's "show" direction reuses
+/// (`hotkey::toggle_cockpit_window`) instead of the deep-link-oriented
+/// `ensure_cockpit_window_visible`, so a cold summon gets the same
+/// cold-start recovery loop as a menu click (PR #2051 review R1).
+pub(crate) fn open_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         set_dock_presence(app, true);
         if let Err(e) = window.show() {
@@ -327,6 +391,49 @@ fn create_cockpit_window(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
+        // Open external (non-cockpit) links in the OS browser instead of
+        // silently dropping them (mt#2942). The SPA is an untrusted external-URL
+        // webview with NO IPC bridge (ADR-023), so the frontend cannot call an
+        // opener plugin -- this lives entirely in the tray. Paired with
+        // EXTERNAL_LINK_SHIM, which funnels new-window (target="_blank") clicks
+        // here. Canonical Tauri pattern (on_navigation -> cancel -> opener); see
+        // https://v2.tauri.app/plugin/opener/ and tauri-apps/tauri#4756.
+        .on_navigation(|url| {
+            match url.scheme() {
+                "http" | "https" => {
+                    // The cockpit SPA's own origin (localhost:3737) loads in
+                    // place (initial load, Cmd+R reload, deep-link recovery
+                    // navigate); react-router nav is client-side and never
+                    // reaches here. The port is pinned so a nav to any OTHER
+                    // localhost port is treated as external, not loaded in the
+                    // cockpit webview (review R2).
+                    if matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
+                        && url.port() == Some(COCKPIT_PORT)
+                    {
+                        return true;
+                    }
+                    // Any other web origin is external: open in the OS default
+                    // browser and CANCEL the in-webview nav so the SPA is never
+                    // navigated away. `open::that` is synchronous (it spawns the
+                    // platform opener and returns); on failure we log and still
+                    // cancel -- navigating the webview to the external site
+                    // would lose the cockpit, which is worse than a no-op.
+                    if let Err(e) = open::that(url.as_str()) {
+                        eprintln!("[cockpit-tray] failed to open external URL {url} in browser: {e}");
+                    }
+                    false
+                }
+                // Webview-internal schemes used during normal operation -- allow.
+                "about" | "blob" => true,
+                // javascript:/data:/file:/mailto:/tel:/custom schemes: neither
+                // the cockpit origin nor a web link to hand to the OS browser.
+                // REFUSE the in-webview navigation and do NOT shell it out
+                // (review R1: never let javascript:/file:/data: navigate the
+                // webview).
+                _ => false,
+            }
+        })
+        .initialization_script(EXTERNAL_LINK_SHIM)
         .build()
     {
         Ok(window) => {

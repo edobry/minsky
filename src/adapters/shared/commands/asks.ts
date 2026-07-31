@@ -4,6 +4,14 @@
  * Surfaces the Ask subsystem (mt#1034 / ADR-008) at the CLI/MCP layer.
  *
  * - `asks.list` — read-only inspection of Asks with optional state/kind filters.
+ *   Supports a `summary` projection mode (mt#2748) that returns lightweight
+ *   rows (id/kind/state/title/routingTarget/parentTaskId/createdAt/routedAt)
+ *   instead of full records — default stays full-body for back-compat (see
+ *   `asks.get` below for the ergonomic single-record path).
+ * - `asks.get` — read-only fetch of a single full Ask record by id or
+ *   unambiguous UUID prefix (mt#2696 convention). Wired as mt#2748 — the
+ *   ergonomic complement to `asks.list summary:true` (list to browse/filter,
+ *   get to inspect one record without pulling a whole page).
  * - `asks.reconcile` — runs one reconcile pass over open quality.review Asks.
  *   Uses a production GithubReviewClient backed by `listReviews` infrastructure
  *   and routed through the project's TokenProvider. Wired as mt#1292.
@@ -22,15 +30,22 @@
  */
 
 import { z } from "zod";
-import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  defineCommand,
+  type CommandExecutionContext,
+} from "../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
+import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
 import {
   DrizzleAskRepository,
   type AskRepository,
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
+import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
 import {
   editAskContent,
   providedEditableFields,
@@ -71,6 +86,14 @@ import { makeProductionGithubReviewClient } from "./asks-github-client";
 import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
+import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
+import {
+  resolveEntityIdPrefixOrThrow,
+  classifyIdInput,
+} from "@minsky/domain/utils/id-prefix-resolver";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -135,6 +158,32 @@ async function buildCompositeWakeSink(
 }
 
 /**
+ * Resolve the raw Postgres connection from the DI container's persistence
+ * provider. Shared by `buildAskRepository` (below) and the mt#2696
+ * id-prefix-resolution helper so both use the same connection-resolution
+ * logic instead of two independently maintained copies.
+ *
+ * Returns null on any resolution problem (no container, no SQL capability,
+ * no connection) — never throws. Callers surface their own clear error.
+ */
+async function getAskDb(
+  container: AppContainerInterface | undefined
+): Promise<PostgresJsDatabase | null> {
+  if (!container?.has("persistence")) return null;
+  try {
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    if (!persistenceProvider.getDatabaseConnection) return null;
+    const db = await persistenceProvider.getDatabaseConnection();
+    return db ?? null;
+  } catch (err: unknown) {
+    log.warn("asks: could not resolve database connection", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Build a `DrizzleAskRepository` from the persistence provider's DB connection.
  *
  * Returns null when the provider does not support SQL capability or when no
@@ -143,19 +192,77 @@ async function buildCompositeWakeSink(
 export async function buildAskRepository(
   container: AppContainerInterface | undefined
 ): Promise<AskRepository | null> {
-  if (!container?.has("persistence")) return null;
-  try {
-    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!persistenceProvider.getDatabaseConnection) return null;
-    const db = await persistenceProvider.getDatabaseConnection();
-    if (!db) return null;
-    return new DrizzleAskRepository(db);
-  } catch (err: unknown) {
-    log.warn("asks: could not initialize AskRepository", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+  const db = await getAskDb(container);
+  return db ? new DrizzleAskRepository(db) : null;
+}
+
+/**
+ * Resolve a caller-supplied ask id — a full UUID, an unambiguous 8-char hex
+ * prefix (mt#2696), or an `ask#N` short id (mt#2965/mt#2963) — to the full
+ * UUID `asks.id` before it reaches any `eq(asksTable.id, ...)` comparison in
+ * the repository. A full UUID passes through unchanged with no query. A
+ * short/no-match/ambiguous prefix, or an `ask#N` with no matching row, throws
+ * a clean tool-level error (never a raw Postgres "invalid input syntax for
+ * type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input passes through —
+ * the immediately-following `buildAskRepository` call in every command
+ * surfaces the "AskRepository unavailable" error instead.
+ *
+ * Exported for unit testing (asks.test.ts) — not part of the public command
+ * surface.
+ */
+export async function resolveAskIdInput(
+  id: string,
+  container: AppContainerInterface | undefined
+): Promise<string> {
+  const db = await getAskDb(container);
+  if (!db) return id;
+
+  return resolveEntityIdPrefixOrThrow({
+    db,
+    table: asksTable,
+    idColumn: asksTable.id,
+    labelColumn: asksTable.title,
+    input: id,
+    entityName: "ask",
+    shortIdColumn: asksTable.shortId,
+    shortIdPrefix: "ask",
+  });
+}
+
+/**
+ * Fetch a single Ask by its already-resolved id, or throw a clean not-found
+ * error naming how the caller's input was interpreted (mt#2748, reusing the
+ * mt#2696 R1 message-shaping convention from `memory.get`).
+ *
+ * Split out from the `asks.get` command's `execute` closure specifically so
+ * it's unit-testable against a `FakeAskRepository` without needing to wire a
+ * DI container (the prefix-resolution DB lookup that produces `resolvedId`
+ * is already covered by `id-prefix-resolver.test.ts` and the existing
+ * `asks.respond`/`asks.edit`/`asks.wait-for-response` usages of the same
+ * `resolveAskIdInput` helper).
+ */
+export async function getAskByResolvedId(
+  repo: AskRepository,
+  rawId: string,
+  resolvedId: string
+): Promise<Ask> {
+  const ask = await repo.getById(resolvedId);
+  if (!ask) {
+    // mt#2696 R1: name both what the caller passed AND how it was
+    // interpreted (full UUID vs prefix) rather than echoing the raw input
+    // unconditionally.
+    const classification = classifyIdInput(rawId);
+    const message =
+      classification.kind === "prefix"
+        ? resolvedId !== rawId
+          ? `Ask not found for id prefix "${rawId}" (resolved to "${resolvedId}")`
+          : `Ask not found for id prefix "${rawId}"`
+        : `Ask not found with id "${resolvedId}"`;
+    throw new Error(message);
   }
+  return ask;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +270,15 @@ export async function buildAskRepository(
 // ---------------------------------------------------------------------------
 
 const asksListParams = {
+  id: {
+    schema: z.string().trim().min(1).optional(),
+    description:
+      "Filter to a single Ask by id — accepts a full UUID, an unambiguous prefix " +
+      "(>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Resolved via the " +
+      "same generalized resolver used by asks.respond/edit/wait-for-response; throws " +
+      "if the id does not resolve to exactly one Ask.",
+    required: false,
+  },
   state: {
     schema: z.enum(ALL_STATES as [AskState, ...AskState[]]).optional(),
     description: "Filter by Ask state (detected | classified | routed | ...)",
@@ -185,13 +301,81 @@ const asksListParams = {
       "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
     required: false,
   },
+  summary: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, return compact rows (id, kind, state, title, routingTarget, " +
+      "parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata " +
+      "body (mt#2748). Default false preserves full ask records for back-compat — pass " +
+      "`summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full " +
+      "record by id. The result echoes `summary` (mt#2748 R1 review) so callers can " +
+      "branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; " +
+      "absent/false means `asks` is the full `Ask[]`.",
+    required: false,
+  },
 };
 
-interface AsksListResult {
-  asks: Ask[];
+/** Compact projection of an `Ask` for `asks.list summary:true` (mt#2748). */
+export interface AskSummaryRow {
+  id: string;
+  kind: AskKind;
+  state: AskState;
+  title: string;
+  routingTarget?: Ask["routingTarget"];
+  parentTaskId?: string;
+  createdAt: string;
+  routedAt?: string;
+}
+
+/**
+ * Project a full `Ask` record down to the summary column set (mt#2748).
+ * Deliberately omits `question`, `options`, `contextRefs`, `response`, and
+ * `metadata` (including `metadata.editHistory`) — the multi-KB "body"
+ * fields that made `asks.list` unsafe to page through at the store's
+ * current size (see the mt#2748 spec's originating incident).
+ */
+export function toAskSummary(ask: Ask): AskSummaryRow {
+  return {
+    id: ask.id,
+    kind: ask.kind,
+    state: ask.state,
+    title: ask.title,
+    routingTarget: ask.routingTarget,
+    parentTaskId: ask.parentTaskId,
+    createdAt: ask.createdAt,
+    routedAt: ask.routedAt,
+  };
+}
+
+interface AsksListResultBase {
+  /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
   limit: number;
+  /** Number of asks actually returned in `asks` (mt#2817). */
+  returned: number;
+  /** `returned < total` — true when this payload does NOT contain every match (mt#2817). */
+  truncated: boolean;
 }
+
+/** Full-record `asks.list` result — the default (no `summary` requested). */
+export interface AsksListFullResult extends AsksListResultBase {
+  /** Discriminator (mt#2748 R1 review) — absent/false when full records were returned. */
+  summary?: false;
+  asks: Ask[];
+}
+
+/** Compact-projection `asks.list` result — returned when `summary: true` was requested. */
+export interface AsksListSummaryResult extends AsksListResultBase {
+  summary: true;
+  asks: AskSummaryRow[];
+}
+
+/**
+ * Discriminated union (mt#2748 R1 review): `asks.list`'s `execute` returns either
+ * variant depending on the caller's `summary` param. Branch on `result.summary` to
+ * safely narrow `result.asks` to `Ask[]` vs `AskSummaryRow[]` — no unsafe cast needed.
+ */
+export type AsksListResult = AsksListFullResult | AsksListSummaryResult;
 
 async function gatherAsks(
   repo: AskRepository,
@@ -211,6 +395,68 @@ async function gatherAsks(
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
 }
+
+/**
+ * Filter params accepted by `listAsksFiltered` — mirrors `asks.list`'s
+ * `asksListParams` shape (already-narrowed types, not raw MCP params).
+ */
+export interface ListAsksFilters {
+  /** Raw id/prefix/short-id input — resolved via the injected `resolveId`. */
+  id?: string;
+  state?: AskState;
+  kind?: AskKind;
+  limit?: number;
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope;
+}
+
+/**
+ * Core `asks.list` filtering logic (mt#2965 R1 — PR #2110), extracted from
+ * the command's `execute` handler so it's directly unit-testable without a
+ * live DB. `resolveId` is injected: production wires the real
+ * `resolveAskIdInput` (uuid / 8-char hex prefix / `ask#N` short id, all
+ * resolved via the SAME generalized resolver `asks.respond`/`edit`/
+ * `wait-for-response` use — mt#2696 / mt#2965); tests can supply a trivial
+ * stand-in since `resolveAskIdInput`'s own resolution correctness is
+ * covered separately (see the `resolveAskIdInput` describe block).
+ *
+ * When `params.id` is supplied, the resolved uuid is applied as an
+ * additional AND-filter on top of any `state`/`kind`/`projectScope`
+ * filters — an id that resolves successfully but whose Ask does not match
+ * the other filters yields an empty result, not an error.
+ */
+export async function listAsksFiltered(
+  repo: AskRepository,
+  resolveId: (id: string) => Promise<string>,
+  params: ListAsksFilters
+): Promise<AsksListFullResult> {
+  const resolvedId = params.id ? await resolveId(params.id) : undefined;
+  const gathered = await gatherAsks(repo, params.state, params.kind, params.projectScope);
+  const asks = resolvedId ? gathered.filter((a) => a.id === resolvedId) : gathered;
+  const limit = params.limit ?? 50;
+  const returnedAsks = asks.slice(0, limit);
+  return {
+    asks: returnedAsks,
+    total: asks.length,
+    limit,
+    returned: returnedAsks.length,
+    truncated: returnedAsks.length < asks.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// asks.get (mt#2748)
+// ---------------------------------------------------------------------------
+
+const asksGetParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description:
+      "Ask ID to fetch. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, " +
+      "mt#2696), or an `ask#N` short id (mt#2965) — resolved via the same generalized " +
+      "resolver asks.list/respond/edit/wait-for-response use.",
+    required: true,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // asks.reconcile
@@ -243,7 +489,12 @@ const asksRespondParams = {
 
 /**
  * Typed input for `respondToAsk` — the internal helper exposed for testing.
+ *
+ * NOT a handler annotation type (mt#2779): the `asks.respond` execute handler
+ * derives its params from the map by inference; this type only covers direct
+ * programmatic callers of the helper.
  */
+// eslint-disable-next-line custom/no-hand-rolled-command-params -- internal-helper input type for direct programmatic callers, not a handler annotation (mt#2779)
 export interface RespondToAskParams {
   id: string;
   message: string;
@@ -345,11 +596,39 @@ export async function respondToAsk(
 // asks.create — schemas
 // ---------------------------------------------------------------------------
 
-const askOptionSchema = z.object({
-  label: z.string(),
-  value: z.unknown(),
-  description: z.string().optional(),
-});
+/**
+ * Decision-frame option accepted at the CLI/MCP boundary.
+ *
+ * `value` is declared OPTIONAL here and normalized to `label` when absent
+ * (mt#3181). It was previously `z.unknown()`, which Zod treats as optional
+ * inside `z.object` — so `{label, description}` (the shape
+ * `humility.mdc §Escalation packaging` describes, and the shape agents
+ * naturally write) validated cleanly and stored an option with NO `value`.
+ * Every response writer records the SELECTION by stringifying `option.value`,
+ * so answering such an Ask persisted an empty selection and silently lost the
+ * operator's choice — the Ask still reported `closed` with `respondedAt` set.
+ * Observed on ask#5769 (`{"chosen": "", "option": ""}`).
+ *
+ * Defaulting beats rejecting here: `{label, description}` is the documented
+ * calling convention across many agent callsites, so rejecting it would break
+ * working callers to fix a bug none of them caused. `label` is a meaningful
+ * machine value.
+ *
+ * The transform is load-bearing at BOTH boundaries: `convertMcpArgsToParameters`
+ * (`src/adapters/mcp/shared-command-integration.ts`) assigns `schema.parse(value)`
+ * — the parse OUTPUT — since mt#3155, and `normalizeCliParameters`
+ * (`src/adapters/shared/bridges/parameter-mapper.ts`) has always done the same.
+ */
+export const askOptionSchema = z
+  .object({
+    label: z.string(),
+    value: z.unknown().optional(),
+    description: z.string().optional(),
+  })
+  .transform((option) => ({
+    ...option,
+    value: option.value === undefined ? option.label : option.value,
+  }));
 
 const contextRefSchema = z.object({
   kind: z.string(),
@@ -357,7 +636,14 @@ const contextRefSchema = z.object({
   description: z.string().optional(),
 });
 
-const asksCreateParams = {
+// Exported (not just used internally) so tests can run raw CLI/MCP-shaped
+// input through the REAL production normalization functions
+// (`normalizeCliParameters` / `convertMcpArgsToParameters`) using the actual
+// parameter map `asks.create` is registered with — see the
+// "validate receives parsed params" pinning test in asks.test.ts (mt#3203
+// review R1) — rather than a hand-rolled duplicate parameter map that could
+// drift from the real one.
+export const asksCreateParams = {
   kind: {
     schema: z.enum(ALL_KINDS as [AskKind, ...AskKind[]]),
     description: "Ask kind (one of the 7 ADR-008 taxonomy values)",
@@ -439,6 +725,17 @@ const asksCreateParams = {
   // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
   // window opens and the Ask is still pending. Callers must not set it directly via
   // asks.create — createAsk always initialises it to 0 for new Asks.
+  acknowledgeFormWarnings: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A " +
+      "deliberate, per-call override for a genuinely long/complex ask — never a default. " +
+      "Recorded on the form-lint calibration log so override frequency stays reviewable via " +
+      "/calibration-review. Without it, a create whose question/options fail any form-lint " +
+      "check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, " +
+      "letter-prefixed-option-label) is rejected with the violations listed.",
+    required: false,
+  },
 };
 
 /**
@@ -480,11 +777,199 @@ export function validateAsksCreateParams(params: {
 }
 
 /**
+ * Authoring-time guard against the mt#3203 footgun: an `authorization.approve`
+ * Ask whose options can never satisfy the redemption-time approval verifier.
+ *
+ * `.minsky/hooks/ask-verification.ts` anchors approval to an exact
+ * approve-shaped token (`APPROVAL_TOKEN`, imported from
+ * `@minsky/shared/ask-approval` — the SAME constant this function checks
+ * against, so the two cannot drift apart). `askOptionSchema` defaults an
+ * option's `value` to its `label` when no explicit `value` is supplied
+ * (mt#3181), so a purely descriptive button label — e.g. "Approve the
+ * override and merge" — silently becomes the recorded value and can never
+ * verify. Left undetected, this surfaces only at REDEMPTION time (a merge
+ * or guard-override attempt), after the operator has already approved, with
+ * an error that reads as though they declined.
+ *
+ * Deliberately narrow in scope, matching the spec's "Does NOT cover":
+ *   - Only fires for `kind === "authorization.approve"`. Every other kind's
+ *     options are free-form decision frames with no approval verifier to
+ *     satisfy.
+ *   - Only fires when `options` is non-empty. A free-text (no-options)
+ *     `authorization.approve` Ask is a different, already-out-of-scope
+ *     failure mode (it correctly fails verification on its own).
+ *
+ * A caller supplying an explicit approve-shaped `value` alongside an
+ * arbitrary human-readable `label` passes: this checks `value`, never
+ * `label`, so operator-facing wording is never constrained.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup. The `asks.create` command's `validate` hook delegates to this
+ * function, matching `validateAsksCreateParams`'s pattern above.
+ *
+ * @throws {ValidationError} when kind is `authorization.approve`, options are
+ *   present, and none of them carries an approve-shaped `value`
+ */
+export function validateAuthorizationApproveOptions(params: {
+  kind?: AskKind;
+  options?: Array<{ label: string; value?: unknown }>;
+}): void {
+  if (params.kind !== "authorization.approve") return;
+  if (!params.options || params.options.length === 0) return;
+
+  const hasApproveShapedOption = params.options.some((option) =>
+    isApproveShapedToken(option.value)
+  );
+  if (hasApproveShapedOption) return;
+
+  const labels = params.options.map((option) => `"${option.label}"`).join(", ");
+  throw new ValidationError(
+    `authorization.approve Ask has no option with an approve-shaped value ` +
+      `(${APPROVAL_TOKEN_EXAMPLES.join("/")}). Options given: ${labels}. ` +
+      `A descriptive label is not enough — asks_create defaults "value" to "label" when ` +
+      `omitted, and only an exact approve-shaped value verifies. Add one explicitly, ` +
+      `e.g. {label: "...", value: "approve"} — the label can stay descriptive.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// asks.create — form-lint hard-reject (mt#3326)
+// ---------------------------------------------------------------------------
+
+/**
+ * Filters form-lint matches down to the BLOCKING subset — everything except
+ * the calibration-first `missing-force-immediate` check (mt#3436). Shared by
+ * `validateFormLintNotViolated` (decides whether to hard-reject) and the
+ * `asks.create` execute handler (decides the calibration log's
+ * `acknowledged` field, see below) so the two can never drift on what counts
+ * as blocking. Excluded upstream in `computeFormLintMatches` itself would
+ * also hide the check from `formWarnings`/the calibration log entirely —
+ * this filters only at the decision points that need the blocking/advisory
+ * distinction, not at the point that computes matches.
+ *
+ * The exclusion list stays a DENYLIST of one, deliberately: a new check
+ * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
+ * added — it blocks with the original five. Its basis is recorded in
+ * `form-lint.ts`'s module header: no false-positive class to calibrate (an
+ * optionless `direction.decide` renders zero buttons by construction), and
+ * the family's own escalation threshold (mem#760: three form-failure
+ * incidents in 30 days) was already met by ask 6807fb14 / ask#6448 /
+ * ask#6589.
+ *
+ * Exported for direct testing, matching `validateFormLintNotViolated`'s
+ * pattern above.
+ */
+export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
+  return matches.filter((m) => m.check !== "missing-force-immediate");
+}
+
+/**
+ * Reject an `asks.create` call whose question/options fail any form-lint
+ * check (`@minsky/domain/ask/form-lint`'s `computeFormLintMatches`), unless
+ * the caller explicitly acknowledges the violations via
+ * `acknowledgeFormWarnings: true` (mt#3326).
+ *
+ * Design decision (recorded in the mt#3326 spec's "Design Decision" section
+ * before this function was written): hard-reject with the violations
+ * listed, mirroring the mt#2778 unknown-param MCP-boundary precedent,
+ * rather than forcing a same-turn `asks.edit`. Evidence:
+ * `.minsky/ask-form-lint-calibration.jsonl` shows the SAME over-word-budget
+ * fire ignored on 5 different Asks within ~20h (2026-07-28 through
+ * 2026-07-29) — detection was solved (`formWarnings` fires correctly) and
+ * its output was routinely ignored fleet-wide because it was advisory-only.
+ *
+ * ALL five form-lint checks are blocking here, not only the two the retro
+ * cites as recurring evidence (`over-word-budget`, `long-option-label`) —
+ * the calibration log shows every check has fired at least once in
+ * production; leaving the other three (`internal-tool-id`, `portal-no-link`,
+ * `letter-prefixed-option-label`) advisory-only would silently reproduce the
+ * same containment gap for those defect classes.
+ *
+ * As of mt#3477 there are SIX blocking checks: `missing-decision-options`
+ * joins them, rejecting a `direction.decide` created with an absent or empty
+ * `options` array. It is the one check admitted to this set without first
+ * serving a calibration-first term — see `filterBlockingFormLintMatches`
+ * above for why.
+ *
+ * **A sixth check is deliberately EXCLUDED from this hard-reject
+ * (mt#3436).** `missing-force-immediate` (an operator-only-shaped ask whose
+ * question reads like a live incident, created without `forceImmediate` —
+ * see `communication-contract.mdc §Severity pierces the register` and the
+ * originating incident mt#3433 / mem#779) stays calibration-first: it warns
+ * via the calibration log only, unlike the five checks above. Unlike those
+ * five, there is no calibration evidence yet that authors ignore it — it
+ * follows the SAME calibration-first ladder the five mt#3326 checks
+ * themselves went through before escalating, and graduates to blocking only
+ * if that evidence accumulates.
+ *
+ * `acknowledgeFormWarnings: true` is the sanctioned override for a
+ * genuinely long/complex ask (e.g. a multi-log calibration-review
+ * disposition ask) — an explicit, auditable per-call escape hatch, never a
+ * silent bypass, mirroring `forceImmediate`'s posture on the service-window
+ * fields above. The `asks.create` execute handler records `acknowledged:
+ * true` on the calibration-log entry when it is used, so override frequency
+ * stays reviewable via `/calibration-review`.
+ *
+ * Scope: `asks.create` only. `asks.edit` does not compute form-lint at all
+ * (before or after this change) — extending enforcement to edits that
+ * introduce a new violation is out of scope for this task (see the spec's
+ * Design Decision section).
+ *
+ * The underlying `computeFormLintMatches` stays pure and advisory-in-itself
+ * (unchanged by this task) — this function is what makes its output
+ * consequential, at the command-boundary layer, matching
+ * `validateAuthorizationApproveOptions`'s separation of concerns.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup, matching `validateAuthorizationApproveOptions`'s pattern above.
+ *
+ * @throws {ValidationError} when form-lint matches exist and
+ *   `acknowledgeFormWarnings` is not `true`
+ */
+export function validateFormLintNotViolated(params: {
+  kind?: AskKind;
+  question?: string;
+  options?: Array<{ label: string }>;
+  forceImmediate?: boolean;
+  acknowledgeFormWarnings?: boolean;
+}): void {
+  if (params.acknowledgeFormWarnings) return;
+  // Absence of kind/question is a required-field concern the parameter
+  // schema already enforces — nothing for this check to add.
+  if (!params.kind || !params.question) return;
+
+  const matches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    options: params.options,
+    forceImmediate: params.forceImmediate,
+  });
+  const blocking = filterBlockingFormLintMatches(matches);
+  if (blocking.length === 0) return;
+
+  const violations = blocking.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
+  const plural = blocking.length > 1 ? "s" : "";
+  throw new ValidationError(
+    `asks.create: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
+      `${violations}\n\n` +
+      `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
+      `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
+      `genuinely long/complex and the violation is warranted, pass acknowledgeFormWarnings: ` +
+      `true to create it anyway — this is recorded for calibration review, not a silent bypass.`
+  );
+}
+
+/**
  * Typed input for `createAsk` — the internal helper exposed for testing.
  *
  * Mirrors `CreateAskInput` plus the producer-specific defaults that
  * `asks.create` applies before calling `repo.create`.
+ *
+ * NOT a handler annotation type (mt#2779): the `asks.create` execute handler
+ * derives its params from the map by inference; this type covers direct
+ * programmatic producers (tests, in-process Ask emitters).
  */
+// eslint-disable-next-line custom/no-hand-rolled-command-params -- domain-mirroring producer input type (supersets the map: metadata/classifierVersion/projectId), not a handler annotation (mt#2779)
 export interface CreateAskParams {
   kind: AskKind;
   title: string;
@@ -652,6 +1137,58 @@ export async function createAsk(
 }
 
 // ---------------------------------------------------------------------------
+// createAsk + form-lint wrapper (mt#2798)
+// ---------------------------------------------------------------------------
+
+/** Result of `createAskWithFormLint`: the created Ask plus its form-lint outcome. */
+export interface CreateAskWithFormLintResult {
+  ask: RoutedAsk | SuspendedAsk | ElicitationClosedAsk;
+  /** Advisory (warn-only) warning messages — NEVER blocks or alters creation. */
+  formWarnings: string[];
+  /** The underlying matches (check + message), for callers that need the check id. */
+  formLintMatches: FormLintMatch[];
+}
+
+/**
+ * Create an Ask via `createAsk` (unchanged), then compute the v1 mechanical
+ * form-lint checks (`@minsky/domain/ask/form-lint`) against the SAME kind +
+ * question that were just persisted (mt#2798).
+ *
+ * This is the seam the `asks.create` MCP command wraps to add
+ * `formWarnings` to its result and drive the calibration-log write — kept
+ * as a standalone exported function (rather than inlining the check in the
+ * command's `execute()` handler) so it is directly testable with
+ * `FakeAskRepository`, mirroring every other `createAsk`-based test in this
+ * file, without requiring a full DI container + live persistence provider.
+ *
+ * Form-lint matches NEVER block or alter Ask creation — `createAsk` above
+ * runs to completion identically regardless of the lint outcome.
+ */
+export async function createAskWithFormLint(
+  repo: AskRepository,
+  params: CreateAskParams,
+  routerOptions: PolicyFirstRouteOptions = {}
+): Promise<CreateAskWithFormLintResult> {
+  const ask = await createAsk(repo, params, routerOptions);
+  const formLintMatches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    // Option labels are lint input too (mt#3253) — they render as the decision
+    // buttons, so a 167-char label or one repeating the surface-rendered letter
+    // is a form defect the producer should hear about.
+    options: params.options,
+    // forceImmediate feeds the missing-force-immediate check (mt#3436) —
+    // calibration-first, never blocking (see validateFormLintNotViolated).
+    forceImmediate: params.forceImmediate,
+  });
+  return {
+    ask,
+    formWarnings: formLintMatches.map((m) => m.message),
+    formLintMatches,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // asks.wait-for-response — schemas + render helper (mt#2266)
 // ---------------------------------------------------------------------------
 
@@ -686,12 +1223,19 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
   if (result.resolved) {
     const payload = result.response.payload;
     const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-    return [
-      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
-        `after ${secs}s / ${result.pollCount} poll(s)`,
-      "",
-      payloadStr,
-    ].join("\n");
+    // mt#3215: `responded`/`closed` are response-bearing states regardless of
+    // WHO closed them — a system sweep's automated closure (parent-terminal,
+    // supersession) sets `response` exactly like a genuine operator answer
+    // does. Render the two differently so a caller reading this line alone
+    // (not the raw payload) cannot mistake an unanswered auto-close for a
+    // real response — the ask#6024 incident this task fixes.
+    const autoClosed = isAutomatedClosureResponder(result.response.responder);
+    const headline = autoClosed
+      ? `⚠ Ask auto-closed (${result.state}) by ${result.response.responder} — NOT an operator ` +
+        `response after ${secs}s / ${result.pollCount} poll(s)`
+      : `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`;
+    return [headline, "", payloadStr].join("\n");
   }
   if (result.terminal) {
     return (
@@ -788,6 +1332,137 @@ export function validateAsksEditParams(
   }
 }
 
+/**
+ * Edit-time counterpart to `validateAuthorizationApproveOptions` (mt#3209).
+ *
+ * `asks.edit`'s own params carry no `kind` field — an edit payload alone
+ * doesn't say what kind the target Ask is, so the mt#3203 authoring-time
+ * guard can't be applied to it directly. This fetches the Ask's PERSISTED
+ * kind and re-uses `validateAuthorizationApproveOptions` against it — same
+ * function, same `@minsky/shared/ask-approval` vocabulary underneath it, no
+ * second copy of the approve-token regex.
+ *
+ * Chosen over deferring the check into `execute` (the spec's alternative
+ * path): keeping it in `validate` means an edit that would strip the last
+ * approve-shaped option from a live `authorization.approve` Ask is rejected
+ * BEFORE any mutation runs, via the same `ValidationError` type and the same
+ * validate→execute gate mt#3203 established for `asks.create` — not a
+ * generic `Error` thrown partway through the domain-level write path. This
+ * mirrors `command-registry`'s ADR-004 pipeline (`shared-command-integration.ts`
+ * / `command-generator-core.ts`): `validate()` is awaited and any throw
+ * short-circuits before `execute()` ever runs, so this fully gates the
+ * mutation exactly like the create-time check does.
+ *
+ * Failure mode — DB unavailable (or the fetch otherwise fails) at validate
+ * time: the guard is skipped (fail-open), NOT because the risk is silently
+ * accepted, but because `execute()` performs its OWN `buildAskRepository` /
+ * `getById` resolution moments later (via `editAskContent`) and will surface
+ * a clear "AskRepository unavailable" or "Ask not found" error on its own if
+ * persistence is genuinely broken or the id doesn't resolve — no edit
+ * reaches the repository either way. The only gap this leaves is a
+ * transient DB blip that resolves between `validate` and `execute` in the
+ * same request, which is narrow and consistent with this file's existing
+ * fail-open convention (`buildAskRepository`, `resolveAskIdInput`,
+ * `resolveCurrentProjectScope` all degrade gracefully on persistence
+ * failures rather than throwing from a resolution helper).
+ *
+ * Deliberately narrow, matching `validateAuthorizationApproveOptions`'s own
+ * scope in one respect: only fires when the caller is replacing `options`
+ * (checked by the `validate` hook before calling this — see the `asks.edit`
+ * command registration) — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is unaffected, even when its EXISTING options
+ * already lack an approve-shaped value (pre-existing state; not this
+ * function's job to retroactively enforce).
+ *
+ * Diverges from `validateAuthorizationApproveOptions` on ONE point (mt#3209
+ * review R1): an EDIT that replaces `options` with an empty array is
+ * rejected here even though the create-time function treats empty/absent
+ * `options` as out of scope. That create-time skip encodes a real,
+ * deliberate case — a caller creating an ask that has never had options
+ * intends a free-text `authorization.approve` Ask (which correctly fails
+ * verification on its own, since `.minsky/hooks/ask-verification.ts` never
+ * treats a free-text `message` as approval). But an EDIT that sets
+ * `options: []` on an ask that previously had a valid approve-shaped option
+ * is STRIPPING it, not authoring a free-text ask from birth — and matches
+ * the spec's literal wording ("no option carries an approve-shaped value")
+ * vacuously for the empty set. Silently allowing it here would let the same
+ * mt#3203 footgun back in through a one-character `options: []` edit.
+ *
+ * Exported for direct testing with a `FakeAskRepository`, mirroring the
+ * rest of this file's conventions.
+ */
+export async function validateEditOptionsAgainstExistingAsk(
+  repo: AskRepository | null,
+  resolvedId: string,
+  options: Array<{ label: string; value?: unknown }>
+): Promise<void> {
+  if (!repo) return; // fail-open — execute() surfaces its own clear error
+
+  let existing: Ask | null;
+  try {
+    existing = await repo.getById(resolvedId);
+  } catch (err: unknown) {
+    log.warn(
+      "asks.edit: could not fetch existing Ask to check authorization.approve options guard (fail-open)",
+      {
+        askId: resolvedId,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    );
+    return;
+  }
+  if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  // mt#3209 review R1: reject an edit that strips ALL options from an
+  // authorization.approve Ask. validateAuthorizationApproveOptions
+  // deliberately skips empty/absent options (a legitimate CREATE-time
+  // "free-text ask" case), but that carve-out does not extend to an EDIT
+  // that empties out options previously present — see the docstring above.
+  if (existing.kind === "authorization.approve" && options.length === 0) {
+    throw new ValidationError(
+      `authorization.approve Ask edit would strip all options, leaving none with an ` +
+        `approve-shaped value (${APPROVAL_TOKEN_EXAMPLES.join("/")}). Add at least one option ` +
+        `with an explicit approve-shaped value, e.g. {label: "...", value: "approve"}, or omit ` +
+        `"options" from this edit to leave the existing ones untouched.`
+    );
+  }
+
+  validateAuthorizationApproveOptions({ kind: existing.kind, options });
+}
+
+/**
+ * Gate for whether an `asks.edit` call needs the `validateEditOptionsAgainstExistingAsk`
+ * check at all (mt#3209). Pulled out as a standalone pure function so the third
+ * success criterion — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is UNAFFECTED, even when its existing options
+ * already lack an approve-shaped value — is directly testable, rather than
+ * only inferable from reading the `asks.edit` command's `validate` hook. A
+ * `false` result means the (persistence-touching) guard is skipped entirely,
+ * not merely that it happens not to fire.
+ */
+export function editRequiresApproveOptionsGuard(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): boolean {
+  return params.options !== undefined;
+}
+
+// ---------------------------------------------------------------------------
+// asks.create — form-lint result shape (mt#2798)
+// ---------------------------------------------------------------------------
+
+/**
+ * `asks.create`'s result shape: the routed/suspended/elicitation-closed Ask
+ * PLUS an advisory (warn-only) `formWarnings` array from the form-lint
+ * checks in `@minsky/domain/ask/form-lint`. Always present (empty array
+ * when no check fires) — see `humility.mdc §Escalation packaging`'s "Form"
+ * sub-checklist for what these checks encode. Warnings never block or alter
+ * Ask creation; they are purely advisory instrumentation feeding
+ * `.minsky/ask-form-lint-calibration.jsonl` for future `/calibration-review`.
+ */
+export type AsksCreateResult = (RoutedAsk | SuspendedAsk | ElicitationClosedAsk) & {
+  formWarnings: string[];
+};
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -841,7 +1516,14 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       id: "asks.list",
       category: CommandCategory.TOOLS,
       name: "list",
-      description: "List Asks with optional state and kind filters",
+      description:
+        "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, " +
+        "an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). " +
+        "Returns full ask records by default; pass `summary: true` for compact rows (id, " +
+        "kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no " +
+        "question/options/contextRefs/metadata body — safe to page through at any store " +
+        "size (mt#2748). To inspect one specific Ask by id, `asks_get` returns exactly one " +
+        "full record with a bare (non-list-wrapped) shape.",
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
@@ -852,10 +1534,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        const state = params.state as AskState | undefined;
-        const kind = params.kind as AskKind | undefined;
-        const limit = (params.limit as number | undefined) ?? 50;
         const allProjects = params.allProjects as boolean | undefined;
+        const summary = params.summary as boolean | undefined;
 
         // ADR-021 / mt#2416: resolve project scope so list returns only this
         // project's asks by default. When allProjects=true, skip resolution.
@@ -865,12 +1545,62 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? undefined
           : await resolveCurrentProjectScope(container, "asks.list");
 
-        const asks = await gatherAsks(repo, state, kind, projectScope);
+        // mt#2965: id resolution (uuid / 8-char hex prefix / ask#N short id)
+        // is delegated to resolveAskIdInput — the SAME generalized resolver
+        // asks.respond/edit/wait-for-response use — via listAsksFiltered.
+        const result = await listAsksFiltered(repo, (id) => resolveAskIdInput(id, container), {
+          id: params.id as string | undefined,
+          state: params.state as AskState | undefined,
+          kind: params.kind as AskKind | undefined,
+          limit: (params.limit as number | undefined) ?? 50,
+          projectScope,
+        });
+
+        // mt#2748: opt-in compact projection, applied on top of listAsksFiltered's
+        // result. Default (summary:false/absent) is unchanged from the pre-mt#2748
+        // full-record shape — kept as the default because at least one known
+        // consumer (`.minsky/hooks/ask-verification.ts`, the authorization.approve
+        // self-respond-vector-closure security check) reads
+        // `response.responder`/`response.payload` off unfiltered asks.list rows
+        // with no explicit mode flag; a summary-by-default would silently strip
+        // those fields and fail that check closed for every grant.
+        if (!summary) return result;
         return {
-          asks: asks.slice(0, limit),
-          total: asks.length,
-          limit,
+          ...result,
+          summary: true,
+          asks: result.asks.map(toAskSummary),
         };
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.get",
+      category: CommandCategory.TOOLS,
+      name: "get",
+      description:
+        "Fetch a single full Ask record by id — the ergonomic path for inspecting a " +
+        "specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a " +
+        "full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id " +
+        "(mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks " +
+        "instead.",
+      requiresSetup: true,
+      parameters: asksGetParams,
+      execute: async (params): Promise<Ask> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.get: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        const rawId = params.id as string;
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const resolvedId = await resolveAskIdInput(rawId, container);
+
+        return getAskByResolvedId(repo, rawId, resolvedId);
       },
     })
   );
@@ -932,7 +1662,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "Respond to any suspended Ask (mt#1458, ADR-008). " +
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
-        "(closed/cancelled/expired) states are rejected with a clear error.",
+        "(closed/cancelled/expired) states are rejected with a clear error. " +
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.respond depends only on the persistence
       // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
@@ -947,16 +1679,39 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation to the full uuid before it
+        // ever reaches a Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return respondToAsk(repo, {
-          id: params.id as string,
+          id,
           message: params.message as string,
           responder: params.responder as string | undefined,
         }).then(async (result) => {
           // Best-effort system event for the plant-board activity stream (mt#2489).
+          // mt#2696 R1 (reviewer finding 3): `askId` is the RESOLVED full uuid
+          // (`id`, not the raw `params.id` prefix a caller may have passed).
+          // Verified this is the correct/expected form for every current
+          // consumer of `ask.answered`'s `askId` payload field — no consumer
+          // parses or compares against a short-prefix form:
+          //   - `system-events-schema.ts` documents the payload shape as
+          //     `{ askId: string; ... }` with no length/format constraint
+          //     tied to the short-prefix convention.
+          //   - `plant-gestures.ts`'s `ask.answered` case triggers a visual
+          //     pulse from the event TYPE alone; it does not read
+          //     `payload.askId` at all.
+          //   - `ActivityPage.tsx`'s `eventSummary()` switch has no
+          //     `ask.answered` case (falls through), so no reader there
+          //     dereferences `payload.askId` today either.
+          //   - The one place askId IS compared for equality against a live
+          //     record, `AskPage.tsx:54` (`asks.find((a) => a.id === askId)`),
+          //     compares against `Ask.id` — a full uuid — so a full-uuid
+          //     `askId` is the format every existing/plausible-future
+          //     consumer expects; a short prefix would be the wrong choice.
           await emitSystemEventBestEffort(container, {
             eventType: "ask.answered",
             payload: {
-              askId: params.id as string,
+              askId: id,
               responder: (params.responder as string | undefined) ?? null,
             },
           });
@@ -978,8 +1733,17 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Cross-field coherence: windowKey is only meaningful when serviceStrategy='scheduled'.
         // Reject at the parameter boundary so callers get immediate, actionable feedback.
         validateAsksCreateParams(params);
+        // mt#3203: reject an authorization.approve Ask whose options can never
+        // satisfy the redemption-time approval verifier — catch the footgun at
+        // authoring time, not at merge/guard-override time after the operator
+        // has already approved.
+        validateAuthorizationApproveOptions(params);
+        // mt#3326: reject a create whose question/options fail any form-lint
+        // check, unless the caller explicitly acknowledges them. Runs last —
+        // fixing form/wording is usually the last thing an author checks.
+        validateFormLintNotViolated(params);
       },
-      execute: async (params): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> => {
+      execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
@@ -1005,7 +1769,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? { capabilityRegistry }
           : {};
 
-        const result = await createAsk(
+        const {
+          ask: result,
+          formWarnings,
+          formLintMatches,
+        } = await createAskWithFormLint(
           repo,
           {
             kind: params.kind as AskKind,
@@ -1074,7 +1842,33 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           }
         }
 
-        return result;
+        // Form-lint (mt#2798; consequential at this boundary since mt#3326)
+        // — humility.mdc §Escalation packaging's "Form" sub-checklist,
+        // structurally checked via createAskWithFormLint above. By the time
+        // execute() runs, a non-empty formLintMatches means EITHER
+        // acknowledgeFormWarnings was true (the validate hook above already
+        // rejected the create otherwise) OR the only match present is the
+        // calibration-first missing-force-immediate check (mt#3436), which
+        // never blocks. Record either case on the calibration JSONL so
+        // /calibration-review can see override/fire frequency for both.
+        if (formLintMatches.length > 0) {
+          // mt#3436 R1: `acknowledged` must reflect a genuine hard-reject
+          // bypass, not the raw acknowledgeFormWarnings flag — a caller can
+          // pass that flag for an unrelated reason (or defensively) on a
+          // create whose ONLY match is the advisory missing-force-immediate
+          // check, which has nothing to acknowledge. Gate on whether a
+          // BLOCKING match was actually present.
+          const hasBlockingMatch = filterBlockingFormLintMatches(formLintMatches).length > 0;
+          appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
+            timestamp: new Date().toISOString(),
+            askId: result.id,
+            kind: result.kind,
+            matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
+            acknowledged: hasBlockingMatch && Boolean(params.acknowledgeFormWarnings),
+          });
+        }
+
+        return { ...result, formWarnings };
       },
     })
   );
@@ -1088,7 +1882,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "Block until an Ask reaches responded/closed (returns the response payload), " +
         "or a cancelled/expired terminal state, or the timeout elapses. " +
         "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
-        "Caller-managed gating: does NOT mutate task status.",
+        "Caller-managed gating: does NOT mutate task status. " +
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — depends only on the persistence provider
       // (like asks.respond), not on global Minsky configuration.
       requiresSetup: false,
@@ -1101,9 +1897,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return askWaitForResponse(
           {
-            id: params.id as string,
+            id,
             timeoutSeconds: params.timeoutSeconds as number | undefined,
             intervalSeconds: params.intervalSeconds as number | undefined,
           },
@@ -1123,7 +1923,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata.",
+        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as
       // asks.respond / asks.wait-for-response).
@@ -1133,6 +1934,26 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // At least one editable field must be provided — reject at the
         // parameter boundary so callers get immediate, actionable feedback.
         validateAsksEditParams(params);
+
+        // mt#3209: reject an edit that would replace `options` on an
+        // EXISTING `authorization.approve` Ask with none carrying an
+        // approve-shaped value — the same footgun mt#3203 closed on
+        // asks_create, reachable here because asks.edit can wholesale-
+        // replace options on an ask that already exists. Only fires when
+        // `options` is part of THIS edit; other fields are unaffected even
+        // when the ask's current options already lack an approve-shaped
+        // value (pre-existing state, not this check's job to retroactively
+        // enforce). See `validateEditOptionsAgainstExistingAsk` for the
+        // fetch-failure handling.
+        if (editRequiresApproveOptionsGuard(params)) {
+          const repo = await buildAskRepository(container);
+          const resolvedId = await resolveAskIdInput(params.id as string, container);
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            resolvedId,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
         const repo = await buildAskRepository(container);
@@ -1142,8 +1963,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return editAskContent(repo, {
-          id: params.id as string,
+          id,
           title: params.title as string | undefined,
           question: params.question as string | undefined,
           options: params.options as AskOption[] | undefined,

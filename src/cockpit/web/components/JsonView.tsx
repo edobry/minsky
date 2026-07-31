@@ -16,7 +16,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { tokenizeEntities, type EntityIndex } from "../lib/entity-linkifier";
+import {
+  tokenizeEntities,
+  tokenEntity,
+  type EntityIndex,
+  type EntityToken,
+} from "../lib/entity-linkifier";
+import { EntityRef } from "./EntityRef";
 
 // Recognized task/ask status enums → subtle leaf color.
 const STATUS_COLORS: Record<string, string> = {
@@ -26,13 +32,42 @@ const STATUS_COLORS: Record<string, string> = {
   "IN-PROGRESS": "text-blue-400",
   "IN-REVIEW": "text-violet-400",
   DONE: "text-emerald-400",
-  COMPLETED: "text-emerald-400",
   CLOSED: "text-muted-foreground",
   BLOCKED: "text-destructive",
 };
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const URL_RE = /^https?:\/\/\S+$/;
+
+/**
+ * Render one resolved entity token as a link. Routes through the shared
+ * <EntityRef> (hover-card title + status) when the token's path resolves to
+ * a known entity type; falls back to a bare <Link> otherwise (defensive —
+ * every token produced by tokenizeEntities' "link" kind is built via
+ * entityToPath, so this should always resolve in practice).
+ *
+ * Uses `tokenEntity` from entity-linkifier (exported for this, mt#3175) rather
+ * than a local segment map — one inverse codec, so it cannot drift from
+ * `entityToPath` independently.
+ */
+function TokenLink({ token }: { token: Extract<EntityToken, { kind: "link" }> }) {
+  const entity = tokenEntity(token);
+  if (entity) {
+    return (
+      <EntityRef type={entity.type} id={entity.id}>
+        {token.text}
+      </EntityRef>
+    );
+  }
+  return (
+    <Link
+      to={token.to}
+      className={cn("text-primary underline-offset-2 hover:underline", token.mono && "font-mono")}
+    >
+      {token.text}
+    </Link>
+  );
+}
 
 function relativeTime(iso: string): string {
   const ms = Date.parse(iso);
@@ -50,8 +85,45 @@ function relativeTime(iso: string): string {
   return `${day}d ${sign}`;
 }
 
-/** A string value leaf with Tier-2 enrichment. Quotes are part of the JSON display. */
+/**
+ * A multiline string leaf — rendered as a preformatted block so line structure
+ * survives (mt#2788). The dominant Minsky tool-result shape is
+ * `{success, output: "<many lines>"}`; an inline span collapses its newlines and
+ * turns the most common payload into a run-on line. Quotes are dropped here:
+ * block presentation reads as text, not as a JSON-quoted scalar. Height is
+ * bounded so one giant output can't dominate the turn (mirrors ToolPayload's
+ * max-h bounds). Entity refs inside the block still linkify.
+ */
+function MultilineStringLeaf({
+  value,
+  entityIndex,
+}: {
+  value: string;
+  entityIndex?: EntityIndex;
+}) {
+  const tokens = entityIndex && entityIndex.size > 0 ? tokenizeEntities(value, entityIndex) : null;
+  const hasLinks = tokens !== null && tokens.some((t) => t.kind === "link");
+  return (
+    <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-muted/20 px-2 py-1 text-emerald-300/90">
+      {hasLinks && tokens
+        ? tokens.map((t, i) =>
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
+          )
+        : value}
+    </pre>
+  );
+}
+
+/**
+ * A string value leaf with Tier-2 enrichment. Quotes are part of the JSON
+ * display for single-line values; multiline values take the block presentation
+ * (see MultilineStringLeaf).
+ */
 function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: EntityIndex }) {
+  // Any line-break flavor (\n, \r\n, bare \r) takes the block presentation.
+  if (/[\r\n]/.test(value)) {
+    return <MultilineStringLeaf value={value} entityIndex={entityIndex} />;
+  }
   if (URL_RE.test(value)) {
     return (
       <a
@@ -81,20 +153,7 @@ function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: Entit
         <span className="text-emerald-300">
           &quot;
           {tokens.map((t, i) =>
-            t.kind === "text" ? (
-              <span key={i}>{t.value}</span>
-            ) : (
-              <Link
-                key={i}
-                to={t.to}
-                className={cn(
-                  "text-primary underline-offset-2 hover:underline",
-                  t.mono && "font-mono"
-                )}
-              >
-                {t.text}
-              </Link>
-            )
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
           )}
           &quot;
         </span>
@@ -123,6 +182,32 @@ function JsonNode({
   return <span className="text-muted-foreground">{String(value)}</span>;
 }
 
+// Cap on the number of object keys named in a collapsed-node preview (mt#2793).
+// Above the cap the remaining keys collapse to a trailing ellipsis.
+const KEY_PREVIEW_CAP = 4;
+
+/** Object-key preview for a collapsed node: `id, title, status, …`. */
+function keyPreview(entries: Array<[string, unknown]>): string {
+  const keys = entries.map(([k]) => k);
+  const shown = keys.slice(0, KEY_PREVIEW_CAP);
+  return keys.length > KEY_PREVIEW_CAP ? `${shown.join(", ")}, …` : shown.join(", ");
+}
+
+/** One array element's shape, for the collapsed-array preview. */
+function elementKind(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "[…]";
+  if (typeof v === "object") return "{…}";
+  return typeof v; // "string" | "number" | "boolean" | "undefined"
+}
+
+/** Array preview for a collapsed node: `3 × {…}` (length + element kind; "mixed" when heterogeneous). */
+function arrayPreview(arr: unknown[]): string {
+  const kinds = new Set(arr.map(elementKind));
+  const kind = kinds.size === 1 ? [...kinds][0] : "mixed";
+  return `${arr.length} × ${kind}`;
+}
+
 function CollapsibleNode({
   value,
   entityIndex,
@@ -149,6 +234,10 @@ function CollapsibleNode({
     );
   }
 
+  // Collapsed-state preview (mt#2793): a hint of contents instead of a bare
+  // key count, so tree scanning is possible without expanding every node.
+  const collapsedPreview = isArray ? arrayPreview(value as unknown[]) : keyPreview(entries);
+
   return (
     <div>
       <button
@@ -157,7 +246,7 @@ function CollapsibleNode({
         className="text-muted-foreground hover:text-foreground"
       >
         <span aria-hidden>{open ? "▾" : "▸"}</span> {openCh}
-        {open ? "" : ` … ${entries.length} ${closeCh}`}
+        {open ? "" : ` ${collapsedPreview} ${closeCh}`}
       </button>
       {open && (
         <div className="ml-1 border-l border-border/30 pl-3">

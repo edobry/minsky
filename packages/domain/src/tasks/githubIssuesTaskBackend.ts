@@ -24,6 +24,7 @@ import type {
 import type { TaskBackend } from "./types";
 import { log } from "@minsky/shared/logger";
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
+import { shouldIncludeTaskStatus } from "./task-filters";
 
 // API operations
 import {
@@ -76,11 +77,12 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
 /**
  * Default status labels for GitHub issues.
  *
- * PLANNING, READY, and COMPLETED were missing, causing those statuses to fall
+ * PLANNING and READY were once missing, causing those statuses to fall
  * back to the `minsky:todo` label via `getLabelsForTaskStatus`'s
  * `statusLabels[status] || statusLabels["TODO"]` logic. Setting status PLANNING
  * on an issue silently set the label to `minsky:todo`, while returning
  * `{changed:true, newStatus:"PLANNING"}` — a false-success (mt#2572 Bug 3).
+ * (COMPLETED's entry was removed with the status itself, mt#2311.)
  */
 const DEFAULT_STATUS_LABELS = {
   TODO: "minsky:todo",
@@ -91,7 +93,6 @@ const DEFAULT_STATUS_LABELS = {
   DONE: "minsky:done",
   BLOCKED: "minsky:blocked",
   CLOSED: "minsky:closed",
-  COMPLETED: "minsky:completed",
 } as const;
 
 /**
@@ -224,21 +225,24 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         tags: taskData.tags || [],
       }));
 
-      if (options?.status && options.status !== "all") {
-        tasks = tasks.filter((task) => task.status === options.status);
-      } else if (!options?.all) {
-        // Hide terminal statuses by default (mt#1812 adds COMPLETED for umbrella kind).
-        // Kept in sync with TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
-        tasks = tasks.filter(
-          (task) =>
-            task.status !== "DONE" && task.status !== "CLOSED" && task.status !== "COMPLETED"
-        );
-      }
+      // Status filter/hide-by-default (mt#3010 — single-authority consolidation:
+      // was three hand-rolled branches ending in a literal `!== "DONE" && !== "CLOSED"`
+      // hide-by-default comparison; now the same registry-backed predicate every
+      // other backend's listTasks uses).
+      tasks = tasks.filter((task) => shouldIncludeTaskStatus(task.status, options));
 
       // Filter by tags if specified
       if (options?.tags && options.tags.length > 0) {
         const tags = options.tags;
         tasks = tasks.filter((task) => tags.every((tag) => task.tags?.includes(tag)));
+      }
+
+      // Filter by workflow kind if specified (mt#2762). The GitHub Issues backend
+      // does not persist `kind` on issues today (a known gap — every GHI task is
+      // effectively "implementation"), so only that kind can ever match here
+      // rather than silently ignoring the filter.
+      if (options?.kind) {
+        tasks = options.kind === "implementation" ? tasks : [];
       }
 
       return tasks;

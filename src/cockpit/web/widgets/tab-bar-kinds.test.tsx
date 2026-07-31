@@ -13,16 +13,26 @@
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TabsProvider } from "../lib/tabs";
 import { TabBar, resolveKindIcon } from "../components/TabBar";
 
+// TabBar's TabLabel resolves enriched labels via useEntityLabel (mt#2883),
+// which needs a QueryClientProvider. No fetches are mocked here, so every
+// label query errors/misses and the labels assert the FALLBACK (shortened-id)
+// path — exactly the degradation contract the resolver promises.
 function renderAt(path: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <TabsProvider>
-        <TabBar />
-      </TabsProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <TabsProvider>
+          <TabBar />
+        </TabsProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 

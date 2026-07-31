@@ -20,8 +20,10 @@ import {
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "../postgres-notice-handler";
+import { guardRawSqlAgainstPoolerWedge, type GuardedRawSql } from "../raw-sql-pooler-guard";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
+import { profileCheckpoint } from "@minsky/shared/cold-start-profile";
 import {
   EMBEDDINGS_CONFIGS,
   type VectorDomain,
@@ -57,9 +59,16 @@ const MAX_POSTGRES_MAX_CONNECTIONS = 100;
  * auto-migration decision. Extracted so tests can exercise the decision
  * logic without needing a real DB connection.
  *
- * Returns true when both:
+ * Default OFF (mt#2560). Returns true ONLY when both:
  *   - the caller did NOT inject any `deps` (sqlClient or postgresFactory), AND
- *   - `MINSKY_AUTO_MIGRATE` env var is not explicitly disabled ("false" / "0").
+ *   - `MINSKY_AUTO_MIGRATE` is explicitly opted in ("true"/"1"/"yes"/"on", case-insensitive).
+ *
+ * Rationale: auto-migrate-on-boot is a shared-prod hazard — every binary
+ * (hosted MCP, reviewer, cockpit daemon, stdio MCP servers, CLI) points at the
+ * one shared Postgres. Prod migrations are applied by the deploy-keyed single
+ * runner (mt#2505, .github/workflows/deploy-minsky-mcp.yml), so no binary needs
+ * to migrate on boot. The opt-in is the "I solely own this non-shared/local DB"
+ * assertion (runtime owner-detection is mt#2430).
  *
  * The `env` parameter is injectable so tests can override the env-var lookup
  * without mutating `process.env` (which leaks across tests).
@@ -68,8 +77,11 @@ export function shouldAutoMigrate(
   deps?: { sqlClient?: unknown; postgresFactory?: unknown },
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const enabled = !["false", "0"].includes((env.MINSKY_AUTO_MIGRATE ?? "true").toLowerCase());
-  if (!enabled) return false;
+  // Opt-in truthy set matches the repo convention (services/reviewer
+  // review-worker.ts REVIEWER_MONOTONICITY_RECOVERY_ENABLED, PR #922):
+  // true/1/yes/on, case-insensitive.
+  const optedIn = /^(true|1|yes|on)$/i.test((env.MINSKY_AUTO_MIGRATE ?? "").trim());
+  if (!optedIn) return false;
   const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
   return !callerOwnsClient;
 }
@@ -123,7 +135,7 @@ export function resolveMigrationsFolder(): string {
       `This indicates the build artifact does not include the migrations folder. ` +
       `Either copy packages/domain/src/storage/migrations/pg/ next to the compiled module, ` +
       `or set MINSKY_MIGRATIONS_FOLDER to an absolute path, ` +
-      `or set MINSKY_AUTO_MIGRATE=false and apply migrations out-of-band.`
+      `or unset MINSKY_AUTO_MIGRATE (auto-migrate is off by default) and apply migrations out-of-band.`
   );
 }
 
@@ -144,6 +156,28 @@ function resolveMaxConnections(configured: number | undefined): number {
     if (Number.isFinite(parsed) && parsed > 0) return pick(parsed);
   }
   return DEFAULT_POSTGRES_MAX_CONNECTIONS;
+}
+
+/**
+ * Build the production postgres-js client for a config's `postgres` block.
+ *
+ * Single source of truth for the connection options (mt#2973) so the factory's
+ * capability-probe connection and the provider's runtime connection are the
+ * SAME shape of client — which lets the factory hand its already-open,
+ * SELECT-1-validated client to the provider for reuse instead of each opening a
+ * separate remote TLS handshake to the pooler.
+ */
+export function buildPostgresClient(
+  pgConfig: NonNullable<PersistenceConfig["postgres"]>,
+  factory: typeof postgres = postgres
+): ReturnType<typeof postgres> {
+  return factory(pgConfig.connectionString, {
+    max: resolveMaxConnections(pgConfig.maxConnections),
+    connect_timeout: pgConfig.connectTimeout || 10,
+    idle_timeout: pgConfig.idleTimeout || 60,
+    prepare: pgConfig.prepareStatements ?? false,
+    onnotice: logPostgresNotice,
+  });
 }
 
 /**
@@ -184,10 +218,25 @@ export class PostgresPersistenceProvider
 {
   protected db: PostgresJsDatabase | null = null;
   protected sql: ReturnType<typeof postgres> | null = null;
+  /** Lazily-built pooler-guarded view of `sql` handed out by getRawSqlConnection (mt#2773). */
+  protected guardedSql: GuardedRawSql | null = null;
   /** Dedicated session-mode connection for LISTEN/NOTIFY (mt#1852). Created lazily. */
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
+  /**
+   * mt#2973: a factory-probed, already-SELECT-1-validated client handed in for
+   * REUSE. When set, initialize() adopts this client and skips its own connect
+   * + SELECT 1 (the redundant second cold-boot handshake). Null on the
+   * standalone path (the provider opens its own client). The provider OWNS this
+   * client's lifecycle once adopted (close() ends it).
+   */
+  protected preValidatedSql: ReturnType<typeof postgres> | null = null;
+  /**
+   * mt#2973: whether the factory already verified pgvector on the pre-validated
+   * client. When true, the vector provider skips its redundant re-probe.
+   */
+  protected pgvectorVerified = false;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -202,12 +251,21 @@ export class PostgresPersistenceProvider
 
   // Note: Capabilities are returned by getCapabilities() method below
 
-  constructor(config: PersistenceConfig) {
+  constructor(
+    config: PersistenceConfig,
+    preValidated?: { sql: ReturnType<typeof postgres>; pgvectorVerified: boolean }
+  ) {
     super();
     if (config.backend !== "postgres" || !config.postgres) {
       throw new Error("PostgresPersistenceProvider requires postgres configuration");
     }
     this.config = config;
+    // mt#2973: the factory may hand us an already-open, capability-probed client
+    // to reuse (eliminating a redundant second handshake). Adopted in initialize().
+    if (preValidated) {
+      this.preValidatedSql = preValidated.sql;
+      this.pgvectorVerified = preValidated.pgvectorVerified;
+    }
   }
 
   /** Returns the postgres config — guaranteed non-null by the constructor. */
@@ -246,24 +304,26 @@ export class PostgresPersistenceProvider
       // Resolve the factory — allows tests to inject a mock without mock.module()
       const pgFactory = deps?.postgresFactory ?? postgres;
 
-      // Create PostgreSQL connection (use injected client or create new one).
-      // `onnotice` routes NOTICEs through `log.debug` (via the shared handler at
-      // postgres-notice-handler.ts). Pre-mt#1828 this site dropped silently with
-      // `() => {}` to keep stdout clean (mt#1827); the helper preserves the
-      // stdout-clean property AND captures the operational signal at debug
-      // level. Six postgres-js sites in total go through this helper.
+      // Connection sourcing (mt#2973), in priority order:
+      //   1. deps.sqlClient — the test seam (caller owns it; suppresses
+      //      auto-migrate via shouldAutoMigrate).
+      //   2. this.preValidatedSql — a factory-probed client handed in for REUSE.
+      //      The factory already opened the remote connection AND ran SELECT 1
+      //      on it, so we adopt it and skip the provider's own handshake +
+      //      SELECT 1 (the ~486ms redundant second cold-boot handshake). The
+      //      provider OWNS this client now (tracked as createdSql for cleanup),
+      //      and auto-migrate is honored normally (unlike the deps.sqlClient seam).
+      //   3. Otherwise open a fresh client (the standalone path).
+      // `onnotice` (inside buildPostgresClient) routes NOTICEs through log.debug
+      // (postgres-notice-handler.ts) to keep stdout clean (mt#1827/mt#1828).
+      const reusingProbedClient = !deps?.sqlClient && this.preValidatedSql !== null;
       const sql =
-        deps?.sqlClient ??
-        pgFactory(pgConfig.connectionString, {
-          max: resolveMaxConnections(pgConfig.maxConnections),
-          connect_timeout: pgConfig.connectTimeout || 10,
-          idle_timeout: pgConfig.idleTimeout || 60,
-          prepare: pgConfig.prepareStatements ?? false,
-          onnotice: logPostgresNotice,
-        });
+        deps?.sqlClient ?? this.preValidatedSql ?? buildPostgresClient(pgConfig, pgFactory);
 
-      // Track only connections we created, so we can clean up on failure without
-      // closing an injected client that the caller still owns
+      // Track connections we created/own so we can clean up on failure without
+      // closing an injected test-seam client the caller still owns. The
+      // factory-probed client IS provider-owned (the factory deliberately left
+      // it open), so it is tracked here too.
       if (!deps?.sqlClient) {
         createdSql = sql;
       }
@@ -271,8 +331,17 @@ export class PostgresPersistenceProvider
       // Create Drizzle instance
       const db = drizzle(sql);
 
-      // Verify connection — retry on pool saturation (mt#1193)
-      await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
+      // Verify connection — retry on pool saturation (mt#1193). Skip when
+      // reusing the factory's pre-validated client: it already ran SELECT 1
+      // during the capability probe, so a second round-trip here is pure
+      // redundant remote latency (the second handshake mt#2973 eliminates).
+      if (!reusingProbedClient) {
+        profileCheckpoint("pg_init_select1_start");
+        await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
+        profileCheckpoint("pg_init_select1_done");
+      } else {
+        profileCheckpoint("pg_init_reused_probed_client");
+      }
 
       // Cache the connection objects BEFORE running migrations. runMigrations
       // uses `this.db` / `this.sql`, but `this.isInitialized` stays false until
@@ -281,20 +350,39 @@ export class PostgresPersistenceProvider
       // still running (race window where they could read pre-migration schema).
       this.sql = sql;
       this.db = db;
+      // mt#2973: ownership of a reused probed client transfers fully to
+      // this.sql now (createdSql tracks it for failure cleanup); clear the
+      // field so close()'s orphan-cleanup path (never-initialized case) doesn't
+      // double-end it.
+      this.preValidatedSql = null;
 
-      // mt#1767 (mt#1763 redo, post-revert): auto-run pending migrations.
-      // Skip conditions (see `shouldAutoMigrate` for the predicate):
-      // - Caller injected any `deps` (sqlClient or postgresFactory): test seam.
-      // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
-      // The `_overrideAutoMigrate` test seam can force the auto-migrate branch
-      // (see initialize signature for rationale).
+      // mt#2560: auto-migrate-on-boot is OFF by default. It runs ONLY when the
+      // MINSKY_AUTO_MIGRATE opt-in is set ("true"/"1") AND no deps were injected
+      // (see `shouldAutoMigrate`). Prod is migrated by the deploy-keyed single
+      // runner (mt#2505); no binary migrates a shared DB on boot. The
+      // `_overrideAutoMigrate` test seam can force the branch (see initialize
+      // signature for rationale).
       const autoMigrate = deps?._overrideAutoMigrate ?? shouldAutoMigrate(deps);
       if (autoMigrate) {
+        // mt#2560 SC2: audit-log when the opt-in actually fires. This should
+        // only happen for a local/dev/throwaway DB the caller solely owns —
+        // NEVER a shared/prod DB.
+        log.warn(
+          "Auto-migrating on boot: MINSKY_AUTO_MIGRATE opt-in enabled. " +
+            "Only safe for a local/dev/throwaway DB you solely own; " +
+            "prod is migrated by the deploy-keyed runner (mt#2505)."
+        );
         await this.runMigrations(resolveMigrationsFolder());
       } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
         log.debug("Skipping auto-migration: caller-injected deps (test seam)");
       } else {
-        log.warn("Skipping auto-migration: MINSKY_AUTO_MIGRATE=false");
+        // debug (not warn): this is now the routine per-boot path on every CLI/
+        // hook/session/MCP process — consistent with the sibling test-seam skip
+        // above. Verified (mt#2560): no CI gate / smoke / runbook greps this line.
+        log.debug(
+          "Skipping auto-migration (default OFF, mt#2560): MINSKY_AUTO_MIGRATE not opted in. " +
+            "Migrations are applied out-of-band by the deploy-keyed runner (mt#2505)."
+        );
       }
 
       // All checks passed AND migrations applied — now mark initialized.
@@ -310,6 +398,7 @@ export class PostgresPersistenceProvider
         }
       }
       this.sql = null;
+      this.guardedSql = null;
       this.db = null;
       this.isInitialized = false;
       log.error(
@@ -343,9 +432,12 @@ export class PostgresPersistenceProvider
   }
 
   /**
-   * Get raw SQL connection for migrations and low-level operations
+   * Get raw SQL connection for migrations and low-level operations.
+   *
+   * Returns the pooler-guarded view (mt#2773 / PR #1922 R1): `.unsafe()` is
+   * capped at pool-max in-flight and returns plain rows — see GuardedRawSql.
    */
-  async getRawSqlConnection(): Promise<ReturnType<typeof postgres>> {
+  async getRawSqlConnection(): Promise<GuardedRawSql> {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
@@ -354,7 +446,17 @@ export class PostgresPersistenceProvider
       throw new Error("Raw SQL connection not available");
     }
 
-    return this.sql;
+    // mt#2773: hand out a guarded view that bounds in-flight `.unsafe()`
+    // queries at the pool's max — zero-bind raw queries submitted beyond pool
+    // capacity wedge the Supavisor transaction pooler (connections destroyed
+    // during ramp-up) and postgres-js never settles some of the destroyed
+    // connection's promises. See raw-sql-pooler-guard.ts for the experiment
+    // matrix and rationale. The underlying `this.sql` (used by drizzle and
+    // sql.begin() transactions) is deliberately untouched.
+    if (!this.guardedSql) {
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
+    }
+    return this.guardedSql;
   }
 
   /**
@@ -478,9 +580,21 @@ export class PostgresPersistenceProvider
         }
         this.listenSql = null;
       }
+      // mt#2973: if a factory-probed client was handed in for reuse but
+      // initialize() never adopted it into this.sql (constructed-then-closed
+      // without initializing), end it here so the pool doesn't leak.
+      if (!this.sql && this.preValidatedSql) {
+        try {
+          await this.preValidatedSql.end();
+        } catch {
+          /* ignore cleanup errors */
+        }
+        this.preValidatedSql = null;
+      }
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
+        this.guardedSql = null;
         this.db = null;
         this.isInitialized = false;
         log.debug("PostgreSQL connections closed");
@@ -547,12 +661,26 @@ export class PostgresVectorPersistenceProvider
       throw new Error("SQL connection not available");
     }
 
+    // mt#2973: when the factory already verified pgvector (on the client it
+    // handed us for reuse), the class choice IS the verification — re-running
+    // the pg_extension probe here is a redundant remote round-trip (~81ms).
+    // Only probe on the standalone path (no factory verdict), where this IS the
+    // first and only check.
+    if (this.pgvectorVerified) {
+      profileCheckpoint("pg_init_vector_reprobe_skipped");
+      log.debug(
+        "PostgreSQL persistence provider initialized with vector support (factory-verified)"
+      );
+      return;
+    }
+
     try {
       const result = await this.sql`
         SELECT EXISTS (
           SELECT 1 FROM pg_extension WHERE extname = 'vector'
         ) as exists
       `;
+      profileCheckpoint("pg_init_vector_reprobe");
 
       if (!result[0]?.exists) {
         throw new Error("pgvector extension not available - factory should have prevented this");

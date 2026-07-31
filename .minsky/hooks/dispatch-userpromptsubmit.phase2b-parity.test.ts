@@ -53,8 +53,54 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "causal-premise-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
+      // mt#3125 — root-tier sibling of the guidance-detector family above
+      // (fires on the batch itself, not a downstream symptom surface); new
+      // guard, not part of the Phase 2a/2b legacy-settings.json migration
+      // this test otherwise pins byte-for-byte; appended after the preserved
+      // legacy order.
+      "constructed-identifier-batch-detector",
+      // mt#2459 — operator-deferral prose surface, sibling of
+      // ask-routing-deferral above (that one covers a deferred DECISION, this
+      // one a deferred ACTION); new guard, not part of the Phase 2a/2b
+      // legacy-settings.json migration this test otherwise pins byte-for-byte.
+      // Its PreToolUse sibling (operator-deferral-ask-surface) is not listed
+      // here — this manifest covers UserPromptSubmit only.
+      "operator-deferral-detector",
+      // mt#2812 — new guard, not part of the Phase 2a/2b legacy-settings.json
+      // migration this test otherwise pins byte-for-byte; appended after the
+      // preserved legacy order.
+      "guard-health-escalation-detector",
+      // mt#2824 — silent-stretch-detector is a NEW guard authored directly
+      // onto the framework (not a Phase 2b migration), appended after the
+      // pre-migration order this test otherwise byte-preserves.
+      "silent-stretch-detector",
+      // mt#2870 — wall-of-text-detector, silent-stretch's over-signaling
+      // sibling; same new-guard-appended-after-legacy-order rationale.
+      "wall-of-text-detector",
+      // mt#2923 — build-claim-injection-detector, the mt#2707-RFC
+      // build/deploy-claim seam detector; same new-guard-appended-after-
+      // legacy-order rationale as its calibration-first siblings above.
+      "build-claim-injection-detector",
+      // mt#2708 — knowledge-acquisition-detector, the mt#2707-RFC (B)
+      // proactive-trigger half of the learn-capture primitive; same
+      // new-guard-appended-after-legacy-order rationale as its
+      // calibration-first siblings above.
+      "knowledge-acquisition-detector",
+      // calibration-review-cadence-detector is relocated to stay the true
+      // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
+      // registry.ts's comment on this registration.
       "calibration-review-cadence-detector",
     ]);
+  });
+
+  // PR #2036 R1 hardening: the pinned list above implies this, but assert the
+  // documented last-entry invariant directly so a future re-order that also
+  // edits the pinned list cannot silently drop it
+  // (docs/architecture/hooks/calibration-review-cadence-detector.md: "the
+  // LAST entry").
+  test("calibration-review-cadence-detector remains the LAST UserPromptSubmit guard", () => {
+    const names = getGuardsForEvent(GUARD_REGISTRY, USER_PROMPT_SUBMIT_EVENT).map((r) => r.name);
+    expect(names[names.length - 1]).toBe("calibration-review-cadence-detector");
   });
 });
 

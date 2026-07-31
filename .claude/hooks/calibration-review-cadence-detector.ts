@@ -76,15 +76,19 @@
 //      points the agent at when a log is review-due
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { readInput, writeOutput } from "./types";
+import { dirname, join } from "node:path";
+import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
+  computeReviewDueLogs,
+  STALE_DAYS_MS,
+  NEVER_REVIEWED_DAYS,
   type CalibrationLogEntry,
-  type CalibrationLogResult,
   type WatermarkStore,
+  type ReviewDueLog,
 } from "../../src/domain/calibration/calibration-sweep";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
@@ -96,18 +100,6 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CALIBRATION_CADENCE";
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
 const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.json";
-
-/**
- * Time-based staleness bar for a REVIEWED log with new-but-below-count-bar
- * fires. Grounded in CLAUDE.md `decision-defaults.mdc §Thresholds` — "10 days
- * for lynchpin tracking" is the nearest existing anchor; a calibration log
- * with unreviewed new fires is exactly a "tracking" concern (watching
- * detector calibration drift), not active in-flight work (which uses the
- * tighter 5-day bar). The retrospective-trigger incident this hook fixes sat
- * stale for 21+ days — well past this bar — so 10 days catches it with
- * margin while not firing on a log reviewed a few days ago.
- */
-export const STALE_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
 /**
  * Re-warning cooldown: once a log is flagged review-due and the operator has
@@ -128,24 +120,6 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
-export interface ReviewDueLog {
-  name: string;
-  path: string;
-  /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in `shouldReWarn`. */
-  kind: CalibrationLogEntry["kind"];
-  firesSinceLastReview: number;
-  totalFires: number;
-  distinctPhrases: number;
-  reason: "past-threshold" | "time-stale";
-  /**
-   * ID of a still-open disposition Ask on file for this log (mt#2659),
-   * forwarded from the watermark's `openAskId`. When set, `main()` suppresses
-   * the normal per-turn warning for this log in favor of a single
-   * "disposition pending" line, shown at most once per `session_id`.
-   */
-  openAskId?: string;
-}
-
 /** Per-log last-warned record, keyed by log path. */
 export interface LastWarnedRecord {
   lastWarnedAt: string;
@@ -159,63 +133,6 @@ export interface LastWarnedRecord {
   pendingAskWarnedSessionId?: string;
 }
 export type LastWarnedStore = Record<string, LastWarnedRecord>;
-
-// ---------------------------------------------------------------------------
-// Pure logic (exported for testing)
-// ---------------------------------------------------------------------------
-
-/**
- * Determine which logs are review-due per the two independent conditions
- * described in the header comment. Pure function over already-computed sweep
- * results + the watermark store.
- */
-export function computeReviewDueLogs(
-  results: CalibrationLogResult[],
-  watermarks: WatermarkStore,
-  nowMs: number,
-  staleMs: number = STALE_DAYS_MS
-): ReviewDueLog[] {
-  const due: ReviewDueLog[] = [];
-  for (const r of results) {
-    const wm = watermarks[r.entry.path];
-
-    if (r.pastThreshold) {
-      due.push({
-        name: r.entry.name,
-        path: r.entry.path,
-        kind: r.entry.kind,
-        firesSinceLastReview: r.firesSinceLastReview,
-        totalFires: r.totalFires,
-        distinctPhrases: r.distinctPhrases,
-        reason: "past-threshold",
-        openAskId: wm?.openAskId,
-      });
-      continue;
-    }
-
-    // Time-stale: only applies to a log that HAS a watermark (was reviewed
-    // before) and has accrued at least one new fire since then. A log that
-    // has never been reviewed and isn't past-threshold either simply hasn't
-    // accumulated enough signal yet (e.g. causal-premise at 1 fire) — that's
-    // "keep collecting," not "forgotten."
-    if (!wm || r.firesSinceLastReview <= 0) continue;
-    const reviewedMs = Date.parse(wm.lastReviewedAt);
-    if (Number.isNaN(reviewedMs)) continue;
-    if (nowMs - reviewedMs >= staleMs) {
-      due.push({
-        name: r.entry.name,
-        path: r.entry.path,
-        kind: r.entry.kind,
-        firesSinceLastReview: r.firesSinceLastReview,
-        totalFires: r.totalFires,
-        distinctPhrases: r.distinctPhrases,
-        reason: "time-stale",
-        openAskId: wm.openAskId,
-      });
-    }
-  }
-  return due;
-}
 
 /**
  * Log kinds whose fire count grows per TOOL CALL rather than per matched
@@ -316,10 +233,21 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
-        : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
+        : d.reason === "never-reviewed"
+          ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
+          : d.reason === "never-fired"
+            ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
+            : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
     lines.push(
-      `  - ${d.name}: ${d.firesSinceLastReview} new fire(s) since last review ` +
-        `(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
+      // mt#3197: quote the INJECTED count — the detections that actually
+      // reached the operator. The positional count includes suppressed ones,
+      // which made a correctly-tuned detector look like a review backlog.
+      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
+        `${
+          d.suppressedSinceLastReview > 0
+            ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
+            : ""
+        }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
     );
   }
   lines.push("");
@@ -329,27 +257,161 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
       "positives and record a flip/tune/keep disposition before this drifts " +
       "further out of review."
   );
-  lines.push(`Override: ${OVERRIDE_ENV_VAR}=1 suppresses this warning.`);
   return lines.join("\n");
 }
 
 /**
- * Build the additionalContext message for due logs that have a still-open
- * disposition ask (mt#2659) — a single low-noise line per log instead of the
- * full `formatCadenceWarning` treatment, since the work is already surfaced
- * to the operator and blocked on their response, not on the agent.
+ * What a lookup of one `openAskId` established.
+ *
+ * `unavailable` is deliberately distinct from `not-found`: this detector reached no
+ * persistence layer at all before mt#3270, so the lookup added here crosses the
+ * hook-bootstrap boundary that silently killed two hooks (mt#3019, mt#3046). Collapsing an
+ * unreachable store into "unknown ask" would make a dead lookup render exactly like a healthy
+ * one that found nothing — the failure shape this detector's own bug already had.
  */
-export function formatPendingAskLines(pending: ReviewDueLog[]): string {
-  const lines: string[] = [
-    "[calibration-review-cadence-detector] Calibration disposition pending — no action needed (mt#2659):",
-    "",
-  ];
-  for (const d of pending) {
-    lines.push(
-      `  - ${d.name}: disposition pending on ask ${d.openAskId} ` +
-        `(${d.totalFires} total fires) — awaiting operator response.`
+export type AskLookup =
+  | { kind: "open"; state: string; shortId?: string }
+  | { kind: "settled"; state: string; shortId?: string }
+  | { kind: "not-found" }
+  | { kind: "unavailable"; reason: string };
+
+/** Ask states in which the operator genuinely still owes a response. */
+const OPEN_ASK_STATES = new Set(["routed", "suspended"]);
+
+/**
+ * Resolve the state of each referenced ask.
+ *
+ * Only called when at least one pending log exists, so the ordinary turn — where nothing is
+ * past threshold — pays no database cost at all. Every failure resolves to `unavailable` with
+ * the reason attached rather than throwing: a cadence reminder must never break the turn.
+ */
+export async function resolveAskStates(askIds: string[]): Promise<Map<string, AskLookup>> {
+  const out = new Map<string, AskLookup>();
+  if (askIds.length === 0) return out;
+
+  const unavailable = (reason: string): Map<string, AskLookup> => {
+    process.stderr.write(
+      `[calibration-review-cadence-detector] ask lookup unavailable: ${reason}\n`
     );
+    for (const id of askIds) out.set(id, { kind: "unavailable", reason });
+    return out;
+  };
+
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      return unavailable(bootstrap.error ?? "domain bootstrap failed");
+    }
+
+    const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
+    const provider = await resolvePersistenceProvider();
+    if (!provider || !("getDatabaseConnection" in provider)) {
+      return unavailable("no persistence provider with a database connection");
+    }
+    const db = await (
+      provider as { getDatabaseConnection(): Promise<unknown> }
+    ).getDatabaseConnection();
+
+    // `@minsky/domain/ask/repository`, not the `/ask` barrel — the barrel is not an exported
+    // subpath, and a wrong specifier here fails at RUNTIME inside a swallowed catch (the
+    // mt#2760 shape). Every other call site in the repo uses this same path.
+    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+    const repo = new DrizzleAskRepository(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+
+    for (const id of askIds) {
+      try {
+        const ask = await repo.getById(id);
+        if (!ask) {
+          out.set(id, { kind: "not-found" });
+          continue;
+        }
+        out.set(id, {
+          kind: OPEN_ASK_STATES.has(ask.state) ? "open" : "settled",
+          state: ask.state,
+          shortId: ask.shortId ?? undefined,
+        });
+      } catch (err) {
+        // A per-id failure is still a lookup failure for THAT id — never silently "not found".
+        out.set(id, {
+          kind: "unavailable",
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return out;
+  } catch (err) {
+    return unavailable(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** `[label](minsky://ask/<uuid>)` per cockpit-deeplinks.mdc, so the id is openable from the line. */
+function askDeeplink(askId: string, shortId?: string): string {
+  return `[${shortId ?? askId.slice(0, 8)}](minsky://ask/${askId})`;
+}
+
+/**
+ * Render one line per past-threshold log carrying an `openAskId`.
+ *
+ * Before mt#3270 every line read "awaiting operator response" without the ask's state ever
+ * being consulted — so a closed, answered ask was reported as pending for days, and the
+ * principal tried to action an ask that could no longer be opened. Each branch below now says
+ * only what the lookup actually established.
+ *
+ * `lookups` is REQUIRED, deliberately. It briefly had a default of `new Map()`, and the CLI
+ * entrypoint was then left un-updated — every line it rendered read "ask store unreachable (no
+ * lookup performed)" (PR #2374 R1). A default turns "this call site forgot to resolve state"
+ * into a wrong message at runtime; requiring the argument turns it into a compile error.
+ */
+export function formatPendingAskLines(
+  pending: ReviewDueLog[],
+  lookups: Map<string, AskLookup>
+): string {
+  const lookupFor = (d: ReviewDueLog): AskLookup =>
+    lookups.get(d.openAskId as string) ?? { kind: "unavailable", reason: "no lookup performed" };
+
+  // "no action needed" is only true when every referenced ask is genuinely still open.
+  const allOpen = pending.every((d) => lookupFor(d).kind === "open");
+  const header = allOpen
+    ? "[calibration-review-cadence-detector] Calibration disposition pending — no action needed (mt#2659):"
+    : "[calibration-review-cadence-detector] Calibration disposition status (mt#2659):";
+
+  const lines: string[] = [header, ""];
+
+  for (const d of pending) {
+    const askId = d.openAskId as string;
+    const lookup = lookupFor(d);
+    const fires = `(${d.totalFires} total fires)`;
+
+    switch (lookup.kind) {
+      case "open":
+        lines.push(
+          `  - ${d.name}: disposition pending on ask ${askDeeplink(askId, lookup.shortId)} ` +
+            `${fires} — awaiting operator response.`
+        );
+        break;
+      case "settled":
+        lines.push(
+          `  - ${d.name}: prior ask ${askDeeplink(askId, lookup.shortId)} is ${lookup.state} ` +
+            `${fires} — this log still needs a disposition; the ask is spent.`
+        );
+        break;
+      case "not-found":
+        lines.push(
+          `  - ${d.name}: referenced ask ${askDeeplink(askId)} could not be found ` +
+            `${fires} — disposition state unknown.`
+        );
+        break;
+      case "unavailable":
+        lines.push(
+          `  - ${d.name}: could not read the state of ask ${askDeeplink(askId)} ` +
+            `${fires} — ask store unreachable (${lookup.reason}); disposition state unknown.`
+        );
+        break;
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -410,7 +472,11 @@ export async function run(
     };
   }
 
-  const repoRoot = resolve(input.cwd ?? process.cwd());
+  // mt#2710: `input.cwd` (or the `process.cwd()` fallback) is routinely a
+  // repo SUBDIRECTORY, not the repo root — findRepoRoot walks up to the
+  // nearest `.git` so the watermark/last-warned state files land in
+  // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
+  const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
   const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
   const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
 
@@ -451,7 +517,14 @@ export async function run(
 
     const parts: string[] = [];
     if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
-    if (pendingToShow.length > 0) parts.push(formatPendingAskLines(pendingToShow));
+    if (pendingToShow.length > 0) {
+      // Gated on there being something to render: the ordinary turn resolves no asks and
+      // therefore never touches the database.
+      const askStates = await resolveAskStates([
+        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
+      ]);
+      parts.push(formatPendingAskLines(pendingToShow, askStates));
+    }
 
     return { additionalContext: parts.join("\n\n") };
   } catch (err) {
@@ -481,7 +554,11 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const repoRoot = resolve(input.cwd ?? process.cwd());
+  // mt#2710: `input.cwd` (or the `process.cwd()` fallback) is routinely a
+  // repo SUBDIRECTORY, not the repo root — findRepoRoot walks up to the
+  // nearest `.git` so the watermark/last-warned state files land in
+  // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
+  const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
   const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
   const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
 
@@ -528,7 +605,15 @@ export async function main(): Promise<void> {
 
     const parts: string[] = [];
     if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
-    if (pendingToShow.length > 0) parts.push(formatPendingAskLines(pendingToShow));
+    if (pendingToShow.length > 0) {
+      // Same lookup as the dispatcher path in `run()` — both entrypoints render the same
+      // surface, so both must resolve state. Leaving this one unresolved made every CLI-path
+      // line read "ask store unreachable (no lookup performed)" (PR #2374 R1 BLOCKING).
+      const askStates = await resolveAskStates([
+        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
+      ]);
+      parts.push(formatPendingAskLines(pendingToShow, askStates));
+    }
 
     const output: HookOutput = {
       hookSpecificOutput: {

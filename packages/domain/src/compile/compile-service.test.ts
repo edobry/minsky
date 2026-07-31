@@ -69,6 +69,13 @@ describe("MinskyCompileService", () => {
         'Unknown compile target: "unknown"'
       );
     });
+
+    it('throws a migration hint for the retired "cursor-rules" target (mt#2995)', async () => {
+      const service = new MinskyCompileService();
+      await expect(
+        service.compile("cursor-rules", { workspacePath: "/workspace" })
+      ).rejects.toThrow(/cursor-rules-ts/);
+    });
   });
 
   describe("compile — dryRun mode", () => {

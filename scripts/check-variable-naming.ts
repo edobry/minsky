@@ -41,16 +41,18 @@ function checkFile(filePath: string): VariableNamingIssue[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNumber = i + 1;
+    if (line === undefined) continue;
 
     // Check for catch blocks with underscore parameters
     const catchMatch = line.match(/catch\s*\(\s*(_\w+)\s*\)/);
-    if (catchMatch) {
+    if (catchMatch && catchMatch[1] !== undefined) {
       const underscoreVar = catchMatch[1];
       const varWithoutUnderscore = underscoreVar.slice(1);
 
       // Look for usage of the variable without underscore in the next 20 lines
       for (let j = i + 1; j < Math.min(i + 21, lines.length); j++) {
         const nextLine = lines[j];
+        if (nextLine === undefined) break;
 
         // Skip if we hit another catch or function
         if (nextLine.includes("catch") || nextLine.includes("function")) break;
@@ -73,7 +75,7 @@ function checkFile(filePath: string): VariableNamingIssue[] {
 
     // Check for function parameters with underscores
     const funcMatch = line.match(/function\s+\w+\s*\([^)]*(_\w+)[^)]*/);
-    if (funcMatch) {
+    if (funcMatch && funcMatch[1] !== undefined) {
       const underscoreParam = funcMatch[1];
       const paramWithoutUnderscore = underscoreParam.slice(1);
 
@@ -83,6 +85,7 @@ function checkFile(filePath: string): VariableNamingIssue[] {
 
       for (let j = i; j < lines.length; j++) {
         const nextLine = lines[j];
+        if (nextLine === undefined) break;
 
         if (nextLine.includes("{")) {
           braceCount += (nextLine.match(/\{/g) || []).length;
@@ -113,7 +116,7 @@ function checkFile(filePath: string): VariableNamingIssue[] {
     // Check for arrow function parameters with underscores
     // This regex specifically looks for arrow functions at the start of expressions or after =, :, etc.
     const arrowMatch = line.match(/(?:^|[=:,\s])\s*\(\s*([^)]*_\w+[^)]*)\s*\)\s*=>/);
-    if (arrowMatch) {
+    if (arrowMatch && arrowMatch[1] !== undefined) {
       const params = arrowMatch[1];
       // Skip if the parameters contain string literals (like "child_process")
       const singleQuote = String.fromCharCode(39); // single quote
@@ -132,6 +135,7 @@ function checkFile(filePath: string): VariableNamingIssue[] {
 
         for (let j = i; j < lines.length; j++) {
           const nextLine = lines[j];
+          if (nextLine === undefined) break;
 
           if (nextLine.includes("{")) {
             braceCount += (nextLine.match(/\{/g) || []).length;

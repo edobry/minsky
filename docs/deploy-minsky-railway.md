@@ -8,6 +8,21 @@ This is the deployment guide for mt#1129. For the architectural context, see §"
 
 Minsky's MCP server is transport-agnostic — the same tool registry serves stdio (for local Claude Code) and HTTP (for remote agents). The CLI flag `--http` selects the HTTP transport; `--require-auth` enables a bearer-token check on the `/mcp` endpoint. Railway wraps all of this in a container and auto-deploys on `main`. The `/health` endpoint stays public for Railway's uptime probes.
 
+## What ships in the image: the bundle and its source map (mt#3023)
+
+The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly. Two artifacts land in the image, and **both are intentional**:
+
+| Artifact             | Approx. size | Why it is there                                  |
+| -------------------- | ------------ | ------------------------------------------------ |
+| `dist/minsky.js`     | ~26 MB       | The bundle the container runs. Built `--minify`. |
+| `dist/minsky.js.map` | ~57 MB       | The external source map. **Do not strip it.**    |
+
+**The map is shipped on purpose, and removing it is a regression, not a cleanup.** Bun uses it to symbolicate stack traces from the minified bundle back to the original `src/**.ts` file and line. Without it, a production trace degrades to minified single-line offsets into `dist/minsky.js` and Bun logs `note: missing sourcemaps` — which is precisely the position you do not want to be in while reading Railway logs during an incident. Every production-down incident in this repo so far (mt#1763, mt#1785, mt#2345) was diagnosed from deployed logs.
+
+**Size tradeoff, stated plainly.** Keeping the map costs more than minifying saves: before mt#3023 the image carried a 37.5 MB unminified bundle and no map; it now carries ~82.5 MB across the two files, a net **+45 MB**. That was accepted deliberately — layer size is paid once per build, an unreadable stack trace is paid under time pressure. If a future change wants that 57 MB back, the honest framing is "we are trading production diagnosability for image size," not "we are removing a build artifact nobody needs." Note also that stripping the map while leaving `--minify` in place is the **worst** of the three options: it is strictly worse than the pre-mt#3023 state, which at least had readable (if unmapped) bundled traces.
+
+The build flags are deliberately identical across all three `bun build` sites (`package.json`'s `build` script, `scripts/cli-entry.ts`'s source-install self-rebuild, and this Dockerfile). They are hand-maintained today; **mt#3091** tracks removing that duplication.
+
 ## Prerequisites (one-time)
 
 1. **Railway CLI**: `brew install railway` or `bash <(curl -fsSL cli.new)`.
@@ -15,6 +30,15 @@ Minsky's MCP server is transport-agnostic — the same tool registry serves stdi
 3. **GitHub App grant for Railway**: the Railway GitHub App must be installed on `edobry/minsky` (same grant as mt#1107). Verify at <https://github.com/settings/installations>.
 4. **Auth token**: `openssl rand -hex 32` — this becomes `MINSKY_MCP_AUTH_TOKEN`. Distribute only to trusted service consumers.
 5. **Supabase Postgres URL**: the same connection string Minsky uses locally. Copy from `~/.config/minsky/config.yaml` (the `persistence.postgres.connectionString` field) or your local env.
+
+> **Getting a Railway dashboard URL: use `railway open --print`, not a hand-composed URL
+> (mt#3142).** `railway open --print` prints the dashboard URL for the linked project/service
+> without opening a browser — use it whenever a doc, ask, or runbook needs to send an operator to
+> the Railway console. A hand-composed `https://railway.com/project/<id>` **returns 404**: the
+> working URL requires an `?environmentId=<id>` query parameter that a bare project-id URL omits.
+> This bit an operator-facing ask during the 2026-07-23/24 reviewer incident (mt#3142) — the link
+> was constructed by hand instead of obtained from the CLI, and the ask shipped with a dead link,
+> costing a principal round-trip during an active outage.
 
 ## First deploy
 
@@ -38,18 +62,18 @@ All production env-var state is declared in `infra/index.ts` using the Pulumi Ra
 ```bash
 cd infra
 
-# First-time setup: install deps and generate the Railway TF bridge SDK
-npm install
-PULUMI_CONFIG_PASSPHRASE="" pulumi package add terraform-provider terraform-community-providers/railway
+# One-time per machine: log in to Pulumi Cloud (the prod stack's state backend,
+# mt#2738) and install deps + regenerate the Railway TF-bridge SDK.
+pulumi login                              # https://app.pulumi.com
+pulumi install
 
-# Configure Railway token (once per machine)
-PULUMI_CONFIG_PASSPHRASE="" pulumi config set railway:token "$RAILWAY_TOKEN" --secret
+# Preview changes (dry-run). No passphrase — config secrets decrypt via your
+# Pulumi Cloud token (managed-KMS, mt#2738). railway:token comes from the
+# committed Pulumi.prod.yaml, so there's no per-machine `config set` step.
+pulumi preview --refresh --stack edobry/minsky-infra/prod
 
-# Preview changes (dry-run)
-PULUMI_CONFIG_PASSPHRASE="" pulumi preview --refresh
-
-# Apply changes
-PULUMI_CONFIG_PASSPHRASE="" pulumi up --refresh
+# Apply changes (still a manual operator step in Phase 1)
+pulumi up --refresh --stack edobry/minsky-infra/prod
 ```
 
 Pulumi:
@@ -58,6 +82,16 @@ Pulumi:
 2. Refreshes live Railway state via the TF provider's Railway API calls
 3. Computes a diff and prints it
 4. On `pulumi up`: applies creates/updates/deletes and records new state
+
+> **Backend, secrets, and CI (mt#2738).** The `prod` stack's state lives in
+> **Pulumi Cloud** (`edobry/minsky-infra/prod`), not a local `file://~` backend.
+> Config secrets are encrypted with Pulumi Cloud's **managed KMS** key (not a
+> passphrase), so `infra/Pulumi.prod.yaml` is **committed** (ciphertext) and no
+> `PULUMI_CONFIG_PASSPHRASE` is needed anywhere. CI runs `pulumi preview` on every
+> PR touching `infra/**` (`.github/workflows/infra-preview.yml`) and a daily drift
+> check (`infra-drift-cron.yml`) that opens a GitHub issue on drift. **Applying is
+> still manual** (the `pulumi up` above) — apply-on-merge is deferred to Phase 2.
+> CI authenticates via the `PULUMI_ACCESS_TOKEN` repo secret.
 
 ### Secret handling
 
@@ -73,13 +107,48 @@ To populate `~/.config/minsky/railway-secrets.json`, create it manually with the
 {
   "MINSKY_MCP_AUTH_TOKEN": "<token>",
   "MINSKY_GITHUB_APP_PRIVATE_KEY": "<private-key-pem>",
-  "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url>",
+  "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url-postgres-role>",
+  "MINSKY_APP_POSTGRES_URL": "<supabase-url-minsky-app-role>",
   "MINSKY_POSTGRES_URL": "<supabase-url>",
   "MINSKY_SESSIONDB_POSTGRES_URL": "<supabase-url>",
   "OPENAI_API_KEY": "<key>",
   "MINSKY_OAUTH_SIGNING_KEY": "<jwk-json-string>"
 }
 ```
+
+> **Two Postgres credentials since mt#2542 (least-privilege role split):** > `MINSKY_PERSISTENCE_POSTGRES_URL` in this file is the DDL-capable `postgres`
+> role — used ONLY by the deploy-keyed migrator (GitHub Actions secret) and
+> explicit local `persistence migrate`. `MINSKY_APP_POSTGRES_URL` is the
+> DML-only `minsky_app` role (`scripts/supabase-app-role.sql`) — the value the
+> runtime services' `MINSKY_PERSISTENCE_POSTGRES_URL` env var is set to (same
+> env-var NAME on the services, different role than the migrator's). Local app
+> config (`~/.config/minsky/config.yaml`) should also use the `minsky_app` URL.
+
+#### Switchover runbook (mt#2542)
+
+Because sealed vars carry `ignoreChanges: ["value"]`, changing the sealed
+source in `infra/index.ts` does NOT rotate a live service — the switch to the
+`minsky_app` credential is an explicit per-service rotation. Old and new
+credentials are both valid throughout, so each step is independently
+reversible.
+
+1. Create the role (once): `psql "$ADMIN_URL" -v app_password="$APP_PW" -f scripts/supabase-app-role.sql`,
+   then store the `minsky_app` URL as `MINSKY_APP_POSTGRES_URL` in
+   `~/.config/minsky/railway-secrets.json` and as the Pulumi secret
+   `secrets:minsky-app-postgres-url` (`pulumi config set --secret`, value via
+   stdin).
+2. Switch the reviewer service (smaller blast radius first):
+   `jq -rj '."MINSKY_APP_POSTGRES_URL"' ~/.config/minsky/railway-secrets.json | railway variables --set-from-stdin MINSKY_PERSISTENCE_POSTGRES_URL -s <reviewer-service-id> -e <reviewer-env-id>`
+   — then verify the triggered redeploy reaches SUCCESS and `/health` is 200.
+3. Switch minsky-mcp the same way; verify deploy SUCCESS + `/health`.
+4. Switch operator-local `~/.config/minsky/config.yaml` to the `minsky_app`
+   URL (local MCP/CLI/sessions).
+5. Final check: with the service credential, `CREATE TABLE` must be denied
+   (`psql "$APP_URL" -c 'CREATE TABLE probe(i int)'` → `permission denied`).
+
+**Rollback (any step):** set the service's `MINSKY_PERSISTENCE_POSTGRES_URL`
+back to the `postgres`-role URL the same way — the DDL credential remains
+valid; nothing else changes.
 
 Secret vars are stored encrypted in Pulumi config (`pulumi config set --secret secrets:<key> <value>`) and applied with Railway's sealed variable semantics. After sealing, the Railway dashboard and CLI hide the value (write-only).
 
@@ -143,6 +212,116 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
 
+## Standing deployment triggers vs `sourceImage` (mt#3142)
+
+A Railway service can hold `source.image` (an explicit image-source deploy) **and** a standing
+native GitHub deployment trigger **at the same time** — the two are independent objects on the
+service, and the trigger deploys on every push to its configured branch **independently of the
+declared source**. Declaring `source.image` (in Pulumi or the dashboard) does not disconnect,
+disable, or supersede a trigger that was registered earlier — it only changes what an _explicit_
+deploy resolves to. If the trigger is still registered, a push to the branch fires its own build,
+and if no dockerfile path is pinned for that build, Railway falls back to auto-detecting a
+Dockerfile from the repo — which is not necessarily the one the target service is supposed to run.
+
+This was the mechanism behind the 2026-07-23/24 reviewer wrong-image incident (mt#3142): the
+reviewer service (`minsky-reviewer-webhook`) had `source.image` pointing at
+`ghcr.io/edobry/minsky-reviewer:latest`, but a standing GitHub deployment trigger predating the
+image-source migration was still registered on the service. Pushes to `main` kept firing that
+trigger, which built the repo-root `Dockerfile` (the Minsky MCP server image, not the reviewer's)
+and deployed it onto the reviewer's host — so the reviewer intermittently served the wrong
+application even though its declared source was correct. `GET /health` returned 200 throughout,
+because the wrong application also serves a generic healthy response; only a reviewer-specific
+signal (e.g. `POST /retrigger` reachability, or the health body's `service` field, see the
+"Continuous monitoring" section above) could tell the two states apart.
+
+### Setting `sourceRepo: null` does not delete the trigger
+
+Setting `source.sourceRepo: null` on the Pulumi `Service` resource does **not** cascade-delete the
+standing trigger object. The trigger has its own lifecycle, independent of the `Service`
+resource's `sourceRepo`/`sourceImage` fields, and survives a Pulumi apply that clears them.
+Disconnecting the repo source through `infra/index.ts` is necessary but not sufficient to stop
+trigger-fired builds — the trigger itself has to be removed separately.
+
+### Pulumi's generated Railway SDK cannot see or manage the trigger, or `dockerfilePath`
+
+The generated Railway SDK Pulumi uses exposes no resource for the
+deployment-trigger object at all. (That SDK lives at `infra/sdks/railway/` **on a working
+machine only** — `infra/.gitignore` ignores `/sdks/`, so the path is NOT present at HEAD and a
+fresh checkout will not have it. Regenerate it with `pulumi install`, which builds the SDK from
+the `packages: railway:` declaration in `infra/Pulumi.yaml`. Gitignoring the generated SDK and
+regenerating on demand is Pulumi's own documented Local Packages guidance — see mt#2449.)
+Its full resource set is: `customDomain`, `environment`,
+`project`, `provider`, `service`, `serviceDomain`, `sharedVariable`, `tcpProxy`, `variable`,
+`variableCollection` — there is no `deploymentTrigger` resource. The `Service` resource's field
+set is: `configPath`, `cronSchedule`, `name`, `projectId`, `regions`, `rootDirectory`,
+`sourceImage`, `sourceImageRegistryUsername`, `sourceImageRegistryPassword`, `sourceRepo`,
+`sourceRepoBranch`, `volume` — there is no `dockerfilePath` field either.
+
+**Consequence:** because the provider has no `dockerfilePath` field, a Pulumi-managed `Service`
+update silently **drops** a dockerfile path that was set out-of-band (e.g. via `railway.json` or
+the dashboard) — Pulumi has no field to preserve, so it doesn't know one existed. This is the same
+failure class as mt#2352 ("Railway config-as-code does NOT field-merge `dockerfilePath`"), reached
+by a different path: mt#2352 hit it through `railway.json`, this incident hit it through Pulumi.
+
+Because Pulumi cannot represent or manage the trigger object, removing a standing trigger is
+out-of-band of `infra/index.ts`. Railway documents disconnecting the GitHub source from the
+**dashboard** (Settings → Source) as the supported way to make a service a pure image runner:
+
+- <https://docs.railway.com/deployments/github-autodeploys>
+- <https://docs.railway.com/services>
+
+### Belt-and-suspenders: `RAILWAY_DOCKERFILE_PATH`
+
+The live reviewer service also has the service variable
+`RAILWAY_DOCKERFILE_PATH=services/reviewer/Dockerfile` set. Railway documents this env var as a
+build-time override that pins the Dockerfile path for a build even when it falls back to
+auto-detection — so if a standing trigger ever fires again, the resulting build should resolve to
+the reviewer's own Dockerfile instead of the repo root. This is **vendor-documented and set, but
+has never actually been exercised by a real trigger-fired repo build** — treat it as
+strong-evidence, not live-verified, unless and until a trigger-fired build is observed picking it
+up.
+
+As of 2026-07-28 the reviewer deploy pipeline is confirmed working end-to-end through its intended
+path: `.github/workflows/deploy-reviewer.yml` deploys the reviewer on merge using a per-project
+`RAILWAY_REVIEWER_TOKEN` (mt#3251), and the deployed image digest matches
+`ghcr.io/edobry/minsky-reviewer:latest` with `/health` returning the reviewer's own identity. The
+`RAILWAY_DOCKERFILE_PATH` variable above remains a defense-in-depth measure against a
+trigger-fired build, not evidence that one has occurred.
+
+### Sequencing rule: apply the new state and verify it live before removing the old pin
+
+The incident above generalizes into a rule for the next source migration on any service: **apply
+the new source state and verify it live BEFORE removing the old pin.** A config that PINS build
+behavior — a `dockerfilePath`, a `railway.json`, a version constraint, a branch filter — must not
+be deleted until the state it is being migrated TO is live and confirmed. With the pin gone and
+the new state not yet applied, the window's behavior is the platform DEFAULT — which for a Railway
+repo-source build is the repo-ROOT Dockerfile, i.e. an entirely different application.
+
+Correct order: **apply the new state → verify it live → then remove the old pin.**
+
+"Verify it live" means reading the platform's own record of the service, not inferring from the
+declaration you just applied. Applying config and observing the intended runtime state are two
+different facts. Concretely, for a Railway source migration:
+
+```bash
+railway status --json | jq '.environments.edges[0].node.serviceInstances.edges[]
+  | select(.node.serviceName=="<service>")
+  | {source: .node.source, commit: .node.latestDeployment.meta.commitHash}'
+```
+
+- `source` must show the NEW shape (e.g. `{repo: null, image: "ghcr.io/..."}`), not the old one.
+- `commitHash: null` on the latest deployment means it came from an IMAGE; a non-null
+  `commitHash` means a REPO build still produced it — the fastest way to tell what actually
+  shipped.
+
+Then confirm the running service is the one you expect via its `/health` body, not merely a 200
+(mt#3148) — a generic 200 is served by the wrong application too.
+
+mt#3117 deleted `services/reviewer/railway.json` in the same PR that declared the reviewer service
+image-source, while the live service was still repo-source; the next unrelated merge to `main`
+fired the standing repo trigger described above, Railway fell back to the repo-root Dockerfile,
+and the Minsky MCP Server was deployed onto the reviewer host. See mem#747 for the full analysis.
+
 ## Database migrations on deploy (mt#2505)
 
 Prod schema migrations are applied by a **single, deploy-keyed step** in
@@ -164,17 +343,22 @@ Heroku/GitLab "release phase" pattern.
 
 The step needs the prod Postgres connection as a repo Actions secret:
 
-- **`MINSKY_PERSISTENCE_POSTGRES_URL`** — the SAME value as the service's sealed
-  Pulumi secret `minsky-persistence-postgres-url` (see `infra/index.ts`). The
-  bundle reads this canonical var (NOT `MINSKY_POSTGRES_URL`/`DATABASE_URL`;
-  mt#2439). The value is forwarded into the migrate container by name and is
-  never echoed; GitHub auto-masks `secrets.*` in logs.
+- **`MINSKY_PERSISTENCE_POSTGRES_URL`** — the DDL-capable `postgres` role
+  credential (Pulumi secret `minsky-persistence-postgres-url`). Since mt#2542
+  this is deliberately NOT the same value as the services' sealed var: the
+  services run as the DML-only `minsky_app` role (Pulumi secret
+  `minsky-app-postgres-url`; `scripts/supabase-app-role.sql`), so this GitHub
+  Actions secret is the only DDL credential stored in CI. The bundle reads this
+  canonical var (NOT `MINSKY_POSTGRES_URL`/`DATABASE_URL`; mt#2439). The value
+  is forwarded into the migrate container by name and is never echoed; GitHub
+  auto-masks `secrets.*` in logs.
 
 Set it with:
 
 ```bash
-# value piped from the service's own var; never printed
-railway variables --json | jq -rj '."MINSKY_PERSISTENCE_POSTGRES_URL"' \
+# value piped from the operator secret store; never printed. Do NOT copy the
+# service's live var — post-mt#2542 that's the DML role, which cannot migrate.
+jq -rj '."MINSKY_PERSISTENCE_POSTGRES_URL"' ~/.config/minsky/railway-secrets.json \
   | gh secret set MINSKY_PERSISTENCE_POSTGRES_URL --repo edobry/minsky
 ```
 
@@ -196,6 +380,36 @@ already produced an old-code-vs-new-schema skew across services (each service
 self-migrated on its own boot). mt#2505 makes the single-runner explicit; the
 expand-contract discipline is what keeps the deploy window safe.
 
+#### Extended to the reviewer's own migrations (mt#3117)
+
+The reviewer service (`minsky-reviewer-webhook`) now has its **own**
+deploy-keyed migration step — `.github/workflows/deploy-reviewer.yml`, applying
+`services/reviewer/migrations/pg` via a **separate** tracking table
+(`drizzle.__drizzle_migrations_reviewer`, mt#1967) using the same
+`MINSKY_PERSISTENCE_POSTGRES_URL` DDL-capable `postgres` credential this
+workflow uses. Same release-phase mechanism (migrate before push gates the
+deploy), independent migration tree, **same shared prod Postgres database**.
+
+The expand-contract requirement above therefore applies to reviewer migrations
+too, and for the same reason: the reviewer and the main domain read each
+other's data out-of-band (cross-service reads against the shared database —
+the reviewer's convergence-metrics / webhook-events tables and the main
+domain's `tasks` / session tables are queried by both surfaces at different
+times, not synchronized to a single deploy). A destructive reviewer migration
+(dropping/renaming a column the main domain reads, or vice versa) can break
+the other service even though the two deploy workflows are otherwise fully
+independent and run on their own schedules.
+
+**No cross-tree ordering primitive exists.** `deploy-minsky-mcp.yml` and
+`deploy-reviewer.yml` are two independent, uncoordinated release pipelines —
+each gates its OWN tree against its OWN schema state, but neither knows about
+the other's pending migrations. If a single logical change requires a
+main-tree migration and a reviewer-tree migration to land in a specific
+relative order, that ordering must be enforced MANUALLY by sequencing the two
+merges/deploys — there is no automated coupling. (This is explicitly listed as
+NOT covered by mt#3117's own recovery-layer discipline; file a task if such a
+cross-tree-ordered change is attempted and no owner exists yet.)
+
 ### Guardrails (in the workflow)
 
 - **Timeout:** the migrate container is wrapped in `timeout 600` — a hung
@@ -207,10 +421,10 @@ expand-contract discipline is what keeps the deploy window safe.
   and drizzle's high-water-mark migrator is a no-op when nothing is pending, so
   a retried run resumes safely.
 
-> **Sequencing note:** `MINSKY_AUTO_MIGRATE` still defaults ON, so the container
-> also self-migrates on boot today — redundant with this step (both are
-> idempotent), which is intentional: it keeps a backstop until the default is
-> flipped OFF in the mt#2505 follow-up, after this step is verified live.
+> **Sequencing note:** `MINSKY_AUTO_MIGRATE` now defaults **OFF** (mt#2560), so
+> the container no longer self-migrates on boot — this deploy-keyed step is the
+> sole prod migrator. Auto-migrate-on-boot remains available as an explicit
+> opt-in (`MINSKY_AUTO_MIGRATE=1`) for a local/dev/throwaway DB you solely own.
 
 ## OAuth runbook (mt#1634, shipped May 2026)
 
@@ -265,6 +479,82 @@ every 10 minutes via a scheduled GitHub Action:
 - **HTTP health endpoint** — alerts when `GET <service>/health` (or `/api/health`
   for cockpit) returns non-200 or times out (10s threshold). Catches the
   runtime-crash-after-green-build class (mt#2345).
+- **Service identity** (mt#3148) — asserts the health body's `service` field
+  matches the service being probed. Catches the wrong-application-deployed class
+  (mt#3142), which a status-code check structurally cannot see.
+
+### A bare-200 healthcheck is insufficient in this monorepo (mt#3148)
+
+Every deployed Minsky service is built from the **same repository**, so a
+misconfigured build can put a _different_ application on a service's host — and
+that application answers `GET /health` with `200 {"status":"ok"}` just as
+convincingly as the right one.
+
+This is not hypothetical. During mt#3142 the Minsky MCP server was deployed onto
+the reviewer's Railway host and served `/health` 200 for roughly an hour while
+every reviewer route 404'd. Railway's healthcheck reads the status code only, so
+**the one signal wired to alerting was the one signal that could not detect the
+fault.** The outage was found because a human noticed reviews weren't arriving.
+
+The rule this yields: **a verification probe must be able to fail.** Before
+treating a probe's output as evidence, establish that the broken state would
+produce a _different_ output. A probe whose output space does not separate the
+states you care about carries zero information — and is worse than no probe,
+because nobody investigates a green check.
+
+Concretely, every Minsky service emits a `service` field in its health body:
+
+| Service    | Health path   | `service` value   |
+| ---------- | ------------- | ----------------- |
+| cockpit    | `/api/health` | `minsky-cockpit`  |
+| minsky-mcp | `/health`     | `minsky-mcp`      |
+| reviewer   | `/health`     | `minsky-reviewer` |
+| site       | `/health`     | `minsky-site`     |
+
+`minsky-ops` has no application source and therefore no health endpoint.
+
+`minsky-mcp` **also** retains its pre-existing `server: "Minsky MCP Server"`
+key. That key is what mt#3142's own diagnosis read to identify the wrong app,
+so it was kept unchanged and `service` added alongside it — the assertion is
+additive, never a rename.
+
+Assert identity with `assertServiceIdentity()` from
+`packages/domain/src/deployment/health-identity.ts` rather than hand-rolling a
+string compare; it distinguishes _wrong application_ (a hard failure — the
+mt#3142 class) from _no identity field_ (weaker: the service may simply predate
+this contract).
+
+**`/health` persistence-liveness semantics (mt#2949):**
+
+`GET /health` on `minsky-mcp` is not a static "process is up" check — it reflects
+persistence liveness, distinguishing two very different reasons the process might
+not have a working Postgres connection:
+
+| Status | `persistence.mode` | Meaning                                                                                                                                                                                                                                                                                                                         |
+| ------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `200`  | `"connected"`      | Postgres is configured and reachable.                                                                                                                                                                                                                                                                                           |
+| `200`  | `"unconfigured"`   | No Postgres connection is configured anywhere (no `persistence.postgres.connectionString`, no `MINSKY_POSTGRES_URL`). Deliberate — the expected local/dev/offline boot path (mt#2349), and the exact state the `bundle-boot-smoke` CI gate boots in (fresh runner, no config file, no env override). Degraded but not an error. |
+| `503`  | `"unavailable"`    | A Postgres connection string WAS configured, but initialization failed at boot (migration error, unreachable DB, bad credentials). A genuine outage.                                                                                                                                                                            |
+
+Response body carries a `persistence` object with `mode` and (when not `"connected"`) a
+human-readable `reason` string, e.g.:
+
+```json
+{
+  "status": "unhealthy",
+  "persistence": {
+    "mode": "unavailable",
+    "reason": "Postgres connection is configured but persistence failed to initialize (connect ECONNREFUSED ...) — see boot logs for the underlying error. This is NOT the expected local/dev degraded mode."
+  }
+}
+```
+
+**Why this matters:** during the 2026-07-19 outage, `/health` stayed a static `200`
+regardless of persistence state, so this section's post-deploy-health-monitor (and
+Railway's own deploy-health gate) reported the service healthy while every DB-backed
+tool was dead for ~5 hours. The `503` case above is exactly the signal that class of
+outage now produces. See `packages/domain/src/persistence/health.ts`
+(`assessPersistenceHealth`) for the decision logic.
 
 **Service discovery (mt#1302):**
 

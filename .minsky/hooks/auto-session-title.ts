@@ -5,11 +5,19 @@
 // @see .minsky/hooks/registry.ts — ADR-028 Phase 2b (mt#2687): `run()` below
 //      is the dispatcher-compatible entry point invoked in-process by
 //      `./dispatch-userpromptsubmit.ts`; the standalone `main()` /
-//      `if (import.meta.main)` CLI entrypoint is unchanged. This guard's
-//      output is the one exception to the family's `additionalContext`
-//      shape — a scalar `sessionTitle` (see `GuardOutcome.sessionTitle` in
-//      `./registry.ts` and `HookOutput.hookSpecificOutput.sessionTitle` in
-//      `./types.ts`).
+//      `if (import.meta.main)` CLI entrypoint below matches every sibling
+//      guard's gate (mt#2835 — this file was the ONE registered guard whose
+//      module-level `main()` call was ungated: `main().catch(() =>
+//      process.exit(0))` ran unconditionally at import time, so the
+//      dispatcher's own dynamic `import("./auto-session-title")` re-entered
+//      an already-drained stdin via `main()`'s own `readInput()`, which
+//      eventually rejected and called `process.exit(0)` mid-dispatch-loop —
+//      killing the whole dispatcher process, silently, before any guard
+//      downstream of this one (all 14 others) ran or wrote output). This
+//      guard's output is the one exception to the family's
+//      `additionalContext` shape — a scalar `sessionTitle` (see
+//      `GuardOutcome.sessionTitle` in `./registry.ts` and
+//      `HookOutput.hookSpecificOutput.sessionTitle` in `./types.ts`).
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { existsSync, readFileSync, unlinkSync } from "fs";
@@ -102,4 +110,9 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch(() => process.exit(0));
+// Entrypoint guard: only run main() when this file is invoked as a script.
+// Dynamic imports (the dispatcher's `import("./auto-session-title")`) must
+// NOT trigger this — see the header comment (mt#2835).
+if (import.meta.main) {
+  await main();
+}

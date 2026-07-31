@@ -1,0 +1,1 @@
+ALTER TABLE "agent_transcripts" ADD COLUMN "title" text;

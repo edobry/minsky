@@ -16,6 +16,13 @@ import { cn } from "../lib/utils";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // API types — mirrors domain types without importing server code
@@ -244,8 +251,9 @@ function AddCredentialForm() {
   const providers = providersQuery.data ?? [];
 
   useEffect(() => {
-    if (providers.length > 0 && !selectedProvider) {
-      setSelectedProvider(providers[0].id);
+    const first = providers[0];
+    if (first && !selectedProvider) {
+      setSelectedProvider(first.id);
     }
   }, [providers, selectedProvider]);
 
@@ -321,30 +329,31 @@ function AddCredentialForm() {
           >
             Provider
           </label>
-          <select
-            id="cred-provider-select"
+          <Select
             value={selectedProvider}
-            onChange={(e) => {
-              setSelectedProvider(e.target.value);
+            onValueChange={(v) => {
+              setSelectedProvider(v);
               setValidateResult(null);
               setValidateError(null);
               addMutation.reset();
             }}
-            className={cn(
-              "h-9 rounded-md border border-input bg-background px-3 py-1 text-sm",
-              "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
-              "focus-visible:ring-ring focus-visible:ring-offset-2",
-              "disabled:pointer-events-none disabled:opacity-50"
-            )}
             disabled={isWorking}
-            aria-label="Select credential provider"
           >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.displayName}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              id="cred-provider-select"
+              className="h-9 rounded-md border-input bg-background px-3 text-sm"
+              aria-label="Select credential provider"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providers.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-1.5 flex-1">
@@ -620,7 +629,7 @@ function CredentialsSummaryBody({ query }: CredentialsSummaryBodyProps) {
         <span
           className={cn(
             "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
-            allConfigured ? "bg-primary" : configured > 0 ? "bg-yellow-500" : "bg-destructive"
+            allConfigured ? "bg-primary" : configured > 0 ? "bg-amber-500" : "bg-destructive"
           )}
         />
         <span className="text-sm font-medium tabular-nums">

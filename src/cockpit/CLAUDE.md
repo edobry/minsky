@@ -21,7 +21,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Server | Express (`src/cockpit/server.ts`) |
 | Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
-| Component lib | shadcn/ui (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`, `components.json`) |
+| Component lib | shadcn/ui conventions (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`). Primitives are **hand-authored** thin Radix wrappers following shadcn's documented subcomponent contracts; there is NO `components.json`, so the `shadcn add` CLI is not the mechanism here (verified mt#3347). Add a primitive by matching the house idiom in `ui/popover.tsx` / `ui/select.tsx`. |
 | Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data anywhere in `web/**` per mt#2616 + mt#2641, which migrated the last two `Rail.tsx` holdouts) |
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
@@ -62,13 +62,15 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 ## Design vocabulary
 
+**Declared design system (mt#2915).** [`docs/design-system.md`](../../docs/design-system.md) is the declared design-system artifact for cockpit: type scale, spacing-scale decision, component inventory with interaction states, status/severity color semantics (incl. the red-scarcity rule), and the icon decision. `docs/brand-system.md` remains the color/typography/motion source of truth; `design-system.md` is the layer brand-system.md explicitly defers (components, spacing, interaction states) plus the cockpit-specific type scale. Read both before a cockpit visual or component decision.
+
 **Product mode, not marketing mode.** Cockpit is a functional operator dashboard, not an editorial surface. Restrained, dense, useful. No decorative gradients, no oversized hero text, no marketing-mode typography. The aesthetic anchor is the Data-Dense Pro family (Sentry, PostHog, Grafana, Supabase, Linear) — every pixel serves operator workflow.
 
 **Dark-mode-first, elevation via surface lightness.** Cockpit uses a dark color scheme as default. Higher-elevation surfaces are LIGHTER (not shadowed). The base surface is near-black; cards sit lighter; popovers and dialogs even lighter. Shadows are decorative, not structural — use them sparingly.
 
-**Semantic tokens only.** Every color, spacing, and typography choice goes through Tailwind's semantic layer: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-muted-foreground`, `border-border`, `ring-ring`. Never raw hex. Never `bg-gray-900`. The semantic layer is what makes dark-mode-first work and what lets the design evolve without per-widget rewrites.
+**Semantic tokens only — structurally enforced (mt#2916).** Every color, spacing, and typography choice goes through Tailwind's semantic layer: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-muted-foreground`, `border-border`, `ring-ring`. Never raw hex. Never `bg-gray-900`. The semantic layer is what makes dark-mode-first work and what lets the design evolve without per-widget rewrites. This was prose-only until mt#2916 added `custom/no-raw-colors-in-cockpit` (`eslint-rules/no-raw-colors-in-cockpit.js`, declared coverage + allowlist in `eslint.config.js`): it errors on raw hex literals (always) and raw Tailwind palette classes (outside the declared exceptions below) across `src/cockpit/web/**`.
 
-**Status colors (healthy/warning) are a documented exception — raw Tailwind palette, never hex (mt#2641).** Every status widget that renders a healthy/warning indicator — `Changesets`, `McpServerStatus`, `MemoriesHealth`, `EmbeddingsPage`, and others — uses raw Tailwind palette classes for that purpose: `bg-emerald-500`/`text-emerald-500` and `bg-green-400`/`text-green-400` for healthy, `bg-amber-500`/`text-amber-500` and `bg-amber-400`/`text-amber-400` for warning. This is the BLESSED convention, not a violation of "semantic tokens only" above: that rule governs structural/surface colors (background, foreground, border) where a semantic layer is what makes dark-mode-first and per-theme evolution work. Per-status healthy/warning color is a narrower convention, already consistent across every widget that needs it, and introducing dedicated `success`/`warning` design tokens (a `tailwind.config.ts` extension plus a multi-file migration) is a bigger design-system change with no concrete driver today. Two things stay non-negotiable regardless: (a) **error states always use the semantic `destructive` token** — never a raw color like `text-red-400` (see `ErrorState`, `src/cockpit/web/components/ErrorState.tsx`); (b) **never raw hex or arbitrary values** (`bg-[#10b981]`) — only Tailwind's named palette. If the raw-color repetition ever becomes a real migration cost, or a widget needs a third distinct status, revisit as a `success`/`warning` token pair — `tailwind.config.ts` already carries adjacent prior art for that pattern (`warn.amber`, used by `Rail.tsx`'s attention badge, and the `liveness.*` scale used by session-liveness indicators).
+**Status colors (healthy/warning) are a documented exception — raw Tailwind palette, never hex (mt#2641; lint-enforced via the rule's `statusFiles`/`blessedHues` options, mt#2916).** Every status widget that renders a healthy/warning indicator — `Changesets`, `McpServerStatus`, `MemoriesHealth`, `EmbeddingsPage`, and others — uses raw Tailwind palette classes for that purpose: `bg-emerald-500`/`text-emerald-500` and `bg-green-400`/`text-green-400` for healthy, `bg-amber-500`/`text-amber-500` and `bg-amber-400`/`text-amber-400` for warning. This is the BLESSED convention, not a violation of "semantic tokens only" above: that rule governs structural/surface colors (background, foreground, border) where a semantic layer is what makes dark-mode-first and per-theme evolution work. Per-status healthy/warning color is a narrower convention, already consistent across every widget that needs it, and introducing dedicated `success`/`warning` design tokens (a `tailwind.config.ts` extension plus a multi-file migration) is a bigger design-system change with no concrete driver today. Two things stay non-negotiable regardless, and both are lint-enforced with zero exceptions: (a) **error states always use the semantic `destructive` token** — never a raw color like `text-red-400` (see `ErrorState`, `src/cockpit/web/components/ErrorState.tsx`); (b) **never raw hex or arbitrary values** (`bg-[#10b981]`) — only Tailwind's named palette, and only the emerald/green/amber families, and only in the `COCKPIT_STATUS_FILES` list declared in `eslint.config.js`. A genuinely new status-indicator widget adds itself to that list (a design decision, not a lint tweak); a widget with a legitimately different raw-color need (syntax highlighting, categorical entity badges, a third-party color convention like GitHub's PR states) gets a fully-exempted file-level entry with a recorded justification instead, per the same config block. If the raw-color repetition ever becomes a real migration cost, or a widget needs a third distinct status, revisit as a `success`/`warning` token pair — `tailwind.config.ts` already carries adjacent prior art for that pattern (`warn.amber`, used by `Rail.tsx`'s attention badge, and the `liveness.*` scale used by session-liveness indicators).
 
 **Density as a feature.** Information density is rewarded. Tighter spacing than a marketing site. Tables with row-density toggles. Compact typography in data areas. Generous whitespace ONLY where it serves scanning or focus — not as default.
 
@@ -84,7 +86,7 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 **Avoid waterfalls.** Don't sequence client-side data fetches when they can run in parallel. Use `Promise.all` for parallel fetches. Use `useQueries` for parallel TanStack Query calls. Pattern reference: `vercel-labs/react-best-practices`.
 
-**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css`) declares the CSS variable values, per shadcn/ui's `components.json` scaffold.
+**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css`) declares the CSS variable values, following shadcn/ui's documented CSS-variable convention.
 
 ## Information architecture
 
@@ -99,6 +101,32 @@ categorization for a naming problem that a doc paragraph already resolves.
 **Drill-down navigation.** Dashboard → entity detail → action → back. Breadcrumbs when depth exceeds 2. Keyboard shortcuts for back/forward. Command palette (`Cmd+K`, `src/cockpit/web/components/CommandPalette.tsx`) for cross-entity jumps when navigation depth would otherwise be tedious.
 
 ## Operator dev loop
+
+**A merged/pulled change is usually ALREADY LIVE — don't reflexively rebuild/restart (mt#2970).**
+Under a tray-supervised cockpit (`Minsky Cockpit.app`), the tray watches the source tree and
+self-updates: `cockpit-tray/src-tauri/src/watcher_web.rs` (mt#2297) auto-rebuilds the web bundle on
+`src/cockpit/web` changes, and `cockpit-tray/src-tauri/src/watcher_backend.rs` (mt#2299)
+auto-restarts the daemon on any other `src/cockpit` change. The daemon spawns from SOURCE
+(`bun run src/cli.ts`), so a restart picks up
+backend TS with no build step. Net effect: when `main` fast-forwards to a merge touching
+`src/cockpit/**`, the running cockpit reflects it within seconds — no manual `cockpit:build` or
+restart needed.
+
+- **PROBE before claiming the running cockpit is stale, or telling the operator to rebuild/restart.**
+  "It's merged, so the running cockpit must be old" is an UNVERIFIED premise — the tray has very
+  likely already applied it. Check the live daemon first: `curl http://127.0.0.1:<port>/api/tasks/<id>`
+  and confirm the changed field is present/absent. Killing a healthy daemon before reading its served
+  state destroys the evidence of whether the restart was even needed. (Premise-verification family:
+  memory `da2b73ea`; merged≠usable altitude: `427cdf15`.)
+- **Residual gap — `packages/domain`-only changes.** `watcher_backend` watches `src/cockpit` only. A
+  change confined to `packages/domain` (which the daemon imports at runtime) with NO `src/cockpit`
+  edit will NOT trigger an auto-restart. The running daemon holds the module cached in memory — Bun
+  caches ES modules, so even a dynamically-`import()`ed domain module is not re-read from disk on
+  change (eager-vs-lazy import makes no difference) — so a restart is required to pick up ANY
+  domain-only change. It stays stale until the next `src/cockpit` change or a manual restart. Probe
+  to distinguish; that is the one case a manual restart is genuinely warranted.
+- When a restart IS needed, prefer the clean primitive `restartDaemon()` (`src/cockpit/launchd.ts`)
+  over a hand `kill`/respawn.
 
 **Dev mode (recommended for active UI work):**
 
@@ -167,6 +195,34 @@ polls `/api/*` forever), wait for a known `data-testid`, save a PNG, then Read i
 playwright's browser binary is missing, install the version pinned to the bun-cached
 `playwright-core`: `bunx playwright@<ver> install chromium`.
 
+**Asserting layout geometry — a verify script, not a component test.** The guidance above is about
+LOOKING at a rendered cockpit. ASSERTING on its box model is a separate job with a separate tool.
+The component suite runs under happy-dom, which has **no layout engine**: `clientHeight`,
+`scrollHeight`, and `getBoundingClientRect()` all read 0 there (measured mt#3338), so a
+"this container scrolls" assertion cannot be written in it — only a class-name surrogate, which
+pins the CSS shape that produced correct geometry and cannot catch a regression that leaves those
+classes intact while breaking the layout (a new wrapper element, a changed breakpoint, an ancestor
+that starts clipping). That is exactly the defect class mt#3335 was.
+
+For those, add a `scripts/verify-*.ts` that drives the SAME shared dev chromium over CDP —
+`scripts/verify-cockpit-shell-scroll.ts` (mt#3338) and `scripts/verify-conversation-live-tail.ts`
+(mt#3376/mt#3445) are the worked examples, and `scripts/README.md` §Running the browser-driving
+scripts carries their shared prerequisites. This EXTENDS the chrome-devtools/CDP posture above
+rather than departing from it: same browser, same attachment, `Runtime.evaluate` instead of a
+screenshot. Playwright remains the fallback for neither of these jobs.
+
+Which to reach for:
+
+| Question | Tool |
+| --- | --- |
+| Does this render / behave / call the right handler? | component test (`bun run test:components`) |
+| Does this have the right box model — does it scroll, overflow, fit? | `scripts/verify-*.ts` over CDP |
+| What does this look like right now? | chrome-devtools-mcp on the shared canary |
+
+These verify scripts are local/operator-run, not CI jobs — CI has neither a cockpit daemon nor a
+dev chromium. Each exits 0 with a `SKIP:` line when its prerequisites are absent, so running one
+unattended is safe.
+
 **react-flow height trap:** the `<ReactFlow>` container needs an EXPLICIT
 height. Under the cockpit shell (sticky `h-14` AppHeader + `min-h-screen`
 Layout root), a `h-full` page collapses to `height:0` — a blank canvas that
@@ -181,6 +237,9 @@ the `cockpit-design` skill §Whole-system view.
 
 ## Cross-references
 
+- **`docs/design-system.md`** (mt#2915) — declared design-system artifact: type scale, spacing decision, component inventory, status/severity semantics, icon decision.
+- **`docs/brand-system.md`** — color/typography/motion source of truth; §7 carries the current cockpit token mapping.
+- **mt#2914** — design-system umbrella (declare / unify / enforce). **mt#2917** — register-unification pass that adopts `design-system.md`'s tokens across widgets.
 - **mt#1143** — Cockpit v0 umbrella
 - **mt#1144** — Shell + widget framework (DONE)
 - **mt#1145** — Agents widget (DONE)

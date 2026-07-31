@@ -20,8 +20,6 @@ import {
   rulesListCommandParams,
   rulesIndexEmbeddingsParams,
   rulesSearchCommandParams,
-  type RulesIndexEmbeddingsParams,
-  type RulesSearchParams,
 } from "./rules-parameters";
 
 /**
@@ -44,7 +42,7 @@ export function registerListSearchCommands(
     name: "index-embeddings",
     description: "Generate and store embeddings for rules (rules_embeddings)",
     parameters: rulesIndexEmbeddingsParams,
-    execute: async (params: RulesIndexEmbeddingsParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       try {
         const workspacePath = await resolveWorkspacePath({});
         const json = Boolean(params.json) || ctx?.format === "json";
@@ -113,7 +111,7 @@ export function registerListSearchCommands(
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: RulesSearchParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.search command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});

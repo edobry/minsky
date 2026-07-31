@@ -4,6 +4,16 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType, MemoryScope } from "@minsky/domain/memory/types";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 
 interface MemoriesListPayload {
   records: MemoryRecord[];
@@ -66,6 +76,15 @@ function relativeTime(date: Date | string): string {
 const TYPE_OPTIONS = ["", "user", "feedback", "project", "reference"] as const;
 const SCOPE_OPTIONS = ["", "project", "user", "cross_project"] as const;
 
+/**
+ * Control-boundary sentinel for "no filter" (mt#3347). `FilterState` keeps `""`
+ * as its unset representation — that's what the query layer expects — but Radix
+ * spells "no value" as `""`, so an item with `value=""` would render as the
+ * placeholder instead of "All types". Bridge at the boundary; don't change the
+ * state shape.
+ */
+const ALL_VALUE = "__all__";
+
 interface FilterState {
   type: MemoryType | "";
   scope: MemoryScope | "";
@@ -82,33 +101,43 @@ function FilterBar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <select
-        value={filter.type}
-        onChange={(e) => onChange({ ...filter, type: e.target.value as MemoryType | "" })}
-        className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground"
-        aria-label="Filter by type"
+      <Select
+        value={filter.type === "" ? ALL_VALUE : filter.type}
+        onValueChange={(v) =>
+          onChange({ ...filter, type: v === ALL_VALUE ? "" : (v as MemoryType) })
+        }
       >
-        <option value="">All types</option>
-        {TYPE_OPTIONS.filter(Boolean).map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="h-6" aria-label="Filter by type">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_VALUE}>All types</SelectItem>
+          {TYPE_OPTIONS.filter(Boolean).map((t) => (
+            <SelectItem key={t} value={t}>
+              {t}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      <select
-        value={filter.scope}
-        onChange={(e) => onChange({ ...filter, scope: e.target.value as MemoryScope | "" })}
-        className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground"
-        aria-label="Filter by scope"
+      <Select
+        value={filter.scope === "" ? ALL_VALUE : filter.scope}
+        onValueChange={(v) =>
+          onChange({ ...filter, scope: v === ALL_VALUE ? "" : (v as MemoryScope) })
+        }
       >
-        <option value="">All scopes</option>
-        {SCOPE_OPTIONS.filter(Boolean).map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="h-6" aria-label="Filter by scope">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_VALUE}>All scopes</SelectItem>
+          {SCOPE_OPTIONS.filter(Boolean).map((s) => (
+            <SelectItem key={s} value={s}>
+              {s}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <input
         type="text"
@@ -120,10 +149,9 @@ function FilterBar({
       />
 
       <label className="flex items-center gap-1 text-muted-foreground cursor-pointer">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={filter.excludeSuperseded}
-          onChange={(e) => onChange({ ...filter, excludeSuperseded: e.target.checked })}
+          onCheckedChange={(v) => onChange({ ...filter, excludeSuperseded: v === true })}
           className="h-3 w-3"
         />
         Hide superseded
@@ -144,6 +172,8 @@ interface MemoriesListBodyProps {
 }
 
 function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesListBodyProps) {
+  const entityIndex = useEntityIndex();
+
   if (query.isLoading || !query.data) {
     return <p className="text-xs text-muted-foreground py-8 text-center">Loading…</p>;
   }
@@ -229,9 +259,8 @@ function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesList
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-muted-foreground max-w-[220px] hidden sm:table-cell">
-                    {/* Plain text (not <Prose>): truncated single-line row — block Markdown breaks layout. mt#2556 */}
                     <span className="truncate block" title={rec.description}>
-                      {rec.description}
+                      <LinkifiedText text={rec.description} index={entityIndex} />
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-muted-foreground hidden md:table-cell">

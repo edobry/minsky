@@ -22,6 +22,7 @@ import { detectInstalledClients } from "@minsky/domain/runtime/harness-detection
 import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
 import { isInteractive } from "../../../utils/interactive";
+import { runInteractiveSetupDb } from "./setup-db";
 
 const setupParams = composeParams(
   {
@@ -44,17 +45,47 @@ const setupParams = composeParams(
       description: "Skip applying recommended agent performance settings",
       required: false,
     },
+    connectionString: {
+      schema: z.string().optional(),
+      description:
+        "Postgres connection string, used only if no connection can be inherited from " + // gitleaks:allow — placeholder, not a real credential
+        "existing config (otherwise captured via the setup db wizard)",
+      required: false,
+    },
+    yes: {
+      schema: z.boolean().optional(),
+      description: "Skip the DB-setup confirmation prompt if the interactive wizard runs",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 
-export function registerSetupCommands() {
+/**
+ * Test seam: dependency overrides for `setup`. Production callers leave this undefined;
+ * tests inject mocks to avoid touching the filesystem, config loader, or a live DB.
+ */
+export interface SetupCommandDeps {
+  performSetup?: typeof performSetup;
+  runInteractiveSetupDb?: typeof runInteractiveSetupDb;
+}
+
+export function registerSetupCommands(deps: SetupCommandDeps = {}) {
+  const performSetupFn = deps.performSetup ?? performSetup;
+  const runInteractiveSetupDbFn = deps.runInteractiveSetupDb ?? runInteractiveSetupDb;
+
+  // When called with explicit deps (i.e., from tests), allow overwrite so each test
+  // re-registers cleanly. Production calls pass no deps and register exactly once.
+  const allowOverwrite =
+    deps.performSetup !== undefined || deps.runInteractiveSetupDb !== undefined;
+
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "setup",
       category: CommandCategory.INIT,
       name: "setup",
       description:
-        "Set up developer-local configuration for Minsky (MCP registration + local config)",
+        "Set up developer-local configuration for Minsky (MCP registration + local config + " +
+        "DB connection inheritance)",
       parameters: setupParams,
       requiresSetup: false,
       execute: async (params, _ctx) => {
@@ -97,7 +128,7 @@ export function registerSetupCommands() {
             }
           }
 
-          const result = await performSetup({ repoPath, client, overwrite });
+          const result = await performSetupFn({ repoPath, client, overwrite });
 
           // Apply recommended agent performance settings unless skipped
           const agentSettingsMessages: string[] = [];
@@ -146,12 +177,40 @@ export function registerSetupCommands() {
           const agentSettingsSuffix =
             agentSettingsMessages.length > 0 ? `\n${agentSettingsMessages.join("\n")}` : "";
 
+          // DB-connection inheritance/confirmation (mt#2502): reuse an already-configured
+          // Postgres connection when the config loader resolves one (typically left in user
+          // config by a prior project); otherwise fall into the interactive `setup db` wizard
+          // inline so a new project on the unified instance needs zero database thought.
+          // `setup db` remains available standalone for explicit/non-interactive use.
+          const dbMessages: string[] = [];
+          const { dbConnection } = result;
+          if (dbConnection.found && dbConnection.connectivity?.ok) {
+            dbMessages.push(
+              `Using existing Postgres connection from ${dbConnection.source} (connectivity verified).`
+            );
+          } else {
+            if (dbConnection.found && dbConnection.connectivity && !dbConnection.connectivity.ok) {
+              dbMessages.push(
+                `Found a Postgres connection in ${dbConnection.source}, but it did not pass a ` +
+                  `connectivity check (${dbConnection.connectivity.error ?? "unknown error"}) — ` +
+                  `falling back to interactive database setup.`
+              );
+            }
+            const dbResult = await runInteractiveSetupDbFn({
+              connectionString: params.connectionString,
+              yes: params.yes,
+            });
+            dbMessages.push(dbResult.message);
+          }
+          const dbSuffix = dbMessages.length > 0 ? `\n${dbMessages.join("\n")}` : "";
+
           return {
             success: result.success,
-            message: result.message + agentSettingsSuffix,
+            message: result.message + agentSettingsSuffix + dbSuffix,
             localConfigPath: result.localConfigPath,
             harnessConfigPath: result.harnessConfigPath,
             client: result.client,
+            dbConnection: result.dbConnection,
           };
         } catch (error: unknown) {
           throw error instanceof ValidationError
@@ -159,6 +218,7 @@ export function registerSetupCommands() {
             : new ValidationError(getErrorMessage(error));
         }
       },
-    })
+    }),
+    { allowOverwrite }
   );
 }

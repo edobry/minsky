@@ -20,16 +20,51 @@ with no MCP alternative.
 
 Each tool below maps to the deadlock-class it was added to unblock.
 
-| MCP Tool                      | Underlying git command                     | Deadlock class unblocked                                | Requires confirmation?                                |
-| ----------------------------- | ------------------------------------------ | ------------------------------------------------------- | ----------------------------------------------------- |
-| `mcp__minsky__git_pull`       | `git pull --ff-only <remote> <branch>`     | Pull blocked by local changes; non-FF rejection         | No (safe default; structural error on conflict)       |
-| `mcp__minsky__git_status`     | `git status --porcelain=v2 --branch`       | Blind to working-tree state when diagnosing blocks      | No (read-only)                                        |
-| `mcp__minsky__git_stash`      | `git stash push [-m msg] [-- paths]`       | Local changes blocking pull or rebase                   | No                                                    |
-| `mcp__minsky__git_stash_pop`  | `git stash pop [ref]`                      | Restoring stashed changes after pull succeeds           | No                                                    |
-| `mcp__minsky__git_stash_list` | `git stash list --format=...`              | Auditing stash stack before pop/drop                    | No (read-only)                                        |
-| `mcp__minsky__git_stash_drop` | `git stash drop <ref>`                     | Discarding a stash entry permanently                    | Yes: `confirmDrop: true` required                     |
-| `mcp__minsky__git_restore`    | `git restore -- <paths>`                   | Discarding a single file's unstaged changes             | No (paths-scoped; less destructive than reset --hard) |
-| `mcp__minsky__git_reset`      | `git reset --{soft\|mixed\|hard} <target>` | Unstaging changes, moving HEAD, discarding working-tree | `confirmHard: true` required for `mode: "hard"`       |
+| MCP Tool                       | Underlying git command                          | Deadlock class unblocked                                                   | Requires confirmation?                                                  |
+| ------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `mcp__minsky__git_pull`        | `git pull --ff-only <remote> <branch>`          | Pull blocked by local changes; non-FF rejection                            | No (safe default; structural error on conflict)                         |
+| `mcp__minsky__git_status`      | `git status --porcelain=v2 --branch`            | Blind to working-tree state when diagnosing blocks                         | No (read-only)                                                          |
+| `mcp__minsky__git_stash`       | `git stash push [-m msg] [-- paths]`            | Local changes blocking pull or rebase                                      | No                                                                      |
+| `mcp__minsky__git_stash_pop`   | `git stash pop [ref]`                           | Restoring stashed changes after pull succeeds                              | No                                                                      |
+| `mcp__minsky__git_stash_list`  | `git stash list --format=...`                   | Auditing stash stack before pop/drop                                       | No (read-only)                                                          |
+| `mcp__minsky__git_stash_drop`  | `git stash drop <ref>`                          | Discarding a stash entry permanently                                       | Yes: `confirmDrop: true` required                                       |
+| `mcp__minsky__git_restore`     | `git restore -- <paths>`                        | Discarding a single file's unstaged changes                                | No (paths-scoped; less destructive than reset --hard)                   |
+| `mcp__minsky__git_reset`       | `git reset --{soft\|mixed\|hard} <target>`      | Unstaging changes, moving HEAD, discarding working-tree                    | `confirmHard: true` required for `mode: "hard"`                         |
+| `mcp__minsky__git_repair_lock` | inspects `.git/index.lock`, `rm` when stale     | An abandoned `index.lock` blocking every write op                          | `confirm: true` required for removal (read-only diagnostic otherwise)   |
+| `mcp__minsky__git_repair_refs` | `git update-ref -d <ref>` + `git fetch --prune` | A corrupt/stale remote-tracking ref (`fatal: bad object refs/remotes/...`) | `confirm: true` required for repair (read-only scan/identify otherwise) |
+
+Every write-class tool above (`git_pull`/`git_status`/`git_stash`/`git_stash_pop`/
+`git_restore`/`git_reset`) also accepts an optional `repairLock: boolean` param
+(mt#2820): when `true`, a blocked `.git/index.lock` is auto-repaired
+(confirm-gated internally — only removed when provably stale) and the
+operation retried once; when omitted, a lock-blocked call throws an enriched
+error (age + owning-process liveness) pointing at `git_repair_lock` instead of
+the raw git fatal.
+
+### `git_status` upstream fields (mt#3164)
+
+`git_status` returns `upstream`, `ahead`, and `behind`, and **all three are
+nullable**:
+
+| Branch state                  | `upstream`     | `ahead` / `behind` |
+| ----------------------------- | -------------- | ------------------ |
+| No upstream configured        | `null`         | `null` / `null`    |
+| Upstream configured, in sync  | `"origin/foo"` | `0` / `0`          |
+| Upstream configured, diverged | `"origin/foo"` | e.g. `2` / `3`     |
+
+**`null` means the question does not apply, not zero.** Git emits its
+ahead/behind record only when the branch has an upstream, so before mt#3164
+these defaulted to `0` — making a branch that had never been pushed report the
+same `ahead: 0, behind: 0` as one perfectly in sync. That ambiguity is how three
+branches sat committed-but-unpushed without it being visible in tool output.
+
+Consumers must not coerce `null` to `0`; doing so rebuilds the ambiguity one
+layer up. To test "is my work pushed?", check `upstream !== null` first, then the
+counts.
+
+Note `upstream: null` does not strictly prove "never pushed" — a branch pushed
+without `-u`, created with `--no-track`, or whose upstream ref was deleted also
+has none. It reliably means git has nothing to compare against.
 
 ---
 
@@ -157,6 +192,183 @@ For simple lock-file drift (when the local content is not worth preserving),
 
 ---
 
+## Git-State Repair Affordances (mt#2820)
+
+MCP git tools used to relay raw git fatals for repairable repo-state
+problems verbatim, forcing ad hoc shell forensics (`ls -la` + `ps aux` +
+manual `rm`, or a raw `git update-ref -d` via `session_exec`). mt#2820 added
+detection + confirm-gated repair for the two most common cases, covering
+BOTH the main workspace and session workspaces (these tools operate on
+whatever `repo`/`session` path resolves — there is nothing main-workspace-
+specific about the repair logic itself).
+
+### Stale `index.lock` detection and repair
+
+A git write operation (`restore`/`reset`/`commit`/`stash`) fails hard when
+`.git/index.lock` already exists (`fatal: Unable to create '.../index.lock':
+File exists`). That lock is legitimate while another git process is
+genuinely running, but can also be **abandoned** — left behind by a process
+that was killed or crashed mid-write. `git_repair_lock` distinguishes the
+two:
+
+- **Age**: how long the lock file has existed (from its mtime).
+- **Owning-process liveness**: primary signal `lsof -t -- <lockfile>` (a
+  live process holding the lock keeps a file descriptor open on it —
+  the strongest possible signal); secondary signal a running `git` process
+  whose command line references the repo path (covers the narrow window
+  between lock acquisition and first write). If NEITHER probe answers
+  conclusively, liveness is `undetermined` and repair refuses for safety.
+
+A lock is removed ONLY when **both** conditions hold: no live owning process
+AND age >= `LOCK_STALE_THRESHOLD_MS` (10 minutes, grounded in the mt#2820
+incident data — the originating lock was zero-byte and ~22 hours old when
+discovered; every git\_\* main-workspace op this repairs is a short local
+operation that never legitimately holds the lock anywhere near that long).
+A lock held by a live process is reported busy and never removed, regardless
+of the `confirm` param. The 10-minute default can be overridden per-call via
+`staleThresholdMs` (ms) on `git_repair_lock`, for environments whose
+legitimate git\_\* operations routinely run longer or shorter than the
+incident-grounded default.
+
+**Liveness determination (PR #1986 R1).** Only `lsof -t -- <lockfile>` —
+which inspects the lock file's own open file descriptors directly — is
+trusted to declare "not live"; a clean run finding zero holders is
+self-sufficient. The secondary `ps`-based probe (scanning for a running
+`git` process whose command line references the repo path) is
+**positive-only**: a match adds an extra "live" signal, but the absence of a
+match is never used to confirm "not live," since command-line substring
+matching is unreliable (a process invoked with a relative path, or already
+`cd`'d into the repo with no `-C <path>` argument, has no textual reference
+to the repo path at all). If `lsof` itself can't run cleanly (missing,
+denied, erroring), liveness is `undetermined` regardless of what `ps` finds
+— repair refuses rather than trusting the weaker signal alone.
+
+**Pre-unlink TOCTOU guard (PR #1986 R1).** Between diagnosis and removal, a
+legitimate process could have replaced the lock (finished, cleaned up, and a
+new operation acquired a fresh lock at the same path) or newly acquired the
+still-same lock. `git_repair_lock`'s repair path re-stats the lock
+immediately before unlinking — comparing inode, device, and mtime against
+the diagnosis snapshot — and re-runs the liveness check one more time,
+aborting on ANY change rather than trusting the earlier snapshot.
+
+```
+1. Diagnose (read-only):
+   mcp__minsky__git_repair_lock { repo: "/path/to/repo" }
+   → { present: true, staleEligible: true, ageMs: 660000, liveProcess: false, ... }
+
+2. Repair (mutating):
+   mcp__minsky__git_repair_lock { repo: "/path/to/repo", confirm: true }
+   → { removed: true, ... }
+```
+
+Every write-class git\_\* tool also accepts `repairLock: true` directly, to
+repair-then-retry the original operation in one call instead of a separate
+diagnose/repair/retry round-trip.
+
+### Corrupt/stale remote-ref repair
+
+A remote-tracking ref (`refs/remotes/origin/<branch>`) can point at an
+object that no longer resolves — surfacing as `fatal: bad object
+refs/remotes/origin/<branch>` on any command that touches it. `git_repair_refs`
+identifies the ref (`git log -1 <ref>`, which — unlike `git cat-file -e`,
+whose `-e` mode is silent by design — surfaces this exact diagnostic text),
+and, with `confirm: true`, repairs it: `git update-ref -d <ref>` followed by
+`git fetch <remote> --prune` to re-create the ref from upstream if it still
+legitimately exists there. The repair refuses (throws) if the named ref
+turns out to be healthy — it never deletes a ref that isn't actually
+corrupt.
+
+```
+1. Scan (read-only, no ref specified — enumerates refPrefix, default refs/remotes/origin):
+   mcp__minsky__git_repair_refs { repo: "/path/to/repo" }
+   → { scanned: true, results: [{ ref: "...", bad: false }, ...] }
+
+2. Identify a specific ref:
+   mcp__minsky__git_repair_refs { repo: "/path/to/repo", ref: "refs/remotes/origin/task/mt-2304" }
+   → { bad: true, error: "fatal: bad object refs/remotes/origin/task/mt-2304" }
+
+3. Repair (mutating):
+   mcp__minsky__git_repair_refs { repo: "/path/to/repo", ref: "refs/remotes/origin/task/mt-2304", confirm: true }
+   → { deleted: true, refetched: true }
+```
+
+### Root cause of the originating incident
+
+The mt#2820 investigation traced the abandoned-lock incident to a burst of
+`staleness_exit` MCP server respawns (mt#1315's stale-source mechanism)
+during the lock's creation window — evidenced in
+`~/.local/state/minsky/mcp-disconnect-log.json`. `mt#2701`'s single-process
+staleness-drain (`triggerStaleSignal`/`scheduleStaleExitAfterDrain` in
+`src/mcp/server.ts`) already prevents an in-flight tool call's OWN git
+subprocess from being orphaned by ITS process exiting — but has no
+visibility across separate MCP server processes. `git-params-facade.ts`'s
+`defaultExecDeps` now bounds every git\_\* subprocess to a 60s timeout (there
+was previously none), giving git's own SIGTERM-triggered lockfile cleanup a
+chance to fire on a hang rather than running unbounded. The residual
+cross-process race (two respawned MCP server processes both writing to the
+same repo's `index.lock` during a rapid respawn burst) was tracked
+separately in mt#2886, which investigated and closed it — see below.
+
+### Cross-process mutual exclusion for the residual race (mt#2886)
+
+mt#2886 investigated whether the residual cross-process race — a dying MCP
+server process's untracked/fire-and-forget git subprocess still winding
+down, overlapping with a freshly spawned sibling process's new `git_*`
+call against the SAME repo — is actually reachable, and if so, closed it.
+
+**Investigation (CONFIRMED reachable).** A dual-mode repro harness
+(`scripts/repro-mt2886-lock-race.ts`) reproduced the class two ways against
+a scratch git repository (never the main workspace):
+
+1. **Natural race**: two independent OS processes running tight commit
+   loops against the same repo concurrently produced raw `index.lock: File
+exists` collisions even at modest iteration counts — confirming the
+   underlying mechanism (`.git/index.lock`'s `O_CREAT|O_EXCL` acquire) is a
+   real, observable race between any two independent processes, not merely
+   theoretical.
+2. **Controlled residual-window reproduction**: a process holding
+   `.git/index.lock` open for a short window (simulating a dying process's
+   still-winding-down subprocess) reliably caused an immediately-following
+   git write from a second process (simulating the freshly spawned
+   sibling's new call) to fail raw — deterministically demonstrating the
+   exact scenario this task's spec named.
+
+Note: mt#2830 (merged the same day as this task's plan decision,
+2026-07-17) added idle-gap-sequenced staleness exits, which NARROWS the
+naive respawn-churn overlap window mt#2886's spec evidence originally
+described. It does not CLOSE the cross-process gap — a fresh process's call
+can still race a winding-down process's untracked subprocess — so the
+harness models this residual window, not the pre-mt#2830 naive churn.
+
+**Mechanism shipped: bounded retry-backoff, not a second lock.**
+`runGitCommandWithLockHandling` (`packages/domain/src/git/lock-operations.ts`)
+now retries a lock-blocked command up to 3 times over a ~2s backoff
+schedule (`LOCK_RETRY_BACKOFF_MS`) BEFORE falling through to the existing
+(unchanged) `repairLock`/actionable-busy-error handling. This treats
+`.git/index.lock`'s own existence as the mutex — every git process,
+Minsky-internal or external, already honors it via git's own locking
+protocol — rather than introducing a second lock (an OS `flock`, or a
+lease file under `~/.local/state/minsky/`) that would only coordinate
+Minsky-internal processes while leaving the actually-contended resource
+guarded by a mechanism external git processes ignore.
+
+**Non-regression preserved.** A genuinely persistent lock hold (an actual
+external git process, or a wedged one) still surfaces the SAME actionable
+busy error as before — just bounded by the ~2s retry budget rather than
+firing instantly. The repro harness's Phase 4 confirms this: a 6-second
+external-style hold still produces the busy error, bounded at ~2-2.5s
+elapsed (not immediate, not indefinite, not silently swallowed).
+
+Both `retryBackoffMs` and the internal `sleep` function are injectable on
+`LockAwareExecOptions` for testability; production callers use the
+defaults. Scope: the same write-class `git_*` main-workspace-ops family as
+mt#2820 (status/restore/pull/stash+pop/reset) — `lock-operations.ts` coexists
+with (does not replace) the detect/repair tooling, which remains the
+correct response to a lock from ANY cause, not just this specific
+Minsky-internal race.
+
+---
+
 ## Cross-References
 
 - mt#1509 — live deadlock evidence trail (2026-05-01)
@@ -170,3 +382,23 @@ For simple lock-file drift (when the local content is not worth preserving),
 - `src/domain/git/status-operations.ts` — `statusImpl`
 - `src/domain/git/mt1509-deadlock.test.ts` — integration test reproducing the scenario
 - `.claude/hooks/block-git-gh-cli.ts` — denial messages point at the new tools
+- mt#2820 — git-state repair affordances (index.lock detection/repair, remote-ref
+  repair, git-exec timeout hardening); evidence trail: conversations 4b019e33,
+  3c8cd612 (lock), c01f89af (bad ref)
+- mt#2886 — cross-process mutual exclusion for the residual root-cause gap
+  mt#2820's investigation surfaced but did not close: confirmed the race is
+  reachable and shipped a bounded retry-backoff (see the dedicated section
+  above)
+- mt#2830 — idle-gap-sequenced staleness exits (narrows, but does not close,
+  the respawn-churn overlap window mt#2886's harness models)
+- `packages/domain/src/git/lock-operations.ts` — `detectIndexLock`,
+  `repairIndexLock`, `runGitCommandWithLockHandling`, `LOCK_RETRY_BACKOFF_MS`
+- `packages/domain/src/git/lock-operations.test.ts` — retry-backoff unit
+  tests with injectable clock (transient-resolves, persistent-exhausts-budget,
+  non-lock-errors-not-retried)
+- `packages/domain/src/git/ref-repair-operations.ts` — `checkRef`,
+  `scanForBadRefs`, `repairBadRef`
+- `scripts/smoke-git-repair.ts` — end-to-end smoke covering all three mt#2820
+  acceptance tests through the full command-registry execute path
+- `scripts/repro-mt2886-lock-race.ts` — dual-mode cross-process race repro
+  harness (race-reachability + fixed-behavior, against a scratch repo)

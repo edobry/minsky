@@ -4,6 +4,7 @@
 
 import { ValidationError } from "@minsky/domain/errors/index";
 import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "@minsky/domain/git/conventional-commit-types";
+import { assertValidPrTitle } from "@minsky/domain/session/validation/title-validation";
 
 // Allow leading whitespace so titles like `"  mt#1265: foo"` are detected and
 // stripped — without `\s*` the strip + mismatch checks silently fail.
@@ -135,6 +136,17 @@ export function composeConventionalTitle(input: {
       taskId && titlePrefix ? "after removing the task-ID prefix" : "after trimming whitespace";
     throw new ValidationError(`Title cannot be empty ${detail}. Provide a description.`);
   }
+
+  // Validate the description-only portion (length/newlines/markdown/multi-
+  // sentence) with the SAME validator used everywhere a description-only
+  // title is accepted. This function is the single call site shared by both
+  // `session_pr_create` and `session_pr_edit` (mt#2821) — validating here,
+  // rather than duplicating the check at each command's call site, is what
+  // guarantees the same title string is valid-or-invalid identically at both
+  // entry points. Applied to `strippedTitle` (post task-ID-prefix removal,
+  // pre auto-prefix) since the length budget is about what the USER typed,
+  // not the `type(scope): ` prefix the tool adds on top.
+  assertValidPrTitle(strippedTitle);
 
   // Compute the prefix that will be auto-added so the error message can name it
   const scope = taskId ? `(${taskId})` : "";

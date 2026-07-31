@@ -21,11 +21,13 @@ import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-ca
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
+import { hostname } from "os";
 import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
   enrichWakeResponse,
@@ -398,11 +400,60 @@ export class MinskyMCPServer {
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
+  // True ONLY during a genuine graceful shutdown initiated by `drain()`
+  // (the SIGTERM/SIGINT signal path in start-command.ts). New tool calls are
+  // rejected while this is true (see the `tools/call` handler gate) because
+  // the process really is going away and accepting new work would just be
+  // discarded.
+  //
+  // mt#2830: staleness-exit does NOT set this flag — see `pendingStaleExit`
+  // below. Sharing this flag between the two mechanisms was the bug: a
+  // staleness-triggered drain used to set `draining = true`, which caused
+  // every NEW tool call arriving during the drain window to be rejected with
+  // `Error("Server is shutting down")` (surfaced to callers as MCP error
+  // -32603) even though the process had not decided to exit yet and the old
+  // code was still fully able to serve the request.
   private draining = false;
   private nextRequestId = 0;
 
+  // mt#1884: injectable per-tool dispatch latency emitter. Defaults to the shared
+  // Braintrust emitter; overridable in tests (instance-field DI) so latency
+  // instrumentation can be asserted without a global module mock
+  // (custom/no-global-module-mocks).
+  private emitDispatchEvent: typeof emitBraintrustEvent = emitBraintrustEvent;
+
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
+  // mt#2830: set by `triggerStaleSignal` instead of `draining`. Signals that
+  // the process intends to exit once genuinely idle, WITHOUT rejecting new
+  // tool calls in the meantime — new requests arriving during this window are
+  // served normally (on the currently-loaded, "old" code; the freshness
+  // guarantee only applies to calls made AFTER the process actually exits and
+  // is respawned by the stdio proxy). `scheduleStaleExitAfterDrain` polls
+  // `inFlightRequests` for the first idle gap; `staleDrainCapMs` bounds how
+  // long a continuously-busy server can postpone the exit.
+  private pendingStaleExit = false;
+  // mt#2830 R1 fix: set the MOMENT the exit decision is taken (the poll
+  // observes `inFlightRequests.size === 0`, or the hard cap elapses) —
+  // synchronously, in the SAME tick as that observation, with no `await`
+  // in between. Closes a race the R1 review found: `pendingStaleExit` alone
+  // admits new requests for the ENTIRE drain window, including the final
+  // `FLUSH_BUFFER_MS` gap between "idle observed" and the actual
+  // `process.exit(0)` — a request admitted in that gap would start
+  // executing and then have the process die out from under it (worse than
+  // the pre-fix -32603: a silently killed in-flight call instead of an
+  // immediate, clear rejection the caller can retry). Once `exitCommitted`
+  // is true the `tools/call` handler's gate rejects new admissions exactly
+  // like `draining` does — the decision to exit is final at that point, so
+  // there is nothing left to gain by admitting more work, and the
+  // FLUSH_BUFFER_MS gap exists solely to let the transport flush already-
+  // sent bytes, not to accept new requests.
+  private exitCommitted = false;
+
+  // mt#2701: max time to wait for in-flight tool calls to drain before a
+  // staleness exit force-terminates. Overridable in tests. A wedged request
+  // cannot keep a stale server alive past this cap.
+  private staleDrainCapMs = 30_000;
 
   /**
    * Disconnect/reconnect event tracker for cadence measurement (mt#1645).
@@ -980,7 +1031,18 @@ export class MinskyMCPServer {
     // Call tool
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/call", request, extra);
-      if (this.draining) {
+      // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets `draining`
+      // — staleness-exit sets `pendingStaleExit` instead, deliberately NOT
+      // that flag, so a tool call arriving during the EARLY staleness drain
+      // window is served normally instead of being rejected here (mt#2830).
+      // `exitCommitted`, in contrast, IS checked here: once the exit decision
+      // is taken (the idle gap is observed, or the hard cap elapses) there is
+      // a short flush-buffer gap before process.exit(0) actually fires, and a
+      // request admitted into THAT gap would be killed mid-execution rather
+      // than cleanly rejected — worse than the original -32603 bug. See the
+      // `exitCommitted` field comment and `scheduleStaleExitAfterDrain` for
+      // where it is set (mt#2830 R1 fix).
+      if (this.draining || this.exitCommitted) {
         throw new Error("Server is shutting down");
       }
 
@@ -1002,6 +1064,17 @@ export class MinskyMCPServer {
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
       const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
+
+      // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
+      // Start timestamp captured at dispatch entry; the event is emitted once in the
+      // `finally` below so it fires on both success and error paths. `outcome` defaults
+      // to "error" and is flipped to "success" immediately before the successful return;
+      // `error_class` is captured in the inner catch. This is the Phase-1 flat-event
+      // level of the mt#1778 trace-shape program (Phase-2 turn/step spans = mt#1837,
+      // which must first extend the flat-only shared emitter).
+      const dispatchStartMs = Date.now();
+      let dispatchOutcome: "success" | "error" = "error";
+      let dispatchErrorClass: string | undefined;
 
       try {
         const tool = this.tools.get(request.params.name);
@@ -1093,6 +1166,16 @@ export class MinskyMCPServer {
             });
           });
 
+          // mt#2284: Write session-grain runtime-attachment claim (fire-and-forget).
+          // Session-SCOPED (unlike writeTaskClaim) — requires a resolvable session,
+          // same resolution priority as writeAgentIdToSession.
+          this.writeSessionAttachment(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("session attachment write failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
+
           // Convert result to proper MCP tool response format
           let responseText: string;
 
@@ -1140,6 +1223,7 @@ export class MinskyMCPServer {
           );
 
           // Return MCP-compliant tool response
+          dispatchOutcome = "success";
           return {
             content: [
               {
@@ -1151,6 +1235,7 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          dispatchErrorClass = error instanceof Error ? error.name : typeof error;
           // mt#1831: surface the underlying `.cause` chain so operators can
           // discriminate stale-connection failures (ECONNRESET, Connection
           // terminated) from real DB errors (schema mismatch, constraint
@@ -1181,8 +1266,39 @@ export class MinskyMCPServer {
           }
           throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
+      } catch (dispatchError) {
+        // mt#1884: capture error_class for pre-dispatch throws (e.g. unknown tool)
+        // that bypass the inner catch, so the emitted latency event's error shape is
+        // consistent across all failure paths. The inner catch already sets
+        // dispatchErrorClass on the handler-throw path; only fill it when still unset.
+        if (dispatchErrorClass === undefined) {
+          dispatchErrorClass =
+            dispatchError instanceof Error ? dispatchError.name : typeof dispatchError;
+        }
+        throw dispatchError;
       } finally {
         this.inFlightRequests.delete(trackingId);
+
+        // mt#1884: emit the per-tool dispatch latency event (fire-and-forget).
+        // `void` preserves the handler's control flow; the shared emitter never
+        // throws and silently no-ops when Braintrust is unconfigured (e.g. CI).
+        const dispatchDurationMs = Date.now() - dispatchStartMs;
+        void this.emitDispatchEvent({
+          output: {
+            tool_name: request.params.name,
+            duration_ms: dispatchDurationMs,
+            outcome: dispatchOutcome,
+            ...(dispatchErrorClass ? { error_class: dispatchErrorClass } : {}),
+          },
+          metadata: {
+            request_id: String(trackingId),
+            // The session/peer dimension (active-sessions count) is deferred to
+            // mt#2289, which designs it deliberately; a per-connection identifier
+            // is intentionally NOT emitted here (reviewer note on PR #2200).
+            source: "minsky.mcp.server",
+            timestamp: new Date(dispatchStartMs).toISOString(),
+          },
+        });
       }
     });
 
@@ -1447,28 +1563,8 @@ export class MinskyMCPServer {
    * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
   private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
-    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
-    // or build per-call from the container (resilient fallback — mirrors
-    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
-    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
-    // servers, leaving presenceClaimRepo unset and making every call a no-op.
-    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
-    if (!repo) {
-      if (!this.container?.has("persistence")) return;
-      try {
-        const persistence = this.container.get("persistence") as {
-          getDatabaseConnection?: () => Promise<unknown>;
-        };
-        if (!persistence.getDatabaseConnection) return;
-        const db = await persistence.getDatabaseConnection();
-        if (!db) return;
-        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
-        repo = buildPresenceClaimRepository(db);
-        if (!repo) return;
-      } catch {
-        return; // fail silently — presence tracking is best-effort
-      }
-    }
+    const repo = await this.getPresenceClaimRepo();
+    if (!repo) return;
 
     const taskId =
       (typeof args.task === "string" ? args.task : undefined) ||
@@ -1482,34 +1578,7 @@ export class MinskyMCPServer {
     const subjectId = normalizeTaskSubjectId(taskId);
     if (!subjectId) return;
 
-    // Resolve project scope (best-effort; fail silently on error)
-    let projectId: string | undefined;
-    try {
-      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-      if (identity.kind === "resolved" && this.container?.has("persistence")) {
-        const persistence = this.container.get("persistence") as {
-          getDatabaseConnection?: () => Promise<unknown>;
-        };
-        if (persistence.getDatabaseConnection) {
-          const rawDb = await persistence.getDatabaseConnection();
-          if (rawDb) {
-            const scope = await resolveProjectScope(
-              identity,
-              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-            );
-            const { isAllProjects } = await import("@minsky/domain/project/scope");
-            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
-            if (!isAllProjects(scope)) {
-              projectId = scope;
-            }
-          }
-        }
-      }
-    } catch {
-      // Fail silently — project scope is informational for presence
-    }
+    const projectId = await this.resolveProjectIdBestEffort();
 
     // Capture the caller's CC conversation id (best-effort from environment)
     const ccConversationId =
@@ -1529,13 +1598,202 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Emit a notifications/message at level=alert and schedule a clean process.exit(0)
-   * after 200ms to give the notification time to flush to the client.
+   * mt#2284: resolve the presence-claim repository, fast-path or per-call
+   * (mirrors the pre-set-vs-container-build pattern buildAskRepository uses).
+   * Shared by writeTaskClaim (mt#2562) and writeSessionAttachment (mt#2284).
+   */
+  private async getPresenceClaimRepo(): Promise<PresenceClaimRepository | null> {
+    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
+    // or build per-call from the container (resilient fallback — mirrors
+    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
+    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
+    // servers, leaving presenceClaimRepo unset and making every call a no-op.
+    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
+    if (!repo) {
+      if (!this.container?.has("persistence")) return null;
+      try {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (!persistence.getDatabaseConnection) return null;
+        const db = await persistence.getDatabaseConnection();
+        if (!db) return null;
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        repo = buildPresenceClaimRepository(db);
+        if (!repo) return null;
+      } catch {
+        return null; // fail silently — presence tracking is best-effort
+      }
+    }
+    return repo;
+  }
+
+  /**
+   * mt#2284: resolve the caller's project scope, best-effort (shared by
+   * writeTaskClaim and writeSessionAttachment). Fails silently — project
+   * scope is informational for presence, never a hard requirement.
+   */
+  private async resolveProjectIdBestEffort(): Promise<string | undefined> {
+    try {
+      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+      if (identity.kind === "resolved" && this.container?.has("persistence")) {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (persistence.getDatabaseConnection) {
+          const rawDb = await persistence.getDatabaseConnection();
+          if (rawDb) {
+            const scope = await resolveProjectScope(
+              identity,
+              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+            );
+            const { isAllProjects } = await import("@minsky/domain/project/scope");
+            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
+            if (!isAllProjects(scope)) {
+              return scope;
+            }
+          }
+        }
+      }
+    } catch {
+      // Fail silently — project scope is informational for presence
+    }
+    return undefined;
+  }
+
+  /**
+   * mt#2284: self-registration write path for session runtime-attachment.
+   * Fires at the same seam as writeAgentIdToSession — session-SCOPED (unlike
+   * writeTaskClaim, which is session-independent): requires a resolvable
+   * session (args.session/sessionId directly, or via args.task/taskId lookup).
+   *
+   * Records/refreshes a `subject_kind = "session"` presence claim keyed on
+   * (sessionId, actorId) — repeated activity from the same actor refreshes
+   * `registeredAt` (the domain-layer name for `lastRefreshedAt`) rather than
+   * appending a duplicate row; a distinct actor (e.g. a subagent attached to
+   * the same session workspace) produces its own row (set semantics).
+   *
+   * Runs fire-and-forget (caller catches errors). Failures are logged at
+   * debug level and never surface to the MCP caller — attachment tracking is
+   * best-effort, matching writeAgentIdToSession/writeTaskClaim's posture.
+   */
+  private async writeSessionAttachment(
+    args: Record<string, unknown>,
+    actorId: string
+  ): Promise<void> {
+    if (!this.container) return;
+
+    const sessionName =
+      (typeof args.session === "string" ? args.session : undefined) ||
+      (typeof args.sessionId === "string" ? args.sessionId : undefined);
+
+    let sessionId = sessionName;
+    if (!sessionId) {
+      const taskId =
+        (typeof args.task === "string" ? args.task : undefined) ||
+        (typeof args.taskId === "string" ? args.taskId : undefined);
+      if (!taskId || !this.container.has("sessionProvider")) return;
+      const sessionProvider = this.container.get(
+        "sessionProvider"
+      ) as import("@minsky/domain/session/types").SessionProviderInterface;
+      const storageTaskId = taskId.replace(/^mt#/i, "");
+      const record = await sessionProvider.getSessionByTaskId(storageTaskId);
+      if (!record) return;
+      sessionId = record.sessionId;
+    }
+    if (!sessionId) return;
+
+    const repo = await this.getPresenceClaimRepo();
+    if (!repo) return;
+
+    const projectId = await this.resolveProjectIdBestEffort();
+
+    // "Where" context — env bag of only-the-keys-present (emulator-agnostic;
+    // stores env strings, introspects no terminal app). Claude Code sets
+    // CLAUDE_CODE_SESSION_ID (the conversation UUID) and CLAUDE_CODE_ENTRYPOINT
+    // (e.g. "cli", "sdk-cli") — see packages/domain/src/runtime/harness-detection.ts.
+    const ccConversationId =
+      typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
+        ? process.env.CLAUDE_CODE_SESSION_ID
+        : undefined;
+    const entrypoint =
+      typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string"
+        ? process.env.CLAUDE_CODE_ENTRYPOINT
+        : undefined;
+
+    const TERMINAL_CONTEXT_KEYS = [
+      "TERM_PROGRAM",
+      "TERM_SESSION_ID",
+      "TERM",
+      "TMUX",
+      "TMUX_PANE",
+      "WEZTERM_PANE",
+      "KITTY_WINDOW_ID",
+    ] as const;
+    const terminalContext: Record<string, string> = {};
+    for (const key of TERMINAL_CONTEXT_KEYS) {
+      const value = process.env[key];
+      if (typeof value === "string") terminalContext[key] = value;
+    }
+
+    // pid: local stdio MCP servers are spawned AS A CHILD of the calling
+    // harness process, so process.ppid is the caller's pid (OS-level fact,
+    // no terminal-app introspection). This assumption does not hold for the
+    // hosted-HTTP transport; process.ppid there is not a meaningful "who is
+    // attached" signal, but recording it is still harmless (host/ccConversationId
+    // remain the primary identifying context for that path).
+    // (Cast mirrors diagnostic-capture.ts's ExtendedProcess — this repo's
+    // legacy ambient `process` shim, src/types/node.d.ts, omits `ppid`.)
+    const ppid = (process as typeof process & { ppid?: number }).ppid;
+    const pid = typeof ppid === "number" ? ppid : undefined;
+
+    try {
+      await repo.upsertClaim({
+        subjectKind: "session",
+        subjectId: sessionId,
+        actorId,
+        ccConversationId,
+        host: hostname(),
+        projectId,
+        pid,
+        entrypoint,
+        terminalContext: Object.keys(terminalContext).length > 0 ? terminalContext : undefined,
+      });
+      log.debug("session attachment written", { sessionId, actorId, pid });
+    } catch (err) {
+      log.debug("session attachment write failed (non-blocking)", {
+        error: getErrorMessage(err),
+        sessionId,
+      });
+    }
+  }
+
+  /**
+   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain, mt#2830
+   * idle-gap sequencing): emit a notifications/message at level=alert, tag the
+   * upcoming exit as `staleness_exit`, set `pendingStaleExit` (NOT `draining` —
+   * see the field comment), then wait for the first IDLE GAP — the moment
+   * `inFlightRequests` reaches 0 — before scheduling `process.exit(0)` after a
+   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits if the server
+   * is never idle for that long.
    *
    * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
-   * The tool call's response/error is already returned to the caller by the
-   * time this method runs — the 200ms delay is the spike-derived buffer from
-   * mt#1315 (response → exit measured at ~102ms at delayMs=100).
+   *
+   * mt#2830: requests already in flight when staleness is detected are waited
+   * on (mt#2701's original guarantee — the detecting call is itself in flight
+   * until its `finally` runs, so the drain waits for it and every concurrent
+   * sibling to respond first). NEW requests that arrive DURING the drain window
+   * are also served normally — they are NOT rejected — because `draining`
+   * (the flag the `tools/call` handler gates on) is intentionally left false.
+   * This closes the -32603 "Server is shutting down" gap: a caller issuing a
+   * tool call while a staleness exit is pending gets a normal response on the
+   * still-loaded ("old") code, exactly as it would have moments earlier. The
+   * freshness guarantee is unchanged for the POST-exit world — the next call
+   * after the process actually exits and is respawned gets the new HEAD.
+   *
+   * See scheduleStaleExitAfterDrain.
    */
   private triggerStaleSignal(server: Server): void {
     if (this.hasTriggeredStaleSignal) return;
@@ -1578,7 +1836,76 @@ export class MinskyMCPServer {
       errorMessage: staleMessage || undefined,
     });
 
-    setTimeout(() => this.exit(0), 200);
+    // mt#2830: set pendingStaleExit (NOT draining) so the exit is sequenced
+    // into the first idle gap while new tool calls keep being served normally
+    // in the meantime. See the field comments and this method's docstring.
+    this.pendingStaleExit = true;
+    this.scheduleStaleExitAfterDrain();
+  }
+
+  /**
+   * Poll until no tool call is in flight (or `staleDrainCapMs` elapses), then
+   * schedule the process exit after a short flush buffer so the final response
+   * reaches the transport before the process dies (mt#2701).
+   *
+   * mt#2830: `inFlightRequests` counts BOTH requests that were already
+   * executing when staleness was detected AND new requests that arrive while
+   * `pendingStaleExit` is true (the `tools/call` handler does not reject them
+   * — see `pendingStaleExit`'s field comment). So a steady trickle of new
+   * calls naturally extends the drain past a single request's lifetime; this
+   * is intentional ("first idle gap", not "first response"). `staleDrainCapMs`
+   * is the backstop: if the server is never idle for that long, the exit
+   * fires anyway so staleness cannot be starved indefinitely by continuous
+   * traffic.
+   *
+   * mt#2830 R1 fix: the exit DECISION (idle gap observed, or hard cap
+   * elapsed) and marking `exitCommitted = true` happen in the same
+   * synchronous section — `poll()` calls `scheduleExit()` as a plain,
+   * unawaited function call, and `scheduleExit()`'s first statement is the
+   * flip. No request-handler code can run between the counter check and the
+   * flip (the event loop cannot interleave within a synchronous call chain),
+   * so a request cannot be admitted "in between" the decision and its
+   * enforcement. From that flip onward the `tools/call` handler's gate
+   * rejects new admissions (mt#2830 field comment on `exitCommitted`) for
+   * the remaining `FLUSH_BUFFER_MS` gap before `process.exit(0)` actually
+   * fires — closing the window where an admitted-then-orphaned request would
+   * be killed mid-execution instead of cleanly rejected.
+   */
+  private scheduleStaleExitAfterDrain(): void {
+    const POLL_INTERVAL_MS = 50;
+    const FLUSH_BUFFER_MS = 200;
+    const start = Date.now();
+
+    const scheduleExit = (wedgedRequests: number): void => {
+      // mt#2830 R1 fix: flip BEFORE any logging/async work below — this is
+      // the exit-commitment point. See this method's docstring.
+      this.exitCommitted = true;
+      if (wedgedRequests > 0) {
+        log.warn("MCP staleness drain cap reached — exiting with requests still in flight", {
+          wedgedRequests,
+          capMs: this.staleDrainCapMs,
+        });
+      } else {
+        log.debug("MCP staleness drain complete — all in-flight requests finished", {
+          drainMs: Date.now() - start,
+        });
+      }
+      setTimeout(() => this.exit(0), FLUSH_BUFFER_MS);
+    };
+
+    const poll = (): void => {
+      const inFlight = this.inFlightRequests.size;
+      if (inFlight === 0) {
+        scheduleExit(0);
+        return;
+      }
+      if (Date.now() - start >= this.staleDrainCapMs) {
+        scheduleExit(inFlight);
+        return;
+      }
+      setTimeout(poll, POLL_INTERVAL_MS);
+    };
+    poll();
   }
 
   /**

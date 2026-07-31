@@ -31,6 +31,8 @@ import {
   systemEventTypeEnum,
   eventCategory,
 } from "./system-events-schema";
+import { TASK_STATUS_VALUES } from "../../tasks/taskConstants";
+import { taskStatusEnum } from "./task-embeddings";
 
 // ---------------------------------------------------------------------------
 // Migration-parsing helper
@@ -89,6 +91,40 @@ function collectSystemEventTypeValuesFromMigrations(): string[] {
     /CREATE TYPE\s+(?:"[^"]+"\.)?"?system_event_type"?\s+AS\s+ENUM\s*\(([\s\S]*?)\)/i;
   const alterRe =
     /ALTER TYPE\s+(?:"[^"]+"\.)?"?system_event_type"?\s+ADD VALUE\s+(?:IF NOT EXISTS\s+)?'([^']+)'/gi;
+
+  for (const file of readdirSync(MIGRATIONS_DIR)) {
+    if (!file.endsWith(".sql")) continue;
+    const sql = readFileSync(join(MIGRATIONS_DIR, file)).toString();
+
+    const createMatch = createRe.exec(sql);
+    if (createMatch?.[1]) {
+      for (const raw of createMatch[1].split(",")) {
+        const v = raw.trim().replace(/^['"]|['"]$/g, "");
+        if (v) values.add(v);
+      }
+    }
+
+    let alterMatch: RegExpExecArray | null;
+    while ((alterMatch = alterRe.exec(sql)) !== null) {
+      if (alterMatch[1]) values.add(alterMatch[1]);
+    }
+  }
+
+  return [...values].sort();
+}
+
+/**
+ * Collect the full set of `task_status` enum values declared across ALL
+ * migration files: the seeding `CREATE TYPE ... AS ENUM (...)` (0001) plus
+ * every `ALTER TYPE ... ADD VALUE` (0018 PLANNING, 0019 READY, 0037
+ * COMPLETED). Mirrors `collectSystemEventTypeValuesFromMigrations` above —
+ * `task_status` has the same seed-then-extend migration shape.
+ */
+function collectTaskStatusValuesFromMigrations(): string[] {
+  const values = new Set<string>();
+  const createRe = /CREATE TYPE\s+(?:"[^"]+"\.)?"?task_status"?\s+AS\s+ENUM\s*\(([\s\S]*?)\)/i;
+  const alterRe =
+    /ALTER TYPE\s+(?:"[^"]+"\.)?"?task_status"?\s+ADD VALUE\s+(?:IF NOT EXISTS\s+)?'([^']+)'/gi;
 
   for (const file of readdirSync(MIGRATIONS_DIR)) {
     if (!file.endsWith(".sql")) continue;
@@ -231,6 +267,41 @@ describe("Enum drift-check — system_event_type", () => {
     const sqlValues = collectSystemEventTypeValuesFromMigrations();
     const tsValues = [...SYSTEM_EVENT_TYPE_VALUES].sort();
     expect(sqlValues).toEqual(tsValues);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// task_status enum (mt#3010 — the audit found this enum had no drift-check
+// case, unlike memory_type / task_relationships.type / system_event_type)
+// ---------------------------------------------------------------------------
+
+describe("Enum drift-check — task_status", () => {
+  test("TASK_STATUS_VALUES matches the values registered in the pgEnum", () => {
+    // As with the other enums, the runtime pgEnum is itself derived from
+    // TASK_STATUS_VALUES (task-embeddings.ts), so this only catches someone
+    // editing the pgEnum call directly without touching the TS const.
+    const enumValues = [...taskStatusEnum.enumValues].sort();
+    const tsValues = [...TASK_STATUS_VALUES].sort();
+    expect(enumValues).toEqual(tsValues);
+  });
+
+  // Unlike every other enum-drift case above, task_status has a KNOWN,
+  // permanent, documented asymmetry: the Postgres enum carries an orphaned
+  // "COMPLETED" value that TASK_STATUS_VALUES does not (mt#2311 retired
+  // COMPLETED as a status; Postgres enums can't drop values, so
+  // 0055_collapse_completed_to_done.sql migrated the ROWS to DONE and left the
+  // enum value as a harmless orphan — see taskConstants.ts's TaskStatus enum
+  // doc comment). So this axis asserts TASK_STATUS_VALUES + "COMPLETED"
+  // (sorted) equals the full migration-declared set, NOT plain equality like
+  // the other enums: if someone adds a new status to the TaskStatus enum
+  // without shipping the matching ALTER TYPE migration, TASK_STATUS_VALUES
+  // gains an entry the migration-collected set lacks, and this test fails —
+  // exactly the "status added to TS enum without a migration" case the mt#3010
+  // spec's acceptance test calls for.
+  test("TASK_STATUS_VALUES (+ the orphaned COMPLETED value) matches the migration SQL (CREATE TYPE + ALTER ADD VALUE union)", () => {
+    const sqlValues = collectTaskStatusValuesFromMigrations();
+    const expected = [...TASK_STATUS_VALUES, "COMPLETED"].sort();
+    expect(sqlValues).toEqual(expected);
   });
 });
 

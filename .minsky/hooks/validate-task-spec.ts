@@ -28,6 +28,10 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "validate-task-spec";
 
 // ---------------------------------------------------------------------------
 // Pure validation (exported for testing)
@@ -99,8 +103,13 @@ export function buildDenialReason(title: string, missingHeadings: string[]): str
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
+  let sessionId: string | undefined;
+  let toolName: string | undefined;
   try {
     const input = await readInput<ToolHookInput>();
+    sessionId = input.session_id;
+    toolName = input.tool_name;
     const specContent = extractSpecContent(input.tool_input);
     const result = validateSpecContent(specContent);
 
@@ -115,11 +124,29 @@ if (import.meta.main) {
       });
     }
 
+    // mt#2889 (evaluation-loop Phase 1 completion): fire-log every
+    // evaluation. No documented override env-var for this guard.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision: result.valid ? "allow" : "deny",
+      durationMs: Date.now() - startMs,
+      toolName,
+      sessionId,
+    });
     process.exit(0);
   } catch (err) {
     process.stderr.write(
       `[validate-task-spec] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
     );
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision: "allow",
+      durationMs: Date.now() - startMs,
+      toolName,
+      sessionId,
+    });
     process.exit(0);
   }
 }

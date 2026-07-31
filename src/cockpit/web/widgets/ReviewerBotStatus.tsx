@@ -6,6 +6,12 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 // Mirrors ReviewerBotStatusPayload in src/cockpit/widgets/reviewer-bot-status.ts.
 // No server imports on the frontend (cockpit web is a separate module graph).
 
+interface VerdictCounts {
+  approve: number;
+  requestChanges: number;
+  comment: number;
+}
+
 interface ReviewerDbStats {
   reviewCount24h: number;
   failureCount24h: number;
@@ -16,6 +22,22 @@ interface ReviewerDbStats {
   staleInflightCount: number;
   rateLimitHitCount24h: number;
   lastWebhookReceivedAt: string | null;
+  medianTokens24h: number | null;
+  medianTokens7d: number | null;
+  medianCostUsd24h: number | null;
+  medianCostUsd7d: number | null;
+  cacheHitRatio24h: number | null;
+  verdictCounts24h: VerdictCounts;
+  verdictCounts7d: VerdictCounts;
+  // mt#2758 — query-layer-failure vs genuine-no-data signal. See the
+  // "Query-failure vs no-data" convention note at the top of
+  // src/cockpit/types.ts and docs/architecture/cockpit.md.
+  /** Failed stats queries this fetch cycle (mt#2758). Optional: a stale frontend
+   * bundle may talk to a pre-mt#2758 server during deploys — absence means
+   * "signal unavailable", not zero. */
+  queryFailureCount?: number;
+  /** Total stats queries attempted this fetch cycle (mt#2758). Optional, same skew rationale. */
+  queryTotalCount?: number;
 }
 
 interface ReviewerBotStatusPayload {
@@ -34,6 +56,8 @@ interface ReviewerBotStatusPayload {
     a2StaleInflight: boolean;
     a3FailureRateSpike: boolean;
     a4LatencyRegression: boolean;
+    a5CostTrend: boolean;
+    a6VerdictDrift: boolean;
   };
 }
 
@@ -59,6 +83,35 @@ function formatLatencyMs(ms: number | null): string {
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(1)}s`;
   return `${(sec / 60).toFixed(1)}m`;
+}
+
+function formatTokens(n: number | null): string {
+  if (n === null) return "—";
+  // Defensive: medians are integer by construction (PERCENTILE_DISC), but round
+  // so a fractional value never renders as e.g. "45,000.5".
+  return Math.round(n).toLocaleString();
+}
+
+function formatCost(n: number | null): string {
+  if (n === null) return "—";
+  // Small per-review costs (typically <$1); show more precision below $1.
+  return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
+}
+
+function formatPercent(ratio: number | null): string {
+  if (ratio === null) return "—";
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+/** Total verdict count across all three classes. */
+function verdictTotal(counts: VerdictCounts): number {
+  return counts.approve + counts.requestChanges + counts.comment;
+}
+
+/** Ratio of one verdict class within its window's total. Null when the window has no verdicts. */
+function verdictRatio(counts: VerdictCounts, key: keyof VerdictCounts): number | null {
+  const total = verdictTotal(counts);
+  return total > 0 ? counts[key] / total : null;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -101,9 +154,7 @@ interface ReviewerBotStatusBodyProps {
 
 function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
   if (query.isError) {
-    return (
-      <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>
-    );
+    return <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>;
   }
 
   if (query.isLoading || !query.data) {
@@ -131,14 +182,43 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         <span
           className={cn(
             "text-xs px-1.5 py-0.5 rounded",
-            health.ok
-              ? "bg-emerald-500/10 text-emerald-500"
-              : "bg-destructive/10 text-destructive"
+            health.ok ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
           )}
         >
           {health.ok ? "Healthy" : "Unreachable"}
         </span>
       </div>
+
+      {/* mt#2758 — query-layer-failure indicator. Distinguishes "the DB
+          queries failed" from "the DB queries succeeded and returned zero
+          rows" — both otherwise render identically as zeros/"—" below. This
+          is the class of bug that let the reviewer-bot widget's DB stats
+          render healthy zeros for ~5 weeks (mt#2076/mt#2757) while every
+          query threw. Full failure (every query this cycle failed) uses the
+          destructive token per src/cockpit/CLAUDE.md's error-state
+          convention (AnomalyBanner's "error" variant); a partial failure
+          uses the amber warning variant, consistent with the other
+          AnomalyBanner usages below. Fields are optional in this mirror —
+          a stale bundle may talk to a pre-mt#2758 server during deploys —
+          so the banner renders only when both are finite numbers. */}
+      {db &&
+        (() => {
+          const failed = db.queryFailureCount;
+          const total = db.queryTotalCount;
+          if (!Number.isFinite(failed) || !Number.isFinite(total)) return null;
+          if ((failed as number) <= 0) return null;
+          const allFailed = (total as number) > 0 && failed === total;
+          return (
+            <AnomalyBanner
+              message={
+                allFailed
+                  ? `DB query layer failed — all ${total} stats queries failed this cycle. Fields below are placeholders, not real zeros.`
+                  : `DB query layer degraded — ${failed} of ${total} stats queries failed this cycle. Some fields below may be incomplete or stale.`
+              }
+              variant={allFailed ? "error" : "warning"}
+            />
+          );
+        })()}
 
       {/* Anomaly banners */}
       {anomalies.a1ServiceUnreachable && (
@@ -163,6 +243,18 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
           variant="warning"
         />
       )}
+      {anomalies.a5CostTrend && db && (
+        <AnomalyBanner
+          message={`A5 — Cost trend: 24h median ${formatCost(db.medianCostUsd24h)} vs 7d median ${formatCost(db.medianCostUsd7d)} (>50% divergence).`}
+          variant="warning"
+        />
+      )}
+      {anomalies.a6VerdictDrift && db && (
+        <AnomalyBanner
+          message="A6 — Verdict drift: 24h verdict ratio diverged >20pp from the 7d baseline. The bot may be getting stricter or looser."
+          variant="warning"
+        />
+      )}
 
       {/* Field rows — 14 v1 fields */}
       <dl>
@@ -174,10 +266,7 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
             ) : (
               <span className="text-destructive">{health.statusCode ?? "no response"}</span>
             )}
-            <span
-              className="text-xs text-muted-foreground"
-              title={health.lastProbeAt}
-            >
+            <span className="text-xs text-muted-foreground" title={health.lastProbeAt}>
               probed {formatRelative(health.lastProbeAt)}
             </span>
           </span>
@@ -198,9 +287,7 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         </Row>
 
         {/* Field 4: Model */}
-        <Row label="Model">
-          {health.model ?? <span className="text-muted-foreground">—</span>}
-        </Row>
+        <Row label="Model">{health.model ?? <span className="text-muted-foreground">—</span>}</Row>
 
         {/* Field 5: Tier 2 enabled */}
         <Row label="Tier 2 enabled">
@@ -275,20 +362,18 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
 
         {/* Field 12: Failure rate */}
         <Row label="Failure rate (24h)">
-          {db !== null ? (
-            (() => {
-              const total = db.reviewCount24h + db.failureCount24h;
-              if (total === 0) return <span className="text-muted-foreground">no data</span>;
-              const pct = (db.failureCount24h / total) * 100;
-              return (
-                <span className={anomalies.a3FailureRateSpike ? "text-destructive" : undefined}>
-                  {pct.toFixed(1)}%
-                </span>
-              );
-            })()
-          ) : (
-            "—"
-          )}
+          {db !== null
+            ? (() => {
+                const total = db.reviewCount24h + db.failureCount24h;
+                if (total === 0) return <span className="text-muted-foreground">no data</span>;
+                const pct = (db.failureCount24h / total) * 100;
+                return (
+                  <span className={anomalies.a3FailureRateSpike ? "text-destructive" : undefined}>
+                    {pct.toFixed(1)}%
+                  </span>
+                );
+              })()
+            : "—"}
         </Row>
 
         {/* Field 13: Rate-limit hit count */}
@@ -305,14 +390,93 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         {/* Field 14: Last webhook received */}
         <Row label="Last webhook">
           {db !== null && db.lastWebhookReceivedAt ? (
-            <span title={db.lastWebhookReceivedAt}>
-              {formatRelative(db.lastWebhookReceivedAt)}
-            </span>
+            <span title={db.lastWebhookReceivedAt}>{formatRelative(db.lastWebhookReceivedAt)}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
         </Row>
+
+        {/* Field 15: Median tokens per review (24h) — mt#2288 */}
+        <Row label="Median tokens (24h)">
+          {db !== null ? formatTokens(db.medianTokens24h) : "—"}
+        </Row>
+
+        {/* Field 16: Median tokens per review (7d) — mt#2288 */}
+        <Row label="Median tokens (7d)">{db !== null ? formatTokens(db.medianTokens7d) : "—"}</Row>
+
+        {/* Field 17: Median cost per review (24h) — mt#2288 */}
+        <Row label="Median cost (24h)">
+          {db !== null ? (
+            <span className={anomalies.a5CostTrend ? "text-amber-500" : undefined}>
+              {formatCost(db.medianCostUsd24h)}
+            </span>
+          ) : (
+            "—"
+          )}
+        </Row>
+
+        {/* Field 18: Median cost per review (7d) — mt#2288 */}
+        <Row label="Median cost (7d)">{db !== null ? formatCost(db.medianCostUsd7d) : "—"}</Row>
+
+        {/* Field 19: Cache-hit ratio (24h) — mt#2721. Cached input / total input. */}
+        <Row label="Cache-hit (24h)">{db !== null ? formatPercent(db.cacheHitRatio24h) : "—"}</Row>
       </dl>
+
+      {/* Verdict distribution (mt#2287) — 24h counts/ratios per verdict + 7d
+          baseline for comparison, with per-row amber highlighting when that
+          verdict's ratio has drifted >20pp between windows. */}
+      {db !== null && (
+        <div className="mt-3 pt-2 border-t border-border">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-xs font-medium text-muted-foreground">Verdict distribution</span>
+            {anomalies.a6VerdictDrift && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">
+                drift
+              </span>
+            )}
+          </div>
+          <dl>
+            {(
+              [
+                ["Approve", "approve"],
+                ["Request changes", "requestChanges"],
+                ["Comment", "comment"],
+              ] as const
+            ).map(([label, key]) => {
+              const ratio24h = verdictRatio(db.verdictCounts24h, key);
+              const ratio7d = verdictRatio(db.verdictCounts7d, key);
+              // Gate the per-row amber highlight on the SAME sample-size gate as
+              // the global A6 anomaly (mt#2287 R1): when a6VerdictDrift is
+              // suppressed (e.g. both windows below A6_MIN_SAMPLE_SIZE), no row
+              // should light up either — otherwise a single low-volume review
+              // trivially "drifts" 100pp and highlights while the header badge
+              // (correctly) stays hidden.
+              const diverged =
+                anomalies.a6VerdictDrift &&
+                ratio24h !== null &&
+                ratio7d !== null &&
+                Math.abs(ratio24h - ratio7d) > 0.2;
+              return (
+                <Row key={key} label={label}>
+                  <span
+                    className={cn(
+                      "flex flex-col items-end gap-0.5",
+                      diverged ? "text-amber-500" : undefined
+                    )}
+                  >
+                    <span>
+                      {db.verdictCounts24h[key]} ({formatPercent(ratio24h)})
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      7d: {formatPercent(ratio7d)}
+                    </span>
+                  </span>
+                </Row>
+              );
+            })}
+          </dl>
+        </div>
+      )}
     </>
   );
 }

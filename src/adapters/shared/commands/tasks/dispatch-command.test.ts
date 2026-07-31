@@ -14,7 +14,7 @@
  * harness-detection could leak into sibling test files that rely on the real implementation.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createTasksDispatchCommand } from "./dispatch-command";
+import { createTasksDispatchCommand, getTrackerForDispatch } from "./dispatch-command";
 import { ValidationError } from "@minsky/domain/errors";
 import { FakeTaskService } from "@minsky/domain/tasks/fake-task-service";
 import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
@@ -215,6 +215,60 @@ describe("tasks_dispatch mode selection (mt#2657)", () => {
 });
 
 /**
+ * Model-selection tests (mt#3043). Like the mode-selection tests above, the model check runs
+ * inside `validateDispatchMode` at module scope — before the harness check — so these
+ * assertions are deterministic regardless of `hasNativeSubagentSupport()`.
+ */
+describe("tasks_dispatch model selection (mt#3043)", () => {
+  test("rejects an unrecognized model id before dispatching", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "gpt-4o",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/Unknown dispatch model/);
+  });
+
+  test("the rejection names the valid registry ids so the caller can correct it", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "sonnet-4",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/fable/);
+  });
+
+  test("a registry model id is never rejected as unknown", async () => {
+    const cmd = makeCommand();
+    let caught: unknown;
+    try {
+      await cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "fable",
+        ...validPremise,
+      } as never);
+    } catch (e) {
+      caught = e;
+    }
+    // Dispatch may still fail downstream on the harness/session stubs in this environment —
+    // what must NOT happen is a model-validation rejection for a valid registry id.
+    if (caught !== undefined) {
+      expect(String((caught as Error).message)).not.toMatch(/Unknown dispatch model/);
+    }
+  });
+});
+
+/**
  * Type-default and crash-safety (resume) tests for tasks_dispatch existing-task mode (mt#2695).
  *
  * Root cause 1 (type default): the MCP/CLI parameter layers only apply a default from the
@@ -372,5 +426,59 @@ describe("tasks_dispatch existing-task mode: type default + crash-safety resume 
     const error = result.error as string;
     expect(error).toMatch(/via PLANNING/);
     expect(error).toMatch(/IN-PROGRESS -> READY is NOT a valid/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getTrackerForDispatch (mt#3017 R1 BLOCKING #2) — Step 5's best-effort
+// telemetry write must never let a slow/hung tracker stall the dispatch
+// pipeline; a timeout degrades to "skip the write" (tracker: null).
+// ---------------------------------------------------------------------------
+
+describe("getTrackerForDispatch", () => {
+  test("no getTracker supplied -> null, no error", async () => {
+    const result = await getTrackerForDispatch(undefined);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker resolves before the timeout -> returns the tracker", async () => {
+    const fakeTracker = { marker: "fake-tracker" };
+    const result = await getTrackerForDispatch(
+      async () => fakeTracker as never,
+      50 // generous relative to the instant-resolving fake
+    );
+    expect(result).toBe(fakeTracker as never);
+  });
+
+  test("getTracker resolves to null -> returns null (tracker genuinely unavailable)", async () => {
+    const result = await getTrackerForDispatch(async () => null, 50);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker hangs past the bound -> degrades to null instead of blocking the pipeline", async () => {
+    const neverResolves = new Promise<never>(() => {
+      // Intentionally never settles — simulates a hung DB-connection attempt.
+    });
+    const start = performance.now();
+    const result = await getTrackerForDispatch(() => neverResolves as never, 20);
+    const elapsedMs = performance.now() - start;
+
+    expect(result).toBeNull();
+    // The call must return close to the injected bound, not hang indefinitely.
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
+  test("getTracker throws synchronously -> degrades to null instead of propagating", async () => {
+    const result = await getTrackerForDispatch(() => {
+      throw new Error("getTracker threw — exercises the catch branch");
+    }, 50);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker returns a rejecting promise -> degrades to null instead of propagating", async () => {
+    const result = await getTrackerForDispatch(async () => {
+      throw new Error("tracker factory rejected");
+    }, 50);
+    expect(result).toBeNull();
   });
 });

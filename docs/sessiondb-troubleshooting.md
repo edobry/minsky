@@ -1,553 +1,123 @@
-# SessionDB Troubleshooting Guide
+# Persistence Troubleshooting Guide
 
-> **Historical (2026-06-08).** SQLite support has been removed entirely (mt#2339, mt#2329) —
-> Postgres is the only supported backend (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md)).
-> The SQLite-specific sections below (error codes, `sqlite3` recovery commands, `sessiondb.sqliteOptions`
-> config) are retained for historical reference only and do not apply to the current codebase.
+> **Renamed from "SessionDB troubleshooting".** Postgres is the **only** supported persistence
+> backend ([ADR-018](architecture/adr-018-domain-persistence-pattern.md),
+> [ADR-027](architecture/adr-027-postgres-only-persistence-confirmed.md)) — SQLite has been
+> removed entirely (mt#2339, mt#2329), not merely deprecated. There is no `minsky sessiondb`
+> command; the current command family is `minsky persistence`. See
+> [§Historical](#historical-sqlite-issues-pre-mt2339) for what this guide used to cover.
 
-This guide provides solutions for common SessionDB issues. **Postgres is the only supported
-backend** (SQLite sections below are historical).
+This guide covers diagnosing and resolving Postgres persistence issues. For migrating data or
+running schema migrations, see the [Migration Guide](./sessiondb-migration-guide.md). For
+connection-pool sizing, retry policy, and graceful-shutdown behavior, see
+[Postgres Persistence Configuration](./persistence-configuration.md).
 
 ## Quick Diagnostics
 
-### Health Check Commands
-
 ```bash
-# Check current backend status
-minsky sessiondb migrate status
+# Check backend health: connectivity + schema-drift audit
+minsky persistence check --report
 
-# List all sessions and their status
-minsky session list --detailed
+# List sessions (verify the DB is actually readable)
+minsky session list --verbose
 
-# Test database connectivity
-minsky sessiondb test-connection
-
-# Verify database integrity
-minsky sessiondb verify --repair
+# Inspect the effective persistence configuration and where it came from
+minsky config get persistence.backend --sources
+minsky config get persistence.postgres.connectionString --sources
+minsky config list
 ```
 
-### Log Analysis
+`minsky persistence check` runs a read-only connectivity test (`SELECT 1`) plus the
+[schema-drift audit](#schema-drift-audit-postgres) below, and reports `success: false` with
+`issues[]`/`suggestions[]` when either fails — pass `--report` to print the full result even on
+success.
 
-```bash
-# View recent SessionDB logs
-minsky logs --component sessiondb --tail 50
+## Common Issues
 
-# Enable verbose logging
-export MINSKY_LOG_LEVEL=debug
-minsky session list
+### `Connection refused` / `ECONNREFUSED`
 
-# Check system logs (Linux)
-journalctl -u minsky --since "1 hour ago"
-```
-
-## Common Issues by Backend
-
-### SQLite Backend Issues
-
-#### Issue: `SQLITE_BUSY: database is locked`
-
-**Symptoms**:
-
-```
-Error: SQLITE_BUSY: database is locked
-```
-
-**Causes**:
-
-- Another process has the database open
-- Unclean shutdown left lock files
-- WAL files not properly closed
-
-**Solutions**:
-
-1. **Find blocking processes**:
-
-   ```bash
-   lsof ~/.local/state/minsky/sessions.db
-   kill -TERM <pid>
-   ```
-
-2. **Remove lock files**:
-
-   ```bash
-   rm ~/.local/state/minsky/sessions.db-shm
-   rm ~/.local/state/minsky/sessions.db-wal
-   ```
-
-3. **Repair database**:
-   ```bash
-   sqlite3 ~/.local/state/minsky/sessions.db "PRAGMA integrity_check;"
-   sqlite3 ~/.local/state/minsky/sessions.db "PRAGMA wal_checkpoint(TRUNCATE);"
-   ```
-
-#### Issue: `SQLITE_CORRUPT: database disk image is malformed`
-
-**Symptoms**:
-
-```
-Error: SQLITE_CORRUPT: database disk image is malformed
-```
-
-**Causes**:
-
-- Hardware failure
-- Filesystem corruption
-- Power loss during write
-
-**Solutions**:
-
-1. **Attempt automatic recovery**:
-
-   ```bash
-   minsky sessiondb repair --backend postgres --auto-recover
-   ```
-
-2. **Manual recovery**:
-
-   ```bash
-   # Try to recover data
-   sqlite3 ~/.local/state/minsky/sessions.db ".recover" > recovered.sql
-
-   # Create new database from recovered data
-   mv ~/.local/state/minsky/sessions.db ~/.local/state/minsky/sessions.db.corrupt
-   sqlite3 ~/.local/state/minsky/sessions.db < recovered.sql
-   ```
-
-3. **Restore from backup**:
-   ```bash
-   minsky sessiondb restore --backup ./backups/latest.json --to sqlite
-   ```
-
-#### Issue: `SQLITE_READONLY: attempt to write a readonly database`
-
-**Symptoms**:
-
-```
-Error: SQLITE_READONLY: attempt to write a readonly database
-```
-
-**Causes**:
-
-- Incorrect file permissions
-- Database file on read-only filesystem
-- SELinux/AppArmor restrictions
-
-**Solutions**:
-
-1. **Fix permissions**:
-
-   ```bash
-   chmod 644 ~/.local/state/minsky/sessions.db
-   chmod 755 ~/.local/state/minsky/
-   ```
-
-2. **Check filesystem**:
-
-   ```bash
-   mount | grep "$(dirname ~/.local/state/minsky/sessions.db)"
-   ```
-
-3. **Move to writable location**:
-   ```bash
-   minsky config set sessiondb.dbPath ~/writable/path/sessions.db
-   ```
-
-### PostgreSQL Backend Issues
-
-#### Issue: `Connection refused`
-
-**Symptoms**:
+**Symptoms:**
 
 ```
 Error: connect ECONNREFUSED 127.0.0.1:5432
 ```
 
-**Causes**:
+**Causes:** Postgres isn't running, wrong host/port, or a firewall is blocking the connection.
 
-- PostgreSQL server not running
-- Wrong host/port configuration
-- Firewall blocking connection
+**Solutions:**
 
-**Solutions**:
+```bash
+# Is Postgres reachable at all?
+pg_isready -h <host> -p 5432
 
-1. **Check PostgreSQL status**:
+# Can you connect with the exact configured connection string?
+psql "$(minsky config get persistence.postgres.connectionString)" -c "SELECT 1;"
+```
 
-   ```bash
-   pg_isready -h hostname -p 5432
-   systemctl status postgresql
-   ```
+### `password authentication failed`
 
-2. **Test connection**:
-
-   ```bash
-   psql "postgresql://user:password@host:port/database" -c "SELECT 1;"
-   ```
-
-3. **Check configuration**:
-   ```bash
-   minsky config get sessiondb.connectionString
-   ```
-
-#### Issue: `password authentication failed`
-
-**Symptoms**:
+**Symptoms:**
 
 ```
 Error: password authentication failed for user "minsky_user"
 ```
 
-**Causes**:
+**Causes:** Wrong credentials, the user doesn't exist, or an auth-method mismatch.
 
-- Wrong username/password
-- User doesn't exist
-- Authentication method mismatch
+**Solutions:** verify the connection string's credentials, then update it:
 
-**Solutions**:
+```bash
+minsky config set persistence.postgres.connectionString "postgresql://correct_user:correct_pass@host:5432/db"
+# or, without touching the config file:
+export MINSKY_PERSISTENCE_POSTGRES_URL="postgresql://correct_user:correct_pass@host:5432/db"
+```
 
-1. **Verify credentials**:
+### `relation "sessions" does not exist` (or any other table)
 
-   ```sql
-   -- As PostgreSQL superuser
-   \du minsky_user
-
-   -- Reset password if needed
-   ALTER USER minsky_user PASSWORD 'new_password';
-   ```
-
-2. **Check pg_hba.conf**:
-
-   ```bash
-   sudo cat /etc/postgresql/*/main/pg_hba.conf | grep minsky
-   ```
-
-3. **Update connection string**:
-   ```bash
-   minsky config set sessiondb.connectionString "postgresql://correct_user:correct_pass@host:port/db"
-   ```
-
-#### Issue: `relation "sessions" does not exist`
-
-**Symptoms**:
+**Symptoms:**
 
 ```
 Error: relation "sessions" does not exist
 ```
 
-**Causes**:
+**Causes:** the schema hasn't been migrated yet on this database, or the connection string
+points at the wrong database.
 
-- Database schema not initialized
-- Connected to wrong database
-- Schema was dropped
-
-**Solutions**:
-
-1. **Initialize schema**:
-
-   ```bash
-   minsky sessiondb init --backend postgres --force
-   ```
-
-2. **Check database**:
-
-   ```sql
-   \l                    -- List databases
-   \c minsky_sessions    -- Connect to correct database
-   \dt                   -- List tables
-   ```
-
-3. **Verify connection string points to correct database**:
-   ```bash
-   minsky config get sessiondb.connectionString
-   ```
-
-## Error Code Reference
-
-### SQLite Error Codes
-
-| Code              | Description          | Recovery Action                              |
-| ----------------- | -------------------- | -------------------------------------------- |
-| `SQLITE_BUSY`     | Database locked      | Kill blocking processes, remove lock files   |
-| `SQLITE_CORRUPT`  | Database corrupted   | Run recovery tools or restore from backup    |
-| `SQLITE_READONLY` | Read-only database   | Fix permissions or move to writable location |
-| `SQLITE_CANTOPEN` | Cannot open database | Check path and permissions                   |
-| `SQLITE_FULL`     | Disk full            | Free up space or move to larger partition    |
-
-### PostgreSQL Error Codes
-
-| Code           | Description          | Recovery Action                   |
-| -------------- | -------------------- | --------------------------------- |
-| `ECONNREFUSED` | Connection refused   | Start PostgreSQL or check network |
-| `28P01`        | Invalid password     | Fix credentials                   |
-| `3D000`        | Invalid database     | Check database name               |
-| `42P01`        | Relation not found   | Initialize schema                 |
-| `53300`        | Too many connections | Increase connection limits        |
-
-## Performance Issues
-
-### Slow Session Operations
-
-**Symptoms**:
-
-- Long delays when listing sessions
-- Timeouts during session creation
-- High CPU usage during operations
-
-**Diagnostic Commands**:
+**Solutions:**
 
 ```bash
-# Profile operations
-time minsky session list
+# Apply pending schema migrations
+minsky persistence migrate --execute
 
-# Check database statistics (SQLite)
-sqlite3 ~/.local/state/minsky/sessions.db "ANALYZE; SELECT * FROM sqlite_stat1;"
-
-# Check PostgreSQL performance
-psql -c "SELECT * FROM pg_stat_activity WHERE datname = 'minsky_sessions';"
+# Confirm you're pointed at the intended database
+psql "$(minsky config get persistence.postgres.connectionString)" -c "\dt"
 ```
 
-**Solutions**:
+### Persistence not configured at boot
 
-1. **SQLite optimizations**:
+**Symptoms:** any DB-backed command fails with:
 
-   ```sql
-   -- Enable WAL mode
-   PRAGMA journal_mode = WAL;
-
-   -- Increase cache size
-   PRAGMA cache_size = 10000;
-
-   -- Create indexes
-   CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON sessions(task_id);
-   ```
-
-2. **PostgreSQL optimizations**:
-
-   ```sql
-   -- Update statistics
-   ANALYZE sessions;
-
-   -- Create indexes
-   CREATE INDEX CONCURRENTLY idx_sessions_created_at ON sessions(created_at);
-
-   -- Check query plans
-   EXPLAIN ANALYZE SELECT * FROM sessions WHERE task_id = 'task123';
-   ```
-
-3. **General optimizations**:
-
-   ```bash
-   # Clean up old sessions
-   minsky session clean --older-than 30d
-
-   # Vacuum database (SQLite)
-   sqlite3 ~/.local/state/minsky/sessions.db "VACUUM;"
-   ```
-
-### High Memory Usage
-
-**Symptoms**:
-
-- Minsky process using excessive RAM
-- System becomes slow during operations
-- Out of memory errors
-
-**Solutions**:
-
-1. **Limit result sets**:
-
-   ```bash
-   # Use pagination for large lists
-   minsky session list --limit 50 --offset 0
-   ```
-
-2. **Configure connection pooling (PostgreSQL)**:
-
-   ```bash
-   minsky config set sessiondb.maxConnections 5
-   minsky config set sessiondb.idleTimeout 30
-   ```
-
-3. **Monitor memory usage**:
-
-   ```bash
-   # Check process memory
-   ps aux | grep minsky
-
-   # Use memory profiler
-   valgrind --tool=massif minsky session list
-   ```
-
-## Recovery Procedures
-
-### Emergency Data Recovery
-
-When all else fails, these procedures can help recover session data:
-
-#### 1. Automatic Recovery
-
-```bash
-# Run built-in recovery tool
-minsky sessiondb recover --auto --backup-first
-
-# If auto-recovery fails, try manual steps below
+```
+Persistence is not configured: ... This operation requires a Postgres connection. Set
+persistence.postgres.connectionString in config, or export MINSKY_PERSISTENCE_POSTGRES_URL
+(or legacy MINSKY_POSTGRES_URL).
 ```
 
-#### 2. Manual SQLite Recovery
+Minsky boots successfully without a configured connection (non-DB commands like `--version` and
+`config get` still work) but fails on first DB use. Set
+`persistence.postgres.connectionString` in `.minsky/config.yaml` / `~/.config/minsky/config.yaml`,
+or export `MINSKY_PERSISTENCE_POSTGRES_URL`, then retry.
 
-```bash
-# Export to SQL
-sqlite3 corrupted.db ".recover" > dump.sql
+### Connection pool saturation
 
-# Clean up SQL dump
-sed 's/ROLLBACK/COMMIT/g' dump.sql > clean-dump.sql
+**Symptoms:** intermittent `[retry N/3] ...: pg pool saturation` warnings in logs, or a hard
+failure after 3 retry attempts.
 
-# Import to new database
-sqlite3 new.db < clean-dump.sql
-```
-
-#### 3. PostgreSQL Point-in-Time Recovery
-
-```sql
--- If you have WAL archiving enabled
-SELECT pg_start_backup('emergency_recovery');
-
--- Restore from base backup + WAL files
--- This requires PostgreSQL backup configuration
-```
-
-### Data Migration Emergency
-
-If migration fails and leaves system in inconsistent state:
-
-```bash
-# 1. Stop all operations
-minsky session end --all
-
-# 2. Backup current state
-minsky sessiondb export --all --format json > emergency-backup.json
-
-# 3. Reset to known good state
-minsky sessiondb reset --backend postgres --force
-
-# 4. Import emergency backup
-minsky sessiondb import --file emergency-backup.json
-
-# 5. Retry migration with more conservative settings
-minsky sessiondb migrate to sqlite --verify --dry-run
-```
-
-## Prevention Strategies
-
-### Regular Maintenance
-
-```bash
-#!/bin/bash
-# Weekly maintenance script
-
-# 1. Create backup
-BACKUP_DIR="$HOME/minsky-backups/$(date +%Y-%m-%d)"
-mkdir -p "$BACKUP_DIR"
-minsky sessiondb export --all > "$BACKUP_DIR/sessions.json"
-
-# 2. Clean old sessions
-minsky session clean --older-than 90d
-
-# 3. Optimize database
-case $(minsky config get sessiondb.backend) in
-  "sqlite")
-    sqlite3 ~/.local/state/minsky/sessions.db "ANALYZE; VACUUM;"
-    ;;
-  "postgres")
-    psql "$MINSKY_POSTGRES_URL" -c "ANALYZE sessions;"
-    ;;
-esac
-
-# 4. Verify integrity
-minsky sessiondb verify
-```
-
-### Monitoring Setup
-
-```bash
-# Set up basic monitoring
-echo "*/15 * * * * minsky sessiondb healthcheck" | crontab -
-
-# Log rotation
-cat > /etc/logrotate.d/minsky << EOF
-/var/log/minsky/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-}
-EOF
-```
-
-### Backup Strategy
-
-1. **Daily automated backups**
-2. **Pre-migration backups**
-3. **Retention policy (keep 30 days)**
-4. **Test restore procedures monthly**
-5. **Off-site backup storage**
-
-## Getting Help
-
-### Collecting Diagnostic Information
-
-Before reporting issues, collect this information:
-
-```bash
-#!/bin/bash
-# Diagnostic script
-
-echo "=== Minsky Version ==="
-minsky --version
-
-echo "=== Configuration ==="
-minsky config list sessiondb
-
-echo "=== Backend Status ==="
-minsky sessiondb migrate status --json
-
-echo "=== Recent Logs ==="
-minsky logs --component sessiondb --tail 20
-
-echo "=== System Information ==="
-uname -a
-df -h ~/.local/state/minsky
-
-echo "=== Database Information ==="
-case $(minsky config get sessiondb.backend) in
-  "sqlite")
-    sqlite3 ~/.local/state/minsky/sessions.db "PRAGMA integrity_check; SELECT COUNT(*) FROM sessions;"
-    ;;
-  "postgres")
-    psql "$MINSKY_POSTGRES_URL" -c "SELECT version(); SELECT COUNT(*) FROM sessions;"
-    ;;
-esac
-```
-
-### Support Channels
-
-1. **GitHub Issues**: Report bugs with diagnostic information
-2. **Documentation**: Check latest troubleshooting guides
-3. **Community Forums**: Ask questions and share solutions
-4. **Enterprise Support**: For production environments
-
-### Filing Bug Reports
-
-Include this information:
-
-- Minsky version
-- Operating system
-- SessionDB backend type
-- Full error message
-- Steps to reproduce
-- Diagnostic script output
-- Configuration (sanitized)
+This has a dedicated retry policy and diagnostic log signature — see
+[Connection-Exhaustion Retry Policy](./persistence-configuration.md#connection-exhaustion-retry-policy)
+for the full mechanism, and
+[Overriding the Pool Size](./persistence-configuration.md#overriding-the-pool-size) to change how
+many connections one process opens.
 
 ## Schema-drift audit (Postgres)
 
@@ -573,3 +143,29 @@ in the `persistence check` output. v1 covers the embeddings tables; a clean run 
 `✅ Schema-drift audit clean`. Reconciling reported drift (recreating a table, recording a
 manual drop as a migration, or de-duplicating a ledger row) is a deliberate, separate
 operation — never performed by the audit.
+
+## Getting Help
+
+Before reporting an issue, collect this diagnostic information:
+
+```bash
+minsky --version
+minsky config list --sources
+minsky persistence check --report
+minsky session list --verbose --limit 5
+```
+
+Include the command output (with the connection string's credentials redacted —
+`persistence check` already masks them in its own log lines), your OS, and the steps to
+reproduce.
+
+## Historical: SQLite issues (pre-mt#2339)
+
+Before mt#2339 (SQLite backend removal), this guide covered SQLite-specific failures
+(`SQLITE_BUSY`, `SQLITE_CORRUPT`, `SQLITE_READONLY`), their error-code table, `sqlite3`-based
+recovery procedures (`.recover`, `PRAGMA integrity_check`), and the `sessiondb.sqliteOptions`
+config keys (`journalMode`, `synchronous`, `cacheSize`). None of that applies to the current
+codebase: SQLite is not a selectable backend, `sessiondb.*` config keys throw at boot, and no
+`sqlite3` command is part of any supported Minsky workflow. See
+[ADR-018](architecture/adr-018-domain-persistence-pattern.md) for why SQLite was removed rather
+than kept as a secondary backend.

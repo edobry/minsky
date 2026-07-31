@@ -5,6 +5,9 @@
  * definition modules and emit harness-specific output files.
  */
 
+import type { MemoryLoadingMode } from "../configuration/schemas/memory";
+import type { SizeBudget } from "./size-budget";
+
 export interface MinskyTargetOptions {
   /** Override output directory (default: target-specific) */
   outputPath?: string;
@@ -13,6 +16,24 @@ export interface MinskyTargetOptions {
    * Targets MUST populate `content` and/or `contentsByPath` on the result.
    */
   dryRun?: boolean;
+  /**
+   * Controls whether the memory-usage directive is emitted in `claude.md`
+   * (mt#2992, threaded from the legacy `TargetOptions.memoryLoadingMode`).
+   * - `"on_demand"` (default): emit the directive so the agent calls
+   *   `memory_search`.
+   * - `"legacy"`: suppress the directive; relies on the MEMORY.md preamble
+   *   loader.
+   * Only the `claude.md` target reads this — other targets ignore it.
+   */
+  memoryLoadingMode?: MemoryLoadingMode;
+  /**
+   * Per-call override of a target's default size budget (mt#2802, threaded
+   * into the new pipeline in mt#2992). Either field may be supplied
+   * independently; an absent field falls back to the target's default. Only
+   * `claude.md` and `agents.md` currently enforce a size budget — other
+   * targets ignore this option.
+   */
+  sizeBudget?: Partial<SizeBudget>;
 }
 
 export interface MinskyCompileResult {
@@ -55,6 +76,14 @@ export interface MinskyCompileFsDeps {
   access(path: string): Promise<void>;
   /** Set file permissions (mode). Used by claude-hooks to enforce 0o755. */
   chmod(path: string, mode: number): Promise<void>;
+  /**
+   * Remove a file. OPTIONAL (mt#2992) — only `claude-rules`'s stale-file
+   * removal needs it; kept optional rather than required so the fake-fs
+   * fixtures in the other new-pipeline targets' existing tests
+   * (claude-skills/claude-agents/cursor-rules-ts/claude-hooks) don't need to
+   * grow an unused method just to keep satisfying this interface.
+   */
+  unlink?(path: string): Promise<void>;
 }
 
 /**

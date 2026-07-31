@@ -22,8 +22,14 @@ describe("createDomainContainer", () => {
     expect(typeof container.initialize).toBe("function");
   });
 
+  // mt#2712: `./domain.ts` relative to this file was stale -- the module
+  // moved to packages/domain/src/composition/domain.ts during the mt#2108
+  // extraction and this test's path was never updated. Fixed by pointing
+  // at the canonical location.
   test("domain container does not import from adapters or commands", async () => {
-    const domainSource = await Bun.file(new URL("./domain.ts", import.meta.url).pathname).text();
+    const domainSource = await Bun.file(
+      new URL("../../packages/domain/src/composition/domain.ts", import.meta.url).pathname
+    ).text();
 
     expect(domainSource).not.toContain("../adapters/");
     expect(domainSource).not.toContain("../commands/");

@@ -8,19 +8,22 @@ import { describe, expect, test } from "bun:test";
 import type {
   CalibrationLogEntry,
   CalibrationLogResult,
+  ReviewDueLog,
+} from "../../src/domain/calibration/calibration-sweep";
+import {
+  computeReviewDueLogs,
+  STALE_DAYS_MS,
 } from "../../src/domain/calibration/calibration-sweep";
 import {
   buildPendingAskRecord,
-  computeReviewDueLogs,
   formatCadenceWarning,
   formatPendingAskLines,
   selectPendingAskLogs,
   shouldReWarn,
-  STALE_DAYS_MS,
   COOLDOWN_MS,
   type LastWarnedRecord,
   type LastWarnedStore,
-  type ReviewDueLog,
+  type AskLookup,
 } from "./calibration-review-cadence-detector";
 
 // ---------------------------------------------------------------------------
@@ -52,11 +55,13 @@ function makeResult(
   entry: CalibrationLogEntry,
   overrides: Partial<CalibrationLogResult> = {}
 ): CalibrationLogResult {
-  return {
+  const merged = {
     entry,
     exists: true,
     totalFires: 0,
     firesSinceLastReview: 0,
+    suppressedSinceLastReview: 0,
+    injectedFiresSinceLastReview: 0,
     distinctPhrases: 0,
     atCountThreshold: false,
     lowDiversity: false,
@@ -64,6 +69,16 @@ function makeResult(
     newRecords: [],
     watermarkCount: 0,
     ...overrides,
+  };
+  return {
+    ...merged,
+    // mt#3197: unless a test says otherwise, every fire is INJECTED — which is
+    // the real-world default for every detector that records no suppression
+    // outcome. Derived rather than defaulted to 0 so existing fixtures that
+    // only set `firesSinceLastReview` keep meaning what they meant.
+    injectedFiresSinceLastReview:
+      overrides.injectedFiresSinceLastReview ??
+      merged.firesSinceLastReview - merged.suppressedSinceLastReview,
   };
 }
 
@@ -248,6 +263,53 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
 // formatCadenceWarning
 // ---------------------------------------------------------------------------
 
+describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
+  const ALL_SUPPRESSED = { firesSinceLastReview: 12, suppressedSinceLastReview: 12 };
+  /** Comfortably older than both the stale window and the never-reviewed window. */
+  const LONG_AGO = new Date(NOW - (STALE_DAYS_MS + 30 * 24 * 60 * 60 * 1000)).toISOString();
+
+  test("time-stale does not fire when every new record was suppressed", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [makeResult(entry, { ...ALL_SUPPRESSED, totalFires: 40 })];
+    const watermarks = {
+      [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(0);
+  });
+
+  test("time-stale still fires when at least one new record was injected", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 11,
+        totalFires: 40,
+      }),
+    ];
+    const watermarks = {
+      [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("time-stale");
+    expect(due[0]?.injectedFiresSinceLastReview).toBe(1);
+  });
+
+  test("never-reviewed does not fire when every record was suppressed", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        ...ALL_SUPPRESSED,
+        totalFires: 12,
+        firstRecordTimestamp: LONG_AGO,
+      }),
+    ];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(0);
+  });
+});
+
 describe("formatCadenceWarning", () => {
   test("names each due log with its fire count and reason", () => {
     const due: ReviewDueLog[] = [
@@ -256,6 +318,9 @@ describe("formatCadenceWarning", () => {
         path: ASK_ROUTING_DEFERRAL_PATH,
         kind: ASK_ROUTING_DEFERRAL,
         firesSinceLastReview: 43,
+        // mt#3197: no suppression outcome recorded -> every fire is injected.
+        injectedFiresSinceLastReview: 43,
+        suppressedSinceLastReview: 0,
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
@@ -265,6 +330,8 @@ describe("formatCadenceWarning", () => {
         path: ".minsky/retrospective-trigger-calibration.jsonl",
         kind: "retrospective-trigger",
         firesSinceLastReview: 8,
+        injectedFiresSinceLastReview: 8,
+        suppressedSinceLastReview: 0,
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",
@@ -276,7 +343,30 @@ describe("formatCadenceWarning", () => {
     expect(msg).toContain(RETROSPECTIVE_TRIGGER);
     expect(msg).toContain("unreviewed for >=");
     expect(msg).toContain("/calibration-review");
-    expect(msg).toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
+    // The override env var is deliberately NOT named here (mt#3479): advisory
+    // text is read by the agent, and the override is the operator's escape
+    // hatch, catalogued in `CLAUDE.md §Hook Files`. Asserted as an absence so a
+    // re-added advertisement fails here as well as in guard-feedback-shape.
+    expect(msg).not.toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
+  });
+
+  test("names the never-reviewed reason (mt#2896)", () => {
+    const due: ReviewDueLog[] = [
+      {
+        name: "causal-premise",
+        path: ".minsky/causal-premise-calibration.jsonl",
+        kind: "causal-premise",
+        firesSinceLastReview: 1,
+        totalFires: 1,
+        distinctPhrases: 1,
+        reason: "never-reviewed",
+        reviewByDays: 7,
+      },
+    ];
+    const msg = formatCadenceWarning(due);
+    expect(msg).toContain("causal-premise");
+    expect(msg).toContain("never reviewed");
+    expect(msg).toContain("7 days ago");
   });
 });
 
@@ -392,24 +482,103 @@ describe("selectPendingAskLogs", () => {
 // ---------------------------------------------------------------------------
 
 describe("formatPendingAskLines", () => {
-  test("names the log and the open ask id, without demanding action", () => {
-    const pending: ReviewDueLog[] = [
-      {
-        name: POLICY_COVERAGE,
-        path: POLICY_COVERAGE_PATH,
-        kind: POLICY_COVERAGE,
-        firesSinceLastReview: 20,
-        totalFires: 1477,
-        distinctPhrases: 5,
-        reason: "past-threshold",
-        openAskId: TEST_ASK_ID,
-      },
-    ];
-    const msg = formatPendingAskLines(pending);
+  const pendingLog = (askId: string = TEST_ASK_ID): ReviewDueLog => ({
+    name: POLICY_COVERAGE,
+    path: POLICY_COVERAGE_PATH,
+    kind: POLICY_COVERAGE,
+    firesSinceLastReview: 20,
+    totalFires: 1477,
+    distinctPhrases: 5,
+    reason: "past-threshold",
+    openAskId: askId,
+  });
+
+  const lookups = (lookup: AskLookup, askId: string = TEST_ASK_ID): Map<string, AskLookup> =>
+    new Map([[askId, lookup]]);
+
+  // Extracted so a wording change can never leave an assertion silently checking prose the
+  // formatter no longer emits.
+  const AWAITING = "awaiting operator response";
+  const NO_ACTION_NEEDED = "no action needed";
+  const NEEDS_DISPOSITION = "still needs a disposition";
+  const UNKNOWN_STATE = "disposition state unknown";
+  const STORE_UNREACHABLE = "ask store unreachable";
+
+  test("an OPEN ask still renders the pending line, without demanding action", () => {
+    // mt#3270: the fixture states the ask state LITERALLY. Binding this to a live ask id
+    // is what made the original spec's example go stale within a day of being written.
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "open", state: "suspended", shortId: "ask#6136" })
+    );
     expect(msg).toContain(POLICY_COVERAGE);
-    expect(msg).toContain(TEST_ASK_ID);
     expect(msg).toContain("disposition pending");
+    expect(msg).toContain(AWAITING);
+    expect(msg).toContain(NO_ACTION_NEEDED);
     expect(msg).not.toContain("/calibration-review");
+  });
+
+  test("a CLOSED, answered ask does NOT claim the operator owes a response", () => {
+    // The 109807e1 incident: closed+responded 2026-07-23, still reported as pending a day
+    // later, and the principal tried to action an ask that could no longer be opened.
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "settled", state: "closed", shortId: "ask#5425" })
+    );
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).not.toContain(NO_ACTION_NEEDED);
+    expect(msg).toContain("is closed");
+    expect(msg).toContain(NEEDS_DISPOSITION);
+  });
+
+  test("an unresolvable ask renders a neutral line rather than asserting operator state", () => {
+    const msg = formatPendingAskLines([pendingLog()], lookups({ kind: "not-found" }));
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).toContain("could not be found");
+    expect(msg).toContain(UNKNOWN_STATE);
+  });
+
+  test("an UNREACHABLE store is distinguishable from a not-found ask", () => {
+    // Without this distinction a dead lookup renders exactly like a healthy one that found
+    // nothing — the mt#3019 / mt#3046 shape, and the same shape as this detector's own bug.
+    const notFound = formatPendingAskLines([pendingLog()], lookups({ kind: "not-found" }));
+    const unreachable = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "unavailable", reason: "Configuration not initialized" })
+    );
+    expect(unreachable).not.toBe(notFound);
+    expect(unreachable).toContain(STORE_UNREACHABLE);
+    expect(unreachable).toContain("Configuration not initialized");
+    expect(unreachable).not.toContain(AWAITING);
+  });
+
+  test("a missing lookup never silently reads as an open ask", () => {
+    const msg = formatPendingAskLines([pendingLog()], new Map());
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).toContain(STORE_UNREACHABLE);
+  });
+
+  test("the ask id renders as a clickable minsky://ask deeplink", () => {
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "open", state: "routed", shortId: "ask#6136" })
+    );
+    expect(msg).toContain(`[ask#6136](minsky://ask/${TEST_ASK_ID})`);
+  });
+
+  test("the header drops 'no action needed' when any referenced ask is settled", () => {
+    const other = "9f1d2c33-0000-4000-8000-abcdefabcdef";
+    const msg = formatPendingAskLines(
+      [pendingLog(), { ...pendingLog(other), name: ASK_ROUTING_DEFERRAL }],
+      new Map<string, AskLookup>([
+        [TEST_ASK_ID, { kind: "open", state: "suspended" }],
+        [other, { kind: "settled", state: "closed" }],
+      ])
+    );
+    expect(msg).not.toContain(NO_ACTION_NEEDED);
+    expect(msg).toContain("Calibration disposition status");
+    expect(msg).toContain(AWAITING);
+    expect(msg).toContain(NEEDS_DISPOSITION);
   });
 });
 

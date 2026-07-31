@@ -19,7 +19,7 @@
 
 export interface DerivationIssue {
   /** Category of the first-order source the content appears to derive from */
-  source: "code" | "git" | "task" | "rule" | "quoted";
+  source: "code" | "git" | "task" | "rule" | "quoted" | "invalid-input";
   /** Human-readable description of why the content was flagged */
   message: string;
 }
@@ -75,6 +75,7 @@ const SOURCE_PHRASE: Record<DerivationIssue["source"], string> = {
   task: "a task spec",
   rule: "a rule",
   quoted: "quoted code",
+  "invalid-input": "non-string input",
 };
 
 function issueMessage(source: DerivationIssue["source"]): string {
@@ -98,6 +99,21 @@ function issueMessage(source: DerivationIssue["source"]): string {
  * false positives should be overrideable via `force: true`.
  */
 export function checkDerivation(content: string): DerivationIssue | null {
+  // Defensive guard (mt#2705, belt-and-suspenders): `content` is typed as
+  // `string`, but a boundary bypass — a direct `execute()` call (tests,
+  // scripts), or a future adapter gap symmetric to the one this task fixes
+  // at the MCP/CLI boundary — could still hand in non-string input (most
+  // notably `undefined` for an omitted required param, the mt#3144
+  // `memory.create` incident: `content.trimStart()` threw a raw TypeError
+  // instead of a typed, field-naming rejection). Return a typed rejection
+  // instead of letting `.trimStart()` throw.
+  if (typeof content !== "string") {
+    return {
+      source: "invalid-input",
+      message: `Memory content must be a string (received ${content === null ? "null" : typeof content}). This should already be rejected at the command boundary before reaching the derivation check.`,
+    };
+  }
+
   const trimmed = content.trimStart();
 
   if (CODE_RE.test(trimmed)) return { source: "code", message: issueMessage("code") };

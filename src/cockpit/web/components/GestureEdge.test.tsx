@@ -12,7 +12,6 @@ import { render, cleanup } from "@testing-library/react";
 import { GestureEdge } from "./GestureEdge";
 
 function mockReducedMotion(matches: boolean) {
-  // @ts-expect-error - jsdom matchMedia stub
   globalThis.window.matchMedia = mock((query: string) => ({
     matches,
     media: query,

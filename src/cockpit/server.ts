@@ -9,21 +9,40 @@
  *
  * Serves:
  *   GET /api/health           — health + version + uptime
+ *   GET /api/sweeps           — per-sweep liveness registry (mt#2894)
  *   GET /api/widgets          — metadata for every registered widget
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
  *                               state, transcript bridge (mt#1919)
+ *   POST /api/agents/:id/focus — resolve + raise the session's externally
+ *                               attached terminal (mt#2284 + mt#2285, local-
+ *                               only, mt#2286)
+ *   GET /api/conversation/:agentSessionId/live-tail — conversation-keyed live
+ *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+ *   POST /api/driven-session  — spawn a driven session (genuine `claude`
+ *                               child, local daemon only, mt#2750)
+ *   POST /api/driven-session/:id/stop — graceful stop of a driven session
+ *   GET /api/driven-session   — list app-started driven sessions
+ *   ANY  /api/*                — 404 JSON for any unmatched /api route (mt#3111;
+ *                               registered after every route module above, so it
+ *                               only fires when nothing else matched — never the SPA)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  *
  * @see ./routes/health.ts, ./routes/tasks.ts, ./routes/agents.ts,
- *   ./routes/changesets.ts, ./routes/events.ts, ./routes/activity.ts,
- *   ./routes/asks.ts, ./routes/credentials.ts, ./routes/context-inspector.ts,
- *   ./routes/embeddings.ts — the per-domain route modules
+ *   ./routes/agent-focus.ts, ./routes/conversations.ts, ./routes/changesets.ts,
+ *   ./routes/events.ts, ./routes/activity.ts, ./routes/asks.ts,
+ *   ./routes/credentials.ts, ./routes/context-inspector.ts,
+ *   ./routes/embeddings.ts, ./routes/driven-sessions.ts — the per-domain
+ *   route modules
+ * @see ./driven-session-host.ts, ./driven-session-ws.ts — Rung 2A
+ *   driven-session spawn/registry logic + its WS channel (mt#2750; the WS
+ *   channel is attached separately by
+ *   src/commands/cockpit/start-command.ts — see that file's docblock)
  * @see ./db-providers.ts — shared lazy-cached persistence getters
  * @see ./sweepers.ts — the periodic-sweeper factory + concrete sweepers
  */
@@ -42,13 +61,38 @@ import type { CredentialModuleOverride } from "./routes/credentials";
 import { mountHealthRoutes } from "./routes/health";
 import { mountTaskRoutes } from "./routes/tasks";
 import { mountAgentRoutes } from "./routes/agents";
+import { mountAgentFocusRoutes } from "./routes/agent-focus";
+import type { AgentFocusRouteOptions } from "./routes/agent-focus";
+import { mountConversationRoutes } from "./routes/conversations";
+import type { ConversationRoutesOptions } from "./routes/conversations";
+import { mountConversationSearchRoutes } from "./routes/conversation-search";
+import type { ConversationSearchRouteOptions } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
+import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
+import { mountSessionFilmRoutes } from "./routes/session-film";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
+import { mountSweepRoutes } from "./routes/sweeps";
+import { mountFollowUpRoutes } from "./routes/follow-ups";
+import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
+import { mountEntityThreadRoutes } from "./routes/entity-threads";
+import { mountConversationRunStateRoutes } from "./routes/conversation-run-state";
+import { mountConversationPresenceRoutes } from "./routes/conversation-presence";
+import type { ConversationPresenceRoutesOptions } from "./routes/conversation-presence";
+import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
+import {
+  buildAllowedHosts,
+  cookieBootstrapMiddleware,
+  getOrCreateCockpitToken,
+  hostAllowlistMiddleware,
+  isLoopbackHost,
+  mutationAuthMiddleware,
+} from "./auth";
+import { cspMiddleware } from "./csp";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -88,6 +132,85 @@ export interface CockpitServerOptions {
    * a real `cockpit:build` output).
    */
   overrideWebDistDir?: string;
+  /**
+   * Override the bearer token used by the mutation-auth middleware (used in
+   * tests, so a run doesn't read/write the real
+   * `~/.local/state/minsky/cockpit-token` file). When absent, the real
+   * per-machine token is read from disk (generating one on first boot).
+   */
+  overrideToken?: string;
+  /**
+   * The `--host` value the daemon is (or will be) bound to, if not the
+   * loopback default. Added to the Host-header allowlist alongside the
+   * standard loopback aliases (mt#2538) so an explicit non-loopback opt-in
+   * doesn't get rejected by its own daemon.
+   */
+  host?: string;
+  /**
+   * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
+   * entrypoint — a separate consumer of this shared factory that binds
+   * `0.0.0.0` deliberately for the platform proxy and is reached via a
+   * Railway-assigned public hostname that can never satisfy the
+   * loopback-only Host-header allowlist below. The mt#2538 local-daemon
+   * hardening spec explicitly rules that deployment out of scope. Setting
+   * this to `true` skips the Host-header allowlist and the bearer-token /
+   * cookie mutation-auth requirement entirely, preserving that deployment's
+   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
+   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
+   * multi-instance container deployment). The CSP header and the
+   * no-permissive-CORS policy still apply — both are purely additive
+   * response-header behavior with no request-handling impact.
+   */
+  isPublicDeployment?: boolean;
+  /**
+   * Test-only injection seams for the conversation-keyed live-tail endpoint
+   * (mt#2749) — overrides the fs/tailer/timing primitives its
+   * `resolveJsonlPath`/`startLiveTail` calls use, so tests can exercise the
+   * full SSE integration path against in-memory fakes instead of real disk
+   * I/O and real timers. See `./routes/conversations.ts`.
+   */
+  overrideConversationLiveTail?: ConversationRoutesOptions;
+  /**
+   * Test-only injection seams for the Rung 2A driven-session routes
+   * (mt#2750) — overrides the registry/spawnFn/command
+   * `POST /api/driven-session` uses, so tests exercise the full
+   * spawn/registry/lifecycle path against an injected FAKE process instead
+   * of the real `claude` binary. See ./routes/driven-sessions.ts and
+   * ./driven-session-host.ts. Never set in production.
+   */
+  overrideDrivenSession?: DrivenSessionRoutesOptions;
+  /**
+   * Test seam for the /api/projects route's database resolution (mt#3254).
+   * Without it a test process reaches the production resolution path, which
+   * the live-database guard refuses.
+   */
+  overrideProjectRoutes?: ProjectRoutesOptions;
+  /**
+   * Test-only injection seams for the Agents-view "go to" focus endpoint
+   * (mt#2286) — overrides the SQL-connection getter and the mt#2285 focus
+   * executor so tests exercise the full attachment-resolution + delegation
+   * path against injected fakes instead of a real DB and a real terminal
+   * focus action. See ./routes/agent-focus.ts. Never set in production.
+   */
+  overrideAgentFocus?: AgentFocusRouteOptions;
+  /**
+   * Test-only injection seam for the conversation search endpoint (mt#2523)
+   * — overrides the SQL-connection getter so tests can force a deterministic
+   * db-unavailable (503) or db-available response instead of depending on
+   * whatever `getContextInspectorDb()`'s module-level singleton happens to
+   * resolve to in-process (mt#3016). Never set in production. See
+   * ./routes/conversation-search.ts.
+   */
+  overrideConversationSearch?: ConversationSearchRouteOptions;
+  /**
+   * Test-only injection seam for the conversation-presence endpoint (mt#3201)
+   * — overrides the run-state / open-ask / workspace-id readers so tests
+   * exercise the real HTTP contract against plain injected values rather than
+   * mocking drizzle's query builder or depending on whatever connection
+   * happens to exist in-process (the mt#3016 lesson). Never set in
+   * production. See ./routes/conversation-presence.ts.
+   */
+  overrideConversationPresence?: ConversationPresenceRoutesOptions;
 }
 
 /**
@@ -117,7 +240,64 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   setLoadedWidgetCount(availableWidgets.size);
 
   const app = express();
+
+  // --- Security hardening (mt#2538) ---
+  //
+  // Loopback bind (start-command.ts default host `127.0.0.1`) is NOT by
+  // itself a sufficient auth posture: any local process of any user on the
+  // machine can reach loopback, and DNS-rebinding can drive a victim
+  // browser at localhost. Hence the token + Host-allowlist below, in
+  // addition to the bind default.
+  //
+  // `isPublicDeployment` (set only by the Railway entrypoint) skips the
+  // loopback-oriented Host-allowlist and mutation-auth below — see the
+  // CockpitServerOptions doc comment for the full rationale. The CSP header
+  // and no-CORS policy are additive/response-only, so they still apply.
+  const localAuthEnabled = !opts.isPublicDeployment;
+  const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
+  const allowedHosts = buildAllowedHosts(opts.host);
+  // Loopback bind unless `--host` opted into a routable address. Gates the
+  // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
+  // explicit Authorization header rather than a Secure-less cookie.
+  const isLoopbackBind = !opts.host || isLoopbackHost(opts.host);
+
+  if (localAuthEnabled) {
+    // Host-header allowlist (DNS-rebinding defense) — runs first, before any
+    // handler that would otherwise trust `req.headers.host`.
+    app.use(hostAllowlistMiddleware(allowedHosts));
+  }
+
   app.use(express.json());
+
+  // Content-Security-Policy on every GET/HEAD response (harmless on JSON API
+  // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
+  app.use(cspMiddleware(!!opts.dev));
+
+  if (localAuthEnabled && cockpitToken) {
+    // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
+    // the SPA's same-origin mutation fetches work without any URL/localStorage
+    // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
+    // future non-loopback opt-in consumer. See ./auth.ts.
+    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
+
+    // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
+    // token (Authorization header) or the bootstrap cookie. Read-only
+    // GET/SSE surfaces are exempt — loopback bind already covers the LAN
+    // read surface, and plumbing the token to every GET consumer (tray Rust
+    // health poll, dev canary, curl operators) is disproportionate at this
+    // tier. The Rung 2A WS channel (mt#2750) will REQUIRE the token. See
+    // ./auth.ts.
+    app.use(mutationAuthMiddleware(cockpitToken));
+  }
+
+  // NO permissive CORS is set anywhere in this file — that absence IS the
+  // policy (same-origin only). There is no `cors` middleware and no
+  // `Access-Control-Allow-Origin` response header, so a cross-origin
+  // `fetch()` from a browser fails the CORS preflight/response check before
+  // it ever reaches a route handler. `mutationAuthMiddleware` above adds a
+  // second, server-side Origin check for non-browser HTTP clients that set
+  // `Origin` manually. See docs/architecture/cockpit.md "Bind, auth, and
+  // CSP posture" for the full rationale.
 
   // Preview-mode guard (mt#2096): block mutation endpoints in preview deploys.
   // Defense-in-depth API layer — paired with a read-only Supabase DB role.
@@ -145,13 +325,50 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountHealthRoutes(app, { serverDirname: __dirname, availableWidgets });
   mountTaskRoutes(app);
   mountAgentRoutes(app);
+  mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
+  mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
+  mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);
+  mountProjectRoutes(app, opts.overrideProjectRoutes ?? {}); // mt#2418 — GET /api/projects (shell project selector)
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
+  mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}
+  mountConversationRunStateRoutes(app);
+  mountConversationPresenceRoutes(app, opts.overrideConversationPresence ?? {});
   mountEmbeddingsRoutes(app);
+  mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
+  mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)
+
+  // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
+  // genuine `claude` binary with the operator's own credentials has no
+  // meaning on the Railway-deployed public entrypoint (isPublicDeployment) —
+  // see ./routes/driven-sessions.ts's docblock.
+  if (!opts.isPublicDeployment) {
+    mountDrivenSessionRoutes(app, opts.overrideDrivenSession ?? {});
+    // mt#3364 — entity discussion threads spawn the same genuine `claude`
+    // binary as the driven sessions above, so they carry the same
+    // local-daemon-only constraint and share this guard.
+    mountEntityThreadRoutes(app);
+  }
+
+  /**
+   * A GET (or any other method) to an unmatched /api/* path must 404 as JSON
+   * — NOT fall through to the SPA. Mirrors the /assets guard below (mt#2674):
+   * without this, a mistyped or renamed API path returns index.html
+   * (text/html, HTTP 200), which reads to a client doing `await res.json()`
+   * as a transport/serialization bug instead of a routing bug (mt#3111).
+   * Registered unconditionally (not inside the `!opts.dev` block below) so it
+   * also covers dev mode: `--dev` attaches Vite's own SPA-fallback middleware
+   * OUTSIDE this factory (see start-command.ts), after every route this
+   * function registers — so this guard must run here, before that, to
+   * intercept an unmatched /api/* request in both modes.
+   */
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "API route not found" });
+  });
 
   // --- Static SPA assets ---
 
@@ -177,6 +394,32 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
      */
     app.use("/assets", (_req, res) => {
       res.status(404).json({ error: "Asset not found" });
+    });
+
+    /**
+     * GET /fonts/* — served from web/dist/fonts.
+     *
+     * The self-hosted design-system webfonts (mt#3111) are vendored under
+     * web/public/fonts/, and Vite copies its publicDir to the ROOT of outDir
+     * — so they build to web/dist/fonts/, NOT under web/dist/assets/. Without
+     * this mount the SPA fallback below would answer
+     * /fonts/geist-latin.woff2 with index.html at HTTP 200, the browser would
+     * reject the text/html body as a font, and every page would silently fall
+     * back to system fonts — exactly the defect this task set out to fix, and
+     * the same failure shape mt#2674 fixed for content-hashed chunks.
+     */
+    if (fs.existsSync(path.join(webDistDir, "fonts"))) {
+      app.use("/fonts", express.static(path.join(webDistDir, "fonts")));
+    }
+
+    /**
+     * A missing /fonts file must 404 — NOT fall through to the SPA fallback,
+     * for the MIME-type reason above. Registered unconditionally so the 404
+     * holds even when the fonts dir itself is absent (an unbuilt or partial
+     * bundle), rather than degrading to a 200 text/html.
+     */
+    app.use("/fonts", (_req, res) => {
+      res.status(404).json({ error: "Font not found" });
     });
 
     /**

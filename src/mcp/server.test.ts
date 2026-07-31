@@ -18,8 +18,19 @@ const ACCEPT_MCP = "application/json, text/event-stream";
 // Shared response body constants
 const SESSION_NOT_FOUND_MSG = "Session not found";
 
+// Shared greet-tool response — used by the mt#1884 latency-emission tests and the
+// staleness success test; extracted to satisfy custom/no-magic-string-duplication.
+const GREET_TOOL_RESPONSE = "hello from greet";
+
 // Shared staleness-signal constants
 const STALENESS_LOGGER = "minsky-staleness";
+
+// Shared fake staleness message used by the mt#2701/mt#2830 drain tests below
+// — extracted to avoid the custom/no-magic-string-duplication warning once
+// the same literal is used by 3+ tests.
+const FAKE_STALE_MESSAGE =
+  "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+  "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
 
 describe("MCP Server", () => {
   beforeEach(() => {
@@ -514,6 +525,128 @@ describe("MCP Server", () => {
     }
   });
 
+  test("tools/call success path emits a Braintrust latency event (mt#1884)", async () => {
+    // mt#1884: the CallToolRequestSchema handler emits one flat per-tool latency
+    // event (fire-and-forget) after the dispatch completes. Inject a spy emitter
+    // (instance-field DI) and assert the success-path attributes.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+    server.addTool({
+      name: "greet",
+      description: "Returns a greeting",
+      handler: async () => GREET_TOOL_RESPONSE,
+    });
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await toolsCallHandler({ method: "tools/call", params: { name: "greet", arguments: {} } }, {});
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as {
+      output: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+    };
+    expect(evt.output.tool_name).toBe("greet");
+    expect(evt.output.outcome).toBe("success");
+    expect(typeof evt.output.duration_ms).toBe("number");
+    expect(evt.output.error_class).toBeUndefined();
+    expect(evt.metadata.source).toBe("minsky.mcp.server");
+    expect(typeof evt.metadata.request_id).toBe("string");
+    expect(typeof evt.metadata.timestamp).toBe("string");
+    // session/peer dimension deferred to mt#2289 — no per-connection id emitted here.
+    expect(evt.metadata.session_key).toBeUndefined();
+
+    await server.close();
+  });
+
+  test("tools/call error path emits a Braintrust latency event with error_class (mt#1884)", async () => {
+    // Parallel to the success-path emission test: a throwing tool must still emit
+    // one latency event with outcome=error and the error class captured.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+    server.addTool({
+      name: "fail",
+      description: "Always fails",
+      handler: async () => {
+        throw new Error("deliberate failure");
+      },
+    });
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await expect(
+      toolsCallHandler({ method: "tools/call", params: { name: "fail", arguments: {} } }, {})
+    ).rejects.toThrow(/deliberate failure/);
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as { output: Record<string, unknown> };
+    expect(evt.output.tool_name).toBe("fail");
+    expect(evt.output.outcome).toBe("error");
+    expect(evt.output.error_class).toBe("Error");
+
+    await server.close();
+  });
+
+  test("tools/call unknown-tool path emits an error event with error_class (mt#1884)", async () => {
+    // Regression guard for the outer catch that captures error_class on the
+    // pre-dispatch throw path (unknown tool) — reviewer finding on PR #2200.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await expect(
+      toolsCallHandler(
+        { method: "tools/call", params: { name: "no-such-tool", arguments: {} } },
+        {}
+      )
+    ).rejects.toThrow(/not found/);
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as { output: Record<string, unknown> };
+    expect(evt.output.tool_name).toBe("no-such-tool");
+    expect(evt.output.outcome).toBe("error");
+    expect(evt.output.error_class).toBe("Error");
+
+    await server.close();
+  });
+
   test("tools/call success path triggers staleness signal when detector reports stale", async () => {
     // Regression guard for the handler wiring, not just triggerStaleSignal in isolation.
     // If the `if (this.stalenessDetector.getStaleWarning() ...)` check were removed from
@@ -537,7 +670,7 @@ describe("MCP Server", () => {
     server.addTool({
       name: "greet",
       description: "Returns a greeting",
-      handler: async () => "hello from greet",
+      handler: async () => GREET_TOOL_RESPONSE,
     });
 
     // Inject a fake StalenessDetector that always reports stale.
@@ -590,7 +723,7 @@ describe("MCP Server", () => {
 
     // The tool response must be returned correctly regardless of staleness.
     expect(response).toMatchObject({
-      content: [{ type: "text", text: "hello from greet" }],
+      content: [{ type: "text", text: GREET_TOOL_RESPONSE }],
     });
 
     // sendLoggingMessage must have been called once with the correct shape —
@@ -605,8 +738,9 @@ describe("MCP Server", () => {
     expect(data.startupHead).toBe(fakeStartupHead);
     expect(data.currentHead).toBe(fakeCurrentHead);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -688,8 +822,9 @@ describe("MCP Server", () => {
     expect(call.level).toBe("alert");
     expect(call.logger).toBe(STALENESS_LOGGER);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -800,6 +935,315 @@ describe("MCP Server", () => {
     const firstExitCode = exitCalls[0];
     if (firstExitCode === undefined) throw new Error("Expected exitCalls[0] to be defined");
     expect(firstExitCode).toBe(0);
+
+    await server.close();
+  });
+
+  test("staleness drain: a concurrent sibling call's response is delivered before exit (mt#2701)", async () => {
+    // Acceptance Test 1: two concurrent tool calls; a fast one detects staleness
+    // and triggers the exit while a slow sibling is still executing. The drain
+    // must let the slow sibling's response come back (not orphan it) and only
+    // then exit. Drives the REAL tools/call handler so in-flight accounting,
+    // response delivery, and drain interact exactly as in production.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // A slow tool (still in flight when staleness triggers) and a fast one.
+    server.addTool({
+      name: "slow",
+      description: "Slow tool",
+      handler: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        return "slow-done";
+      },
+    });
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // Start the slow sibling first so it is past the draining gate and registered
+    // in-flight before staleness triggers.
+    const slowPromise = toolsCallHandler(
+      { method: "tools/call", params: { name: "slow", arguments: {} } },
+      {}
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+    // The quick call completes and detects staleness → triggers drain-then-exit.
+    const quickRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(quickRes)).toBe("quick-done");
+
+    // Slow sibling is still running: the exit must be held by the drain.
+    expect(exitCalls.length).toBe(0);
+
+    // The sibling response is DELIVERED (not orphaned) — the core of AT1.
+    const slowRes = await slowPromise;
+    expect(textOf(slowRes)).toBe("slow-done");
+
+    // Only after the sibling drained does the exit fire (drain + 200ms flush).
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    await server.close();
+  });
+
+  test("staleness drain: hard cap force-exits when a request is wedged (mt#2701)", async () => {
+    // A request that never completes must not keep a stale server alive forever;
+    // the drain cap force-exits. Shrinks staleDrainCapMs so the test runs fast.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    // Shrink the drain cap and seed a wedged (never-clearing) in-flight request.
+    (server as unknown as { staleDrainCapMs: number }).staleDrainCapMs = 150;
+    const inFlight = (server as unknown as { inFlightRequests: Map<number, number> })
+      .inFlightRequests;
+    inFlight.set(1, Date.now());
+
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+    triggerStaleSignal(sdkServer as any);
+
+    // Before the cap elapses, no exit yet.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    expect(exitCalls.length).toBe(0);
+
+    // After cap (150ms) + flush buffer (200ms), the exit fires despite the wedge.
+    await new Promise<void>((resolve) => setTimeout(resolve, 450));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    inFlight.delete(1);
+    await server.close();
+  });
+
+  test("staleness drain: a NEW request arriving during the drain window is served normally, not rejected (mt#2830)", async () => {
+    // Regression guard for mt#2830: before the fix, triggerStaleSignal set
+    // `draining = true`, and the tools/call handler rejected ANY new call
+    // with Error("Server is shutting down") while draining — surfacing to
+    // callers as MCP error -32603. This asserts a call issued AFTER
+    // staleness has been detected (but before the process actually exits)
+    // completes normally instead of throwing.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // First call detects staleness and arms the drain (pendingStaleExit=true).
+    const firstRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(firstRes)).toBe("quick-done");
+
+    // Confirm the drain semantics: pendingStaleExit is set, but the
+    // shutdown-rejecting `draining` flag is deliberately NOT set.
+    expect((server as unknown as { pendingStaleExit: boolean }).pendingStaleExit).toBe(true);
+    expect((server as unknown as { draining: boolean }).draining).toBe(false);
+
+    // A NEW call arrives during the drain window (before the exit has fired).
+    // It must be served normally, not rejected.
+    expect(exitCalls.length).toBe(0);
+    const secondRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(secondRes)).toBe("quick-done");
+
+    // Eventually, once genuinely idle, the exit still fires.
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    await server.close();
+  });
+
+  test("staleness drain: a request racing the exit decision (after exitCommitted, before process.exit) is rejected, not admitted-then-killed (mt#2830 R1)", async () => {
+    // Regression guard for the R1 review finding: `pendingStaleExit` alone
+    // admits new requests for the ENTIRE drain window, including the final
+    // flush-buffer gap between "idle observed" (the exit decision) and the
+    // actual process.exit(0). A request admitted into that gap would start
+    // executing and then be killed mid-execution when the process dies —
+    // worse than the original -32603 bug (a silent kill instead of an
+    // immediate, retriable rejection). `exitCommitted` closes this: once the
+    // exit decision is taken, new admissions are rejected exactly like
+    // `draining` for the remainder of the flush window.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // Trigger staleness. After this resolves, inFlightRequests drops to 0 and
+    // the next 50ms poll tick will observe the idle gap and flip
+    // exitCommitted — see scheduleStaleExitAfterDrain.
+    const firstRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(firstRes)).toBe("quick-done");
+
+    // Poll for exitCommitted to flip true (bounded wait, avoids a flaky fixed
+    // sleep racing the internal 50ms poll interval). The exit itself must NOT
+    // have fired yet — this test is specifically about the gap BEFORE it.
+    const exitCommittedFlag = () => (server as unknown as { exitCommitted: boolean }).exitCommitted;
+    // Bounded polling deadline (no filesystem I/O anywhere in this test) —
+    // isolated behind a helper rather than inline `Date.now()` calls.
+    const now = (): number => Date.now();
+    const deadline = now() + 2000;
+    while (!exitCommittedFlag() && now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    expect(exitCommittedFlag()).toBe(true);
+    expect(exitCalls.length).toBe(0); // still inside the flush-buffer gap
+
+    // A request arriving in this gap must be REJECTED, not admitted and then
+    // killed when process.exit(0) fires moments later.
+    let rejected = false;
+    let rejectionMessage = "";
+    try {
+      await toolsCallHandler(
+        { method: "tools/call", params: { name: "quick", arguments: {} } },
+        {}
+      );
+    } catch (err) {
+      rejected = true;
+      rejectionMessage = err instanceof Error ? err.message : String(err);
+    }
+    expect(rejected).toBe(true);
+    expect(rejectionMessage).toContain("shutting down");
+
+    // The exit still fires on schedule.
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
 
     await server.close();
   });

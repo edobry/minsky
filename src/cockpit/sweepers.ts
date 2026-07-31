@@ -6,11 +6,13 @@
  * use it:
  *
  *   - startAskAdvancementSweeper   (mt#2265)
+ *   - startStaleAskCloseSweeper    (mt#3001)
  *   - startProdStateRefreshSweeper (mt#2506)
  *   - startTopologySweeper         (mt#2602)
  *   - startTranscriptSweepBackstop (mt#2321)
  *   - startDispatchWatchdogSweeper (mt#2646)
  *   - startDeploySmokeSweeper      (mt#2599)
+ *   - startConversationTitleSweeper (mt#3321)
  *
  * These previously duplicated an ~8-line skeleton (running-guard, boot tick,
  * setInterval, clearInterval) with NO protection against a single tick
@@ -19,9 +21,20 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
-import { getServerAskRepository } from "./db-providers";
+import {
+  getServerAskRepository,
+  getServerFollowUpService,
+  getServerTaskService,
+} from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import {
+  getSchemaReadiness,
+  isSchemaBehind,
+  refreshSchemaReadinessFromDb,
+} from "./schema-readiness";
+import { createPresenceSweepState } from "./conversation-presence-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared sweeper timer helper (mt#2602 R1 review) — centralizes the
@@ -53,6 +66,128 @@ export function unrefSweeperTimer(id: ReturnType<typeof setInterval>): void {
 
 /** Default per-tick abandonment timeout when a caller doesn't supply one. */
 export const DEFAULT_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// ---------------------------------------------------------------------------
+// Sweep-liveness registry (mt#2894)
+//
+// mt#2625's per-tick timeout + watchdog force-release protects against a
+// HUNG or THROWING tick killing the loop — but neither can protect against
+// the underlying `setInterval` handle itself being dropped/cleared (a wedged
+// or lost JS timer). mt#2891's incident evidence (absorbed into mt#2894) shows
+// BOTH the prod-state sweep and the dispatch-watchdog sweep stopped attempting
+// ticks within ~5 minutes of each other while the daemon process stayed alive —
+// pointing at the SHARED scheduling layer, not per-sweep tick logic. This
+// registry makes that class of failure OBSERVABLE (via the `/api/sweeps` route,
+// see routes/sweeps.ts) and the meta-watchdog below makes it SELF-HEALING.
+// ---------------------------------------------------------------------------
+
+/** Reason a sweep's interval was force-restarted — surfaced for observability. */
+export type SweepRestartReason = "bounded-reinit" | "meta-watchdog";
+
+/** Per-sweep liveness snapshot exposed via `GET /api/sweeps`. */
+export interface SweepLivenessSnapshot {
+  /** Human-readable sweep name (matches {@link IntervalSweeperOptions.name}). */
+  name: string;
+  /** Configured cadence in milliseconds. */
+  intervalMs: number;
+  /** ISO timestamp of the last time the interval callback fired (fired, not necessarily succeeded), or null if no tick has fired yet. */
+  lastAttemptAt: string | null;
+  /** ISO timestamp of the last tick that completed without timing out or throwing, or null. */
+  lastSuccessAt: string | null;
+  /** ISO timestamp of the last tick that timed out or threw unexpectedly, or null. */
+  lastErrorAt: string | null;
+  /** Consecutive failed ticks (timeout or unexpected throw) since the last success. */
+  consecutiveFailures: number;
+  /** Count of bounded re-inits this sweep triggered on itself (SC "N consecutive tick failures"). */
+  reinits: number;
+  /** Count of force-restarts the meta-watchdog triggered (dropped/wedged timer class). */
+  metaRestarts: number;
+}
+
+interface SweepLivenessEntry {
+  name: string;
+  intervalMs: number;
+  lastAttemptAtMs: number | null;
+  lastSuccessAtMs: number | null;
+  lastErrorAtMs: number | null;
+  consecutiveFailures: number;
+  reinits: number;
+  metaRestarts: number;
+  /**
+   * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
+   * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
+   * rather than deleted — `restartInterval` and the meta-watchdog both check
+   * this flag and refuse to act on a stopped sweep, so the entry stays the
+   * single, authoritative, always-inspectable record of "is anything running
+   * under this name" instead of a stopped sweep silently vanishing from the
+   * registry while a late-arriving async re-init resurrects an UNTRACKED
+   * interval. {@link getSweepLivenessSnapshot} filters stopped entries out
+   * of the public `/api/sweeps` payload, so callers still see stop() as
+   * deregistration — only the internal bookkeeping keeps the record alive.
+   */
+  stopped: boolean;
+  /** Force-restart this sweep's interval. Called by the sweep itself (bounded re-init) or the meta-watchdog. Refuses (no-op) once `stopped` is true. */
+  restart: (reason: SweepRestartReason) => void;
+  /**
+   * TEST-ONLY hook: clear the underlying `setInterval` handle WITHOUT
+   * deregistering the sweep or calling its public `stop()` — reproduces the
+   * "timer silently dropped while the process stays alive" failure class the
+   * meta-watchdog exists to recover from, without needing to kill anything.
+   */
+  clearUnderlyingTimer: () => void;
+}
+
+/** Process-lifetime registry of every sweep created via {@link createIntervalSweeper}. */
+const sweepLivenessRegistry = new Map<string, SweepLivenessEntry>();
+
+/** Bounded re-init threshold: N consecutive tick failures triggers a self re-init. */
+export const REINIT_FAILURE_THRESHOLD = 3;
+
+/** Default meta-watchdog cadence — how often it scans the registry for stalled sweeps. */
+export const DEFAULT_META_WATCHDOG_INTERVAL_MS = 60 * 1000; // 1 minute
+
+/** A sweep is considered stalled once it hasn't ATTEMPTED a tick in this many multiples of its own cadence. */
+export const META_WATCHDOG_STALL_MULTIPLIER = 2;
+
+/**
+ * Snapshot the current sweep-liveness registry for the `/api/sweeps` route
+ * (see `./routes/sweeps.ts`). Read-only; ISO timestamps for JSON transport.
+ */
+export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
+  // A stopped sweep is excluded — /api/sweeps reports what's ACTUALLY
+  // running, matching what a caller who saw stop() take effect would
+  // expect. The entry itself is retained internally (see SweepLivenessEntry
+  // doc comment) so restartInterval/the meta-watchdog can still refuse to
+  // resurrect it even from a late-arriving async completion.
+  return Array.from(sweepLivenessRegistry.values())
+    .filter((e) => !e.stopped)
+    .map((e) => ({
+      name: e.name,
+      intervalMs: e.intervalMs,
+      lastAttemptAt: e.lastAttemptAtMs === null ? null : new Date(e.lastAttemptAtMs).toISOString(),
+      lastSuccessAt: e.lastSuccessAtMs === null ? null : new Date(e.lastSuccessAtMs).toISOString(),
+      lastErrorAt: e.lastErrorAtMs === null ? null : new Date(e.lastErrorAtMs).toISOString(),
+      consecutiveFailures: e.consecutiveFailures,
+      reinits: e.reinits,
+      metaRestarts: e.metaRestarts,
+    }));
+}
+
+/**
+ * TEST-ONLY: simulate the underlying `setInterval` handle being silently
+ * dropped/cleared without deregistering the sweep — the exact failure class
+ * mt#2891's incident evidence points at (both sweeps stopped ATTEMPTING
+ * ticks while the daemon stayed alive). Used by the meta-watchdog regression
+ * test in sweepers.test.ts. No-op if `name` isn't currently registered.
+ */
+export function _simulateDroppedTimerForTest(name: string): void {
+  sweepLivenessRegistry.get(name)?.clearUnderlyingTimer();
+}
+
+/** TEST-ONLY: clear the registry. Call between test files that assert on registry contents. */
+export function _resetSweepLivenessRegistryForTest(): void {
+  sweepLivenessRegistry.clear();
+}
 
 /** Options accepted by {@link createIntervalSweeper}. */
 export interface IntervalSweeperOptions {
@@ -103,8 +238,69 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
 
   let running = false;
   let runningSinceMs: number | null = null;
+  let id: ReturnType<typeof setInterval> | null = null;
+  // Authoritative "this sweep has been stopped" flag (PR #2019 R1 BLOCKING
+  // #1). Mirrored onto `entry.stopped` below, but also held here in the
+  // closure so `runTick`/`restartInterval` can check it even in the window
+  // where they're executing on a captured `entry` reference — belt-and-
+  // braces against any future refactor that stops mirroring the two.
+  let stopped = false;
+
+  // Duplicate-registration guard (PR #2019 R1 BLOCKING #2). Each concrete
+  // sweeper name is fixed and unique by convention (one literal string per
+  // `start*Sweeper` call site) — an ACTIVE duplicate is always a bug: the
+  // second `.set(name, entry)` would silently overwrite the registry's
+  // reference to the FIRST sweep, leaving its `setInterval` running with no
+  // `/api/sweeps` visibility and no meta-watchdog reach (untracked-running,
+  // the same failure shape BLOCKING #1 fixes for the stop() race). Re-
+  // registering the SAME name after a clean `stop()` is legitimate (e.g. a
+  // future restart-from-scratch call site) and is allowed — the stopped
+  // entry is simply replaced.
+  const existingActive = sweepLivenessRegistry.get(name);
+  if (existingActive && !existingActive.stopped) {
+    throw new Error(
+      `cockpit: duplicate active sweep registration for "${name}" — a sweep with this name is ` +
+        "already registered and running. createIntervalSweeper names must be unique among " +
+        "active sweeps (call the existing sweep's stop() first if this is an intentional restart)."
+    );
+  }
+
+  // Sweep-liveness registry entry (mt#2894) — registered synchronously so
+  // it's visible on `/api/sweeps` even before the boot tick's promise settles.
+  // `restart`/`clearUnderlyingTimer` are wired below once `restartInterval`/
+  // `startInterval` exist; the placeholders here are never reachable in
+  // practice (nothing calls them until after the real wiring below runs).
+  const entry: SweepLivenessEntry = {
+    name,
+    intervalMs,
+    lastAttemptAtMs: null,
+    lastSuccessAtMs: null,
+    lastErrorAtMs: null,
+    consecutiveFailures: 0,
+    reinits: 0,
+    metaRestarts: 0,
+    stopped: false,
+    restart: () => {},
+    clearUnderlyingTimer: () => {
+      if (id !== null) clearInterval(id);
+    },
+  };
+  sweepLivenessRegistry.set(name, entry);
 
   const runTick = async (): Promise<void> => {
+    // mt#2894 R1 BLOCKING #1: a tick already in flight when stop() fires
+    // must not touch the (retired) entry or trigger a re-init once it
+    // resumes. Checked again below, after the tick settles, for the same
+    // reason — stop() can land at any point during the await.
+    if (stopped) return;
+
+    // Liveness (mt#2894): record every time the interval callback FIRES,
+    // regardless of overlap-skip/timeout/success below — this is what lets
+    // the meta-watchdog distinguish "timer still alive, tick logic stuck" (an
+    // existing case per-tick isolation already handles) from "timer itself
+    // stopped firing" (the class this task's meta-watchdog adds recovery for).
+    entry.lastAttemptAtMs = Date.now();
+
     // Watchdog (mt#2625): if a PRIOR tick has been "running" longer than
     // tickTimeoutMs, the per-tick timeout below should already have released
     // it. This is the fail-safe for the (unexpected) case where it somehow
@@ -137,6 +333,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       timeoutHandle = setTimeout(() => resolve("timed-out"), tickTimeoutMs);
     });
 
+    let failed = false;
     try {
       const outcome = await Promise.race([tick().then(() => "completed" as const), timedOut]);
       if (outcome === "timed-out") {
@@ -146,6 +343,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
             tickTimeoutMs,
           }
         );
+        failed = true;
       }
     } catch (err) {
       // Last-resort safety net — the tick callback is expected to apply its
@@ -153,17 +351,195 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       // escaping it.
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`cockpit: ${name} sweep tick threw unexpectedly`, { message });
+      failed = true;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
       running = false;
       runningSinceMs = null;
     }
+
+    // mt#2894 R1 BLOCKING #1: re-check after the await — stop() may have
+    // fired while the tick was in flight. A retired entry must not be
+    // bookkept further, and a trailing failure must never trigger a re-init.
+    if (stopped) return;
+
+    // Liveness bookkeeping + bounded re-init (mt#2894 SC "(c)"). A tick only
+    // reaches here via the timeout or unexpected-throw paths above (the tick
+    // callback's OWN fail-open try/catch means a domain failure it already
+    // handled internally still resolves "completed" here — intentional; this
+    // registry tracks the SCHEDULING layer's health, not each sweep's domain
+    // outcome, which the per-sweep trackers (TranscriptSweepTracker etc.)
+    // already cover).
+    if (failed) {
+      entry.lastErrorAtMs = Date.now();
+      entry.consecutiveFailures++;
+      if (entry.consecutiveFailures >= REINIT_FAILURE_THRESHOLD) {
+        log.warn(
+          `cockpit: ${name} sweep — ${entry.consecutiveFailures} consecutive tick failures; attempting bounded re-init`,
+          { consecutiveFailures: entry.consecutiveFailures }
+        );
+        entry.consecutiveFailures = 0;
+        restartInterval("bounded-reinit");
+      }
+    } else {
+      entry.lastSuccessAtMs = Date.now();
+      entry.consecutiveFailures = 0;
+    }
   };
 
+  const startInterval = (): void => {
+    id = setInterval(() => void runTick(), intervalMs);
+    unrefSweeperTimer(id);
+  };
+
+  /**
+   * Force-restart this sweep's interval (mt#2894). Used both for the bounded
+   * re-init above (self-triggered, persistent tick failures) and by the
+   * meta-watchdog (externally triggered, dropped/wedged timer — the class
+   * per-tick isolation structurally cannot cover since the interval callback
+   * never fires again to isolate anything). Clears any existing handle first
+   * so this is safe to call even if the timer already stopped firing.
+   *
+   * mt#2894 R1 BLOCKING #1: refuses (no-op) once `stopped` is true — this is
+   * what makes stop() authoritative against a LATE bounded-re-init trigger
+   * from a tick that was already in flight when stop() was called (the
+   * `stopped` check inside `runTick` prevents most such calls from ever
+   * reaching here, but this is the last line of defense for the restart
+   * mechanism itself, and it's what the meta-watchdog's restart call also
+   * goes through).
+   *
+   * mt#3060: MUST fire an immediate tick (mirroring the boot sequence's
+   * `void runTick(); startInterval();`), not just re-arm the timer. Without
+   * this, a restart only schedules the NEXT natural tick `intervalMs` in the
+   * future — and for every real sweep, `intervalMs` (minutes) is far larger
+   * than the meta-watchdog's own scan cadence (`DEFAULT_META_WATCHDOG_INTERVAL_MS`,
+   * 60s). Since a re-armed-but-not-yet-fired interval never advances
+   * `entry.lastAttemptAtMs`, the NEXT watchdog scan (60s later) still sees a
+   * stale sweep and force-restarts AGAIN — clearing the freshly-armed
+   * interval before its own cadence ever elapses. That produces an infinite
+   * "restart storm": force-restarting is logged every scan, `staleMs` never
+   * resets, and no domain tick ever actually runs — exactly the runtime-log
+   * signature from the 2026-07-22 incident (mt#3051/mt#3060). Firing the
+   * tick here breaks the storm: `entry.lastAttemptAtMs` is stamped at the
+   * TOP of `runTick`, before any guard, so even a single successful restart
+   * resets staleness immediately, regardless of how long the DOMAIN tick
+   * itself takes to complete.
+   */
+  const restartInterval = (reason: SweepRestartReason): void => {
+    if (stopped) return;
+    if (id !== null) {
+      clearInterval(id);
+      id = null;
+    }
+    if (reason === "meta-watchdog") {
+      entry.metaRestarts++;
+    } else {
+      entry.reinits++;
+    }
+    startInterval();
+    // mt#3060: see the doc comment above — a restart that doesn't ALSO fire
+    // an immediate tick can never outrun a watchdog scanning faster than
+    // this sweep's own cadence.
+    void runTick();
+  };
+  entry.restart = restartInterval;
+
   void runTick();
-  const id = setInterval(() => void runTick(), intervalMs);
-  unrefSweeperTimer(id);
-  return () => clearInterval(id);
+  startInterval();
+
+  return () => {
+    // mt#2894 R1 BLOCKING #1: stop() is now authoritative. Setting `stopped`
+    // BEFORE clearing the interval closes the resurrection window — any
+    // tick already in flight (and any bounded-reinit/meta-watchdog restart
+    // attempt racing this call) sees `stopped === true` and refuses to act.
+    // The entry is retained in the registry (marked `stopped`, filtered out
+    // of the public snapshot) rather than deleted — see SweepLivenessEntry's
+    // doc comment for why keeping it is what makes the guard reliable.
+    stopped = true;
+    entry.stopped = true;
+    if (id !== null) {
+      clearInterval(id);
+      id = null;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sweep meta-watchdog ("sweep of sweeps") — mt#2894
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the meta-watchdog: a periodic scan of the sweep-liveness registry
+ * that force-restarts any registered sweep whose interval has stopped
+ * ATTEMPTING ticks (`lastAttemptAt` stale by more than
+ * {@link META_WATCHDOG_STALL_MULTIPLIER} times its own cadence).
+ *
+ * Deliberately scheduled on a self-rescheduling `setTimeout` CHAIN — a
+ * DIFFERENT timer primitive than every sweep's `setInterval` — rather than
+ * its own `setInterval`. The failure class this recovers from (mt#2891's
+ * incident evidence: two independent sweeps stopped attempting ticks within
+ * ~5 minutes of each other while the daemon stayed alive) implicates the
+ * shared interval-scheduling layer; sharing that same primitive for the
+ * watchdog itself would risk it dying alongside the thing it's meant to
+ * detect. A `setTimeout` chain re-arms itself only after each check
+ * completes, so it can never overlap itself the way a `setInterval` could
+ * under a slow tick.
+ *
+ * Per the Plan decision's Covers/Does NOT cover enumeration: this does NOT
+ * protect against the meta-watchdog's OWN `setTimeout` chain dying (total
+ * timer death) — that residual is covered honestly, not silently, by the
+ * `/api/sweeps` liveness surface plus the existing consumer-side staleness
+ * banners (inject-prod-state.ts / inject-dispatch-watchdog.ts), with
+ * recovery falling to tray/operator supervision (mt#2786).
+ *
+ * @returns stop function (clears the pending timeout, if any).
+ */
+export function startSweepMetaWatchdog(
+  intervalMs: number = DEFAULT_META_WATCHDOG_INTERVAL_MS
+): () => void {
+  let stopped = false;
+  let handle: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleNext = (): void => {
+    if (stopped) return;
+    handle = setTimeout(runCheck, intervalMs);
+    unrefSweeperTimer(handle);
+  };
+
+  const runCheck = (): void => {
+    if (stopped) return;
+    const now = Date.now();
+    for (const entry of sweepLivenessRegistry.values()) {
+      // mt#2894 R1 BLOCKING #1: never restart a sweep that was cleanly
+      // stopped — its entry stays in the registry (see SweepLivenessEntry's
+      // doc comment) but is retired, not actionable. `entry.restart` itself
+      // also refuses once stopped; this explicit skip keeps the intent
+      // legible at the call site the finding named.
+      if (entry.stopped) continue;
+      // No tick has fired yet (e.g. the sweep just registered and its boot
+      // tick's microtask hasn't run) — nothing to evaluate yet.
+      if (entry.lastAttemptAtMs === null) continue;
+      const threshold = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
+      const staleMs = now - entry.lastAttemptAtMs;
+      if (staleMs > threshold) {
+        log.warn(
+          `cockpit: meta-watchdog — sweep "${entry.name}" has not attempted a tick in ${staleMs}ms ` +
+            `(> ${threshold}ms, ${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence); ` +
+            "force-restarting",
+          { name: entry.name, staleMs, threshold, intervalMs: entry.intervalMs }
+        );
+        entry.restart("meta-watchdog");
+      }
+    }
+    scheduleNext();
+  };
+
+  scheduleNext();
+
+  return () => {
+    stopped = true;
+    if (handle) clearTimeout(handle);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +573,69 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: ask advancement sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stale-suspended-ask close sweeper (mt#3001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the stale-ask close sweep. Staleness is a day-scale
+ * signal (parent tasks finish, TTLs are 7 days), so a 15-minute pass keeps
+ * the operator inbox clean without re-listing tasks every advancement tick.
+ */
+const STALE_ASK_CLOSE_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * Start the periodic stale-suspended-ask close sweep in this cockpit process
+ * (mt#3001).
+ *
+ * The recurring reconciliation layer over `suspended` asks: closes
+ * `authorization.approve` / `quality.review` asks whose parent task has since
+ * reached a terminal status, closes failed-commit orphans superseded by a
+ * later landed commit from the same session, and expires commit-auth asks
+ * older than the TTL. Sweeper-not-event per decision-defaults §Reliability —
+ * this pass catches everything the mt#2593 same-call closes structurally
+ * cannot (crashed processes, gh# parents, debris between one-time sweeps).
+ *
+ * Fail-open: a missing task service or a failed task listing degrades to an
+ * empty status map (parent-terminal closes nothing; supersession and TTL
+ * still apply); a failed pass logs and waits for the next tick.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "stale-ask close",
+    intervalMs: intervalMs ?? STALE_ASK_CLOSE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const repo = await getServerAskRepository();
+        if (!repo) return;
+        const { runStaleSuspendedAskCloseSweep } = await import(
+          "@minsky/domain/ask/stale-suspended-close"
+        );
+        let taskStatusById: ReadonlyMap<string, string> = new Map();
+        try {
+          const taskService = await getServerTaskService();
+          if (taskService) {
+            const tasks = await taskService.listTasks({ all: true });
+            taskStatusById = new Map(tasks.map((t) => [t.id, t.status]));
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.warn(
+            "cockpit: stale-ask close sweep could not build task-status map; parent-terminal pass skipped this tick",
+            { message }
+          );
+        }
+        await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: stale-ask close sweep failed", { message });
       }
     },
   });
@@ -393,7 +832,12 @@ export function resolveSweepIntervalMs(): number {
  */
 export interface TranscriptSweepDeps {
   /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
-  runIngest: () => Promise<{ sessionsProcessed: number; sessionsErrored: number }>;
+  runIngest: () => Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    /** mt#3278 — sessions skipped because they are quarantined. */
+    sessionsQuarantined?: number;
+  }>;
   /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
   runEmbeddings: () => Promise<void>;
   /** Tracker singleton to record observability counters. */
@@ -409,6 +853,12 @@ export interface TranscriptSweepBackstopOptions {
    * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
    */
   deps?: TranscriptSweepDeps;
+  /**
+   * Set false to skip the schema-readiness gate (mt#3297). Tests that inject
+   * `deps` have no real database for the check to interrogate, so leaving it on
+   * would make every such test depend on live persistence.
+   */
+  schemaReadiness?: boolean;
 }
 
 /**
@@ -437,7 +887,11 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
 
   const tracker = TranscriptSweepTracker.getInstance();
 
-  const runIngest = async (): Promise<{ sessionsProcessed: number; sessionsErrored: number }> => {
+  const runIngest = async (): Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    sessionsQuarantined: number;
+  }> => {
     const { ClaudeCodeTranscriptSource } = await import(
       "@minsky/domain/transcripts/claude-code-transcript-source"
     );
@@ -453,6 +907,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     return {
       sessionsProcessed: result.sessionsProcessed,
       sessionsErrored: result.sessionsErrored,
+      sessionsQuarantined: result.sessionsQuarantined,
     };
   };
 
@@ -527,8 +982,37 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
 
+        // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
+        // Every write below targets columns this build expects the DB to have.
+        // After a merge that carries a migration, the tray restarts the daemon
+        // onto the new code within seconds while the migration is (correctly)
+        // NOT applied automatically to a shared database — so there is a window
+        // where all of this fails on a missing column. Skipping the sweep once,
+        // with a reason, replaces one failure per session per tick.
+        //
+        // Re-checked every tick rather than only at boot, so applying the
+        // migration lifts the pause on the next tick with no restart.
+        if (opts?.schemaReadiness !== false) {
+          await refreshSchemaReadinessFromDb();
+          if (isSchemaBehind()) {
+            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
+            // the transition into behind at warn, and repeating the reason on
+            // every tick would make a check whose purpose is bounding log volume
+            // into a recurring writer (PR #2379 R1). The standing condition is
+            // on /api/health.
+            log.debug("cockpit: transcript sweep skipped — schema behind", {
+              pending: getSchemaReadiness().pending,
+            });
+            return;
+          }
+        }
+
         // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
-        let ingestResult: { sessionsProcessed: number; sessionsErrored: number };
+        let ingestResult: {
+          sessionsProcessed: number;
+          sessionsErrored: number;
+          sessionsQuarantined?: number;
+        };
         try {
           ingestResult = await runIngest();
         } catch (err) {
@@ -545,7 +1029,19 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             sessionsErrored: ingestResult.sessionsErrored,
           });
         }
-        tracker.recordSweepCompleted(ingestResult.sessionsProcessed, ingestResult.sessionsErrored);
+        // mt#3278: a quarantined session is not an error this pass — nothing was
+        // attempted — but it IS a standing condition an operator needs to see,
+        // so it is logged every sweep rather than only when it first happens.
+        if ((ingestResult.sessionsQuarantined ?? 0) > 0) {
+          log.warn("cockpit: transcript sweep: sessions quarantined and not attempted", {
+            sessionsQuarantined: ingestResult.sessionsQuarantined,
+          });
+        }
+        tracker.recordSweepCompleted(
+          ingestResult.sessionsProcessed,
+          ingestResult.sessionsErrored,
+          ingestResult.sessionsQuarantined ?? 0
+        );
 
         // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
         // SC2: default semantic-embedding backfill, run off the critical path.
@@ -618,6 +1114,461 @@ export function startDeploySmokeSweeper(intervalMs?: number): () => void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: deploy.smoke sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled follow-up sweeper (mt#2322 — general recurring-job scheduler
+// facility's first consumer; remaining scope of parent mt#2234)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the scheduled-follow-up sweeper. A follow-up's "fires
+ * locally at its scheduled time" contract only needs local precision — 1
+ * minute matches the meta-watchdog's own cadence and keeps a follow-up's
+ * fire-delay bounded without a tight DB-polling loop.
+ */
+const FOLLOW_UP_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the periodic scheduled-follow-up sweep in this cockpit process
+ * (mt#2322). This IS the "recurring-job scheduler facility" concretely
+ * instantiated: `createIntervalSweeper` is the general recurring-job
+ * primitive (already proven general by every OTHER sweeper in this file —
+ * ask advancement, prod-state, topology, transcript backstop, dispatch
+ * watchdog, deploy.smoke); the follow-up sweep is simply its newest
+ * registrant, and the DB-durable `scheduled_follow_ups` table is the
+ * one-shot "fire at a specific time" primitive layered on top (storage-backed
+ * rather than an in-memory `setTimeout`, so a follow-up survives a daemon
+ * restart between creation and its due time — sweeper-not-durable-queue per
+ * `decision-defaults.mdc §Reliability`).
+ *
+ * Each tick calls `FollowUpService.fireDue()`, which is idempotent (only
+ * `pending` rows are affected, via a status-guarded UPDATE) — so overlapping
+ * ticks, a sweep re-run, or the daemon restarting mid-cycle can never
+ * double-fire a follow-up.
+ *
+ * Fail-open: no SQL-capable DB / a failed pass logs and waits for the next
+ * tick — never crashes the cockpit. Sweep-liveness (lastAttemptAt/
+ * lastSuccessAt/lastErrorAt) is already covered generically by
+ * `createIntervalSweeper`'s registry (`GET /api/sweeps`, mt#2894) — no
+ * follow-up-specific tracker is needed.
+ *
+ * @returns stop function (clears the interval).
+ */
+
+/**
+ * Minimal shape the follow-up sweeper needs from a FollowUpService — just
+ * `fireDue`. Declared narrowly (rather than importing the concrete class)
+ * so tests can inject a fake without constructing a real DB-backed service.
+ */
+export interface FollowUpSweepDeps {
+  fireDue: () => Promise<{
+    fired: Array<{ id: string }>;
+    errored: Array<{ id: string; error: string }>;
+  }>;
+}
+
+/** Options accepted by {@link startFollowUpSweeper}. */
+export interface FollowUpSweeperOptions {
+  /** Cadence override in milliseconds (default: FOLLOW_UP_SWEEP_INTERVAL_MS). */
+  intervalMs?: number;
+  /**
+   * Injectable deps for testing. When absent, the real DB path is used
+   * (getServerFollowUpService — the cockpit-wide PersistenceService
+   * singleton's FollowUpService).
+   */
+  deps?: FollowUpSweepDeps;
+}
+
+export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void {
+  return createIntervalSweeper({
+    name: "scheduled follow-ups",
+    intervalMs: opts?.intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const service: FollowUpSweepDeps | null = opts?.deps ?? (await getServerFollowUpService());
+        if (!service) {
+          // Non-SQL provider: nothing to sweep.
+          log.debug("cockpit: follow-up sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const { fired, errored } = await service.fireDue();
+        if (fired.length > 0) {
+          log.info(`cockpit: fired ${fired.length} scheduled follow-up(s)`, {
+            ids: fired.map((f) => f.id),
+          });
+        }
+        if (errored.length > 0) {
+          log.warn(`cockpit: ${errored.length} scheduled follow-up(s) failed to fire`, {
+            errored,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: follow-up sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversation presence absence-detection sweep (mt#3201, mt#3130 Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cadence for the presence sweep.
+ *
+ * Deliberately much SHORTER than the stall threshold it detects against
+ * (`PRESENCE_STALL_THRESHOLD_MS`, the measured ~24-minute turn-grain p99): the
+ * sweep's job is to notice a crossing promptly AFTER it happens, so its
+ * interval bounds detection LATENCY, not the threshold itself. One minute
+ * matches the meta-watchdog's own cadence and keeps the worst-case lag between
+ * "went stale" and "operator sees STALLED" to about a minute.
+ *
+ * The tick is cheap — one indexed range scan
+ * (`idx_conversation_run_state_last_event_at`) over a table with one row per
+ * conversation, plus a pure derivation per row.
+ */
+const CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the conversation-presence absence-detection sweep (mt#3201).
+ *
+ * Detects presence TRANSITIONS (notably `LIVE` -> `STALLED`, which no writer
+ * can emit because a killed process emits nothing) and pushes them on
+ * `minsky.conversation.presence_changed` for the SSE broker to forward.
+ *
+ * It does NOT write a `presence` column — the schema deliberately has none, and
+ * the read path re-derives the value on every request. This sweep exists for
+ * PUSH and for other consumers, not to make the read path honest.
+ *
+ * Fail-open throughout: no SQL provider, a failed scan, or a dead NOTIFY all
+ * log and wait for the next tick. The read endpoint remains the contract.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationPresenceSweeper(intervalMs?: number): () => void {
+  const state = createPresenceSweepState();
+
+  return createIntervalSweeper({
+    name: "conversation presence",
+    intervalMs: intervalMs ?? CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const { getSharedPersistenceService } = await import("./shared-persistence");
+        const svc = await getSharedPersistenceService();
+        const provider = svc.getProvider();
+
+        const getDb =
+          "getDatabaseConnection" in provider &&
+          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
+            "function"
+            ? (
+                provider as {
+                  getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+                }
+              ).getDatabaseConnection.bind(provider)
+            : null;
+        if (!getDb) {
+          log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const db = await getDb();
+        if (!db) return;
+
+        const getRawSql =
+          "getRawSqlConnection" in provider &&
+          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+            ? (
+                provider as { getRawSqlConnection: () => Promise<unknown> }
+              ).getRawSqlConnection.bind(provider)
+            : null;
+
+        const { listConversationsQuietSince } = await import(
+          "@minsky/domain/conversation-run-state/read"
+        );
+        const { runPresenceSweepTick } = await import("./conversation-presence-sweep");
+
+        const transitions = await runPresenceSweepTick(state, {
+          listQuietSince: (olderThan) => listConversationsQuietSince(db, olderThan),
+          now: () => new Date(),
+          emit: async (channel, payload) => {
+            if (!getRawSql) return;
+            const sql = (await getRawSql()) as {
+              unsafe: (query: string, params: unknown[]) => Promise<unknown>;
+            } | null;
+            if (!sql) return;
+            await sql.unsafe("SELECT pg_notify($1, $2)", [channel, payload]);
+          },
+        });
+
+        if (transitions.length > 0) {
+          log.info(`cockpit: ${transitions.length} conversation presence transition(s)`, {
+            transitions: transitions.map((t) => `${t.conversationId}: ${t.from ?? "-"}->${t.to}`),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation presence sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ── Conversation-title sweeper (mt#3321) ────────────────────────────────────
+
+/**
+ * Cadence for generating conversation titles. Slower than the presence/
+ * follow-up sweeps because it is not latency-sensitive — a conversation
+ * without a title still renders, it just falls back to the older prompt-snippet
+ * label. Paired with `DEFAULT_TITLE_BATCH_SIZE`, this drains the historical
+ * backlog over hours rather than in one burst of completion calls.
+ */
+const CONVERSATION_TITLE_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Injectable seam so tests can drive a tick without a DB or an AI provider. */
+export interface ConversationTitleSweepDeps {
+  /** Run one bounded titling batch. Returns per-run counters. */
+  runTitling: () => Promise<{
+    candidates: number;
+    titled: number;
+    skipped: number;
+    errored: number;
+  }>;
+}
+
+export interface ConversationTitleSweepOptions {
+  /** Cadence override in milliseconds. */
+  intervalMs?: number;
+  /** Injected deps for testing; when absent the real DB + AI path is built. */
+  deps?: ConversationTitleSweepDeps;
+}
+
+/**
+ * Build the real titling runner from the shared persistence service and the
+ * configured AI completion service. Returns null when the provider is not
+ * SQL-capable — the same degradation the transcript backstop uses.
+ */
+async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  return {
+    runTitling: async () => {
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
+      const { TitlePipeline } = await import("@minsky/domain/transcripts/title-pipeline");
+
+      const configService = {
+        loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+      };
+      const cognitionProvider = new DirectCognitionProvider(
+        new DefaultAICompletionService(configService)
+      );
+
+      return new TitlePipeline(db, cognitionProvider).run();
+    },
+  };
+}
+
+/**
+ * Start the conversation-title sweeper — the invocation path for mt#3321.
+ *
+ * This is the piece the pre-existing summary pipeline never had: `SummaryPipeline`
+ * has run only when an operator manually invoked `transcripts index-embeddings`,
+ * which is why 11 of 1,992 transcripts carried a summary and none of the 281
+ * from the preceding week did. A titling mechanism with no caller would repeat
+ * that exactly, so the caller ships in the same change as the mechanism.
+ *
+ * Degrades quietly and retries: a non-SQL provider, a DB outage, or an AI
+ * failure logs and waits for the next tick. Rows stay NULL and are retried —
+ * no partial or placeholder title is ever written.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationTitleSweeper(options?: ConversationTitleSweepOptions): () => void {
+  return createIntervalSweeper({
+    name: "conversation title",
+    intervalMs: options?.intervalMs ?? CONVERSATION_TITLE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealTitleSweepDeps());
+        if (!deps) {
+          // Not an error — a non-SQL provider simply has nothing to title. Logged
+          // so a permanently-idle sweeper is distinguishable from a working one
+          // with no backlog (PR #2408 R1).
+          log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runTitling();
+        // Per-run counters at the sweeper level, not only inside the pipeline:
+        // `errored > 0` is the signal that titling is failing while the sweeper
+        // itself looks healthy.
+        if (result.candidates > 0 || result.errored > 0) {
+          log.info("cockpit: conversation title sweep complete", {
+            candidates: result.candidates,
+            titled: result.titled,
+            skipped: result.skipped,
+            errored: result.errored,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation title sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ── Conversation summary sweeper (mt#3441) ───────────────────────────────────
+
+/**
+ * Same 10-minute cadence as titling, for the same reason: a conversation with no
+ * summary still renders and is still searchable by title, so this drains the
+ * backlog over hours rather than in one burst. Paired with
+ * `DEFAULT_SUMMARY_BATCH_SIZE`, a tick costs at most 25 completions + 25
+ * embedding calls.
+ */
+const CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Injectable seam so tests can drive a tick without a DB, an AI provider, or embeddings. */
+export interface ConversationSummarySweepDeps {
+  /** Run one bounded summarization batch. Returns per-run counters. */
+  runSummarizing: () => Promise<{
+    transcriptsScanned: number;
+    transcriptsSkipped: number;
+    transcriptsProcessed: number;
+    transcriptsErrored: number;
+    embeddingCallsMade: number;
+  }>;
+}
+
+export interface ConversationSummarySweepOptions {
+  /** Cadence override in milliseconds. */
+  intervalMs?: number;
+  /** Injected deps for testing; when absent the real DB + AI + embedding path is built. */
+  deps?: ConversationSummarySweepDeps;
+}
+
+/**
+ * Build the real summarizing runner. Mirrors {@link buildRealTitleSweepDeps},
+ * plus an embedding service — a summary costs a completion AND an embedding,
+ * which titling does not.
+ *
+ * Returns null when the provider is not SQL-capable.
+ */
+async function buildRealSummarySweepDeps(): Promise<ConversationSummarySweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  return {
+    runSummarizing: async () => {
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
+      const { createEmbeddingServiceFromConfig } = await import(
+        "@minsky/domain/ai/embedding-service-factory"
+      );
+      const { SummaryPipeline } = await import("@minsky/domain/transcripts/summary-pipeline");
+
+      const configService = {
+        loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+      };
+      const cognitionProvider = new DirectCognitionProvider(
+        new DefaultAICompletionService(configService)
+      );
+      const embeddingService = await createEmbeddingServiceFromConfig();
+
+      // No batchSize: the pipeline's bounded default is exactly what a sweeper
+      // wants, and inheriting it is the point of making it the default (mt#3441).
+      return new SummaryPipeline(db, cognitionProvider, embeddingService).run();
+    },
+  };
+}
+
+/**
+ * Start the conversation-summary sweeper — the invocation path for mt#3441.
+ *
+ * `SummaryPipeline` shipped without one: its only caller was the manual
+ * `transcripts index-embeddings` command, so summaries existed only where an
+ * operator happened to run it — 11 rows out of 2,108 (0.5%), against 34% for
+ * titles, which have had a sweeper since mt#3321. That gap is why the index
+ * could not answer "which conversation was the one about X".
+ *
+ * Degrades quietly and retries, matching the title sweeper: a non-SQL provider,
+ * a DB outage, an AI failure, or an unavailable embedding backend logs and waits
+ * for the next tick. Rows stay NULL and are retried — no partial or placeholder
+ * summary is ever written. The embedding dependency makes this more than
+ * theoretical: the embeddings backend has been observed quota-exhausted, and a
+ * tick during an outage must cost one failed batch, not a poisoned column.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationSummarySweeper(
+  options?: ConversationSummarySweepOptions
+): () => void {
+  return createIntervalSweeper({
+    name: "conversation summary",
+    intervalMs: options?.intervalMs ?? CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealSummarySweepDeps());
+        if (!deps) {
+          log.debug("cockpit: conversation summary sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runSummarizing();
+        // `transcriptsErrored > 0` is the signal that summarizing is failing
+        // while the sweeper itself looks healthy — the shape that let the
+        // original no-caller gap sit unnoticed.
+        if (result.transcriptsScanned > 0 || result.transcriptsErrored > 0) {
+          log.info("cockpit: conversation summary sweep complete", {
+            scanned: result.transcriptsScanned,
+            processed: result.transcriptsProcessed,
+            skipped: result.transcriptsSkipped,
+            errored: result.transcriptsErrored,
+            embeddingCalls: result.embeddingCallsMade,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation summary sweep failed", { message });
       }
     },
   });

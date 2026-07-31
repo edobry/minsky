@@ -18,6 +18,7 @@ import type { ReviewerConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
 import { createApp, type RunReviewFn } from "./server";
 import type { AlertSink } from "./alert-sink";
+import { recoverPendingReviews } from "./boot-recovery";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -438,6 +439,254 @@ describe("gracefulShutdown", () => {
 
     // Shutdown must complete even though the review errored.
     await expect(gracefulShutdown()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drain gate (mt#2799 SC#2): /webhook rejects new work once draining starts.
+// ---------------------------------------------------------------------------
+
+describe("drain gate rejects new webhook work (mt#2799 SC#2)", () => {
+  test("returns 503 for /webhook once gracefulShutdown has begun draining, then completes after release", async () => {
+    let releaseReviews: () => void = () => {};
+    const reviewsBlocked = new Promise<void>((res) => {
+      releaseReviews = res;
+    });
+    const blockingRunReview: RunReviewFn = async () => {
+      await reviewsBlocked;
+      return STUB_REVIEW_RESULT;
+    };
+
+    const { server, gracefulShutdown } = createApp(BASE_CONFIG, blockingRunReview);
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      // Kick off one review so there's real inflight work to drain.
+      await sendWebhook(baseUrl, buildPRPayload({ prNumber: 1 }));
+      await new Promise<void>((r) => setTimeout(r, 20));
+
+      // Start shutdown — draining flips to true synchronously before the
+      // first await inside gracefulShutdown, so the very next request sees it.
+      const shutdownPromise = gracefulShutdown();
+
+      const rejectedRes = await sendWebhook(baseUrl, buildPRPayload({ prNumber: 2 }));
+      expect(rejectedRes.status).toBe(503);
+
+      releaseReviews();
+      await shutdownPromise;
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("/health still responds while draining (server stays up through the drain window)", async () => {
+    let releaseReviews: () => void = () => {};
+    const reviewsBlocked = new Promise<void>((res) => {
+      releaseReviews = res;
+    });
+    const blockingRunReview: RunReviewFn = async () => {
+      await reviewsBlocked;
+      return STUB_REVIEW_RESULT;
+    };
+
+    const { server, gracefulShutdown } = createApp(BASE_CONFIG, blockingRunReview);
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      await sendWebhook(baseUrl, buildPRPayload());
+      await new Promise<void>((r) => setTimeout(r, 20));
+
+      const shutdownPromise = gracefulShutdown();
+
+      const healthRes = await fetch(`${baseUrl}/health`);
+      expect(healthRes.status).toBe(200);
+
+      releaseReviews();
+      await shutdownPromise;
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-ACK webhook persistence (mt#2799 SC#3): the durable row must exist
+// before the 200 ACK returns, not fire-and-forget.
+// ---------------------------------------------------------------------------
+
+describe("pre-ACK webhook persistence (mt#2799 SC#3)", () => {
+  test("recordWebhookReceipt is AWAITED before the 200 response returns", async () => {
+    let insertSettled = false;
+
+    // Delay the fake insert's resolution so a fire-and-forget regression
+    // (the pre-mt#2799 behavior) would return 200 BEFORE insertSettled
+    // flips to true — making this a meaningful regression test rather than
+    // one that passes regardless of await-vs-void.
+    const fakeDb = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () =>
+            new Promise((resolve) => {
+              setTimeout(() => {
+                insertSettled = true;
+                resolve(undefined);
+              }, 20);
+            }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => Promise.resolve([]),
+        }),
+      }),
+    };
+
+    const { server } = createApp(
+      BASE_CONFIG,
+      async () => STUB_REVIEW_RESULT,
+      fakeDb as unknown as Parameters<typeof createApp>[2]
+    );
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const res = await sendWebhook(baseUrl, buildPRPayload());
+      expect(res.status).toBe(200);
+      expect(insertSettled).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Verify-before-persist ordering (mt#2799 PR #1990 R1): an unauthenticated
+// webhook must never produce a durable row, because any row is now a
+// boot-recovery candidate. Covers both rejection paths that precede
+// persistence: invalid signature (401) and missing signature/event headers
+// (400).
+// ---------------------------------------------------------------------------
+
+describe("verify-before-persist ordering (mt#2799 PR #1990 R1)", () => {
+  test("invalid signature -> 401, NO row persisted, and boot recovery finds nothing", async () => {
+    // A shared in-memory row array: the fake `insert` pushes into it, the
+    // fake `select...limit` returns whatever's in it. This lets the SAME
+    // fake db back both the server's webhook handler and a direct
+    // recoverPendingReviews call, proving the full chain: no row persisted
+    // by the server => boot recovery (reading the same store) finds nothing.
+    const rows: unknown[] = [];
+    const fakeDb = {
+      insert: () => ({
+        values: (v: unknown) => {
+          rows.push(v);
+          return { onConflictDoNothing: () => Promise.resolve(undefined) };
+        },
+      }),
+      update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve(rows),
+          }),
+        }),
+      }),
+    };
+
+    const { server } = createApp(
+      BASE_CONFIG,
+      async () => STUB_REVIEW_RESULT,
+      fakeDb as unknown as Parameters<typeof createApp>[2]
+    );
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const body = buildPRPayload();
+      const res = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          [HEADER_SIGNATURE]: `sha256=${"0".repeat(64)}`,
+          [HEADER_DELIVERY]: "delivery-unauth-1",
+          [HEADER_EVENT]: "pull_request",
+        },
+        body,
+      });
+
+      expect(res.status).toBe(401);
+      expect(rows.length).toBe(0);
+
+      const recoveryResult = await recoverPendingReviews(
+        fakeDb as never,
+        BASE_CONFIG,
+        { enabled: true, maxAgeMs: 30 * 60_000, maxRows: 20 },
+        async () => STUB_REVIEW_RESULT
+      );
+      expect(recoveryResult).toEqual({ candidates: 0, dispatched: 0, malformed: 0 });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("missing signature/event headers -> 400, NO row persisted", async () => {
+    let insertCalled = false;
+    const fakeDb = {
+      insert: () => {
+        insertCalled = true;
+        return { values: () => ({ onConflictDoNothing: () => Promise.resolve(undefined) }) };
+      },
+      update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+    };
+
+    const { server } = createApp(
+      BASE_CONFIG,
+      async () => STUB_REVIEW_RESULT,
+      fakeDb as unknown as Parameters<typeof createApp>[2]
+    );
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const body = buildPRPayload();
+      const res = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          [HEADER_DELIVERY]: "delivery-missing-1",
+          [HEADER_EVENT]: "pull_request",
+          // x-hub-signature-256 deliberately omitted
+        },
+        body,
+      });
+
+      expect(res.status).toBe(400);
+      expect(insertCalled).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("valid signature -> 200 AND a row IS persisted (control case — proves the fix doesn't block legitimate webhooks)", async () => {
+    let insertCalled = false;
+    const fakeDb = {
+      insert: () => {
+        insertCalled = true;
+        return { values: () => ({ onConflictDoNothing: () => Promise.resolve(undefined) }) };
+      },
+      update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+    };
+
+    const { server } = createApp(
+      BASE_CONFIG,
+      async () => STUB_REVIEW_RESULT,
+      fakeDb as unknown as Parameters<typeof createApp>[2]
+    );
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const res = await sendWebhook(baseUrl, buildPRPayload());
+      expect(res.status).toBe(200);
+      expect(insertCalled).toBe(true);
+    } finally {
+      server.stop(true);
+    }
   });
 });
 

@@ -9,6 +9,7 @@ import {
 import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import type { SessionStartParameters } from "../schemas";
 import { log } from "@minsky/shared/logger";
+import { safeShellQuote } from "@minsky/shared/exec";
 import { installDependencies, installNestedDependencies } from "../utils/package-manager";
 import { type GitServiceInterface } from "../git";
 import { normalizeRepoName } from "../repo-utils";
@@ -21,6 +22,19 @@ import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 import { SessionStatus } from "./types";
 import type { ScopeResolverDb } from "../project/scope-resolver";
+import { sessionStartBlockedReason } from "./session-startability";
+import type { SessionLaunchIntent } from "./session-startability";
+import type { SessionActorResult } from "./session-actor";
+
+/**
+ * Domain-level extension of the zod-derived start params (mt#2986): launch
+ * intent is deliberately NOT in the schema — the MCP boundary rejects
+ * undeclared params (mt#2778), so only direct domain callers (the cockpit
+ * driven-session launch) can assert "principal-driven".
+ */
+export type SessionStartParametersWithIntent = SessionStartParameters & {
+  launchIntent?: SessionLaunchIntent;
+};
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -41,6 +55,27 @@ export interface StartSessionDependencies {
    * current behavior for hosted/cockpit no-single-repo scenarios.
    */
   db?: ScopeResolverDb;
+  /**
+   * mt#3106 (PR #2376 R1): optional persistence provider — the same carrier
+   * the delete/cleanup command factories thread (mt#2487 pattern). The
+   * recover-path gate consumes it via `presenceRepositoryFromProvider` when
+   * present, falling back to `db`. The production `session.start` command
+   * already resolves `db` from this provider (basic-commands.ts, mt#2416
+   * project-scope stamping), so the production path has presence access
+   * whenever persistence is up.
+   */
+  persistenceProvider?: { getDatabaseConnection?: () => Promise<unknown> };
+  /**
+   * mt#3106: test seam for the recover-path guarded delete's live-actor gate
+   * (mt#3103/mt#3105, ask#6273 semantics). Defaults to the real
+   * `resolveSessionActor` reading presence claims via `persistenceProvider`
+   * or `db`. With NEITHER, the gate fail-closes (store-unavailable → refuse) —
+   * DELIBERATE: a context with no persistence access at all cannot read the
+   * session store either, so an un-gated destructive delete there is exactly
+   * the blind-delete shape this family closes; the refusal message names the
+   * explicit override path.
+   */
+  resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   /** Optional filesystem adapter for testing to avoid real fs operations */
   fs?: {
     exists: (path: string) => boolean | Promise<boolean>;
@@ -63,6 +98,53 @@ interface ValidatedSessionContext {
   branchName: string;
   normalizedRepoName: string;
   sessionDir: string;
+  /**
+   * True when `--recover` found the task's branch on the remote, so the session
+   * must be based on THAT branch's tip rather than the clone's default HEAD
+   * (mt#3166).
+   */
+  recoverFromRemoteBranch: boolean;
+}
+
+/**
+ * Does `refs/heads/<branchName>` exist on the remote? (mt#3166)
+ *
+ * Queries `origin` from `probeDir` rather than a bare URL (PR #2299 R1): this
+ * repo is private, so a bare-URL `ls-remote` would re-authenticate from scratch
+ * and fail, while `origin` carries the credentials that directory is already
+ * configured with. `probeDir` is the main workspace (or the auto-detected
+ * reference clone, which was selected precisely BECAUSE its origin resolves to
+ * the same repo) — both are real git repositories with this repo as `origin`.
+ *
+ * Read-only — safe to call from the precondition phase.
+ *
+ * A FAILED probe is not evidence of absence. Treating it as absence would turn a
+ * transient network error — or a probe directory that isn't the repo we expect —
+ * into "nothing to recover" and refuse a recovery that should have succeeded, so
+ * this throws instead of returning false.
+ */
+async function remoteBranchExists(
+  deps: StartSessionDependencies,
+  probeDir: string,
+  repoUrl: string,
+  branchName: string
+): Promise<boolean> {
+  try {
+    const output = await deps.gitService.execInRepository(
+      probeDir,
+      `git ls-remote --heads origin ${safeShellQuote(`refs/heads/${branchName}`)}`
+    );
+    // `ls-remote` exits 0 for BOTH present and absent refs — verified live
+    // against this repo — so presence is decided by output, never exit status.
+    return output.trim().length > 0;
+  } catch (err) {
+    throw new MinskyError(
+      `Could not determine whether the remote branch '${branchName}' exists ` +
+        `(ls-remote for ${repoUrl} from ${probeDir} failed): ${getErrorMessage(err)}\n\n` +
+        `Recovery is refused rather than guessed — a failed probe is not evidence the branch ` +
+        `is absent. Re-run once the remote is reachable.`
+    );
+  }
 }
 
 /**
@@ -75,7 +157,7 @@ interface ValidatedSessionContext {
  * Structural invariant: if this function throws, the system state is unchanged.
  */
 async function validatePreconditions(
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<ValidatedSessionContext> {
   const {
@@ -174,24 +256,48 @@ Navigate to your main workspace and try again:
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // Validate task status
+    // state-ops tasks never take a session (mt#455): they are no-code/pure-state
+    // work (investigations, triage sweeps, config-only ops) with no code
+    // workspace to clone. Refuse with the no-session flow spelled out.
+    const startKind = (taskObj as { kind?: string }).kind || "implementation";
+    if (startKind === "state-ops") {
+      throw new ValidationError(
+        `Task ${normalizedTaskId} is kind "state-ops" — it runs without a session. ` +
+          `Work in the main agent context: transition READY → IN-PROGRESS via tasks_status_set, ` +
+          `record findings in the spec (tasks_spec_patch, '## Findings' / '## Outcome' / ` +
+          `'## Closeout evidence'), then set DONE (the evidence section is required). See ` +
+          `docs/task-kinds.md §state-ops (mt#455).`,
+        undefined,
+        undefined
+      );
+    }
+
+    // Validate task status. The valid precursor for session_start is kind-aware:
+    // - implementation kind: requires READY (planning gate must complete first)
+    // - umbrella kind: requires PLANNING (no READY state in the umbrella workflow;
+    //   PLANNING → IN-PROGRESS is the direct transition per mt#1812's workflow registry)
+    // Both kinds reject TODO (must go through PLANNING regardless).
+    //
+    // mt#2959: the kind-aware precursor AND its user-facing message now live in
+    // ONE place (sessionStartBlockedReason) so the cockpit task-detail API can
+    // compute an honest Start-session affordance from the SAME logic instead of
+    // dead-ending an operator on this error.
+    //
+    // mt#2986: the gate is intent-aware — a principal-driven launch (cockpit
+    // driven session) is exempt: the gate exists to stop unplanned AUTONOMOUS
+    // implementation, and the principal live-driving is the same engagement the
+    // existing-workspace reuse exception already honors.
     if (!noStatusUpdate) {
       const currentStatus = await deps.taskService.getTaskStatus(normalizedTaskId);
+      const taskKind = (taskObj as { kind?: string }).kind || "implementation";
 
-      if (currentStatus === TASK_STATUS.TODO) {
-        throw new ValidationError(
-          "Task must be in PLANNING status before starting a session. Set status to PLANNING first.",
-          undefined,
-          undefined
-        );
-      }
-
-      if (currentStatus === TASK_STATUS.PLANNING) {
-        throw new ValidationError(
-          "Planning is not yet marked as complete. Set status to READY when investigation is done.",
-          undefined,
-          undefined
-        );
+      const blockedReason = sessionStartBlockedReason(
+        currentStatus,
+        taskKind,
+        params.launchIntent ?? "autonomous"
+      );
+      if (blockedReason) {
+        throw new ValidationError(blockedReason, undefined, undefined);
       }
     }
 
@@ -202,69 +308,182 @@ Navigate to your main workspace and try again:
     throw new ValidationError("Session ID could not be determined from task ID");
   }
 
+  // The session's branch name is a pure function of the task (or the explicit
+  // --branch / sessionId fallback). Derived HERE, before the collision checks
+  // below, because the `--recover` gate needs it to probe the remote — and that
+  // probe must happen BEFORE the stale-session delete, so a refusal can't leave
+  // the record already destroyed.
+  const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
+
   // Check if session already exists
   const existingSession = await deps.sessionDB.getSession(sessionId);
   if (existingSession) {
     throw new MinskyError(`Session '${sessionId}' already exists`);
   }
 
-  // Check if a session already exists for this task
-  if (taskId) {
-    const existingSessions = await deps.sessionDB.listSessions();
-    const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
+  // Check if a session already exists for this task.
+  //
+  // mt#2697: pushes the taskId filter down to sessionDB.listSessions({ taskId })
+  // (same normalization codepath, same storage-layer query builder) instead of
+  // fetching every session and matching in JS with strict equality. This is
+  // deliberately UNSCOPED by project (no projectScope passed) — "is this task
+  // already in use" is a global collision check, not a project-scoped browse.
+  // session.list's task-filtered query (basic-commands.ts createSessionListCommand)
+  // mirrors this same unscoped-when-task-filtered behavior so the two surfaces
+  // can never structurally diverge on which rows count as "active" for a task.
+  //
+  // mt#3166: resolved HERE, before the recover gate below, because "is there
+  // anything to recover" depends on it — and because the gate must be able to
+  // refuse BEFORE the stale-record delete, not after.
+  const existingSessions = taskId ? await deps.sessionDB.listSessions({ taskId }) : [];
+  const taskSession = existingSessions[0];
 
-    if (taskSession) {
-      // Merged PR — always hard-block (session is frozen)
-      if (taskSession.prState?.mergedAt) {
+  // mt#3166: `--recover` is honored or explicitly REFUSED on every path.
+  //
+  // It used to be read only inside the `if (taskSession)` branch below, so a
+  // recover for a task with NO session record fell straight through to an
+  // ordinary fresh start branched off the clone's HEAD (main) — a silent
+  // substitution wearing the name of a recovery. The same fall-through also
+  // discarded a task's remote branch when one existed.
+  //
+  // Recovery legitimately means one of two things, and BOTH are honored:
+  //   (a) reclaim the task's branch — its remote branch still exists; or
+  //   (b) clear an abandoned session record and start over — no branch, but
+  //       there IS a record to clean up (the mt#2895 interrupted-start shape).
+  // Only when NEITHER holds is there genuinely nothing to recover. Refusing on
+  // (b) would trap the operator: plain `session start` blocks on the abandoned
+  // record, and `--recover` would decline to clear it.
+  let recoverFromRemoteBranch = false;
+  if (params.recover) {
+    if (!taskId) {
+      throw new ValidationError(
+        "--recover requires --task: recovery is defined against a task's branch " +
+          "(task/<id>), and without a task there is no branch to recover from."
+      );
+    }
+
+    const probeDir = referenceRepo ?? currentDir;
+    const branchIsOnRemote = await remoteBranchExists(deps, probeDir, repoUrl, branchName);
+
+    if (!branchIsOnRemote && !taskSession) {
+      throw new MinskyError(
+        `Nothing to recover for ${formatTaskIdForDisplay(taskId)}: there is no session record ` +
+          `for it AND no remote branch '${branchName}' on ${repoUrl}.\n\n` +
+          `The task may already be merged — post-merge cleanup deletes the session AND the ` +
+          `branch by design, so "session gone + branch gone" is the NORMAL shape of a merged ` +
+          `task, not a fault. Check the task status or the PR's merge state first.\n\n` +
+          `To start fresh work on this task instead (a new branch off main):\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+      );
+    }
+
+    // Absent on the remote but a record exists → case (b): clear the record and
+    // start fresh off main. Present → case (a): base the session on that branch.
+    recoverFromRemoteBranch = branchIsOnRemote;
+  }
+
+  if (taskId && taskSession) {
+    // Merged PR — always hard-block (session is frozen)
+    if (taskSession.prState?.mergedAt) {
+      throw new MinskyError(
+        `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
+          `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
+          `delete the old one first:\n\n` +
+          `  minsky session delete ${taskSession.sessionId}\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+      );
+    }
+
+    const { deriveSessionLiveness } = await import("./types");
+    const liveness = deriveSessionLiveness(taskSession);
+
+    // Stale/orphaned with --recover: delete the old session and proceed
+    if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
+      log.cli(`Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`);
+
+      // mt#3106: route through the GUARDED delete — mt#3021's git-state guard
+      // + mt#3105's live-actor gate (ask#6273 four-branch semantics) — instead
+      // of the raw `sessionDB.deleteSession`, which removed the DB record while
+      // leaving the workspace directory as a silent filesystem orphan and was
+      // gated only by the sparse-checkpoint `deriveSessionLiveness` read above
+      // (now a cheap pre-filter, never the authorizer: a session actively
+      // worked without commits reads `stale` here yet holds fresh presence
+      // claims, and the gate refuses for it).
+      //
+      // `gitService` is DELIBERATELY not passed: deleteSessionImpl's
+      // remote-branch deletion runs only when it is present, and recovery
+      // case (a) (`recoverFromRemoteBranch`) is about to base the new session
+      // ON that remote branch — the delete must not destroy the recovery
+      // source. The git-state guard inside is unaffected (it falls back to
+      // its own createGitService()).
+      const { deleteSessionImpl } = await import("./session-lifecycle-operations");
+      const db = deps.db;
+      const provider = deps.persistenceProvider;
+      const resolveActor =
+        deps.resolveActor ??
+        (async (id: string) => {
+          const { resolveSessionActor, presenceRepositoryFromProvider } = await import(
+            "./session-actor"
+          );
+          return resolveSessionActor(id, {
+            getRepository: async () => {
+              const viaProvider = await presenceRepositoryFromProvider(provider);
+              if (viaProvider) return viaProvider;
+              if (db) {
+                const { buildPresenceClaimRepository } = await import("../presence/index");
+                return buildPresenceClaimRepository(db);
+              }
+              return null;
+            },
+          });
+        });
+      const deletion = await deleteSessionImpl(
+        { sessionId: taskSession.sessionId },
+        {
+          sessionDB: deps.sessionDB,
+          resolveActor,
+        }
+      );
+      if (!deletion.deleted) {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
-            `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
-            `delete the old one first:\n\n` +
-            `  minsky session delete ${taskSession.sessionId}\n` +
-            `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+          `Cannot recover session "${taskSession.sessionId}" for ${formatTaskIdForDisplay(taskId)}: ` +
+            `${deletion.error ?? "the guarded delete refused"}\n\n` +
+            `If you are CERTAIN nobody is working in it, delete it explicitly with a recorded reason:\n` +
+            `  minsky session delete --sessionId ${taskSession.sessionId} --override-reason "<why this is safe>"\n` +
+            `then re-run:\n` +
+            `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover`
+        );
+      }
+      // Fall through to create new session
+    } else {
+      // Build a more informative error message based on liveness
+      const ageInfo = taskSession.lastActivityAt
+        ? ` Last activity: ${new Date(taskSession.lastActivityAt).toISOString()}.`
+        : "";
+      const statusInfo = taskSession.status ? ` Status: ${taskSession.status}.` : "";
+
+      if (liveness === "healthy") {
+        throw new MinskyError(
+          `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
+            `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
         );
       }
 
-      const { deriveSessionLiveness } = await import("./types");
-      const liveness = deriveSessionLiveness(taskSession);
-
-      // Stale/orphaned with --recover: delete the old session and proceed
-      if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
-        log.cli(
-          `Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`
-        );
-        await deps.sessionDB.deleteSession(taskSession.sessionId);
-        // Fall through to create new session
-      } else {
-        // Build a more informative error message based on liveness
-        const ageInfo = taskSession.lastActivityAt
-          ? ` Last activity: ${new Date(taskSession.lastActivityAt).toISOString()}.`
-          : "";
-        const statusInfo = taskSession.status ? ` Status: ${taskSession.status}.` : "";
-
-        if (liveness === "healthy") {
-          throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
-              `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
-          );
-        }
-
-        if (liveness === "idle") {
-          throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
-              `Use the existing session, or delete it before starting a new one.`
-          );
-        }
-
-        // stale or orphaned (without --recover)
+      if (liveness === "idle") {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
-            `To recover and start fresh:\n` +
-            `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
-            `Or to manually delete:\n` +
-            `  minsky session delete ${taskSession.sessionId}`
+          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
+            `Use the existing session, or delete it before starting a new one.`
         );
       }
+
+      // stale or orphaned (without --recover)
+      throw new MinskyError(
+        `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
+          `To recover and start fresh:\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
+          `Or to manually delete:\n` +
+          `  minsky session delete ${taskSession.sessionId}`
+      );
     }
   }
 
@@ -282,7 +501,6 @@ Navigate to your main workspace and try again:
 
   const sessionBaseDir = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
-  const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
   return {
     sessionId,
@@ -294,6 +512,7 @@ Navigate to your main workspace and try again:
     branchName,
     normalizedRepoName,
     sessionDir,
+    recoverFromRemoteBranch,
   };
 }
 
@@ -306,7 +525,7 @@ Navigate to your main workspace and try again:
  */
 async function executeMutations(
   ctx: ValidatedSessionContext,
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<Session> {
   const fsAdapter = deps.fs || {
@@ -334,6 +553,7 @@ async function executeMutations(
     branchName,
     normalizedRepoName,
     sessionDir,
+    recoverFromRemoteBranch,
   } = ctx;
   const { noStatusUpdate, quiet, skipInstall, packageManager } = params;
 
@@ -359,23 +579,82 @@ async function executeMutations(
 
   // ADR-021 / mt#2416: resolve the current project so the new session row is
   // stamped with project_id. Mirrors resolveCurrentProjectId in taskService.ts.
-  // Best-effort: never throws — when the DB is absent or resolution fails,
+  // Best-effort: never throws — when no DB is resolvable or resolution fails,
   // projectId stays undefined and the insert stays nullable (the hosted/cockpit
   // no-single-repo case, or test doubles without a real DB connection).
+  //
+  // mt#2697: some callers (e.g. tasks.dispatch's internally-constructed
+  // SessionService) don't wire deps.db even though a DB IS resolvable in their
+  // process. Fixing this here — rather than in each caller's dep wiring — means
+  // every caller gets stamping whenever a DB is reachable: when deps.db is
+  // absent, fall back to a self-contained, one-shot PersistenceProvider
+  // (open -> resolve scope -> close) instead of skipping stamping outright.
+  // Unstamped rows are invisible to session.list's default project-scoped
+  // query (project_id IS NULL never matches `project_id = $scope`), which was
+  // the root cause of dispatch-created CREATED sessions disappearing from
+  // `session_list task:"mt#X"` while still blocking a new dispatch.
   let resolvedProjectId: string | undefined;
-  if (deps.db) {
-    try {
+  let dbForScopeResolution: ScopeResolverDb | undefined = deps.db;
+  let ownedPersistenceProvider: import("../persistence/types").PersistenceProvider | undefined;
+
+  // Single try/catch/finally spans acquisition AND use of the fallback
+  // provider, so every exit path — acquisition throw, getDatabaseConnection
+  // throw, scope-resolution throw, or plain success — routes through the
+  // same finally and closes the provider exactly once. `ownedPersistenceProvider`
+  // is assigned the moment a provider is acquired (before calling
+  // getDatabaseConnection()), specifically so a throw from
+  // getDatabaseConnection() itself can't leak the connection — the earlier
+  // shape assigned ownership only after a successful getDatabaseConnection()
+  // call, which left that one throw path unclosed.
+  try {
+    if (!dbForScopeResolution) {
+      // Cheap, silent short-circuit: if configuration was never initialized
+      // (hermetic tests, or a process that genuinely has no DB), there is
+      // nothing to resolve — skip straight past rather than letting
+      // resolvePersistenceProvider()'s initialize() log a noisy top-level
+      // error for an outcome we already know.
+      const { isConfigurationInitialized } = await import("../configuration/index");
+      const { resolvePersistenceProvider } = await import("../persistence/factory");
+      const provider = isConfigurationInitialized() ? await resolvePersistenceProvider() : null;
+      if (provider) {
+        ownedPersistenceProvider = provider;
+        const rawDb = await provider.getDatabaseConnection?.();
+        if (rawDb) {
+          dbForScopeResolution = rawDb as ScopeResolverDb;
+        }
+      }
+    }
+
+    if (dbForScopeResolution) {
       const { resolveProjectIdentity } = await import("../project/identity");
       const { resolveProjectScope } = await import("../project/scope-resolver");
       const { isAllProjects } = await import("../project/scope");
       const identity = resolveProjectIdentity({ repoPath: sessionDir });
-      const scope = await resolveProjectScope(identity, deps.db);
+      const scope = await resolveProjectScope(identity, dbForScopeResolution);
       resolvedProjectId = isAllProjects(scope) ? undefined : scope;
-    } catch (err: unknown) {
-      log.debug(
-        "[session.start] Project scope resolution failed; session.project_id will be NULL",
-        { error: err instanceof Error ? err.message : String(err) }
-      );
+    }
+  } catch (err: unknown) {
+    // dbForScopeResolution being set at catch-time means the throw happened
+    // during identity/scope resolution (stage 2); unset means it happened
+    // while acquiring the fallback DB (stage 1) — kept for debug legibility,
+    // not behaviorally different (both leave resolvedProjectId undefined).
+    const stage = dbForScopeResolution ? "project-scope resolution" : "fallback DB resolution";
+    log.debug(`[session.start] ${stage} failed; session.project_id will be NULL`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    if (ownedPersistenceProvider) {
+      try {
+        await ownedPersistenceProvider.close();
+      } catch (closeErr: unknown) {
+        // Best-effort: a close failure must never mask resolvedProjectId
+        // (already settled above) or escape as an unhandled rejection — log
+        // and swallow.
+        log.debug(
+          "[session.start] Failed to close fallback persistence provider (best-effort, swallowed)",
+          { error: closeErr instanceof Error ? closeErr.message : String(closeErr) }
+        );
+      }
     }
   }
 
@@ -403,11 +682,47 @@ async function executeMutations(
       referenceRepo,
     });
 
-    const _branchResult = await deps.gitService.branchWithoutSession({
-      repoName: normalizedRepoName,
-      session: sessionId,
-      branch: branchName,
-    });
+    if (recoverFromRemoteBranch) {
+      // mt#3166: recovery bases the session on the task's EXISTING remote branch.
+      // `branchWithoutSession` is a bare `checkout -b`, which would branch off
+      // whatever the clone landed on (main) and silently discard the branch's
+      // work — the defect this task exists to remove.
+      //
+      // Fetch from `origin`, NOT from a raw URL (PR #2299 R1). The clone was made
+      // from `cloneSource`, so `origin` IS that source, and it carries whatever
+      // credentials the clone was performed with — an HTTPS fetch by bare URL
+      // would re-authenticate from scratch and fail on a private repo.
+      // (`referenceRepo` is only a `--reference` object-store optimization; it is
+      // not the origin, which is why the earlier by-URL rationale was wrong.)
+      //
+      // Neither call is wrapped in a local try/catch on purpose: a failed fetch
+      // or checkout MUST surface as an error. Falling through to main here is
+      // exactly the silent substitution being fixed. The outer catch below
+      // removes the half-built session and directory before rethrowing.
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git fetch origin ${safeShellQuote(`refs/heads/${branchName}:refs/remotes/origin/${branchName}`)}`
+      );
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git checkout -b ${safeShellQuote(branchName)} ${safeShellQuote(`origin/${branchName}`)}`
+      );
+      // Track the remote branch, so a later push/PR from this session targets the
+      // branch it was recovered from rather than erroring on a missing upstream.
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git branch --set-upstream-to=${safeShellQuote(`origin/${branchName}`)} ${safeShellQuote(branchName)}`
+      );
+      if (!quiet) {
+        log.cli(`Recovered session on existing branch ${branchName}.`);
+      }
+    } else {
+      const _branchResult = await deps.gitService.branchWithoutSession({
+        repoName: normalizedRepoName,
+        session: sessionId,
+        branch: branchName,
+      });
+    }
 
     await deps.sessionDB.addSession(sessionRecord);
     sessionAdded = true;
@@ -506,12 +821,29 @@ Error: ${getErrorMessage(nestedError)}`
     }
   }
 
-  // Transition task status to IN-PROGRESS
+  // Transition task status to IN-PROGRESS. Valid precursors are kind-aware:
+  // - implementation kind: READY (planning gate complete) or IN-PROGRESS (idempotent)
+  // - umbrella kind: PLANNING (direct transition; no READY state) or IN-PROGRESS (idempotent)
   if (taskId && !noStatusUpdate) {
     try {
       const currentStatus = await deps.taskService.getTaskStatus(taskId);
+      const task = await deps.taskService.getTask(taskId);
+      const taskKind = (task as { kind?: string } | null)?.kind || "implementation";
+      const isUmbrella = taskKind === "umbrella";
 
-      if (currentStatus === TASK_STATUS.READY || currentStatus === TASK_STATUS.IN_PROGRESS) {
+      // mt#2986: a principal-driven launch on a TODO task means planning is what
+      // is now happening — walk TODO → PLANNING (and no further; IN-PROGRESS is
+      // reserved for implementation actually starting, per the mt#2986 design
+      // decision). READY keeps the existing READY → IN-PROGRESS walk below.
+      if (params.launchIntent === "principal-driven" && currentStatus === TASK_STATUS.TODO) {
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
+      }
+
+      const validPrecursor =
+        currentStatus === TASK_STATUS.IN_PROGRESS ||
+        (isUmbrella ? currentStatus === TASK_STATUS.PLANNING : currentStatus === TASK_STATUS.READY);
+
+      if (validPrecursor) {
         if (currentStatus === TASK_STATUS.READY) {
           try {
             const specResult = await deps.taskService.getTaskSpecContent(taskId);
@@ -562,7 +894,7 @@ Error: ${getErrorMessage(nestedError)}`
  * This separation ensures that validation failures cannot leave orphaned state.
  */
 export async function startSessionImpl(
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<Session> {
   try {

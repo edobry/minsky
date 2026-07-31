@@ -26,7 +26,7 @@ import {
   resolvePRNumber,
   findPRNumberForBranch,
 } from "./github-pr-operations";
-import type { ReviewListEntry, PrChangedFile } from "./index";
+import type { ReviewListEntry, PrChangedFile, PostedReviewComment } from "./index";
 import { applyReviewStateLabel } from "./review-state-labels";
 
 export { DiffAnchorError, type DiffAnchorFailure } from "./diff-anchor-validator";
@@ -773,6 +773,67 @@ export async function listChangedFiles(
     if (error instanceof MinskyError) throw error;
     handleOctokitError(error, {
       operation: "list pull request changed files",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+    throw error;
+  }
+}
+
+/**
+ * List every inline (diff-anchored) review comment on a pull request, across
+ * all pages.
+ *
+ * Distinct from `getPRReviewThreads` (GraphQL, grouped into resolved/
+ * unresolved conversation threads without per-review correlation): this is
+ * the flat REST listing (`GET .../pulls/{pull_number}/comments`), correlated
+ * to its parent review via `pull_request_review_id`. Used by mt#2829's
+ * posted-review read to reconstruct "what did review N say inline" alongside
+ * `listReviews`'s top-level review bodies.
+ */
+export async function listReviewComments(
+  gh: GitHubContext,
+  prIdentifier: string | number
+): Promise<PostedReviewComment[]> {
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
+
+  try {
+    const token = await gh.getToken();
+    const octokit = createOctokit(token);
+
+    const comments = await octokit.paginate(octokit.rest.pulls.listReviewComments, {
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+
+    log.debug("GitHub PR review comments listed", {
+      prNumber,
+      commentCount: comments.length,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+
+    return comments.map(
+      (c): PostedReviewComment => ({
+        commentId: c.id,
+        reviewId: c.pull_request_review_id ?? null,
+        path: c.path,
+        line: c.line ?? null,
+        originalLine: c.original_line ?? null,
+        body: c.body ?? "",
+      })
+    );
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "list pull request review comments",
       owner: gh.owner,
       repo: gh.repo,
       prNumber,

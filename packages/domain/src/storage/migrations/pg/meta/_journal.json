@@ -372,6 +372,216 @@
       "when": 1783544779363,
       "tag": "0052_lonely_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1783996678427,
+      "tag": "0053_special_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783999299279,
+      "tag": "0054_dashing_sharon_ventura",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784039300000,
+      "tag": "0055_collapse_completed_to_done",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1784155671648,
+      "tag": "0056_session_attachment_extras",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1784239973517,
+      "tag": "0057_session_interface_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784280854927,
+      "tag": "0058_bulk-edit-event-types",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784308081983,
+      "tag": "0059_flippant_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1784415353411,
+      "tag": "0060_slow_kang",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1784418913274,
+      "tag": "0061_redundant_blue_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1784419302827,
+      "tag": "0062_backfill_agent_transcripts_project_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1784479106335,
+      "tag": "0063_authorization-policy-covered-event-type",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1784576982809,
+      "tag": "0064_third_scarlet_witch",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1784589472180,
+      "tag": "0065_kind_queen_noir",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1784624555913,
+      "tag": "0066_flippant_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1784626620221,
+      "tag": "0067_careful_saracen",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1784647262663,
+      "tag": "0068_quiet_vance_astro",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1784743545237,
+      "tag": "0069_sweet_thunderbolt_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1784747160488,
+      "tag": "0070_messy_the_hunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1784921329258,
+      "tag": "0071_concerned_taskmaster",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1785032913144,
+      "tag": "0072_lively_donald_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1785045585199,
+      "tag": "0073_complete_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1785046916406,
+      "tag": "0074_funny_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1785065802377,
+      "tag": "0075_naive_edwin_jarvis",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1785293537526,
+      "tag": "0076_cuddly_giant_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1785348666820,
+      "tag": "0077_abandoned_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1785402122653,
+      "tag": "0078_icy_nekra",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1785435282552,
+      "tag": "0079_overjoyed_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1785457464358,
+      "tag": "0080_gifted_groot",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1785463899031,
+      "tag": "0081_spicy_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1785467713544,
+      "tag": "0082_superb_paladin",
+      "breakpoints": true
     }
   ]
 }

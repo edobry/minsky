@@ -20,7 +20,9 @@ and related tasks.
 4. Block message lists: the count of diverging commits, the first 10 commit subjects (oneline), and the instruction "Review the new commits on main before continuing."
 
 **On block:** run `session_update` to rebase on main, review the merged PRs to check for
-overlap, then retry the original operation.
+overlap, then retry the original operation. As of mt#2815, the common case of this — a
+clean working tree and a merge that applies with no conflicts — is now handled inline (see
+"Clean-tree auto-merge" below) and no longer requires this manual round-trip.
 
 **Override mechanism:** Set `MINSKY_SKIP_FRESHNESS=1` in your environment before invoking
 the tool:
@@ -31,6 +33,48 @@ MINSKY_SKIP_FRESHNESS=1 minsky session commit ...
 
 The override is **logged to session stdout** (tool name, ISO timestamp) for audit.
 Use only when you have already reviewed main's new commits and confirmed no overlap.
+
+**Clean-tree auto-merge (mt#2815):**
+
+Before denying a blocked call, the hook attempts an inline `git merge --no-edit <mainRef>`
+when the working tree is fully clean (no staged or unstaged changes — checked via
+`git status --porcelain`). This closes the most common case observed in production: origin/main
+advances by a handful of commits from sibling-PR work on disjoint files while an agent is
+mid-task, and the resulting block is resolved by a plain `session_update` with zero actual
+conflicts (mt#2815's investigation: 7+ such cycles across 3 conversations in one week, all
+confirmed clean).
+
+- **On a clean merge** (`git merge` exits 0): the merge commit is kept, the tool call is
+  ALLOWED to proceed, and an audit line reports
+  `[check-branch-fresh] auto-merged N commit(s) from origin/main into <branch> (clean tree, no
+conflicts) — proceeding without a manual session_update round-trip.` The merge is
+  **local only** — the hook never pushes; the guarded tool's own push step (`session_commit`
+  always pushes; `session_pr_create`/`session_pr_edit` push as part of their own
+  rebase-on-main step) carries the merge commit to `origin/<branch>`.
+- **On a conflicting merge** (non-zero exit): the merge is immediately aborted
+  (`git merge --abort`) and the hook falls back to the standard denial, with an added note
+  that an auto-merge was attempted and hit conflicts (listing the conflicted files when
+  available). The denial the agent sees is otherwise byte-for-byte the pre-mt#2815 path — no
+  silent conflict resolution, ever.
+- **Not attempted** when the working tree is dirty, the overall hook budget is already
+  exhausted, or the freshness comparison never fully ran (missing `branchRef`/`mainRef`).
+  In each of these cases behavior is completely unchanged from the pre-mt#2815 hook.
+
+**Why a dirty tree is out of scope, and why "clean tree" does not itself imply "no
+conflicts":** `session_commit` calls are usually dirty by construction (there is something to
+commit), so this mechanism's practical reach is largest at `session_pr_create` /
+`session_pr_edit` time, where the tree is clean by workflow convention. Clean-tree only rules
+out the SEPARATE failure mode of local uncommitted edits colliding with the incoming merge —
+conflicts BETWEEN COMMIT HISTORIES (origin/main's new commits vs. the branch's own
+already-pushed commits) can still occur on a clean tree. That is why the mechanism attempts
+the merge and verifies the outcome rather than skipping verification on the assumption that a
+clean tree is sufficient.
+
+**Protective property (regression-tested in `check-branch-fresh.test.ts`):** a failed merge
+attempt is always aborted before the hook returns, so no `MERGE_HEAD` is ever left behind for
+the _next_ hook invocation to misinterpret as an operator-driven mid-merge (which would
+silently allow past a still-stale, still-unresolved branch — see the mt#1739 carve-out
+above). Covered by a real-git integration test with a genuine line-level conflict.
 
 **Behavioral Contract:**
 

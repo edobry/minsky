@@ -1,12 +1,14 @@
 import { describe, test, expect } from "bun:test";
 import {
   isDeploySurfaceFile,
+  isLocalAppDeploySurfaceFile,
   extractServiceFromPath,
   findAffectedServices,
 } from "./deploy-surface";
 
 // Reused fixture paths extracted to constants (custom/no-magic-string-duplication).
 const REVIEWER_DOCKERFILE = "services/reviewer/Dockerfile";
+const ROOT_DOCKERFILE = "Dockerfile";
 const DEPLOY_WORKFLOW = ".github/workflows/deploy.yml";
 
 describe("isDeploySurfaceFile", () => {
@@ -20,6 +22,20 @@ describe("isDeploySurfaceFile", () => {
     expect(isDeploySurfaceFile("services/reviewer/railway.json")).toBe(true);
     expect(isDeploySurfaceFile("services/reviewer/deploy.config.ts")).toBe(true);
     expect(isDeploySurfaceFile("services/reviewer/railway.config.ts")).toBe(true);
+  });
+
+  test("mt#3023: matches the ROOT Dockerfile — the minsky-mcp image", () => {
+    // The per-service pattern is anchored to `services/<name>/`, so before
+    // mt#3023 the root Dockerfile — the file that defines the deployed MCP
+    // image — matched nothing and skipped the deploy-verification gate.
+    expect(isDeploySurfaceFile(ROOT_DOCKERFILE)).toBe(true);
+    expect(isDeploySurfaceFile("./Dockerfile")).toBe(true);
+  });
+
+  test("mt#3023: the root-Dockerfile pattern is anchored, not a suffix match", () => {
+    expect(isDeploySurfaceFile("cockpit-tray/Dockerfile")).toBe(false);
+    expect(isDeploySurfaceFile("docs/examples/Dockerfile")).toBe(false);
+    expect(isDeploySurfaceFile("Dockerfile.dev")).toBe(false);
   });
 
   test("matches deploy workflow files (bare and per-service)", () => {
@@ -37,6 +53,44 @@ describe("isDeploySurfaceFile", () => {
     expect(isDeploySurfaceFile("./infra/index.ts")).toBe(true);
     expect(isDeploySurfaceFile("infra\\index.ts")).toBe(true);
   });
+
+  test("mt#2809: tolerates null/undefined filename without throwing (trust-boundary guard)", () => {
+    // Reproduces the actual runtime shape: `gh api .../files --jq` projects
+    // `previous_filename` on every file entry, and jq returns `null` (not
+    // "field omitted") for a missing key — so JSON.parse'd PrFile entries
+    // carry a real `null`, not `undefined`, for non-renamed files.
+    expect(() => isDeploySurfaceFile(null)).not.toThrow();
+    expect(() => isDeploySurfaceFile(undefined)).not.toThrow();
+    expect(isDeploySurfaceFile(null)).toBe(false);
+    expect(isDeploySurfaceFile(undefined)).toBe(false);
+  });
+});
+
+describe("isLocalAppDeploySurfaceFile (mt#2976)", () => {
+  test("matches cockpit-tray binary source (src, Cargo.toml, tauri.conf.json)", () => {
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/src/menu.rs")).toBe(true);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/Cargo.toml")).toBe(true);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/tauri.conf.json")).toBe(true);
+  });
+
+  test("does not match cockpit-web, services, or non-src-tauri tray files", () => {
+    expect(isLocalAppDeploySurfaceFile("src/cockpit/web/App.tsx")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("services/reviewer/Dockerfile")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/README.md")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("infra/index.ts")).toBe(false);
+  });
+
+  test("is disjoint from the Railway surface — a tray file is NOT a Railway deploy surface", () => {
+    // Load-bearing: keeps the pre-merge gate + session.pr.drive deploy-watch
+    // (both keyed on isDeploySurfaceFile) from ever treating a tray change as a
+    // Railway deploy (mt#2976).
+    expect(isDeploySurfaceFile("cockpit-tray/src-tauri/src/menu.rs")).toBe(false);
+  });
+
+  test("mt#2809: tolerates null/undefined without throwing", () => {
+    expect(isLocalAppDeploySurfaceFile(null)).toBe(false);
+    expect(isLocalAppDeploySurfaceFile(undefined)).toBe(false);
+  });
 });
 
 describe("extractServiceFromPath", () => {
@@ -49,6 +103,12 @@ describe("extractServiceFromPath", () => {
     expect(extractServiceFromPath("infra/index.ts")).toBeUndefined();
     expect(extractServiceFromPath(DEPLOY_WORKFLOW)).toBeUndefined();
     expect(extractServiceFromPath("src/domain/session.ts")).toBeUndefined();
+  });
+
+  test("mt#2809: returns undefined (not a throw) for null/undefined", () => {
+    expect(() => extractServiceFromPath(null)).not.toThrow();
+    expect(extractServiceFromPath(null)).toBeUndefined();
+    expect(extractServiceFromPath(undefined)).toBeUndefined();
   });
 });
 
@@ -64,6 +124,15 @@ describe("findAffectedServices", () => {
   test("treats infra/ changes as affecting every known service (broad impact)", () => {
     const result = findAffectedServices(["infra/index.ts"], available);
     expect(result.services).toEqual(["cockpit", "reviewer", "site"]);
+  });
+
+  test("mt#3023: treats the root Dockerfile as broad impact (not service-scoped)", () => {
+    // `extractServiceFromPath` returns undefined for an unscoped path, so the
+    // root Dockerfile lands on the conservative side — every known service is
+    // watched rather than none.
+    const result = findAffectedServices([ROOT_DOCKERFILE], available);
+    expect(result.services).toEqual(["cockpit", "reviewer", "site"]);
+    expect(result.matchedFiles).toEqual([ROOT_DOCKERFILE]);
   });
 
   test("treats a bare deploy workflow file as broad impact", () => {

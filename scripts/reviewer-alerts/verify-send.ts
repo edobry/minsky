@@ -18,6 +18,7 @@
 
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync as nodeSpawnSync } from "child_process";
 
 const SECRET_KEY = "secrets:minsky-reviewer-telegram-bot-token";
 
@@ -58,18 +59,23 @@ function pulumiEnv(): Record<string, string | undefined> {
   };
 }
 
+// Uses node:child_process.spawnSync (not Bun.spawnSync) — see mt#3088
+// spec: bun-types@1.2.12's Bun.spawnSync stdin type is hardcoded to
+// "ignore" on both overloads, with no cast-free way to pass "inherit"
+// (and the custom no-excessive-as-unknown ESLint rule correctly flags a
+// cast-based workaround). node's `stdio` tuple is properly typed for this
+// and has identical synchronous semantics.
+//
 // stdin inherited so a Pulumi passphrase prompt works; stdout captured so the
 // decrypted token never reaches the terminal/transcript.
-const read = Bun.spawnSync(["pulumi", "-C", infraDir, "config", "get", SECRET_KEY], {
-  stdin: "inherit",
-  stdout: "pipe",
-  stderr: "pipe",
+const read = nodeSpawnSync("pulumi", ["-C", infraDir, "config", "get", SECRET_KEY], {
+  stdio: ["inherit", "pipe", "pipe"],
   env: pulumiEnv(),
 });
-if (read.exitCode !== 0) {
+if (read.status !== 0) {
   fail(
     `could not read ${SECRET_KEY} from Pulumi config ` +
-      `(${read.stderr.toString().trim() || `exit ${read.exitCode}`}). ` +
+      `(${read.stderr.toString().trim() || `exit ${read.status}`}). ` +
       `Run: pulumi -C infra config set --secret ${SECRET_KEY}  (masked prompt), then retry.`
   );
 }
@@ -80,13 +86,12 @@ if (!token) {
 
 // The token rides the subprocess ENVIRONMENT (never argv, never printed); the
 // smoke's own output is token-free by design (PASS/FAIL JSON only).
-const smoke = Bun.spawnSync(
-  ["bun", resolve(repoRoot, "services/reviewer/scripts/smoke-alert-sink.ts")],
+const smoke = nodeSpawnSync(
+  "bun",
+  [resolve(repoRoot, "services/reviewer/scripts/smoke-alert-sink.ts")],
   {
     cwd: repoRoot,
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdio: ["inherit", "inherit", "inherit"],
     env: {
       ...process.env,
       ALERT_SINK_TYPE: "telegram",
@@ -96,4 +101,4 @@ const smoke = Bun.spawnSync(
   }
 );
 
-process.exit(smoke.exitCode ?? 1);
+process.exit(smoke.status ?? 1);

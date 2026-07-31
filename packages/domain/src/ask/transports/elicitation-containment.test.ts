@@ -16,9 +16,11 @@
  * Ask record. Shape C (mt#1331) extends this rule to ALL prompts, not
  * just Ask flows; this test pins the v1 invariant.
  *
- * The check uses `ripgrep` since it's already a project dev dependency
- * and outperforms a JS recursive find. Falls back to a clear test failure
- * if rg isn't present so the regression intent is preserved.
+ * The check scans the tree in-process (Bun Glob + file reads) rather than
+ * spawning `rg`: GitHub's ubuntu runners don't ship ripgrep, and the old
+ * spawnSync path returned `stdout: null` there — a TypeError instead of the
+ * intended loud failure (mt#2665, surfaced once CI stopped truncating the
+ * suite). In-process scanning removes the environment dependence entirely.
  *
  * Reference: mt#1457 spec §Acceptance Tests — "Repository grep for
  * `elicitation/create` outside `packages/domain/src/ask/transports/` returns zero
@@ -26,8 +28,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "child_process";
-import { existsSync } from "fs";
+import { Glob } from "bun";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 // ---------------------------------------------------------------------------
@@ -50,64 +52,50 @@ function findProjectRoot(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helper — in-process containment scan (no external tools; mt#2665)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan production .ts sources under src/ and packages/<pkg>/src/ for a
+ * literal substring, returning "file:line: text" hits. The positive globs
+ * structurally exclude node_modules / dist / docs (only <pkg>/src trees are
+ * walked).
+ *
+ * Legitimate exceptions (both tests):
+ *   - packages/domain/src/ask/transports/ (the transport adapter itself)
+ *   - src/mcp/client-capabilities.ts (structural type + JSDoc references only)
+ *   - *.test.ts (tests describing the literal in prose are fine)
+ */
+function scanForLiteral(root: string, literal: string): string[] {
+  const hits: string[] = [];
+  for (const pattern of ["src/**/*.ts", "packages/*/src/**/*.ts"]) {
+    const glob = new Glob(pattern);
+    for (const rel of glob.scanSync({ cwd: root })) {
+      if (rel.endsWith(".test.ts")) continue;
+      if (rel.startsWith(join("packages", "domain", "src", "ask", "transports"))) continue;
+      if (rel === join("src", "mcp", "client-capabilities.ts")) continue;
+      const lines = readFileSync(join(root, rel), "utf-8").split("\n");
+      lines.forEach((line, i) => {
+        if (line.includes(literal)) {
+          hits.push(`${rel}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+  }
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("elicitation-containment", () => {
   test("no `elicitation/create` literal outside packages/domain/src/ask/transports", () => {
-    const root = findProjectRoot();
-
     // The literal we care about: 'elicitation/create' appearing as code text.
-    // Limit the search to src/ and packages/*/src/ so node_modules / docs /
-    // generated artifacts don't pollute the result. mt#2108 moved the Ask
-    // transport adapter to packages/domain/src/ask/transports/ (mt#2608).
-    //
-    // Legitimate exceptions:
-    //   - packages/domain/src/ask/transports/** (the transport adapter itself)
-    //   - src/mcp/client-capabilities.ts (defines the structural type for
-    //     the SDK method `elicitInput` and references the wire-level method
-    //     name `elicitation/create` in JSDoc only — no calls)
-    const result = spawnSync(
-      "rg",
-      [
-        "--line-number",
-        "--no-heading",
-        "--with-filename",
-        "--glob",
-        "src/**/*.ts",
-        "--glob",
-        "packages/*/src/**/*.ts",
-        "--glob",
-        "!packages/domain/src/ask/transports/**",
-        "--glob",
-        "!src/mcp/client-capabilities.ts",
-        "--glob",
-        "!**/*.test.ts", // tests describing the literal in prose are fine
-        "elicitation/create",
-        "src",
-        "packages",
-      ],
-      { cwd: root, encoding: "utf-8" }
-    );
-
-    // ripgrep exit code: 0 = matches found; 1 = no matches; 2 = error.
-    if (result.status === 1) {
-      // No matches outside the transport — the invariant holds.
-      return;
-    }
-
-    if (result.status === 2) {
-      // ripgrep itself failed (e.g. binary not present). Fail loudly so the
-      // regression intent isn't silently bypassed in environments without rg.
-      throw new Error(
-        `ripgrep failed (exit ${result.status}). stderr: ${result.stderr}\n` +
-          `Install ripgrep or update this test's command. The intent is to ` +
-          `assert no elicitation/create calls live outside packages/domain/src/ask/transports.`
-      );
-    }
-
-    // status === 0 means matches were found — the invariant is broken.
-    expect(result.stdout.trim(), "elicitation/create found outside the transport").toBe("");
+    // mt#2108 moved the Ask transport adapter to packages/domain/src/ask/
+    // transports/ (mt#2608).
+    const hits = scanForLiteral(findProjectRoot(), "elicitation/create");
+    expect(hits.join("\n"), "elicitation/create found outside the transport").toBe("");
   });
 
   test("no `.elicitInput(` calls outside packages/domain/src/ask/transports and src/mcp", () => {
@@ -116,40 +104,9 @@ describe("elicitation-containment", () => {
     // type for it (in src/mcp/client-capabilities.ts) — that file is the
     // legitimate exception, alongside the transport adapter (moved to
     // packages/domain/src/ask/transports/ by mt#2108; see mt#2608).
-    const root = findProjectRoot();
-
-    const result = spawnSync(
-      "rg",
-      [
-        "--line-number",
-        "--no-heading",
-        "--with-filename",
-        "--glob",
-        "src/**/*.ts",
-        "--glob",
-        "packages/*/src/**/*.ts",
-        "--glob",
-        "!packages/domain/src/ask/transports/**",
-        "--glob",
-        "!src/mcp/client-capabilities.ts",
-        "--glob",
-        "!**/*.test.ts",
-        "\\.elicitInput\\(",
-        "src",
-        "packages",
-      ],
-      { cwd: root, encoding: "utf-8" }
+    const hits = scanForLiteral(findProjectRoot(), ".elicitInput(");
+    expect(hits.join("\n"), ".elicitInput( found outside transport + mcp/client-capabilities").toBe(
+      ""
     );
-
-    if (result.status === 1) return;
-
-    if (result.status === 2) {
-      throw new Error(`ripgrep failed (exit ${result.status}). stderr: ${result.stderr}`);
-    }
-
-    expect(
-      result.stdout.trim(),
-      ".elicitInput( found outside transport + mcp/client-capabilities"
-    ).toBe("");
   });
 });

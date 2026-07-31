@@ -257,8 +257,24 @@ export class DefaultTokenizerService implements TokenizerService {
     try {
       // gpt-tokenizer exports named encode/decode functions per encoding module.
       // Use o200k_base for gpt-4o models, cl100k_base for others.
+      //
+      // mt#3370: the subpath is `encoding/<name>`, NOT a bare `<name>`. The
+      // bare form is the v2 layout; `gpt-tokenizer@3.0.1` — the version this
+      // repo declares — exposes only `.`, `./*`, `./cjs`, `./cjs/*`, `./esm/*`,
+      // `./data/*` and `./package.json`, under which `gpt-tokenizer/cl100k_base`
+      // resolves to nothing. So EVERY call threw `Failed to load gpt-tokenizer`
+      // and the accurate token count was never available anywhere — callers
+      // silently degraded to a ~4-chars-per-token heuristic.
+      //
+      // That heuristic under-truncates dense markdown (~3 chars/token), which
+      // is how mt#2861 kept overflowing OpenAI's 8192-token input limit even
+      // after "truncation": 38,547 chars capped to 32,000 is still ~10.6k
+      // tokens. Verified under bun: the bare path FAILS, `encoding/cl100k_base`
+      // resolves and exports `encode`.
       const modulePath =
-        encoding === "o200k_base" ? "gpt-tokenizer/o200k_base" : "gpt-tokenizer/cl100k_base";
+        encoding === "o200k_base"
+          ? "gpt-tokenizer/encoding/o200k_base"
+          : "gpt-tokenizer/encoding/cl100k_base";
       const mod = (await import(/* @vite-ignore */ modulePath)) as {
         encode: (text: string) => number[];
         decode: (tokens: Iterable<number>) => string;

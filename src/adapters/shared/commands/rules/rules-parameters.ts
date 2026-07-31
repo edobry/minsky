@@ -11,15 +11,6 @@ import {
 } from "../../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../../common-parameters";
 
-export type RulesListParams = {
-  format?: "cursor" | "generic";
-  tag?: string;
-  since?: string;
-  until?: string;
-  json?: boolean;
-  debug?: boolean;
-};
-
 export const rulesListCommandParams = composeParams(
   {
     format: RulesParameters.format,
@@ -45,13 +36,6 @@ export const rulesListCommandParams = composeParams(
   }
 ) satisfies CommandParameterMap;
 
-export type RulesIndexEmbeddingsParams = {
-  limit?: number;
-  json?: boolean;
-  debug?: boolean;
-  force?: boolean;
-};
-
 export const rulesIndexEmbeddingsParams = composeParams(
   {
     limit: {
@@ -72,13 +56,6 @@ export const rulesIndexEmbeddingsParams = composeParams(
   }
 ) satisfies CommandParameterMap;
 
-export type RulesGetParams = {
-  id: string;
-  format?: "cursor" | "generic";
-  json?: boolean;
-  debug?: boolean;
-};
-
 export const rulesGetCommandParams = composeParams(
   {
     id: RulesParameters.id,
@@ -89,19 +66,6 @@ export const rulesGetCommandParams = composeParams(
     debug: CommonParameters.debug,
   }
 ) satisfies CommandParameterMap;
-
-export type RulesGenerateParams = {
-  interface?: "cli" | "mcp" | "hybrid";
-  rules?: string;
-  outputDir?: string;
-  dryRun?: boolean;
-  overwrite?: boolean;
-  format?: string;
-  preferMcp?: boolean;
-  mcpTransport?: "stdio" | "http";
-  json?: boolean;
-  debug?: boolean;
-};
 
 export const rulesGenerateCommandParams = composeParams(
   {
@@ -162,18 +126,6 @@ export const rulesGenerateCommandParams = composeParams(
   }
 ) satisfies CommandParameterMap;
 
-export type RulesCreateParams = {
-  id: string;
-  content: string;
-  description?: string;
-  name?: string;
-  globs?: string;
-  tags?: string;
-  format?: "cursor" | "generic";
-  overwrite?: boolean;
-  json?: boolean;
-};
-
 export const rulesCreateCommandParams = composeParams(
   {
     id: RulesParameters.id,
@@ -197,18 +149,6 @@ export const rulesCreateCommandParams = composeParams(
     json: CommonParameters.json,
   }
 ) satisfies CommandParameterMap;
-
-export type RulesUpdateParams = {
-  id: string;
-  content?: string;
-  description?: string;
-  name?: string;
-  globs?: string;
-  tags?: string;
-  format?: "cursor" | "generic";
-  json?: boolean;
-  debug?: boolean;
-};
 
 export const rulesUpdateCommandParams = composeParams(
   {
@@ -240,11 +180,14 @@ export const rulesUpdateCommandParams = composeParams(
 
 export const rulesCompileCommandParams = {
   target: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description:
-      "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+      "Target file type to compile to (e.g., agents.md, claude.md, cursor-rules). " +
+      "When omitted (bare invocation), compiles every target whose output already " +
+      "exists on disk with the generated banner — a partial regen is never silently " +
+      "reported as success (mt#2803). Falls back to agents.md when none exist yet " +
+      "(fresh repo / init flows).",
     required: false,
-    defaultValue: "agents.md",
   },
   output: {
     schema: z.string().optional(),
@@ -264,6 +207,18 @@ export const rulesCompileCommandParams = {
     required: false,
     defaultValue: false,
   },
+  warnChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default WARN size-budget threshold (chars). mt#2802 — only claude.md and agents.md enforce a size budget.",
+    required: false,
+  },
+  failChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default FAIL size-budget threshold (chars, --check mode only). mt#2802 — only claude.md and agents.md enforce a size budget.",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 export const rulesMigrateCommandParams = {
@@ -280,18 +235,6 @@ export const rulesMigrateCommandParams = {
     defaultValue: false,
   },
 } satisfies CommandParameterMap;
-
-export type RulesSearchParams = {
-  query?: string;
-  tag?: string;
-  format?: "cursor" | "generic";
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-  debug?: boolean;
-};
 
 export const rulesSearchCommandParams = composeParams(
   {

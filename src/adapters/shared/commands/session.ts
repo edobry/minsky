@@ -22,6 +22,9 @@ import {
   createSessionMigrateCommand,
 } from "./session/management-commands";
 import { createSessionCleanupCommand } from "./session/cleanup-command";
+import { createSessionPsCommand, createSessionAttachedCommand } from "./session/ps-command";
+import { createSessionFocusCommand, createSessionGotoCommand } from "./session/focus-command";
+import { createSessionBindingsRefreshCommand } from "./session/bindings-command";
 import {
   createSessionCommitCommand,
   createSessionInspectCommand,
@@ -48,7 +51,7 @@ import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
 import { createSessionGeneratePromptCommand } from "./session/prompt-command";
 import { createApplyPostMergeStateSyncCommand } from "./session/apply-post-merge-state-sync-command";
-import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
+import { sharedCommandRegistry, type AnyCommandDefinition } from "../command-registry";
 
 /**
  * Register all session commands in the shared command registry.
@@ -86,20 +89,25 @@ export async function registerSessionCommands(
     return container.get("persistence") as PersistenceProvider;
   };
 
-  const commands: CommandDefinition[] = [
+  const commands: AnyCommandDefinition[] = [
     // Basic
     createSessionListCommand(getDeps, getOptionalPersistenceProvider),
-    createSessionGetCommand(getDeps),
+    createSessionGetCommand(getDeps, getOptionalPersistenceProvider),
     createSessionStartCommand(getDeps, getOptionalPersistenceProvider),
     createSessionDirCommand(getDeps),
     createSessionSearchCommand(getDeps),
     createSessionExecCommand(getDeps),
+    createSessionPsCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionAttachedCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionFocusCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionGotoCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionBindingsRefreshCommand(getDeps, getOptionalPersistenceProvider),
 
     // Management
-    createSessionDeleteCommand(getDeps),
+    createSessionDeleteCommand(getDeps, getOptionalPersistenceProvider),
     createSessionUpdateCommand(getDeps),
     createSessionMigrateBackendCommand(getDeps),
-    createSessionCleanupCommand(getDeps),
+    createSessionCleanupCommand(getDeps, getOptionalPersistenceProvider),
 
     // Workflow
     createSessionCommitCommand(getDeps),

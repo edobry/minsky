@@ -39,6 +39,7 @@ describe("mt#1967 self-check exports", () => {
       "reviewer_inflight_reviews",
       "review_timing",
       "reviewer_submission_failures",
+      "reviewer_findings",
     ]);
   });
 
@@ -70,6 +71,7 @@ describe("mt#1967 verifyExpectedTables", () => {
       { tablename: "reviewer_inflight_reviews" },
       { tablename: "review_timing" },
       { tablename: "reviewer_submission_failures" },
+      { tablename: "reviewer_findings" },
     ]);
     await expect(verifyExpectedTables(db)).rejects.toThrow(/self-check FAILED/);
     await expect(verifyExpectedTables(db)).rejects.toThrow(/1 expected/);
@@ -81,7 +83,7 @@ describe("mt#1967 verifyExpectedTables", () => {
 
   test("throws listing all missing tables when none are present (fresh DB case)", async () => {
     const db = stubDbReturning([]);
-    await expect(verifyExpectedTables(db)).rejects.toThrow(/5 expected/);
+    await expect(verifyExpectedTables(db)).rejects.toThrow(/6 expected/);
     for (const expectedTable of REVIEWER_EXPECTED_TABLES) {
       await expect(verifyExpectedTables(db)).rejects.toThrow(new RegExp(expectedTable));
     }

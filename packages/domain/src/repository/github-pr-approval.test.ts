@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { pickLatestReviewPerReviewer, type MinimalReview } from "./github-pr-approval";
+import {
+  pickLatestReviewPerReviewer,
+  computeNonApprovalMergeBlockers,
+  type MinimalReview,
+} from "./github-pr-approval";
 
 /**
  * Tests for `pickLatestReviewPerReviewer` — the per-reviewer "latest review
@@ -323,5 +327,71 @@ describe("isApproved predicate composition (mt#1830 AT1-AT6)", () => {
     const reviews = [review("bot", STATE_COMMENTED, "2026-05-13T10:00:00Z")];
     expect(computeIsApproved(reviews, 0)).toBe(true);
     expect(computeIsApproved(reviews, 1)).toBe(false); // requires real APPROVE
+  });
+});
+
+/**
+ * Tests for `computeNonApprovalMergeBlockers` (mt#2890).
+ *
+ * Before this fix, `mergeable === null` (GitHub still computing mergeability,
+ * or the API degraded) was treated identically to `mergeable === false` (a
+ * real conflict) via the falsy `!pr.mergeable` check, both producing
+ * `nonApprovalBlockerDescription: "merge conflicts"` and
+ * `hasNonApprovalMergeBlockers: true` -- which blocked the forceBypass /
+ * acceptStaleReviewerSilence waiver paths (session-merge-conflict-
+ * detection.ts) even though nothing was actually wrong with the PR.
+ */
+describe("computeNonApprovalMergeBlockers (mt#2890)", () => {
+  test("draft PR is a hard blocker regardless of mergeable state", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: true, state: "open" }, true);
+    expect(result).toEqual({
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: "draft PR",
+      mergeableBlocked: false,
+    });
+  });
+
+  test("mergeable===false is a hard blocker described as 'merge conflicts'", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: false, state: "open" }, false);
+    expect(result).toEqual({
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: "merge conflicts",
+      mergeableBlocked: true,
+    });
+  });
+
+  test("mergeable===null is described as 'mergeability not yet computed' and is NOT a hard blocker", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: null, state: "open" }, false);
+    expect(result).toEqual({
+      hasNonApprovalMergeBlockers: false,
+      nonApprovalBlockerDescription: "mergeability not yet computed",
+      mergeableBlocked: false,
+    });
+  });
+
+  test("mergeable===null is NOT described as 'merge conflicts' (regression guard)", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: null, state: "open" }, false);
+    expect(result.nonApprovalBlockerDescription).not.toBe("merge conflicts");
+  });
+
+  test("PR not open is a hard blocker when mergeable is true", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: true, state: "closed" }, false);
+    expect(result).toEqual({
+      hasNonApprovalMergeBlockers: true,
+      nonApprovalBlockerDescription: "PR not open (state: closed)",
+      mergeableBlocked: false,
+    });
+  });
+
+  test("mergeable===true and open with no draft has no blockers", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: true, state: "open" }, false);
+    expect(result).toEqual({ hasNonApprovalMergeBlockers: false, mergeableBlocked: false });
+  });
+
+  test("draft takes precedence over a definite conflict in the description", () => {
+    const result = computeNonApprovalMergeBlockers({ mergeable: false, state: "open" }, true);
+    expect(result.nonApprovalBlockerDescription).toBe("draft PR");
+    // mergeableBlocked still reflects the true underlying state independent of precedence.
+    expect(result.mergeableBlocked).toBe(true);
   });
 });

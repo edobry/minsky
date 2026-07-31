@@ -75,7 +75,7 @@ async function fetchEventFrequency(
     // bucketIndexFromNow: 0 = most-recent bucket. Convert to oldest-first index.
     const bucketIndexFromNow = Math.floor(ageMs / bucketWidthMs);
     const idx = bucketCount - 1 - bucketIndexFromNow;
-    if (idx >= 0 && idx < bucketCount) buckets[idx]++;
+    if (idx >= 0 && idx < bucketCount) buckets[idx] = (buckets[idx] ?? 0) + 1;
   }
 
   return { buckets, total };

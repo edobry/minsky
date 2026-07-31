@@ -7,14 +7,24 @@
   "exports": {
     ".": "./src/index.ts",
     "./safe-truncate": "./src/safe-truncate.ts",
+    "./strip-ansi": "./src/strip-ansi.ts",
+    "./harness-markup": "./src/harness-markup.ts",
     "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts",
     "./deployment-config": "./src/deployment/config.ts",
     "./logger": "./src/logger.ts",
     "./exec": "./src/exec.ts",
+    "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
     "./process": "./src/process.ts",
+    "./stdout-sync": "./src/stdout-sync.ts",
     "./fs": "./src/fs.ts",
     "./constants": "./src/constants.ts",
-    "./array-safety": "./src/array-safety.ts"
+    "./array-safety": "./src/array-safety.ts",
+    "./cold-start-profile": "./src/cold-start-profile.ts",
+    "./ask-approval": "./src/ask-approval.ts",
+    "./ask-closure": "./src/ask-closure.ts",
+    "./ask-option-label": "./src/ask-option-label.ts",
+    "./resolve-proposal": "./src/resolve-proposal.ts",
+    "./entity-thread-types": "./src/entity-thread-types.ts"
   }
 }

@@ -63,18 +63,36 @@ function emitITermEscapes(taskId: string, title: string): void {
 async function main(): Promise<void> {
   const input = await readInput<ToolHookInput>();
 
-  // Extract session data from tool_result
+  // Resolve the task id, preferring the result payload but NOT depending on it.
+  //
+  // mt#3182: this hook previously read the task id only from
+  // `tool_result.session.taskId` and exited at `if (!toolResult)` otherwise. The
+  // harness's PostToolUse payload for session_start does not carry `tool_result`
+  // in that parsed shape, so this hook exited silently on every invocation and
+  // has never produced its iTerm labels or its `/tmp/claude-session-label-*.json`
+  // state file (zero such files existed on the dev machine when this was found).
+  // `tool_input` DOES reliably carry the task, so fall back to it.
   const toolResult = input.tool_result as Record<string, unknown> | undefined;
-  if (!toolResult) {
-    process.exit(0);
-  }
 
   // session_start returns { success, session: { sessionId, repoUrl, repoName, taskId }, ... }
-  const sessionData = toolResult.session as Record<string, unknown> | undefined;
-  const taskId = (sessionData?.taskId as string) || "";
+  const sessionData = toolResult?.session as Record<string, unknown> | undefined;
+  const params = (input.tool_input ?? {}) as Record<string, unknown>;
+  const taskIdFromParams =
+    typeof params.taskId === "string" && params.taskId
+      ? params.taskId
+      : typeof params.task === "string" && params.task
+        ? params.task
+        : "";
+  const taskId = (sessionData?.taskId as string) || taskIdFromParams;
   const sessionId = input.session_id;
 
   if (!taskId) {
+    // NAMED skip, not a bare exit (PR #2290 R1). A silent `process.exit(0)`
+    // here is precisely how this hook's mt#3182 regression stayed invisible
+    // for a day: it is indistinguishable from "ran fine, nothing to label."
+    process.stderr.write(
+      "[post-session-start] skipped: no task id in tool_result.session.taskId or tool_input.task/taskId — no label emitted\n"
+    );
     process.exit(0);
   }
 
@@ -85,7 +103,14 @@ async function main(): Promise<void> {
     const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`;
 
     const result = Bun.spawnSync([minskyPath, "tasks", "get", taskId, "--json"], {
-      env: { ...process.env, PATH: pathPrefix },
+      // Fail-fast Postgres connect (mt#2982) — same injection as execWithPath
+      // in types.ts; this spawn has no timeout, so a hanging DB would
+      // otherwise stall the hook to its host cap.
+      env: {
+        MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: "2",
+        ...process.env,
+        PATH: pathPrefix,
+      },
       stdout: "pipe",
       stderr: "pipe",
     });

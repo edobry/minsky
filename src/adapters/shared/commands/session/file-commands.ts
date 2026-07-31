@@ -4,33 +4,46 @@
  * Commands for file operations within session workspaces.
  * Provides CLI wrappers for session-aware MCP file tools.
  */
-import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { CommandCategory, type CommandDefinition, type InferParams } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import { readTextFile } from "@minsky/shared/fs";
+// Static, unlike the diff imports inside `runSessionEditFileOperation`: the
+// mt#1792 lazy-import pattern defers HEAVY modules (domain, persistence), and
+// `utils/diff` is a dependency-free pure-string module. `formatResult` runs
+// outside that lazy scope and needs these to render the location signal.
+import { describeChangedRange, type ChangedRange } from "../../../../utils/diff";
 
-interface SessionEditFileParams {
-  name?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  session?: string;
-  path?: string;
-  instruction?: string;
-  patternFile?: string;
-  dryRun?: boolean;
-  createDirs?: boolean;
-  fullReplace?: boolean;
-  debug?: boolean;
-}
+export type SessionEditFileParams = InferParams<typeof sessionEditFileCommandParams>;
 
-async function resolveSessionId(
+// Exported (mt#2742) for regression testing the sessionId-resolution fix.
+export async function resolveSessionId(
   deps: SessionCommandDependencies,
   params: SessionEditFileParams
 ): Promise<string> {
-  if (params.session) {
-    return params.session;
+  // mt#2742: honor the canonical `sessionId` param (the declared key). The
+  // undeclared `session` fallback was removed in mt#2779 — the MCP boundary
+  // rejects undeclared keys outright since mt#2778, so it could never arrive.
+  const explicit = params.sessionId;
+  if (explicit) {
+    return explicit;
+  }
+
+  // mt#2816: accept `task` as a convenience-resolution alias, matching
+  // session_start/session_exec semantics (single active session for the
+  // task -> resolve; ambiguity -> structured error naming the candidates).
+  if (params.task) {
+    const { resolveSessionIdForCommand } = await import(
+      "@minsky/domain/session/session-context-resolver"
+    );
+    const resolved = await resolveSessionIdForCommand({
+      task: params.task,
+      sessionProvider: deps.sessionProvider,
+    });
+    if (resolved) {
+      return resolved;
+    }
   }
 
   const currentSession = await deps.getCurrentSession(process.cwd());
@@ -115,9 +128,12 @@ async function runSessionEditFileOperation(args: {
   dryRun: boolean;
   createDirs: boolean;
   fullReplace: boolean;
+  allowShrink: boolean;
   sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
-  const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
+  const { generateUnifiedDiff, generateDiffSummary, computeChangedRange } = await import(
+    "../../../../utils/diff"
+  );
   const { createSuccessResponse } = await import("@minsky/domain/schemas");
   const { applySessionFileEditOperation } = await import(
     "@minsky/domain/session/session-file-edit-operation"
@@ -131,6 +147,7 @@ async function runSessionEditFileOperation(args: {
     dryRun: args.dryRun,
     createDirs: args.createDirs,
     fullReplace: args.fullReplace,
+    allowShrink: args.allowShrink,
     sessionProvider: args.sessionProvider,
   });
 
@@ -147,6 +164,7 @@ async function runSessionEditFileOperation(args: {
       proposedContent: result.finalContent,
       diff,
       diffSummary,
+      changedRange: computeChangedRange(result.originalContent, result.finalContent),
       edited: result.fileExisted,
       created: !result.fileExisted,
     });
@@ -154,12 +172,20 @@ async function runSessionEditFileOperation(args: {
 
   const bytesWritten = new TextEncoder().encode(result.finalContent).byteLength;
 
+  // mt#3071: the apply path reports WHERE the edit landed, not just that it
+  // happened — same envelope as the dry-run above, so verifying-then-applying
+  // does not mean reading two different formats. A marker apply can fail at its
+  // intended anchor and write its replacement at a different, structurally
+  // similar one; a byte count cannot distinguish that from a correct apply.
   return createSuccessResponse({
     timestamp: new Date().toISOString(),
     path: args.path,
     session: args.sessionId,
     resolvedPath: result.resolvedPath,
     bytesWritten,
+    diff: generateUnifiedDiff(result.originalContent, result.finalContent, args.path),
+    diffSummary: generateDiffSummary(result.originalContent, result.finalContent),
+    changedRange: computeChangedRange(result.originalContent, result.finalContent),
     edited: result.fileExisted,
     created: !result.fileExisted,
   });
@@ -200,6 +226,12 @@ function formatResult(
     return { success: true, ...mcpResult };
   }
 
+  // mt#3071 / PR #2238 R1: the non-JSON shapes below are hand-picked subsets of
+  // the envelope, so the location signal has to be added here explicitly — a
+  // CLI user is as much a caller as an MCP client, and dropping it would leave
+  // exactly the blind spot this task closes.
+  const changedRange = mcpResult.changedRange as ChangedRange | null | undefined;
+
   if (mcpResult.dryRun) {
     return {
       success: true,
@@ -208,32 +240,40 @@ function formatResult(
       session: mcpResult.session,
       diff: mcpResult.diff,
       diffSummary: mcpResult.diffSummary,
+      changedRange: changedRange ?? null,
       proposedContent: params.debug ? mcpResult.proposedContent : undefined,
       message: formatDryRunMessage(mcpResult),
     };
   }
+
+  const action = mcpResult.edited ? "edited" : "created";
 
   return {
     success: true,
     type: "edit-applied",
     path: mcpResult.path,
     session: mcpResult.session,
-    message: mcpResult.edited
-      ? `✅ Successfully edited ${mcpResult.path}`
-      : `✅ Successfully created ${mcpResult.path}`,
+    message: `✅ Successfully ${action} ${mcpResult.path} — ${describeChangedRange(
+      changedRange ?? null
+    )}`,
     bytesWritten: mcpResult.bytesWritten,
+    diff: mcpResult.diff,
+    diffSummary: mcpResult.diffSummary,
+    changedRange: changedRange ?? null,
   };
 }
 
-export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionEditFileCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionEditFileCommandParams> {
   return {
     id: "session.edit-file",
     category: CommandCategory.SESSION,
     name: "edit-file",
     description: "Edit a file within a session workspace using AI-powered pattern application",
     parameters: sessionEditFileCommandParams,
-    execute: withErrorLogging("session.edit-file", async (params: Record<string, unknown>) => {
-      const typedParams = params as SessionEditFileParams;
+    execute: withErrorLogging("session.edit-file", async (params: SessionEditFileParams) => {
+      const typedParams = params;
       try {
         const deps = await getDeps();
         const sessionId = await resolveSessionId(deps, typedParams);
@@ -247,6 +287,7 @@ export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandD
           dryRun: typedParams.dryRun || false,
           createDirs: typedParams.createDirs !== false,
           fullReplace: typedParams.fullReplace || false,
+          allowShrink: typedParams.allowShrink || false,
           sessionProvider: deps.sessionProvider,
         });
 

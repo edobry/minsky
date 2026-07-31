@@ -154,10 +154,33 @@ export interface ChangesetMetadata {
     htmlUrl: string;
     apiUrl: string;
     isDraft: boolean;
-    isMergeable: boolean;
+    /**
+     * Optional because the list response (`GET /pulls`) does not carry
+     * mergeability. Defaulting it to `false` there would report "not mergeable"
+     * for a PR whose mergeability is merely UNKNOWN — the same false-negative
+     * the diffstat fields below avoid. Absent means unknown; check explicitly.
+     */
+    isMergeable?: boolean;
+    /** "unknown" is an honest sentinel here, so this stays required. */
     mergeableState: string;
     headSha: string;
     baseSha: string;
+
+    /**
+     * Diffstat + merge metadata (mt#3096).
+     *
+     * OPTIONAL because these fields only exist on the single-PR response
+     * (`GET /pulls/{n}`), not on the list response (`GET /pulls`). A changeset
+     * built by `list()` legitimately leaves them undefined; consumers must
+     * treat absence as "unknown", never as zero.
+     */
+    additions?: number;
+    deletions?: number;
+    changedFiles?: number;
+    /** ISO-8601 merge timestamp; undefined when the PR is not merged. */
+    mergedAt?: string;
+    /** Login of the user who merged; undefined when not merged. */
+    mergedBy?: string;
   };
 
   /** GitLab-specific data */

@@ -8,7 +8,7 @@ Accepted (2026-06-03). Decision task: mt#2280. Migration epic: mt#2293.
 
 Minsky has **two coexisting compile systems** that don't share a code path:
 
-1. **Legacy `rules compile`** — command at `src/adapters/shared/commands/rules/compile-migrate-commands.ts`, implementation under `packages/domain/src/rules/compile/`. Targets: `agents.md`, `claude.md`, `cursor-rules`. Reads **flat `.minsky/rules/*.mdc`** files. Writes the **monolithic `CLAUDE.md` / `AGENTS.md`** plus `.cursor/rules/<name>.mdc`. Pre-commit staleness: `runRulesCompileCheck` in `src/hooks/pre-commit.ts`.
+1. **Legacy `rules compile`** — command at `src/adapters/shared/commands/rules/compile-migrate-commands.ts`, implementation under `packages/domain/src/rules/compile/`. Targets: `agents.md`, `claude.md`, `cursor-rules`, `claude-rules` (mt#2868, added 2026-07-15 — path-scoped `.claude/rules/<name>.md` delivery for Claude Code; unlike `cursor-rules`, which is carried forward by the phase-3 `.cursor/rules/` dedup work below, `claude-rules` is carried forward by phase 1 (mt#2992) alongside `agents.md`/`claude.md`, since all three are monolithic/multi-file rule-consuming targets ported together). Reads **flat `.minsky/rules/*.mdc`** files. Writes the **monolithic `CLAUDE.md` / `AGENTS.md`** plus `.cursor/rules/<name>.mdc` and `.claude/rules/<name>.md`. Pre-commit staleness: `runRulesCompileCheck` in `src/hooks/pre-commit.ts`.
 
 2. **New `compile`** — command at `src/adapters/shared/commands/compile/compile-commands.ts`, implementation under `packages/domain/src/compile/`. Targets: `claude-skills`, `claude-agents`, `cursor-rules-ts`. Reads **per-artifact definition sources** (`.minsky/skills/<name>/{skill.ts,SKILL.md}`, `.minsky/agents/<name>/agent.ts`, `.minsky/rules/<name>/rule.ts`). Writes `.claude/skills/`, `.claude/agents/`, `.cursor/rules/<name>.mdc`. Pre-commit staleness: `runCompileCheck` in `src/hooks/pre-commit.ts` (added in mt#2252).
 
@@ -41,6 +41,10 @@ This matches the established direction: mt#800's `.minsky/`-canonical authoring,
 - **Until the migration completes, both systems coexist** — both pre-commit checks run, and the `cursor-rules` / `cursor-rules-ts` dual-write continues (to distinct files). This ADR records the target end-state and direction; it does not change behavior on its own.
 - The `claude-agents` drift carried out of mt#2252 (excluded from the new staleness check; tracked by mt#1654) should be reconciled as part of, or before, phase 4.
 - Retiring the `rules compile` command is a **contract change** — phase 5 must enumerate consumers (CLAUDE.md `§Build & Test`, `docs/*`, any `scripts/` or `.github/` invocations) per the contract-propagation discipline.
+
+### Rule-source ambiguity policy (Phase 2, mt#2994)
+
+The new pipeline's rule reader (`packages/domain/src/compile/rule-sources.ts`) discovers two authoring forms under `.minsky/rules/`: a flat `<name>.mdc` file and a `<name>/rule.ts` module. When BOTH exist for the same rule name the source is **ambiguous** and is **skipped with a `log.warn`** (`[compile:cursor-rules-ts] skipping "<name>": ... ambiguous canonical source; keep exactly one format`) rather than silently preferring one format — mirroring the mt#2279 skills-reader policy for a directory that carries both a `skill.ts` and a `SKILL.md`. This is a (currently latent — 0 `rule.ts` sources exist yet) behavior change from the pre-mt#2994 `cursor-rules-ts` target, which was blind to flat `.mdc` files and would have emitted the TS side. The same warn-on-skip discipline covers a broken `rule.ts` import, a schema-invalid definition, and a `dirName`≠`rule.name` mismatch (mt#2182: never swallow a skipped source silently). The `cursor-rules-ts` target still EMITS only TS-sourced rules in Phase 2; emitting the flat-`.mdc` rules (and deduplicating against the legacy writer) is Phase 3 (mt#2995).
 
 ## References
 

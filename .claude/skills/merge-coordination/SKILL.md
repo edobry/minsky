@@ -4,8 +4,8 @@ name: merge-coordination
 description: >-
   Main-agent skill for coordinating the merge of a PR after the canonical
   `minsky-reviewer[bot]` review. Covers: gathering bot review status, running
-  the local smoke test, diagnosing reviewer-bot silence, and bypass-merging
-  bot-authored PRs.
+  the local smoke test, reading posted review prose before retriggering,
+  diagnosing reviewer-bot silence, and bypass-merging bot-authored PRs.
 user-invocable: true
 ---
 
@@ -18,6 +18,29 @@ Coordinate the merge of a PR after the `minsky-reviewer[bot]` posts its review.
 The argument is a task ID (e.g., `/merge-coordination mt#328`) or a GitHub PR URL. The bot reviews automatically; this skill is invoked when you need to check merge status, diagnose silence, or execute the bypass-merge path.
 
 ## Process
+
+### 0. Load the merge toolset bundle (mt#2822)
+
+Check first whether `/implement-task`'s Step 0b bundle already ran this conversation — its
+18-tool bundle already covers `tasks_spec_get`, `session_pr_wait-for-review`,
+`session_pr_checks`, `forge_check_runs_list`, `session_pr_get`, `session_pr_merge`, and
+`session_commit`. Re-requesting an already-loaded tool via `ToolSearch` is harmless (the
+harness dedupes), but the two call shapes below keep each entry point requesting only what it
+actually still needs, so this step's own baseline-count evidence isn't diluted by counting
+redundant re-selects as if they were new discovery:
+
+**Chain-walked from `/implement-task` this conversation** — only 2 tools are genuinely new:
+
+```
+ToolSearch(query: "select:mcp__minsky__session_pr_review_context,mcp__minsky__reviewer_retrigger", max_results: 10)
+```
+
+**Invoked standalone** (this skill entered directly, no prior `/implement-task` bundle this
+conversation) — load the full merge-coordination subset in one call:
+
+```
+ToolSearch(query: "select:mcp__minsky__session_pr_review_context,mcp__minsky__tasks_spec_get,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__forge_check_runs_list,mcp__minsky__session_pr_get,mcp__minsky__session_pr_merge,mcp__minsky__session_commit,mcp__minsky__reviewer_retrigger", max_results: 15)
+```
 
 ### 1. Gather context
 
@@ -82,8 +105,15 @@ After pushing a follow-up commit that addresses BLOCKING findings, `minsky-revie
 **Diagnosis steps:**
 
 1. Confirm the latest push reached GitHub: `mcp__minsky__session_pr_get` and check `head.sha` matches your local HEAD.
-2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks` (or `mcp__github__pull_request_read` with `method: "get_check_runs"` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309.
-3. Wait at most 5 minutes. Do not loop indefinitely.
+2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks` (or `mcp__github__pull_request_read` with `method: "get_check_runs"` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309. The CI-check-never-ran class (zero check_runs) is distinct from this section's reviewer-webhook-miss class and can co-occur on the same PR: work `docs/ci-check-never-ran-playbook.md` (mt#2800) for the CI piece, and continue this section's remaining steps below for the reviewer-silence piece.
+3. **Check the service is serving the RIGHT app — read the health BODY, not just the status code (mt#3154).** A 200 from the reviewer host does NOT mean the reviewer is running there. A Railway source-cutover can leave the service building a DIFFERENT app from the repo, which boots fine and answers `/health` with 200 — so a status-only check reports "healthy" for a service that cannot review anything. Discriminate on the body:
+   - reviewer (correct): `{"provider":"openai","model":"gpt-5","tier2Enabled":true}`
+   - wrong app (the Minsky MCP server): `{"server":"Minsky MCP Server"}`
+
+   If the body lacks the reviewer signature, **stop working this ladder** — this is not a webhook miss, and neither retriggering nor bypassing addresses it. It is a deploy/source problem: route to the `railway:use-railway` skill and memory `mem#700`, and recover by forcing a fresh deploy from the CURRENT source via a service-VARIABLE change (e.g. set then remove a throwaway variable).
+
+   **Do NOT reach for `railway redeploy`.** It replays the last build artifact — which on a source-cutover IS the wrong app — so it cheerfully re-deploys the same wrong image and reports success. Two exit-0 attempts that leave the served app unchanged is a wrong-OUTCOME 2-strikes trip: stop improvising and load the skill (see `error-investigation.mdc`).
+4. Wait at most 5 minutes. Do not loop indefinitely.
 
 **Unblock options** (in preference order):
 
@@ -92,6 +122,29 @@ After pushing a follow-up commit that addresses BLOCKING findings, `minsky-revie
 - **Track the instance** in the agent memory store (`mcp__minsky__memory_create`) so the calibration work has data points.
 
 The webhook-miss class is distinct from the same-App-identity APPROVE block above: same-App is a _structural_ gate (when `minsky-ai[bot]` is both author and reviewer, GitHub rejects the APPROVE — see step 8 event selection), webhook-miss is a _reliability_ gate against the cross-identity `minsky-reviewer[bot]` failing to fire. Recognize which one you're hitting before choosing a recovery path.
+
+### 7b. Read posted review prose before retriggering (mt#2829)
+
+**Before calling `mcp__minsky__reviewer_retrigger` for ANY reviewer-silence or defective-verdict situation** — including a CHANGES_REQUESTED or COMMENT review whose structured findings channel came back empty, or any verdict that looks wrong at a glance — read what the reviewer actually posted FIRST:
+
+```
+mcp__minsky__session_pr_get(task: "mt#X", reviews: true)
+```
+
+This returns every posted review on the PR — reviewer login, state, `submitted_at`, FULL body text, and per-review inline comments (path, line, body) — in submission order, across all rounds. Works for both bot and human reviews. Bodies are included (capped only if enormous, with the truncation stated explicitly via a `[TRUNCATED: ...]` marker and a `bodyTruncated` flag — never a silent cut); diffs are never included.
+
+**Why this is mandatory, not optional.** A defective-looking verdict — e.g. `CHANGES_REQUESTED` with zero structured findings — usually still carries real diagnostic prose in the review's raw body. The structured channel being empty does not mean the reviewer had nothing to say. Retriggering blind discards that prose permanently: the re-review may return a different verdict (e.g. `APPROVED`) and the original content becomes unrecoverable.
+
+**Originating incident (PR #1893, conversation `bdf8f782`):** after a defective `CHANGES_REQUESTED`-with-zero-findings verdict, the agent burned 3 ToolSearch queries plus `session_pr_get(content:true)` and `session_pr_review_context` attempts, found nothing that returns review text, and blind-retriggered via `reviewer_retrigger` — the re-review came back `APPROVED` and the original defective verdict's content was never seen or diagnosed. `session_pr_get(reviews: true)` is the in-band fix for that exact gap.
+
+**Only retrigger after reading the posted review**, and only when either:
+
+- the PR genuinely has zero reviews (an empty `reviews: true` result) — a legitimate webhook-miss or CI-not-fired situation; work the §7a ladder first, or
+- the posted review's prose is itself uninformative (a truly empty body AND no inline comments) — a genuine defective-verdict case worth retriggering.
+
+If the body has real diagnostic content, work from that content directly (fix the finding, or dispute it with evidence) rather than discarding it via retrigger.
+
+**Composes with §8's mt#2777 SC#2 precondition, not a duplicate of it.** §8's "direct reviews-list read before citing silence" answers *does a review exist on the current HEAD* (existence, gating a bypass). This step answers *what does an existing review actually say* (content, gating a retrigger). Both checks read from the same underlying reviews list but serve different actions — run the one relevant to what you're about to do (bypass vs. retrigger), and both if you're evaluating both paths.
 
 ### 8. Bot-authored PR merge
 
@@ -108,6 +161,17 @@ GitHub structurally blocks self-approval: a PR author cannot APPROVE their own P
 **Standard merge path:**
 
 Use `mcp__minsky__session_pr_merge`. This succeeds after reviewer-bot APPROVE or when the review body satisfies the merge-gate's text patterns.
+
+**Mandatory precondition: direct reviews-list read before citing silence (mt#2777 SC#2).** Before citing reviewer-silence as grounds for ANY `bypassReason` — even after the §7a diagnosis ladder or a `session_pr_wait-for-review` timeout — perform a DIRECT reviews-list read on the PR's current HEAD (`mcp__github__pull_request_read` method `get_reviews`, or a fresh short-`timeoutSeconds` `session_pr_wait-for-review` call) immediately before invoking the bypass. A wait-for-review timeout alone is NOT sufficient evidence of silence — mt#2751's near-bypass timed out twice while a real review had landed mid-churn. (mt#2777 SC#1 folds a fresh re-read into the timeout payload itself — `finalCheckPerformed` / `reviewerCheckRunState` — but the bypass-decision moment is a SEPARATE point in time from when the wait returned, so this direct read is required again, right before the bypass call, not inferred from an earlier timeout.) If the direct read finds a review on the current HEAD, the silence premise is false — refuse the bypass and process the found review instead.
+
+**Numbered step: verify the condition against its definition before invoking any bypass (mt#2777 SC#2).** Before calling either bypass path below, name which ONE of the four documented conditions is firing and verify it against its precise definition — do not invoke the bypass on a name-level match alone:
+
+1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
+2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
+3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above.
+4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing.
+
+If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
 
 **Preferred audited bypass — in-band `session_pr_merge` `forceBypass` (mt#2215):**
 
@@ -129,7 +193,7 @@ gh api -X PUT /repos/<owner>/<repo>/pulls/<N>/merge \
 
 The `merge_method=merge` flag is **required**. Minsky preserves merge commits per `docs/pr-workflow.md`. The `merge_method=squash` value is hook-blocked — using it will fail at the pre-merge hook.
 
-**Bypass conditions** (per `feedback_self_authored_pr_merge_constraints`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above.
+**Bypass conditions** (per `feedback_self_authored_pr_merge_constraints`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above. **Verify the fired condition against its precise definition** in the numbered step above before invoking either bypass path — a name-level match to "self-reversal," "CoT-leakage," or "silence" is not sufficient; the mt#2477 originating incident (PR #1688 add-then-revert churn) was reviewing genuinely different commit states across rounds, which fails the same-artifact-state check and is NOT self-reversal.
 
 **Audit trail requirement:** The commit message must document the bypass:
 
@@ -183,5 +247,6 @@ The `minsky-reviewer[bot]` fires automatically on every push to a PR branch. The
 - **Parallel watch saves wall time.** Always dispatch `session_pr_wait-for-review` and `session_pr_checks` in the same tool-call message.
 - **Smoke is the agent's local gate.** Run the smoke test yourself per §6.3; it is a local-agent action the bot cannot perform.
 - **Diagnose before bypassing.** The webhook-miss diagnosis in §7a is a structured ladder — run it before reaching for the bypass merge.
+- **Read before retriggering.** §7b: `session_pr_get(reviews: true)` is the mandatory diagnostic step before `reviewer_retrigger` — a defective-looking verdict usually still has real diagnostic prose in the body; retriggering blind discards it.
 - **Bot-authored PRs require the bypass path.** Self-approval is structurally blocked by GitHub; never attempt to APPROVE a PR from the same App identity that opened it.
 - **The docs/gate gap is structurally prevented.** The merge gate enforces the structured review fields (spec verification, adoption sweep, smoke, documentation impact) via tool-call provenance inspection; the agent's role is to drive the cycle, not to re-implement the checks.

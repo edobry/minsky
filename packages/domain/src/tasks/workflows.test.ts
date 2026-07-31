@@ -9,7 +9,25 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { WORKFLOWS, getWorkflow, isKnownKind, DEFAULT_KIND, type TaskKind } from "./workflows";
+import {
+  WORKFLOWS,
+  getWorkflow,
+  isKnownKind,
+  assertKnownKind,
+  DEFAULT_KIND,
+  isTerminal,
+  isActiveWork,
+  isAwaitingReview,
+  DEFAULT_HIDDEN_STATUSES,
+  isHiddenByDefaultStatus,
+  BIND_ADVANCE_SEAM_STATUS,
+  TERMINAL_TASK_STATUS_VALUES,
+  computeStatusWalkPath,
+  type TaskKind,
+  checkKindChangeStatusCompatibility,
+  describeKindChangeStatusConflict,
+} from "./workflows";
+import { ValidationError } from "../errors/index";
 
 describe("WORKFLOWS registry — internal consistency", () => {
   const kindNames = Object.keys(WORKFLOWS) as TaskKind[];
@@ -138,26 +156,23 @@ describe("umbrella workflow — specific state machine properties", () => {
   const workflow = WORKFLOWS["umbrella"];
 
   test("has the complete expected states", () => {
-    const expected = ["TODO", "PLANNING", "IN-PROGRESS", "COMPLETED", "CLOSED"];
+    const expected = ["TODO", "PLANNING", "IN-PROGRESS", "DONE", "CLOSED"];
     for (const state of expected) {
       expect(workflow.states).toContain(state);
     }
   });
 
-  test("does NOT have READY, IN-REVIEW, or DONE states", () => {
+  test("does NOT have READY, IN-REVIEW, or COMPLETED states", () => {
     expect(workflow.states).not.toContain("READY");
     expect(workflow.states).not.toContain("IN-REVIEW");
-    expect(workflow.states).not.toContain("DONE");
+    // COMPLETED removed by mt#2311 — single success terminal (DONE) across kinds.
+    expect(workflow.states).not.toContain("COMPLETED");
   });
 
-  test("terminal states are COMPLETED and CLOSED", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
+  test("terminal states are DONE and CLOSED (mt#2311)", () => {
+    expect(workflow.terminal).toContain("DONE");
     expect(workflow.terminal).toContain("CLOSED");
-  });
-
-  test("COMPLETED (not DONE) is the success terminal state", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
-    expect(workflow.terminal).not.toContain("DONE");
+    expect(workflow.terminal).not.toContain("COMPLETED");
   });
 
   test("GitHub Issues maps to issue type with epic label", () => {
@@ -178,7 +193,7 @@ describe("state-ops workflow — specific state machine properties", () => {
   const workflow = WORKFLOWS["state-ops"];
 
   test("has the complete expected state-ops states", () => {
-    const expected = ["TODO", "PLANNING", "READY", "IN-PROGRESS", "COMPLETED", "CLOSED"];
+    const expected = ["TODO", "PLANNING", "READY", "IN-PROGRESS", "DONE", "CLOSED"];
     for (const state of expected) {
       expect(workflow.states).toContain(state);
     }
@@ -188,28 +203,25 @@ describe("state-ops workflow — specific state machine properties", () => {
     expect(workflow.states).toContain("READY");
   });
 
-  test("does NOT have IN-REVIEW, DONE, or BLOCKED states", () => {
+  test("does NOT have IN-REVIEW, COMPLETED, or BLOCKED states", () => {
     expect(workflow.states).not.toContain("IN-REVIEW");
-    expect(workflow.states).not.toContain("DONE");
+    // COMPLETED removed by mt#2311 — single success terminal (DONE) across kinds.
+    expect(workflow.states).not.toContain("COMPLETED");
     expect(workflow.states).not.toContain("BLOCKED");
   });
 
-  test("terminal states are COMPLETED and CLOSED", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
+  test("terminal states are DONE and CLOSED (mt#2311)", () => {
+    expect(workflow.terminal).toContain("DONE");
     expect(workflow.terminal).toContain("CLOSED");
-  });
-
-  test("COMPLETED (not DONE) is the success terminal state", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
-    expect(workflow.terminal).not.toContain("DONE");
+    expect(workflow.terminal).not.toContain("COMPLETED");
   });
 
   test("READY → IN-PROGRESS is a legal direct transition (no session_start gate)", () => {
     expect(workflow.transitions["READY"]).toContain("IN-PROGRESS");
   });
 
-  test("IN-PROGRESS → COMPLETED is a legal transition", () => {
-    expect(workflow.transitions["IN-PROGRESS"]).toContain("COMPLETED");
+  test("IN-PROGRESS → DONE is a legal transition", () => {
+    expect(workflow.transitions["IN-PROGRESS"]).toContain("DONE");
   });
 
   test("GitHub Issues maps to issue type with state-ops label", () => {
@@ -286,5 +298,290 @@ describe("isKnownKind() helper", () => {
 describe("DEFAULT_KIND", () => {
   test("is 'implementation'", () => {
     expect(DEFAULT_KIND).toBe("implementation");
+  });
+});
+
+describe("assertKnownKind() helper (mt#2762)", () => {
+  test("is a no-op for undefined (no kind filter requested)", () => {
+    expect(() => assertKnownKind(undefined)).not.toThrow();
+  });
+
+  test("is a no-op for each known kind", () => {
+    expect(() => assertKnownKind("implementation")).not.toThrow();
+    expect(() => assertKnownKind("umbrella")).not.toThrow();
+    expect(() => assertKnownKind("state-ops")).not.toThrow();
+  });
+
+  test("throws a ValidationError for an unknown kind", () => {
+    expect(() => assertKnownKind("bogus")).toThrow(ValidationError);
+  });
+
+  test("ValidationError message names the unknown kind and all valid kinds", () => {
+    try {
+      assertKnownKind("bogus");
+      throw new Error("expected assertKnownKind to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      const message = (error as ValidationError).message;
+      expect(message).toContain('"bogus"');
+      expect(message).toContain("implementation");
+      expect(message).toContain("umbrella");
+      expect(message).toContain("state-ops");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3010 — semantic predicates + constants (single-authority consolidation)
+// ---------------------------------------------------------------------------
+
+describe("isTerminal() predicate", () => {
+  test("is true for DONE and CLOSED", () => {
+    expect(isTerminal("DONE")).toBe(true);
+    expect(isTerminal("CLOSED")).toBe(true);
+  });
+
+  test("is false for every non-terminal status", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isTerminal(status)).toBe(false);
+    }
+  });
+
+  test("is false for undefined and empty string", () => {
+    expect(isTerminal(undefined)).toBe(false);
+    expect(isTerminal("")).toBe(false);
+  });
+
+  test("is false for an unknown/orphaned status (e.g. the retired COMPLETED)", () => {
+    expect(isTerminal("COMPLETED")).toBe(false);
+  });
+});
+
+describe("isActiveWork() predicate", () => {
+  test("is true only for IN-PROGRESS", () => {
+    expect(isActiveWork("IN-PROGRESS")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-REVIEW", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]) {
+      expect(isActiveWork(status)).toBe(false);
+    }
+  });
+});
+
+describe("isAwaitingReview() predicate", () => {
+  test("is true only for IN-REVIEW", () => {
+    expect(isAwaitingReview("IN-REVIEW")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-PROGRESS", () => {
+    for (const status of [
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]) {
+      expect(isAwaitingReview(status)).toBe(false);
+    }
+  });
+});
+
+describe("DEFAULT_HIDDEN_STATUSES / isHiddenByDefaultStatus", () => {
+  test("DEFAULT_HIDDEN_STATUSES is exactly {DONE, CLOSED}", () => {
+    expect([...DEFAULT_HIDDEN_STATUSES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("isHiddenByDefaultStatus matches DEFAULT_HIDDEN_STATUSES membership", () => {
+    for (const status of DEFAULT_HIDDEN_STATUSES) {
+      expect(isHiddenByDefaultStatus(status)).toBe(true);
+    }
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isHiddenByDefaultStatus(status)).toBe(false);
+    }
+  });
+
+  test("isHiddenByDefaultStatus is false for undefined", () => {
+    expect(isHiddenByDefaultStatus(undefined)).toBe(false);
+  });
+});
+
+describe("BIND_ADVANCE_SEAM_STATUS", () => {
+  test("is READY", () => {
+    expect(BIND_ADVANCE_SEAM_STATUS).toBe("READY");
+  });
+
+  test("is a member of the implementation workflow's states", () => {
+    expect(WORKFLOWS.implementation.states).toContain(BIND_ADVANCE_SEAM_STATUS);
+  });
+});
+
+describe("TERMINAL_TASK_STATUS_VALUES", () => {
+  test("is exactly {DONE, CLOSED}, matching isTerminal's semantics", () => {
+    expect([...TERMINAL_TASK_STATUS_VALUES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("every value in the tuple is terminal per isTerminal()", () => {
+    for (const status of TERMINAL_TASK_STATUS_VALUES) {
+      expect(isTerminal(status)).toBe(true);
+    }
+  });
+
+  test("has no duplicate values across the registry's per-kind terminal arrays", () => {
+    expect(TERMINAL_TASK_STATUS_VALUES.length).toBe(new Set(TERMINAL_TASK_STATUS_VALUES).size);
+  });
+});
+
+describe("Workflow.restrictedTransitions (mt#3010 — data-driven session_start special cases)", () => {
+  test("implementation workflow reserves READY -> IN-PROGRESS for session_start", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "READY" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("session_start");
+  });
+
+  test("implementation workflow gives a READY-first hint for PLANNING -> IN-PROGRESS", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "PLANNING" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("READY");
+  });
+
+  test("umbrella and state-ops workflows declare no restrictedTransitions", () => {
+    expect(WORKFLOWS.umbrella.restrictedTransitions).toBeUndefined();
+    expect(WORKFLOWS["state-ops"].restrictedTransitions).toBeUndefined();
+  });
+});
+
+describe("computeStatusWalkPath() (mt#3010 — tasks.dispatch's registry-derived walk)", () => {
+  test("returns [] when already at the target", () => {
+    expect(computeStatusWalkPath("READY", "READY", "implementation")).toEqual([]);
+  });
+
+  test("TODO -> READY walks through PLANNING (implementation kind, default)", () => {
+    expect(computeStatusWalkPath("TODO", "READY")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("PLANNING -> READY is a single-step walk (implementation kind)", () => {
+    expect(computeStatusWalkPath("PLANNING", "READY", "implementation")).toEqual(["READY"]);
+  });
+
+  // The critical regression this function's design guards against: a naive
+  // graph-reachability search would find BLOCKED -> READY (a legal DIRECT
+  // transition in the implementation workflow, meant for OPERATOR recovery)
+  // and silently auto-walk a blocked task to READY. That must never happen —
+  // BLOCKED sits AFTER READY in the workflow's states list, so the prefix
+  // check refuses it.
+  test("does NOT auto-walk from BLOCKED, even though BLOCKED -> READY is a legal direct transition", () => {
+    expect(computeStatusWalkPath("BLOCKED", "READY", "implementation")).toBeNull();
+  });
+
+  // Same hazard, multi-hop: IN-REVIEW -> IN-PROGRESS -> PLANNING -> READY is a
+  // legal (if unusual) manual recovery path, but dispatch must never silently
+  // regress a task that's mid-review.
+  test("does NOT auto-walk from IN-REVIEW, even though a multi-hop path to READY exists", () => {
+    expect(computeStatusWalkPath("IN-REVIEW", "READY", "implementation")).toBeNull();
+  });
+
+  test("does NOT auto-walk from IN-PROGRESS, DONE, or CLOSED", () => {
+    expect(computeStatusWalkPath("IN-PROGRESS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("DONE", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("CLOSED", "READY", "implementation")).toBeNull();
+  });
+
+  test("returns null for a status unknown to the workflow", () => {
+    expect(computeStatusWalkPath("NOT-A-STATUS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("TODO", "NOT-A-STATUS", "implementation")).toBeNull();
+  });
+
+  test("state-ops kind: TODO -> READY walks through PLANNING", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "state-ops")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("umbrella kind: no READY state, so any walk targeting it is null", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "umbrella")).toBeNull();
+  });
+
+  test("unknown kind falls back to implementation semantics", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "some-unknown-kind")).toEqual([
+      "PLANNING",
+      "READY",
+    ]);
+  });
+});
+
+describe("checkKindChangeStatusCompatibility (mt#3137)", () => {
+  test("the reproduced case: implementation/READY → umbrella is a conflict", () => {
+    // mt#2237, live 2026-07-23: the re-kind reported success, and the next
+    // status transition answered "Valid transitions from READY: none".
+    const conflict = checkKindChangeStatusCompatibility("READY", "implementation", "umbrella");
+
+    expect(conflict).not.toBeNull();
+    expect(conflict?.status).toBe("READY");
+    expect(conflict?.fromKind).toBe("implementation");
+    expect(conflict?.toKind).toBe("umbrella");
+    // The legal set must be offered so the operator can pick a landing status.
+    expect(conflict?.legalStatuses).toContain("PLANNING");
+    expect(conflict?.legalStatuses).not.toContain("READY");
+  });
+
+  test("a status the target kind DOES recognize is not a conflict", () => {
+    expect(checkKindChangeStatusCompatibility("TODO", "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility("DONE", "implementation", "umbrella")).toBeNull();
+  });
+
+  test("umbrella's other exclusions are caught too, not just READY", () => {
+    expect(
+      checkKindChangeStatusCompatibility("IN-REVIEW", "implementation", "umbrella")
+    ).not.toBeNull();
+    expect(
+      checkKindChangeStatusCompatibility("BLOCKED", "implementation", "umbrella")
+    ).not.toBeNull();
+  });
+
+  test("state-ops excludes IN-REVIEW and BLOCKED but keeps READY", () => {
+    expect(
+      checkKindChangeStatusCompatibility("IN-REVIEW", "implementation", "state-ops")
+    ).not.toBeNull();
+    expect(checkKindChangeStatusCompatibility("READY", "implementation", "state-ops")).toBeNull();
+  });
+
+  test("implementation is a superset — nothing strands moving TO it", () => {
+    for (const status of [
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "IN-REVIEW",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]) {
+      expect(checkKindChangeStatusCompatibility(status, "umbrella", "implementation")).toBeNull();
+    }
+  });
+
+  test("an absent status cannot conflict — there is nothing to strand", () => {
+    expect(checkKindChangeStatusCompatibility(undefined, "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility(null, "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility("", "implementation", "umbrella")).toBeNull();
+  });
+
+  test("an absent fromKind is reported as the system default, not blank", () => {
+    const conflict = checkKindChangeStatusCompatibility("READY", undefined, "umbrella");
+    expect(conflict?.fromKind).toBe("implementation");
+  });
+
+  test("the message names the conflict, the consequence, and the legal statuses", () => {
+    const conflict = checkKindChangeStatusCompatibility("READY", "implementation", "umbrella");
+    if (!conflict) throw new Error("expected a conflict for implementation/READY → umbrella");
+    const message = describeKindChangeStatusConflict(conflict);
+
+    expect(message).toContain("READY");
+    expect(message).toContain("umbrella");
+    expect(message).toContain("no valid transitions");
+    expect(message).toContain("PLANNING");
   });
 });

@@ -157,7 +157,10 @@ export function registerTranscriptSpawnsExtractCommand(
           `linkedFromMetadata=${pipelineResult.childLinkedFromMetadata}, ` +
           `linkedFromHeuristic=${pipelineResult.childLinkedFromHeuristic}, ` +
           `unresolved=${pipelineResult.childUnresolved}, ` +
-          `errored=${pipelineResult.spawnsErrored}`;
+          `errored=${pipelineResult.spawnsErrored}, ` +
+          `spawnLinksWritten=${pipelineResult.spawnLinksWritten}, ` +
+          `spawnLinksSkippedNoPromptMatch=${pipelineResult.spawnLinksSkippedNoPromptMatch}, ` +
+          `spawnLinksErrored=${pipelineResult.spawnLinksErrored}`;
 
         return { pipeline: pipelineResult, message };
       }

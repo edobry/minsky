@@ -7,6 +7,7 @@
 import { z } from "zod";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { isTerminal } from "@minsky/domain/tasks/workflows";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 
@@ -97,7 +98,7 @@ export function createTasksOrchestrateCommand(
         for (const depId of deps) {
           try {
             const depTask = await taskService.getTask(depId);
-            if (depTask && depTask.status !== "DONE" && depTask.status !== "CLOSED") {
+            if (depTask && !isTerminal(depTask.status)) {
               blockedBy.push(depId);
             }
           } catch {

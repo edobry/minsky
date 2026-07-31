@@ -1,22 +1,29 @@
 #!/usr/bin/env bun
 /**
- * Smoke test for the projects-scoping migration (mt#2415, Phase 1.2 of mt#2391).
+ * Smoke test for the projects-scoping migration (mt#2415, Phase 1.2 of mt#2391)
+ * and its agent_transcripts follow-up backfill (mt#2417, Phase 1.4).
  *
  * Verifies BOTH paths the migration travels:
  *
  *  A. Fresh-DB SCHEMA path (bootstrap): a brand-new empty Postgres bootstraps
  *     the full-schema snapshot, yielding the `projects` table and a nullable
- *     uuid `project_id` column on tasks/sessions/asks. NOTE: on a fresh DB the
- *     bootstrap stamps the ledger through the latest journal entry, so the
- *     0047 DATA backfill is (correctly) NOT run — a brand-new project is not
- *     "Minsky" and gets no Minsky project row. So this path verifies SCHEMA only.
+ *     uuid `project_id` column on tasks/sessions/asks/agent_transcripts.
+ *     NOTE: on a fresh DB the bootstrap stamps the ledger through the latest
+ *     journal entry, so the 0047 / 0062 DATA backfills are (correctly) NOT
+ *     run — a brand-new project is not "Minsky" and gets no Minsky project
+ *     row. So this path verifies SCHEMA only.
  *
  *  B. Incremental DATA path (the prod scenario): applying 0047 to a populated
  *     DB creates the Minsky project row (idempotently) and backfills existing
- *     rows' project_id. This is what prod does (ledger at 0045 → migrator
- *     applies 0046 + 0047). Nothing else exercises 0047, so we apply it
- *     directly here against seeded rows and assert INSERT-idempotency + the
- *     UPDATE backfill.
+ *     tasks/sessions/asks rows' project_id. This is what prod does (ledger at
+ *     0045 → migrator applies 0046 + 0047). Nothing else exercises 0047, so we
+ *     apply it directly here against seeded rows and assert INSERT-idempotency
+ *     + the UPDATE backfill. Migration 0062 (mt#2417) repeats the same shape
+ *     for agent_transcripts: a pre-existing (pre-0061) transcript row has
+ *     project_id = NULL after the schema migration adds the column; without
+ *     the backfill it would silently vanish from a default-scoped
+ *     (Minsky-project) read. Step 3b below proves the backfilled row IS
+ *     visible under that default scope.
  *
  * HARD PROD-SAFETY: this script NEVER connects to production. It connects only
  * to the throwaway Postgres explicitly provided via DATABASE_URL /
@@ -29,8 +36,11 @@
  * Exit codes: 0 = passed (or skipped due to missing env); 1 = failed.
  *
  * @see mt#2415 — Phase 1.2 tracking task
+ * @see mt#2417 — Phase 1.4 tracking task (agent_transcripts backfill)
  * @see packages/domain/src/storage/migrations/pg/0046_glossy_ultragirl.sql
  * @see packages/domain/src/storage/migrations/pg/0047_backfill_project_id_minsky.sql
+ * @see packages/domain/src/storage/migrations/pg/0061_redundant_blue_blade.sql
+ * @see packages/domain/src/storage/migrations/pg/0062_backfill_agent_transcripts_project_id.sql
  */
 
 import { spawnSync } from "child_process";
@@ -48,6 +58,10 @@ const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
 const BACKFILL_SQL = join(
   repoRoot,
   "packages/domain/src/storage/migrations/pg/0047_backfill_project_id_minsky.sql"
+);
+const BACKFILL_SQL_TRANSCRIPTS = join(
+  repoRoot,
+  "packages/domain/src/storage/migrations/pg/0062_backfill_agent_transcripts_project_id.sql"
 );
 
 function psql(sql: string): { ok: boolean; stdout: string; stderr: string } {
@@ -124,7 +138,7 @@ if (!failed) {
     t.stderr || `count=${t.stdout}`
   );
 
-  for (const table of ["tasks", "sessions", "asks"]) {
+  for (const table of ["tasks", "sessions", "asks", "agent_transcripts"]) {
     const c = psql(
       `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_name='${table}' AND column_name='project_id' AND table_schema='public';`
     );
@@ -238,6 +252,52 @@ if (!failed) {
     askOrphans.ok && parseInt(askOrphans.stdout, 10) === 0,
     `orphan count=${askOrphans.stdout}`
   );
+
+  // 3e: agent_transcripts backfill (mt#2417) — seed a PRE-migration-shaped row
+  // (project_id NULL, as every row ingested before 0061 would be), apply 0062,
+  // and prove it is now visible under the default Minsky-project scope — the
+  // exact gap a missing backfill would leave (BLOCKING finding, PR #2065 R1).
+  const seedTranscript = psql(
+    `INSERT INTO agent_transcripts (agent_session_id, harness)
+     VALUES ('smoke-transcript-backfill', 'claude_code')
+     ON CONFLICT (agent_session_id) DO NOTHING;`
+  );
+  assert("seed agent_transcripts row inserted", seedTranscript.ok, seedTranscript.stderr);
+
+  const preBackfillNull = psql(
+    "SELECT COUNT(*) FROM agent_transcripts WHERE agent_session_id='smoke-transcript-backfill' AND project_id IS NULL;"
+  );
+  assert(
+    "seeded transcript starts with project_id NULL (pre-migration shape)",
+    preBackfillNull.ok && parseInt(preBackfillNull.stdout, 10) === 1,
+    `count=${preBackfillNull.stdout}`
+  );
+
+  const c1 = psqlFile(BACKFILL_SQL_TRANSCRIPTS);
+  assert("0062 applies cleanly", c1.ok, c1.out.slice(0, 400));
+  const c2 = psqlFile(BACKFILL_SQL_TRANSCRIPTS); // idempotent re-apply
+  assert("0062 re-applies idempotently (no error)", c2.ok, c2.out.slice(0, 400));
+
+  // The proof the reviewer asked for: a default-scoped read (JOIN to the
+  // Minsky project row, the same predicate resolveTranscriptProjectScope's
+  // resolved projectId produces) now finds the pre-migration transcript.
+  const visibleUnderDefaultScope = psql(
+    `SELECT COUNT(*) FROM agent_transcripts t JOIN projects p ON t.project_id = p.id
+     WHERE t.agent_session_id='smoke-transcript-backfill' AND p.slug='edobry/minsky';`
+  );
+  assert(
+    "pre-migration (NULL) transcript is visible under the default Minsky-project scope after backfill",
+    visibleUnderDefaultScope.ok && parseInt(visibleUnderDefaultScope.stdout, 10) === 1,
+    `count=${visibleUnderDefaultScope.stdout}`
+  );
+  const transcriptOrphans = psql(
+    "SELECT COUNT(*) FROM agent_transcripts WHERE project_id IS NULL;"
+  );
+  assert(
+    "zero NULL project_id rows in agent_transcripts after backfill",
+    transcriptOrphans.ok && parseInt(transcriptOrphans.stdout, 10) === 0,
+    `orphan count=${transcriptOrphans.stdout}`
+  );
 }
 
 // ── step 4: FK constraint existence ─────────────────────────────────────────
@@ -245,7 +305,7 @@ if (!failed) {
 // tasks, sessions, and asks (added in migration 0048, mt#2415 R1).
 if (!failed) {
   console.log("\n--- Step 4: FK constraint existence (project_id → projects.id) ---");
-  for (const table of ["tasks", "sessions", "asks"]) {
+  for (const table of ["tasks", "sessions", "asks", "agent_transcripts"]) {
     const fk = psql(
       `SELECT COUNT(*)
        FROM information_schema.table_constraints tc

@@ -11,7 +11,14 @@
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
+import { CopyId } from "../components/CopyId";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
+import { formatRequestor } from "../lib/entity-labels";
+import { Link } from "react-router-dom";
+import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -48,6 +55,37 @@ export interface ContextRef {
   description?: string;
 }
 
+/** Ask contextRef kinds that resolve to an in-SPA entity detail route (mt#2942). */
+const ROUTABLE_CONTEXT_KINDS = new Set<RoutableEntityType>([
+  "task",
+  "ask",
+  "session",
+  "memory",
+  "changeset",
+  "conversation",
+]);
+
+/**
+ * Resolve an Ask contextRef to a clickable destination (mt#2942). Entity refs
+ * route to their in-SPA detail page; a `notion` ref opens the Notion doc in the
+ * operator's browser (the tray's external-link handler routes it there).
+ * Everything else (e.g. `file`) has no reliable target and stays plain text.
+ */
+function contextRefHref(kind: string, ref: string): { href: string; external: boolean } | null {
+  if (kind === "notion") {
+    // Accept a pasted full Notion URL as-is; otherwise treat the ref as a page
+    // id (32-hex, optionally dashed) and build the canonical www.notion.so URL.
+    if (/^https?:\/\//i.test(ref)) return { href: ref, external: true };
+    const id = ref.replace(/-/g, "");
+    if (!/^[0-9a-fA-F]{32}$/.test(id)) return null;
+    return { href: `https://www.notion.so/${id}`, external: true };
+  }
+  if (ROUTABLE_CONTEXT_KINDS.has(kind as RoutableEntityType)) {
+    return { href: entityToPath(kind as RoutableEntityType, ref), external: false };
+  }
+  return null;
+}
+
 /** Recorded response on a terminal ask (mt#2669). */
 export interface AskResponse {
   responder: string;
@@ -56,6 +94,8 @@ export interface AskResponse {
 
 export interface AskItem {
   id: string;
+  /** ask#N short id (mt#2965) — absent for legacy asks pre-backfill. */
+  shortId?: string;
   kind: AskKind;
   state: AskState;
   title: string;
@@ -113,6 +153,45 @@ export async function fetchAskById(id: string): Promise<AskItem> {
   if (!res.ok) throw new Error(`Failed to fetch ask (${res.status})`);
   const body = (await res.json()) as { ask: AskItem };
   return body.ask;
+}
+
+/**
+ * Compose the operator resolve payload for an option letter (mt#2882 R3 —
+ * ONE definition shared by AskPage and the AsksPage inline actions so the
+ * two surfaces cannot drift): explicit options map letter → option value;
+ * optionless asks map A → approved. `resolvedIn` names the invoking surface.
+ */
+export function composeResolvePayload(
+  ask: Pick<AskItem, "options">,
+  optionLetter: string,
+  resolvedIn: string
+): unknown {
+  const letterIndex = optionLetter.charCodeAt(0) - "A".charCodeAt(0);
+  let payloadValue: unknown;
+  if (ask.options && ask.options.length > 0) {
+    const option = ask.options[letterIndex];
+    // mt#3181: fall back to `label` when `value` is absent. This surface wrote
+    // the empty selection observed on ask#5769 — `option?.value ?? ""` yields
+    // "" for an option stored without a value, so the Ask closed as answered
+    // with no record of WHICH option the operator picked. `askOptionSchema`
+    // now normalizes this at create time; the fallback covers Asks created
+    // before that fix, which are still in the store.
+    // Strict `=== undefined` check (not `??`): `??` also treats an explicitly
+    // provided `null` as nullish, which would silently discard a legitimate
+    // falsy-but-present machine value (PR #2266 R1 BLOCKING #2). `option`
+    // itself can be `undefined` when `optionLetter` is out of range — that
+    // case still falls back to `""`.
+    const optionValue =
+      option === undefined ? "" : option.value === undefined ? option.label : option.value;
+    payloadValue = { option: String(optionValue), chosen: String(optionValue) };
+  } else {
+    payloadValue = { approved: optionLetter === "A" };
+  }
+  return {
+    responder: "operator",
+    payload: payloadValue,
+    attentionCost: { transport: "inbox", resolvedIn },
+  };
 }
 
 export async function resolveAsk(id: string, payload: unknown): Promise<void> {
@@ -190,17 +269,27 @@ export interface KindStyle {
   priority: string;
 }
 
+/**
+ * Per-kind badge colors (mt#2917 register pass). Per docs/design-system.md
+ * §5.1's red-scarcity rule, a priority badge is classification, not an
+ * active alarm — never red, regardless of priority tier. This was the exact
+ * mt#2914 audit finding: authorization.approve (P2) rendering bg-destructive
+ * at volume across the ask console. P1/P2 now differentiate by amber
+ * weight; red stays reserved for genuine escalation (an overdue deadline,
+ * a missed-window count — see the isOverdue / windowMissedCount treatments
+ * elsewhere in this file, both unchanged).
+ */
 export function kindStyle(kind: AskKind): KindStyle {
   switch (kind) {
     case "stuck.unblock":
       return {
-        badge: "bg-destructive text-destructive-foreground",
+        badge: "bg-warn-amber text-background font-semibold",
         label: "stuck.unblock",
         priority: "P1",
       };
     case "authorization.approve":
       return {
-        badge: "bg-destructive/60 text-foreground",
+        badge: "bg-warn-amber/40 text-foreground",
         label: "authorization.approve",
         priority: "P2",
       };
@@ -318,8 +407,22 @@ export function AskDetail({
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
           <div>
+            <span className="font-medium">Id:</span>{" "}
+            <CopyId type="ask" id={ask.id} displayId={ask.shortId} />
+          </div>
+          <div>
             <span className="font-medium">From:</span>{" "}
-            <span className="font-mono">{ask.requestor}</span>
+            {(() => {
+              // Derived requestor label (mt#2883): ascribed unknown:hash
+              // actors render as "unattributed agent" (raw id on hover);
+              // declared identities keep the monospace treatment.
+              const display = formatRequestor(ask.requestor, ask.parentTaskId ?? null);
+              return (
+                <span className={display.isAscribed ? "italic" : "font-mono"} title={display.raw}>
+                  {display.label}
+                </span>
+              );
+            })()}
           </div>
           <div>
             <span className="font-medium">Age:</span> <span>{formatRelative(ask.createdAt)}</span>
@@ -327,7 +430,7 @@ export function AskDetail({
           {ask.parentTaskId && (
             <div>
               <span className="font-medium">Task:</span>{" "}
-              <span className="font-mono">{ask.parentTaskId}</span>
+              <EntityRef type="task" id={ask.parentTaskId} />
             </div>
           )}
           {ask.windowKey && (
@@ -345,15 +448,41 @@ export function AskDetail({
         {ask.contextRefs && ask.contextRefs.length > 0 && (
           <div className="space-y-1">
             <p className="text-xs font-medium text-muted-foreground">Context:</p>
-            {ask.contextRefs.map((ref, i) => (
-              <div key={i} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
-                <span className="font-medium">{ref.kind}:</span>{" "}
-                <span className="font-mono">{ref.ref}</span>
-                {ref.description && (
-                  <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
-                )}
-              </div>
-            ))}
+            {ask.contextRefs.map((ref, i) => {
+              const link = contextRefHref(ref.kind, ref.ref);
+              return (
+                <div
+                  key={i}
+                  className="text-xs text-muted-foreground pl-2 border-l-2 border-border"
+                >
+                  <span className="font-medium">{ref.kind}:</span>{" "}
+                  {link ? (
+                    link.external ? (
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="font-mono text-primary underline-offset-2 hover:underline"
+                      >
+                        {ref.ref}
+                      </a>
+                    ) : (
+                      <Link
+                        to={link.href}
+                        className="font-mono text-primary underline-offset-2 hover:underline"
+                      >
+                        {ref.ref}
+                      </Link>
+                    )
+                  ) : (
+                    <span className="font-mono">{ref.ref}</span>
+                  )}
+                  {ref.description && (
+                    <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -370,12 +499,19 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
-                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
-                        <span className="text-foreground font-medium">{opt.label}</span>
+                        <span className="text-foreground font-medium">
+                          {/* The letter is rendered above by this surface, so a
+                              producer-supplied "B — " / "[b] " prefix would
+                              double it (mt#3253). */}
+                          <LinkifiedText
+                            text={stripOptionLetterPrefix(opt.label)}
+                            index={entityIndex}
+                          />
+                        </span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
                             {" "}
-                            — {opt.description}
+                            — <LinkifiedText text={opt.description} index={entityIndex} />
                           </span>
                         )}
                       </div>
@@ -399,7 +535,8 @@ export function AskDetail({
             <div className="flex flex-wrap gap-2 pt-2">
               {Array.from({ length: optionCount }, (_, i) => {
                 const letter = letters[i] ?? "?";
-                const optLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const optLabel = stripOptionLetterPrefix(rawLabel);
                 return (
                   <Button
                     key={letter}

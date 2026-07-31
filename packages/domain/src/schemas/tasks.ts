@@ -37,7 +37,7 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .describe("Filter tasks by status (e.g. TODO, IN-PROGRESS, DONE)"),
   filter: z.string().optional().describe("Filter tasks by status or other criteria"),
   limit: z.number().optional().describe("Limit the number of tasks returned"),
-  all: flagSchema("Include completed tasks"),
+  all: flagSchema("Include terminal (DONE/CLOSED) tasks"),
   backend: z
     .string()
     .optional()
@@ -51,6 +51,16 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .boolean()
     .optional()
     .describe("Return tasks from all projects (disable project-scope filtering)"),
+  /**
+   * Filter by workflow kind (mt#1812 / mt#2762). Validated against the workflow
+   * registry (assertKnownKind) in listTasksFromParams, not by this schema, so an
+   * unknown kind surfaces as a ValidationError naming the valid kinds rather than
+   * a generic Zod enum error.
+   */
+  kind: z
+    .string()
+    .optional()
+    .describe("Filter tasks by workflow kind (e.g. implementation, umbrella, state-ops)"),
 });
 
 /**
@@ -145,6 +155,13 @@ export const taskCreateParamsSchema = z
       .array(z.string())
       .optional()
       .describe("Tags/labels for thematic batching (e.g., ['di-cleanup', 'test-quality'])"),
+    kind: z
+      .string()
+      .optional()
+      .describe(
+        "Workflow kind (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'. " +
+          "Validated against the workflow registry; invalid values rejected at create time."
+      ),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine(
@@ -186,6 +203,13 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
       .optional()
       .describe(
         "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
+      ),
+    tags: z.array(z.string()).optional().describe("Tags/labels for thematic batching"),
+    kind: z
+      .string()
+      .optional()
+      .describe(
+        "Workflow kind (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'."
       ),
   })
   .extend(commonCommandOptionsSchema.shape)

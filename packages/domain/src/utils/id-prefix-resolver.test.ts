@@ -1,0 +1,651 @@
+/**
+ * Tests for the shared uuid-prefix-resolution helper (mt#2696).
+ *
+ * Covers:
+ *  - classifyIdInput: full-UUID passthrough, invalid (empty/short/non-hex), prefix
+ *  - resolveCandidates: unique hit, ambiguous, no match
+ *  - idPrefixResolutionError: message shaping for each non-resolved kind
+ *  - resolveIdPrefix (DB-backed): end-to-end against a minimal fake db,
+ *    including the "malformed input never reaches a raw uuid cast" guarantee
+ */
+
+import { describe, it, expect } from "bun:test";
+import {
+  classifyIdInput,
+  resolveCandidates,
+  resolveIdPrefix,
+  resolveIdPrefixOrThrow,
+  idPrefixResolutionError,
+  classifyEntityIdInput,
+  resolveEntityIdPrefix,
+  resolveEntityIdPrefixOrThrow,
+  type IdPrefixResolverDb,
+  type PrefixCandidate,
+} from "./id-prefix-resolver";
+
+const FULL_UUID = "d8591800-823b-410b-a5cc-209fb0b7eb6d";
+const OTHER_UUID = "ffffffff-1111-2222-3333-444444444444";
+const SIBLING_UUID_A = "d8591800-0000-0000-0000-000000000001";
+const SIBLING_UUID_B = "d8591800-0000-0000-0000-000000000002";
+const FULL_UUID_LABEL = "wave-orchestration";
+
+describe("classifyIdInput", () => {
+  it("passes a full, well-formed UUID through without a DB round-trip", () => {
+    const result = classifyIdInput(FULL_UUID);
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+  });
+
+  it("is case-insensitive on full UUIDs and normalizes to lowercase", () => {
+    const result = classifyIdInput(FULL_UUID.toUpperCase());
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+  });
+
+  it("rejects empty input as invalid", () => {
+    const result = classifyIdInput("");
+    expect(result.kind).toBe("invalid");
+  });
+
+  it("rejects input shorter than the minimum prefix length as invalid", () => {
+    const result = classifyIdInput("d859");
+    expect(result.kind).toBe("invalid");
+    if (result.kind === "invalid") {
+      expect(result.reason).toContain("at least 8 characters");
+    }
+  });
+
+  it("rejects non-hex input as invalid (never reaches a query)", () => {
+    const result = classifyIdInput("not-a-uuid-but-36-characters-long!!");
+    expect(result.kind).toBe("invalid");
+  });
+
+  it("classifies an unambiguous-length hex fragment as a prefix candidate", () => {
+    const result = classifyIdInput("d8591800");
+    expect(result).toEqual({ kind: "prefix", normalized: "d8591800" });
+  });
+
+  it("normalizes a mixed-case prefix to lowercase", () => {
+    const result = classifyIdInput("D8591800");
+    expect(result).toEqual({ kind: "prefix", normalized: "d8591800" });
+  });
+
+  it("accepts a partial-UUID-with-dashes prefix (longer than 8 chars, non-canonical shape)", () => {
+    const result = classifyIdInput("d8591800-823b");
+    expect(result).toEqual({ kind: "prefix", normalized: "d8591800-823b" });
+  });
+});
+
+describe("resolveCandidates", () => {
+  it("resolves a unique-prefix hit", () => {
+    const candidates: PrefixCandidate[] = [{ id: FULL_UUID, label: FULL_UUID_LABEL }];
+    const result = resolveCandidates(candidates, "d8591800");
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+  });
+
+  it("returns not_found for zero candidates", () => {
+    const result = resolveCandidates([], "ffffffff");
+    expect(result).toEqual({ kind: "not_found", input: "ffffffff" });
+  });
+
+  it("returns ambiguous for two or more candidates, listing them and reporting the true total", () => {
+    const candidates: PrefixCandidate[] = [
+      { id: SIBLING_UUID_A, label: "memory-a" },
+      { id: SIBLING_UUID_B, label: "memory-b" },
+    ];
+    const result = resolveCandidates(candidates, "d8591800");
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates).toHaveLength(2);
+      expect(result.candidates.map((c) => c.id)).toEqual(candidates.map((c) => c.id));
+      expect(result.totalCount).toBe(2);
+    }
+  });
+
+  it("caps shown candidates at MAX_AMBIGUOUS_CANDIDATES but reports the true total", () => {
+    const manyCandidates: PrefixCandidate[] = Array.from({ length: 23 }, (_, i) => ({
+      id: `ab000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+      label: `memory-${i}`,
+    }));
+    const result = resolveCandidates(manyCandidates, "ab");
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates).toHaveLength(10);
+      expect(result.totalCount).toBe(23);
+    }
+  });
+});
+
+describe("idPrefixResolutionError", () => {
+  it("names the prefix in a not_found error, with no Postgres error text", () => {
+    const err = idPrefixResolutionError("memory", { kind: "not_found", input: "ffffffff" });
+    expect(err.message).toContain("ffffffff");
+    expect(err.message).toContain("Memory not found");
+    expect(err.message).not.toMatch(/invalid input syntax/i);
+  });
+
+  it("lists all candidates (id + label) in an ambiguous error", () => {
+    const err = idPrefixResolutionError("memory", {
+      kind: "ambiguous",
+      input: "d8591800",
+      candidates: [
+        { id: SIBLING_UUID_A, label: "memory-a" },
+        { id: SIBLING_UUID_B, label: "memory-b" },
+      ],
+      totalCount: 2,
+    });
+    expect(err.message).toContain(SIBLING_UUID_A);
+    expect(err.message).toContain("memory-a");
+    expect(err.message).toContain(SIBLING_UUID_B);
+    expect(err.message).toContain("memory-b");
+    expect(err.message).toContain("matches 2 record(s)");
+  });
+
+  it("reports the TRUE total match count, not the truncated shown-candidate count", () => {
+    const err = idPrefixResolutionError("memory", {
+      kind: "ambiguous",
+      input: "ab",
+      candidates: [
+        { id: SIBLING_UUID_A, label: "memory-a" },
+        { id: SIBLING_UUID_B, label: "memory-b" },
+      ],
+      // 23 rows matched the prefix query; only the first 2 are shown here.
+      totalCount: 23,
+    });
+    expect(err.message).toContain("23");
+    expect(err.message).toContain("showing first 2");
+    expect(err.message).not.toContain("matches 2 record(s)");
+  });
+
+  it("surfaces the invalid reason verbatim", () => {
+    const err = idPrefixResolutionError("ask", {
+      kind: "invalid",
+      input: "!!!",
+      reason: "id prefix must be hexadecimal",
+    });
+    expect(err.message).toContain("id prefix must be hexadecimal");
+  });
+
+  it("throws a descriptive programmer-error message when called with an already-resolved result", () => {
+    expect(() => idPrefixResolutionError("memory", { kind: "resolved", id: FULL_UUID })).toThrow(
+      /already-resolved/i
+    );
+    expect(() => idPrefixResolutionError("memory", { kind: "resolved", id: FULL_UUID })).toThrow(
+      new RegExp(FULL_UUID)
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveIdPrefix — DB-backed, via a minimal fake
+// ---------------------------------------------------------------------------
+
+interface FakeRow {
+  id: string;
+  /** Mirrors the `{ id, label }` shape Drizzle returns from `select({id, label})`. */
+  label: string;
+}
+
+/**
+ * Minimal fake satisfying `IdPrefixResolverDb`. Doesn't parse the Drizzle SQL
+ * condition — instead simulates the `<col>::text LIKE '<prefix>%'` semantics
+ * directly against the seeded rows by prefix-matching on `id`. Rows are
+ * pre-shaped as `{ id, label }` — the same shape the resolver's
+ * `select({ id: idColumn, label: labelColumn })` produces from a real
+ * Drizzle client. This keeps the test focused on resolveIdPrefix's branching
+ * (resolved / not_found / ambiguous / invalid) rather than re-deriving
+ * SQL-string parsing.
+ */
+function createFakeDb(rows: FakeRow[]): IdPrefixResolverDb & { queries: string[] } {
+  const queries: string[] = [];
+  return {
+    queries,
+    select(_fields?: unknown) {
+      return {
+        from(_table: unknown) {
+          return {
+            // The resolver always calls `.where(sql`...LIKE ${pattern}`)`.
+            // We can't easily parse the Drizzle SQL chunk here without a
+            // pg dialect renderer, so instead we record that a query fired
+            // and derive the intended prefix from the row set the resolver
+            // is expected to look up (bound via closure below through the
+            // `input` seeded in each `it()` — see `where` shim below).
+            where(_cond: unknown) {
+              queries.push("query-fired");
+              // The fake doesn't introspect `_cond`; each test constructs a
+              // fresh fake pre-filtered to the rows the LIKE clause would
+              // have matched, so `where()` here is a passthrough.
+              return Promise.resolve(rows);
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+// Mimic a minimal Drizzle "column" reference — resolveIdPrefix only needs
+// something to interpolate into the `sql` tagged template and to read
+// `.label`/`.id` keys off in the returned rows, so a plain marker object
+// suffices as the fake table/column shape.
+const fakeTable = {} as Record<string, unknown>;
+const fakeIdColumn = { name: "id" } as Record<string, unknown>;
+const fakeLabelColumn = { name: "name" } as Record<string, unknown>;
+
+describe("resolveIdPrefix (DB-backed)", () => {
+  it("passes a full UUID through with no DB query", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: FULL_UUID,
+      entityName: "memory",
+    });
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+    expect(db.queries).toHaveLength(0);
+  });
+
+  it("resolves a unique-prefix hit against seeded candidate rows", async () => {
+    const db = createFakeDb([{ id: FULL_UUID, label: FULL_UUID_LABEL }]);
+    const result = await resolveIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "d8591800",
+      entityName: "memory",
+    });
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+  });
+
+  it("returns a clean not_found (no Postgres error text) for a non-matching prefix", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "ffffffff",
+      entityName: "memory",
+    });
+    expect(result).toEqual({ kind: "not_found", input: "ffffffff" });
+  });
+
+  it("returns ambiguous when two rows share a prefix", async () => {
+    const db = createFakeDb([
+      { id: FULL_UUID, label: "memory-a" },
+      { id: SIBLING_UUID_B, label: "memory-b" },
+    ]);
+    const result = await resolveIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "d8591800",
+      entityName: "memory",
+    });
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates).toHaveLength(2);
+      expect(result.candidates.map((c) => c.label).sort()).toEqual(["memory-a", "memory-b"]);
+    }
+  });
+
+  it("never queries the DB for malformed input — invalid short-circuits before any cast", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      input: "!!!",
+      entityName: "memory",
+    });
+    expect(result.kind).toBe("invalid");
+    expect(db.queries).toHaveLength(0);
+  });
+
+  it("resolveIdPrefixOrThrow returns the id on a resolved match", async () => {
+    const db = createFakeDb([{ id: FULL_UUID, label: FULL_UUID_LABEL }]);
+    const id = await resolveIdPrefixOrThrow({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "d8591800",
+      entityName: "memory",
+    });
+    expect(id).toBe(FULL_UUID);
+  });
+
+  it("resolveIdPrefixOrThrow throws a clean error (not a raw SQL error) on not-found", async () => {
+    const db = createFakeDb([]);
+    await expect(
+      resolveIdPrefixOrThrow({
+        db,
+        table: fakeTable,
+        idColumn: fakeIdColumn,
+        input: OTHER_UUID.slice(0, 8),
+        entityName: "memory",
+      })
+    ).rejects.toThrow(/not found/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real-schema SQL rendering — verifies the query issued against the actual
+// production tables (memoriesTable, asksTable) is a `::text LIKE` comparison,
+// never a `uuid` cast, closing the gap the fake-column tests above can't
+// (their marker objects aren't real Drizzle columns, so `sql`${col}...``
+// there never exercises real column-reference rendering).
+// ---------------------------------------------------------------------------
+
+describe("resolveIdPrefix — real schema SQL rendering", () => {
+  it("renders a `::text LIKE` comparison (never a uuid cast) against memoriesTable.id", async () => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const { memoriesTable } = await import("../storage/schemas/memory-embeddings");
+    const pgDialect = new PgDialect();
+
+    let capturedCondition: unknown;
+    const spyDb: IdPrefixResolverDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(cond: unknown) {
+                capturedCondition = cond;
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    await resolveIdPrefix({
+      db: spyDb,
+      table: memoriesTable,
+      idColumn: memoriesTable.id,
+      labelColumn: memoriesTable.name,
+      input: "d8591800",
+      entityName: "memory",
+    });
+
+    const rendered = pgDialect.sqlToQuery(capturedCondition as import("drizzle-orm").SQL);
+    expect(rendered.sql.toLowerCase()).toContain("::text like");
+    expect(rendered.sql.toLowerCase()).not.toContain("::uuid");
+    expect(rendered.params).toEqual(["d8591800%"]);
+  });
+
+  it("renders a `::text LIKE` comparison (never a uuid cast) against asksTable.id", async () => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const { asksTable } = await import("../storage/schemas/ask-schema");
+    const pgDialect = new PgDialect();
+
+    let capturedCondition: unknown;
+    const spyDb: IdPrefixResolverDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(cond: unknown) {
+                capturedCondition = cond;
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    await resolveIdPrefix({
+      db: spyDb,
+      table: asksTable,
+      idColumn: asksTable.id,
+      labelColumn: asksTable.title,
+      input: "483dbcb0",
+      entityName: "ask",
+    });
+
+    const rendered = pgDialect.sqlToQuery(capturedCondition as import("drizzle-orm").SQL);
+    expect(rendered.sql.toLowerCase()).toContain("::text like");
+    expect(rendered.sql.toLowerCase()).not.toContain("::uuid");
+    expect(rendered.params).toEqual(["483dbcb0%"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2963 — generalized `<prefix>#<n>` short-id + uuid-prefix resolution.
+//
+// Everything in this section exercises the NEW additive functions
+// (classifyEntityIdInput / resolveEntityIdPrefix / resolveEntityIdPrefixOrThrow).
+// None of it touches classifyIdInput / resolveIdPrefix / resolveIdPrefixOrThrow,
+// which is exactly the regression guarantee: every test ABOVE this section
+// exercises those original functions untouched and still passes, proving
+// existing uuid-prefix callers (resolveAskIdInput, memory.get's
+// resolveMemoryIdInput) are unaffected by this generalization.
+// ---------------------------------------------------------------------------
+
+describe("classifyEntityIdInput (mt#2963)", () => {
+  it("classifies a `<prefix>#<n>` token as short_id", () => {
+    expect(classifyEntityIdInput("ask#7")).toEqual({ kind: "short_id", prefix: "ask", n: 7 });
+    expect(classifyEntityIdInput("mem#42")).toEqual({ kind: "short_id", prefix: "mem", n: 42 });
+  });
+
+  it("falls through to classifyIdInput's full-uuid handling", () => {
+    expect(classifyEntityIdInput(FULL_UUID)).toEqual({ kind: "resolved", id: FULL_UUID });
+  });
+
+  it("falls through to classifyIdInput's hex-prefix handling", () => {
+    expect(classifyEntityIdInput("d8591800")).toEqual({ kind: "prefix", normalized: "d8591800" });
+  });
+
+  it("falls through to classifyIdInput's invalid handling", () => {
+    const result = classifyEntityIdInput("!!!");
+    expect(result.kind).toBe("invalid");
+  });
+
+  it("REGRESSION (PR #2099 R1): a mixed-case short-id prefix classifies the same as lowercase", () => {
+    expect(classifyEntityIdInput("Ask#7")).toEqual({ kind: "short_id", prefix: "ask", n: 7 });
+    expect(classifyEntityIdInput("ASK#7")).toEqual({ kind: "short_id", prefix: "ask", n: 7 });
+    expect(classifyEntityIdInput("Ask#7")).toEqual(classifyEntityIdInput("ask#7"));
+  });
+});
+
+describe("resolveEntityIdPrefix (mt#2963 — short id resolution)", () => {
+  const ASK_UUID = "483dbcb0-0000-0000-0000-000000000001";
+
+  it("resolves `ask#7` to the row whose short_id column equals 'ask#7'", async () => {
+    const db = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#7",
+      entityName: "ask",
+    });
+    expect(result).toEqual({ kind: "resolved", id: ASK_UUID });
+  });
+
+  it("REGRESSION (PR #2099 R1): a mixed-case short-id input resolves to the same id as the lowercase form", async () => {
+    const lowerDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const mixedDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const upperDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+
+    const lower = await resolveEntityIdPrefix({
+      db: lowerDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#7",
+      entityName: "ask",
+    });
+    const mixed = await resolveEntityIdPrefix({
+      db: mixedDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "Ask#7",
+      entityName: "ask",
+    });
+    const upper = await resolveEntityIdPrefix({
+      db: upperDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ASK", // shortIdPrefix casing at the config site, too
+      input: "ASK#7",
+      entityName: "ask",
+    });
+
+    expect(mixed).toEqual(lower);
+    expect(upper).toEqual(lower);
+    expect(lower).toEqual({ kind: "resolved", id: ASK_UUID });
+  });
+
+  it("resolveEntityIdPrefixOrThrow returns the id for a resolved short id", async () => {
+    const db = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveEntityIdPrefixOrThrow({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#7",
+      entityName: "ask",
+    });
+    expect(id).toBe(ASK_UUID);
+  });
+
+  it("returns not_found when no row's short_id matches the token", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#999",
+      entityName: "ask",
+    });
+    expect(result).toEqual({ kind: "not_found", input: "ask#999" });
+  });
+
+  it("returns ambiguous (typed error) when more than one row matches the short id token", async () => {
+    // Shouldn't happen given the unique-index pattern in short-id-column.ts,
+    // but the resolver must not silently pick one — it surfaces the same
+    // ambiguous shape resolveIdPrefix already uses for uuid prefixes.
+    const db = createFakeDb([
+      { id: ASK_UUID, label: "ask-a" },
+      { id: "483dbcb0-0000-0000-0000-000000000002", label: "ask-b" },
+    ]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#7",
+      entityName: "ask",
+    });
+    expect(result.kind).toBe("ambiguous");
+    await expect(
+      resolveEntityIdPrefixOrThrow({
+        db,
+        table: fakeTable,
+        idColumn: fakeIdColumn,
+        labelColumn: fakeLabelColumn,
+        shortIdColumn: { name: "short_id" },
+        shortIdPrefix: "ask",
+        input: "ask#7",
+        entityName: "ask",
+      })
+    ).rejects.toThrow(/ambiguous/i);
+  });
+
+  it("resolves as invalid (never queries the DB) when the input's short-id prefix does not match this entity's prefix", async () => {
+    const db = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "mem#7", // wrong entity's short id
+      entityName: "ask",
+    });
+    expect(result.kind).toBe("invalid");
+    if (result.kind === "invalid") {
+      // Exact, stable assertion (PR #2099 R1 non-blocking-2) rather than a loose
+      // regex — pins the message text so a future edit can't silently drift it.
+      expect(result.reason).toBe(
+        'short id prefix mismatch: "mem#7" has prefix "mem", but ask short ids use prefix "ask"'
+      );
+    }
+  });
+
+  it("resolves as invalid when the entity has no shortIdColumn/shortIdPrefix configured", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      input: "ask#7",
+      entityName: "ask",
+      // no shortIdColumn / shortIdPrefix supplied
+    });
+    expect(result.kind).toBe("invalid");
+    if (result.kind === "invalid") {
+      expect(result.reason).toMatch(/does not support short ids/i);
+    }
+  });
+
+  it("REGRESSION: a hex prefix input delegates to identical resolveIdPrefix behavior", async () => {
+    const seedRows = [{ id: FULL_UUID, label: FULL_UUID_LABEL }];
+    const directDb = createFakeDb(seedRows);
+    const viaEntityDb = createFakeDb(seedRows);
+
+    const direct = await resolveIdPrefix({
+      db: directDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "d8591800",
+      entityName: "memory",
+    });
+    const viaEntity = await resolveEntityIdPrefix({
+      db: viaEntityDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      input: "d8591800",
+      entityName: "memory",
+    });
+
+    expect(viaEntity).toEqual(direct);
+  });
+
+  it("REGRESSION: a full uuid input resolves with no DB query, identical to classifyIdInput/resolveIdPrefix", async () => {
+    const db = createFakeDb([]);
+    const result = await resolveEntityIdPrefix({
+      db,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: FULL_UUID,
+      entityName: "ask",
+    });
+    expect(result).toEqual({ kind: "resolved", id: FULL_UUID });
+    expect(db.queries).toHaveLength(0);
+  });
+});

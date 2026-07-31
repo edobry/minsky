@@ -1,9 +1,8 @@
-import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useState, lazy, Suspense } from "react";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { WidgetShell } from "./components/WidgetShell";
 import { useDeepLinkHandler } from "./hooks/useDeepLinkHandler";
 import {
   fetchWidgets,
@@ -13,13 +12,8 @@ import {
 } from "./lib/widget-client";
 import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
-import { Attention } from "./widgets/Attention";
-import { BasicHealth } from "./widgets/BasicHealth";
-import { ContextInspector } from "./widgets/ContextInspector";
-import { CredentialsSummary } from "./widgets/Credentials";
-import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
-import { McpServerStatus } from "./widgets/McpServerStatus";
-import { ReviewerBotStatus } from "./widgets/ReviewerBotStatus";
+import { createInFlightGate } from "./lib/in-flight-gate";
+import { HomePage } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 const AgentsPage = lazy(() =>
@@ -28,14 +22,14 @@ const AgentsPage = lazy(() =>
 const WorkspaceDetailPage = lazy(() =>
   import("./pages/WorkspaceDetailPage").then((m) => ({ default: m.WorkspaceDetailPage }))
 );
-const ContextPage = lazy(() =>
-  import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
-);
 const ConversationPage = lazy(() =>
   import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
 );
-const ConversationsPage = lazy(() =>
-  import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
+const DrivenSessionPage = lazy(() =>
+  import("./pages/DrivenSessionPage").then((m) => ({ default: m.DrivenSessionPage }))
+);
+const DrivenSessionCostPage = lazy(() =>
+  import("./pages/DrivenSessionCostPage").then((m) => ({ default: m.DrivenSessionCostPage }))
 );
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
@@ -43,6 +37,7 @@ const SettingsPage = lazy(() =>
 const WorkstreamsPage = lazy(() =>
   import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
 );
+const DigestPage = lazy(() => import("./pages/DigestPage").then((m) => ({ default: m.DigestPage })));
 const TasksLayout = lazy(() =>
   import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
 );
@@ -84,6 +79,30 @@ const WeldHistoryPage = lazy(() =>
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
+// Session film (mt#3184, watchable-world Phase 1) — route name is a working
+// label; naming is principal-reserved per the RFC.
+
+
+/**
+ * Legacy `/session/:id` deep-link redirect (mt#2769).
+ *
+ * The `/session/:id` route registration itself was already removed (renamed
+ * to `/conversation/:id` per ADR-022 stage 1, mt#2686) — but old deep links
+ * and localStorage-persisted tabs (`lib/tabs.tsx`'s `STORAGE_KEY`) still
+ * carry the pre-rename path. Rather than 404, redirect to the renamed route
+ * so those old links keep resolving. The `lib/tabs.tsx` `loadTabs()` loader
+ * also migrates persisted tab entries directly (a page visit isn't required
+ * to fix the tab strip), but this route covers a fresh browser navigation to
+ * a bookmarked or externally-shared `/session/:id` URL.
+ *
+ * Exported for direct unit testing (mirrors `plantRoutes`'s export rationale).
+ */
+export function SessionIdRedirect() {
+  const { id } = useParams<{ id: string }>();
+  // mt#2767: /conversations retired (redirects to /agents) — the no-id
+  // fallback now points there directly rather than through a second hop.
+  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/agents"} replace />;
+}
 
 /**
  * Plant board routes — the node-link whole-system view (ADR-020, converged
@@ -124,56 +143,25 @@ export const plantRoutes = (
 );
 
 // ---------------------------------------------------------------------------
-// Widget renderer maps
-//
-// Self-fetching widgets: own their data via TanStack Query; no data prop needed.
-// These remain on the home page grid.
+// App-level prop-driven widgets (mt#2881: the home grid's renderer maps are
+// gone — HomePage is a fixed, curated composition of self-fetching bands, see
+// pages/HomePage.tsx. The only remaining app-level-polled widget is the
+// promoted task-graph page, whose route receives data via props.)
 // ---------------------------------------------------------------------------
-const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
-  attention: Attention,
-  "context-inspector": ContextInspector,
-  credentials: CredentialsSummary,
-  "embeddings-health": EmbeddingsHealth,
-  "mcp-server-status": McpServerStatus,
-  "reviewer-bot-status": ReviewerBotStatus,
-};
-
-// Prop-driven widgets: receive data from App-level polling.
-const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
-  "basic-health": BasicHealth,
-};
-
-// Widgets whose data App fetches at the app level and distributes via props:
-//   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
-//   - promoted prop-driven page widgets whose routes receive data via props
-//     (TasksLayout) rather than self-fetching.
-// All other widgets — self-fetching home cards (attention, credentials, ...) and
-// self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
-// the registry-gated /api/widget/:id/data endpoint and must NOT be polled
-// app-wide. This keeps app-level background load bounded to a small fixed set,
-// independent of how many widgets the registry contains (mt#2294).
-// Workstreams migrated off this list to a param-aware self-fetching query
-// (mt#2385 slice/altitude parameterization — see lib/use-workstreams-data.ts).
-//
-// Drift guard: the explicit page-widget entries below MUST also be in
-// PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
-// via props — see taskGraphData below). A dev-time assertion
-// enforces this so adding a self-fetching page widget here (which would start
-// needless app-wide polling) fails fast rather than silently regressing load.
 const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["task-graph"] as const;
-const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
-  ...Object.keys(PROP_DRIVEN_RENDERERS),
-  ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
-]);
+const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([...APP_LEVEL_PAGE_PROP_WIDGET_IDS]);
 
-// IDs of widgets that have dedicated page routes — excluded from the home grid
-// (see homeWidgets below). Their data strategy varies: only the ones ALSO in
-// APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are app-level-polled and
-// prop-driven; the rest (agents, context-inspector, task-list, workstreams)
-// self-fetch on their own pages. Workstreams self-fetches via a param-aware
-// query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
-// prop list: that would resurrect param-less app-wide polling and break the
-// altitude-keyed caching (mt#2385).
+// IDs of widgets that have dedicated page routes — their data strategy varies:
+// only the ones ALSO in APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are
+// app-level-polled and prop-driven; the rest (agents, context-inspector,
+// task-list, workstreams) self-fetch on their own pages. Workstreams
+// self-fetches via a param-aware query hook (use-workstreams-data.ts) — do NOT
+// re-add it to the app-level prop list: that would resurrect param-less
+// app-wide polling and break the altitude-keyed caching (mt#2385).
+//
+// "context-inspector" (mt#2768): the standalone /context page + its React
+// widget were retired (folded into the run-detail Context tab). The backend
+// widget stays registered as a DATA SOURCE only.
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -219,65 +207,6 @@ interface WidgetState {
 }
 
 // ---------------------------------------------------------------------------
-// Home page grid — small widgets + page nav tiles
-// ---------------------------------------------------------------------------
-
-interface HomePageProps {
-  widgets: WidgetState[];
-}
-
-function HomePage({ widgets }: HomePageProps) {
-  return (
-    <div className="p-4 flex flex-col gap-6 max-w-5xl mx-auto w-full">
-      {/* System section — always first: "is anything wrong?" scan */}
-      {widgets.length > 0 && (
-        <section aria-label="System status">
-          <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {widgets.map(({ meta, data }) => {
-                const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
-                const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
-
-                return (
-                  <ErrorBoundary key={meta.id} id={meta.id}>
-                    {SelfFetchingRenderer ? (
-                      meta.id === "attention" ? (
-                        /* Attention is the algedonic top surface — give it the
-                           full row so the default landing leads with it (mt#2398). */
-                        <div className="md:col-span-2 lg:col-span-3">
-                          <SelfFetchingRenderer title={meta.title} />
-                        </div>
-                      ) : (
-                        <SelfFetchingRenderer title={meta.title} />
-                      )
-                    ) : !PropDrivenRenderer ? (
-                      <WidgetShell variant="card" title={meta.title}>
-                        <p className="text-muted-foreground text-sm">
-                          Widget &apos;{meta.id}&apos; has no frontend renderer registered
-                        </p>
-                      </WidgetShell>
-                    ) : data === null ? (
-                      <WidgetShell variant="card" title={meta.title}>
-                        <p className="text-muted-foreground text-sm">Loading...</p>
-                      </WidgetShell>
-                    ) : (
-                      <PropDrivenRenderer data={data} />
-                    )}
-                  </ErrorBoundary>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Nav tiles removed (mt#2398): the persistent rail (mt#2397) is the
-          navigation surface; the tile grid duplicated it. */}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Root App component
 // ---------------------------------------------------------------------------
 
@@ -316,10 +245,37 @@ export function App() {
   // ---------------------------------------------------------------------------
   // App-level polling for prop-driven widgets (including promoted ones so their
   // pages receive data immediately without a separate fetch setup).
+  //
+  // mt#3131 (D4): reproduced via direct code reading, not a live browser
+  // session — the ORIGINAL "missing dependency array or cleanup" hypothesis
+  // is REFUTED by this effect's own code: the dependency array is `[]` (runs
+  // once) and every `setInterval` id is cleared in the cleanup function
+  // below. The actual firing site is the interval CALLBACK itself: it fires
+  // `fetchWidgetData(meta.id)` unconditionally on every tick with no guard
+  // against the PREVIOUS tick's fetch still being in flight. The task-graph
+  // widget's own comment ("~1K nodes; 5s is too aggressive for a heavy
+  // render") flags its fetch as expensive — if a live conversation's DB load
+  // makes one fetch take longer than the 10s interval, ticks pile up
+  // unbounded (a browser caps concurrent same-origin connections at ~6, so a
+  // backlog of pending fetches starves unrelated tabs' requests too, matching
+  // the observed "stalling unrelated tabs" symptom). `createInFlightGate`
+  // below closes this gap: at most one outstanding fetch per widget id at any
+  // time (see `lib/in-flight-gate.ts` for the unit-tested guard logic).
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     const intervalIds: ReturnType<typeof setInterval>[] = [];
+    const gate = createInFlightGate();
+
+    function fetchAndApply(widgetId: string): void {
+      gate.run(widgetId, () =>
+        fetchWidgetData(widgetId).then((data) => {
+          if (!cancelled) {
+            setWidgets((prev) => prev.map((w) => (w.meta.id === widgetId ? { ...w, data } : w)));
+          }
+        })
+      );
+    }
 
     async function init() {
       let metas: WidgetMeta[];
@@ -342,26 +298,12 @@ export function App() {
         }
 
         // Initial fetch for prop-driven widgets (including promoted ones)
-        fetchWidgetData(meta.id)
-          .then((data) => {
-            if (!cancelled) {
-              setWidgets((prev) => prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w)));
-            }
-          })
-          .catch(() => {});
+        fetchAndApply(meta.id);
 
         // Polling for polling-mode widgets
         if (meta.updateMode.type === "polling") {
           const id = setInterval(() => {
-            fetchWidgetData(meta.id)
-              .then((data) => {
-                if (!cancelled) {
-                  setWidgets((prev) =>
-                    prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w))
-                  );
-                }
-              })
-              .catch(() => {});
+            fetchAndApply(meta.id);
           }, meta.updateMode.intervalMs);
           intervalIds.push(id);
         }
@@ -383,13 +325,6 @@ export function App() {
   // ---------------------------------------------------------------------------
   const taskGraphData = widgets.find((w) => w.meta.id === "task-graph")?.data ?? null;
 
-  // Home page only receives the non-promoted, renderable widgets
-  const homeWidgets = widgets.filter(
-    (w) =>
-      !PAGE_ROUTE_WIDGET_IDS.has(w.meta.id) &&
-      (SELF_FETCHING_RENDERERS[w.meta.id] || PROP_DRIVEN_RENDERERS[w.meta.id])
-  );
-
   return (
     <Layout>
       <Suspense
@@ -400,7 +335,7 @@ export function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<HomePage widgets={homeWidgets} />} />
+          <Route path="/" element={<HomePage />} />
           <Route
             path="/agents"
             element={
@@ -414,7 +349,13 @@ export function App() {
               harness agentSessionId (transcript). Renamed from
               SessionDetailPage per ADR-022 stage 1 (mt#2686); the /agents/:id
               path itself is unchanged (the Agents list/detail pair is a
-              separate naming decision, out of scope here). */}
+              separate naming decision, out of scope here).
+              Tab sub-routes (mt#2768): the shared RunDetail body derives its
+              active tab from the URL (Overview is the landing/default tab,
+              omitted from the path); "conversation" and "context" are the
+              only two accepted literal suffixes — this MUST stay in lockstep
+              with `lib/tabs.tsx`'s `matchEntityRoute` regex, which normalizes
+              all three paths to ONE entity-tab-strip entry. */}
           <Route
             path="/agents/:id"
             element={
@@ -424,26 +365,39 @@ export function App() {
             }
           />
           <Route
-            path="/context"
+            path="/agents/:id/conversation"
             element={
-              <ErrorBoundary id="context-page">
-                <ContextPage />
+              <ErrorBoundary id="session-detail-page">
+                <WorkspaceDetailPage />
               </ErrorBoundary>
             }
           />
           <Route
-            path="/conversations"
+            path="/agents/:id/context"
             element={
-              <ErrorBoundary id="sessions-page">
-                <ConversationsPage />
+              <ErrorBoundary id="session-detail-page">
+                <WorkspaceDetailPage />
               </ErrorBoundary>
             }
           />
+
+          {/* Retired standalone Context page (mt#2768): folded into the
+              run-detail Context tab. Redirect for bookmark continuity. */}
+          <Route path="/context" element={<Navigate to="/agents" replace />} />
+          {/* Retired standalone Conversations list (mt#2767): /agents is now
+              the unified agent-run list — workspace sessions, standalone
+              conversations, and collapsed subagent groups in one browse
+              surface. Redirect for bookmark continuity (mirrors the
+              /context -> /agents pattern above from mt#2768). */}
+          <Route path="/conversations" element={<Navigate to="/agents" replace />} />
           {/* Conversation entity route (mt#2398): URL-addressable conversation
               tab; body is mt#2374's ConversationView, re-homed from the retired
               /conversation host. Path renamed from /session/:id per ADR-022
               stage 1 (mt#2686) — the old URL used "session" for what this page
-              always meant: a harness conversation transcript. */}
+              always meant: a harness conversation transcript.
+              Tab sub-routes (mt#2768): symmetric to /agents/:id above —
+              Conversation is the landing/default tab (omitted from the path);
+              "overview" and "context" are the only two accepted suffixes. */}
           <Route
             path="/conversation/:id"
             element={
@@ -452,11 +406,81 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Driven-session view (mt#2751 Rung 2B): consumes mt#2750's per-session
+              WS channel — hosts ConversationView + composer + status for a
+              session the operator is actively driving. Launch entry points
+              (starting a new session, task binding) are Rung 2C, out of scope
+              here — this route is reachable directly by id/deeplink. */}
+          <Route
+            path="/driven/:id"
+            element={
+              <ErrorBoundary id="driven-session-page">
+                <DrivenSessionPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Driven-session cost/usage readout (mt#2753, Rung 2D): per-session
+              and aggregate spend/usage rolled up from the driven_session_cost
+              table. Registered as a sub-route of /agents (the driven-session
+              home) rather than under /driven/:id — this is a cross-session
+              view, not scoped to one live session. */}
+          <Route
+            path="/agents/cost"
+            element={
+              <ErrorBoundary id="driven-session-cost-page">
+                <DrivenSessionCostPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/conversation/:id/overview"
+            element={
+              <ErrorBoundary id="session-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/conversation/:id/context"
+            element={
+              <ErrorBoundary id="session-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Film tab (mt#3461): the session film is a lens on a conversation,
+              reached by drilling into the entity — not a top-level page.
+
+              This is the ONLY path to a film (mt#3468). The former
+              /session-film page and the /agents/:id/film workspace route were
+              both deleted, not redirected: a film replays a conversation, so a
+              workspace-keyed address would name no specific one, and a
+              permanent redirect is a second address kept alive forever for a
+              one-time convenience. Old /session-film links do not resolve. */}
+          <Route
+            path="/conversation/:id/film"
+            element={
+              <ErrorBoundary id="session-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Legacy redirect (mt#2769): /session/:id was the pre-mt#2686 path for
+              the route above. Old deep links / persisted tabs still reference it. */}
+          <Route path="/session/:id" element={<SessionIdRedirect />} />
           <Route
             path="/workstreams"
             element={
               <ErrorBoundary id="workstreams-page">
                 <WorkstreamsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/digest"
+            element={
+              <ErrorBoundary id="digest-page">
+                <DigestPage />
               </ErrorBoundary>
             }
           />

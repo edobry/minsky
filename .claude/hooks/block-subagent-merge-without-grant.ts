@@ -61,10 +61,16 @@
 //      shape to block-subagent-bypass-merge.ts")
 // @see .minsky/rules/hook-files.mdc "Subagent Merge Capability Guard"
 
-import { readInput, writeOutput, execSync } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { resolveMergeGateTaskId } from "./merge-gate-task-resolution";
 import { getMergeGrantStorePath, readGrantStore, findValidGrant } from "./merge-grant-store";
 import type { MergeGrant } from "./merge-grant-store";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "block-subagent-merge-without-grant";
 
 // ---------------------------------------------------------------------------
 // Subagent context detection (identical shape to block-subagent-bypass-merge.ts)
@@ -81,37 +87,21 @@ export function isSubagentContext(input: ToolHookInput): boolean {
 /**
  * Best-effort task id resolution for the current `session_pr_merge` call.
  *
- * Prefers `tool_input.task` (the string param `session_pr_merge` accepts
- * directly). Falls back to parsing the current git branch in `cwd` for the
- * `task/mt-<id>` naming convention — a self-contained, DB-free strategy
- * (deliberately NOT the DB-backed session lookup `record-subagent-
- * invocation.ts` uses, which would violate the hooks' self-containment
- * invariant this guard must preserve).
+ * Delegates to the shared `merge-gate-task-resolution` module (mt#3355), which lifted this
+ * function's original body so all five `session_pr_merge` gates resolve identically —
+ * previously four of them read `tool_input.task` alone and silently allowed when it was
+ * empty. The binding constraint this function's original doc comment recorded still holds,
+ * and now lives with the implementation: the branch fallback is deliberately DB-FREE, NOT
+ * the DB-backed session lookup `record-subagent-invocation.ts` uses, because that would
+ * violate the hooks' self-containment invariant this guard must preserve.
  *
- * Returns null when neither source yields a resolvable task id — the guard
- * treats an unresolvable task id as "no grant can match" (default-deny),
- * NOT as a read error (so it does not trigger the fail-open path).
+ * The `string | null` signature is preserved rather than widened to the shared module's
+ * richer `TaskIdResolution`: this guard treats an unresolvable id as "no grant can match"
+ * (default-deny), NOT as a read error, and has no use for the resolution source. Gates that
+ * need the source call `resolveMergeGateTaskId` directly.
  */
 export function resolveTaskIdFromInput(input: ToolHookInput): string | null {
-  const fromToolInput = input.tool_input?.["task"];
-  if (typeof fromToolInput === "string" && fromToolInput.trim().length > 0) {
-    return fromToolInput.trim();
-  }
-
-  const cwd = input.cwd;
-  if (!cwd) return null;
-
-  try {
-    const result = execSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 3000 });
-    if (result.exitCode !== 0) return null;
-
-    const match = result.stdout.match(/^task\/mt[-#](\d+)$/);
-    return match ? `mt#${match[1]}` : null;
-  } catch {
-    // A nonexistent cwd, or any other spawn-level failure, resolves to "no
-    // task id" — treated as default-deny territory, not a store read error.
-    return null;
-  }
+  return resolveMergeGateTaskId(input).taskId;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,15 +170,19 @@ export function decideMergeGrant(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   if (input.tool_name !== "mcp__minsky__session_pr_merge") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   if (!isSubagentContext(input)) {
     // Main-thread merges are unaffected by this guard.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const agentId = input.agent_id as string;
@@ -200,7 +194,10 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] ${MERGE_GRANT_OVERRIDE_ENV} override active — ` +
         `allowing subagent merge. agent_id=${agentId} timestamp=${new Date().toISOString()}\n`
     );
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: MERGE_GRANT_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(MERGE_GRANT_OVERRIDE_ENV),
+    });
   }
 
   const taskId = resolveTaskIdFromInput(input);
@@ -216,7 +213,7 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] warn: grant store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const decision = decideMergeGrant(taskId, agentId, storeResult.grants, Date.now());
@@ -224,7 +221,7 @@ if (import.meta.main) {
   if (decision.decision === "allow") {
     // Grant-backed allow is an audit event too — stdout, same convention.
     process.stdout.write(`[block-subagent-merge-without-grant] ${decision.reason} — allowing.\n`);
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   writeOutput({
@@ -234,5 +231,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

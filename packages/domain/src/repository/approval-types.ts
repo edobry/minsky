@@ -117,14 +117,20 @@ export interface ApprovalStatus {
    * making canMerge useless inside the waiver path).
    *
    * True when: PR is a draft, PR has merge conflicts (mergeable=false),
-   * or PR state is not "open".
+   * or PR state is not "open". Deliberately EXCLUDES mergeable===null
+   * (mt#2890) -- GitHub still computing mergeability (or API degradation)
+   * is not a hard blocker; the merge call itself polls before giving up.
+   * See `computeNonApprovalMergeBlockers` in github-pr-approval.ts.
    */
   hasNonApprovalMergeBlockers?: boolean;
 
   /**
    * Human-readable description of the active non-approval merge blocker,
-   * if any. Used to surface a meaningful message in the waiver rejection.
-   * Examples: "draft PR", "merge conflicts", "PR not open".
+   * if any -- OR, for the mt#2890 unknown-mergeability case, an
+   * informational (non-blocking) description. Used to surface a meaningful
+   * message in the waiver rejection.
+   * Examples: "draft PR", "merge conflicts", "PR not open",
+   * "mergeability not yet computed" (non-blocking).
    */
   nonApprovalBlockerDescription?: string;
 

@@ -57,6 +57,15 @@ describe("ToolPayload — Tier-3 registry", () => {
     expect(container.textContent).toContain("A task");
   });
 
+  test("the harness-prefixed name (mcp__minsky__tasks_list) also fires the seed renderer (mt#2787)", () => {
+    const data = [{ id: "mt#2370", title: "A task", status: "DONE" }];
+    const { container } = renderPayload(
+      <ToolPayload value={data} toolName="mcp__minsky__tasks_list" />
+    );
+    expect(container.querySelector('a[href="/tasks/mt%232370"]')).not.toBeNull();
+    expect(container.textContent).toContain("A task");
+  });
+
   test("tasks_list falls back to the generic tree on shape mismatch", () => {
     const { container } = renderPayload(
       <ToolPayload value={{ foo: "bar" }} toolName="tasks_list" />
@@ -64,6 +73,14 @@ describe("ToolPayload — Tier-3 registry", () => {
     // No task link; generic tree shows the object key instead.
     expect(container.querySelector('a[href^="/tasks/"]')).toBeNull();
     expect(container.textContent).toContain("foo");
+  });
+
+  test("empty and absent tool names render the generic tree without throwing", () => {
+    const empty = renderPayload(<ToolPayload value={{ a: 1 }} toolName="" />);
+    expect(empty.container.textContent).toContain("a");
+    cleanup();
+    const absent = renderPayload(<ToolPayload value={{ b: 2 }} />);
+    expect(absent.container.textContent).toContain("b");
   });
 
   test("an unregistered tool name uses the generic tree", () => {

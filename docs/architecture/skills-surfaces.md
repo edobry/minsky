@@ -16,22 +16,19 @@ format**. Sources compile to harness-specific output under `.claude/skills/`,
 `.cursor/rules/`, etc. via `bun run minsky compile`. (As of mt#2279 the compile
 pipeline reads markdown sources — `.minsky/skills/<name>/SKILL.md` — as well as
 `skill.ts`; a directory with BOTH is reported as an ambiguous canonical source
-and skipped with a warning. The 7 current Minsky-authored skills are all
-TypeScript; markdown is now an equally-supported authoring format.)
+and skipped with a warning. Both authoring formats are in active use.)
 
 These skills participate in the Minsky compile pipeline and are loaded by
 agents through harness-native discovery (Claude Code's `.claude/skills/`
 auto-load, Cursor's `.cursor/rules/` auto-load, etc.).
 
-Current Minsky-authored skills under `.minsky/skills/`:
-
-- `cockpit-design`
-- `fixture`
-- `implement-task`
-- `orchestrate`
-- `plan-task`
-- `merge-coordination`
-- `verify-task`
+The directory listing is the source of truth for which skills exist — run `ls
+.minsky/skills/`, or read each skill's frontmatter `description` for its trigger
+conditions. (This doc used to enumerate them inline; the list went stale as the
+corpus grew, so it was replaced with the pointer.) The lifecycle-chain subset —
+`create-task`, `plan-task`, `implement-task`, `prepare-pr`, `merge-coordination`,
+`verify-task` — is the one set named explicitly in `CLAUDE.md` §Skill-chain
+semantics, because those skills hand off to each other in a fixed order.
 
 Always checked into git. Edit the source (TypeScript or markdown) under
 `.minsky/skills/`, then run `bun run minsky compile` to regenerate the

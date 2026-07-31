@@ -8,12 +8,26 @@
  * Takes the task ID from a URL param passed by the parent page component.
  */
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { Play } from "lucide-react";
+import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { Prose } from "../components/Prose";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
+import { statusStyle } from "../lib/status-colors";
+import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "@minsky/domain/ai/dispatch-models";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -40,15 +54,42 @@ export interface TaskDetailPayload {
     outgoing: TaskRef[];
     incoming: TaskRef[];
   };
+  /**
+   * Stage-appropriate act-here actions (mt#2986) — computed server-side per the
+   * stage→action map; empty for terminal statuses. Replaces mt#2959's
+   * button-shaped `startability` boolean.
+   */
+  actions: TaskAction[];
+}
+
+export interface TaskAction {
+  kind: "plan" | "start" | "resume" | "view-pr" | "drive";
+  sessionId?: string;
+  /** Driven-session local id — set on "drive" (mt#3400). */
+  drivenSessionId?: string;
+  prNumber?: number;
+  note?: string;
+}
+
+// Must list EVERY kind the server can emit: `isTaskAction` gates the whole
+// payload, so a kind missing here fails `isTaskDetailPayload` and drops the
+// entire task page into ErrorState — not just the one unrecognized action.
+const ACTION_KINDS = new Set(["plan", "start", "resume", "view-pr", "drive"]);
+
+function isTaskAction(v: unknown): v is TaskAction {
+  if (typeof v !== "object" || v === null) return false;
+  const a = v as Record<string, unknown>;
+  return typeof a.kind === "string" && ACTION_KINDS.has(a.kind);
 }
 
 function isTaskDetailPayload(v: unknown): v is TaskDetailPayload {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "task" in v &&
-    typeof (v as { task: unknown }).task === "object"
-  );
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  if (typeof obj.task !== "object" || obj.task === null) return false;
+  // Validate the actions contract (mt#2986) so a payload missing it fails
+  // loudly (ErrorState) rather than silently dropping the act-here region.
+  if (!Array.isArray(obj.actions)) return false;
+  return (obj.actions as unknown[]).every(isTaskAction);
 }
 
 // ---------------------------------------------------------------------------
@@ -66,37 +107,8 @@ async function fetchTaskDetail(taskId: string): Promise<TaskDetailPayload> {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge — same palette as TaskList / Workstreams / TaskGraph
+// Status badge — colors come from the shared ../lib/status-colors module
 // ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: string): StatusStyle {
-  switch (status.toUpperCase()) {
-    case "DONE":
-    case "COMPLETED":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
-}
 
 function StatusBadge({ status }: { status: string }) {
   const s = statusStyle(status);
@@ -111,17 +123,26 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Task ID chip — monospace, links to detail page
+// Task ID chip — monospace, links to detail page.
+//
+// Routed through the shared <EntityRef> (mt#3187) rather than a hand-rolled
+// <Link> so this chip gains the hover-card treatment. Children mode (id
+// verbatim, no derived "id · label" text): every call site already renders
+// the referenced task's title and <StatusBadge> immediately adjacent
+// (TaskRefRow's title span; the Parent section's inline title span) — default
+// mode would duplicate that info inline, the same "no duplicated title"
+// discipline mt#3175 established for TaskGraph's node chip.
 // ---------------------------------------------------------------------------
 
 function TaskIdChip({ id }: { id: string }) {
   return (
-    <Link
-      to={`/tasks/${encodeURIComponent(id)}`}
-      className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted text-foreground hover:bg-muted/70 transition-colors"
+    <EntityRef
+      type="task"
+      id={id}
+      className="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground hover:bg-muted/70 hover:no-underline transition-colors"
     >
       {id}
-    </Link>
+    </EntityRef>
   );
 }
 
@@ -129,7 +150,7 @@ function TaskIdChip({ id }: { id: string }) {
 // Task reference row — ID chip + title + status badge
 // ---------------------------------------------------------------------------
 
-function TaskRefRow({ task }: { task: TaskRef }) {
+export function TaskRefRow({ task }: { task: TaskRef }) {
   return (
     <div className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
       <StatusBadge status={task.status} />
@@ -176,8 +197,160 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // Inner — rendered after data is confirmed
 // ---------------------------------------------------------------------------
 
+/**
+ * Act-here action region (mt#2986; supersedes mt#2959's single gated button).
+ *
+ * Renders the server-computed stage-appropriate actions: every non-terminal
+ * stage offers at least one action that can actually succeed (principal-driven
+ * launches are exempt from the planning gate); terminal stages render nothing.
+ * A note, when present, is the honesty layer — secondary text under the
+ * control, never the sole content.
+ */
+export function TaskActions({ taskId, actions }: { taskId: string; actions: TaskAction[] }) {
+  if (actions.length === 0) return null;
+
+  return (
+    <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+      {actions.map((action, i) => (
+        <TaskActionControl key={`${action.kind}-${i}`} taskId={taskId} action={action} />
+      ))}
+    </span>
+  );
+}
+
+function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAction }) {
+  switch (action.kind) {
+    case "plan":
+      return (
+        <LaunchActionButton
+          taskId={taskId}
+          label="Plan in session"
+          ariaLabel={`Plan ${taskId} in a driven session`}
+          title="Spawns a driven claude session in this task's workspace, composer primed with /plan-task"
+          composePrefill={`/plan-task ${taskId}`}
+          note={action.note}
+        />
+      );
+    case "start":
+      return (
+        <LaunchActionButton
+          taskId={taskId}
+          label="Start session"
+          ariaLabel={`Start driven session for ${taskId}`}
+          title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
+          note={action.note}
+        />
+      );
+    case "drive":
+      if (!action.drivenSessionId) return null;
+      // mt#3400 — the one-hop return to a live driven session. Rendered
+      // `default` (not `outline` like its siblings) because when this action is
+      // present it IS the primary: the operator has work in flight here.
+      //
+      // Copy says "drive view", not "session": this control sits directly
+      // beside the workspace action labeled "Open session", and two adjacent
+      // buttons reading "Return to session" / "Open session" for two DIFFERENT
+      // destinations is the ambiguity PR #2448 R1 flagged. "Drive view" is the
+      // vocabulary the existing RunDetail banner already uses for this surface,
+      // so this aligns with shipped copy rather than coining a new term.
+      return (
+        <Button asChild size="sm" className="h-7 px-2.5 text-xs">
+          <Link
+            to={`/driven/${encodeURIComponent(action.drivenSessionId)}`}
+            aria-label={`Return to the live drive view for ${taskId}`}
+            title="Return to the driven session already running for this task"
+          >
+            Return to drive view
+          </Link>
+        </Button>
+      );
+    case "resume":
+      if (!action.sessionId) return null;
+      return (
+        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+          <Link to={`/agents/${encodeURIComponent(action.sessionId)}`}>Open session</Link>
+        </Button>
+      );
+    case "view-pr":
+      if (action.prNumber === undefined || action.prNumber === null) return null;
+      return (
+        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+          <Link to={`/changeset/${action.prNumber}`}>View PR #{action.prNumber}</Link>
+        </Button>
+      );
+    default:
+      return null;
+  }
+}
+
+/** Launchable control — the only path that mounts the launch mutation hook. */
+function LaunchActionButton({
+  taskId,
+  label,
+  ariaLabel,
+  title,
+  composePrefill,
+  note,
+}: {
+  taskId: string;
+  label: string;
+  ariaLabel: string;
+  title: string;
+  composePrefill?: string;
+  note?: string;
+}) {
+  const start = useStartDrivenSession();
+  // mt#3040: the principal picks the model the driven session runs on.
+  // Defaulted (Sonnet) with a visible override — the override IS the point (a
+  // principal who can see a task needs Fable now has a channel), so it must not
+  // force a per-launch choice (the approval-fatigue anti-pattern, mt#2880).
+  const [modelId, setModelId] = useState(DEFAULT_DISPATCH_MODEL_ID);
+
+  return (
+    <span className="flex items-center gap-2">
+      {start.isError && (
+        <span className="text-xs text-destructive" role="alert">
+          {start.error.message}
+        </span>
+      )}
+      {note && !start.isError && (
+        <span className="text-xs text-muted-foreground" role="note">
+          {note}
+        </span>
+      )}
+      <Select value={modelId} onValueChange={setModelId} disabled={start.isPending}>
+        <SelectTrigger
+          className="h-7"
+          aria-label={`Model for ${label.toLowerCase()}`}
+          title="Model the driven session runs on"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DISPATCH_MODELS.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        size="sm"
+        onClick={() => start.mutate({ taskId, composePrefill, model: modelId })}
+        disabled={start.isPending}
+        className="h-7 px-2.5 text-xs"
+        aria-label={ariaLabel}
+        title={title}
+      >
+        <Play className="h-3.5 w-3.5 mr-1" />
+        {start.isPending ? "Starting…" : label}
+      </Button>
+    </span>
+  );
+}
+
 function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
-  const { task, spec, parent, children, deps } = data;
+  const { task, spec, parent, children, deps, actions } = data;
 
   return (
     <div className="flex flex-col gap-0">
@@ -198,6 +371,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
             {tag}
           </span>
         ))}
+        <TaskActions taskId={task.id} actions={actions} />
       </div>
 
       {/* Parent */}

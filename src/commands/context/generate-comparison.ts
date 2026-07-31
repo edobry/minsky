@@ -14,7 +14,7 @@ import type {
 } from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
 import { first } from "@minsky/shared/array-safety";
-import { analyzeGeneratedContext } from "./generate-analysis";
+import { analyzeGeneratedContext, formatContextWindowUtilization } from "./generate-analysis";
 import { displayContextVisualization } from "./generate-visualization";
 
 export async function displayModelComparison(models: string[], options: GenerateOptions) {
@@ -75,12 +75,14 @@ export async function displayModelComparison(models: string[], options: Generate
     log.cli("-".repeat(59));
 
     comparisons.forEach(({ model, result }) => {
-      const utilization = result.summary.contextWindowUtilization.toFixed(1);
+      const utilization = formatContextWindowUtilization(result.summary.contextWindowUtilization, {
+        compact: true,
+      });
       log.cli(
         model.padEnd(25) +
           result.summary.totalTokens.toLocaleString().padStart(10) +
           result.summary.totalComponents.toString().padStart(12) +
-          `${utilization}%`.padStart(12)
+          utilization.padStart(12)
       );
     });
 

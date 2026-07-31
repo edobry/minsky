@@ -1,0 +1,2 @@
+CREATE INDEX "idx_agent_spawns_child_agent_session_id" ON "agent_spawns" USING btree ("child_agent_session_id");--> statement-breakpoint
+CREATE INDEX "idx_minsky_session_links_minsky_session_id" ON "minsky_session_links" USING btree ("minsky_session_id");

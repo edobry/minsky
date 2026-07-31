@@ -62,6 +62,74 @@ This explains why the result set was empty.`;
     });
   });
 
+  describe("transcriptExcerpt capture (mt#3289)", () => {
+    test("captures text on BOTH sides of the matched phrase, not just the match", () => {
+      // The defect: `matchedPhrases` is `match[0].slice(0, 120)` — the matched
+      // text truncated, not the text around it. A reviewer reading
+      // `"matchedPhrases":["The root cause is"]` cannot tell a volunteered causal
+      // claim from a quotation of one, which is why this detector's fires were
+      // unratable in the 2026-07-28 review.
+      const before = "I looked at the failing job and formed a theory. ";
+      const claim = "The root cause is the encoding mechanism in the query layer.";
+      const after = " I have not confirmed that against the source yet.";
+      const result = detectCausalPremise(`${before}${claim}${after}`, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.transcriptExcerpt.length).toBeGreaterThan(0);
+      // Surrounding context on both sides is the whole point — a window that
+      // only reproduced the match would leave the record exactly as unratable.
+      expect(result.transcriptExcerpt).toContain("formed a theory");
+      expect(result.transcriptExcerpt).toContain("not confirmed");
+    });
+
+    test("bounds the excerpt rather than mirroring the whole turn", () => {
+      // "encoding" is in MECHANISM_PATTERNS, so the proximity gate passes. (Note
+      // that "caching" would NOT match: the corpus entry is `cach[ei]\b`, which
+      // matches "cache" but whose trailing \b fails on the "-ing" inflection.
+      // Tracked separately — this task must not change which phrases match.)
+      const filler = "lorem ipsum dolor sit amet ".repeat(200);
+      const text = `${filler} The root cause is the encoding step in the resolver. ${filler}`;
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      // Bounded by a documented cap (80 chars per side) so the calibration log
+      // never becomes a transcript mirror.
+      expect(result.transcriptExcerpt.length).toBeLessThan(text.length);
+      expect(result.transcriptExcerpt.length).toBeLessThan(500);
+      // The match itself is still present — bounding must not drop the phrase.
+      expect(result.transcriptExcerpt).toContain("root cause is");
+    });
+
+    test("is empty when nothing matched", () => {
+      const result = detectCausalPremise("Nothing causal is claimed in this sentence.", []);
+      expect(result.matched).toBe(false);
+      expect(result.transcriptExcerpt).toBe("");
+    });
+
+    test("is empty — not the head of the text — when the turn is empty", () => {
+      // Guards the `indexOf("")` trap: an empty needle returns 0, which would
+      // log the first 80 characters of unrelated text as the match's context.
+      const result = detectCausalPremise("", []);
+      expect(result.transcriptExcerpt).toBe("");
+    });
+
+    test("slices RAW text, so quote and code markers survive into the excerpt", () => {
+      // PR #2420 R1: matching runs on elided text, but the excerpt must come from
+      // the RAW text at the same offsets. Slicing the elided copy would blank the
+      // backticks/fences/blockquote markers — the very evidence a reviewer needs
+      // to decide whether the phrase was QUOTED rather than asserted, which is
+      // the excerpt's entire purpose.
+      const text =
+        "We ran `bun test --preload` first. The root cause is the encoding step in the resolver.";
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.transcriptExcerpt).toContain("`bun test --preload`");
+      // The elided form would have replaced the span with spaces of equal length.
+      expect(result.transcriptExcerpt).not.toContain("                    ");
+    });
+  });
+
   describe("R3 replay: 'reviewer shares author identity so APPROVE is blocked'", () => {
     test("flags identity-sharing claim without identity check tool call", () => {
       const text = `The reviewer shares the same App identity as the PR author, so GitHub blocks APPROVE.
@@ -201,6 +269,77 @@ The migration would fail since the permission flag is not set.`;
 
       expect(result.matched).toBe(true);
       expect(result.hadSameTurnVerification).toBe(false);
+    });
+  });
+
+  describe("R12 replay: mt#2765 A/B-confound misdiagnosis (mt#2832 gap-closure)", () => {
+    // Reconstructed from the incident conversation (3c8cd612, turn 133) and
+    // memory b0b294ab R12: the live diagnostic claim that attributed the
+    // reviewer-widget hang to tray-vs-shell spawn context, when the real
+    // confound was which port had live browser-tab traffic. This is the
+    // exact class the causal-premise detector was built to catch (mt#2216)
+    // but originally missed — no "because"/"due to" phrasing, and the
+    // mechanism term ("working directory") was outside MECHANISM_PATTERNS.
+    test("flags the live turn-133 phrasing: 'N in a row, while... the one remaining difference'", () => {
+      const text = `Still hangs — three tray-spawned instances in a row, while shell-spawned works. Checking the one remaining structural difference: the tray daemon's working directory.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.matchedPhrases.length).toBeGreaterThan(0);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    test("flags the spec-encoded generalization: 'tray-spawned daemons hang, shell-spawned work'", () => {
+      const text = `Root cause: the widget hangs in the tray-spawned daemon but works in the shell-spawned one — every time the daemon is tray-spawned it hangs, while shell-spawned daemons never do. The one remaining difference between the two is the process environment the daemon inherits from its spawner.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    test("does NOT flag the same A/B language when backed by a same-turn tool call", () => {
+      const text = `Still hangs — three tray-spawned instances in a row, while shell-spawned works. Checking the one remaining structural difference: the tray daemon's working directory.`;
+      const toolUseNames = ["Bash"];
+
+      const result = detectCausalPremise(text, toolUseNames);
+
+      expect(result.matched).toBe(false);
+      expect(result.hadSameTurnVerification).toBe(true);
+    });
+
+    // R1 review finding: no test asserted the mechanism-proximity gate still
+    // applies to the new inductive/correlational category — i.e. the phrase
+    // shape alone is not sufficient; a mechanism term must co-occur within
+    // 500 chars, exactly like RETRODICTIVE_PATTERNS/FORWARD_PATTERNS.
+    test("does NOT flag A/B phrasing with no mechanism term in proximity", () => {
+      const text = `Three attempts in a row failed, while the fourth succeeded. The one remaining difference was the time of day I ran them.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(false);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    // R1 review finding: claimed the `working director(y|ies)` mechanism
+    // pattern "matches plural 'directories' but not possessive/singular
+    // variants used in tests/docs". Verified against the actual regex
+    // (`bun -e` against the compiled MECHANISM_PATTERNS export) before
+    // responding — per check-premise, the cheapest falsifier is running the
+    // regex, not re-reading it — and the possessive/singular form already
+    // matches (`\bworking\s+director(?:y|ies)\b` covers "directory" via the
+    // `y` alternative same as "directories" via `ies`; `\b` does not require
+    // the preceding token to be non-possessive). This is a VERIFIED FALSE
+    // POSITIVE, not a regex bug — encoded here as an explicit assertion
+    // (rather than only the incidental coverage in the turn-133 replay
+    // above) so the claim cannot recur ambiguously.
+    test("mechanism proximity matches the possessive singular 'daemon's working directory' form", () => {
+      const text = `The one remaining difference is the tray daemon's working directory.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
     });
   });
 });

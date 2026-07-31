@@ -11,8 +11,10 @@ import {
   formatAge,
   formatDispatchWatchdogState,
   readCache,
+  RECOGNIZED_ACTIVITY_SOURCES,
   type DispatchWatchdogCacheRecord,
 } from "./inject-dispatch-watchdog";
+import { DISPATCH_WATCHDOG_ACTIVITY_SOURCES } from "../../src/cockpit/dispatch-watchdog";
 
 const NOW = "2026-07-07T12:00:00.000Z";
 
@@ -37,6 +39,7 @@ function flag(over: Partial<DispatchWatchdogCacheRecord["flags"][number]> = {}) 
     startedAt: "2026-07-07T11:00:00.000Z",
     lastActivityAt: "2026-07-07T11:00:00.000Z",
     staleForMs: 60 * 60 * 1000,
+    activitySource: "dispatch-start" as const,
     ...over,
   };
 }
@@ -89,6 +92,39 @@ describe("parseDispatchWatchdogCache", () => {
     const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
     expect(rec?.flags[0]?.subagentSessionId).toBeNull();
   });
+
+  // mt#3172: a cache file written by a producer build that predates the
+  // activitySource field (rollout window) must not drop the whole flag.
+  test("normalizes a missing activitySource to 'dispatch-start'", () => {
+    const raw = { ...flag() };
+    delete (raw as Record<string, unknown>).activitySource;
+    const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
+    expect(rec?.flags[0]?.activitySource).toBe("dispatch-start");
+  });
+
+  test("preserves a recognized non-default activitySource", () => {
+    const rec = parseDispatchWatchdogCache(
+      JSON.stringify(cacheAt([flag({ activitySource: "presence" })]))
+    );
+    expect(rec?.flags[0]?.activitySource).toBe("presence");
+  });
+
+  // mt#3193: "workspace-mtime" must be preserved, not normalized away — an
+  // operator reading the banner needs to see the NEW signal name, not have
+  // it silently collapse to "dispatch-start" (which would misreport WHY a
+  // dispatch was flagged healthy/stale).
+  test("preserves the mt#3193 'workspace-mtime' activitySource", () => {
+    const rec = parseDispatchWatchdogCache(
+      JSON.stringify(cacheAt([flag({ activitySource: "workspace-mtime" })]))
+    );
+    expect(rec?.flags[0]?.activitySource).toBe("workspace-mtime");
+  });
+
+  test("normalizes an unrecognized activitySource value to 'dispatch-start'", () => {
+    const raw = { ...flag(), activitySource: "not-a-real-source" };
+    const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
+    expect(rec?.flags[0]?.activitySource).toBe("dispatch-start");
+  });
 });
 
 describe("formatAge", () => {
@@ -125,17 +161,37 @@ describe("formatDispatchWatchdogState", () => {
     expect(out).toMatch(/session-1/);
   });
 
-  test("points at the probe (session.status probe=true) and the resume protocol", () => {
+  test("points at tasks.dispatch-recover (mt#2831) and the /orchestrate resume protocol", () => {
     const out = formatDispatchWatchdogState(cacheAt([flag()]));
-    expect(out).toMatch(/session\.status/);
-    expect(out).toMatch(/probe=true/);
+    expect(out).toMatch(/tasks\.dispatch-recover/);
+    expect(out).toMatch(/continuationPrompt/);
     expect(out).toMatch(/orchestrate/);
-    expect(out).toMatch(/SendMessage-resume/);
+    expect(out).toMatch(/escalate/);
   });
 
   test("a missing subagentSessionId renders a readable placeholder, not 'null'", () => {
     const out = formatDispatchWatchdogState(cacheAt([flag({ subagentSessionId: null })]));
     expect(out).toMatch(/\(no session id\)/);
+  });
+
+  // mt#3172 AT3: the banner names the freshest signal consulted per flagged
+  // dispatch (parity with tasks.dispatch-recover's activitySource field).
+  test("AT3: the banner names the flag's activitySource", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "presence" })]));
+    expect(out).toMatch(/source=presence/);
+  });
+
+  test("AT3: a dispatch-start-only flag names 'dispatch-start' as its source", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "dispatch-start" })]));
+    expect(out).toMatch(/source=dispatch-start/);
+  });
+
+  // mt#3193: the banner names the new workspace-mtime signal too — an
+  // operator seeing this flag knows a non-MCP file write, not a commit or
+  // MCP tool call, was the freshest evidence.
+  test("mt#3193: the banner names the flag's 'workspace-mtime' activitySource", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "workspace-mtime" })]));
+    expect(out).toMatch(/source=workspace-mtime/);
   });
 
   test("multiple flags each get their own line", () => {
@@ -193,5 +249,28 @@ describe("readCache (R1 non-blocking #1: missing vs malformed distinction)", () 
 
     const result = readCache(path);
     expect(result.kind).toBe("malformed");
+  });
+});
+
+// PR #2307 R1 non-blocking: this hook duplicates the producer's
+// DispatchWatchdogActivitySource union as its own
+// DispatchWatchdogActivitySourceRecord (module-graph-isolation convention —
+// see this file's own header comment on why it can't just import the type).
+// A TS union has no runtime representation to diff automatically, so this
+// test cross-imports each side's runtime-reflectable const array and
+// asserts SET EQUALITY — the mechanical guard against exactly the drift
+// that produced the original bug this PR fixes (this hook silently
+// normalized "workspace-mtime" to "dispatch-start" before the mt#3193 fix
+// landed, because it simply didn't know the new value existed).
+describe("activitySource vocabulary parity with the producer (PR #2307 R1 non-blocking)", () => {
+  test("RECOGNIZED_ACTIVITY_SOURCES (hook) matches DISPATCH_WATCHDOG_ACTIVITY_SOURCES (producer) exactly", () => {
+    const hookSet = new Set<string>(RECOGNIZED_ACTIVITY_SOURCES);
+    const producerSet = new Set<string>(DISPATCH_WATCHDOG_ACTIVITY_SOURCES);
+
+    const missingFromHook = [...producerSet].filter((v) => !hookSet.has(v));
+    const missingFromProducer = [...hookSet].filter((v) => !producerSet.has(v));
+
+    expect(missingFromHook).toEqual([]);
+    expect(missingFromProducer).toEqual([]);
   });
 });

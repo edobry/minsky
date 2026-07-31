@@ -49,8 +49,10 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
 } from "../schemas/session";
-import type { SessionStartParameters, SessionUpdateParameters } from "../schemas";
+import type { SessionUpdateParameters } from "../schemas";
 import type { SessionPRParameters } from "../schemas";
+import type { SessionStartParametersWithIntent } from "./start-session-operations";
+import type { SessionLaunchIntent } from "./session-startability";
 
 /**
  * The superset of all dependencies needed by any session operation.
@@ -114,7 +116,12 @@ export class SessionService {
   /**
    * Start a new session.
    */
-  async start(params: SessionStartParams): Promise<Session> {
+  async start(
+    params: SessionStartParams & {
+      /** mt#2986: domain-only launch intent — not part of the MCP-facing schema. */
+      launchIntent?: SessionLaunchIntent;
+    }
+  ): Promise<Session> {
     const sessionStartParams = {
       sessionId: params.sessionId,
       task: params.task,
@@ -128,7 +135,8 @@ export class SessionService {
       debug: false,
       format: "text" as const,
       force: false,
-    } as SessionStartParameters;
+      launchIntent: params.launchIntent,
+    } as SessionStartParametersWithIntent;
 
     return startSessionImpl(sessionStartParams, {
       sessionDB: this.deps.sessionProvider,
@@ -142,6 +150,15 @@ export class SessionService {
 
   /**
    * Delete a session.
+   *
+   * NOTE (mt#3105): the live-actor gate inside `deleteSessionImpl` reads
+   * presence claims via an optional persistence provider. `SessionDeps`
+   * deliberately excludes persistence (adapter-composition concern — see
+   * `registerSessionCommands`'s `getOptionalPersistenceProvider`), so THIS
+   * path runs the gate without a provider and fail-closes (refuses) for
+   * non-terminal sessions unless an overrideReason is supplied. The
+   * production delete path (`session.delete` command) calls
+   * `deleteSessionImpl` directly with the provider wired.
    */
   async delete(params: SessionDeleteParams): Promise<DeleteSessionResult> {
     return deleteSessionImpl(params, {
@@ -314,13 +331,17 @@ export class SessionService {
   async cleanup(params: {
     sessionId: string;
     taskId?: string;
-    force?: boolean;
     dryRun?: boolean;
+    /** mt#3021 SC2 + mt#3104: git-state guard + liveness gate override — see cleanupSessionImpl. */
+    overrideReason?: string;
   }): Promise<{
     sessionDeleted: boolean;
     directoriesRemoved: string[];
     errors: string[];
   }> {
-    return cleanupSessionImpl(params, { sessionDB: this.deps.sessionProvider });
+    return cleanupSessionImpl(params, {
+      sessionDB: this.deps.sessionProvider,
+      gitService: this.deps.gitService,
+    });
   }
 }

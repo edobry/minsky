@@ -151,9 +151,12 @@ jobs:
       - name: Apply migrations to production
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
-          # Same canonical connection var the minsky-mcp service uses
-          # (infra/index.ts: MINSKY_PERSISTENCE_POSTGRES_URL ← sealed
-          # 'minsky-persistence-postgres-url'), stored here as a repo secret.
+          # mt#2542 least-privilege split: this repo secret holds the DDL-capable
+          # `postgres` migration credential — the ONLY CI-stored DDL credential.
+          # Deliberately DIFFERENT from the runtime services' sealed var (same
+          # env-var NAME, but the services connect as the DML-only `minsky_app`
+          # role — infra/index.ts: sealed 'minsky-app-postgres-url';
+          # scripts/supabase-app-role.sql).
           # mt#2439: the bundle reads MINSKY_PERSISTENCE_POSTGRES_URL — NOT
           # MINSKY_POSTGRES_URL/DATABASE_URL — or it silently targets the wrong DB.
           #

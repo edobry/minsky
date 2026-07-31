@@ -17,6 +17,7 @@ import { createTaskFromTitleAndSpec } from "./commands/mutation-commands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskServiceInterface } from "./taskService";
 import { TEST_ENTITIES } from "../../../../src/utils/test-utils/test-constants";
+import { ValidationError } from "../errors/index";
 
 import path from "path";
 
@@ -622,6 +623,72 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const result = await listTasksFromParams(params, mockDeps as any);
       expect(result).toEqual([first(mockTasks), elementAt(mockTasks, 1)]);
+    });
+
+    test("mt#2762: forwards a valid kind filter to taskService.listTasks (server-side)", async () => {
+      const params = {
+        all: true,
+        kind: "umbrella",
+        json: false,
+      };
+
+      const listTasksMock = mock(() => Promise.resolve([]));
+      const mockTaskService = {
+        getTask: async () => null,
+        listTasks: listTasksMock,
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "minsky",
+        createTaskFromTitleAndSpec: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+      };
+
+      const mockDeps = {
+        resolveRepoPath: async (options: any) => testWorkspacePath,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
+      };
+
+      await listTasksFromParams(params, mockDeps as any);
+
+      // The kind filter must reach taskService.listTasks — filtering happens
+      // server-side in the backend query, not post-hoc in the adapter (mt#2762).
+      expect(listTasksMock).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "umbrella", all: true })
+      );
+    });
+
+    test("mt#2762: an unknown kind is rejected with a ValidationError naming valid kinds", async () => {
+      const params = {
+        all: true,
+        kind: "not-a-real-kind",
+        json: false,
+      };
+
+      const listTasksMock = mock(() => Promise.resolve([]));
+      const mockTaskService = {
+        getTask: async () => null,
+        listTasks: listTasksMock,
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "minsky",
+        createTaskFromTitleAndSpec: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+      };
+
+      const mockDeps = {
+        resolveRepoPath: async (options: any) => testWorkspacePath,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
+      };
+
+      await expect(listTasksFromParams(params, mockDeps as any)).rejects.toBeInstanceOf(
+        ValidationError
+      );
+      // Rejected before ever reaching the backend query.
+      expect(listTasksMock).not.toHaveBeenCalled();
     });
   });
 

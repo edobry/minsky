@@ -1,0 +1,163 @@
+#!/usr/bin/env bun
+/**
+ * Truncation-safe, fail-closed unit-test gate for local git hooks (mt#2716).
+ *
+ * Runs the same two test steps CI runs (.github/workflows/ci.yml), in sequence:
+ *   1. scripts/run-tests-main.ts — explicit file list that EXCLUDES src/mcp (the
+ *      `bun test` 1.2.21 truncation trigger; see docs/testing-patterns.md and
+ *      mt#2665). Its combined output is gated fail-CLOSED on the completion
+ *      summary line + "<N> fail" count via `evaluateBunTestSummary`.
+ *   2. scripts/run-tests-mcp-isolated.ts — each src/mcp file in its own process;
+ *      SELF-gates on the per-file summary (non-zero exit on a missing summary),
+ *      so here we only check its exit code.
+ *
+ * This is the local sibling of ci.yml's "Test" + "Test (src/mcp, isolated)"
+ * steps — kept aligned so the pre-push hook and CI apply the SAME fail-closed
+ * discipline: a silently-truncated run (exit 0, no completion summary) can never
+ * pass. Wired into .husky/pre-push (mt#2716).
+ *
+ * It is deliberately NOT run in pre-commit: a ~4.3-min per-commit gate is the
+ * well-documented "slow hook → developers --no-verify it → worse than no hook"
+ * anti-pattern, so the full suite runs at push time (this script) + CI
+ * (authoritative). Pre-commit keeps only fast static checks.
+ *
+ * Exit code: 0 only if BOTH steps pass; non-zero (with a diagnostic on stderr)
+ * otherwise.
+ */
+
+/**
+ * Strip ANSI escape sequences (bun's colorized reporter output) before the
+ * line-anchored parsing below. Bun colorizes its summary lines (e.g.
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`) whenever the child process inherits a
+ * `FORCE_COLOR`-set environment — which `Bun.spawnSync({ env: { ...process.env } })`
+ * does unconditionally, regardless of whether the child's stdout is a real
+ * TTY. Claude Code agent sessions set `FORCE_COLOR=3` in their ambient shell
+ * env, so every commit/push from such a session inherited colorized output
+ * here. The anchored per-line regexes below (`^ *\d+ fail$`, etc.) never
+ * matched a colorized line — the leading/trailing escape codes defeat `^`/`$`
+ * — which fail-closed EVERY run in that environment regardless of actual
+ * pass/fail (mt#3075, found while committing an unrelated change). Stripping
+ * first makes the parser agnostic to whether the child process was
+ * colorized; a no-op on already-plain output (CI, non-color terminals).
+ */
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  formatWatchdogTimeout,
+  WATCHDOG_BUDGETS_MS,
+} from "./spawn-with-watchdog";
+
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+}
+
+/**
+ * Fail-closed gate over a `bun test` run's combined stdout+stderr, mirroring
+ * ci.yml's "Test" step. `bun test` 1.2.21 can silently truncate — exit 0 with no
+ * completion summary — so exit code alone is not a trustworthy pass signal. A run
+ * counts as passing ONLY when all hold:
+ *   - the completion summary line ("Ran N tests across M file(s)") is present,
+ *   - the "<N> fail" summary line is present, parseable, and reports 0, and
+ *   - the process exit code is 0.
+ * A missing/unparseable summary is treated as FAILURE (fail-closed) regardless of
+ * exit code — that is exactly the silent-truncation signature. "files?" is
+ * load-bearing: bun prints singular "1 file" for a single-file run. "tests?"
+ * (mt#3014 finding) is equally load-bearing: bun independently pluralizes the
+ * test count too -- a run with exactly one test prints "Ran 1 test across ..."
+ * (singular, no trailing s), confirmed empirically against the pinned bun
+ * 1.2.21; the original pattern required a literal "tests" and would have
+ * fail-closed a genuinely-passing single-test run. Kept aligned with ci.yml's
+ * grep logic.
+ *
+ * ANSI-stripped via `stripAnsi` before line-matching (mt#3075 / mt#3078 —
+ * fixed independently on two branches; this is the reconciled single copy).
+ */
+export function evaluateBunTestSummary(
+  rawOutput: string,
+  exitCode: number
+): { ok: boolean; reason: string } {
+  const clean = stripAnsi(rawOutput);
+  if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
+    return {
+      ok: false,
+      reason:
+        'no completion summary ("Ran N tests across M files") — the run may have silently ' +
+        "truncated (see docs/testing-patterns.md); treating as failure (fail-closed) regardless " +
+        `of exit code (${exitCode})`,
+    };
+  }
+  // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
+  const failLine = clean
+    .split("\n")
+    .reverse()
+    .find((line) => /^ *\d+ fail$/.test(line));
+  if (!failLine) {
+    return {
+      ok: false,
+      reason:
+        'completion summary present but the "<N> fail" line could not be found — refusing to ' +
+        "assume 0 failures (fail-closed)",
+    };
+  }
+  const failMatch = failLine.match(/\d+/);
+  if (!failMatch) {
+    return {
+      ok: false,
+      reason: `"<N> fail" line found ("${failLine.trim()}") but its count could not be parsed — refusing to assume 0 failures (fail-closed)`,
+    };
+  }
+  const failCount = Number.parseInt(failMatch[0], 10);
+  if (failCount > 0) {
+    return { ok: false, reason: `bun test reported ${failCount} failing test(s)` };
+  }
+  if (exitCode !== 0) {
+    return {
+      ok: false,
+      reason: `bun test exited ${exitCode} despite a clean summary — treating as failure`,
+    };
+  }
+  return { ok: true, reason: "" };
+}
+
+/**
+ * Run one runner script as a child `bun` process, capturing its combined output
+ * (for gating) while re-emitting it so the invoking hook still shows the test
+ * output. AGENT=1 keeps bun's reporter in clean non-interactive mode.
+ */
+async function runStep(script: string): Promise<{ exitCode: number; combined: string }> {
+  // mt#3156: async spawn under a wall-clock watchdog. `Bun.spawnSync` blocks the
+  // JS thread, so no timer could fire to escalate SIGTERM -> SIGKILL — and its
+  // own `timeout` option does not enforce (a SIGTERM-ignoring child runs to
+  // completion and is reported `exitCode: 0, success: true`). See
+  // scripts/spawn-with-watchdog.ts for the measurements.
+  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.GATED_STEP);
+  const result = await spawnWithWatchdog(["bun", script], {
+    budgetMs,
+    env: { AGENT: "1" },
+  });
+  if (result.timedOut) {
+    console.error(`\n::error::${formatWatchdogTimeout(script, budgetMs, result)}`);
+  }
+  return { exitCode: result.exitCode, combined: `${result.stdout}\n${result.stderr}` };
+}
+
+if (import.meta.main) {
+  console.log("→ Main suite (scripts/run-tests-main.ts, src/mcp excluded)...");
+  const main = await runStep("scripts/run-tests-main.ts");
+  const gate = evaluateBunTestSummary(main.combined, main.exitCode);
+  if (!gate.ok) {
+    console.error(`\nrun-tests-gated.ts: main suite FAILED (fail-closed): ${gate.reason}`);
+    process.exit(1);
+  }
+
+  console.log("\n→ src/mcp (scripts/run-tests-mcp-isolated.ts, per-file isolation)...");
+  const mcp = await runStep("scripts/run-tests-mcp-isolated.ts");
+  if (mcp.exitCode !== 0) {
+    console.error(`\nrun-tests-gated.ts: src/mcp isolated runner FAILED (exit ${mcp.exitCode}).`);
+    process.exit(1);
+  }
+
+  console.log("\nrun-tests-gated.ts: all test steps passed.");
+  process.exit(0);
+}

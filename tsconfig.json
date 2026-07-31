@@ -44,6 +44,15 @@
     "node_modules",
     "dist",
     "build",
+    // "scripts" is a DELIBERATE exclusion, not an oversight: it has its own
+    // dedicated tsconfig.scripts.json (mirroring tsconfig.hooks.json's
+    // pattern for .claude/hooks) and CI typecheck step, so a script file
+    // reachable via import from something under "include" above isn't
+    // double-checked here under a different (non-"bun","node") types config.
+    // History: mt#3082 fixed 15 known errors and rejected adding this
+    // dedicated project in its own scope (a probe surfaced ~180 latent
+    // errors across ~43 files, including errors outside scripts/ entirely);
+    // mt#3088 paid down that debt and added tsconfig.scripts.json.
     "scripts",
     "src/scripts",
     "src/cockpit/web",

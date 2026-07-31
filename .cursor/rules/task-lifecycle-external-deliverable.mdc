@@ -68,7 +68,9 @@ Use `READY → DONE` with closeout evidence when:
 
 Do **not** use this path when:
 - A PR was merged — the standard `session_pr_merge` path sets `DONE` atomically
-- The task is an umbrella/epic — those use `COMPLETED` (not `DONE`) via the `kind: "umbrella"` workflow
+- The task is an umbrella/epic — those have no `READY` state at all and reach `DONE` via the
+  `kind: "umbrella"` workflow's own direct `IN-PROGRESS → DONE` transition (children-completeness
+  gated in `mutation-commands.ts`), not this path (single terminal `DONE` across all kinds, mt#2311)
 - The task is still in progress — `READY` is the gate, not a free-pass to `DONE`
 
 ## Retroactive closeout for pre-existing tasks

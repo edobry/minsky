@@ -1,35 +1,60 @@
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { assertKnownKind } from "@minsky/domain/tasks/workflows";
+import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
+import { resolveProjectIdentity } from "@minsky/domain/project/identity";
+import { resolveProjectScope } from "@minsky/domain/project/scope-resolver";
+import { log } from "@minsky/shared/logger";
 
-interface TasksSimilarParams extends BaseTaskParams {
-  taskId: string;
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-  backend?: string;
-  status?: string;
-  all?: boolean;
+/**
+ * Resolve the current project scope for tasks_similar / tasks_search (ADR-021,
+ * mt#2939) — mirrors listTasksFromParams' resolution in packages/domain/src/tasks.ts
+ * (mt#2416), reused here since TaskSimilarityService's constructor takes a
+ * `persistenceProvider` directly rather than a CommandExecutionContext.
+ *
+ * Returns ALL_PROJECTS when: the caller passed `allProjects: true`, the project
+ * identity is unresolved, the persistence provider has no SQL capability, or
+ * resolution otherwise fails. Never throws (fail-open, per ADR-021 §Decision).
+ */
+async function resolveTaskSimilarityProjectScope(
+  allProjects: boolean | undefined,
+  persistenceProvider: import("@minsky/domain/persistence/types").PersistenceProvider
+): Promise<ProjectScope> {
+  if (allProjects) return ALL_PROJECTS;
+
+  try {
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return ALL_PROJECTS;
+    if (
+      !persistenceProvider ||
+      !persistenceProvider.capabilities.sql ||
+      typeof persistenceProvider.getDatabaseConnection !== "function"
+    ) {
+      return ALL_PROJECTS;
+    }
+    // Cast to the SQL-capable interface (mirrors packages/domain/src/tasks.ts's
+    // listTasksFromParams, mt#2416): the base PersistenceProvider class types
+    // getDatabaseConnection() as Promise<unknown> since subclasses return
+    // different concrete DB types; SqlCapablePersistenceProvider narrows it to
+    // the PostgresJsDatabase shape resolveProjectScope's ScopeResolverDb needs.
+    const sqlProvider =
+      persistenceProvider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return ALL_PROJECTS;
+    return await resolveProjectScope(identity, db);
+  } catch (err) {
+    log.debug("[tasks.similar] Project scope resolution failed; defaulting to ALL_PROJECTS", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return ALL_PROJECTS;
+  }
 }
 
-interface TasksSearchParams extends BaseTaskParams {
-  query: string;
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-  backend?: string;
-  status?: string;
-  all?: boolean;
-}
-
-export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
+export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarParams> {
   readonly id = "tasks.similar";
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
@@ -112,13 +137,52 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     return enhanced;
   }
 
-  async execute(params: TasksSimilarParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksSimilarParams>, ctx: CommandExecutionContext) {
     const taskId = this.validateRequired(params.taskId, "taskId");
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
+    // mt#3305: the filter surface is identical to tasks.search; the DEFAULT is
+    // deliberately the opposite, and this is the one place that difference lives.
+    //
+    // tasks.search answers "what's out there about X?" — a browse, so it hides
+    // DONE/CLOSED by default. tasks.similar answers "does this already exist?" —
+    // a duplicate check, where an already-SHIPPED task is the single most
+    // valuable answer it can give. Excluding terminal statuses here defeats the
+    // command's entire purpose, and did: mt#3290 and mt#3352 were both filed as
+    // duplicates of tasks that were the nearest neighbour in the index but
+    // invisible because they were DONE.
+    //
+    // So no `statusExclude` is set. An explicit `--status` still narrows; `--all`
+    // exists for surface parity (a param must not be live on one door and absent
+    // on the other) and is a no-op here, because including everything is already
+    // what this command does.
+    //
+    // `--status` is honoured REGARDLESS of `--all` (PR #2434 R1, non-blocking).
+    // tasks.search guards its status filter with `!showAll` because there `--all`
+    // has real work to do — it suppresses the default `statusExclude`. Here it has
+    // none, so copying that guard would let a no-op flag silently cancel a filter
+    // the caller explicitly asked for. Passing both is contradictory; narrowing to
+    // the requested status is the readable resolution.
+    const filters: Record<string, unknown> = {};
+    if (params.backend) {
+      filters.backend = params.backend;
+    }
+    if (params.kind) {
+      filters.kind = params.kind;
+    }
+    if (params.status) {
+      filters.status = params.status;
+    }
+
+    // ADR-021 / mt#2939: resolve project scope for this similarity query.
+    const projectScope = await resolveTaskSimilarityProjectScope(
+      params.allProjects,
+      this.getPersistenceProvider()
+    );
+
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
-    const response = await service.similarToTask(taskId, limit, threshold);
+    const response = await service.similarToTask(taskId, limit, threshold, projectScope, filters);
 
     // Enhance results with task details for better usability
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
@@ -127,6 +191,9 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     if (response.degraded) {
       try {
         const { log } = await import("@minsky/shared/logger");
+        // mt#2795: `quiet` is now a DECLARED param (parity with tasks.search),
+        // resolving the gap mt#2779 documented when it removed the prior ghost
+        // read of the then-undeclared key.
         const quiet = Boolean(params.quiet);
         const json = Boolean(params.json) || ctx.format === "json";
         if (!quiet && !json) {
@@ -156,7 +223,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   }
 }
 
-export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
+export class TasksSearchCommand extends BaseTaskCommand<typeof tasksSearchParams> {
   readonly id = "tasks.search";
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
@@ -239,10 +306,14 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     return enhanced;
   }
 
-  async execute(params: TasksSearchParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksSearchParams>, ctx: CommandExecutionContext) {
     const query = this.validateRequired(params.query, "query");
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
+
+    // Validate kind against the workflow registry up front (mt#2762), mirroring
+    // tasks_list / tasks_edit — a typo must not silently return zero results.
+    assertKnownKind(params.kind);
 
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
 
@@ -288,6 +359,11 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       filters.backend = params.backend;
     }
 
+    // Add workflow-kind filter if provided (mt#2762)
+    if (params.kind) {
+      filters.kind = params.kind;
+    }
+
     // Add status filter if provided and not showing all
     const showAll = Boolean(params.all);
     if (params.status && !showAll) {
@@ -298,7 +374,13 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
-    const response = await service.searchByText(query, limit, threshold, filters);
+    // ADR-021 / mt#2939: resolve project scope for this search query.
+    const projectScope = await resolveTaskSimilarityProjectScope(
+      params.allProjects,
+      this.getPersistenceProvider()
+    );
+
+    const response = await service.searchByText(query, limit, threshold, filters, projectScope);
 
     // Show backend info to stderr unless JSON/quiet
     try {
@@ -373,7 +455,29 @@ export async function createTaskSimilarityService(
   ).getVectorStorageForDomain("tasks", dimension);
 
   const findTaskById = async (id: string) => taskService.getTask(id);
-  const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
+  // mt#2939: forward the caller-resolved projectScope (if any) into the live
+  // tasks-table read — this is what closes the cross-project leak on both the
+  // fast-path (similarToTask / no-filter searchByText) and filtered-path callers.
+  //
+  // mt#3305: `all: true` is load-bearing, not cosmetic. Every consumer of this
+  // function inside TaskSimilarityService is a LIVENESS / SCOPE cross-check —
+  // `applyProjectScope`'s id-set, `searchByText`'s `taskById` map, and the
+  // lexical backend's candidate list — none of which wants status filtering.
+  // Without it, `listTasks` applies its own default (hide DONE/CLOSED, see
+  // task-filters.ts `shouldIncludeTaskStatus`), so a terminal task's vector match
+  // resolved to `undefined` in `taskById` and was discarded by the
+  // `if (!task) return false` branch whose comment says "orphaned embedding" —
+  // i.e. shipped tasks were dropped as if they had no live row at all.
+  //
+  // That single default caused both observed defects: `tasks_similar` returned 0
+  // for any task whose neighbourhood was terminal (measured: mt#3271's ten nearest
+  // neighbours are all DONE/CLOSED, so it returned nothing while SQL showed them at
+  // distance 0.12-0.18), and `tasks_search --all` appeared to do nothing, because
+  // dropping `statusExclude` cannot help a task that never entered the map. Status
+  // filtering now happens ONLY where it is written down — `passes()` below and the
+  // per-command defaults — instead of being inherited from a listing default.
+  const searchTasks = async (opts: { text?: string; projectScope?: ProjectScope }) =>
+    taskService.listTasks({ projectScope: opts?.projectScope, all: true });
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
   const service = new TaskSimilarityService(

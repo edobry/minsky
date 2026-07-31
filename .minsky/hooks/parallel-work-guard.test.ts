@@ -20,6 +20,12 @@ import {
 } from "./parallel-work-guard";
 import type { ToolHookInput } from "./types";
 
+// mt#2811 (PR #1953 review 4708851338 R1 — max-lines): the extractor
+// contract test, fallback-chain tests, shouldReportAsGuardDegraded tests,
+// resolveInScopeFiles tests, and buildTasksChildrenArgv test moved to
+// ./parallel-work-guard-extraction.test.ts to keep this file under the
+// 1500-line ESLint max-lines threshold. See that file for those suites.
+
 // ---------------------------------------------------------------------------
 // Shared test fixtures (extracted to avoid magic-string duplication warnings)
 // ---------------------------------------------------------------------------
@@ -305,6 +311,22 @@ describe("formatBlockMessage", () => {
     ];
     const msg = formatBlockMessage("mt#1068", collisions);
     expect(msg).toContain("MINSKY_FORCE_PARALLEL=1");
+  });
+
+  it("names both override channels: env var AND mid-session grant issuance (mt#1637)", () => {
+    const collisions: ParallelWorkCollision[] = [
+      {
+        type: "open-pr",
+        prNumber: 788,
+        prTitle: "some PR",
+        overlappingFiles: ["src/foo.ts"],
+      },
+    ];
+    const msg = formatBlockMessage("mt#1068", collisions);
+    expect(msg).toContain("scripts/grant-guard-override.ts");
+    expect(msg).toContain("--guard parallel-work-open-pr");
+    expect(msg).toContain("--scope mt#1068");
+    expect(msg).toContain("--reason");
   });
 
   it("includes recommended actions", () => {

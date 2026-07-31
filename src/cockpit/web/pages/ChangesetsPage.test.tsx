@@ -17,6 +17,7 @@ import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ChangesetsPage } from "./ChangesetsPage";
+import { ProjectProvider } from "../lib/project-context";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 
 // ---------------------------------------------------------------------------
@@ -48,12 +49,16 @@ function renderChangesetsPage(onLocation?: (path: string) => void) {
   return render(
     <MemoryRouter initialEntries={["/changesets"]}>
       <QueryClientProvider client={queryClient}>
-        <Routes>
-          <Route path="/changesets" element={<ChangesetsPage />} />
-          {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
-          <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
-        </Routes>
-        {onLocation && <LocationCapture onLocation={onLocation} />}
+        <ProjectProvider>
+          <Routes>
+            <Route path="/changesets" element={<ChangesetsPage />} />
+            {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
+            <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
+            {/* Catch-all so the task-ID link's navigate("/tasks/:id") doesn't 404 */}
+            <Route path="/tasks/:id" element={<div data-testid="task-detail" />} />
+          </Routes>
+          {onLocation && <LocationCapture onLocation={onLocation} />}
+        </ProjectProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -85,6 +90,7 @@ const OPEN_CHANGESET = {
   },
   session: {
     sessionId: "aaa11111-0000-0000-0000-000000000001",
+    shortId: "ws#1",
     taskId: "mt#1920",
     taskTitle: "Changesets list page",
     status: "IN-PROGRESS",
@@ -112,6 +118,7 @@ const DRAFT_CHANGESET = {
   },
   session: {
     sessionId: "bbb22222-0000-0000-0000-000000000002",
+    shortId: "ws#2",
     taskId: "mt#9999",
     taskTitle: "Draft task",
     status: "IN-PROGRESS",
@@ -128,8 +135,41 @@ const DRAFT_CHANGESET = {
   },
 };
 
+// Active 10 days ago — outside both the 24h and 7d age-filter buckets.
+const OLD_CHANGESET = {
+  pr: {
+    number: 7,
+    url: "https://github.com/edobry/minsky/pull/7",
+    state: "open",
+    title: "feat(mt#7): stale changeset",
+    headBranch: "task/mt-7",
+    approved: false,
+  },
+  session: {
+    sessionId: "ccc33333-0000-0000-0000-000000000003",
+    shortId: "ws#3",
+    taskId: "mt#7",
+    taskTitle: "Old task",
+    status: "IN-PROGRESS",
+    liveness: "healthy" as const,
+    agentId: "cockpit-dev",
+    branch: "task/mt-7",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    lastActivityAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    lastCommitHash: "ghi9012",
+    lastCommitMessage: "feat: stale",
+    commitCount: 1,
+  },
+};
+
 const LIST_PAYLOAD: ChangesetsListResponse = {
   changesets: [OPEN_CHANGESET, DRAFT_CHANGESET],
+};
+
+const LIST_PAYLOAD_WITH_OLD: ChangesetsListResponse = {
+  changesets: [OPEN_CHANGESET, DRAFT_CHANGESET, OLD_CHANGESET],
 };
 
 const EMPTY_PAYLOAD: ChangesetsListResponse = { changesets: [] };
@@ -150,7 +190,7 @@ function mockChangesetsFetch(response: { status: number; body: unknown }) {
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 function mockChangesetsFetchError(errorMessage: string) {
@@ -160,7 +200,7 @@ function mockChangesetsFetchError(errorMessage: string) {
       return Promise.reject(new Error(errorMessage));
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +298,109 @@ describe("ChangesetsPage — row navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: task-ID link (mt#2561)
+// ---------------------------------------------------------------------------
+
+describe("ChangesetsPage — task ID link", () => {
+  test("clicking the task ID navigates to /tasks/:id and not to /changeset/:id", async () => {
+    mockChangesetsFetch({ status: 200, body: LIST_PAYLOAD });
+    let capturedPath = "/changesets";
+    renderChangesetsPage((path) => {
+      capturedPath = path;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("mt#1920")).toBeDefined();
+    });
+
+    const taskLink = screen.getByRole("link", { name: "mt#1920" }) as HTMLAnchorElement;
+    expect(taskLink.getAttribute("href")).toBe("/tasks/mt%231920");
+
+    fireEvent.click(taskLink);
+
+    await waitFor(() => {
+      expect(capturedPath).toBe("/tasks/mt%231920");
+    });
+    expect(capturedPath).not.toBe("/changeset/42");
+  });
+
+  test("does not render a task-ID link when taskId is null", async () => {
+    const noTaskChangeset = {
+      pr: { ...OPEN_CHANGESET.pr, number: 55 },
+      session: { ...OPEN_CHANGESET.session, sessionId: "ddd44444-0000-0000-0000-000000000004", taskId: null },
+    };
+    mockChangesetsFetch({
+      status: 200,
+      body: { changesets: [noTaskChangeset] } satisfies ChangesetsListResponse,
+    });
+    renderChangesetsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("#55")).toBeDefined();
+    });
+    expect(screen.queryByText("mt#1920")).toBeNull();
+    // No task-ID link rendered (only the GitHub link-out, if present)
+    const links = screen.queryAllByRole("link", { name: /^mt#/ });
+    expect(links.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: age filter (mt#2561)
+// ---------------------------------------------------------------------------
+
+describe("ChangesetsPage — age filter", () => {
+  test("defaults to showing changesets of any age", async () => {
+    mockChangesetsFetch({ status: 200, body: LIST_PAYLOAD_WITH_OLD });
+    renderChangesetsPage();
+    await waitFor(() => {
+      expect(screen.getByText(/3 active/)).toBeDefined();
+    });
+    expect(screen.getByText("feat(mt#7): stale changeset")).toBeDefined();
+  });
+
+  test("selecting 'last 24h' narrows out changesets older than 24h", async () => {
+    mockChangesetsFetch({ status: 200, body: LIST_PAYLOAD_WITH_OLD });
+    renderChangesetsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 active/)).toBeDefined();
+    });
+
+    const ageSelect = screen.getByLabelText("Filter by age");
+    // Radix opens on keydown (the DOM stub lacks pointer capture) and the
+    // options only mount while the panel is open.
+    fireEvent.keyDown(ageSelect, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Active in last 24h" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 active/)).toBeDefined();
+    });
+    expect(screen.queryByText("feat(mt#7): stale changeset")).toBeNull();
+    expect(screen.getByText("feat(mt#1920): changesets list page")).toBeDefined();
+    expect(screen.getByText("wip(mt#9999): draft changeset")).toBeDefined();
+  });
+
+  test("selecting 'last 7d' still narrows out a 10-day-old changeset", async () => {
+    mockChangesetsFetch({ status: 200, body: LIST_PAYLOAD_WITH_OLD });
+    renderChangesetsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 active/)).toBeDefined();
+    });
+
+    const ageSelect = screen.getByLabelText("Filter by age");
+    fireEvent.keyDown(ageSelect, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Active in last 7d" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 active/)).toBeDefined();
+    });
+    expect(screen.queryByText("feat(mt#7): stale changeset")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: empty state
 // ---------------------------------------------------------------------------
 
@@ -310,7 +453,7 @@ describe("ChangesetsPage — error state", () => {
 describe("ChangesetsPage — loading state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
     renderChangesetsPage();
     expect(screen.getByText(/loading changesets/i)).toBeDefined();
   });

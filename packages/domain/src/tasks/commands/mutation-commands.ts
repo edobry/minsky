@@ -3,16 +3,26 @@
  *
  * Interface-agnostic write operations: setStatus, update, create,
  * createFromTitleAndSpec, delete.
+ *
+ * Every function here is the canonical implementation the facade
+ * (`packages/domain/src/tasks.ts`) delegates to (mt#2704 precedent for
+ * setTaskStatusFromParams; mt#3190 consolidated the rest — updateTaskFromParams,
+ * createTaskFromParams, createTaskFromTitleAndSpec, deleteTaskFromParams). Both
+ * the CLI/MCP resolution path (`@minsky/domain/tasks` → `tasks/index.ts` →
+ * `../tasks.ts`, which delegates here) and the `taskCommands.ts` barrel
+ * terminate at these bodies. See `../../tasks.ts`'s header for the full
+ * cross-function delegation map.
  */
 
 import { z } from "zod";
+import { log } from "@minsky/shared/logger";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
   TaskServiceInterface,
 } from "../taskService";
 import type { Task } from "../types";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index";
+import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
@@ -24,12 +34,14 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
+import { assertKnownKind, isTerminal } from "../workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
   READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
 } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
+import type { TaskGraphService } from "../task-graph-service";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
 function requirePersistence(
@@ -55,6 +67,101 @@ type InjectedTaskServiceFactory = (
 ) => Promise<TaskServiceInterface>;
 
 /**
+ * Read a task's children via the injected `taskGraphService` and return the
+ * subset that are NOT terminal (per `isTerminal` — DONE/CLOSED),
+ * formatted as `id (STATUS)` strings. A child id the task service
+ * cannot resolve to a readable record is also treated as incomplete
+ * (`id (unreadable)`), since it can't be verified complete. Returns `[]` when
+ * the task has no children.
+ *
+ * Fails open on a read error (a thrown exception from `listChildren` or
+ * `getTasks` — e.g. a transient backend/network failure): logs a warning and
+ * returns `[]` (treated as "no incomplete children found") rather than
+ * propagating the exception and blocking an otherwise-legitimate status
+ * transition. This mirrors the fail-open defensive posture the original
+ * hook-based design called for (mt#1649 spec) and the existing mt#1504
+ * ride-along precedent in `setTaskStatusFromParams` — a read failure in the
+ * closeout guard should not become a harder failure mode than skipping the
+ * guard entirely.
+ *
+ * Core of the children-completeness closeout guard below,
+ * `assertChildrenCompleteForDone` (mt#1649, any kind → DONE — which since
+ * mt#2311's single-terminal collapse also covers umbrella closeout, formerly
+ * mt#2606's separate umbrella → COMPLETED guard).
+ */
+async function findIncompleteChildren(args: {
+  taskId: string;
+  taskService: Pick<TaskServiceInterface, "getTasks">;
+  taskGraphService: Pick<TaskGraphService, "listChildren">;
+}): Promise<string[]> {
+  const { taskId, taskService, taskGraphService } = args;
+  let childIds: string[];
+  try {
+    childIds = await taskGraphService.listChildren(taskId);
+  } catch (error) {
+    log.warn(
+      `[findIncompleteChildren] listChildren failed for ${taskId}; failing open (treating as no children): ${getErrorMessage(error)}`
+    );
+    return [];
+  }
+  if (childIds.length === 0) return [];
+  let children: Pick<Task, "id" | "status">[];
+  try {
+    children = await taskService.getTasks(childIds);
+  } catch (error) {
+    log.warn(
+      `[findIncompleteChildren] getTasks failed for children of ${taskId}; failing open (treating as no incomplete children): ${getErrorMessage(error)}`
+    );
+    return [];
+  }
+  const foundIds = new Set(children.map((c) => c.id));
+  return [
+    ...children.filter((c) => !isTerminal(c.status)).map((c) => `${c.id} (${c.status})`),
+    // A child id with no readable task record cannot be verified complete.
+    ...childIds.filter((id) => !foundIds.has(id)).map((id) => `${id} (unreadable)`),
+  ];
+}
+
+/**
+ * Parent-rollup-completion guard (mt#1649): refuses a transition to DONE on a
+ * task that HAS children while any child is non-terminal (terminal =
+ * DONE/CLOSED), naming the incomplete children. Applies to ALL task kinds —
+ * since mt#2311 collapsed the workflows to a single success terminal, this
+ * one guard also covers umbrella closeout (formerly mt#2606's separate
+ * umbrella → COMPLETED guard, deleted with that collapse). Childless tasks
+ * transitioning to DONE are unaffected, and the guard is a no-op when no
+ * `taskGraphService` is available (the MCP/CLI surfaces always inject one;
+ * direct domain callers without it keep prior behavior).
+ *
+ * Originating incident: mt#1503 was set DONE while its lynchpin child
+ * (mt#1073) sat at PLANNING. See `docs/task-kinds.md` "Parent-DONE guard"
+ * for the pinned regression shape.
+ */
+export async function assertChildrenCompleteForDone(args: {
+  taskId: string;
+  targetStatus: string;
+  taskService: Pick<TaskServiceInterface, "getTasks">;
+  taskGraphService?: Pick<TaskGraphService, "listChildren">;
+}): Promise<void> {
+  const { taskId, targetStatus, taskService, taskGraphService } = args;
+  if (targetStatus !== TaskStatus.DONE || !taskGraphService) {
+    return;
+  }
+  const incomplete = await findIncompleteChildren({ taskId, taskService, taskGraphService });
+  if (incomplete.length > 0) {
+    throw new ValidationError(
+      `Cannot set task ${taskId} to DONE: ${incomplete.length} child task(s) not terminal (DONE/CLOSED): ${incomplete.join(", ")}. Resolve one of:\n` +
+        `  1. Set the children to DONE (or CLOSED) first.\n` +
+        `  2. Amend the parent's success criteria if scope was reframed.\n` +
+        `  3. Walk the parent through CLOSED if the rollup is being abandoned.\n` +
+        `(mt#1649)`,
+      undefined,
+      undefined
+    );
+  }
+}
+
+/**
  * Set task status using the provided parameters
  */
 export async function setTaskStatusFromParams(
@@ -65,6 +172,7 @@ export async function setTaskStatusFromParams(
     createConfiguredTaskService?: InjectedTaskServiceFactory;
     persistenceProvider?: BasePersistenceProvider;
     resolveMainWorkspacePath?: () => Promise<string>;
+    taskGraphService?: Pick<TaskGraphService, "listChildren">;
   }
 ): Promise<void> {
   try {
@@ -118,22 +226,14 @@ export async function setTaskStatusFromParams(
       );
     }
 
-    // READY → DONE requires a ## Closeout evidence section with non-empty content.
-    // This path is for external-deliverable tasks that complete without a PR merge.
-    // See .minsky/rules/task-lifecycle-external-deliverable.mdc (or the compiled CLAUDE.md section) for the convention.
-    if (task.status === TaskStatus.READY && validParams.status === TaskStatus.DONE) {
-      let specContent = "";
-      try {
-        const specResult = await taskService.getTaskSpecContent(validParams.taskId);
-        specContent = specResult.content ?? "";
-      } catch {
-        // If spec cannot be read, treat as missing — the check will fail below.
-        specContent = "";
-      }
-      if (!hasCloseoutEvidence(specContent)) {
-        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
-      }
-    }
+    // Parent-rollup-completion guard (mt#1649; since mt#2311 also the umbrella
+    // closeout guard) — see assertChildrenCompleteForDone.
+    await assertChildrenCompleteForDone({
+      taskId: validParams.taskId,
+      targetStatus: validParams.status,
+      taskService,
+      taskGraphService: deps?.taskGraphService,
+    });
 
     // Pass task.kind so the gate dispatches to the right per-kind workflow (mt#1812).
     // task.kind defaults to "implementation" when unset (backward-compat).
@@ -142,6 +242,33 @@ export async function setTaskStatusFromParams(
       validParams.status as TaskStatus,
       task.kind
     );
+
+    // Evidence-gated DONE — runs AFTER validateStatusTransition so an illegal
+    // transition surfaces as an invalid-transition error, not a misleading
+    // missing-evidence error (PR #1937 R1). Two triggers:
+    //   - READY → DONE (any kind): the external-deliverable closeout path —
+    //     tasks that complete without a PR merge. See
+    //     .minsky/rules/task-lifecycle-external-deliverable.mdc (or the
+    //     compiled CLAUDE.md section) for the convention.
+    //   - state-ops → DONE (mt#455): a no-code/investigation task's deliverable
+    //     IS its findings — DONE requires a populated `## Closeout evidence`,
+    //     `## Findings`, or `## Outcome` section regardless of the from-status.
+    const evidenceGated =
+      validParams.status === TaskStatus.DONE &&
+      (task.status === TaskStatus.READY || task.kind === "state-ops");
+    if (evidenceGated) {
+      let specContent = "";
+      try {
+        const specResult = await taskService.getTaskSpecContent(validParams.taskId);
+        specContent = specResult?.content ?? "";
+      } catch {
+        // If spec cannot be read, treat as missing — the check will fail below.
+        specContent = "";
+      }
+      if (!hasCloseoutEvidence(specContent)) {
+        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
+      }
+    }
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
@@ -206,26 +333,59 @@ export async function updateTaskFromParams(
           });
     }
 
-    // Verify the task exists before updating
-    const existingTask = await taskService.getTask(qualifiedTaskId);
+    // No upfront `taskService.getTask` existence check here (mt#3190 R1):
+    // this function previously had one and this file's facade counterpart
+    // (`packages/domain/src/tasks.ts`) did not. Removed rather than kept,
+    // matching tasks.ts's pre-consolidation behavior — the live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`, `tests/adapters/mcp/task-edit-tools.test.ts`)
+    // call this via a taskService stub whose `getTask` always returns `null`
+    // (it validates existence separately via `getTaskSpecContentFromParams`,
+    // a different service method) while still expecting the update to
+    // succeed; keeping the check breaks that live path with a spurious
+    // ResourceNotFoundError. `taskService.updateTask` and the `!updatedTask`
+    // check below remain the source of truth for a genuinely missing task.
 
-    if (!existingTask || !existingTask.id) {
-      throw new ResourceNotFoundError(`Task ${qualifiedTaskId} not found`, "task", qualifiedTaskId);
-    }
-
-    // Prepare updates object
+    // Prepare updates object. `spec` MUST be applied here (mt#3190 Success
+    // Criterion 4): this function previously only forwarded `title`, silently
+    // dropping `params.spec` — the opposite-direction instance of the
+    // tasks.ts/commands split's "diverging copies" bug class. The live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`) call `updateTaskFromParams` via
+    // `@minsky/domain/tasks` with `spec` set on every invocation — now that
+    // the facade delegates here (mt#3190), a spec-drop would have made both
+    // tools silently no-op.
     const updates: Partial<Task> = {};
     if (params.title !== undefined) {
       updates.title = params.title;
     }
-
-    // Update the task
-    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
-
-    if (!updatedTask) {
-      throw new Error(`Failed to update task ${qualifiedTaskId}: updateTask returned no result`);
+    if (params.spec !== undefined) {
+      updates.spec = params.spec;
     }
-    return updatedTask;
+
+    // Update the task. No THROWING "falsy result" guard here (mt#3190 R1,
+    // same reasoning as the removed existence check above): the real
+    // `TaskServiceInterface.updateTask` always resolves `Promise<Task>`
+    // (`packages/domain/src/tasks/multi-backend-service.ts`), so a thrown
+    // guard here is unreachable on any real backend and only breaks
+    // lightweight test doubles (e.g. `tests/adapters/mcp/task-edit-tools.test.ts`'s
+    // mock, which returns `void`) — matching tasks.ts's pre-consolidation
+    // behavior of returning whatever `updateTask` resolves to, unguarded.
+    //
+    // The cast still needs to be honest about what it's asserting (PR #2326
+    // review, non-blocking): a silent `as Task` on a falsy result would hide
+    // a genuinely broken mock or backend behind a passing-looking return
+    // value with no signal anywhere. Log (not throw) when that happens, so
+    // the assumption is visible without reintroducing the throw that broke
+    // task-edit-tools.test.ts's intentionally-void mock.
+    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
+    if (!updatedTask) {
+      log.debug(
+        `[updateTaskFromParams] taskService.updateTask resolved falsy for ${qualifiedTaskId}; ` +
+          `returning it as-is rather than throwing (see the comment above this call).`
+      );
+    }
+    return updatedTask as Task;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -277,11 +437,17 @@ export async function createTaskFromParams(
           });
     }
 
+    // Validate kind against the workflow registry when provided. Invalid kinds are
+    // rejected up front rather than allowed to silently default at the backend layer
+    // (which would mask a typo as a successful default-to-implementation create).
+    assertKnownKind(validParams.kind);
+
     // Create the task from title and spec content
     const specContent = validParams.spec || validParams.description || "";
     const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
       force: validParams.force,
       tags: validParams.tags,
+      kind: validParams.kind,
       // Pass backend so the multi-backend service routes to the caller's requested backend
       // instead of silently using the wrong default when the preferred backend is down (mt#2572 Bug 4).
       backend: validParams.backend,
@@ -340,12 +506,17 @@ export async function createTaskFromTitleAndSpec(
         });
   }
 
+  // Validate kind against the workflow registry when provided.
+  assertKnownKind(validParams.kind);
+
   // Handle spec content - from spec string only
   const specContent = validParams.spec || "";
 
   // Create the task from title and spec
   const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
     force: validParams.force,
+    tags: validParams.tags,
+    kind: validParams.kind,
     // Forward backend so the multi-backend service routes to the caller's requested backend
     // on this command-layer path too (not just createTaskFromParams) — mt#2572 Bug 4, R1.
     backend: validParams.backend,

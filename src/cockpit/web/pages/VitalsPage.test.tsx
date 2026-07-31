@@ -150,7 +150,7 @@ function mockVitalsFetch(overrides: Record<string, () => Promise<Response>> = {}
     const handler = merged[pathname];
     if (handler) return handler();
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------

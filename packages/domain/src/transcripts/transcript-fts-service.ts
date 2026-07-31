@@ -26,9 +26,10 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
 import type { AgentSessionId } from "./transcript-source";
-import type {
-  TranscriptTurnResult,
-  TranscriptSessionMetadata,
+import {
+  buildResumeHint,
+  type TranscriptTurnResult,
+  type TranscriptSessionMetadata,
 } from "./transcript-similarity-service";
 
 // ── Re-export for convenience ─────────────────────────────────────────────────
@@ -57,6 +58,12 @@ export interface TranscriptFtsSearchOptions {
 export interface TranscriptGetSessionOptions {
   /** Return only turns in this inclusive index range. */
   turnRange?: { start: number; end: number };
+  /**
+   * Filter to turns by role (mt#2818): 'user' returns only turns with a
+   * non-null userText; 'assistant' returns only turns with a non-null
+   * assistantText. Mirrors the role filter already applied in searchText().
+   */
+  role?: "user" | "assistant";
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -121,6 +128,7 @@ export class TranscriptFtsService {
           score: rankExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -157,6 +165,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(`TranscriptFtsService.searchText: query failed: ${getErrorMessage(err)}`, {
@@ -186,6 +195,12 @@ export class TranscriptFtsService {
       );
     }
 
+    if (opts.role === "user") {
+      conditions.push(sql`${agentTranscriptTurnsTable.userText} IS NOT NULL`);
+    } else if (opts.role === "assistant") {
+      conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
+    }
+
     try {
       // First verify the session exists.
       const sessionRows = await this.db
@@ -209,6 +224,7 @@ export class TranscriptFtsService {
           isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -241,6 +257,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope
         },
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       // Re-throw the "session not found" error as-is; wrap everything else.

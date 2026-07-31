@@ -1,0 +1,1 @@
+ALTER TABLE "review_timing" ADD COLUMN "cached_tokens" integer;

@@ -6,6 +6,13 @@ out
 dist/
 # mt#1740: measurement output from scripts/measure-cold-start.ts (per-run results, not committed)
 scripts/cold-start-results.json
+# mt#2968: machine-specific benchmark output from scripts/benchmark-cold-boot.ts
+# (absolute paths, timestamps — baseline is recorded in the mt#2968 task record, not here)
+scripts/cold-boot-benchmark-results.json
+# mt#2990: self-updating per-file test-duration cache written by
+# scripts/run-tests-main-sharded.ts after every run (bin-packing input for the
+# NEXT run) — local, machine-specific measurements, not committed.
+scripts/test-duration-cache.json
 # mt#1930: ephemeral output from scripts/principal-corpus/ — classifier cache,
 # ingestion stats, memeplex JSON. Local runtime artifacts; not committed.
 tmp/
@@ -30,6 +37,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+
+# mt#2726: reviewer benchmark diff cache (fetched GitHub diffs; regenerable, not committed)
+services/reviewer/eval/cache/
+# mt#2726: paired-eval-runner.ts / run-judge-pass.ts run outputs (regenerable
+# comparative JSON artifacts, non-clobbering timestamped filenames — not
+# committed, same rationale as the diff cache above)
+services/reviewer/eval/results/
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
@@ -40,6 +54,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # workspace (hooks running with a subpackage cwd spill logs into e.g.
 # cockpit-tray/.minsky/ and infra/.minsky/).
 **/.minsky/*-calibration.jsonl
+**/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 **/.minsky/calibration-review-cadence-last-warned.json
 
@@ -121,3 +136,9 @@ supabase/
 # mt#2609: the literal `~/` directory tracked via an unquoted tilde-expansion
 # bug in some historical command (reviewer-bot suggestion, PR #1787 R1).
 /~/
+
+# Per-session detector state written at runtime, keyed by session id (e.g.
+# unasked-direction postmortem output). Machine-local: it regenerates, and a
+# `session_commit --all` in any session would otherwise sweep in state files
+# belonging to OTHER sessions — which is exactly how one landed in PR #2341.
+/.minsky/state/

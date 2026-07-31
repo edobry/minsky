@@ -47,7 +47,8 @@ export const PROD_STATE_STALENESS_MS = 30 * 60 * 1000;
  * Cache age beyond which staleness becomes a PRINCIPAL-ESCALATION signal (mt#2578).
  * A cadence-sweep stopped for 2+ hours is alert-worthy — the watchdog that drives
  * the sweep may itself be degraded, so the agent must escalate rather than silently
- * emit a "re-verify" boilerplate. Calibrated per CLAUDE.md §MCP disconnect cadence
+ * emit a "re-verify" boilerplate. Calibrated per the mcp-disconnect-cadence rule
+ * (.minsky/rules/mcp-disconnect-cadence.mdc)
  * (daily threshold >3 eligible disconnects in 24h at Minsky's ~hourly cadence → 2h
  * covers the same "clearly stopped" window without over-alerting).
  *

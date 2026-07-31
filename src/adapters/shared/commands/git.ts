@@ -74,6 +74,25 @@ const pushCommandParams = composeParams(
   },
   {
     remote: GitParameters.remote,
+    // mt#3177: the standalone git.push command previously awaited the
+    // underlying push subprocess with NO bound at all — the exact gap the
+    // mt#3177 recurrence found (a direct git_push call hung the full
+    // ~1800s MCP-transport idle-timeout). Both overrides mirror
+    // session.commit's commitTimeoutMs/pushTimeoutMs pattern.
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout, the remote branch head is verified directly before reporting an outcome.",
+      required: false,
+    },
+    verifyTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the remote-ref verification wall-clock bound in milliseconds (only used " +
+        "when the push itself times out). Defaults to 15 seconds.",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 
@@ -422,6 +441,24 @@ const blameCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Shared param for opting into confirm-gated index.lock auto-repair. Added
+ * to every git_* main-workspace op that can hit a lock-blocked exec (mt#2820).
+ */
+const repairLockParam = {
+  repairLock: {
+    schema: z.boolean(),
+    description:
+      "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably " +
+      "stale: no live owning process AND age above the staleness threshold) and the operation " +
+      "retried once. When false/omitted, a lock-blocked error is enriched with diagnostics " +
+      "(age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to " +
+      "inspect or repair independently.",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
  * Parameters for the git pull command
  */
 const pullCommandParams = composeParams(
@@ -442,6 +479,7 @@ const pullCommandParams = composeParams(
       required: false,
       defaultValue: "main",
     },
+    ...repairLockParam,
   }
 ) satisfies CommandParameterMap;
 
@@ -453,7 +491,7 @@ const statusCommandParams = composeParams(
     repo: CommonParameters.repo,
     session: CommonParameters.session,
   },
-  {}
+  { ...repairLockParam }
 ) satisfies CommandParameterMap;
 
 /**
@@ -475,6 +513,7 @@ const stashCommandParams = composeParams(
       description: "Optional list of paths to stash selectively",
       required: false,
     },
+    ...repairLockParam,
   }
 ) satisfies CommandParameterMap;
 
@@ -492,6 +531,7 @@ const stashPopCommandParams = composeParams(
       description: "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
       required: false,
     },
+    ...repairLockParam,
   }
 ) satisfies CommandParameterMap;
 
@@ -544,6 +584,7 @@ const restoreCommandParams = composeParams(
         "Paths to restore (discard unstaged working-tree changes). At least one required.",
       required: true,
     },
+    ...repairLockParam,
   }
 ) satisfies CommandParameterMap;
 
@@ -572,6 +613,75 @@ const resetCommandParams = composeParams(
       description:
         "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
       required: false,
+    },
+    ...repairLockParam,
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git repair_lock command (mt#2820)
+ */
+const repairLockCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    confirm: {
+      schema: z.literal(true).optional(),
+      description:
+        "Set to true to attempt removal. The lock is ONLY removed when provably stale (no " +
+        "live owning process AND age above the staleness threshold); otherwise the call throws " +
+        "describing why (busy, or ambiguous — present but not yet stale-eligible). Omit to just " +
+        "inspect the lock's diagnostic without mutating anything.",
+      required: false,
+    },
+    staleThresholdMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the default 10-minute staleness threshold (LOCK_STALE_THRESHOLD_MS) for " +
+        "this call. Use when an environment's legitimate git_* operations routinely run longer " +
+        "or shorter than the incident-grounded default.",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git repair_refs command (mt#2820)
+ */
+const repairRefsCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    ref: {
+      schema: z.string().min(1),
+      description:
+        "Specific ref to check/repair (e.g. refs/remotes/origin/task/mt-2304). Omit to scan " +
+        "all refs under refPrefix (read-only scan, no repair possible without a specific ref).",
+      required: false,
+    },
+    refPrefix: {
+      schema: z.string(),
+      description: "Ref prefix to scan when `ref` is omitted (default refs/remotes/origin).",
+      required: false,
+      defaultValue: "refs/remotes/origin",
+    },
+    confirm: {
+      schema: z.literal(true).optional(),
+      description:
+        "Set to true, together with `ref`, to delete the confirmed-bad ref and re-fetch. " +
+        "Refuses (throws) if the ref turns out to be healthy — never deletes a ref that isn't " +
+        "actually corrupt.",
+      required: false,
+    },
+    remote: {
+      schema: z.string(),
+      description: "Remote to re-fetch from after deleting the bad ref (default origin).",
+      required: false,
+      defaultValue: "origin",
     },
   }
 ) satisfies CommandParameterMap;
@@ -681,20 +791,41 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pushCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
-      const { pushFromParams } = await import("@minsky/domain/git");
+      // mt#3177: bounded + remote-ref-confirming, replacing the previously
+      // unbounded pushFromParams call — see pushWithConfirmation's doc
+      // comment in push-operations.ts for the root-cause context (a direct
+      // git_push call hanging the full ~1800s MCP-transport idle-timeout
+      // while the underlying push had already landed server-side).
+      const { pushFromParamsWithConfirmation } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
-      const result = await pushFromParams({
-        repo,
-        remote: params.remote,
-        force: params.force,
-        debug: params.debug,
-      });
+      const result = await pushFromParamsWithConfirmation(
+        {
+          repo,
+          remote: params.remote,
+          force: params.force,
+          debug: params.debug,
+        },
+        {
+          pushTimeoutMs: params.pushTimeoutMs as number | undefined,
+          verifyTimeoutMs: params.verifyTimeoutMs as number | undefined,
+        }
+      );
 
       return {
+        // mt#3177: `success` now reflects the CONFIRMED outcome — true on a
+        // direct success or a remote-check confirmation, false when the push
+        // is genuinely unconfirmed. A caller checking only `success`/`pushed`
+        // (the pre-existing contract) never sees a false positive; callers
+        // that want the full diagnostic detail can read the fields below.
         success: result.pushed,
         workdir: result.workdir,
+        pushed: result.pushed,
+        ...(result.pushError !== undefined ? { pushError: result.pushError } : {}),
+        ...(result.pushTimedOut ? { pushTimedOut: true } : {}),
+        ...(result.pushConfirmedVia ? { pushConfirmedVia: result.pushConfirmedVia } : {}),
+        ...(result.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
       };
     },
   });
@@ -1086,6 +1217,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         repo,
         remote: params.remote,
         branch: params.branch,
+        repairLock: params.repairLock,
       });
 
       return {
@@ -1110,12 +1242,17 @@ export function registerGitCommands(container?: AppContainerInterface): void {
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
-      const result = await statusFromParams({ repo });
+      const result = await statusFromParams({ repo, repairLock: params.repairLock });
 
       return {
         success: true,
         workdir: result.workdir,
         branch: result.branch,
+        // mt#3164: passed through as-is, including null. Do NOT default these
+        // to 0 — null means "no upstream configured", and collapsing it to 0
+        // is exactly the ambiguity that made a never-pushed branch read as
+        // in-sync.
+        upstream: result.upstream,
         ahead: result.ahead,
         behind: result.behind,
         staged: result.staged,
@@ -1143,6 +1280,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         repo,
         message: params.message,
         paths: params.paths,
+        repairLock: params.repairLock,
       });
 
       return {
@@ -1170,6 +1308,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const result = await stashPopFromParams({
         repo,
         ref: params.ref,
+        repairLock: params.repairLock,
       });
 
       return {
@@ -1250,6 +1389,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
       const result = await restoreFromParams({
         repo,
         paths: params.paths,
+        repairLock: params.repairLock,
       });
 
       return {
@@ -1279,6 +1419,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         mode: params.mode,
         target: params.target,
         confirmHard: params.confirmHard,
+        repairLock: params.repairLock,
       });
 
       return {
@@ -1327,6 +1468,78 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         nameOnly: result.nameOnly,
         totalCommits: result.totalCommits,
         files: result.files,
+      };
+    },
+  });
+
+  // Register git repair_lock command (mt#2820)
+  sharedCommandRegistry.registerCommand({
+    id: "git.repair_lock",
+    category: CommandCategory.GIT,
+    name: "repair_lock",
+    description:
+      "Inspect (and, with confirm: true, repair) a .git/index.lock. Reports age, size, and " +
+      "owning-process liveness. Only removes the lock when provably stale (no live process AND " +
+      "age above the staleness threshold) — a lock held by a live process is reported busy and " +
+      "never removed.",
+    parameters: repairLockCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.repair_lock command", { params });
+      const { repairGitLockFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await repairGitLockFromParams({
+        repo,
+        confirm: params.confirm,
+        staleThresholdMs: params.staleThresholdMs,
+      });
+
+      return {
+        success: true,
+        ...result,
+      };
+    },
+  });
+
+  // Register git repair_refs command (mt#2820)
+  sharedCommandRegistry.registerCommand({
+    id: "git.repair_refs",
+    category: CommandCategory.GIT,
+    name: "repair_refs",
+    description:
+      "Identify a corrupt/stale remote-tracking ref (e.g. `fatal: bad object " +
+      "refs/remotes/origin/...`). Without `ref`, scans all refs under refPrefix (read-only). " +
+      "With `ref` + confirm: true, deletes the confirmed-bad ref (`git update-ref -d`) and " +
+      "re-fetches — refuses to delete a ref that turns out to be healthy.",
+    parameters: repairRefsCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.repair_refs command", { params });
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      if (!params.ref) {
+        const { scanGitRefsFromParams } = await import("@minsky/domain/git");
+        const { results } = await scanGitRefsFromParams({ repo, refPrefix: params.refPrefix });
+        return {
+          success: true,
+          scanned: true,
+          results,
+        };
+      }
+
+      const { repairGitRefFromParams } = await import("@minsky/domain/git");
+      const result = await repairGitRefFromParams({
+        repo,
+        ref: params.ref,
+        confirm: params.confirm,
+        remote: params.remote,
+      });
+
+      return {
+        success: true,
+        scanned: false,
+        ...result,
       };
     },
   });

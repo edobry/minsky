@@ -19,8 +19,25 @@ import { join } from "path";
 import matter from "gray-matter";
 import { readTextFileSync } from "@minsky/shared/fs";
 import { detectAgentHarness, type AgentHarness } from "../runtime/harness-detection";
+import { DEFAULT_DISPATCH_MODEL_ID } from "../ai/dispatch-models";
+import { ValidationError } from "../errors/index";
 
 export type PromptType = "implementation" | "refactor" | "review" | "cleanup" | "audit";
+
+/**
+ * Dispatch-intent declaration (mt#2865). Orthogonal to `PromptType` — a
+ * `"review"`/`"audit"` prompt is conventionally read-only by TYPE, but that
+ * convention alone was never enforced structurally. `intent: "read-only"`
+ * is what actually triggers (a) the read-only-bound prompt section below
+ * and (b) the dispatch-time write of a declaration to the dispatch-intent
+ * store, which `.minsky/hooks/dispatch-intent-write-gate.ts` then enforces
+ * for the ENTIRE gated tool family regardless of prompt type. Defaults to
+ * `"implementation"` (unaffected — existing callers see no behavior
+ * change). See mt#2865 for the originating incident (a `fork` subagent
+ * dispatched for a bounded read-only lookup instead wrote code, committed,
+ * and edited a shared PR after inheriting a full implementation context).
+ */
+export type DispatchIntent = "read-only" | "implementation";
 
 /**
  * 1:1 mapping from prompt type to compiled agent name (file at
@@ -61,6 +78,20 @@ export interface GeneratePromptParams {
   type: PromptType;
   instructions: string;
   scope?: string[];
+  /**
+   * Free-prose description of what this dispatch covers (mt#1279).
+   *
+   * `scope` is a machine-consumed FILE LIST — it renders as the "Only modify
+   * the following files:" bullets and is re-read by the parallel-work guard
+   * for PR-collision detection. Prose belongs here instead, and renders as
+   * its own `## Scope Notes` section so it can never be mistaken for a path.
+   *
+   * Before this field existed, callers naturally wrote prose into `scope`
+   * (three occurrences across three months) and got fabricated file paths,
+   * because `scope` is comma-split and each chunk prefixed with the session
+   * directory.
+   */
+  scopeNotes?: string;
   omitOperatingEnvelope?: boolean;
   /**
    * Override harness detection. When omitted, `detectAgentHarness()` is called.
@@ -79,6 +110,27 @@ export interface GeneratePromptParams {
    * `<workspacePath>/.claude/skills`.
    */
   skillLoader?: SkillLoader;
+  /**
+   * Dispatch intent (mt#2865). Defaults to `"implementation"` — omitting
+   * this param produces byte-identical output to before this field existed.
+   * `"read-only"` adds an explicit read-only-bound section to the prompt
+   * and forces the read-only Operating Envelope variant regardless of
+   * `type`; the caller (the `session.generate_prompt` / `tasks.dispatch`
+   * commands) is separately responsible for writing the matching
+   * declaration to the dispatch-intent store so the write-gate guard
+   * actually enforces it — this function only controls prompt TEXT.
+   */
+  intent?: DispatchIntent;
+  /**
+   * Principal/caller-selected dispatch model id (mt#3043), e.g. "fable".
+   * Validated against the dispatch-model registry by the CALLER (the
+   * `tasks.dispatch` command) before it reaches here; this function only
+   * decides the fallback. Omitted → `DEFAULT_DISPATCH_MODEL_ID`.
+   *
+   * Before mt#3043 this was a hardcoded `"sonnet"` literal on every return
+   * path, so the returned `suggestedModel` carried no caller intent at all.
+   */
+  model?: string;
 }
 
 export interface GeneratePromptResult {
@@ -94,6 +146,70 @@ export interface GeneratePromptResult {
   batches?: GeneratePromptResult[]; // populated when scope > SCOPE_WARNING_THRESHOLD
   batchIndex?: number; // 1-based index of this batch
   totalBatches?: number; // total number of batches
+}
+
+/**
+ * Is this `scope` chunk plausibly a file path rather than prose? (mt#1279)
+ *
+ * The predicate is deliberately shape-based, not filesystem-based: a scope
+ * entry may name a file the dispatch is about to CREATE, so requiring the
+ * path to exist would reject legitimate input. Two signals, either sufficient:
+ *
+ *   - contains a `/` — a path separator; prose fragments essentially never do
+ *   - ends in a dotted extension (`.ts`, `.tsx`, `.md`) — a bare filename
+ *
+ * plus one hard disqualifier: internal whitespace. Every observed prose
+ * fragment carried spaces ("plus tests", "a new shared EntityRef component");
+ * no repo path does. Whitespace alone would catch all three recorded
+ * occurrences — the two positive signals exist so a bare `README.md` or a
+ * deep path both pass without a filesystem check.
+ */
+export function isPathShapedScopeChunk(chunk: string): boolean {
+  const trimmed = chunk.trim();
+  if (trimmed.length === 0) return false;
+  if (/\s/.test(trimmed)) return false;
+  if (trimmed.includes("/")) return true;
+  return /\.[A-Za-z0-9]+$/.test(trimmed);
+}
+
+/**
+ * Parse a caller-supplied `scope` string into absolute session-relative file
+ * paths, REJECTING prose (mt#1279).
+ *
+ * Both `session.generate_prompt` and `tasks.dispatch` call this so the split,
+ * the validation, and the session-directory prefixing exist in exactly one
+ * place — they previously carried byte-identical copies of the split, and a
+ * third copy lives in the parallel-work guard.
+ *
+ * Returns `undefined` for absent/blank input (scope is optional). Throws
+ * `ValidationError` naming every offending chunk when any chunk is prose —
+ * the loud failure that replaces silently emitting fabricated path bullets.
+ */
+export function parseScopeFileList(
+  scopeRaw: string | undefined,
+  sessionDir: string
+): string[] | undefined {
+  if (scopeRaw === undefined || scopeRaw.trim().length === 0) return undefined;
+
+  const chunks = scopeRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (chunks.length === 0) return undefined;
+
+  const offenders = chunks.filter((c) => !isPathShapedScopeChunk(c));
+  if (offenders.length > 0) {
+    throw new ValidationError(
+      `\`scope\` must be a comma-separated list of file paths, but ` +
+        `${offenders.length} entr${offenders.length === 1 ? "y is" : "ies are"} prose, not a path: ` +
+        `${offenders.map((o) => JSON.stringify(o)).join(", ")}. ` +
+        "Splitting prose on commas produces fabricated file paths, so this is rejected " +
+        "rather than rendered. Put the file paths in `scope` and move the prose " +
+        "description into `scopeNotes`."
+    );
+  }
+
+  return chunks.map((c) => (c.startsWith("/") ? c : `${sessionDir}/${c}`));
 }
 
 const SCOPE_WARNING_THRESHOLD = 40;
@@ -202,19 +318,48 @@ ${sections}`;
 
 function renderCommonHeader(params: GeneratePromptParams): string {
   const displayId = normalizeTaskIdForDisplay(params.taskId);
-  return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
+  return `You are working in Minsky session \`${params.sessionId}\`, checked out at ${params.sessionDir}.
+
+Use the session-scoped file tools for every file operation in this session — they take this session id plus a path RELATIVE to the session root, so a path can never silently address the main workspace: \`session_read_file\` to read, \`session_search_replace\` for a targeted edit, \`session_write_file\` to create or fully rewrite. \`session_edit_file\` is fast-apply-model-based and is NOT the default; reach for it only when a single edit spans many regions. Reserve the harness-native \`Read\`/\`Edit\`/\`Write\` for MAIN-workspace files, which you should not be touching from here.
 
 Task ${displayId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
 
 ${params.instructions}`;
 }
 
+/**
+ * Section header for the machine-consumed file list. Exported alongside
+ * `SCOPE_NOTES_HEADER` because `extractScopeConstraintsFiles`
+ * (`.minsky/hooks/parallel-work-guard.ts`) matches this exact text — tests
+ * asserting the contract should reference the constant, not retype it.
+ */
+export const SCOPE_CONSTRAINTS_HEADER = "## Scope Constraints";
+
 function renderScopeSection(scope: string[]): string {
   return `
-## Scope Constraints
+${SCOPE_CONSTRAINTS_HEADER}
 
 Only modify the following files:
 ${scope.map((f) => `- ${f}`).join("\n")}`;
+}
+
+/**
+ * Section header for the free-prose scope description (mt#1279).
+ *
+ * Deliberately its OWN `##` section rather than extra lines inside
+ * `## Scope Constraints`. `extractScopeConstraintsFiles`
+ * (`.minsky/hooks/parallel-work-guard.ts`) reads every `- ` bullet between
+ * the Scope-Constraints heading and the NEXT `##` heading and treats each as
+ * a file path. Prose sharing that section would leak into the guard's
+ * file list the first time someone wrote a bulleted note.
+ */
+export const SCOPE_NOTES_HEADER = "## Scope Notes";
+
+function renderScopeNotesSection(scopeNotes: string): string {
+  return `
+${SCOPE_NOTES_HEADER}
+
+${scopeNotes.trim()}`;
 }
 
 /**
@@ -284,6 +429,24 @@ After committing, create a PR using:
 Do NOT merge the PR.`;
 }
 
+/**
+ * Read-only-bound section (mt#2865). Explicitly names the gated tool
+ * family and points the agent at the sanctioned alternative (report back;
+ * the parent decides) — the originating incident's fork ran for ~70
+ * minutes past its bounded directive despite the harness's OWN
+ * fork-boilerplate prompt already saying "execute ONE directive, then
+ * stop." This section names the STRUCTURAL backstop explicitly so the
+ * agent knows write attempts will be denied, not just discouraged.
+ */
+function renderReadOnlyBoundSection(): string {
+  return `
+## Read-Only Dispatch Bound
+
+This dispatch is declared **read-only** (mt#2865). A structural write-gate DENIES \`session_commit\`, \`session_edit_file\`, \`session_write_file\`, \`session_search_replace\`, \`session_pr_create\`, and \`session_pr_edit\` for this session while the declaration is live — do not attempt them; the denial will not go away on retry.
+
+Execute the instructions above, then report your findings back. Do not continue past them into implementation work, even if the surrounding session context makes further work seem natural — a prior incident (mt#2865) traced a ~70-minute, ~197-tool-call scope violation to exactly that pattern (a bounded read-only dispatch that inherited an active implementation context and kept going). If your directive turns out to genuinely require a write, stop and report that back instead of working around the gate.`;
+}
+
 function renderToolingNote(): string {
   return `
 ## Important
@@ -342,7 +505,7 @@ function renderSessionExecNote(taskId: string): string {
   return `
 ## Running commands in the session
 
-Use \`mcp__minsky__session_exec(task: "${displayId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
+Use \`mcp__minsky__session_exec(task: "${displayId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
 }
 
 interface SkillSectionPlan {
@@ -397,7 +560,8 @@ function generateSinglePrompt(
   batchIndex?: number,
   totalBatches?: number
 ): string {
-  const { type, scope, sessionId, taskId, omitOperatingEnvelope } = params;
+  const { type, scope, sessionId, taskId, omitOperatingEnvelope, intent } = params;
+  const readOnlyIntent = intent === "read-only";
   const effectiveScope = batchScope ?? scope;
 
   const sections: string[] = [];
@@ -409,12 +573,22 @@ function generateSinglePrompt(
     sections.push(header);
   }
 
+  if (readOnlyIntent) {
+    sections.push(renderReadOnlyBoundSection());
+  }
+
   if (skillSection) {
     sections.push(skillSection);
   }
 
   if (effectiveScope && effectiveScope.length > 0) {
     sections.push(renderScopeSection(effectiveScope));
+  }
+
+  // mt#1279: rendered from `params`, not from the batch slice, so a batched
+  // dispatch carries the same scope prose in every batch.
+  if (params.scopeNotes && params.scopeNotes.trim().length > 0) {
+    sections.push(renderScopeNotesSection(params.scopeNotes));
   }
 
   if (type === "review") {
@@ -461,10 +635,15 @@ For large scopes, commit after each batch of ~10 files rather than all at once.`
   }
 
   if (!omitOperatingEnvelope) {
-    sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, /* readOnly */ false));
+    sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, readOnlyIntent));
   }
 
-  if (batchIndex !== undefined && totalBatches !== undefined && batchIndex < totalBatches) {
+  if (
+    !readOnlyIntent &&
+    batchIndex !== undefined &&
+    totalBatches !== undefined &&
+    batchIndex < totalBatches
+  ) {
     sections.push(`
 ## Intermediate Commit
 
@@ -473,7 +652,13 @@ Commit this batch before proceeding to the next.
 - Parameters: \`sessionId: "${sessionId}"\`, \`all: true\``);
   } else {
     sections.push(renderSessionExecNote(taskId));
-    sections.push(renderCommitInstructions(sessionId, taskId));
+    // mt#2865: a read-only-intent dispatch never gets commit/PR instructions
+    // — those tools are structurally denied by the write-gate guard while
+    // the declaration is live, so instructing the agent to use them would
+    // just produce a guaranteed-to-fail retry loop.
+    if (!readOnlyIntent) {
+      sections.push(renderCommitInstructions(sessionId, taskId));
+    }
   }
 
   sections.push(renderToolingNote());
@@ -521,7 +706,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
         harness,
         agentType,
         skillsEmbedded: skillPlan.skillsEmbedded,
-        suggestedModel: "sonnet",
+        suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
         batchIndex,
         totalBatches,
         scopeWarning,
@@ -533,7 +718,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
       harness,
       agentType,
       skillsEmbedded: skillPlan.skillsEmbedded,
-      suggestedModel: "sonnet",
+      suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
       scopeWarning,
       batches,
     };
@@ -546,6 +731,6 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     harness,
     agentType,
     skillsEmbedded: skillPlan.skillsEmbedded,
-    suggestedModel: "sonnet",
+    suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
   };
 }

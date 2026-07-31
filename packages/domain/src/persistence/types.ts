@@ -56,7 +56,12 @@ export interface BasePersistenceProvider {
 export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
   capabilities: PersistenceCapabilities & { sql: true };
   getDatabaseConnection(): Promise<PostgresJsDatabase | null>;
-  getRawSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+  /**
+   * Pooler-guarded raw SQL access (mt#2773): `.unsafe()` is capped at
+   * pool-max in-flight queries and returns plain rows (no PendingQuery
+   * chaining). See raw-sql-pooler-guard.ts.
+   */
+  getRawSqlConnection?(): Promise<import("./raw-sql-pooler-guard").GuardedRawSql | null>;
   /**
    * Returns a session-mode-capable Sql instance, suitable for LISTEN/NOTIFY (mt#1852).
    *

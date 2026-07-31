@@ -4,12 +4,12 @@
  * Commands for creating, reading, updating, and deleting tasks.
  * Extracted from tasks.ts as part of modularization effort.
  */
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 // Domain task functions are lazy-imported inside execute methods to avoid
 // loading the entire domain layer at command registration time.
 import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
 import { getErrorMessage } from "@minsky/domain/errors/index";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import {
   tasksListParams,
   tasksGetParams,
@@ -24,6 +24,8 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { AskKind } from "@minsky/domain/ask/types";
 import { log } from "@minsky/shared/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
+import { applyListCap } from "@minsky/domain/utils/list-pagination";
+import { isTerminal } from "@minsky/domain/tasks/workflows";
 
 /** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
 export interface BlockingAskInfo {
@@ -33,59 +35,9 @@ export interface BlockingAskInfo {
 }
 
 /**
- * Parameters for tasks list command
- */
-interface TasksListParams extends BaseTaskParams {
-  all?: boolean;
-  status?: string;
-  filter?: string;
-  limit?: number;
-  tag?: string | string[];
-  since?: string;
-  until?: string;
-  hierarchical?: boolean;
-  showDeps?: boolean;
-  showAttention?: boolean;
-  /** When true, skip project-scope filtering (ADR-021, mt#2416). */
-  allProjects?: boolean;
-}
-
-/**
- * Parameters for tasks get command
- */
-interface TasksGetParams extends BaseTaskParams {
-  taskId: string;
-  includeSpec?: boolean;
-  includeSubtasks?: boolean;
-  includeSession?: boolean;
-}
-
-/**
- * Parameters for tasks create command
- */
-interface TasksCreateParams extends BaseTaskParams {
-  title: string;
-  description?: string;
-  spec?: string;
-  force?: boolean;
-  githubRepo?: string;
-  dependsOn?: string | string[];
-  parent?: string;
-  tag?: string | string[];
-}
-
-/**
- * Parameters for tasks delete command
- */
-interface TasksDeleteParams extends BaseTaskParams {
-  taskId: string;
-  force?: boolean;
-}
-
-/**
  * Task list command implementation
  */
-export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
+export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
   readonly id = "tasks.list";
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
@@ -104,7 +56,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     super();
   }
 
-  async execute(params: TasksListParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksListParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
     const { listTasksFromParams } = await import("@minsky/domain/tasks");
@@ -122,16 +74,21 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       }
     }
 
-    // List tasks with filters
+    // List tasks with filters. `kind` is validated against the workflow registry
+    // and filtered server-side inside listTasksFromParams (mt#2762) — not here.
+    // NOTE (mt#2817): `limit` is intentionally NOT forwarded here — capping
+    // happens below, after the since/until filter, so `total` reflects the
+    // true count of everything matching the caller's filters (not just a
+    // pre-time-filter count) and so the cap is never silent.
     let tasks = await listTasksFromParams(
       {
         ...this.createTaskParams(params),
         all: params.all,
         status: params.status,
         filter: params.filter,
-        limit: params.limit,
         tags,
         allProjects: params.allProjects,
+        kind: params.kind,
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
@@ -145,6 +102,14 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     } catch {
       // If utilities unavailable, skip
     }
+
+    // mt#2817: apply a "loud" cap — never silently drop rows. `total` here is
+    // the true count of everything matching status/kind/tags/project/time
+    // filters; `truncated`/`returned` are always reported in the response so
+    // a caller relying on the full set (e.g. a bulk cross-reference) can tell
+    // it got a partial page.
+    const { items: cappedTasks, meta: truncation } = applyListCap(tasks, params.limit);
+    tasks = cappedTasks;
 
     // Enrich with parent info and build hierarchical view if requested
     let depthMap: Map<string, number> | undefined;
@@ -235,7 +200,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
             for (const depId of deps) {
               const depTask = taskById.get(depId);
               const status = depTask?.status;
-              if (status !== "DONE" && status !== "CLOSED") {
+              if (!isTerminal(status)) {
                 blockedBy.push(depId);
               }
             }
@@ -267,7 +232,9 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
             if (ask) {
               blockingAskMap.set(taskId, {
                 kind: ask.kind,
-                id: ask.id,
+                // ask#N short id (mt#2965) when minted/backfilled; falls
+                // back to the uuid for legacy rows pre-backfill.
+                id: ask.shortId ?? ask.id,
                 ...(ask.deadline && { deadline: ask.deadline }),
               });
             }
@@ -328,7 +295,14 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         }
         return enriched;
       });
-      return enrichedTasks;
+      // mt#2817: BREAKING — JSON output used to be a bare array. It is now an
+      // object carrying loud-cap metadata alongside the tasks, matching the
+      // shape already used by asks.list/events.list/session.list. See PR
+      // "Breaking Changes" section.
+      return {
+        tasks: enrichedTasks,
+        ...truncation,
+      };
     }
 
     // Format output with optional hierarchy and dependency status
@@ -362,6 +336,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         success: true,
         count: tasks.length,
         output: lines.join("\n"),
+        ...truncation,
       };
     }
 
@@ -384,7 +359,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         success: true,
         count: tasks.length,
         tasks: displayTasks,
-        message: `Found ${tasks.length} tasks`,
+        message: truncation.truncated
+          ? `Found ${truncation.total} tasks; showing ${tasks.length} (truncated — pass a higher limit for more)`
+          : `Found ${tasks.length} tasks`,
+        ...truncation,
       },
       false
     );
@@ -394,7 +372,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 /**
  * Task get command implementation
  */
-export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
+export class TasksGetCommand extends BaseTaskCommand<typeof tasksGetParams> {
   readonly id = "tasks.get";
   readonly name = "get";
   readonly description = "Get details of a specific task";
@@ -410,7 +388,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
     super();
   }
 
-  async execute(params: TasksGetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksGetParams>, ctx: CommandExecutionContext) {
     const startTime = Date.now();
     this.debug("Starting tasks.get execution", { params, context: ctx });
 
@@ -466,7 +444,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
             for (const childId of childIds) {
               const childTask = childTaskMap.get(childId);
               if (childTask) {
-                if (childTask.status === "DONE" || childTask.status === "CLOSED") {
+                if (isTerminal(childTask.status)) {
                   doneCount++;
                 } else {
                   remaining.push({
@@ -508,7 +486,9 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
             if (openAsk) {
               const blockingAsk: BlockingAskInfo = {
                 kind: openAsk.kind,
-                id: openAsk.id,
+                // ask#N short id (mt#2965) when minted/backfilled; falls
+                // back to the uuid for legacy rows pre-backfill.
+                id: openAsk.shortId ?? openAsk.id,
                 ...(openAsk.deadline && { deadline: openAsk.deadline }),
               };
               extras.blockingAsk = blockingAsk;
@@ -612,7 +592,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 /**
  * Task create command implementation
  */
-export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
+export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams> {
   readonly id = "tasks.create";
   readonly name = "create";
   readonly description = "Create a new task";
@@ -626,15 +606,17 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
     super();
   }
 
-  async execute(params: TasksCreateParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksCreateParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.create execution");
 
     try {
       // Validate required parameters
       this.validateRequired(params.title, "title");
 
-      // Resolve spec content: prefer params.spec, fall back to deprecated params.description
-      const specContent = params.spec || params.description;
+      // Resolve spec content. mt#2742: removed the dead `|| params.description`
+      // fallback — `description` was never a declared param (always undefined), so
+      // a description-only call silently created an EMPTY-spec task.
+      const specContent = params.spec;
 
       // Validate that spec content is provided
       if (!specContent) {
@@ -667,6 +649,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           session: params.session,
           githubRepo: params.githubRepo,
           tags,
+          kind: params.kind,
         },
         {
           persistenceProvider: this.getPersistenceProvider?.(),
@@ -740,6 +723,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         message = chalk.green(`✅ Task ${result.id} created successfully`);
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.id}`;
+        if (params.kind) {
+          message += `\n${chalk.gray("  Kind: ")}${params.kind}`;
+        }
         if (tags && tags.length > 0) {
           message += `\n${chalk.gray("  Tags: ")}${tags.join(", ")}`;
         }
@@ -796,7 +782,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 /**
  * Task delete command implementation
  */
-export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
+export class TasksDeleteCommand extends BaseTaskCommand<typeof tasksDeleteParams> {
   readonly id = "tasks.delete";
   readonly name = "delete";
   readonly description = "Delete a task";
@@ -810,7 +796,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
     super();
   }
 
-  async execute(params: TasksDeleteParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksDeleteParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.delete execution");
 
     // Validate and normalize task ID
@@ -871,7 +857,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   /**
    * Confirm task deletion with user
    */
-  private async confirmDeletion(taskId: string, params: TasksDeleteParams): Promise<void> {
+  private async confirmDeletion(
+    taskId: string,
+    params: InferParams<typeof tasksDeleteParams>
+  ): Promise<void> {
     // Get task details for confirmation
     const { getTaskFromParams } = await import("@minsky/domain/tasks");
     const task = await getTaskFromParams(

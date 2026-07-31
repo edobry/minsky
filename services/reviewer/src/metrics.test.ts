@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
-import { recordConvergenceMetric, type ConvergenceMetricInput } from "./metrics";
+import { recordConvergenceMetric, normalizeVerdict, type ConvergenceMetricInput } from "./metrics";
 import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +24,7 @@ const COL_PRIOR_BLOCKER_COUNT = "priorBlockerCount";
 const COL_NEW_BLOCKER_COUNT = "newBlockerCount";
 const COL_ACKNOWLEDGED_COUNT = "acknowledgedAddressedCount";
 const COL_HEAD_REF = "headRef";
+const COL_VERDICT = "verdict";
 
 // ---------------------------------------------------------------------------
 // Minimal fake DB that records insert calls.
@@ -69,6 +70,7 @@ const SAMPLE_INPUT: ConvergenceMetricInput = {
   newBlockerCount: 1,
   acknowledgedAddressedCount: 2,
   headRef: "task/mt-2076",
+  verdict: "approve",
 };
 
 // ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ const SAMPLE_INPUT: ConvergenceMetricInput = {
 // ---------------------------------------------------------------------------
 
 describe("recordConvergenceMetric - happy path", () => {
-  test("calls db.insert and passes all 9 column values correctly", async () => {
+  test("calls db.insert and passes all 10 column values correctly", async () => {
     const captured: InsertValues[] = [];
     const db = makeFakeDb((values) => captured.push(values));
 
@@ -95,6 +97,8 @@ describe("recordConvergenceMetric - happy path", () => {
     expect(row[COL_ACKNOWLEDGED_COUNT]).toBe(2);
     // head_ref written when provided (mt#2076 — mesh-linkage field)
     expect(row[COL_HEAD_REF]).toBe("task/mt-2076");
+    // verdict written when provided (mt#2287)
+    expect(row[COL_VERDICT]).toBe("approve");
   });
 
   test("resolves without returning a value (void)", async () => {
@@ -124,6 +128,8 @@ describe("recordConvergenceMetric - happy path", () => {
     const row = captured[0];
     if (row === undefined) throw new Error("expected a captured row");
     expect(row[COL_HEAD_REF]).toBeNull();
+    // verdict also coerces to null when omitted (mt#2287)
+    expect(row[COL_VERDICT]).toBeNull();
   });
 
   test("passes zeroed counts correctly (first iteration with no prior reviews)", async () => {
@@ -145,6 +151,62 @@ describe("recordConvergenceMetric - happy path", () => {
     expect(row[COL_ITERATION_INDEX]).toBe(1);
     expect(row[COL_PRIOR_BLOCKER_COUNT]).toBe(0);
     expect(row[COL_ACKNOWLEDGED_COUNT]).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Verdict field (mt#2287)
+// ---------------------------------------------------------------------------
+
+describe("recordConvergenceMetric - verdict field (mt#2287)", () => {
+  test.each(["approve", "request_changes", "comment"] as const)(
+    "writes verdict %p through unchanged (already lowercased by the caller)",
+    async (verdict) => {
+      const captured: InsertValues[] = [];
+      const db = makeFakeDb((values) => captured.push(values));
+
+      await recordConvergenceMetric(db, { ...SAMPLE_INPUT, verdict });
+
+      const row = captured[0];
+      if (row === undefined) throw new Error("expected a captured row");
+      expect(row[COL_VERDICT]).toBe(verdict);
+    }
+  );
+
+  test("writes verdict: null when explicitly passed null", async () => {
+    const captured: InsertValues[] = [];
+    const db = makeFakeDb((values) => captured.push(values));
+
+    await recordConvergenceMetric(db, { ...SAMPLE_INPUT, verdict: null });
+
+    const row = captured[0];
+    if (row === undefined) throw new Error("expected a captured row");
+    expect(row[COL_VERDICT]).toBeNull();
+  });
+
+  test.each(["APPROVE", "REQUEST_CHANGES", "merged", "bogus", ""] as const)(
+    "coerces out-of-set verdict %p to NULL at the write boundary (mt#2287 R1)",
+    async (bad) => {
+      const captured: InsertValues[] = [];
+      const db = makeFakeDb((values) => captured.push(values));
+
+      await recordConvergenceMetric(db, { ...SAMPLE_INPUT, verdict: bad });
+
+      const row = captured[0];
+      if (row === undefined) throw new Error("expected a captured row");
+      expect(row[COL_VERDICT]).toBeNull();
+    }
+  );
+
+  test("normalizeVerdict passes the accepted set and NULLs everything else", () => {
+    expect(normalizeVerdict("approve")).toBe("approve");
+    expect(normalizeVerdict("request_changes")).toBe("request_changes");
+    expect(normalizeVerdict("comment")).toBe("comment");
+    expect(normalizeVerdict("APPROVE")).toBeNull();
+    expect(normalizeVerdict("bogus")).toBeNull();
+    expect(normalizeVerdict("")).toBeNull();
+    expect(normalizeVerdict(null)).toBeNull();
+    expect(normalizeVerdict(undefined)).toBeNull();
   });
 });
 
@@ -197,7 +259,8 @@ describe("recordConvergenceMetric - payload column names", () => {
 
     // Verify the exact keys passed to .values() — these must match the
     // ConvergenceMetricInsert type inferred from the Drizzle schema.
-    // Now includes headRef (mt#2076 — additive nullable column for mesh-linkage).
+    // Now includes headRef (mt#2076 — additive nullable column for mesh-linkage)
+    // and verdict (mt#2287 — additive nullable column for verdict distribution).
     const keys = Object.keys(row).sort();
     expect(keys).toEqual([
       COL_ACKNOWLEDGED_COUNT,
@@ -209,6 +272,7 @@ describe("recordConvergenceMetric - payload column names", () => {
       COL_PR_OWNER,
       COL_PR_REPO,
       COL_PRIOR_BLOCKER_COUNT,
+      COL_VERDICT,
     ]);
   });
 });

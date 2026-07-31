@@ -20,7 +20,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 // repository so that hasUncommittedChanges (shelling out to git) can return false. There is no
 // in-memory substitute; DI injection would defeat testing the actual detection path end-to-end.
 /* eslint-disable custom/no-real-fs-in-tests */
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 /* eslint-enable custom/no-real-fs-in-tests */
 import { join } from "path";
@@ -29,6 +29,7 @@ import { sessionCommit } from "./session-commands";
 import { FakeAskRepository } from "../ask/repository";
 import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionRecord } from "./types";
+import type { PersistenceProvider } from "../persistence/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +72,62 @@ async function makeTmpCleanGitRepo(): Promise<string> {
   execSync("git commit --allow-empty -m init", { cwd: dir, stdio: "ignore" });
   return dir;
 }
+
+/**
+ * Create a temporary git repository with an UNTRACKED file so the working
+ * tree is dirty (hasUncommittedChanges → true) and sessionCommit proceeds
+ * past the clean-tree short-circuit into the mt#2935 detection-time policy
+ * consult. When `claudeMdContent` is provided it is written as the repo's
+ * CLAUDE.md — the policy corpus `loadAllPolicySources(workdir)` reads.
+ */
+async function makeTmpDirtyGitRepo(claudeMdContent?: string): Promise<string> {
+  const dir = await makeTmpCleanGitRepo();
+  /* eslint-disable custom/no-real-fs-in-tests -- policy loaders read from disk directly (no DI seam) */
+  if (claudeMdContent !== undefined) {
+    await writeFile(join(dir, "CLAUDE.md"), claudeMdContent);
+  } else {
+    await writeFile(join(dir, "dirty.txt"), "uncommitted change\n");
+  }
+  /* eslint-enable custom/no-real-fs-in-tests */
+  return dir;
+}
+
+/**
+ * Fake SQL-capable persistence provider whose db captures inserted event
+ * rows. `emitSystemEventFromProvider` duck-types `getDatabaseConnection` and
+ * runs `db.insert(table).values(row)` via DrizzleEventEmitter.tryEmit — the
+ * stub chain below satisfies exactly that path and records each row.
+ */
+function makeCapturingPersistenceProvider(): {
+  provider: PersistenceProvider;
+  rows: Array<Record<string, unknown>>;
+} {
+  const rows: Array<Record<string, unknown>> = [];
+  const fakeDb = {
+    insert: () => ({
+      values: async (row: Record<string, unknown>) => {
+        rows.push(row);
+      },
+    }),
+  };
+  const provider = {
+    getDatabaseConnection: async () => fakeDb,
+  } as unknown as PersistenceProvider;
+  return { provider, rows };
+}
+
+/** Provider whose connection is unavailable — event persistence always fails. */
+function makeDeadPersistenceProvider(): PersistenceProvider {
+  return {
+    getDatabaseConnection: async () => null,
+  } as unknown as PersistenceProvider;
+}
+
+const COVERING_CLAUDE_MD =
+  "# Project Instructions\n\nCommits and pushes in session workspaces are pre-approved by standing policy.\n";
+
+/** Shared Ask-kind literal (avoids magic-string duplication across the test cases below). */
+const KIND_AUTH_APPROVE = "authorization.approve";
 
 // Track temp dirs created during the suite so we can clean up.
 const tmpDirs: string[] = [];
@@ -253,10 +310,131 @@ describe("sessionCommit Ask emission", () => {
       // Reached the git/push step — short-circuit was definitely skipped.
       // The Ask should have been emitted before the failure.
       expect(askRepo.all).toHaveLength(1);
-      expect(askRepo.all[0]?.kind).toBe("authorization.approve");
+      expect(askRepo.all[0]?.kind).toBe(KIND_AUTH_APPROVE);
     } else {
       // Should not have hit nothingToCommit path.
       expect(commitResult?.nothingToCommit).toBeFalsy();
     }
+  });
+});
+
+describe("sessionCommit detection-time policy consult (mt#2935)", () => {
+  test("policy-covered commit emits ZERO asks and ONE authorization.policy_covered event", async () => {
+    const workdir = await makeTmpDirtyGitRepo(COVERING_CLAUDE_MD);
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "covered-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const askRepo = new FakeAskRepository();
+    const { provider, rows } = makeCapturingPersistenceProvider();
+
+    // The commit itself may fail later (no origin remote in the tmp repo);
+    // the detection-time consult runs before that, so assertions hold either way.
+    await sessionCommit(
+      { session: "covered-session", message: "feat: covered commit" },
+      sessionProvider,
+      askRepo,
+      undefined,
+      provider
+    ).catch(() => {});
+
+    expect(askRepo.all).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    if (!row) throw new Error("Expected one event row");
+    expect(row.eventType).toBe("authorization.policy_covered");
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload.action).toBe("commit");
+    expect(payload.citationSource).toBe("CLAUDE.md");
+    expect(payload.commitMessage).toBe("feat: covered commit");
+    expect(row.relatedSessionId).toBe("covered-session");
+  });
+
+  test("covered-but-unpersisted event falls back to Ask emission (never silently unrecorded)", async () => {
+    const workdir = await makeTmpDirtyGitRepo(COVERING_CLAUDE_MD);
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "dead-provider-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const askRepo = new FakeAskRepository();
+
+    await sessionCommit(
+      { session: "dead-provider-session", message: "feat: covered but no event store" },
+      sessionProvider,
+      askRepo,
+      undefined,
+      makeDeadPersistenceProvider()
+    ).catch(() => {});
+
+    // Event could not persist → the ask is the record.
+    expect(askRepo.all).toHaveLength(1);
+    expect(askRepo.all[0]?.kind).toBe(KIND_AUTH_APPROVE);
+  });
+
+  test("policy-silent commit still emits exactly one Ask and zero covered-events", async () => {
+    const workdir = await makeTmpDirtyGitRepo(); // dirty repo, no CLAUDE.md
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "uncovered-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const askRepo = new FakeAskRepository();
+    const { provider, rows } = makeCapturingPersistenceProvider();
+
+    await sessionCommit(
+      { session: "uncovered-session", message: "feat: uncovered commit" },
+      sessionProvider,
+      askRepo,
+      undefined,
+      provider
+    ).catch(() => {});
+
+    expect(askRepo.all).toHaveLength(1);
+    expect(askRepo.all[0]?.kind).toBe(KIND_AUTH_APPROVE);
+    expect(rows).toHaveLength(0);
+  });
+
+  test("covered path without a persistence provider falls back to Ask emission", async () => {
+    const workdir = await makeTmpDirtyGitRepo(COVERING_CLAUDE_MD);
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "no-provider-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const askRepo = new FakeAskRepository();
+
+    await sessionCommit(
+      { session: "no-provider-session", message: "feat: covered, provider absent" },
+      sessionProvider,
+      askRepo
+    ).catch(() => {});
+
+    expect(askRepo.all).toHaveLength(1);
+    expect(askRepo.all[0]?.kind).toBe(KIND_AUTH_APPROVE);
+  });
+
+  test("covered path with persistence provider but NO ask repository emits the event and creates no ask", async () => {
+    // PR #2068 R1 BLOCKING: the detection-time consult was previously gated
+    // entirely behind `if (askRepository)`, so a caller supplying only a
+    // persistenceProvider (no askRepository) got neither an event nor an ask
+    // — silently unrecorded. The gate must run whenever EITHER substrate is
+    // present; only the fallback ask-creation itself requires askRepository.
+    const workdir = await makeTmpDirtyGitRepo(COVERING_CLAUDE_MD);
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "no-ask-repo-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const { provider, rows } = makeCapturingPersistenceProvider();
+
+    await sessionCommit(
+      { session: "no-ask-repo-session", message: "feat: covered, no ask repo" },
+      sessionProvider,
+      undefined,
+      undefined,
+      provider
+    ).catch(() => {});
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    if (!row) throw new Error("Expected one event row");
+    expect(row.eventType).toBe("authorization.policy_covered");
   });
 });

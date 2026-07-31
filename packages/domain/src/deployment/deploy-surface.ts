@@ -25,6 +25,18 @@
 export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
   // Pulumi / infra-as-code tree — not scoped to one service.
   /^infra\//,
+  // Root Dockerfile — the `minsky-mcp` image. Railway auto-detects it at repo
+  // root (see docs/deploy-minsky-railway.md §First deploy), so this file
+  // defines what the deployed MCP server actually IS.
+  //
+  // mt#3023: this pattern was MISSING. The per-service pattern below is
+  // anchored to `services/<name>/`, so a PR touching only the root Dockerfile
+  // matched nothing — skipping both the pre-merge deploy-verification gate and
+  // the post-merge deploy watch for the one image most likely to break a
+  // deploy. Being unscoped, it is treated as broad-impact by
+  // `findAffectedServices` (same posture as `infra/`), which is the
+  // conservative direction: watch more, miss nothing.
+  /^Dockerfile$/,
   // Per-service deploy + build config.
   /^services\/[^/]+\/Dockerfile$/,
   /^services\/[^/]+\/railway\.json$/,
@@ -35,25 +47,89 @@ export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
   /^\.github\/workflows\/deploy(?:-[^/]+)?\.ya?ml$/,
 ];
 
-/** Normalise a path for matching: backslashes -> `/`, strip a leading `./`. */
-function normalisePath(filename: string): string {
+/**
+ * LOCAL-APP deploy surface (mt#2976): the cockpit-tray native binary source.
+ *
+ * Unlike the Railway `DEPLOY_SURFACE_PATTERNS` above, a change here "deploys" to
+ * the operator's local `/Applications` via `cockpit-tray/scripts/install-local.sh`
+ * — and the tray's own Rust binary is NOT auto-rebuilt (only `src/cockpit/**` is,
+ * mt#2297/mt#2299), so a merged change is invisible until the app is reinstalled
+ * (mt#2942). Kept SEPARATE from the Railway surface on purpose: the pre-merge gate
+ * and the `session.pr.drive` deploy-watch both key off `DEPLOY_SURFACE_PATTERNS`
+ * → `deployment_wait-for-latest`, which is meaningless for the tray. Only the
+ * post-merge reminder branches on this set (a reinstall reminder, no pre-merge
+ * block — a local reinstall is low-stakes + reversible).
+ */
+export const LOCAL_APP_DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [/^cockpit-tray\/src-tauri\//];
+
+/**
+ * Normalise a path for matching: backslashes -> `/`, strip a leading `./`.
+ *
+ * Accepts `null`/`undefined` defensively (mt#2809 — trust-boundary guard).
+ * `filename` values reaching this module ultimately come from a
+ * `JSON.parse`'d `gh` CLI response; the TypeScript `string` type on the
+ * originating `PrFile.filename`/`previous_filename` fields is NOT
+ * runtime-enforced. Root cause of the mt#2809 crash: `pr-context.ts`'s
+ * `fetchPrFiles` jq projection (`previous_filename: .previous_filename`)
+ * evaluates that field on EVERY file entry regardless of status — and jq
+ * returns `null` (not "field omitted") when the key is absent from the
+ * source object, which it is for every non-renamed file. So the JSON that
+ * round-trips through `JSON.parse` carries `previous_filename: null` (a
+ * real `null`, not `undefined`) on ~every file in ~every PR. A caller that
+ * only guards `!== undefined` treats `null` as "present" and forwards it
+ * here, where `null.replace(...)` used to throw unconditionally.
+ *
+ * Returns `null` (rather than throwing) for any non-string input, so a
+ * single malformed entry degrades to "unclassifiable" instead of crashing
+ * the whole merge gate.
+ */
+function normalisePath(filename: string | null | undefined): string | null {
+  if (typeof filename !== "string") return null;
   return filename.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-/** True when a single repo-relative path is a deploy surface. */
-export function isDeploySurfaceFile(filename: string): boolean {
+/**
+ * True when a single repo-relative path is a deploy surface.
+ *
+ * Decision (mt#2809): a null/undefined/non-string `filename` is treated as
+ * NOT a deploy surface (`false`) rather than throwing — the safer failure
+ * mode for a merge gate. This can only cause a false negative (a genuine
+ * deploy-surface change silently unflagged) if GitHub ever omits the
+ * `filename` field on a file's OWN entry, which it does not — GitHub's
+ * PR-files API always includes `filename`; the null case observed in
+ * production is exclusively on `previous_filename` for non-renamed entries
+ * (see `normalisePath` above), which callers may pass through this same
+ * function (e.g. `isDeploySurfaceFile(f.previous_filename)`).
+ */
+export function isDeploySurfaceFile(filename: string | null | undefined): boolean {
   const normalised = normalisePath(filename);
+  if (normalised === null) return false;
   return DEPLOY_SURFACE_PATTERNS.some((re) => re.test(normalised));
+}
+
+/**
+ * True when a repo-relative path is a LOCAL-APP (cockpit-tray binary) deploy
+ * surface (mt#2976). Separate from `isDeploySurfaceFile` (Railway) so the
+ * pre-merge gate + `session.pr.drive` deploy-watch never treat a tray change as
+ * a Railway deploy. Same null-safety posture as `isDeploySurfaceFile` (mt#2809).
+ */
+export function isLocalAppDeploySurfaceFile(filename: string | null | undefined): boolean {
+  const normalised = normalisePath(filename);
+  if (normalised === null) return false;
+  return LOCAL_APP_DEPLOY_SURFACE_PATTERNS.some((re) => re.test(normalised));
 }
 
 /**
  * Extract the service name from a `services/<name>/...` path, or
  * `undefined` when the path isn't scoped to a single service (e.g.
  * `infra/index.ts` or a deploy workflow file — those can affect ANY
- * service, not just one).
+ * service, not just one) OR when `filename` is null/undefined (mt#2809 —
+ * same defensive guard as `isDeploySurfaceFile`).
  */
-export function extractServiceFromPath(filename: string): string | undefined {
-  const match = normalisePath(filename).match(/^services\/([^/]+)\//);
+export function extractServiceFromPath(filename: string | null | undefined): string | undefined {
+  const normalised = normalisePath(filename);
+  if (normalised === null) return undefined;
+  const match = normalised.match(/^services\/([^/]+)\//);
   return match?.[1];
 }
 

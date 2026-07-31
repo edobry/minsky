@@ -68,6 +68,12 @@ export const taskCreationParams = {
       "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  // Validated enum (mt#3010 — this was a raw z.string().optional(), the one
+  // create-time gap in kind governance: every OTHER kind param in this file
+  // already used the validated TaskParameters.kind, so an unknown kind here
+  // was accepted by the schema and silently fell back to "implementation" at
+  // getWorkflow() time instead of being rejected at create time).
+  kind: TaskParameters.kind,
 };
 
 /**
@@ -78,6 +84,9 @@ export const taskFilterParams = {
   status: TaskParameters.status,
   filter: TaskParameters.filter,
   limit: TaskParameters.limit,
+  // Workflow-kind filter (mt#2762). Reuses TaskParameters.kind (validated against
+  // the workflow registry) so CLI/MCP surfaces share the same enum as tasks_edit.
+  kind: TaskParameters.kind,
   tag: {
     schema: z.union([z.string(), z.array(z.string())]).optional(),
     description:
@@ -179,7 +188,14 @@ export const taskEditParams = {
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams = {
-  // Optional single-task target (CLI should use --task, not --task-id)
+  // Optional single-task target. mt#2741: canonical name is `taskId` (tasks_*
+  // family convention); `task` is kept as a back-compat alias. Both optional —
+  // absent => index all tasks up to `limit`. Resolved `taskId ?? task` in the handler.
+  taskId: {
+    schema: z.string(),
+    description: "Single-task target: index just this task (prefer over the `task` alias)",
+    required: false,
+  },
   task: CommonParameters.task,
   reindex: {
     schema: z.boolean().default(false),
@@ -220,6 +236,35 @@ export const tasksSimilarParams = {
     description: "Show detailed output including scores and diagnostics",
     required: false,
   },
+  // mt#3305: same filter surface as tasks.search. These two commands are one
+  // operation behind two doors (`similarToTask` turns a task into query text and
+  // delegates to `searchByText`); a param present on one and absent on the other
+  // is exactly the drift that produced this task's defects — `all` did not exist
+  // here at all, so `tasks_similar` could not be asked to include shipped work
+  // by any argument.
+  //
+  // The DEFAULT still differs on purpose: tasks.search excludes terminal
+  // statuses (browse), tasks.similar includes them (dedupe — "does this already
+  // exist?"). See TasksSimilarCommand.execute.
+  all: TaskParameters.all,
+  status: TaskParameters.status,
+  kind: TaskParameters.kind,
+  // mt#2795: declared for parity with tasks.search (the mt#2779 R1 review
+  // flagged the gap). Description overrides the generic "Suppress output" —
+  // this flag only silences stderr diagnostics, never the result output
+  // (PR #1944 R1).
+  quiet: {
+    ...CommonParameters.quiet,
+    description: "Suppress the degraded-search warning on stderr (results are unaffected)",
+  },
+  // mt#2939: project scoping is applied by default (ADR-021, mirroring
+  // tasks.list's allProjects flag); this is the explicit cross-project opt-out.
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return similar tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)",
+    required: false,
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -251,8 +296,23 @@ export const tasksSearchParams = {
   // Add filtering options consistent with tasks list
   all: TaskParameters.all,
   status: TaskParameters.status,
-  // Support suppressing progress output
-  quiet: CommonParameters.quiet,
+  // Workflow-kind filter (mt#2762), consistent with tasks list / tasks available.
+  kind: TaskParameters.kind,
+  // Support suppressing progress output. Same accuracy override as
+  // tasks.similar's quiet (PR #1944 R1): stderr diagnostics only.
+  quiet: {
+    ...CommonParameters.quiet,
+    description:
+      "Suppress progress and degraded-search warnings on stderr (results are unaffected)",
+  },
+  // mt#2939: project scoping is applied by default (ADR-021, mirroring
+  // tasks.list's allProjects flag); this is the explicit cross-project opt-out.
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return matching tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)",
+    required: false,
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -284,6 +344,15 @@ export const tasksStatusSetParams = {
 export const tasksSpecParams = {
   ...taskIdParam,
   ...taskSpecParams,
+  ...taskContextParams,
+  ...outputFormatParams,
+} satisfies CommandParameterMap;
+
+/**
+ * Parameters for tasks spec freshness command (mt#2826)
+ */
+export const tasksSpecFreshnessParams = {
+  ...taskIdParam,
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -351,25 +420,46 @@ export const tasksEditParams = {
 } satisfies CommandParameterMap;
 
 /**
- * Parameters for tasks migrate command (md#429 importer by default)
+ * Bulk edit parameters (mt#2819). Deliberately narrower than tasksEditParams:
+ * bulk mode supports kind reclassification + tag add/remove only — no
+ * title/spec (per-task content, not meaningfully bulk-able) and no status
+ * (owned by the status machine and its guards).
  */
-export const tasksMigrateParams = {
+export const tasksBulkEditParams = {
+  ids: {
+    schema: z.union([z.string(), z.array(z.string())]),
+    description:
+      "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids " +
+      "(e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted.",
+    required: true,
+  },
+  kind: TaskParameters.kind,
+  addTag: {
+    schema: z.string().optional(),
+    description: "Tag to add to every target task",
+    required: false,
+  },
+  removeTag: {
+    schema: z.string().optional(),
+    description: "Tag to remove from every target task",
+    required: false,
+  },
   execute: {
     schema: z.boolean().default(false),
-    description: "Apply changes (defaults to dry-run without this flag)",
+    description:
+      "Apply the approved change set (default is dry-run preview; requires the dry-run token)",
     required: false,
   },
-  limit: {
-    schema: z.number().int().positive().optional(),
-    description: "Limit number of tasks to import",
-    required: false,
-  },
-  filterStatus: {
+  token: {
     schema: z.string().optional(),
-    description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
+    description: "Dry-run token binding the approved change set (required with execute)",
     required: false,
   },
-  quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
+
+// mt#2795: the former `tasksMigrateParams` export (md#429 importer era) was a
+// dead map — zero consumers anywhere in src/ (tasks.migrate-backend declares
+// its own map in migrate-backend-command.ts). Removed by the
+// declared-but-unread param audit.

@@ -21,7 +21,12 @@ incrementally — not to plan, not to delegate, and not to ask permission for cr
 
 ## Minsky conventions
 
-- All file paths MUST be absolute paths inside the session directory.
+- Use the session-scoped file tools for every file operation: `mcp__minsky__session_read_file`,
+  `mcp__minsky__session_search_replace` (targeted edit), `mcp__minsky__session_write_file` (create
+  or full rewrite). They take the session id plus a path RELATIVE to the session root, so a path
+  can never silently address the main workspace. `mcp__minsky__session_edit_file` is
+  fast-apply-model-based and is NOT the default — use it only for an edit spanning many regions.
+  The harness-native `Read`/`Edit`/`Write` are for MAIN-workspace files, not session files.
 - Use `mcp__minsky__` MCP tools for all task, session, and git operations. Never shell out to
   `git` or `gh` CLI directly.
 - Use `mcp__minsky__session_exec` to run shell commands (tests, type checks) inside the session.

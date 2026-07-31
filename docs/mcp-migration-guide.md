@@ -116,3 +116,39 @@ This migration enables:
 - Future API endpoints with identical validation logic
 - Consistent error handling across all interfaces
 - Simplified maintenance and feature additions
+
+## Structured MCP error codes
+
+When an MCP tool handler fails with a structured error, `error.data.code` carries one of
+the canonical codes from `packages/domain/src/errors/mcp-error-codes.ts` (the source of
+truth — codes are documented inline there and kept alphabetized). External agents should
+branch on `error.data.code` rather than regex-parsing `error.message`.
+
+| Code                | Meaning                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `COMMIT_MSG_FAILED` | A commit-msg hook blocked the commit; `subprocessOutput` carries the hook stderr.                                 |
+| `CONFLICT`          | A git merge conflict prevented the operation (a genuine conflict — see below).                                    |
+| `PRE_COMMIT_FAILED` | A pre-commit hook blocked the commit; `subprocessOutput` carries the hook stderr.                                 |
+| `RATE_LIMITED`      | The upstream API (e.g. GitHub) rejected the request due to rate limiting. Wait for the reset window, then retry.  |
+| `SERVICE_DEGRADED`  | The upstream API is degraded or unavailable (5xx). Not a problem with your branch or PR — retry once it recovers. |
+| `SUBPROCESS_FAILED` | A subprocess invoked during the operation exited non-zero.                                                        |
+| `VALIDATION_ERROR`  | Input parameters failed validation.                                                                               |
+
+### `session.pr.merge` error classification (mt#2890)
+
+`session.pr.merge` distinguishes failure classes rather than reporting every merge-API
+failure as a conflict:
+
+- **`CONFLICT`** — only for genuine merge conflicts (GitHub reports `mergeable: false`, or
+  a 405/422 with conflict semantics). Remediation: `session.update` (rebase) and resolve.
+- **`RATE_LIMITED`** — the merge call hit the API rate limit. Remediation: wait, retry.
+  Do NOT rebase; the branch is fine.
+- **`SERVICE_DEGRADED`** — upstream 5xx (check githubstatus.com). Remediation: wait, retry.
+- When GitHub has not yet computed mergeability (`mergeable: null`), the merge path polls
+  briefly; if still unknown it fails with a distinct "merge readiness could not be
+  determined" error rather than a false conflict.
+- The structured error's `summary` includes the original upstream error message
+  (truncated), so the true failure is always visible to the operator.
+
+Originating incident: PR #1988 (2026-07-16), where GitHub API degradation was mislabeled
+as merge conflicts across five merge attempts.

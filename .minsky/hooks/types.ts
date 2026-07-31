@@ -1,6 +1,9 @@
 // Types for Claude Code hook stdin/stdout contract
 // Utility: spawnSync wrapper that returns { exitCode, stdout, stderr } without throwing
 
+import { existsSync } from "node:fs";
+import { TERMINAL_TASK_STATUS_VALUES } from "../../packages/domain/src/tasks/workflows";
+
 export interface ClaudeHookInput {
   session_id: string;
   transcript_path?: string;
@@ -8,13 +11,55 @@ export interface ClaudeHookInput {
   permission_mode?: string;
   hook_event_name: string;
   agent_id?: string;
+  /**
+   * The subagent's TYPE name (e.g. "reviewer", "Explore"), documented as present
+   * alongside `agent_id` on hook calls that fire inside a subagent
+   * (https://code.claude.com/docs/en/hooks). Optional because nothing in this
+   * repo has ever observed it: every prior `agent_type`-shaped read is actually
+   * `tool_input.subagent_type` (the PARENT's dispatch parameter, a different
+   * field on a different event), and `record-subagent-invocation.ts` documents
+   * that it cannot see a real agent type at Stop time and sends a sentinel.
+   *
+   * Treat as UNVERIFIED in production until the fire log says otherwise —
+   * `block-git-gh-cli` records its presence per fire (mt#3381) so ordinary
+   * subagent traffic answers the question without a dedicated probe.
+   */
+  agent_type?: string;
 }
 
 export interface ToolHookInput extends ClaudeHookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
+  /**
+   * The key this repo's hooks historically read. Production does NOT send it (mt#3308,
+   * measured on Claude Code 2.1.220; mt#3182 found the absence in production for
+   * `session_start` without identifying the real key) — `readInput` synthesizes it from
+   * `tool_response` below so every existing reader keeps working.
+   */
   tool_result?: Record<string, unknown>;
+  /**
+   * The key production actually sends on PostToolUse (mt#3308 captures):
+   * a parsed object for native tools (Agent), or the MCP content envelope
+   * `[{type:"text", text:"<json>"}]` for MCP tools, with the tool's JSON result
+   * STRINGIFIED inside the first text block.
+   */
+  tool_response?: unknown;
 }
+
+/**
+ * Task statuses that cannot represent live/in-flight duplicate work (mt#2683
+ * discipline, generalized mt#2813 R1: hoisted here so parallel-work-guard.ts
+ * and parallel-work-guard-standalone.ts share ONE definition instead of two
+ * independently-maintained copies — the sibling duplicate-CHILD matcher and
+ * the standalone-duplicate probe both exclude these statuses from their
+ * respective candidate pools before thresholding).
+ *
+ * Values sourced from the domain registry's `TERMINAL_TASK_STATUS_VALUES`
+ * (mt#3010 — single-authority consolidation) rather than a hand-typed
+ * literal, so this hook-layer Set can never drift from the domain's terminal
+ * set.
+ */
+export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(TERMINAL_TASK_STATUS_VALUES);
 
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
@@ -37,55 +82,379 @@ export interface HookOutput {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Crash-safe spawn + robust git-binary resolution (mt#2810)
+// ---------------------------------------------------------------------------
+//
+// ## The incident
+//
+// Four `session_pr_merge` PreToolUse gates (require-review-before-merge,
+// require-execution-evidence-before-merge, require-deploy-verification-
+// before-merge, block-out-of-band-merge) all crashed with
+// `ENOENT: posix_spawn 'git'` from the shared `pr-context.ts` fetch layer
+// (`deriveRepoFromGit` -> `execWithPath` -> `Bun.spawnSync(["git", ...])`),
+// on two separate days (2026-07-14 in a session workspace, 2026-07-15 in
+// the main repo). Per each gate's documented fail-open posture, a hook that
+// crashes before writing a `permissionDecision` is indistinguishable from
+// one that ran and allowed — so the merges were silently permitted with
+// ZERO gate enforcement, invisible to both agent and user, and the only
+// trace was a raw uncaught-exception stack trace instead of a diagnosable
+// warning.
+//
+// ## Two independent bugs, two independent fixes
+//
+// 1. **`Bun.spawnSync` THROWS on ENOENT instead of returning a failed
+//    result.** Verified directly: `Bun.spawnSync(["git", ...], { env: {
+//    PATH: "/nonexistent" } })` throws a synchronous `Error: Executable not
+//    found in $PATH: "git" { code: "ENOENT", path: "git", errno: -2 }`
+//    rather than returning `{ exitCode: <nonzero>, ... }`. Neither the
+//    pre-mt#2810 `execSync` nor `execWithPath` wrapped the call in
+//    try/catch, despite this file's own header comment claiming the
+//    opposite ("spawnSync wrapper that returns { exitCode, stdout, stderr }
+//    WITHOUT THROWING") — the comment described the intended contract; the
+//    implementation didn't deliver it. `safeSpawnSync` below is the actual
+//    fix: it catches ANY spawn-time throw (missing binary, exec permission
+//    denied, etc.) and returns a synthetic non-zero `ExecResult` instead,
+//    so a spawn failure degrades exactly like a normal non-zero command
+//    exit — which every caller in this codebase (starting with
+//    `deriveRepoFromGit` in `pr-context.ts`) already handles gracefully.
+//    It also logs a loud `console.error` naming the failed command, so the
+//    failure is visible in the hook's own stderr even for a caller (like
+//    `require-review-before-merge.ts`, pre-mt#2810) that has no warning
+//    path of its own for this branch.
+//
+// 2. **WHY the hook spawn env lacked PATH (root-cause finding, documented
+//    per mt#2810 acceptance criteria).** `execWithPath`'s PATH augmentation
+//    was `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}` — it
+//    assumes git lives under one of those two hardcoded prefixes, OR that
+//    `process.env.PATH` (the hook subprocess's OWN inherited PATH, set by
+//    whatever spawned the hook — Claude Code's main-agent process, or a
+//    dispatched/backgrounded subagent's harness) already contains git's
+//    location. Neither is guaranteed for every hook-spawn context:
+//      - A dispatched/backgrounded subagent process is not guaranteed to
+//        inherit the same interactive-shell PATH the main agent has (login
+//        shells source `.zshrc`/`.zprofile`, which is what actually adds
+//        Homebrew to `PATH` on a fresh shell — a non-interactive subprocess
+//        spawn can plausibly skip that and hand the hook a minimal PATH).
+//      - Even a well-formed inherited PATH can point at a distro layout
+//        the hardcoded two-entry prefix doesn't anticipate (e.g. Debian/
+//        Ubuntu's default `/usr/bin/git`, which this file's prefix did NOT
+//        special-case — it relied entirely on `process.env.PATH` already
+//        containing `/usr/bin`).
+//    Net effect: `execWithPath`'s augmentation is a PATH *prefix*, not a
+//    binary *resolution* strategy — it never actually asks "does a `git`
+//    executable exist," it just hopes one of a few directories is both
+//    present in the final PATH string AND contains git. `resolveGitBinary`
+//    below replaces that hope with an actual resolution: `Bun.which`
+//    first (respects whatever real PATH is present), then a filesystem
+//    existence check against a short list of standard install locations
+//    (no subprocess spawn, so this step can't itself throw ENOENT) — and
+//    only falls through to the bare, unresolved `"git"` (still crash-safe
+//    via `safeSpawnSync`) if truly nothing is found anywhere.
+
+/** Options accepted by `Bun.spawnSync`'s `env` field. */
+type SpawnEnv = Record<string, string | undefined>;
+
+/**
+ * Spawn a command synchronously WITHOUT throwing on failure to resolve or
+ * exec the binary (mt#2810 fix #1 — see the module comment above). Every
+ * exec helper in this module funnels through here so a spawn failure
+ * (missing binary, permission denied, etc.) always degrades to a
+ * structured `ExecResult` instead of crashing the hook process, and always
+ * logs a loud, structured `console.error` naming the exact command that
+ * failed to spawn — visible in the hook's own stderr regardless of whether
+ * the caller has its own fail-open warning path.
+ */
+function safeSpawnSync(
+  cmd: string[],
+  options: { cwd?: string; timeout?: number; env?: SpawnEnv }
+): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+  try {
+    const result = Bun.spawnSync(cmd, {
+      cwd: options.cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: options.timeout,
+      ...(options.env ? { env: options.env } : {}),
+    });
+    // mt#2810 PR #1952 R1 NON-BLOCKING: broadened from `signalCode ===
+    // "SIGTERM"` — a timed-out `Bun.spawnSync` always reports `exitCode:
+    // null` (it never completed normally), but the signal Bun uses to kill
+    // it can vary by platform/version (e.g. SIGKILL after a grace period).
+    // Gating on SIGTERM specifically produced a false negative (`timedOut:
+    // false`) for any of those other signals. `exitCode === null` alone is
+    // the reliable "did not exit normally" signal.
+    const timedOut = result.exitCode === null;
+    return {
+      exitCode: result.exitCode ?? 1,
+      stdout: result.stdout.toString().trim(),
+      stderr: result.stderr.toString().trim(),
+      timedOut,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Loud degradation signal (mt#2810 success criterion: "when git
+    // genuinely cannot be resolved, emit a loud structured warning naming
+    // the degradation — not a bare stack trace"). This is the lowest
+    // common layer every gate's exec call funnels through, so it fires
+    // regardless of which of the four gates (or future callers) triggered
+    // it, and regardless of whether that caller has its own warning path.
+    console.error(
+      `[hook-exec] DEGRADED: failed to spawn \`${cmd.join(" ")}\` — ${message}. ` +
+        `Returning a synthetic failed result instead of crashing; any gate check ` +
+        `depending on this call will fail-open with that result (see the gate's own ` +
+        `fail-open warning, if any, for which check was skipped).`
+    );
+    return {
+      exitCode: 127, // conventional shell "command not found" exit code
+      stdout: "",
+      stderr: `spawn failed: ${message}`,
+      timedOut: false,
+    };
+  }
+}
+
+/**
+ * Standard-location fallbacks for `git`, tried when `Bun.which` can't
+ * resolve it from the (PATH-augmented) spawn environment. Checked with
+ * `existsSync` — no subprocess spawn, so this step can never itself throw
+ * ENOENT. Covers macOS Homebrew (Apple Silicon `/opt/homebrew`, Intel
+ * `/usr/local`), Xcode Command Line Tools / system git, and the common
+ * Linux distro location.
+ */
+const GIT_FALLBACK_PATHS: readonly string[] = [
+  "/opt/homebrew/bin/git",
+  "/usr/local/bin/git",
+  "/usr/bin/git",
+  "/bin/git",
+];
+
+/**
+ * Module-level cache — git-binary resolution doesn't change mid-process.
+ * Only a SUCCESSFUL resolution is ever cached (mt#2810 PR #1952 R1
+ * NON-BLOCKING): caching a failed ("nothing resolved") attempt would
+ * permanently lock the process into re-spawning bare `"git"` even if
+ * whatever made resolution fail (e.g. a not-yet-mounted filesystem, a PATH
+ * that gets repaired mid-process) is no longer true by the next call. Never
+ * holds `null` — an unresolved state is represented by `undefined` so every
+ * call retries full resolution until one succeeds.
+ */
+let cachedGitBinaryPath: string | undefined;
+
+export interface ResolveGitBinaryOptions {
+  /** Override the PATH string passed to `Bun.which` (tests only). */
+  pathOverride?: string;
+  /** Override the fallback candidate list (tests only). */
+  fallbackPaths?: readonly string[];
+  /** Override `existsSync` (tests only — simulate "nothing found"). */
+  existsSyncFn?: (path: string) => boolean;
+  /** Override `Bun.which` (tests only). */
+  whichFn?: (command: string, options?: { PATH?: string }) => string | null;
+  /** Bypass the module-level cache (tests only — production always caches). */
+  noCache?: boolean;
+}
+
+/**
+ * Resolve an absolute path to the `git` binary, robust to a hook spawn
+ * environment whose PATH doesn't include it (mt#2810 fix #2 — see the
+ * module comment above for the root-cause finding this replaces).
+ *
+ * Resolution order:
+ *   1. `Bun.which("git", { PATH: <augmented PATH> })` — respects whatever
+ *      real PATH customization is present (Homebrew, asdf, nix, etc.)
+ *   2. `GIT_FALLBACK_PATHS`, checked via `existsSync` (no subprocess).
+ *   3. Bare `"git"` as a last resort — spawning this can still fail if
+ *      truly nothing resolves, but `safeSpawnSync` (above) now catches
+ *      that failure instead of letting it crash the hook process.
+ *
+ * Cached for the lifetime of the hook process.
+ */
+export function resolveGitBinary(options: ResolveGitBinaryOptions = {}): string {
+  if (!options.noCache && cachedGitBinaryPath) {
+    return cachedGitBinaryPath;
+  }
+  const pathPrefix =
+    options.pathOverride ?? `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
+  const which =
+    options.whichFn ?? ((cmd: string, opts?: { PATH?: string }) => Bun.which(cmd, opts));
+  const exists = options.existsSyncFn ?? existsSync;
+  const fallbacks = options.fallbackPaths ?? GIT_FALLBACK_PATHS;
+
+  let resolved: string | null = null;
+  try {
+    resolved = which("git", { PATH: pathPrefix });
+  } catch {
+    resolved = null;
+  }
+  if (!resolved) {
+    for (const candidate of fallbacks) {
+      try {
+        if (exists(candidate)) {
+          resolved = candidate;
+          break;
+        }
+      } catch {
+        // Treat a filesystem-check error as "not found" — keep scanning.
+      }
+    }
+  }
+  // Only a successful resolution is cached — see the `cachedGitBinaryPath`
+  // doc comment above (mt#2810 PR #1952 R1 NON-BLOCKING).
+  if (!options.noCache && resolved) cachedGitBinaryPath = resolved;
+  return resolved ?? "git";
+}
+
+/**
+ * Test-only: reset the module-level git-binary resolution cache. Production
+ * code never needs this — the cache is meant to persist for the hook
+ * process's lifetime. Exists so tests can deterministically exercise the
+ * cache-miss path without depending on ambient state from other tests or
+ * production code paths that may have already populated the cache earlier
+ * in the same test-runner process.
+ */
+export function __resetGitBinaryCacheForTests(): void {
+  cachedGitBinaryPath = undefined;
+}
+
+/**
+ * Substitute `cmd[0]` with the resolved absolute git path when the command
+ * invokes `git` by bare name. No-op for any other command (e.g. `gh`).
+ */
+function resolveGitCommand(cmd: string[]): string[] {
+  if (cmd[0] !== "git") return cmd;
+  return [resolveGitBinary(), ...cmd.slice(1)];
+}
+
 // Sync exec helper — returns exit code + output without throwing
 export function execSync(
   cmd: string[],
   options?: { cwd?: string; timeout?: number }
 ): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
-  const result = Bun.spawnSync(cmd, {
+  return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
     timeout: options?.timeout,
   });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-    timedOut,
-  };
 }
 
 /**
+ * Fail-fast Postgres connect for hook-shelled `minsky` CLI calls (mt#2982).
+ *
+ * Every guard that shells the minsky CLI runs under a hard spawn-kill budget
+ * (4-8s across consumers), while the CLI's default postgres-js connect_timeout
+ * is 10s — so a hanging/reconnecting DB always loses the race to the kill and
+ * surfaces as an empty-output "unparseable" failure (the mt#2982 confirmed
+ * diagnosis). Injecting a 2s connect timeout keeps the worst case (bundle boot
+ * ~1s + embed ~1s + connect-fail 2s) inside every consumer budget and turns
+ * the failure into a fast, clearly attributed error (postgres-js
+ * CONNECT_TIMEOUT) that the guards' existing stderr surfacing reports
+ * verbatim. An operator-set value in the parent env wins (spread order in
+ * execWithPath). Tradeoff: a healthy-but-slow connect (>2s, degraded-DB
+ * window) now fails fast too — for a guard probe that outcome is the same
+ * designed fail-open skip the spawn-kill produced, minus the hang and the
+ * vague signature. Non-minsky spawns (git/gh) ignore the variable; injecting
+ * it unconditionally keeps this a single-choke-point change.
+ */
+export const HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC = "2";
+
+/**
  * PATH-augmented sync exec helper. Prepends common homebrew/system binary
- * directories to PATH so that `gh` and `git` resolve correctly regardless of
- * the shell PATH that launched Claude Code. Used by hooks that call `gh`/`git`.
+ * directories to PATH so that `gh` resolves correctly regardless of the
+ * shell PATH that launched Claude Code, and additionally resolves `git`
+ * robustly via `resolveGitBinary` (mt#2810 — PATH augmentation alone is not
+ * a resolution strategy, see the module comment above). Used by hooks that
+ * call `gh`/`git`. Never throws — spawn failures degrade to a structured
+ * `ExecResult` (see `safeSpawnSync`).
  */
 export function execWithPath(
   cmd: string[],
   options?: { cwd?: string; timeout?: number }
 ): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
   const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-  const result = Bun.spawnSync(cmd, {
+  return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
     timeout: options?.timeout ?? 10000,
-    env: { ...process.env, PATH: pathPrefix },
+    env: {
+      MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
+      ...process.env,
+      PATH: pathPrefix,
+    },
   });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-    timedOut,
-  };
 }
 
 // Read hook input from stdin
 export async function readInput<T = ClaudeHookInput>(): Promise<T> {
-  return (await Bun.stdin.json()) as T;
+  const raw = await Bun.stdin.json();
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    normalizeToolResult(raw as Record<string, unknown>);
+  }
+  return raw as T;
+}
+
+/** True for an MCP content block of the form `{type: "text", text: string}`. */
+function isTextContentBlock(block: unknown): block is { type: "text"; text: string } {
+  return (
+    !!block &&
+    typeof block === "object" &&
+    (block as { type?: unknown }).type === "text" &&
+    typeof (block as { text?: unknown }).text === "string"
+  );
+}
+
+/** Parse `text` as JSON and assign to `tool_result` when it yields an object; fail-open. */
+function assignParsedJsonResult(payload: Record<string, unknown>, text: string): void {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      payload["tool_result"] = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Non-JSON text result (plain prose output) — leave untouched.
+  }
+}
+
+/**
+ * Normalize the measured PostToolUse payload shape onto the `tool_result` key this repo's
+ * hooks read (mt#3308). Production sends `tool_response`, never `tool_result`:
+ *
+ *   - Native tools (e.g. `Agent`): `tool_response` is already a parsed object — copied over
+ *     directly.
+ *   - MCP tools (`mcp__*`): `tool_response` is the MCP content envelope
+ *     `[{type:"text", text:"<json>"}]` with the tool's JSON result STRINGIFIED in the first
+ *     text block — unwrapped and parsed.
+ *   - A raw JSON-string `tool_response` (not observed in captures, but cheap to accept) is
+ *     parsed the same way (PR #2402 R1).
+ *
+ * Before this normalization, every PostToolUse reader gating on `tool_result` contents was
+ * silently dead or degraded against production payloads (mt#3182's stamp hook wrote 0 rows in
+ * 235 sessions; the drive-pr-to-convergence reminder never fired). Fail-open by design: an
+ * absent/unparseable `tool_response` leaves the payload untouched, an already-usable
+ * `tool_result` (e.g. a hand-built test payload) is never overwritten, and non-PostToolUse
+ * payloads are never mutated at all (PR #2402 R1).
+ */
+export function normalizeToolResult(payload: Record<string, unknown>): void {
+  if (payload["hook_event_name"] !== "PostToolUse") return;
+
+  const existing = payload["tool_result"];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) return;
+
+  const response = payload["tool_response"];
+  if (!response) return;
+
+  if (typeof response === "string") {
+    assignParsedJsonResult(payload, response);
+    return;
+  }
+
+  if (typeof response === "object" && !Array.isArray(response)) {
+    payload["tool_result"] = response;
+    return;
+  }
+
+  if (Array.isArray(response)) {
+    const textBlock = response.find(isTextContentBlock);
+    if (!textBlock) return;
+    assignParsedJsonResult(payload, textBlock.text);
+  }
 }
 
 // Write hook output to stdout
@@ -133,7 +502,11 @@ export function emitHookFiredOnDeny(output: HookOutput): void {
       stdout: "ignore",
       stderr: "ignore",
       stdin: "ignore",
-      env: { ...process.env, PATH: pathPrefix },
+      env: {
+        MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
+        ...process.env,
+        PATH: pathPrefix,
+      },
     });
     proc.unref();
   } catch {
@@ -162,6 +535,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_HOST_CAP_SEC = 15;
+
+/**
+ * Canary-mode gate (mt#3004, PR #2145 R1). Set to "1" ONLY by the canary
+ * runner (`scripts/run-guard-canaries.ts`) and by unit tests. The test-only
+ * seams that alter guard behavior via env (memory-search's fixture stub,
+ * the daemon-staleness tracker-home redirect) are honored ONLY when this
+ * gate is active — a production process with one of those vars set but no
+ * canary mode behaves exactly as before. Shared here (not in
+ * canary-runner.ts) so guard modules can import it without a
+ * guard -> canary-runner -> registry -> guard import cycle.
+ */
+export const CANARY_MODE_ENV = "MINSKY_CANARY_MODE";
 
 /**
  * Floor on derived per-call timeouts. Without a clamp, hostCaps in the
@@ -492,4 +877,164 @@ export function deriveBudgets(hostCapSec: number): DerivedBudgets {
     ),
     gitTimeoutMs: Math.max(MIN_DERIVED_BUDGET_MS, Math.floor(overallBudgetMs * GIT_TIMEOUT_RATIO)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Repo-root resolution (mt#2700 origin, lifted here mt#2710)
+// ---------------------------------------------------------------------------
+//
+// `input.cwd` tracks the harness SHELL's working directory, which is
+// routinely a SUBDIRECTORY of the repo (e.g. `<session>/cockpit-tray/
+// src-tauri` during a build, or any `cd`'d-into subtree). Subprocess git/gh
+// calls (`git -C <dir>`, `gh api ...` with `{ cwd }`) walk up to the repo
+// root on their own and stay correct regardless — that class of `input.cwd`
+// consumer is explicitly OUT of scope here (see mt#2710 spec). But any hook
+// that resolves a REPO-RELATIVE STATE path itself (calibration logs under
+// `.minsky/`, baseline/dismissals files, policy-corpus reads) by joining
+// `input.cwd` directly needs the actual repo ROOT, not the raw shell cwd —
+// otherwise state scatters into a subdirectory's own stray `.minsky/` (mt#2700
+// mid-merge probe incident; mt#2710 generalizes the fix to every such
+// consumer). `findRepoRoot` was originally implemented locally in
+// `check-branch-fresh.ts` (mt#2700) for its own fs-only mid-merge probe; it
+// lives here so every `.minsky/hooks/*.ts` guard can share one resolver
+// instead of re-deriving it. `check-branch-fresh.ts` now imports and
+// re-exports these from here (no behavior change for its own callers or
+// tests).
+//
+// @see mt#2700 — originating fix (check-branch-fresh.ts mid-merge probe)
+// @see mt#2710 — this lift + adoption across the affected repo-relative-state hooks
+
+import { dirname, isAbsolute, resolve } from "node:path";
+import { statSync } from "node:fs";
+
+/**
+ * Minimal fs surface used by repo-root / mid-merge detection. Packaged so
+ * tests can inject a mock without touching the real filesystem (per the
+ * `no-real-fs-in-tests` lint rule).
+ */
+export interface MergeDetectFs {
+  existsSync: (p: string) => boolean;
+  readFileSync: (p: string, encoding: BufferEncoding) => string;
+  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
+}
+
+/**
+ * Exported (not just module-private) so `check-branch-fresh.ts` can use it as
+ * the default value for its own `detectMergeInProgress`, which stayed in that
+ * file (mid-merge-marker detection is specific to the freshness guard, not a
+ * general repo-root concern) but shares this fs surface with `resolveGitDir`
+ * and `findRepoRoot` below.
+ */
+export const DEFAULT_FS: MergeDetectFs = {
+  existsSync,
+  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
+  statSync: (p) => statSync(p),
+};
+
+/**
+ * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
+ * indirection convention. Three cases:
+ *
+ *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
+ *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
+ *      parse and return the resolved target (typical `git worktree` checkout
+ *      and certain submodule layouts). Relative `<path>` is resolved against
+ *      `repoDir` per git's spec.
+ *   3. `<repoDir>/.git` is missing or unparseable — fall back to
+ *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
+ *      false naturally (no exception thrown for the missing-repo case).
+ *
+ * The fs surface is injectable for test purposes; defaults to real fs.
+ *
+ * @see mt#1739 — added to support worktree-based session layouts where the
+ *   freshness-guard's mid-merge detection would otherwise miss markers
+ *   living under the resolved gitdir, reintroducing the deadlock this fix
+ *   exists to close. PR #1054 R1 BLOCKING #1.
+ */
+export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  const dotGit = join(repoDir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return dotGit;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return dotGit;
+    }
+    const content = fs.readFileSync(dotGit, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+    if (match && match[1]) {
+      const target = match[1].trim();
+      return isAbsolute(target) ? target : resolve(repoDir, target);
+    }
+  } catch {
+    // Fall through — any stat/read error falls back to the conventional path,
+    // which callers handle via existsSync returning false.
+  }
+  return dotGit;
+}
+
+/**
+ * Resolve the repository ROOT for `startDir`: walk parent directories until
+ * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
+ * handles the indirection afterwards), falling back to `startDir` when no
+ * `.git` exists anywhere up the tree (missing-repo case; downstream probes
+ * then fail closed-to-allow exactly as before).
+ *
+ * Why this exists (mt#2700, generalized mt#2710): a hook that passes
+ * `input.cwd` straight into a repo-relative fs read/write treats the harness
+ * SHELL's working directory as the repo root, but `input.cwd` is routinely a
+ * SUBDIRECTORY of the repo. Subprocess probes (`git -C <dir>`) walk up to
+ * the repo root on their own, so callers that ONLY spawn git/gh subprocesses
+ * with `{ cwd: input.cwd }` stay correct without this helper — but a bare fs
+ * `join(input.cwd, ".minsky/<log>.jsonl")` does NOT walk up, so state
+ * silently scatters into a stray subdirectory `.minsky/` (observed
+ * 2026-07-08, mt#2675 convergence; generalized across `.minsky/hooks/**`
+ * calibration writers and repo-root resolvers by mt#2710).
+ *
+ * fs-only by design (no subprocess) — cheap enough to call unconditionally
+ * from any hook that needs a real repo root. Cost is a few probes per path
+ * segment.
+ *
+ * A candidate directory is accepted ONLY when its `.git` entry is a real
+ * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
+ * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
+ * file in an ancestor must not stop the walk early, or every downstream
+ * consumer runs against a pseudo-root). Invalid candidates are skipped and
+ * the walk continues upward.
+ */
+function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
+  const dotGit = join(dir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return false;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return true;
+    }
+    // `.git` is a file — accept only a parseable `gitdir:` indirection
+    // (resolveGitDir returns dotGit itself when the file is unparseable)
+    // whose target exists and is a directory.
+    const resolved = resolveGitDir(dir, fs);
+    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch {
+    // Any stat/read error means this candidate can't be validated — skip it
+    // and let the walk continue.
+    return false;
+  }
+}
+
+export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isRepoRootCandidate(dir, fs)) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      // Filesystem root reached without finding a repo — fall back to the
+      // original directory so callers' downstream probes fail naturally.
+      return resolve(startDir);
+    }
+    dir = parent;
+  }
 }

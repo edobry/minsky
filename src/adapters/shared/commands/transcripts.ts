@@ -18,6 +18,14 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+// mt#2741: migrate transcripts_ingest onto the family's canonical conversationId
+// key (mt#2526 / ADR-022), keeping `session` as a deprecated back-compat alias —
+// matching the other 6 transcripts_* commands.
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./transcripts/conversation-id-param";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
@@ -26,6 +34,7 @@ import { registerTranscriptSimilarCommand } from "./transcripts/similar-command"
 import { registerTranscriptSpawnsExtractCommand } from "./transcripts/spawns-extract-command";
 import { registerTranscriptSearchTextCommand } from "./transcripts/search-text-command";
 import { registerTranscriptGetCommand } from "./transcripts/get-command";
+import { registerTranscriptListCommand } from "./transcripts/list-command";
 
 /**
  * Result returned by `transcripts.ingest`.
@@ -56,37 +65,48 @@ export function registerTranscriptCommands(
     category: CommandCategory.TRANSCRIPTS,
     name: "ingest",
     description:
-      "Ingest agent session transcripts into the agent_transcripts table. " +
-      "Pass --all to sweep every discoverable session, or --session=<uuid> to target one. " +
-      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+      "Ingest agent conversation transcripts into the agent_transcripts table. " +
+      "Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to " +
+      "target one (the legacy --session alias is also accepted). " +
+      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. " +
+      "--ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying " +
+      "positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
     parameters: {
       all: {
         schema: z.boolean(),
-        description: "Sweep and ingest all discoverable sessions",
+        description: "Sweep and ingest all discoverable conversations",
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Ingest a single session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam("Ingest a single conversation by its agent session UUID"),
+      session: deprecatedConversationAlias("session"),
       harness: {
         schema: z.string(),
         description: "Source harness label (default: claude_code)",
         required: false,
         defaultValue: "claude_code",
       },
+      ended: {
+        schema: z.boolean(),
+        description:
+          "mt#3131 (D2): mark this ingest as carrying positive evidence the session has " +
+          "terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should " +
+          "pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert " +
+          "termination for a still-running conversation. Single-session mode only.",
+        required: false,
+        defaultValue: false,
+      },
     },
     async execute(params, context): Promise<TranscriptIngestResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
       const harness = (params.harness as string | undefined) ?? "claude_code";
+      const sessionEnded = (params.ended as boolean | undefined) ?? false;
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.ingest requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep every discoverable session."
+          "transcripts.ingest requires either --all or --conversationId=<uuid> " +
+            "(the `session` alias is also accepted). Pass --all to sweep every discoverable conversation."
         );
       }
 
@@ -160,10 +180,11 @@ export function registerTranscriptCommands(
       }
 
       try {
-        const result = await svc.ingestSession(found);
+        const result = await svc.ingestSession(found, { sessionEnded });
         log.info(`transcripts.ingest --session=${sessionId} complete`, {
           ingested: result.ingested,
           harness,
+          sessionEnded,
           ...(result.error ? { swallowedError: getErrorMessage(result.error) } : {}),
         });
         return {
@@ -203,4 +224,7 @@ export function registerTranscriptCommands(
 
   // ── transcripts.get ──────────────────────────────────────────────────────
   registerTranscriptGetCommand(_container, targetRegistry);
+
+  // ── transcripts.list ─────────────────────────────────────────────────────
+  registerTranscriptListCommand(_container, targetRegistry);
 }

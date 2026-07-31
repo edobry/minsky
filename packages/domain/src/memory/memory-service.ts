@@ -16,13 +16,15 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and, isNull, inArray, or, lt, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES } from "./types";
+import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -73,7 +75,14 @@ export interface MemoryServiceSurface {
   delete(id: string): Promise<void>;
   similar(
     id: string,
-    opts?: Pick<MemorySearchOptions, "limit" | "threshold">
+    opts?: Pick<MemorySearchOptions, "limit" | "threshold"> & {
+      /**
+       * Project scope for filtering (ADR-021, mt#2939). When set to a uuid
+       * string, filters results to memories belonging to that project. When
+       * set to ALL_PROJECTS or omitted, returns cross-project neighbors.
+       */
+      projectScope?: import("../project/scope").ProjectScope;
+    }
   ): Promise<MemorySearchResult[]>;
   supersede(
     oldId: string,
@@ -98,6 +107,42 @@ export interface MemoryServiceDeps {
 }
 
 // ---------------------------------------------------------------------------
+// Id-shape resolution (mt#3259)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical UUID shape. `memories.id` is a Postgres `uuid` column, so a
+ * comparison against a non-uuid string is a CAST ERROR, not an empty result —
+ * this guard is what turns a malformed id into a clean miss.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build the WHERE clause selecting a single memory by its id, accepting
+ * either id form (ADR-029: the uuid is canonical, the `mem#N` short id is an
+ * additional display/lookup handle).
+ *
+ * Returns `null` — explicitly, not a clause matching nothing — when the input
+ * is NEITHER form. That distinction is the point: a null return means "this
+ * string cannot name a memory," which callers render as a miss without ever
+ * issuing a query. Deliberately NOT typed as returning a clause that matches
+ * zero rows, so a future caller can't mistake "unqueryable input" for
+ * "queried and found nothing" (mem#728: an unmeasured value must not be
+ * representable as a legitimate one).
+ */
+function memoryIdWhere(id: string) {
+  const trimmed = (id ?? "").trim();
+  const parsed = parseShortId(trimmed);
+  if (parsed && parsed.prefix === "mem") {
+    // Re-format from the PARSED parts rather than reusing the raw input, so
+    // casing and stray whitespace normalize to the stored form.
+    return eq(memoriesTable.shortId, formatShortId("mem", parsed.n));
+  }
+  if (UUID_RE.test(trimmed)) return eq(memoriesTable.id, trimmed);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Row → domain mapper
 // ---------------------------------------------------------------------------
 
@@ -105,6 +150,8 @@ export interface MemoryServiceDeps {
 function rowToRecord(row: Record<string, any>): MemoryRecord {
   return {
     id: String(row["id"]),
+    // mem#N short id (mt#2966) — undefined for legacy rows pre-backfill.
+    shortId: (row["short_id"] ?? row["shortId"] ?? undefined) as string | undefined,
     type: row["type"],
     name: String(row["name"]),
     description: String(row["description"]),
@@ -125,6 +172,36 @@ function rowToRecord(row: Record<string, any>): MemoryRecord {
   };
 }
 
+/**
+ * Look up one memory by either id form (`mem#N` or a full uuid) and return only
+ * the fields a ref cross-reference needs (mt#3354).
+ *
+ * Standalone rather than a `MemoryService` method because `MemoryServiceDeps`
+ * requires `vectorStorage` and `embeddingService`, neither of which a by-id read
+ * touches — `refs.status` holds a bare DB connection and has no reason to stand
+ * up the embedding stack to answer "does this memory exist". It shares
+ * `memoryIdWhere` with `MemoryService.get`, so both id forms resolve identically
+ * on both paths and cannot drift apart.
+ *
+ * Deliberately does NOT bump `last_accessed_at`/`access_count` the way
+ * `MemoryService.get` does: a bulk ref cross-reference is bookkeeping about the
+ * record, not a read OF the record, and counting it would inflate the access
+ * stats that surface memory relevance.
+ */
+export async function getMemoryRefSummary(
+  db: MemoryServiceDb,
+  id: string
+): Promise<{ id: string; type: string; name: string } | null> {
+  const where = memoryIdWhere(id);
+  // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+  if (!where) return null;
+  const rows = await db.select().from(memoriesTable).where(where);
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const record = rowToRecord(row);
+  return { id: record.id, type: record.type, name: record.name };
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -134,43 +211,144 @@ export class MemoryService implements MemoryServiceSurface {
   constructor(private readonly deps: MemoryServiceDeps) {}
 
   // -------------------------------------------------------------------------
+  // Short-id minting (mt#2966, generalizing mt#2205's `computeNextTaskId`
+  // pattern via the shared `nextShortId` util — mirrors
+  // `DrizzleAskRepository.nextAskShortId`, mt#2965).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Compute the next `mem#N` short id. Two paths, tried in order:
+   *
+   * 1. **Real-DB-optimized path (PR #2134 R1).** A targeted query mirroring
+   *    `DrizzleAskRepository.nextAskShortId` (mt#2965 PR #2110 R1):
+   *    `WHERE short_id ~ '^mem#[0-9]+$' ORDER BY (substring(... from
+   *    5))::bigint DESC LIMIT 1` — fetches ONLY the single highest-numbered
+   *    row's `short_id`, never the whole table. Against a real
+   *    `PostgresJsDatabase`, Postgres executes the ORDER BY/LIMIT
+   *    server-side, so this is a true single-row fetch, not a full-column
+   *    scan.
+   * 2. **Fallback: unfiltered single-column select + client-side fold.**
+   *    `nextShortId` (the shared mt#2963 foundation util) folds over
+   *    whatever candidate ids come back to compute the max — it internally
+   *    filters to `mem#<n>`-shaped values via `parseShortId`, so this
+   *    fallback is still correct even with no server-side WHERE/ORDER
+   *    BY/LIMIT.
+   *
+   * Branching is a CAPABILITY PROBE, not a static type/instanceof check:
+   * path 1 is attempted first inside a try/catch, and ANY failure (thrown
+   * synchronously or via a rejected promise) falls through to path 2.
+   * `MemoryServiceDb` is the deliberately narrow interface
+   * (`select`/`insert`/`update`/`delete`/`transaction`) this service uses so
+   * it stays testable against simple fakes without a real Drizzle client —
+   * this codebase has several independent ad-hoc `MemoryServiceDb` test
+   * fakes that don't implement the full `.where().orderBy().limit()` chain
+   * (one even throws on a raw-SQL WHERE shape it doesn't recognize), so
+   * path 1 reliably fails fast against every one of them and path 2 runs
+   * instead — no fake needs updating for this to be safe. The purpose-built
+   * `createFakeMemoryDb` in `memory-service.test.ts` DOES implement the
+   * full chain (mirroring ask's `createFakeDrizzleAskDb`), so those tests
+   * exercise path 1 for real.
+   *
+   * `db` defaults to `this.deps.db` but accepts an explicit `tx` so
+   * `supersede()` can mint within its own transaction for read/write
+   * consistency.
+   *
+   * Memories have no tombstone table analogous to tasks' `deleted_task_ids`
+   * (mt#2205) — the max is computed over live short ids only, so a deleted
+   * memory's short id MAY be reissued to a new memory. Acceptable for v1
+   * per the mt#2966 spec; a future task can add a `deleted_memory_short_ids`
+   * tombstone table mirroring the tasks pattern if reuse proves undesirable.
+   */
+  private async nextMemoryShortId(db: MemoryServiceDb = this.deps.db): Promise<string> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const top = (await (db as any)
+        .select({ shortId: memoriesTable.shortId })
+        .from(memoriesTable)
+        .where(sql`${memoriesTable.shortId} ~ '^mem#[0-9]+$'`)
+        .orderBy(sql`(substring(${memoriesTable.shortId} from 5))::bigint DESC`)
+        .limit(1)) as Array<{ shortId: string | null }>;
+      const liveIds = Array.isArray(top) && top[0]?.shortId ? [top[0].shortId as string] : [];
+      return nextShortId("mem", liveIds, []);
+    } catch {
+      // Fallback: this db doesn't support the full targeted-query chain
+      // (an ad-hoc test fake, most likely) — use the unfiltered
+      // single-column select + client-side fold instead.
+    }
+
+    const rows = (await db
+      .select({ shortId: memoriesTable.shortId })
+      .from(memoriesTable)) as Array<{
+      shortId: string | null;
+    }>;
+    const liveIds = (Array.isArray(rows) ? rows : [])
+      .map((r) => r.shortId)
+      .filter((s): s is string => typeof s === "string");
+    return nextShortId("mem", liveIds, []);
+  }
+
+  // -------------------------------------------------------------------------
   // Create
   // -------------------------------------------------------------------------
 
   /**
    * Insert a new memory row and compute + store its embedding.
    * Embedding failure is non-fatal: the row is still inserted and returned.
+   *
+   * Mints the next `mem#N` short id (mt#2966) and retries on a short_id
+   * collision — the short-id proposal (SELECT max) and the INSERT are not
+   * atomic, so a concurrent writer may claim the proposed id between the
+   * two. The unique index on `short_id` turns that race into a clean
+   * onConflictDoNothing no-op we detect and retry against, mirroring
+   * `DrizzleAskRepository.create` (mt#2965) and
+   * `MinskyTaskBackend.tryInsertTask` (mt#2205).
    */
-  async create(input: MemoryCreateInput): Promise<MemoryRecord> {
-    const rows = await this.deps.db
-      .insert(memoriesTable)
-      .values({
-        type: input.type,
-        name: input.name,
-        description: input.description,
-        content: input.content,
-        // mt#2663: last-line-of-defense default. `MemoryCreateInput.scope` is
-        // typed as required, but callers that bypass TypeScript (raw MCP/CLI
-        // args, `as any` casts) could still hand us `undefined`, which would
-        // otherwise hit the `memories.scope` NOT NULL constraint at the DB.
-        scope: input.scope ?? MEMORY_SCOPES.project,
-        projectId: input.projectId ?? null,
-        tags: input.tags ?? [],
-        sourceAgentId: input.sourceAgentId ?? null,
-        sourceSessionId: input.sourceSessionId ?? null,
-        confidence: input.confidence ?? null,
-        supersededBy: null,
-        associations: input.associations ?? {},
-      })
-      .returning();
+  async create(rawInput: MemoryCreateInput): Promise<MemoryRecord> {
+    // mt#3278: sanitize at the service boundary, not at each of the several
+    // write sites below — a per-site fix is one refactor away from missing a
+    // path, and the whole failure mode here is a write that fails permanently
+    // and silently.
+    const input: MemoryCreateInput = sanitizeForPostgresDeep(rawInput).value;
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const shortId = await this.nextMemoryShortId();
+      const rows = await this.deps.db
+        .insert(memoriesTable)
+        .values({
+          shortId,
+          type: input.type,
+          name: input.name,
+          description: input.description,
+          content: input.content,
+          // mt#2663: last-line-of-defense default. `MemoryCreateInput.scope` is
+          // typed as required, but callers that bypass TypeScript (raw MCP/CLI
+          // args, `as any` casts) could still hand us `undefined`, which would
+          // otherwise hit the `memories.scope` NOT NULL constraint at the DB.
+          scope: input.scope ?? MEMORY_SCOPES.project,
+          projectId: input.projectId ?? null,
+          tags: input.tags ?? [],
+          sourceAgentId: input.sourceAgentId ?? null,
+          sourceSessionId: input.sourceSessionId ?? null,
+          confidence: input.confidence ?? null,
+          supersededBy: null,
+          associations: input.associations ?? {},
+        })
+        .onConflictDoNothing({ target: memoriesTable.shortId })
+        .returning();
 
-    const row = rows[0] as Record<string, unknown>;
-    const record = rowToRecord(row);
-
-    // Attempt to store embedding; degrade gracefully on failure.
-    await this.tryStoreEmbedding(record.id, input.content);
-
-    return record;
+      const row = rows?.[0] as Record<string, unknown> | undefined;
+      if (row) {
+        const record = rowToRecord(row);
+        // Attempt to store embedding; degrade gracefully on failure.
+        await this.tryStoreEmbedding(record.id, input.content);
+        return record;
+      }
+      // short_id collision — another writer took it; loop and re-propose.
+    }
+    throw new Error(
+      `Failed to allocate a unique memory short id after ${MAX_RETRIES} attempts. ` +
+        "This indicates extremely high concurrent memory creation — please retry."
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -179,10 +357,31 @@ export class MemoryService implements MemoryServiceSurface {
 
   /**
    * Fetch a single memory record by ID.
+   *
+   * Accepts either the canonical UUID primary key or a `mem#N` short id
+   * (ADR-029). The short-id branch matters because `memories.id` is a
+   * Postgres `uuid` column: passing a non-uuid string straight into
+   * `eq(memoriesTable.id, ...)` does not return "not found", it raises
+   * `invalid input syntax for type uuid` and echoes the whole failing
+   * statement — which is how a `mem#N` route param surfaced as a raw driver
+   * error in the cockpit rather than a miss (mt#3259; the same split
+   * mt#3108 records on the `memory_update` surface).
+   *
+   * Note this is EXACT short-id / uuid resolution only. Unambiguous
+   * uuid-PREFIX resolution (mt#2696) lives one layer up, in the command
+   * adapter's `resolveMemoryIdInput`, which hands this method a full uuid —
+   * unchanged by this method's new branch.
+   *
    * Access tracking: bumps last_accessed_at and access_count non-blocking (fire-and-forget).
    */
   async get(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+    // Returning null here is what keeps a malformed route param from
+    // reaching the driver as a uuid cast.
+    if (!where) return null;
+
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -222,6 +421,22 @@ export class MemoryService implements MemoryServiceSurface {
       const containsObj = { [assocType]: [targetId] };
       conditions.push(sql`${memoriesTable.associations} @> ${JSON.stringify(containsObj)}::jsonb`);
     }
+    // mt#2817: since/until filter on createdAt (see MemoryListFilter doc comment
+    // for why createdAt rather than updatedAt). Invalid date strings are
+    // dropped rather than throwing — same defensive posture as the rest of
+    // this filter set (a bad filter degrades to "no filter", not a 500).
+    if (filter?.since) {
+      const since = new Date(filter.since);
+      if (!Number.isNaN(since.getTime())) {
+        conditions.push(gte(memoriesTable.createdAt, since));
+      }
+    }
+    if (filter?.until) {
+      const until = new Date(filter.until);
+      if (!Number.isNaN(until.getTime())) {
+        conditions.push(lte(memoriesTable.createdAt, until));
+      }
+    }
 
     const baseQuery = this.deps.db.select().from(memoriesTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
@@ -239,7 +454,13 @@ export class MemoryService implements MemoryServiceSurface {
   // Update
   // -------------------------------------------------------------------------
 
-  async update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
+  async update(id: string, rawInput: MemoryUpdateInput): Promise<MemoryRecord | null> {
+    // mt#3278 — see `create` above for why this is at the boundary.
+    const input: MemoryUpdateInput = sanitizeForPostgresDeep(rawInput).value;
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a miss, not a query (mt#3108).
+    if (!where) return null;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = { updatedAt: new Date() };
 
@@ -266,11 +487,7 @@ export class MemoryService implements MemoryServiceSurface {
       updateData["associations"] = expr;
     }
 
-    const rows = await this.deps.db
-      .update(memoriesTable)
-      .set(updateData)
-      .where(eq(memoriesTable.id, id))
-      .returning();
+    const rows = await this.deps.db.update(memoriesTable).set(updateData).where(where).returning();
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -290,9 +507,31 @@ export class MemoryService implements MemoryServiceSurface {
   // -------------------------------------------------------------------------
 
   async delete(id: string): Promise<void> {
-    await this.deps.db.delete(memoriesTable).where(eq(memoriesTable.id, id));
-    await this.deps.vectorStorage.delete(id).catch((err: unknown) => {
-      log.warn("[memory.delete] Failed to delete embedding", { id, err });
+    const where = memoryIdWhere(id);
+    // A malformed id deletes nothing rather than raising a uuid cast (mt#3108).
+    if (!where) return;
+
+    // Delete the row and read back WHICH row went, because the vector store is
+    // keyed by the canonical uuid — never by a `mem#N` alias. Passing the
+    // caller's raw input to `vectorStorage.delete` would silently orphan the
+    // embedding whenever a short id was used: the row deletion succeeds, the
+    // vector deletion matches nothing, and neither reports a problem
+    // (PR #2348 R1). That is the exact "a failure that looks like success"
+    // shape mem#728 describes, and it is a regression this task would have
+    // introduced — before short ids resolved here, the row deletion itself
+    // raised a cast error, so the vector delete never ran on a bad key.
+    const deleted = (await this.deps.db.delete(memoriesTable).where(where).returning()) as Record<
+      string,
+      unknown
+    >[];
+
+    const deletedId = deleted?.[0]?.["id"];
+    // Nothing matched — no embedding to remove, and no id to remove it by.
+    if (deletedId === undefined || deletedId === null) return;
+
+    const canonicalId = String(deletedId);
+    await this.deps.vectorStorage.delete(canonicalId).catch((err: unknown) => {
+      log.warn("[memory.delete] Failed to delete embedding", { id: canonicalId, err });
     });
   }
 
@@ -375,7 +614,9 @@ export class MemoryService implements MemoryServiceSurface {
 
   async similar(
     id: string,
-    opts?: Pick<MemorySearchOptions, "limit" | "threshold">
+    opts?: Pick<MemorySearchOptions, "limit" | "threshold"> & {
+      projectScope?: import("../project/scope").ProjectScope;
+    }
   ): Promise<MemorySearchResult[]> {
     // Note: this.get(id) below bumps the source record's access_count via
     // bumpAccessCount. That is intentional — a similar(id) call counts as an
@@ -408,10 +649,23 @@ export class MemoryService implements MemoryServiceSurface {
     if (filtered.length === 0) return [];
 
     const ids = filtered.map((r) => r.id);
+
+    // mt#2939: cross-check against the live `memories` table's project_id, the same
+    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds an
+    // equality predicate; ALL_PROJECTS (or omitted) adds none — any candidate whose
+    // row falls outside the scope simply isn't in `rows`, so it's dropped below by
+    // rowById.get(sr.id) returning undefined (same "missing row => drop" pattern
+    // search() already relies on for excludeSuperseded/type/scope filters).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [inArray(memoriesTable.id, ids)];
+    if (opts?.projectScope && !isAllProjects(opts.projectScope)) {
+      conditions.push(eq(memoriesTable.projectId, opts.projectScope));
+    }
+
     const rows = (await this.deps.db
       .select()
       .from(memoriesTable)
-      .where(inArray(memoriesTable.id, ids))) as Record<string, unknown>[];
+      .where(and(...conditions))) as Record<string, unknown>[];
 
     const rowById = new Map(rows.map((r) => [String(r["id"]), r]));
 
@@ -436,17 +690,39 @@ export class MemoryService implements MemoryServiceSurface {
    * Atomically create a replacement memory and mark the old one as superseded.
    * The old memory remains in the database but is excluded from
    * `list({ excludeSuperseded: true })`.
+   *
+   * Mints a `mem#N` short id (mt#2966) for the replacement row, computed
+   * within the same transaction (`tx`, not `this.deps.db`) for read/write
+   * consistency. Unlike `create()`, this is a single-attempt mint with no
+   * onConflictDoNothing/retry loop — supersede is a much lower-frequency
+   * path than create, so the same collision-retry ceremony was judged not
+   * worth the added transaction complexity for v1; a genuine collision here
+   * (extremely rare) surfaces as a raw unique-constraint error, matching
+   * pre-mt#2966 behavior for any other constraint violation on this insert.
    */
   async supersede(
     oldId: string,
     newInput: MemoryCreateInput,
     reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
+    // Resolve the old id's shape BEFORE opening the transaction (mt#3108).
+    // Unlike update/delete this cannot return a not-found value — the
+    // signature promises a record pair — so a malformed id throws here rather
+    // than inserting the replacement and only then failing the old-row update
+    // on a uuid cast, which would roll back the insert and surface a raw SQL
+    // dump instead of naming the problem.
+    const oldWhere = memoryIdWhere(oldId);
+    if (!oldWhere) {
+      throw new Error(`Invalid memory id "${oldId}": expected a full uuid or a mem#N short id.`);
+    }
+
     const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
+      const shortId = await this.nextMemoryShortId(tx);
       // Insert new memory inside the transaction.
       const newRows = await tx
         .insert(memoriesTable)
         .values({
+          shortId,
           type: newInput.type,
           name: newInput.name,
           description: newInput.description,
@@ -467,11 +743,16 @@ export class MemoryService implements MemoryServiceSurface {
       const replacement = rowToRecord(newRows[0] as Record<string, unknown>);
 
       // Read the old memory's current metadata so we can append rather than overwrite.
-      const oldRowsBefore = await tx
-        .select()
-        .from(memoriesTable)
-        .where(eq(memoriesTable.id, oldId));
+      const oldRowsBefore = await tx.select().from(memoriesTable).where(oldWhere);
       const oldBefore = oldRowsBefore[0] as Record<string, unknown> | undefined;
+      // Fail loudly and by name when the old memory does not exist. Without
+      // this the missing row surfaces further down as `rowToRecord(undefined)`
+      // reading properties of undefined — an error whose text says nothing
+      // about the actual problem (PR #2348 R1). The transaction rolls back, so
+      // the replacement inserted above is not left behind.
+      if (!oldBefore) {
+        throw new Error(`Memory not found: "${oldId}" — nothing to supersede.`);
+      }
       const existingMetadata =
         (oldBefore?.["metadata"] as Record<string, unknown> | null | undefined) ?? {};
       const mergedMetadata = {
@@ -488,7 +769,7 @@ export class MemoryService implements MemoryServiceSurface {
           metadata: mergedMetadata,
           updatedAt: new Date(),
         })
-        .where(eq(memoriesTable.id, oldId))
+        .where(oldWhere)
         .returning();
 
       return {
@@ -589,7 +870,9 @@ export class MemoryService implements MemoryServiceSurface {
    * Fetch a record by ID without triggering access tracking (internal helper).
    */
   private async getById(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    if (!where) return null;
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
     const row = rows[0] as Record<string, unknown> | undefined;
     return row ? rowToRecord(row) : null;
   }

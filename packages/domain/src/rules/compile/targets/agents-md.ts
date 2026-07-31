@@ -10,17 +10,30 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
+import { evaluateSizeBudget } from "../../../compile/size-budget";
+import { DEFAULT_AGENTS_MD_SIZE_BUDGET } from "../../../compile/agents-md-size-budget";
+
+// `DEFAULT_AGENTS_MD_SIZE_BUDGET` is imported (not declared here) so both
+// this legacy target and the new pipeline's `agents-md.ts` share one
+// threshold and cannot silently re-diverge (mt#3076 — see
+// `agents-md-size-budget.ts` for the full rationale, including why the
+// thresholds were raised well above the mt#2802 originals).
+export { DEFAULT_AGENTS_MD_SIZE_BUDGET };
 
 /**
  * Default section mapping for AGENTS.md target
  */
+// mt#2868: "Minsky Workflow" section and the "pr-preparation-workflow" entry
+// removed — both ids were orphan .cursor/rules/*.mdc files with no
+// .minsky/rules/ source (minsky-workflow, minsky-workflow-orchestrator,
+// pr-preparation-workflow). Their content is superseded by the skill chain
+// (/implement-task, /prepare-pr) and preserved in git history.
 const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
   "Build & Test": ["bun_over_node", "tests"],
   "Code Style": ["comments", "constants-management", "ensure-ascii-code-symbols"],
   Architecture: ["domain-oriented-modules", "architecture"],
   Testing: ["testing-standards", "test-infrastructure", "testing-boundaries"],
-  "Minsky Workflow": ["minsky-workflow", "minsky-workflow-orchestrator"],
-  "Git & PR Workflow": ["pr-description-guidelines", "pr-preparation-workflow"],
+  "Git & PR Workflow": ["pr-description-guidelines"],
   Boundaries: ["operational-safety-dry-run-first", "terminal-command-best-practices"],
 };
 
@@ -150,6 +163,16 @@ export const agentsMdTarget: CompileTarget = {
 
     const { content, rulesIncluded, rulesSkipped } = buildContent(rules, sectionMapping);
 
+    // Evaluate BEFORE writing — same ordering rationale as claude-md.ts
+    // (evaluation must describe the exact emitted content; reviewer R1).
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_AGENTS_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
+
     await fs.writeFile(outputPath, content, "utf-8");
 
     return {
@@ -157,6 +180,11 @@ export const agentsMdTarget: CompileTarget = {
       filesWritten: [outputPath],
       rulesIncluded,
       rulesSkipped,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   },
 };

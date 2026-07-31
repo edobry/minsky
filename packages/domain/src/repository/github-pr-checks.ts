@@ -96,6 +96,18 @@ export async function getCheckRunsForRef(
     octokit.rest.repos.getCombinedStatusForRef({ owner, repo, ref: headSha }),
   ]);
 
+  // mt#2888 / mt#1553 coordination: when BOTH underlying fetches fail (e.g.
+  // a GitHub-side 503 degradation window), silently returning a
+  // zero-checks/allPassed:false result is a fail-OPEN misread — it is
+  // indistinguishable from "this commit legitimately has no CI configured."
+  // Fail closed: throw the check-runs rejection (primary signal; the
+  // combined-status API is the legacy/secondary source) so the caller's
+  // classification layer (handleOctokitError) produces an actionable,
+  // classified error instead of a misleading empty-but-successful result.
+  if (checkRunsResp.status === "rejected" && combinedStatusResp.status === "rejected") {
+    throw checkRunsResp.reason;
+  }
+
   const allChecks: CheckRunResult[] = [];
 
   // --- Checks API results ---

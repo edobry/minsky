@@ -94,7 +94,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -144,7 +144,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         JSON.stringify({ state: "ok", payload: { altitude: "full", workstreams: [] } }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     render(
       <MemoryRouter>
@@ -158,7 +158,12 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
       expect(screen.getByText("Workstreams (full)")).toBeDefined();
     });
 
-    expect(requestedUrls).toEqual(["/api/widget/workstreams/data"]);
+    // Scoped to the WIDGET endpoint: the mt#2885 needs-me join legitimately
+    // fetches /api/asks alongside; this test's contract is that the full
+    // altitude hits the bare widget endpoint with no query string.
+    expect(requestedUrls.filter((u) => u.includes("/api/widget/workstreams"))).toEqual([
+      "/api/widget/workstreams/data",
+    ]);
   });
 
   test("parseAltitude falls back to full on unknown or absent values", () => {

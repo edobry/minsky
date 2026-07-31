@@ -12,7 +12,7 @@ import { CommonParameters, ConfigParameters, composeParams } from "../../common-
 /**
  * A single config.doctor diagnostic entry.
  */
-interface DoctorDiagnostic {
+export interface DoctorDiagnostic {
   check: string;
   status: "pass" | "warning" | "error";
   message: string;
@@ -62,6 +62,58 @@ export function checkReviewerRetriggerReachability(
     check: "Reviewer Retrigger Reachability",
     status: "pass",
     message: "`mcp.auth.token` is set — `reviewer.retrigger` is reachable.",
+  };
+}
+
+/**
+ * GitHub App permission-drift diagnostic (mt#3218).
+ *
+ * There is no API to mutate an existing App's permissions — the settings UI
+ * is the only fix, and even then each installation must separately accept a
+ * permission change (see `packages/domain/src/setup/github-app/update.ts`).
+ * That makes a missing permission expensive to diagnose on its own: it
+ * surfaces as an opaque 403 from whatever call needed it. `GET /app` is the
+ * one App-registration read that actually works, so comparing its live
+ * result against what Minsky's code needs turns that opaque 403 into an
+ * actionable `config doctor` finding — the exact settings URL and the
+ * specific permission — before the operator ever hits the 403 in the first
+ * place.
+ *
+ * Takes the already-fetched App info (or `undefined` when no App service
+ * account is configured) so the comparison itself stays unit-testable
+ * without mocking the network — the live `GET /app` call is made by the
+ * caller in `config.doctor`'s execute handler.
+ */
+export async function checkGithubAppPermissionDrift(
+  appInfo: { slug: string; permissions: Record<string, string> } | undefined
+): Promise<DoctorDiagnostic> {
+  if (!appInfo) {
+    return {
+      check: "GitHub App Permissions",
+      status: "pass",
+      message: "No GitHub App service account configured — nothing to check.",
+    };
+  }
+
+  const { detectPermissionDrift, formatPermissionDriftMessage, githubAppSettingsUrl } =
+    await import("@minsky/domain/setup/github-app");
+
+  const drift = detectPermissionDrift(appInfo.permissions);
+  if (!drift.hasDrift) {
+    return {
+      check: "GitHub App Permissions",
+      status: "pass",
+      message: `GitHub App '${appInfo.slug}' has all required permissions.`,
+    };
+  }
+
+  return {
+    check: "GitHub App Permissions",
+    status: "warning",
+    message: formatPermissionDriftMessage(appInfo.slug, drift),
+    suggestion:
+      `Update permissions at ${githubAppSettingsUrl(appInfo.slug)}, then accept the ` +
+      "change on the installing account — it does not apply until accepted.",
   };
 }
 
@@ -139,6 +191,13 @@ export const configDoctorRegistration = defineCommand({
       required: false as const,
       defaultValue: false,
     },
+    fix: {
+      schema: z.boolean(),
+      description:
+        "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)",
+      required: false as const,
+      defaultValue: false,
+    },
   }),
   execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
@@ -195,16 +254,110 @@ export const configDoctorRegistration = defineCommand({
       });
     }
 
-    // Reviewer retrigger reachability (mt#2660).
+    // Reviewer retrigger reachability (mt#2660) + turnkey auto-fix (mt#2679).
     try {
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
-      diagnostics.push(checkReviewerRetriggerReachability(config.mcp?.auth?.token));
+      const reachability = checkReviewerRetriggerReachability(config.mcp?.auth?.token);
+
+      // --fix: provision mcp.auth.token from the local railway-secrets store
+      // instead of telling the operator to edit config by hand (the deferral
+      // that kept mt#2679's four incidents recurring). The fix never prints
+      // the secret value. On a SUCCESSFUL fix the pass-shaped fix diagnostic
+      // REPLACES the initial warning (one coherent signal per check — PR
+      // #1855 R1); on a failed/unavailable fix both surface so the operator
+      // sees the gap AND why the auto-fix couldn't close it.
+      if (params.fix && reachability.status === "warning") {
+        const { fixMcpAuthTokenFromSecretsFile } = await import("./doctor-fixes");
+        const { createConfigWriter } = await import("@minsky/domain/configuration/config-writer");
+        const { readFileSync } = await import("fs");
+        const fixOutcome = await fixMcpAuthTokenFromSecretsFile({
+          configDir: getUserConfigDir(),
+          readFile: (p: string): string => readFileSync(p, { encoding: "utf-8" }).toString(),
+          writer: createConfigWriter({ createBackup: true, format: "yaml", validate: true }),
+        });
+        if (fixOutcome.status === "pass") {
+          diagnostics.push(fixOutcome);
+        } else {
+          diagnostics.push(reachability, fixOutcome);
+        }
+      } else {
+        diagnostics.push(reachability);
+      }
     } catch (e) {
       diagnostics.push({
         check: "Reviewer Retrigger Reachability",
         status: "error",
         message: `Reviewer retrigger reachability check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
+    // GitHub App permission drift (mt#3218). Only meaningful when a service
+    // account is configured — `GET /app` is a live network call, so this is
+    // best-effort: a fetch failure (network, revoked key) surfaces as its own
+    // error diagnostic rather than silently skipping the check.
+    try {
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const serviceAccount = config.github?.serviceAccount;
+      if (serviceAccount) {
+        const { GitHubAppTokenProvider } = await import("@minsky/domain/auth/index");
+        const tokenProvider = new GitHubAppTokenProvider({
+          appId: serviceAccount.appId,
+          privateKeyFile: serviceAccount.privateKeyFile,
+          privateKey: serviceAccount.privateKey,
+          installationId: serviceAccount.installationId,
+          userToken: "",
+        });
+        const appInfo = await tokenProvider.getAppPermissions();
+        diagnostics.push(await checkGithubAppPermissionDrift(appInfo));
+      } else {
+        diagnostics.push(await checkGithubAppPermissionDrift(undefined));
+      }
+    } catch (e) {
+      diagnostics.push({
+        check: "GitHub App Permissions",
+        status: "error",
+        message: `GitHub App permission check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
+    // Configured provider default models vs the cached provider listing
+    // (mt#3389). Reads the already-cached listing only — no network call, so
+    // this stays within config.doctor's lightweight-diagnostic contract.
+    try {
+      const { collectConfiguredProviderModels, checkConfiguredModelsAgainstListing } = await import(
+        "./doctor-model-checks"
+      );
+      const { DefaultModelCacheService } = await import("@minsky/domain/ai/model-cache/index");
+
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+
+      // Short-circuit when configuration is unavailable. The Configuration
+      // Loading check above already reports that as an error; running this
+      // check anyway would either throw on `config.ai` — surfacing the same
+      // root failure a second time as an opaque "check failed" — or imply the
+      // configured models were inspected when nothing was read.
+      if (!config) {
+        diagnostics.push({
+          check: "Configured Model Validity",
+          status: "pass",
+          message:
+            "Skipped — configuration could not be loaded, so there are no configured models to " +
+            "check. See the Configuration Loading check for the underlying failure.",
+        });
+      } else {
+        const configured = collectConfiguredProviderModels(config.ai);
+        const cachedByProvider = await new DefaultModelCacheService().getAllCachedModels();
+
+        diagnostics.push(checkConfiguredModelsAgainstListing(configured, cachedByProvider));
+      }
+    } catch (e) {
+      diagnostics.push({
+        check: "Configured Model Validity",
+        status: "error",
+        message: `Configured model check failed: ${getErrorMessage(e)}`,
       });
     }
 

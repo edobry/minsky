@@ -12,12 +12,31 @@
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import {
+  makeRecordAndExit,
+  type MergeGateFireLogContext,
+  type MergeGateOverrideFields,
+  type RecordAndExit,
+} from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
+import { classifyOverride } from "./fire-log";
+import {
   deriveRepoFromGit,
   resolvePrRefByBranch,
   fetchReviewsRaw,
   fetchCheckRunsRaw,
   fetchBranchProtectionRaw,
+  type CheckRunsFetchResult,
 } from "./pr-context";
+import {
+  getGuardGrantStorePath,
+  readGuardGrantStore,
+  findValidGuardGrant,
+  markGuardGrantConsumed,
+} from "./guard-grant-store";
+import { verifyApprovedAsk } from "./ask-verification";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-review-before-merge";
 
 // ---------------------------------------------------------------------------
 // CI check_runs presence — exported for tests
@@ -772,6 +791,104 @@ export function validateProvenance(provenance: ReviewProvenance): ProvenanceVali
 export interface ReviewContentResult {
   deny: boolean;
   reason?: string;
+  /**
+   * mt#2989 — set when a REQUEST_CHANGES denial was overridden via an
+   * operator-approved grant. When present, `deny` is false BECAUSE the override
+   * fired; the entry point emits the audit line + fire-log grant classification.
+   */
+  overrideAuditReason?: string;
+  /** mt#2989 — the authorizing Ask id, for the fire-log override record. */
+  overrideAskId?: string;
+}
+
+/** mt#2989 — outcome of consulting the grant channel for a REQUEST_CHANGES override. */
+export type RequestChangesOverrideDecision =
+  | { authorized: true; auditReason: string; askId: string }
+  | { authorized: false; fabricationWarning: string }
+  | { authorized: false };
+
+/**
+ * mt#2989 — resolves whether a REQUEST_CHANGES finding on `(pr, headSha)` is
+ * overridden by an operator-approved, server-re-verified, one-shot grant.
+ * Injectable so `validateReviewContent` stays a pure, filesystem/CLI-free
+ * function in tests; the entry point wires the real grant-channel resolver.
+ */
+export type RequestChangesOverrideResolver = (ctx: {
+  pr: string;
+  headSha: string | undefined;
+}) => RequestChangesOverrideDecision;
+
+/**
+ * mt#2989 — the real grant-channel resolver for the REQUEST_CHANGES override.
+ * Closes over `repo` ("owner/repo"). Reads the ADR-028 D8 grant store scoped to
+ * `<owner/repo>#<pr>@<headSha>` and — only on a matching grant — re-verifies the
+ * linked Ask server-side before authorizing and consuming it one-shot.
+ *
+ * Posture (deliberately NOT fail-open — this guard gates an irreversible merge):
+ *   - no grant                       → not authorized, no warning (normal deny)
+ *   - grant without an askId          → not authorized, LOUD warning (malformed)
+ *   - grant, Ask not approved/unavail → not authorized, LOUD warning
+ *   - grant + Ask operator-approved   → authorize, mark consumed (one-shot), audit
+ */
+export function makeRequestChangesOverrideResolver(
+  repo: string,
+  deps: {
+    readStore?: typeof readGuardGrantStore;
+    verify?: typeof verifyApprovedAsk;
+    consume?: typeof markGuardGrantConsumed;
+    now?: () => number;
+  } = {}
+): RequestChangesOverrideResolver {
+  const readStore = deps.readStore ?? readGuardGrantStore;
+  const verify = deps.verify ?? verifyApprovedAsk;
+  const consume = deps.consume ?? markGuardGrantConsumed;
+  const now = deps.now ?? Date.now;
+
+  return ({ pr, headSha }) => {
+    if (!headSha) return { authorized: false };
+    const scope = `${repo}#${pr}@${headSha}`;
+    const matchCtx = { guardName: GUARD_NAME, scope };
+
+    const store = readStore(getGuardGrantStorePath());
+    if (store.status !== "ok") return { authorized: false };
+
+    const grant = findValidGuardGrant(store.grants, matchCtx, now());
+    if (!grant) return { authorized: false };
+
+    if (!grant.askId) {
+      return {
+        authorized: false,
+        fabricationWarning:
+          "A grant for this merge gate is present but carries no authorization Ask — refusing " +
+          "(a merge-gate override must rest on an operator-approved authorization.approve Ask).",
+      };
+    }
+
+    const verdict = verify(grant.askId);
+    if (verdict.verdict !== "approved") {
+      return {
+        authorized: false,
+        fabricationWarning:
+          `A grant referencing Ask ${grant.askId} is present, but that Ask did not verify as ` +
+          `operator-approved (${verdict.verdict}: ${verdict.detail}) — refusing the override.`,
+      };
+    }
+
+    const consumed = consume(getGuardGrantStorePath(), matchCtx);
+    if (!consumed) {
+      // Spent between find and consume — treat as no override rather than
+      // permitting on an already-consumed grant.
+      return { authorized: false };
+    }
+
+    return {
+      authorized: true,
+      askId: grant.askId,
+      auditReason:
+        `PR #${pr} HEAD ${headSha.slice(0, 7)} ask=${grant.askId} ` +
+        `grant-reason="${grant.reason}"`,
+    };
+  };
 }
 
 export const EXPECTED_REVIEWER_LOGIN = "minsky-reviewer[bot]";
@@ -786,7 +903,8 @@ type ReviewEntry = {
 export function validateReviewContent(
   reviews: ReviewEntry[],
   pr: string,
-  headSha: string | undefined
+  headSha: string | undefined,
+  resolveRequestChangesOverride?: RequestChangesOverrideResolver
 ): ReviewContentResult {
   const sorted = [...reviews]
     .filter((r) => r.body)
@@ -826,11 +944,31 @@ export function validateReviewContent(
 
     // Check conclusion event — REQUEST_CHANGES means outstanding blocking findings
     if (provenance.conclusion?.event === "REQUEST_CHANGES") {
+      const baseReason =
+        `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
+        `requested changes. Address the blocking findings before merging`;
+
+      // mt#2989: consult the operator-approved grant channel for a
+      // verified-false-positive override BEFORE denying. Only this branch is
+      // overridable — stale / structural-gap / smoke / checks denials are not.
+      const override = resolveRequestChangesOverride?.({ pr, headSha });
+      if (override?.authorized) {
+        return {
+          deny: false,
+          overrideAuditReason: override.auditReason,
+          overrideAskId: override.askId,
+        };
+      }
+      if (override && "fabricationWarning" in override) {
+        return { deny: true, reason: `${baseReason}. ${override.fabricationWarning}` };
+      }
       return {
         deny: true,
         reason:
-          `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
-          `requested changes. Address the blocking findings before merging.`,
+          `${baseReason}. If this finding is a verified false positive, an operator can authorize a ` +
+          `one-shot override: file an authorization.approve Ask, then \`bun ` +
+          `scripts/grant-guard-override.ts --guard require-review-before-merge --scope ` +
+          `<owner/repo>#${pr}@${headSha ?? "<sha>"} --ask <askId> --reason "<disproof>"\` (mt#2989).`,
       };
     }
 
@@ -936,18 +1074,83 @@ export function evaluateSmokeStatus(
   return { deny: false };
 }
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mirrors
+ * `check-task-spec-read.ts`'s established convention for this exact class of
+ * tsgo gap) rather than left as a bare top-level `if (import.meta.main) { ...
+ * }` block: CI's `tsgo` typecheck does not always narrow a nullable local
+ * (e.g. `repo`, `ref`) past a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the same way it narrows past an explicit
+ * `return` — confirmed empirically here (mt#3084): the bare-statement form
+ * compiled clean in every OTHER merge-gate hook this task instruments, but
+ * tsgo failed to narrow `repo`/`ref` specifically in THIS file's longer,
+ * multi-branch flow. Wrapping in a real function makes `return
+ * recordAndExit(...)` both valid and the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below. This gate has
+  // THREE independent inline override checks (smoke, bundle-boot-smoke,
+  // required-checks) below, none of which exit immediately — each
+  // neutralizes ONE downstream deny check and the hook keeps going. Track
+  // whichever fired most recently in `overrideFields` and attach it to
+  // whichever recordAndExit call actually fires; if more than one override
+  // is active in the same invocation the last one tracked wins (a rare
+  // multi-override case — still records a real, non-misleading override
+  // signal, just not a full enumeration of every escape hatch consulted).
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
+  let overrideFields: MergeGateOverrideFields | undefined;
 
-  const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  // mt#3355: `session_pr_merge` takes EITHER `task` or `sessionId`, both optional. Reading
+  // `tool_input.task` alone and exiting `allow` when empty meant a `sessionId`-invoked
+  // merge bypassed THIS gate — the one requiring a `minsky-reviewer[bot]` approval before
+  // any PR can land — with no warning at all. Resolve through the shared resolver, record
+  // which source produced the id, and WARN rather than allow when neither does.
+  const resolution = resolveMergeGateTaskId(input);
+  fireLogContext.taskResolutionSource = resolution.source;
+  const task = resolution.taskId;
+  if (!task) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+      },
+    });
+    return recordAndExit("warn");
+  }
 
   // mt#2617 absorbed scope (mt#2653 item 5): derive owner/repo from the git
   // remote instead of hardcoding "edobry/minsky" (was hardcoded in 6 places
-  // in this file). Silent exit on failure, matching this hook's established
-  // posture of no warning on PR-context resolution failure (below).
+  // in this file).
+  //
+  // mt#2810: this used to be a SILENT exit on failure — the one gate of the
+  // four that didn't surface a warning when repo derivation failed. That
+  // silence is exactly what made the git-ENOENT incident invisible: a
+  // crash-turned-fail-open and a clean "nothing to check here" looked
+  // identical from the outside. Now matches the other three gates
+  // (execution-evidence, deploy-verification, out-of-band): a loud,
+  // structured warning naming which check was skipped, instead of a silent
+  // allow.
   const repo = deriveRepoFromGit(input.cwd);
-  if (!repo) process.exit(0);
+  if (!repo) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext:
+          "⚠️ [require-review-before-merge] Could not derive owner/repo from git remote — review-gate check skipped.",
+      },
+    });
+    return recordAndExit("warn");
+  }
 
   const branch = `task/${task.replace("#", "-")}`;
 
@@ -956,7 +1159,7 @@ if (import.meta.main) {
   // base branch dynamically instead of the prior hardcoded "main" (mt#2653
   // item 5), used below by the branch-protection fetch.
   const ref = resolvePrRefByBranch(repo, branch, { cwd: input.cwd });
-  if (!ref) process.exit(0);
+  if (!ref) return recordAndExit("allow");
   const { pr, headSha, baseBranch } = ref;
 
   // Get all reviews (include user.login for reviewer identity enforcement)
@@ -993,7 +1196,7 @@ if (import.meta.main) {
         permissionDecisionReason: `No review on PR #${pr}. Ensure the reviewer bot posts a review before merging.`,
       },
     });
-    process.exit(0);
+    return recordAndExit("deny");
   }
 
   // mt#2055: structured provenance inspection with text-matching fallback.
@@ -1001,7 +1204,12 @@ if (import.meta.main) {
   // <!-- minsky-review-provenance:{...} --> HTML comment carrying the structured
   // tool-call summary. If a provenance block exists on a review covering HEAD,
   // validate structurally. Otherwise fall back to legacy text-matching.
-  const provenanceResult = validateReviewContent(reviews, pr, headSha);
+  const provenanceResult = validateReviewContent(
+    reviews,
+    pr,
+    headSha,
+    makeRequestChangesOverrideResolver(repo)
+  );
   if (provenanceResult.deny && provenanceResult.reason) {
     writeOutput({
       hookSpecificOutput: {
@@ -1010,18 +1218,41 @@ if (import.meta.main) {
         permissionDecisionReason: provenanceResult.reason,
       },
     });
-    process.exit(0);
+    return recordAndExit("deny");
+  }
+
+  // mt#2989: a REQUEST_CHANGES finding was overridden via the operator-approved
+  // grant channel. Emit a durable audit line (naming the Ask + PR@HEAD + grant
+  // reason — none of which is a secret) and record the grant override in the
+  // fire log. The other gates below (smoke, required-checks) STILL run — the
+  // override forgives the false-positive review finding, not CI failures.
+  if (!provenanceResult.deny && provenanceResult.overrideAuditReason) {
+    process.stdout.write(
+      "[require-review-before-merge] REQUEST_CHANGES overridden via operator-approved grant " +
+        `channel — ${provenanceResult.overrideAuditReason}, ${new Date().toISOString()}\n`
+    );
+    overrideFields = {
+      overrideClassification: "authorized_exception",
+      overrideSource: "grant",
+      overrideGrantAsk: provenanceResult.overrideAskId,
+    };
   }
 
   // mt#2060: Smoke-status enforcement — block on Smoke: fail in any review;
   // require Smoke field in non-bot reviews. Bot reviews legitimately lack
   // a Smoke field because the bot runs in a GitHub App container with no shell.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed — hook stdout is
+  // persisted to transcripts and ingested; presence/name only.
   const skipSmokeCheck = process.env[SMOKE_CHECK_OVERRIDE_ENV];
   if (skipSmokeCheck && /^(1|true|yes)$/i.test(skipSmokeCheck)) {
     process.stdout.write(
-      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV}=${skipSmokeCheck} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: SMOKE_CHECK_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(SMOKE_CHECK_OVERRIDE_ENV),
+    };
   } else {
     const smokeResult = evaluateSmokeStatus(reviews, pr, EXPECTED_REVIEWER_LOGIN);
     if (smokeResult.deny && smokeResult.reason) {
@@ -1032,7 +1263,7 @@ if (import.meta.main) {
           permissionDecisionReason: smokeResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1046,13 +1277,23 @@ if (import.meta.main) {
   // neither depends on server-side filtering), and GitHub's `total_count` is
   // the true total regardless of page size — so a single per_page=100 fetch
   // satisfies all three without changing what gets parsed or denied.
-  let checkRunsResp: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } = {
+  let checkRunsResp: CheckRunsFetchResult = {
     exitCode: 1,
     stdout: "",
     stderr: "not fetched",
   };
   if (headSha) {
     checkRunsResp = fetchCheckRunsRaw(repo, headSha, { cwd: input.cwd });
+    // mt#2888: audit line whenever the check-runs read came from the
+    // forge-CLI fallback rather than the primary `gh api` call — visible
+    // regardless of the eventual allow/deny outcome, so the transport
+    // degradation is on the record either way.
+    if (checkRunsResp.viaFallback) {
+      process.stdout.write(
+        `[require-review-before-merge] gh check-runs transport failure — used minsky forge check_runs_list fallback ` +
+          `(PR #${pr}, HEAD ${headSha.slice(0, 7)}, ${new Date().toISOString()})\n`
+      );
+    }
   }
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
@@ -1067,7 +1308,7 @@ if (import.meta.main) {
           permissionDecisionReason: checkRunsResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1075,12 +1316,18 @@ if (import.meta.main) {
   // Honors BUNDLE_BOOT_SMOKE_OVERRIDE_ENV escape valve for cases where the
   // operator has manually verified local boot but CI cannot run the workflow
   // (e.g., the workflow file itself is broken on the PR being merged).
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipBundleSmoke = process.env[BUNDLE_BOOT_SMOKE_OVERRIDE_ENV];
   if (skipBundleSmoke && /^(1|true|yes)$/i.test(skipBundleSmoke)) {
     process.stdout.write(
-      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=${skipBundleSmoke} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(BUNDLE_BOOT_SMOKE_OVERRIDE_ENV),
+    };
   } else if (headSha) {
     const bundleParseResult = parseBundleBootSmokeResponse(checkRunsResp);
     const bundleResult = evaluateBundleBootSmokePresence(bundleParseResult, pr, headSha);
@@ -1092,7 +1339,7 @@ if (import.meta.main) {
           permissionDecisionReason: bundleResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1102,12 +1349,18 @@ if (import.meta.main) {
   // operator-API and GitHub-UI merge paths are covered by branch protection
   // `enforce_admins: true` and the `main-watch` GitHub Action — Claude Code
   // hooks see only Claude Code tool invocations by construction.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipRequiredChecks = process.env[REQUIRED_CHECKS_OVERRIDE_ENV];
   if (skipRequiredChecks && /^(1|true|yes)$/i.test(skipRequiredChecks)) {
     process.stdout.write(
-      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${skipRequiredChecks} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: REQUIRED_CHECKS_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(REQUIRED_CHECKS_OVERRIDE_ENV),
+    };
   } else if (headSha) {
     // mt#2617 absorbed scope (mt#2653 item 5): target the PR's actual base
     // branch (resolved above) instead of a hardcoded "main".
@@ -1130,7 +1383,12 @@ if (import.meta.main) {
           permissionDecisionReason: requiredResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
+  return recordAndExit("allow", overrideFields);
+}
+
+if (import.meta.main) {
+  await main();
 }

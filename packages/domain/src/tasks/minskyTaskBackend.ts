@@ -1,5 +1,6 @@
 import { eq, not, and, like, inArray, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
+import { DEFAULT_HIDDEN_STATUSES } from "./workflows";
 // Remove configuration import - dependencies should be injected
 import {
   tasksTable,
@@ -19,6 +20,49 @@ import type {
   TaskMetadata,
 } from "./types";
 import { isAllProjects } from "../project/scope";
+import { log } from "@minsky/shared/logger";
+import {
+  POSTGRES_UNSAFE_SOURCE_CHAR,
+  sanitizeForPostgresDeep,
+} from "../storage/postgres-text-safety";
+
+/**
+ * Make spec content storable in `task_specs.content` (mt#3278).
+ *
+ * `content` is a `text` column, and Postgres cannot hold U+0000 in one — a spec
+ * carrying it fails the write with a raw `22021 invalid byte sequence for
+ * encoding "UTF8": 0x00`, which tells the author nothing about what to fix.
+ * This is not hypothetical for authored prose: mt#3278's own spec failed to
+ * save this way twice while trying to WRITE ABOUT the escape, and the incident
+ * recurred three more times during the investigation and fix. Any spec that
+ * quotes the defect accurately reproduces it.
+ *
+ * Replaces rather than rejects, matching the transcript ingest path, and warns
+ * so the substitution is never silent — the author sees that something in what
+ * they wrote could not be stored verbatim.
+ */
+function specSafeForStorage(taskId: string, spec: string): string {
+  const { value: safe, replaced } = sanitizeForPostgresDeep(spec);
+  if (replaced > 0) {
+    // Report the count and where the first substitution landed. A bare "we
+    // changed something" warning gives the author nothing to act on; the line
+    // number and a short excerpt point them straight at the passage that could
+    // not be stored verbatim (PR #2373 R1).
+    // Counting newlines rather than slicing a prefix: slicing an arbitrary
+    // string index can split a UTF-16 surrogate pair
+    // (`custom/no-unsafe-string-truncation`), and a line number needs no
+    // substring anyway.
+    let line = 1;
+    for (let i = spec.indexOf(POSTGRES_UNSAFE_SOURCE_CHAR); i > 0; i--) {
+      if (spec[i - 1] === "\n") line++;
+    }
+    log.warn(
+      `Task ${taskId}: replaced ${replaced} Postgres-unrepresentable codepoint(s) in spec content before storing (first at line ${line})`,
+      { taskId, replaced, line }
+    );
+  }
+  return safe;
+}
 
 /**
  * Narrow interface covering only the Drizzle DB methods used by MinskyTaskBackend.
@@ -106,13 +150,11 @@ export class MinskyTaskBackend implements TaskBackend {
     if (options?.status && options.status !== "all") {
       conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
-      // Default: exclude terminal statuses unless --all is specified.
-      // Terminal set = DONE (implementation success) + CLOSED (both kinds) +
-      // COMPLETED (umbrella success, mt#1812). Kept in sync with
-      // TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
-      conditions.push(not(eq(tasksTable.status, "DONE")));
-      conditions.push(not(eq(tasksTable.status, "CLOSED")));
-      conditions.push(not(eq(tasksTable.status, "COMPLETED")));
+      // Default: exclude the registry's hidden-by-default statuses unless
+      // --all is specified (mt#3010 — single-authority consolidation;
+      // DEFAULT_HIDDEN_STATUSES lives in workflows.ts, was previously
+      // hardcoded here as two literal `not(eq(...))` conditions).
+      conditions.push(not(inArray(tasksTable.status, [...DEFAULT_HIDDEN_STATUSES])));
     }
 
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
@@ -123,6 +165,12 @@ export class MinskyTaskBackend implements TaskBackend {
       for (const tag of options.tags) {
         conditions.push(like(tasksTable.tags, `%"${tag}"%`));
       }
+    }
+
+    // Filter by workflow kind if specified (mt#2762). Validated against the
+    // workflow registry by the caller (assertKnownKind) before it reaches here.
+    if (options?.kind) {
+      conditions.push(eq(tasksTable.kind, options.kind));
     }
 
     // Project scope filter (ADR-021, mt#2416)
@@ -261,14 +309,14 @@ export class MinskyTaskBackend implements TaskBackend {
         .insert(taskSpecsTable)
         .values({
           taskId: id,
-          content: spec,
+          content: specSafeForStorage(id, spec),
           version: 1,
           createdAt: now,
           updatedAt: now,
         })
         .onConflictDoUpdate({
           target: taskSpecsTable.taskId,
-          set: { content: spec, updatedAt: now },
+          set: { content: specSafeForStorage(id, spec), updatedAt: now },
         });
 
       return now;
@@ -322,14 +370,14 @@ export class MinskyTaskBackend implements TaskBackend {
         .insert(taskSpecsTable)
         .values({
           taskId: id,
-          content: spec,
+          content: specSafeForStorage(id, spec),
           version: 1,
           createdAt: now,
           updatedAt: now,
         })
         .onConflictDoUpdate({
           target: taskSpecsTable.taskId,
-          set: { content: spec, updatedAt: now },
+          set: { content: specSafeForStorage(id, spec), updatedAt: now },
         });
     });
 
@@ -458,7 +506,7 @@ export class MinskyTaskBackend implements TaskBackend {
       await this.db
         .update(taskSpecsTable)
         .set({
-          content: metadata.spec,
+          content: specSafeForStorage(id, metadata.spec),
           updatedAt: new Date(),
         })
         .where(eq(taskSpecsTable.taskId, id));

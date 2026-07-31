@@ -5,13 +5,18 @@
 // Advisory-only — never blocks the prompt. Per mt#2057.
 //
 // Four trigger families (R1-R4) covering the rationalize-away-from-structural-fix
-// pattern that recurred across 2026-05-18 to 2026-05-23:
+// pattern that recurred across 2026-05-18 to 2026-05-23, plus R5 (finding-reframing,
+// mt#2112):
 //   R1: apology / contrition ("I owe you an apology", "I should have caught")
 //   R2: operational explanatory prose ("I didn't think it through")
 //   R3: future-behavior commitments ("going forward I will X")
 //   R4: decline-to-retrospective ("no need for a full retrospective")
 //
-// Plus user-correction signals in the current prompt ("why did you do that?").
+// Plus user-correction signals in the current prompt ("why did you do that?"),
+// and method-redirect signals (mt#2446): the user redirecting HOW the agent
+// should have arrived at an answer ("you should do some research on the
+// appropriate way to handle this") after the agent produced a design —
+// gated on design markers in the prior assistant turn.
 //
 // @see .claude/hooks/substrate-bypass-detector.ts — sibling UserPromptSubmit hook
 // @see .claude/skills/retrospective/SKILL.md — canonical trigger lists
@@ -22,19 +27,37 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput } from "./types";
+import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
   extractLastUserMessage,
+  findRealPromptIndices,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+
+/**
+ * Widened suppression look-back (mt#3036).
+ *
+ * The original suppression scanned only the just-completed assistant turn for
+ * a `/retrospective` Skill invocation. A multi-turn retrospective — the skill
+ * dispatches an advisor subagent and the structured output lands 1-3 turns
+ * later — escapes that same-turn check: the output turn itself contains R1
+ * vocabulary ("I conflated", "I should have caught") because the skill's
+ * Step 2a taxonomy REQUIRES those phrases in the report. Widening to a small
+ * fixed window of prior turns catches the invocation regardless of where in
+ * that window the advisor returned. K=5 comfortably covers observed advisor
+ * turnaround (typically 2-3 turns) with slack; larger windows risk
+ * suppressing a genuinely fresh admission in a long conversation.
+ */
+const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedAndCodeContexts } from "./elision";
+import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -48,7 +71,14 @@ const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
 // Trigger family types
 // ---------------------------------------------------------------------------
 
-export type TriggerFamily = "R1" | "R2" | "R3" | "R4" | "R5" | "user-correction";
+export type TriggerFamily =
+  | "R1"
+  | "R2"
+  | "R3"
+  | "R4"
+  | "R5"
+  | "user-correction"
+  | "method-redirect";
 
 export interface TriggerMatch {
   family: TriggerFamily;
@@ -62,7 +92,27 @@ export interface TriggerMatch {
 export const R1_PATTERNS: RegExp[] = [
   /\bI\s+owe\s+you\s+an?\s+apolog/i,
   /\bI\s+apologize\s+for\b/i,
-  /\bI\s+was\s+wrong\s+about\b/i,
+  // mt#3291: NARROWED from a bare `/\bI\s+was\s+wrong\s+about\b/i`. That pattern
+  // had ~100% phrase-match precision and ~25% DISPOSITION precision — it matched
+  // genuine self-correction language, but 4 of the 8 fires in the 2026-07-28
+  // review window were ordinary mid-investigation corrections of a FACT about
+  // the world ("your work was never gone — I was wrong about that"; "I was wrong
+  // about the push failures. They weren't timeouts."). Correcting yourself on a
+  // fact is the behavior `corrections` guidance asks for, and this detector is
+  // LIVE — it injects an "invoke /retrospective" reminder — so firing there
+  // nagged an agent for doing the right thing.
+  //
+  // The object of "wrong about" is the discriminator: a PROCESS failure is being
+  // wrong about one's own approach/reasoning, not about an observed fact. The
+  // rest of R1 already carries the process-failure load (`I conflated`,
+  // `I should have caught`, `my recommendation was incorrect`, `that was my
+  // fault`), so narrowing this one member loses no coverage of the real class.
+  // Operator disposition: ask#6247, `fix-reviewability`, 2026-07-29.
+  // The noun set is the agent's own reasoning artifacts. `architecture` and
+  // `design` are judgments the agent made, not observations it read off the
+  // system, so they belong here; "that", "one thing", "the push failures" — the
+  // four real FPs — do not.
+  /\bI\s+was\s+wrong\s+about\s+(my|the)\s+(approach|method|architecture|design|plan|recommendation|assumption|premise|diagnosis|framing)\b/i,
   /\bmy\s+recommendation\s+was\s+incorrect\b/i,
   /\bI\s+should\s+have\s+caught\b/i,
   /\bI\s+should\s+have\s+known\s+better\b/i,
@@ -72,6 +122,12 @@ export const R1_PATTERNS: RegExp[] = [
   /\bI\s+missed\s+the\s+obvious\b/i,
   /\bI\s+anchored\s+on\b[^.]*\band\s+missed\b/i,
   /\bI\s+conflated\b/i,
+  // mt#3098: the 2026-07-23 admission "I improvised a reasonable-looking handoff
+  // instead of running the canonical /handoff skill" matched nothing here. The
+  // contrast clause is required — a bare "I improvised" is ordinary narration
+  // ("I improvised a fixture"), only the instead-of/rather-than shape is an
+  // admission that a known-correct path was skipped.
+  /\bI\s+improvised\b[^.]*\b(instead\s+of|rather\s+than)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -95,6 +151,12 @@ export const R3_PATTERNS: RegExp[] = [
   /\bnext\s+time\s+I[''’]?(ll|\s+will)\b/i,
   /\bfuture\s+me\s+will\b/i,
   /\bI[''’]?(ll|\s+will)\s+be\s+more\s+careful\s+about\b/i,
+  // mt#3098: the same commitment with the clauses reversed. The patterns above
+  // are anchored on the temporal phrase LEADING ("going forward I'll ..."), so
+  // "I'll invoke it rather than improvise going forward" — the 2026-07-23
+  // admission — missed, while the calibration log fired on "Going forward I'll"
+  // the same day. `[^.]*` keeps the match inside one sentence.
+  /\bI[''’]?(ll|\s+will)\b[^.]*\b(going\s+forward|next\s+time|from\s+now\s+on)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -105,7 +167,39 @@ export const R4_PATTERNS: RegExp[] = [
   /\bfixing\s+the\s+symptom\b[^.]*\brather\s+than\b[^.]*\bretrospective\b/i,
   /\bone[- ]off\s+(issue|mistake|failure|staleness|error)\b/i,
   /\bno\s+need\s+for\s+a\s+(full\s+)?retrospective\b/i,
-  /\bskip\b[^.]*\bretrospective\b/i,
+  // mt#3291: NARROWED from `/\bskip\b[^.]*\bretrospective\b/i`. The `[^.]*`
+  // spanned a whole sentence, so any sentence mentioning both words matched.
+  // Its one fire in the 2026-07-28 window was "My recommendation: skip the full
+  // retrospective — the structural fix exists and both occurrences were benign":
+  // an agent correctly reasoning that a retro was NOT warranted and saying so
+  // with its justification. This detector is LIVE, so it answered that with
+  // "invoke /retrospective" — inverted for this phrase, penalizing exactly the
+  // reasoning R4 exists to elicit.
+  //
+  // The discriminator is grammatical, not semantic: R4 wants the agent
+  // DECLARING it will skip ("I'll just skip the retrospective"), not
+  // RECOMMENDING a skip with reasoning ("My recommendation: skip … because …").
+  // Requiring a first-person subject ADJACENT to `skip` separates them without
+  // a justification classifier — which would have been a new unmeasured
+  // heuristic built on one observed record. "I recommend we skip the
+  // retrospective because X" also stops matching, correctly: it is the
+  // reasoned-recommendation shape, not a bare decline.
+  //
+  // The other R4 members are untouched and still catch conclusory declines with
+  // no first-person subject (no-need / doesn't-warrant / minor-enough-to-skip /
+  // one-off / symptom-rather-than-retrospective).
+  //
+  // PR #2461 R1: the first draft enumerated too little of the declaring shape —
+  // it required `the`/`full` before `retrospective` (so "I'll skip A
+  // retrospective" slipped through) and only covered `I` / `I'll` / `I will`
+  // (so "I'm going to skip…" and "I'm skipping…" did too). Both are the SAME
+  // bare-decline this pattern exists to catch, so both are enumerated here
+  // rather than left as a narrower-than-intended silent drop. The
+  // discriminator is unchanged and is still purely grammatical: a first-person
+  // subject declaring the skip, with nothing but an auxiliary/`going to`/`just`
+  // between it and the verb. "I recommend we skip …" still cannot match,
+  // because `recommend we` is not in that set.
+  /\bI(?:[''’](?:ll|m)|\s+(?:will|am))?\s+(?:going\s+to\s+)?(?:just\s+)?skip(?:ping)?\s+(?:(?:the|a)\s+)?(?:(?:full|proper)\s+)?retrospective\b/i,
   /\bdoesn[''’]?t\s+warrant\s+a\s+(full\s+|proper\s+)?retrospective\b/i,
   /\bminor\s+enough\s+to\s+skip\b/i,
 ];
@@ -142,6 +236,56 @@ export const USER_CORRECTION_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Method-redirect family (mt#2446): the user redirects HOW the agent should
+// have arrived at an answer ("you should do some research on the appropriate
+// way to handle this") AFTER the agent produced a design/recommendation.
+// Politely-phrased method corrections match none of the negative-valence
+// USER_CORRECTION_PATTERNS, so they passed silently (originating incident:
+// mt#2439, 2026-06-11 — the drizzle baseline design). Detected in the CURRENT
+// user prompt, gated on design/recommendation markers in the PRIOR assistant
+// turn so an open research question ("should we research X?") with no design
+// on the table does not fire. ADR-024 Rung-1 input: plain regex on the
+// elided residual, same prefilter path as every other family.
+// ---------------------------------------------------------------------------
+
+export const METHOD_REDIRECT_PATTERNS: RegExp[] = [
+  /\b(you\s+)?should\s+(do\s+(?:some|more)\s+)?research\b/i,
+  /\bdid\s+you\s+(?:check|look\s+at)\s+how\b/i,
+  /\bis\s+there\s+a\s+(?:standard|canonical|recommended|proper)\s+way\b/i,
+  // Tool tokens use [\w.-]+ so hyphenated/dotted names match ("drizzle-kit",
+  // "next.js") — the originating incident's tool IS hyphenated (PR #2135 R1).
+  /\bhow\s+does\s+[\w.-]+\s+(?:handle|do)\s+this\b/i,
+  // Intentionally does NOT require a trailing "this": redirects like "look at
+  // how pulumi handles local packages" are genuine method corrections. The
+  // design-context gate bounds the resulting breadth; negative tests pin the
+  // verb set (handles/handle/do/does only).
+  /\blook\s+at\s+how\s+(?:the\s+community|others|[\w.-]+)\s+(?:handles?|do(?:es)?)\b/i,
+  /\bwhat[''’]?s\s+the\s+(?:appropriate|right|canonical)\s+way\s+to\b/i,
+];
+
+/**
+ * Design/recommendation markers in the PRIOR assistant turn. The
+ * method-redirect family only fires when the redirect follows a produced
+ * design — these markers are the context condition that separates "correction
+ * of my method" from "open research question". Matched on the RAW prior-turn
+ * text (not the elided residual): the markers are a coarse permissive filter,
+ * not a trigger — the trigger phrase itself is elision-guarded on the user
+ * side.
+ */
+export const DESIGN_CONTEXT_PATTERNS: RegExp[] = [
+  /\b[Oo]ption\s+[A-Z]\b/,
+  /\brecommendation\b/i,
+  /\bPlan\s+decision\b/i,
+  /\bI\s+recommend\b/i,
+  /\bapproach:/i,
+];
+
+/** True when the prior assistant turn contains design/recommendation markers. */
+export function hasDesignContext(assistantText: string): boolean {
+  return DESIGN_CONTEXT_PATTERNS.some((p) => p.test(assistantText));
+}
+
+// ---------------------------------------------------------------------------
 // All families bundled for scanning
 // ---------------------------------------------------------------------------
 
@@ -156,6 +300,43 @@ const FAMILY_PATTERNS: Array<{ family: TriggerFamily; patterns: RegExp[] }> = [
 // ---------------------------------------------------------------------------
 // Skill-invocation helper (retrospective-specific)
 // ---------------------------------------------------------------------------
+
+/**
+ * Widened `/retrospective` suppression check (mt#3036).
+ *
+ * Scans the last `lookbackTurns` completed assistant turns (bounded by real
+ * user prompts) for a `Skill(skill: "retrospective")` invocation. Returns
+ * true if found — the caller should then suppress the R-family scan for
+ * the current turn.
+ *
+ * Rationale: the /retrospective skill often dispatches an advisor subagent
+ * whose structured output lands 1-3 turns after the invocation. Scoping the
+ * "already invoked" check to only the just-completed turn misses the
+ * invocation and lets the output turn's own R-family taxonomy vocabulary
+ * (required by the skill's Step 2a) fire the scanner — the tautology that
+ * motivated this task.
+ *
+ * Fail-open: returns false on any structural error (empty transcript,
+ * unexpected shape). The caller treats false as "not yet invoked" and lets
+ * detection run — safe default.
+ */
+export function hasRecentRetrospectiveInvocation(
+  lines: TranscriptLine[],
+  lookbackTurns: number = RETRO_INVOCATION_LOOKBACK_TURNS
+): boolean {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) return false;
+
+  // Walk back up to `lookbackTurns` real-prompt boundaries from the current
+  // (in-flight) prompt. When the transcript has fewer prompts than the
+  // window, we scan everything from the first prompt.
+  const startPromptSlot = Math.max(0, promptIndices.length - 1 - lookbackTurns);
+  const startIdx = promptIndices[startPromptSlot] as number;
+  const endIdx = promptIndices[promptIndices.length - 1] as number;
+  if (endIdx <= startIdx) return false;
+
+  return hasRetrospectiveSkillInvocation(lines.slice(startIdx, endIdx));
+}
 
 export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): boolean {
   const checkBlock = (block: Record<string, unknown>): boolean => {
@@ -214,6 +395,29 @@ export const META_CONTEXT_PATTERNS: RegExp[] = [
   /\bcalibration\b/i,
   /\bfalse[- ]positives?\b/i,
   /\/calibration-review\b/,
+  // mt#3036: retrospective structured-output shape. The `/retrospective`
+  // skill's own output format REQUIRES the R-family taxonomy vocabulary
+  // (`### Agent error (cognitive)` → "Assumption Error", "I conflated",
+  // "I should have caught"), which the scanner would then match on. When
+  // the assistant turn IS that output — recognizable by these headings —
+  // trigger phrases in it are describing the analyzed failure, not asserting
+  // a fresh one. Whole-turn suppression here mirrors the existing
+  // meta-discussion tradeoff (a live admission mixed into a retro-output
+  // turn is a documented FN; the widened invocation look-back is the
+  // primary defense, this pattern set is defense-in-depth).
+  //
+  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
+  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
+  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
+  // ordinary specs, ADRs, and incident memos, and their broad match risks
+  // suppressing R-family scanning on unrelated content. The retained set
+  // requires the retro-specific `## Retrospective:` header OR one of the
+  // taxonomy sub-headings that is essentially a retro-only phrase.
+  /^##\s+Retrospective:/m,
+  /^###\s+Agent error\s*\(cognitive\)/m,
+  /^###\s+Recurrence check\b/m,
+  /^###\s+Recurrence-after-DONE\b/m,
+  /^\*\*Correction noted\*\*\s*:/m,
 ];
 
 /** True when the raw turn text is meta-discussion of the detector/calibration system. */
@@ -263,13 +467,84 @@ export function detectUserCorrection(userText: string): TriggerMatch[] {
   return matches;
 }
 
+/**
+ * Method-redirect detection (mt#2446): current user prompt matched against
+ * METHOD_REDIRECT_PATTERNS on the elided residual, gated on design markers in
+ * the prior assistant turn. Mirrors detectUserCorrection's policy: no
+ * meta-discussion suppression on the user side.
+ */
+export function detectMethodRedirect(userText: string, priorAssistantText: string): TriggerMatch[] {
+  if (!priorAssistantText || !hasDesignContext(priorAssistantText)) return [];
+  const scanned = elideQuotedAndCodeContexts(userText);
+  const matches: TriggerMatch[] = [];
+  for (const pattern of METHOD_REDIRECT_PATTERNS) {
+    const match = pattern.exec(scanned);
+    if (match) {
+      matches.push({ family: "method-redirect", matchedPhrase: match[0] });
+      break;
+    }
+  }
+  return matches;
+}
+
+// ---------------------------------------------------------------------------
+// Turn-end dedup (mt#2357)
+// ---------------------------------------------------------------------------
+
+/**
+ * The families the Stop-event guard actually scans — the ONLY families
+ * {@link filterStopFlagged} may ever drop. Enforced in code (PR #2148 R1):
+ * user-correction / method-redirect are prompt-side families the Stop guard
+ * never sees, so they pass through unconditionally even if a matching store
+ * key were somehow present — a future caller reusing this helper on
+ * user-side matches cannot silently over-filter.
+ */
+const STOP_SCANNED_FAMILIES: ReadonlySet<TriggerFamily> = new Set(["R1", "R2", "R3", "R4", "R5"]);
+
+/**
+ * Drop assistant-turn matches already flagged by the turn-end (Stop) scan of
+ * this SAME turn (mt#2357). The Stop guard scans "the final turn" (after the
+ * transcript's last real prompt); by the time this prompt-time scanner runs,
+ * that same turn is "the last completed turn" — opened by the SECOND-TO-LAST
+ * real prompt — so the shared turn key (opening prompt's uuid/timestamp)
+ * lines up across both scans. Only {@link STOP_SCANNED_FAMILIES} are ever
+ * filtered (enforced below, not just at call sites). Fail-open: any error
+ * returns the matches unfiltered — dedup is best-effort.
+ */
+export function filterStopFlagged(
+  sessionId: string | undefined,
+  lines: TranscriptLine[],
+  matches: TriggerMatch[],
+  storeDir?: string
+): TriggerMatch[] {
+  if (matches.length === 0) return matches;
+  try {
+    const promptIndices = findRealPromptIndices(lines);
+    if (promptIndices.length < 2) return matches;
+    const opening = lines[promptIndices[promptIndices.length - 2] as number];
+    const key = turnKeyFor(opening);
+    const flagged = readFlagged(sessionId ?? "unknown", storeDir);
+    if (flagged.size === 0) return matches;
+    return matches.filter(
+      (m) =>
+        !STOP_SCANNED_FAMILIES.has(m.family) ||
+        !flagged.has(flagKey(key, m.family, m.matchedPhrase))
+    );
+  } catch {
+    return matches;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
-    const logPath = resolve(cwd, CALIBRATION_LOG);
+    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
+    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
+    // scatter this calibration log into a stray subdirectory `.minsky/`.
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -293,8 +568,11 @@ function buildReminder(matches: TriggerMatch[]): string {
     "",
   ];
 
-  const assistantMatches = matches.filter((m) => m.family !== "user-correction");
+  const assistantMatches = matches.filter(
+    (m) => m.family !== "user-correction" && m.family !== "method-redirect"
+  );
   const userMatches = matches.filter((m) => m.family === "user-correction");
+  const methodRedirectMatches = matches.filter((m) => m.family === "method-redirect");
 
   if (assistantMatches.length > 0) {
     lines.push(
@@ -320,10 +598,21 @@ function buildReminder(matches: TriggerMatch[]): string {
     lines.push("");
   }
 
+  if (methodRedirectMatches.length > 0) {
+    lines.push(
+      "The user redirected your method (research-before-design); " +
+        "run /retrospective triage on why the design was produced without the research."
+    );
+    lines.push("");
+    for (const m of methodRedirectMatches) {
+      lines.push(`  - Signal: "${m.matchedPhrase}"`);
+    }
+    lines.push("");
+  }
+
   lines.push(
     "The retrospective skill's Step 0.5 triage determines whether a full retrospective " +
-      "is warranted -- do NOT make that determination in user-facing output. " +
-      "Override: set MINSKY_ACK_RETROSPECTIVE_TRIGGER=1 if this is genuinely not a retrospective case."
+      "is warranted -- do NOT make that determination in user-facing output."
   );
 
   return lines.join("\n");
@@ -357,25 +646,38 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
+  // mt#3036: widened `/retrospective` invocation look-back (K=5 turns), so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1). A 5-turn window is far too long to
+  // silence user-side signals: an operator complaint or method redirect
+  // arriving 2-4 turns after a completed retrospective is not the same
+  // event as the retrospective, and losing it would suppress critical
+  // course-correction signals during exactly the phase (mid-fix / post-fix
+  // work) where they are most likely.
   let retrospectiveAlreadyInvoked = false;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
-    if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) {
+    if (hasRecentRetrospectiveInvocation(lines)) {
       retrospectiveAlreadyInvoked = true;
     }
   } catch {
     // fail-open
   }
-  if (retrospectiveAlreadyInvoked) return null;
 
   const allMatches: TriggerMatch[] = [];
 
+  let runAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
-      const assistantText = extractAssistantText(turnLines);
-      if (assistantText) {
-        allMatches.push(...detectTriggerPhrases(assistantText));
+      runAssistantText = extractAssistantText(turnLines);
+      // Assistant-side R-family scan: suppressed when a recent
+      // `/retrospective` invocation covers this turn's output.
+      if (runAssistantText && !retrospectiveAlreadyInvoked) {
+        allMatches.push(
+          ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
+        );
       }
     }
   } catch (err) {
@@ -384,10 +686,15 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
   }
 
+  // User-side scans (correction + method-redirect) stay LIVE regardless of
+  // a recent `/retrospective` — user course-correction signals must not be
+  // suppressed by a completed retro (PR #2169 R1; mirrors mt#2672's
+  // policy that user-correction is not meta-suppressed).
   try {
     const userText = extractLastUserMessage(lines);
     if (userText) {
       allMatches.push(...detectUserCorrection(userText));
+      allMatches.push(...detectMethodRedirect(userText, runAssistantText));
     }
   } catch (err) {
     process.stderr.write(
@@ -403,7 +710,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     try {
       const turnLines = extractLastAssistantTurn(lines);
       const fullText =
-        firstMatch.family === "user-correction"
+        firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(turnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
@@ -419,6 +726,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   return {
     calibration: {
+      // source: "live" — a real runtime fire (vs. a synthetic fixture/replay
+      // entry). Consumed by the coverage-receipt done-gate (mt#2554).
+      source: "live",
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
@@ -472,28 +782,35 @@ export async function main(): Promise<void> {
 
   const allMatches: TriggerMatch[] = [];
 
-  // Check if /retrospective was already invoked in the prior turn — suppress ALL detection
+  // Check if `/retrospective` was invoked in any of the last K completed
+  // turns. mt#3036: widened from same-turn-only to a K=5 turn look-back so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan below is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1; mirrors the mt#2672 policy that
+  // user-correction is never meta-suppressed).
   let retrospectiveAlreadyInvoked = false;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
-    if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) {
+    if (hasRecentRetrospectiveInvocation(lines)) {
       retrospectiveAlreadyInvoked = true;
     }
   } catch {
     // fail-open
   }
 
-  if (retrospectiveAlreadyInvoked) {
-    process.exit(0);
-  }
-
-  // Surface 1: scan prior assistant turn for trigger phrases
+  // Surface 1: scan prior assistant turn for trigger phrases (SKIP when a
+  // recent /retrospective invocation covers this turn's output).
+  let mainAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
-      const assistantText = extractAssistantText(turnLines);
-      if (assistantText) {
-        const triggerMatches = detectTriggerPhrases(assistantText);
+      mainAssistantText = extractAssistantText(turnLines);
+      if (mainAssistantText && !retrospectiveAlreadyInvoked) {
+        const triggerMatches = filterStopFlagged(
+          input.session_id,
+          lines,
+          detectTriggerPhrases(mainAssistantText)
+        );
         allMatches.push(...triggerMatches);
       }
     }
@@ -503,12 +820,13 @@ export async function main(): Promise<void> {
     );
   }
 
-  // Surface 2: scan current user prompt for correction signals
+  // Surface 2: scan current user prompt for correction + method-redirect signals
   try {
     const userText = extractLastUserMessage(lines);
     if (userText) {
       const correctionMatches = detectUserCorrection(userText);
       allMatches.push(...correctionMatches);
+      allMatches.push(...detectMethodRedirect(userText, mainAssistantText));
     }
   } catch (err) {
     console.error(
@@ -527,7 +845,7 @@ export async function main(): Promise<void> {
     try {
       const turnLines = extractLastAssistantTurn(lines);
       const fullText =
-        firstMatch.family === "user-correction"
+        firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(turnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
@@ -542,6 +860,8 @@ export async function main(): Promise<void> {
   }
 
   appendCalibrationRecord(input.cwd, {
+    // source: "live" — a real runtime fire (mt#2554 coverage-receipt gate).
+    source: "live",
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),

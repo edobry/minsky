@@ -15,9 +15,15 @@
 //     - Retrodictive: "X behaved this way because Y", "the reason is Y",
 //       "X blocks/causes Y", "X happened because…"
 //     - Forward: "running X will do Y", "X is unsafe because…"
+//     - Inductive/correlational (mt#2832, R12 gap): "N in a row, while Y",
+//       "the one remaining/only difference is Y" — an A/B generalization
+//       drawn from a small, unisolated sample rather than an explicit
+//       "because"/"due to" mechanism phrase. See mt#2765 / memory b0b294ab
+//       R12: "tray-spawned hangs, shell-spawned works" — attributed to spawn
+//       context when the real confound was which port had live traffic.
 //   WHERE Y invokes a structural mechanism (identity / permission / config /
-//   algorithm / data-shape) AND the same turn contains NO backing tool call
-//   AND NO file:line or node_modules/… citation.
+//   algorithm / data-shape / process-environment) AND the same turn contains
+//   NO backing tool call AND NO file:line or node_modules/… citation.
 //
 //   DOES NOT FIRE when:
 //   - A same-turn tool result backs the claim.
@@ -32,7 +38,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, readHostCap, deriveBudgets } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -110,6 +116,27 @@ export const FORWARD_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Causal phrase patterns — inductive / correlational A/B generalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Inductive/correlational patterns (mt#2832, R12 gap): a causal conclusion
+ * drawn from a small, un-isolated A/B comparison — "N in a row while Y",
+ * "the one remaining/only difference is Y" — rather than an explicit
+ * "because"/"due to" mechanism phrase. This is the exact shape of the
+ * mt#2765 misdiagnosis (memory b0b294ab R12): "tray-spawned hangs three
+ * times in a row, shell-spawned works — the one remaining structural
+ * difference is the working directory" attributed causation to spawn
+ * context when the real confound (which port had live traffic) was never
+ * isolated.
+ */
+export const INDUCTIVE_GENERALIZATION_PATTERNS: RegExp[] = [
+  /\bthe\s+(one\s+)?(remaining|only)\s+(structural\s+)?difference\b/i,
+  /\b(in\s+a\s+row)\b[^.]{0,100}\bwhile\b/i,
+  /\bevery\s+time\b[^.]{0,100}\b(but|while|whereas)\b/i,
+];
+
+// ---------------------------------------------------------------------------
 // Mechanism indicator patterns (Y must invoke a structural mechanism)
 // ---------------------------------------------------------------------------
 
@@ -126,6 +153,11 @@ export const MECHANISM_PATTERNS: RegExp[] = [
   /\b(App\s+id|installation|bot\s+id|agent\s+id|user\s+id|service\s+account)\b/i,
   /\b(high[- ]?water[- ]?mark|ledger|journal|timestamp|migration)\b/i,
   /\b(cach[ei]|memoriz|remember|stored|retained|inherit)\b/i,
+  // mt#2832 R12 gap: process/spawn-context mechanism vocabulary — narrow
+  // compound terms only (not bare "spawn"/"environment", which are too
+  // common in this codebase's discourse and would broaden the mechanism
+  // gate for every OTHER causal-phrase category, not just this one).
+  /\b(spawn\s+context|working\s+director(?:y|ies)|process\s+environment)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -173,6 +205,16 @@ export interface CausalDetectionResult {
   matched: boolean;
   matchedPhrases: string[];
   hadSameTurnVerification: boolean;
+  /**
+   * Text surrounding the first matched phrase — empty when nothing matched.
+   *
+   * `matchedPhrases` holds `match[0].slice(0, 120)`: the matched text
+   * TRUNCATED, not the text around it. A record reading
+   * `"matchedPhrases":["The root cause is"]` gives a reviewer the phrase and no
+   * way to tell a volunteered causal claim from a quotation of one, which is
+   * why this detector's fires were unratable (mt#3289).
+   */
+  transcriptExcerpt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +233,12 @@ export function detectCausalPremise(
   toolUseNames: string[]
 ): CausalDetectionResult {
   if (!assistantText) {
-    return { matched: false, matchedPhrases: [], hadSameTurnVerification: false };
+    return {
+      matched: false,
+      matchedPhrases: [],
+      hadSameTurnVerification: false,
+      transcriptExcerpt: "",
+    };
   }
 
   // Apply markdown-aware filtering FIRST so all checks run on the same elided text.
@@ -213,7 +260,7 @@ export function detectCausalPremise(
   // This enforces the "DOES NOT FIRE when a backing tool/citation is present"
   // contract (reviewer finding #1: matched was true regardless of verification).
   if (hadSameTurnVerification) {
-    return { matched: false, matchedPhrases: [], hadSameTurnVerification };
+    return { matched: false, matchedPhrases: [], hadSameTurnVerification, transcriptExcerpt: "" };
   }
 
   // Collect matched causal phrases
@@ -240,14 +287,25 @@ export function detectCausalPremise(
     }
   }
 
+  // Check inductive/correlational A/B generalization patterns (mt#2832 R12 gap)
+  for (const pattern of INDUCTIVE_GENERALIZATION_PATTERNS) {
+    const match = pattern.exec(filteredText);
+    if (match) {
+      if (hasMechanismInProximity(filteredText, match.index, 500)) {
+        matchedPhrases.push(match[0].slice(0, 120));
+      }
+    }
+  }
+
   if (matchedPhrases.length === 0) {
-    return { matched: false, matchedPhrases: [], hadSameTurnVerification };
+    return { matched: false, matchedPhrases: [], hadSameTurnVerification, transcriptExcerpt: "" };
   }
 
   return {
     matched: true,
     matchedPhrases,
     hadSameTurnVerification,
+    transcriptExcerpt: buildTranscriptExcerpt(assistantText, filteredText, matchedPhrases[0] ?? ""),
   };
 }
 
@@ -293,13 +351,53 @@ export function elideMarkdownContexts(text: string): string {
   return result;
 }
 
+/**
+ * Characters of surrounding text kept on each side of the matched phrase.
+ *
+ * Mirrors the window `retrospective-trigger-scanner.ts` uses when it builds its
+ * own `transcript_excerpt`. That detector's fires were the only classifiable
+ * ones in the 2026-07-28 calibration review, so matching its bound keeps the
+ * two logs comparable rather than introducing a second convention (mt#3289).
+ */
+const EXCERPT_CONTEXT_CHARS = 80;
+
+/**
+ * Slice out the text around the first matched phrase.
+ *
+ * Located in the ELIDED text (that is where the match was found) but sliced from
+ * the RAW text at the same offsets — `elideMarkdownContexts` blanks with
+ * same-length whitespace specifically so positions stay aligned, which its own
+ * comment calls out as being for "accurate snippet extraction" (PR #2420 R1).
+ *
+ * Slicing the elided text instead would blank out the code fences, backticks and
+ * blockquote markers — i.e. exactly the evidence a reviewer needs to judge
+ * whether the phrase was QUOTED rather than asserted. That judgment is the whole
+ * purpose of the excerpt, so the raw text is what gets stored.
+ *
+ * Returns "" when the phrase is absent or empty rather than defaulting to the
+ * head of the text — an empty needle makes `indexOf` return 0, which would
+ * silently log the first 80 characters of an unrelated passage as if it were
+ * the match's context.
+ */
+function buildTranscriptExcerpt(rawText: string, elidedText: string, firstPhrase: string): string {
+  if (!firstPhrase) return "";
+  const idx = elidedText.indexOf(firstPhrase);
+  if (idx < 0) return "";
+  const start = Math.max(0, idx - EXCERPT_CONTEXT_CHARS);
+  const end = Math.min(rawText.length, idx + firstPhrase.length + EXCERPT_CONTEXT_CHARS);
+  return rawText.slice(start, end);
+}
+
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
-    const logPath = resolve(cwd, CALIBRATION_LOG);
+    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
+    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
+    // scatter this calibration log into a stray subdirectory `.minsky/`.
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -398,6 +496,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       session_id: input.session_id,
       matchedPhrases: result.matchedPhrases,
       hadSameTurnVerification: result.hadSameTurnVerification,
+      transcript_excerpt: result.transcriptExcerpt,
     },
   };
 
@@ -498,6 +597,11 @@ export async function main(): Promise<void> {
       session_id: input.session_id,
       matchedPhrases: result.matchedPhrases,
       hadSameTurnVerification: result.hadSameTurnVerification,
+      // Both write sites emit the same shape (mt#3289) — the dispatcher path in
+      // `run()` above and this standalone `main()` path. Populating only one
+      // would leave whichever path is live producing the context-free records
+      // this task exists to fix.
+      transcript_excerpt: result.transcriptExcerpt,
     });
   }
 

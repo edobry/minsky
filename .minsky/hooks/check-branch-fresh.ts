@@ -35,8 +35,7 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -44,8 +43,23 @@ import {
   readHostCap,
   deriveBudgets,
   DEFAULT_HOST_CAP_SEC,
+  // mt#2710: `MergeDetectFs`/`DEFAULT_FS`/`resolveGitDir`/`findRepoRoot` were
+  // originally defined locally in this file (mt#2700) and now live in
+  // `./types` so every `.minsky/hooks/*.ts` guard can share one repo-root
+  // resolver. Re-exported below for backward compatibility with this file's
+  // own tests (`check-branch-fresh.test.ts` imports them from here).
+  DEFAULT_FS,
+  resolveGitDir,
+  findRepoRoot,
 } from "./types";
-import type { ToolHookInput, HostCapInfo } from "./types";
+import type { ToolHookInput, HostCapInfo, MergeDetectFs } from "./types";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
+
+export { resolveGitDir, findRepoRoot };
+export type { MergeDetectFs };
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-branch-fresh";
 // PR #963 R1 NON-BLOCKING #2 fix: import the shared helper instead of
 // duplicating filename + write logic in this file. Keeps payload shape +
 // path canonical at one site (src/domain/session/freshness-marker.ts) so
@@ -243,64 +257,10 @@ export const MERGE_IN_PROGRESS_MARKERS = [
   "CHERRY_PICK_HEAD",
 ] as const;
 
-/**
- * Minimal fs surface used by mid-merge detection. Packaged so tests can
- * inject a mock without touching the real filesystem (per the
- * `no-real-fs-in-tests` lint rule).
- */
-export interface MergeDetectFs {
-  existsSync: (p: string) => boolean;
-  readFileSync: (p: string, encoding: BufferEncoding) => string;
-  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
-}
-
-const DEFAULT_FS: MergeDetectFs = {
-  existsSync,
-  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
-  statSync: (p) => statSync(p),
-};
-
-/**
- * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
- * indirection convention. Three cases:
- *
- *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
- *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
- *      parse and return the resolved target (typical `git worktree` checkout
- *      and certain submodule layouts). Relative `<path>` is resolved against
- *      `repoDir` per git's spec.
- *   3. `<repoDir>/.git` is missing or unparseable — fall back to
- *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
- *      false naturally (no exception thrown for the missing-repo case).
- *
- * The fs surface is injectable for test purposes; defaults to real fs.
- *
- * @see mt#1739 — added to support worktree-based session layouts where the
- *   freshness-guard's mid-merge detection would otherwise miss markers
- *   living under the resolved gitdir, reintroducing the deadlock this fix
- *   exists to close. PR #1054 R1 BLOCKING #1.
- */
-export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
-  const dotGit = join(repoDir, ".git");
-  if (!fs.existsSync(dotGit)) {
-    return dotGit;
-  }
-  try {
-    if (fs.statSync(dotGit).isDirectory()) {
-      return dotGit;
-    }
-    const content = fs.readFileSync(dotGit, "utf-8");
-    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
-    if (match && match[1]) {
-      const target = match[1].trim();
-      return isAbsolute(target) ? target : resolve(repoDir, target);
-    }
-  } catch {
-    // Fall through — any stat/read error falls back to the conventional path,
-    // which callers handle via existsSync returning false.
-  }
-  return dotGit;
-}
+// `MergeDetectFs`, `DEFAULT_FS`, `resolveGitDir`, and `findRepoRoot` moved to
+// `./types` (mt#2710) — imported above and re-exported for this file's own
+// tests. See that module's "Repo-root resolution" section for the full
+// doc comments (unchanged, just relocated).
 
 export function detectMergeInProgress(
   repoDir: string,
@@ -313,74 +273,6 @@ export function detectMergeInProgress(
     }
   }
   return null;
-}
-
-/**
- * Resolve the repository ROOT for `startDir`: walk parent directories until
- * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
- * handles the indirection afterwards), falling back to `startDir` when no
- * `.git` exists anywhere up the tree (missing-repo case; downstream probes
- * then fail closed-to-allow exactly as before).
- *
- * Why this exists (mt#2700): the entrypoint passed `input.cwd` straight into
- * `detectMergeInProgress` and `writeFreshnessMarker`, but `input.cwd` tracks
- * the harness SHELL's working directory, which is routinely a SUBDIRECTORY
- * of the repo (e.g. `<session>/cockpit-tray/src-tauri` during a build). The
- * git subprocess probes (`git -C <dir>`) walk up to the repo root on their
- * own, so the freshness comparison stayed correct — but the fs-only marker
- * probe does NOT walk up, so a genuine in-progress merge at the repo root
- * was invisible and the mt#1739 carve-out silently failed to fire,
- * reintroducing the merge-completion deadlock it exists to close (observed
- * 2026-07-08, mt#2675 convergence). Same class: the mt#1522 CAS marker was
- * written under the subdirectory instead of the repo root, silently
- * bypassing session_commit's push-time CAS read.
- *
- * fs-only by design (no subprocess): mid-merge detection runs BEFORE the
- * wall-clock budget guard, which is safe only while it stays fs probes.
- * Cost is a few probes per path segment.
- *
- * A candidate directory is accepted ONLY when its `.git` entry is a real
- * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
- * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
- * file in an ancestor must not stop the walk early, or every downstream
- * consumer runs against a pseudo-root). Invalid candidates are skipped and
- * the walk continues upward.
- */
-function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
-  const dotGit = join(dir, ".git");
-  if (!fs.existsSync(dotGit)) {
-    return false;
-  }
-  try {
-    if (fs.statSync(dotGit).isDirectory()) {
-      return true;
-    }
-    // `.git` is a file — accept only a parseable `gitdir:` indirection
-    // (resolveGitDir returns dotGit itself when the file is unparseable)
-    // whose target exists and is a directory.
-    const resolved = resolveGitDir(dir, fs);
-    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
-  } catch {
-    // Any stat/read error means this candidate can't be validated — skip it
-    // and let the walk continue.
-    return false;
-  }
-}
-
-export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
-  let dir = resolve(startDir);
-  for (;;) {
-    if (isRepoRootCandidate(dir, fs)) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) {
-      // Filesystem root reached without finding a repo — fall back to the
-      // original directory so callers' downstream probes fail naturally.
-      return resolve(startDir);
-    }
-    dir = parent;
-  }
 }
 
 /**
@@ -683,6 +575,165 @@ export function checkBranchFreshness(
 }
 
 // ---------------------------------------------------------------------------
+// Clean-tree auto-merge (mt#2815)
+// ---------------------------------------------------------------------------
+//
+// Motivation: under concurrent-agent load, origin/main routinely advances by
+// a handful of commits between an agent's last fetch and its next commit /
+// PR-create step. mt#2815's investigation (7+ block->session_update->retry
+// cycles across 3 conversations in one week, all reconfirmed evidence
+// clean) found these fires are almost always resolved by a plain rebase
+// with ZERO actual conflicts — the diverging commits are sibling-PR work on
+// disjoint files. Each cycle still costs a full agent round-trip: block
+// message -> session_update call -> re-invoke the original tool. This
+// closes the common case.
+//
+// When the working tree is FULLY CLEAN (no staged or unstaged changes — the
+// guarded tool call has nothing pending that a merge could clobber) and
+// merging `mainRef` into the current branch applies with NO conflicts,
+// perform the merge inline and let the original tool call proceed. The
+// merge commit is LOCAL ONLY — this hook never pushes; the guarded tool's
+// own push step (session_commit always pushes; session_pr_create /
+// session_pr_edit push as part of their own rebase-on-main step) carries
+// the merge commit to origin/<branch>.
+//
+// IMPORTANT — clean tree does NOT itself guarantee a conflict-free merge.
+// The conflicts this guard exists to catch are between two commit
+// HISTORIES (origin/main's new commits vs. the session branch's own
+// already-pushed commits) — working-tree cleanliness only rules out the
+// SEPARATE failure mode of local uncommitted edits colliding with the
+// incoming merge. History-level conflicts can still occur on a clean tree;
+// that is exactly why this function ATTEMPTS the merge and verifies the
+// outcome (non-zero exit / conflict markers) rather than skipping the
+// attempt on the assumption that clean-tree implies safe. The empirical
+// "most fires are clean, zero-conflict" finding justifies attempting this
+// by default — it does not justify skipping the verification.
+//
+// Protective property (regression-tested): a merge that produces conflicts
+// is immediately aborted (`git merge --abort`) before this function
+// returns. This is critical, not cosmetic — a left-behind MERGE_HEAD would
+// be picked up by `detectMergeInProgress` on the VERY NEXT hook invocation
+// and silently ALLOW past a still-stale, still-unresolved branch (the
+// mt#1739 mid-merge carve-out is meant for an operator actively resolving a
+// merge, not an abandoned auto-merge attempt). On conflict, the block
+// behavior downstream is byte-for-byte the pre-mt#2815 path — no silent
+// conflict resolution, ever.
+//
+// Explicitly NOT attempted when the working tree is dirty. `session_commit`
+// calls are typically dirty by construction (there is something to commit),
+// so this mechanism's practical reach is largest at `session_pr_create` /
+// `session_pr_edit` time, where the tree is clean by workflow convention
+// (everything already committed). That scoping is intentional, not a gap:
+// it keeps the mechanism to the case the investigation evidence actually
+// covers, per the acceptance criteria's "no conflicts possible on clean
+// tree + no overlapping files" framing — which this comment block exists to
+// qualify precisely (see the IMPORTANT paragraph above).
+
+/** Injectable git-mechanics for `attemptCleanTreeAutoMerge` — real impls shell out via `execWithPath`; tests inject fakes for a fully hermetic run. */
+export interface AutoMergeDeps {
+  /** True iff there are no staged or unstaged changes (`git status --porcelain` is empty). */
+  isWorkingTreeClean: (repoDir: string, timeoutMs: number) => boolean;
+  /** Attempt `git merge --no-edit <mainRef>` against current HEAD. */
+  runMerge: (repoDir: string, mainRef: string, timeoutMs: number) => { exitCode: number };
+  /** Best-effort `git merge --abort` — always called after a failed merge attempt. */
+  abortMerge: (repoDir: string, timeoutMs: number) => void;
+  /** List conflicted file paths (UU/AA/DD/AU/UA/DU/UD) after a failed merge. */
+  listConflictedFiles: (repoDir: string, timeoutMs: number) => string[];
+}
+
+const DEFAULT_AUTO_MERGE_DEPS: AutoMergeDeps = {
+  isWorkingTreeClean: (repoDir, timeoutMs) => {
+    const result = execWithPath(["git", "-C", repoDir, "status", "--porcelain"], {
+      timeout: timeoutMs,
+    });
+    return result.exitCode === 0 && result.stdout.trim().length === 0;
+  },
+  runMerge: (repoDir, mainRef, timeoutMs) =>
+    execWithPath(["git", "-C", repoDir, "merge", "--no-edit", mainRef], { timeout: timeoutMs }),
+  abortMerge: (repoDir, timeoutMs) => {
+    execWithPath(["git", "-C", repoDir, "merge", "--abort"], { timeout: timeoutMs });
+  },
+  listConflictedFiles: (repoDir, timeoutMs) => {
+    const result = execWithPath(["git", "-C", repoDir, "status", "--porcelain"], {
+      timeout: timeoutMs,
+    });
+    if (result.exitCode !== 0) return [];
+    return result.stdout
+      .split("\n")
+      .filter((line) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(line))
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+  },
+};
+
+export type AutoMergeOutcome =
+  | { attempted: false; reason: string }
+  | { attempted: true; merged: true; mergedCommitCount: number }
+  | { attempted: true; merged: false; conflictedFiles: string[] };
+
+/**
+ * Attempt an inline merge of `mainRef` into the current branch when the
+ * working tree is clean, so a clean-tree/no-conflict freshness block can be
+ * resolved without a manual session_update round-trip. Only called from the
+ * entrypoint when `checkBranchFreshness` already returned `blocked: true`.
+ *
+ * Never leaves a MERGE_HEAD behind: any non-zero-exit merge attempt is
+ * aborted before this function returns (see header comment above for why
+ * that matters).
+ */
+export function attemptCleanTreeAutoMerge(
+  repoDir: string,
+  branchRef: string | undefined,
+  mainRef: string | undefined,
+  aheadCount: number,
+  hookStart: number,
+  deps: AutoMergeDeps = DEFAULT_AUTO_MERGE_DEPS
+): AutoMergeOutcome {
+  if (!branchRef || !mainRef) {
+    return {
+      attempted: false,
+      reason: "missing branchRef/mainRef — comparison did not fully run",
+    };
+  }
+
+  // Budget-guard the merge attempt itself — a merge of already-fetched refs
+  // is comparable in cost to any other local git probe in this file.
+  if (!budgetAllows(hookStart, GIT_TIMEOUT_MS * 2)) {
+    return { attempted: false, reason: "overall budget exhausted before auto-merge attempt" };
+  }
+
+  if (!deps.isWorkingTreeClean(repoDir, GIT_TIMEOUT_MS)) {
+    return {
+      attempted: false,
+      reason: "working tree is not clean — auto-merge skipped, falling back to block",
+    };
+  }
+
+  // PR #2000 R1 BLOCKING #1/#2: this is a purely LOCAL git operation against
+  // already-fetched refs (the entrypoint's refreshRemoteRefs already ran
+  // before checkBranchFreshness) — it belongs to the same local-probe budget
+  // class as every other execWithPath call in this file (GIT_TIMEOUT_MS),
+  // NOT the network-bound FETCH_TIMEOUT_MS class (~55% of the overall
+  // budget, sized for a real network round-trip to origin). Using
+  // FETCH_TIMEOUT_MS here would let a single local merge attempt consume
+  // more than half the hook's total budget, inconsistent with the
+  // `GIT_TIMEOUT_MS * 2` reservation the budget-guard above already made
+  // for exactly this call plus the isWorkingTreeClean probe.
+  const mergeResult = deps.runMerge(repoDir, mainRef, GIT_TIMEOUT_MS);
+  if (mergeResult.exitCode === 0) {
+    return { attempted: true, merged: true, mergedCommitCount: aheadCount };
+  }
+
+  // Merge failed — conflicts (the expected failure mode on a clean tree) or
+  // something else entirely (e.g. a lock file race). Either way: abort
+  // defensively so no MERGE_HEAD survives for the NEXT hook invocation to
+  // misread as an operator-driven mid-merge (mt#1739's carve-out).
+  const conflictedFiles = deps.listConflictedFiles(repoDir, GIT_TIMEOUT_MS);
+  deps.abortMerge(repoDir, GIT_TIMEOUT_MS);
+  return { attempted: true, merged: false, conflictedFiles };
+}
+
+// ---------------------------------------------------------------------------
 // Message formatting
 // ---------------------------------------------------------------------------
 
@@ -747,11 +798,40 @@ const GUARDED_TOOLS = new Set([
 ]);
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // exactly once per invocation regardless of which exit fires below. NOTE:
+  // no canary declared for this guard (registry.ts) — its real evaluation
+  // has genuine side effects (a live `git fetch`, and on a blocked+clean-tree
+  // path an actual `git merge` via attemptCleanTreeAutoMerge, mt#2815; a CAS
+  // marker write on the allow path) that a synthetic canary invocation
+  // cannot safely exercise without either mutating a real repo checkout or
+  // building a disposable scratch git-repo fixture beyond this pass's
+  // budget — documented as a known gap in the PR body.
+  const recordAndExit = (
+    decision: "allow" | "deny",
+    overrideFields?: {
+      overrideEnvVar: string;
+      overrideClassification: ReturnType<typeof classifyOverride>;
+    }
+  ): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+      ...overrideFields,
+    });
+    process.exit(0);
+  };
 
   // Only act on the guarded tools
   if (!GUARDED_TOOLS.has(input.tool_name)) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Check for override env var
@@ -761,7 +841,15 @@ if (import.meta.main) {
     process.stdout.write(
       `[check-branch-fresh] OVERRIDE active (MINSKY_SKIP_FRESHNESS=1) — tool=${input.tool_name} ts=${ts}\n`
     );
-    process.exit(0);
+    // mt#2889 PR #2012 R1 (class-not-instance fix, mirroring NON-BLOCKING #5's
+    // check-generated-file-edit.ts fix): classify via the shared
+    // classifyOverride() rather than a hardcoded literal, so a future
+    // deregistration of this var from KNOWN_OVERRIDE_ENV_VARS correctly
+    // downgrades the fire-log classification instead of silently lying.
+    recordAndExit("allow", {
+      overrideEnvVar: "MINSKY_SKIP_FRESHNESS",
+      overrideClassification: classifyOverride("MINSKY_SKIP_FRESHNESS"),
+    });
   }
 
   // Resolve the repo ROOT from the shell cwd (mt#2700): `input.cwd` is
@@ -815,7 +903,25 @@ if (import.meta.main) {
   // performs its own detection.
   const result = checkBranchFreshness(repoDir, undefined, hookStart);
 
-  if (!result.blocked) {
+  // mt#2815: when blocked, attempt an inline clean-tree auto-merge before
+  // falling back to denial. See attemptCleanTreeAutoMerge's header comment
+  // for the full rationale and the protective-property guarantee (any
+  // conflict aborts the merge and denies exactly as before — no silent
+  // conflict resolution).
+  let autoMergeOutcome: AutoMergeOutcome | undefined;
+  if (result.blocked) {
+    autoMergeOutcome = attemptCleanTreeAutoMerge(
+      repoDir,
+      result.branchRef,
+      result.mainRef,
+      result.aheadCount,
+      hookStart
+    );
+  }
+  const autoMerged = autoMergeOutcome?.attempted === true && autoMergeOutcome.merged === true;
+  const effectivelyBlocked = result.blocked && !autoMerged;
+
+  if (!effectivelyBlocked) {
     // mt#1522: write the freshness CAS marker before emitting allow.
     // Only fires when ALL of the following hold:
     //   - tool === session_commit (spec scopes the CAS check there;
@@ -826,6 +932,9 @@ if (import.meta.main) {
     //     actually executed — guards against the budget-exhausted-
     //     before-comparison path that returns mainRef without running
     //     the comparison; PR #963 R1 BLOCKING #6 fix).
+    // Applies identically on the auto-merged path: the merge just landed
+    // origin/main's commits locally, so capturing mainRef's current SHA
+    // here is exactly the right marker for the residual push-time race.
     // Failure to write is non-fatal: surfaced as a warning so the operator
     // knows the CAS check won't fire on the next push (no worse than the
     // pre-mt#1522 baseline).
@@ -860,10 +969,17 @@ if (import.meta.main) {
     // silent — operators should know about staleness even on the silent
     // happy paths. This carve-out is documented in the header comment and
     // in the published Behavioral Contract (.minsky/rules/hook-files.mdc).
+    // The auto-merge audit line (mt#2815) is likewise never silent — it
+    // reports a real repo mutation and must always be visible.
     const isSilent = result.silent === true;
     const lines: string[] = [];
     if (!isSilent) {
       lines.push(`[check-branch-fresh] ${result.reason}`);
+    }
+    if (autoMerged && autoMergeOutcome?.attempted && autoMergeOutcome.merged) {
+      lines.push(
+        `[check-branch-fresh] auto-merged ${autoMergeOutcome.mergedCommitCount} commit(s) from ${result.mainRef} into ${result.branchRef ?? "the current branch"} (clean tree, no conflicts) — proceeding without a manual session_update round-trip.`
+      );
     }
     for (const w of warnings) {
       lines.push(`[check-branch-fresh] ${w}`);
@@ -879,7 +995,7 @@ if (import.meta.main) {
         },
       });
     }
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Blocked: format and emit denial. Reuse `result.mainRef` and the EXACT
@@ -897,10 +1013,21 @@ if (import.meta.main) {
   // When fetch failed, the comparison ran against possibly-stale refs.
   // Surface that prominently in the deny message so operators don't act on
   // a block whose evidence may be hours old.
-  const fullMessage =
+  let fullMessage =
     warnings.length > 0
       ? `${message}\n\nWarnings:\n${warnings.map((w) => `  [check-branch-fresh] ${w}`).join("\n")}`
       : message;
+
+  // mt#2815: surface that an auto-merge was attempted and hit conflicts,
+  // so the agent knows a resolution attempt already happened before it
+  // sees the standard "run session_update" guidance below.
+  if (autoMergeOutcome?.attempted === true && autoMergeOutcome.merged === false) {
+    const files =
+      autoMergeOutcome.conflictedFiles.length > 0
+        ? `\nConflicted file(s): ${autoMergeOutcome.conflictedFiles.join(", ")}`
+        : "";
+    fullMessage += `\n\n[check-branch-fresh] Auto-merge attempted (mt#2815) but hit conflicts — aborted, falling back to manual resolution.${files}`;
+  }
 
   writeOutput({
     hookSpecificOutput: {
@@ -909,5 +1036,5 @@ if (import.meta.main) {
       permissionDecisionReason: fullMessage,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

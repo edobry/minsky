@@ -299,7 +299,9 @@ export function getPersistenceCustomizations(): {
             },
             dryRun: {
               alias: "n",
-              description: "Simulate migration without making changes",
+              description:
+                "Force preview mode; takes precedence over --execute, so " +
+                "`--dry-run --execute` previews rather than applies",
             },
             verify: {
               alias: "V",

@@ -3,7 +3,7 @@ import { defineSkill } from "../../../packages/domain/src/definitions/factories"
 export default defineSkill({
   name: "implement-task",
   description:
-    "Full implementation lifecycle for a Minsky task: read spec, plan, code, test, verify, commit, create PR, and drive to merge. All work happens in session workspaces with absolute paths. Use when implementing a task, starting development, or beginning work in a session.",
+    "Full implementation lifecycle for a Minsky task: read spec, plan, code, test, verify, commit, create PR, and drive to merge. All work happens in session workspaces via the session-scoped file tools. Use when implementing a task, starting development, or beginning work in a session.",
   userInvocable: true,
   content: `
 # Implement Task
@@ -30,6 +30,7 @@ Optional: task ID (e.g., \`/implement-task mt#123\`). If omitted, uses the curre
 
 Step 0: Entry gate: check task status
 Step 0a: Late parallel-work spot-check
+Step 0b: Load the lifecycle toolset bundle
 Step 1: Retrieve relevant memory context
 Step 2: Read and verify the task spec
 Step 3: Start a session (READY → IN-PROGRESS)
@@ -82,6 +83,46 @@ with explicit acknowledgment).
 This is the last-line enforcement of \`feedback_check_parallel_work_before_decomposing\`.
 The full gate ran at PLANNING; this is the spot-check before the session is created.
 
+### 0b. Load the lifecycle toolset bundle (mt#2822)
+
+Once the entry gate confirms this run is actually going to execute the lifecycle (READY or
+IN-PROGRESS), load the whole standard-lifecycle tool set in **one** \`ToolSearch\` call instead
+of discovering tools piecemeal at each phase (session start, then commit, then PR, then
+wait-for-review, then merge, then deploy-verify — each its own round-trip). Measured baseline
+(mt#2822): three recent standard implement→PR→merge→deploy conversations cost 21, 15, and 13
+\`ToolSearch\` calls respectively (conversation \`6cac7a30\`, \`ac4f5675\`, \`4b019e33\`) — mostly
+fragmented 1-2-tool discovery calls with no decision content, not exploratory search.
+
+Call this once, right after the entry gate, before Step 1. \`tasks_spec_get\` is included
+directly (not conditionally) because Step 2 needs it immediately after this step and Step 0a
+may not have loaded it yet (it only loads the spec on-demand if \`## Scope\` parsing requires
+it):
+
+\`\`\`
+ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_read_file,mcp__minsky__session_search_replace,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
+\`\`\`
+
+(\`max_results\` set above the current 19-tool count with headroom — if this list grows, bump
+\`max_results\` in step so a future addition can't silently truncate the returned set below what
+was requested.)
+
+**Verified, not assumed (mt#2822):** \`ToolSearch\`'s \`select:\` accepts a long comma-separated
+tool list in one call with no observed length limit — 16 names loaded cleanly in one call
+during this bundle's own verification, and a naturally-occurring 10-tool \`select:\` call
+already appears in production transcript \`4b019e33\` (an agent self-bundling by hand, which is
+exactly what this step now does by default).
+
+**Context-cost check (mt#2822 acceptance criterion):** front-loading pays the bundle's full
+schema-token cost once, up front, whether or not every tool in it ends up used this run. For a
+run that actually executes the standard lifecycle — the case this step targets — nearly every
+tool in the bundle gets used, so the schema-token cost is the same as lazy discovery would have
+paid anyway; the win is eliminating the ~15-20 extra round-trip envelopes (tool_use + tool_result
+framing) and the agent-turn overhead of deciding what to search for next at each phase boundary.
+The one real cost: a run that's known in advance to skip a whole phase (e.g. a docs-only PR that
+will never call \`deployment_wait-for-latest\`) pays for one or two unused ~300-400-token schemas
+it would not have discovered lazily — small relative to the round-trip overhead removed. See the
+mt#2822 PR body for the full token comparison.
+
 ### 1. Retrieve relevant memory context
 
 Call \`memory_search\` with the task ID and domain area:
@@ -97,6 +138,33 @@ Call \`memory_search\` with the task ID and domain area:
 - **Verify spec freshness**: Specs may be stale from prior conversations. Check file:line references against the current codebase before starting.
 - Never proceed based on title/database info alone — the full spec is required
 
+**Ref-drift freshness recheck (mt#2826).** Specs cite other tasks (\`mt#N\`) and PRs (\`PR #N\` /
+\`#N\`) whose state can change between spec authoring and implementation entry — in a fast-moving
+parallel-agent graph this window is often hours, sometimes overnight (evidence: conversation
+eceb6092, mt#2752's spec authored before mt#2766/2767/2768, mt#2441, and mt#2756 all shipped).
+Immediately after fetching the spec, call \`mcp__minsky__tasks_spec_freshness\` with the task ID:
+
+- **\`hasDrift: false\`** → proceed silently. No ritual output — this is the common case and must
+  not interrupt the flow.
+- **\`hasDrift: true\`** → the tool returns a \`drift\` array, one entry per changed ref (\`ref\`,
+  \`kind\`, \`currentStatus\`, \`refUpdatedAt\`, \`daysSinceSpecEdit\`). Render it as a table to the user
+  and require an explicit disposition, recorded in the transcript, before writing any code:
+  - **Amend** — the drift changes what the spec should say (a cited dependency shipped, a blocker
+    cleared, a stated assumption no longer holds). Call \`mcp__minsky__tasks_spec_patch\` to update
+    the spec with the change and its basis; the amendment itself is the disposition record.
+  - **Proceed-acknowledged** — the drift doesn't change the plan (e.g. a cited task finished exactly
+    as expected, or the change is immaterial to this task's scope). State the one-line
+    acknowledgment in the transcript (e.g. "mt#2812 went DONE 2026-07-16 as expected — no spec
+    change needed") and continue.
+  - Rendering the drift table and then silently continuing past it — neither amending nor stating
+    an acknowledgment — is a process violation of this step.
+
+This is a mechanical, status-timestamp-only check (v1, per the mt#2826 spec's Scope) — it detects
+"something about this ref changed since the spec was written," not "the spec's specific claim
+about this ref is now false" (semantic staleness is explicitly out of scope for v1; see
+\`/plan-task\` gate battery for the authoring-side freshness disciplines this complements, and
+mt#2534 for the sibling artifact-content premise-recheck).
+
 ### 3. Start a session (READY → IN-PROGRESS)
 
 **This step owns the READY → IN-PROGRESS transition.**
@@ -106,7 +174,15 @@ Call \`mcp__minsky__session_start\` with the task ID. This:
 - Creates an isolated session workspace
 - Sets task status to IN-PROGRESS
 
-All subsequent file operations must use absolute paths under the session directory returned by \`session_start\`.
+All subsequent file operations go through the session-scoped file tools, which take the \`sessionId\` returned by \`session_start\` plus a path RELATIVE to the session root:
+
+| Operation | Tool |
+| --- | --- |
+| Read a session file | \`mcp__minsky__session_read_file\` |
+| Targeted edit | \`mcp__minsky__session_search_replace\` |
+| Create or fully rewrite | \`mcp__minsky__session_write_file\` |
+
+A session id plus a relative path cannot silently address the MAIN workspace the way an absolute path can — that is the point of the split. \`mcp__minsky__session_edit_file\` is fast-apply-model-based and carries three documented failure modes in its own description; it is NOT the default, and is for edits spanning many regions. The harness-native \`Read\`/\`Edit\`/\`Write\` remain correct for MAIN-workspace files.
 
 ### 4. Understand architectural context
 
@@ -132,7 +208,7 @@ Before writing any code:
 - Commit regularly with \`mcp__minsky__session_commit\`:
   - Use meaningful messages referencing the task ID
   - Group related changes in logical commits
-- All file edits must use absolute paths under the session directory
+- All file edits go through the session-scoped tools (\`session_search_replace\` for a targeted edit, \`session_write_file\` for a create/rewrite) — session id plus a relative path, per §3
 - **Run commands in the session** using \`mcp__minsky__session_exec(task: "mt#<id>", command: "<cmd>")\` — e.g., \`bun test\`, \`bun run format:check\`, \`git status\`. Never use \`git -C <path>\` or shell \`cd\` workarounds.
 
 ### 7. Verify implementation
@@ -142,12 +218,14 @@ Before declaring complete:
 - **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
-- **Typecheck covers sub-workspaces (mt#2256).** A default \`mcp__minsky__validate_typecheck\` (no \`workspace\` arg) typechecks the root tsconfig AND every workspace that declares its own \`typecheck\` script — currently \`services/reviewer\`, whose tsconfig (\`noUncheckedIndexedAccess\`) is stricter-by-scope than root (root's \`include\` set excludes \`services/\`). So when you touch \`services/*\` files, the default run already covers them; you do NOT need to run the sub-workspace's \`bun run typecheck\` separately. (Pass an explicit \`workspace\` to scope the check to a single directory.) This closes the dev-vs-CI gap where a change passed root typecheck but failed CI's separate per-service typecheck step.
+- **Typecheck covers every project CI checks (mt#2256, widened by mt#3183).** A default \`mcp__minsky__validate_typecheck\` (no \`workspace\` arg) now covers the same set CI's \`build\` job runs: the root tsconfig, every workspace that declares its own \`typecheck\` script (currently \`services/reviewer\`, whose tsconfig enables \`noUncheckedIndexedAccess\` — stricter-by-scope than root, whose \`include\` set excludes \`services/\`), \`src/cockpit/web\`, and every standalone root-level tsconfig project a \`typecheck:*\` script names via \`-p\` (\`tsconfig.hooks.json\` covering \`.claude/hooks/**\`, \`tsconfig.scripts.json\` covering \`scripts/**\`). So when you touch \`services/*\`, \`scripts/*\`, or \`.claude/hooks/*\`, the default run already covers them — you do NOT need to run \`bun run typecheck:scripts\` / \`typecheck:hooks\` separately. The result's \`workspaces\` field names every project actually checked; read it rather than assuming. (Pass an explicit \`workspace\` to scope the check to a single directory.) Until mt#3183 this claim was true only for workspace-declared scripts: \`scripts/**\` and \`.claude/hooks/**\` type errors passed locally and failed CI. One gap remains, owned by mt#2900: \`tsconfig.hooks.json\` includes the GENERATED \`.claude/hooks\` tree, so an error in a \`.minsky/hooks\` SOURCE file is not caught until that file is compiled.
 - **Target the SESSION workspace, not main (mt#2336).** \`validate_typecheck\` / \`validate_lint\` default to the MAIN repo (the MCP server's cwd). Pass \`task\` or \`sessionId\` so they validate THIS session's changes — e.g. \`validate_typecheck({ task: "mt#<id>" })\` — otherwise they typecheck/lint main and report a misleading clean result that ignores your edits. (An explicit \`workspace: <session dir>\` also works; with no routing arg they fall back to cwd.) Each result carries a \`validatedWorkspace\` field naming the directory actually checked — confirm it is the session dir, not main. Equivalently, run \`bun run typecheck\` via \`session_exec\` (it runs inside the session).
 
 #### Convergence checklist (mandatory before §8)
 
 Before invoking step §8 (Create PR), walk through this checklist; if any check fails, fix the gap before creating the PR.
+
+**Checklist-authoring discipline (mt#3302).** When a retrospective or task adds a NEW item to this checklist for a code-defect class, name its enforcement tier — ESLint rule / pre-commit or PreToolUse hook / CI check / merge gate / prompt-time prose (checklist item) — per the table in \`/retrospective\` Step 4, and tag the new item's heading with the SAME \`[tier: ...]\` format that skill's \`### Fixes\` template requires, e.g. \`11. **New check name** [tier: CI check]: ...\`. Containment evidence (mt#3295 §Measured corpus results item 4): the prose-only "Spec-decision reconciliation" and "Production-wiring + real-binding verification" items recurred 14x/13 PRs (rising) and ~2x post-ship respectively; the gated "Guard/rule documentation" (compile-check) and "Added a new test file?" execution-evidence items (merge gate) held near-zero. If prose is the right tier for a mechanizable class, state why a deterministic mechanism isn't shipping now and file a tracking task for it.
 
 **Preventive phase (before first PR creation):**
 
@@ -172,6 +250,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
    - "user must do this" / "operator follow-up"
    - "outside agent context" / "not available from agent context"
 
+   *Deferring to a later TIME or condition (mt#3200) — same probe, different shape:*
+
+   - "deferred to post-merge" / "deferred until X ships" / "will verify after X"
+   - "can't verify until X" / "needs X first" / "blocked on X landing"
+   - "verification deferred" with no named actor
+
+   **The probe question is availability-NOW, regardless of what the deferral defers TO.** Origin of this second group: mt#3189 / PR #2282 (2026-07-24) deferred live verification with "deferred to post-merge … the pre-change measurement was taken against merged main, so the post-change comparison needs this merged too." No actor-shaped phrase matched, so no probe fired — and the reason was false: serving a cockpit from the session workspace produced the verification in ~2 minutes. \`minsky-reviewer[bot]\` posted BLOCKING and the finding was legitimate. A deferral to a later time is a claim about your PRESENT capability and needs the same evidence as a deferral to a person.
+
    **Canonical probe sequence:**
 
    - CLI probe — \`which <cli> && <cli> whoami\` for the relevant tool (~5 sec).
@@ -187,11 +273,15 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
 4. **Guard/rule documentation (mt#2208).** If this PR adds or modifies a pre-commit guard, a Claude Code hook (\`.claude/hooks/*\`), an ESLint rule, or any mechanism whose siblings are documented in a \`.minsky/rules/*.mdc\` section (e.g., the pre-commit guards documented in \`hook-files.mdc\`), document the new mechanism in the SOURCE rule and recompile IN THIS PR — before \`session_pr_create\`. Skipping this means the reviewer-bot's \`## Documentation impact\` check returns BLOCKING at review time, costing a full extra round.
 
-   - Edit the canonical source — \`.minsky/rules/<file>.mdc\` — NOT the generated \`CLAUDE.md\` / \`AGENTS.md\` / \`.cursor/rules/\` outputs. Then run \`bun run src/cli.ts rules compile\`.
-   - **Verify each target regenerated.** The no-\`--target\` \`rules compile\` does not reliably regenerate every output — \`grep\` for the new section in \`CLAUDE.md\` specifically; if it is absent, run \`rules compile --target claude.md\` (and \`--target cursor-rules\`) explicitly.
+   - Edit the canonical source — \`.minsky/rules/<file>.mdc\` — NOT the generated \`CLAUDE.md\` / \`AGENTS.md\` / \`.cursor/rules/\` outputs. Then run \`bun run src/cli.ts compile\`. A bare invocation regenerates every target that already has output on disk — \`claude.md\`, \`agents.md\`, \`claude-rules\`, \`cursor-rules-ts\`, and the skill/agent/hook targets — in one pass, and reports each target it wrote (mt#2803).
+   - **Do NOT run \`rules compile\` (mt#3309).** The legacy command was retired by the mt#3058 cutover: a bare \`rules compile\` regenerates NOTHING and still prints \`✅ Success\`. Following it ships a PR whose \`.mdc\` source changed but whose generated outputs did not — precisely the mt#2208 Documentation-impact BLOCKING this item exists to prevent. (Explicit \`rules compile --target claude.md\` still functions today, but it is legacy and goes away with mt#2996; use \`compile\` instead.)
+   - **Verify the outputs actually regenerated — do NOT trust the exit code.** A compile command's success signal is not evidence of regeneration: \`rules compile\` printing \`✅ Success\` while writing nothing is exactly how mt#3309 was found. Check all three, every time:
+     1. The compile run's per-target report lists every target your change should have touched — it prints \`Target "<name>": N file(s) written\` per target, so a missing target is visible.
+     2. \`git status\` shows those generated outputs as modified.
+     3. \`grep\` your new section in EACH output the rule feeds, not just one. An \`alwaysApply\` rule lands in \`CLAUDE.md\`, \`AGENTS.md\`, AND \`.cursor/rules/<name>.mdc\`; a path-scoped rule (\`globs\` + \`alwaysApply: false\`) lands in \`.claude/rules/<name>.md\` and \`.cursor/rules/<name>.mdc\` (verified mt#3309). Grepping \`CLAUDE.md\` alone verifies ONE target out of three — it is the spot-check that caught mt#3309, not a sufficient check on its own.
    - Register any new \`MINSKY_*\` override env var in \`HOOK_ONLY_ENV_VARS\` (mt#1788).
 
-   Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its \`hook-files.mdc\` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-\`--target\` invocation regenerated \`AGENTS.md\` but not \`CLAUDE.md\`). See \`feedback_new_guard_needs_source_rule_doc_at_authoring_time\`.
+   Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its \`hook-files.mdc\` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-\`--target\` invocation regenerated \`AGENTS.md\` but not \`CLAUDE.md\` — historical: mt#2803 fixed that specific unreliability, and the current trap is the different one named in the bullets above). See \`feedback_new_guard_needs_source_rule_doc_at_authoring_time\`.
 
 5. **Spec-decision reconciliation.** Re-read the spec's \`Design Decisions\` / \`Success Criteria\`. For each, confirm the implementation reflects it. If you deviated from a stated decision mid-implementation (e.g., on the basis of a local code convention or comment), you MUST either (a) update the spec to record the change + rationale, or (b) revert to the spec — never leave an unreconciled spec-vs-impl divergence for the reviewer to find (a guaranteed extra round). A convention comment in ONE file is a claim about a local choice, not evidence of a global rule: grep for counter-examples across the broader codebase before letting it override a spec decision (see memory \`d624c862\`).
 
@@ -204,15 +294,37 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 7. **Added a new test file? (mt#2530)** Two already-shipped gates fire at MERGE when a PR adds a NEW test file. Front-load BOTH in the PR body BEFORE \`session_pr_create\`, or they surface reactively as sequential merge blocks — each costing a full round:
 
    - **(a) No placeholder assertions** in your tests. The Prevent-Placeholder-Tests CI check (mt#1938, \`.github/workflows/test-quality.yml\`) greps the repo for \`expect(true).toBe(true)\` and comment-marked placeholders — so it fires on ANY test file you ADD OR MODIFY (broader scope than (b)); also avoid \`.skip\`, \`.todo\`, and empty test bodies. For a compile-time-only test (e.g. a \`// @ts-expect-error\` type-guard assertion), PAIR the directive with a REAL runtime assertion so the test still exercises executable behavior.
-   - **(b) An \`Execution evidence:\` block in the PR body** — the LITERAL heading WITH the colon (the mt#1459 merge gate matches the regex \`/Execution evidence:/\`, NOT a markdown \`## Execution evidence\` heading without the colon). Put it near the PR body's Testing / Test Plan section (mirrors \`/prepare-pr\` §1b) and paste the ACTUAL test-run output for the new test files (\`bun test ... <files>\` — pass/fail counts + file names), not a promise to run them. The mt#1459 gate fires on **newly ADDED** test files only — a renamed/copied non-test→test conversion counts; MODIFYING an existing test does NOT (this matches \`/prepare-pr\` §1b's "newly created, not just modified" scope). If you genuinely cannot run them, use the \`[unverified-tests]\` title-tag escape hatch (\`/prepare-pr\` §1b) with a documented reason instead.
+   - **(b) An \`Execution evidence:\` block in the PR body** — the LITERAL heading WITH the colon (the mt#1459 merge gate matches the regex \`/Execution evidence:/\`, NOT a markdown \`## Execution evidence\` heading without the colon). Put it near the PR body's Testing / Test Plan section (mirrors \`/prepare-pr\` §1b) and paste the ACTUAL test-run output for the new test files (\`bun test ... <files>\` — pass/fail counts + file names), not a promise to run them. The mt#1459 gate BLOCKS on **newly ADDED** test files only — a renamed/copied non-test→test conversion counts; MODIFYING an existing test does not reach the blocking floor (this matches \`/prepare-pr\` §1b's "newly created, not just modified" scope). **But as of mt#3244 a modified test file is no longer invisible**: if the PR is bugfix-shaped (a \`fix(\` title type, or a bound task whose spec describes a defect), a separate log-only surface asks for a NEGATIVE CONTROL — see (e) below. If you genuinely cannot run them, use the \`[unverified-tests]\` title-tag escape hatch (\`/prepare-pr\` §1b) with a documented reason instead.
+   - **(c) Per-AT coverage (mt#3033, calibration-first).** Independent of (a)/(b)'s file-pattern trigger, the gate additionally cross-references the bound task's \`## Acceptance Tests\`: for each AT it classifies as executable (skipping \`state-ops\`-kind tasks and findings-shaped ATs like "audit produces…" / "decision recorded…"), the \`Execution evidence:\` block should reference that AT by number (\`AT3\`, \`AT#3\`, \`acceptance test 3\`) or a distinctive keyword from its text — or the PR body should carry a \`[atN-deferred: mt#NNNN]\` marker naming a tracked follow-up task for that specific AT. As of mt#3033 this check is **log-only** (per the mt#2263 calibration ladder): an unaddressed AT logs a calibration record and surfaces a WARN in \`additionalContext\`, it does NOT block merge. Address it anyway — the point is real per-AT evidence (or an explicit, tracked deferral) instead of a proxy that silently skips the literal acceptance test, which is exactly the mt#2542 incident this addition exists to catch. Override (should not normally be needed): \`MINSKY_SKIP_AT_COVERAGE=1\`.
 
-   Origin: mt#2524 (2026-06-19) hit three sequential reactive merge blocks in one session — placeholder assertions, then execution-evidence-missing, then a heading without the colon — each fixed in its own round. mt#2525 (2026-06-21) recurred on the missing \`Execution evidence:\` block at merge. Front-loading removes the reactive rounds. Gates: mt#1459 (\`Execution evidence:\` merge gate, newly-added test files), mt#1460 (/prepare-pr §1b sibling, also newly-created only), mt#1938 (Prevent-Placeholder-Tests CI check, repo-wide grep).
+     **Three authoring requirements the gate depends on (mt#3200).** The check above can only match evidence written a particular way, and that convention was never stated — so it emitted unmatchable warnings, which trains readers to discount its true positives:
+
+     1. **Use the bound task spec's OWN AT numbering.** Do not renumber in the PR body. A PR that writes its own 1..N list cannot line up with the spec's numbering, so no AT can ever match.
+     2. **Put the references, and their evidence, INSIDE the \`Execution evidence:\` block.** The gate scans that block only. Evidence living in a \`## Live verification\` (or any other) section is invisible to it — if it must live elsewhere, cross-reference it from inside the block.
+     3. **If an AT genuinely cannot run pre-merge, use the \`[atN-deferred: mt#NNNN]\` marker**, not prose. Prose explaining why an AT was skipped reads as coverage to a human and as nothing to the gate.
+
+     Counter-example — mt#3189 / PR #2282 (2026-07-24) violated (1) and (2) simultaneously: its body carried an "Acceptance tests by number" list using an independent 1–7 numbering, and put real live-verification output under \`## Live verification\`. The gate reported 5 of 6 ATs unaddressed; one was genuinely untested, the rest were unmatchable by construction. Same session, PR #2264 produced a pure false positive the same way. See mem#719 for why that noise is costly: a detector emitting unmatchable output erodes trust in its correct output.
+
+   - **(d) Per-criterion coverage of \`## Success Criteria\` (mt#3350, calibration-first).** The same gate ALSO cross-references the bound task's \`## Success Criteria\` — a different section from (c)'s, and one that until mt#3350 was read by nothing at all. Only the mechanically-EXECUTABLE criteria count: a criterion that names a runnable check plus an expected result (a backticked \`grep\`/\`rg\`/\`wc\`/\`find\`, a \`$ <cmd>\` line, "returns zero hits", "the count is N"). Judgment-shaped criteria are classified and left alone — the classifier's default is NON-executable, the inverse of (c)'s, because a criteria list is mostly prose. For each executable criterion, the \`Execution evidence:\` block should carry that command's ACTUAL output, or reference it by number (\`SC3\`), or the body should carry a dedicated \`## SC3\` section — or an explicit \`[scN-deferred: mt#NNNN]\` marker for that specific criterion. The marker is per-criterion and NUMBERED: \`[sc1-deferred: ...]\` does not excuse criterion 2. Log-only per the mt#2263 ladder. Override: \`MINSKY_SKIP_SC_COVERAGE=1\`.
+
+       **A criterion that names a command IS its own check — run it.** Originating incident (mt#3347): the spec's first criterion was "a repo-wide grep for \`<select\` under \`src/cockpit/web\` returns zero hits outside the primitive itself." It was authored by the agent ~40 minutes before implementation and never run. 21 of 22 call sites migrated; the 22nd was the exact control in the principal's screenshot. It shipped past clean typecheck (5 projects), clean lint (2920 files), 1487 passing tests, a commit and a push. The one-line grep would have settled it in under a second at any point. Per mem#736, self-authorship is an AGGRAVATING factor, not a mitigating one — weight this check UP when you wrote the spec yourself this session, because what you retain is the intent and the divergence lives in the specifics.
+
+   - **(e) Negative control on a bugfix (mt#3244, calibration-first).** If the PR is **bugfix-shaped** — a \`fix(\` conventional-commit type on the title, or a bound task whose spec describes a defect — and it **modifies an existing test file**, the \`Execution evidence:\` block should also record a **negative control**: the changed test run against the UN-FIXED tree, observed FAILING. Revert the fix (or stub the condition), run the test, paste the failure alongside the passing run. Accepted forms inside the evidence block (case-insensitive): a \`Negative control:\` or \`Failing-first:\` label line (colon required), or a Markdown heading naming either. If it genuinely cannot be run pre-merge, use \`[negative-control-deferred: mt#NNNN]\` naming a tracking task — prose does not count. Log-only per the mt#2263 ladder. Override: \`MINSKY_SKIP_TEST_FIRST_EVIDENCE=1\`.
+
+     **Why this is not redundant with (b).** (b) asks whether the test RAN; this asks whether it could have FAILED. A test written after the fix and shaped to it passes either way, so a passing run is compatible with the test having been incapable of failing (mem#704: a probe that returns the same result when the system is broken is not verification). Originating incident: three defects shipped in one session (mt#3228 / mt#3234 / mt#3238), each with a test written after the fix, every gate green — one test asserted the bug itself as the correct invariant and was reviewer-APPROVED.
+
+   Origin: mt#2524 (2026-06-19) hit three sequential reactive merge blocks in one session — placeholder assertions, then execution-evidence-missing, then a heading without the colon — each fixed in its own round. mt#2525 (2026-06-21) recurred on the missing \`Execution evidence:\` block at merge. Front-loading removes the reactive rounds. Gates: mt#1459 (\`Execution evidence:\` merge gate, newly-added test files), mt#1460 (/prepare-pr §1b sibling, also newly-created only), mt#1938 (Prevent-Placeholder-Tests CI check, repo-wide grep), mt#3033 (per-AT cross-reference, calibration-first).
+
+8. **Production-wiring + real-binding verification (mt#2508).** Two directions, both required whenever the PR's success criteria include "every X has Y" / "writers set Z on insert" / "mechanism M is wired" claims, OR the diff adds/modifies a testable-factory module (injectable IO deps + a real-wired export):
+
+   - **Caller direction (memory \`dcc77564\`, R1/R2).** Grep the production callsites / construction path and confirm they actually invoke the helper / supply the config. Helper unit tests, CLI flags, and MCP read-commands are NOT production-wiring evidence. Scope "production" to the mechanism's REAL construction/invocation path — factories, DI wiring, the state-transition sites the criterion names; a feature whose only legitimate consumers are batch jobs or offline scripts satisfies the check through THOSE paths (don't reject non-request-path consumers as "not production"). (R1 mt#1071: \`buildAttentionCost\` shipped with 20 passing hermetic tests and ZERO callers at the production ask-close sites its criterion named; R2 mt#2416: the \`currentProjectId\` stamping mechanism shipped but \`createConfiguredTaskService\` never passed it — 18/18 acceptance tests green, inserts stamped NULL.)
+   - **Binding direction (memory \`78a6043e\`, R3).** Seam-injected unit tests are NOT evidence for the real-wired BINDING of the seam. Exercise the real-wired export once against the live dependency — a \`scripts/verify-*.ts\` smoke per §7a, or an executed acceptance check — before the PR ships, and paste the output under \`## Live verification\` (or, when a pre-merge live run is genuinely impossible, record the documented override per §7a's "What goes in the PR body" — "I read the code carefully" is not a valid override). Extra red flag when the binding's error handling is fail-open (\`catch → default/empty\`): a never-worked binding is then indistinguishable from "no data" at every downstream surface. (R3 mt#2076 → mt#2757: the reviewer-widget DB layer threw \`NOT_TAGGED_CALL\` on every query for ~5 weeks while rendering healthy zeros, and THREE follow-on features shipped on top of the dead binding — each seam-tested, each reviewer-APPROVED.)
 
 **Reactive phase (when iterating on reviewer findings):**
 
-8. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+9. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
 
-9. **Class-not-instance.** When the reviewer flags one specific site (e.g., "\`glob\` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like \`fs.readFile\`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+10. **Class-not-instance.** When the reviewer flags one specific site (e.g., "\`glob\` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like \`fs.readFile\`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
 
 Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds), plus mt#1811 (PR #1100 deferred-without-probing) for the probe-before-defer step. See \`feedback_cascade_defense_in_implementer_prompt.md\` and \`feedback_probe_before_defer_at_action_time\` for the pattern history.
 
@@ -227,6 +339,10 @@ A change is structural if its correctness depends on live external behavior that
 - New external-system probe (health check against a live API, feature-flag read from a hosted store)
 - New deploy-target wiring (Railway service, container start-up, environment variable resolution)
 - Schema migration with semantic changes (not additive-only column adds)
+- **New external-system integration** (new GitHub App permission/API scope, a new outbound
+  credentialed endpoint, a new webhook subscription) — see the dedicated subsection below;
+  this class has an ADDITIONAL requirement beyond shipping an artifact (the artifact must be
+  capable of exercising the LIVE integration surface, not just a code-level check)
 
 Counter-examples (NOT structural — no artifact needed):
 
@@ -246,6 +362,10 @@ Counter-examples (NOT structural — no artifact needed):
   - Emit pass/fail with exit code (0 = pass, non-zero = fail)
   - Produce structured output: stdout JSON or a results file at e.g. \`scripts/<purpose>-results.json\`
 
+**Dual-mode / branch-gated scripts (mt#2776) — exercise EACH production branch, not just the safe one.** When the artifact (or any script this PR adds) has mutually-exclusive modes gated by a flag — \`--dry-run\` vs \`--execute\`, \`--check\` vs \`--apply\`, or any \`if (flag) { … }\` branch that only runs in one mode — the live verification MUST exercise EACH branch that runs in production. Running only the SAFE branch (e.g. the dry-run) never executes the other branch's code — its imports, its logic — so a failure there ships unseen. For a DESTRUCTIVE branch, use a BOUNDED invocation (a single item, \`--limit 1\`, a scratch target) so the branch's imports and logic actually run without the full blast radius. "Typecheck + dry-run passed" is NOT evidence the \`--execute\` path works: it is a different code path, and runtime module resolution (bun package-\`exports\`) can reject a dynamic import that tsconfig \`paths\` typechecked clean. Paste the bounded per-branch output alongside the dry-run output in the PR body.
+
+Origin: mt#2760 / mt#2774 (2026-07-14) — \`scripts/backfill-close-stale-asks.ts\` shipped with a \`--execute\` branch importing the unresolvable \`@minsky/domain/ask\` barrel; §7a verification ran only the dry-run (never enters \`if (execute)\`), so the broken import merged and failed the first time the operator ran \`--execute\` (0 asks mutated). A bounded \`--execute\` (single item) pre-merge would have caught it. The structural backstop — the mt#1459 execution-evidence merge gate now also fires on newly-added \`scripts/*.ts\` (mt#2776) — is the enforcement pair to this discipline.
+
 **Live-verification gap pattern.** Subagents typically lack the env vars needed for live execution. The documented pattern is:
 
 1. Subagent ships the artifact in the PR (code + script, but no live output).
@@ -258,6 +378,52 @@ This pattern was established by mt#1399 (smoke test for output-tools wiring — 
 
 - The redacted live-run output from running the artifact, OR
 - A documented override: the artifact has not been run because (a) the target has not been deployed yet, (b) the author lacks live-target access per documented policy, or (c) the target has a rate-limit or maintenance-window constraint. "I read the code carefully" is not a valid override.
+
+#### External-system integration changes: live-exercise required, not deploy-SUCCESS
+
+When the task adds or alters an **external-system integration** — a new GitHub App
+permission/API scope, a new outbound credentialed endpoint, or a new webhook subscription (the
+same trigger class as \`/plan-task\` gate (n)) — deploy-SUCCESS is **necessary but NOT
+sufficient** to claim the feature works. Per memory \`b73db534\`: "a deploy-touching change whose
+acceptance criterion IS live behavior cannot be reported complete on unit-green + deploy-SUCCESS
+while deferring the live exercise." \`deployment_wait-for-latest\` returning SUCCESS only proves
+the container started — it does not prove the external precondition (the scope/permission/
+credential) is actually granted and the integration call actually succeeds against the live
+external system.
+
+**The un-runnable-pre-merge case is UNVERIFIED, not "deferred/done."** A sealed secret, an
+App permission not yet granted, or a target not yet deployed makes the live exercise
+un-runnable AT PR-creation time — that is a legitimate reason to defer the RUN, but it is NOT a
+reason to report the feature as working. State explicitly in the PR body's "## Live
+verification" section: **"UNVERIFIED — live exercise deferred to §10 post-deploy because
+<reason>. This integration is NOT confirmed working until the §10 live exercise runs and
+succeeds."** Do not use language like "verification deferred" alone without the "UNVERIFIED"
+label — a bare deferral note reads as a completed step to a skimming reader; it is not.
+
+**Mandatory follow-through.** §10 (Post-merge deploy verification) below MUST, for this change
+class, exercise the NAMED integration surface live — the actual API call, the actual webhook
+delivery, the actual credentialed request — not just confirm deploy-SUCCESS. The task is not
+"done" (in the working-feature sense, independent of the DONE status the at-merge handler sets)
+until that live exercise runs and succeeds.
+
+**Originating incident — mt#2435 (2026-07-10/11).** A reviewer-service change added a
+\`checks:write\`-scoped \`octokit.rest.checks.create\` call. The PR merged green,
+\`deployment_wait-for-latest\` returned SUCCESS, and the task was reported done — but the
+\`checks:write\` permission had not actually been granted to the App yet (tracked separately as
+mt#2500, still TODO). In production \`POST /check-runs\` returned 403 and \`publishCheckRun\`
+degraded silently; the feature was inert for a day+ until a follow-up session (mt#2736) ran the
+live check-run POST and the operator granted the permission. Had this subsection's discipline
+applied at the time, the PR body would have read "UNVERIFIED — checks:write not yet granted
+(mt#2500 TODO)," and §10 would have required the live \`POST /check-runs\` exercise before the
+task could be considered functionally complete — surfacing the 403 immediately instead of a day
+later.
+
+**Enforcement tier (mt#2740 PR #1886 R1).** This subsection is verification **discipline**, not a
+hook — process-enforced by this skill, at the same tier as the rest of §7/§10. Its hook-tier
+sibling for the adjacent deploy-CRASH class is the mt#2353 deploy-verification merge gate +
+post-merge reminder; the automated backstop for THIS (external-integration) class — recognizing
+the trigger mechanically rather than relying on the agent, paired with \`/plan-task\` gate (n) — is
+tracked in mt#2755.
 
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
@@ -280,6 +446,11 @@ Use \`mcp__minsky__session_pr_create\` to create the pull request:
 - "Ping me when the review lands."
 - "I'll wait for you to merge."
 - Ending the turn at \`session_pr_create\` return without invoking the next mechanism.
+
+These are forbidden as turn-CLOSERS, not as report content — a turn that legitimately reports
+progress mid-convergence (e.g., after a fix-and-push round) should still follow the Tier-1
+turn-report contract in \`communication-contract.mdc\` (what happened / what you need to know /
+what's next), just without stopping there.
 
 **Default mechanism: \`session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`.**
 
@@ -309,6 +480,17 @@ Block-and-return on the first review by the reviewer-bot. Then branch on the rev
 
 When the PR is authored by \`minsky-ai[bot]\` or another identity that the reviewer-bot cannot APPROVE (GitHub self-approval block), the standard \`session_pr_merge\` path may need the bypass:
 
+**Mandatory precondition: direct reviews-list read before citing silence (mt#2777 SC#2).** Before citing reviewer-silence as grounds for ANY \`bypassReason\` — even when a \`session_pr_wait-for-review\` call already timed out — perform a DIRECT reviews-list read on the PR's current HEAD (\`mcp__github__pull_request_read\` method \`get_reviews\`, or a fresh short-\`timeoutSeconds\` \`session_pr_wait-for-review\` call) immediately before invoking the bypass. A wait-for-review timeout alone is NOT sufficient evidence of silence — mt#2751's near-bypass timed out twice while a real review had landed mid-churn. (mt#2777 SC#1 now folds a fresh re-read into the timeout payload itself — \`finalCheckPerformed\` / \`reviewerCheckRunState\` — but the bypass-decision moment is a SEPARATE point in time from when the wait returned, so this direct read is required again, right before the bypass call, not inferred from an earlier timeout.) If the direct read finds a review on the current HEAD, the silence premise is false — refuse the bypass and process the found review instead.
+
+**Numbered step: verify the condition against its definition before invoking any bypass (mt#2777 SC#2).** Before calling either bypass path below, name which ONE of the four documented conditions is firing and verify it against its precise definition — do not invoke the bypass on a name-level match alone:
+
+1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
+2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
+3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full diagnosis ladder, which now INCLUDES the direct reviews-list read above (per \`feedback_self_authored_pr_merge_constraints\` step 5: service health / webhook miss / CoT-leakage stall).
+4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing.
+
+If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
+
 - **Preferred audited bypass (in-band, mt#2215):** \`session_pr_merge(task: "mt#<id>", forceBypass: true, bypassReason: "<evidence>")\`. This is the in-band replacement for the raw \`gh api PUT\` below — no hand-run CLI. It requires a non-empty \`bypassReason\` and a present (non-DISMISSED) \`CHANGES_REQUESTED\` review (the false-positive / self-reversal / leakage-stale case; for reviewer ABSENCE use \`acceptStaleReviewerSilence\` instead), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using \`bypassReason\`, writes the canonical audit signature into the merge-commit body, always uses \`merge_method=merge\`, and triggers Minsky session cleanup. Use this when the conditions in the next bullet hold.
 - **Fallback — raw bypass via \`gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge\`** (only when the in-band \`forceBypass\` path is unavailable) when ALL of these hold:
   - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
@@ -322,6 +504,14 @@ When the PR is authored by \`minsky-ai[bot]\` or another identity that the revie
 **Subagent carve-out.** Subagents STOP at §8 (Create PR). Convergence-driving is the **main agent's** responsibility. \`.claude/hooks/block-subagent-bypass-merge.ts\` structurally enforces this for the \`gh api PUT /merge\` sub-case by detecting non-empty \`agent_id\` on the tool input and denying the call. Subagents must report the PR URL + bot-review status back to the parent and exit; the main agent then drives convergence per this step.
 
 **Post-merge:** §10 (Post-merge deploy verification) takes over when the merged PR touches a deployed service. Otherwise the at-merge handler sets DONE and the lifecycle is complete.
+
+**Completion-claim format (mt#2924).** For build/install deliverables (a CLI or the cockpit-tray app the principal must rebuild/reinstall) and deploy-surface deliverables (§10's deploy surface), report the completion claim in the claim-confidence format — \`[delivery state] — [evidential warrant + basis]\` — per \`.minsky/rules/claim-confidence.mdc\`. Bind that rule's Axis A class-conditional lattice: **auto-usable** deliverables (a running service that picks up the merge; config takes effect on deploy) may claim \`usable\` once \`deployed\`. **Build/install** deliverables (cockpit-tray, CLI) must name the remaining principal-side step and must NOT claim \`usable\` without a **verified-1b** (live-probe) basis — a merge or a healthy deploy alone is not evidence of \`usable\` for this class.
+
+Worked example (the mt#2528 class — merged but not yet usable):
+
+> Merged (verified-1a: PR merged this turn) — to reach usable: rebuild + tray reinstall.
+
+When §9/§10 touches shared/prod state, the claim-confidence rule's risk-and-evidence ledger may also apply — see \`.minsky/rules/claim-confidence.mdc §The risk-and-evidence ledger\` for the trigger and mechanics (not restated here).
 
 **Cross-references:**
 
@@ -395,7 +585,40 @@ candidates: Vercel, Cloudflare Pages, etc.). See
 on the failed deployment ID, inspect the failure, and either fix-forward
 in a new PR or surface to the user with the logs attached.
 
-**Three rules this step enforces (the mt#2345 incident violated all three):**
+#### External-system integration live-exercise (mandatory, distinct from deploy-health)
+
+The mechanism above (\`deployment_wait-for-latest\` → SUCCESS, \`/health\` 200) verifies the
+**deploy-CRASH** class: did the container start? For a task that added or altered an
+**external-system integration** — a new GitHub App permission/API scope, a new outbound
+credentialed endpoint, or a new webhook subscription (per \`/plan-task\` gate (n) and §7a's
+matching subsection) — deploy-SUCCESS is a DIFFERENT, WEAKER signal than "the feature works."
+Per memory \`b73db534\`: \`deployment_wait-for-latest\` returning SUCCESS is **necessary but NOT
+sufficient** — it proves the container booted, not that the external precondition is actually
+provisioned and the integration call actually succeeds.
+
+**Required action for this change class:** after \`deployment_wait-for-latest\` returns SUCCESS,
+additionally EXERCISE the named integration surface LIVE — make the actual API call, trigger the
+actual webhook, exchange the actual credential — and observe the real result (success payload,
+or an error like a 403 that reveals a missing precondition). This is not optional and is not
+satisfied by re-reading the code or re-confirming the deploy is healthy. If §7a's PR body
+recorded the change as "UNVERIFIED — live exercise deferred to §10," THIS is the point where
+that deferral is discharged: run it now, before reporting the task functionally complete.
+
+**Originating incident — mt#2435 (2026-07-10/11).** The reviewer check-run integration deployed
+SUCCESS and was reported done without a live \`POST /check-runs\` exercise. The 403 (missing
+\`checks:write\`) was discovered a day later only because a separate follow-up session (mt#2736)
+happened to run the live check. Under this subsection, the live check-run exercise is part of
+§10 itself for this change class — the gap would have surfaced within the same session as the
+deploy, not a day later via a separate task.
+
+**When the live exercise fails** (e.g., a 403 revealing a missing App permission): this is the
+exact signal gate (n) plan-time enumeration exists to prevent surfacing this late. Do not report
+the task done. Surface the failure with the specific error, identify the missing precondition,
+and either provision it now (if in scope and accessible) or escalate per \`decision-defaults.mdc
+§Missing MCP tool — escalate, don't silently work around\` / \`User Preferences §Probe before
+deferring\` — do not silently downgrade to "the deploy succeeded" as the completion claim.
+
+**Four rules this step enforces (the mt#2345/mt#2435 incidents each violated a subset):**
 
 1. **"Applied" is the ACTION, not the OUTCOME.** \`pulumi up\` exit-0, a 200 from a
    config API, or an apply call returning success means the change was
@@ -403,6 +626,19 @@ in a new PR or surface to the user with the logs attached.
    done until \`deployment_wait-for-latest\` returns SUCCESS AND the runtime shows
    the service started (a \`/health\` 200 or \`deployment_logs(..., type: "deploy")\`
    showing the boot). Verify outcomes, not actions.
+
+   **A 200 from /health is not by itself proof the RIGHT service started
+   (mt#3148).** Every Minsky service is built from the same monorepo, so a
+   misconfigured build can put a DIFFERENT application on the host — and it
+   answers 200 exactly like the right one. mt#3142: the MCP server served the
+   reviewer's host for ~1h while every reviewer route 404'd, and the status-code
+   check stayed green throughout. Assert the health body's "service" field
+   (minsky-cockpit / minsky-mcp / minsky-reviewer / minsky-site) via
+   assertServiceIdentity() in
+   packages/domain/src/deployment/health-identity.ts — not merely the status
+   code. The general form: **a verification probe must be able to fail**; if the
+   broken state produces the same output as the healthy one, the probe carries
+   no information.
 2. **A deploy-verification-tool flake is a BLOCKER, not a license to defer.** If
    \`deployment_wait-for-latest\` errors on auth / an MCP transport flake (e.g.
    Railway \`Unauthorized\`), reconnect (\`/mcp\`) and retry — do NOT downgrade to an
@@ -413,12 +649,19 @@ in a new PR or surface to the user with the logs attached.
    at merge, BEFORE the deploy completes, so this step does NOT change DONE status.
    DONE is necessary-but-not-sufficient; the deploy-health check above is the real
    completion signal for a deploy-touching task.
+4. **Deploy-SUCCESS ≠ feature-works, for external-system integrations.** A healthy
+   container proves the process started, not that a newly required App
+   permission/scope/credential/webhook is provisioned and functioning. For this
+   change class, the live-exercise requirement above is the real completion
+   signal — not \`deployment_wait-for-latest\` alone. This is the rule mt#2435
+   violated: deploy-SUCCESS was treated as sufficient evidence the check-run
+   integration worked.
 
 ## Constraints
 
 These constraints apply throughout implementation:
 
-- **Absolute paths only.** Every file operation must use the full session path (e.g., \`/Users/edobry/.local/state/minsky/sessions/<id>/src/...\`). Relative paths may resolve against the main workspace.
+- **Session-scoped file tools only.** Every file operation in the session goes through \`session_read_file\` / \`session_search_replace\` / \`session_write_file\`, addressed by \`sessionId\` + a session-relative path. Do not reach for the harness-native \`Read\`/\`Edit\`/\`Write\` with an absolute session path: an absolute path can silently resolve against the main workspace, and a bare relative path certainly will.
 - **Never edit main workspace.** All changes happen in the session. If a bug is found in the main project, create a separate task for it.
 - **Never manually set DONE.** Task status flows: TODO → IN-PROGRESS → IN-REVIEW → DONE. DONE is only set after PR merge, never manually from a session.
 - **No work without a session.** Implementation work requires an active session for isolation and traceability.
@@ -439,5 +682,7 @@ These constraints apply throughout implementation:
 **mt#1403 — cluster verification (replay script pattern).** The PR shipped a content-routing cluster. Correctness required verifying that 0 of 15 items from the original posting-body leak corpus fired through the cluster. A replay-verification script was shipped in the same PR; the main agent ran it against the live corpus and appended a structured JSON results file to the PR body. No unit test covers the full corpus distribution.
 
 Both are the canonical instances of the live-verification gap pattern: subagent ships the artifact, main agent runs it.
+
+**mt#2435 — external-integration liveness gap (deploy-SUCCESS ≠ feature-works).** A reviewer-service change added a \`checks:write\`-scoped GitHub check-run POST. The PR merged green and \`deployment_wait-for-latest\` returned SUCCESS; the task was reported done. The App's \`checks:write\` permission had not actually been granted (tracked separately as mt#2500, still TODO at merge and never linked in the spec) — in production \`POST /check-runs\` returned 403 and degraded silently for a day+ until a follow-up session (mt#2736) ran a live check and the operator granted the permission. This is the canonical instance of the external-integration-liveness gap this task (mt#2740) closes: §7a/§10 now require the named integration surface to be exercised LIVE post-deploy for this change class, and \`/plan-task\` gate (n) requires the precondition to be enumerated and provisioned-or-linked before READY.
 `,
 });

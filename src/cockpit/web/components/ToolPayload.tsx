@@ -17,15 +17,18 @@ import { cn } from "../lib/utils";
 import { JsonView } from "./JsonView";
 import { classifyToolPayload } from "../lib/tool-payload";
 import { entityToPath } from "../lib/entity-codec";
+import { parseToolName } from "../lib/tool-name";
 import type { EntityIndex } from "../lib/entity-linkifier";
 
 // ── Tier-3 registry — per-tool typed renderers ──────────────────────────────────
 //
-// Keyed by MCP tool name. A renderer returns a ReactNode for a richer, domain
-// rendering, or `null` to fall back to the generic JsonView (so a shape mismatch
-// degrades gracefully). Per mt#2552 principal direction the registry ships with a
-// SMALL seed set as proof-of-pattern; broader per-tool coverage is added
-// reactively for high-traffic tools — do NOT pre-build it.
+// Keyed by BARE tool name (`tasks_list`, not `mcp__minsky__tasks_list`) — the
+// dispatcher normalizes raw transcript names via parseToolName before lookup
+// (mt#2787). A renderer returns a ReactNode for a richer, domain rendering, or
+// `null` to fall back to the generic JsonView (so a shape mismatch degrades
+// gracefully). Per mt#2552 principal direction the registry ships with a SMALL
+// seed set as proof-of-pattern; broader per-tool coverage is added reactively
+// for high-traffic tools — do NOT pre-build it.
 
 export type ToolResultRenderer = (data: unknown, entityIndex?: EntityIndex) => ReactNode | null;
 
@@ -108,7 +111,9 @@ export function ToolPayload({ value, toolName, entityIndex, className }: ToolPay
     );
   }
 
-  const custom = toolName ? TOOL_RESULT_RENDERERS[toolName] : undefined;
+  // Registry keys are BARE tool names; transcripts carry the harness-prefixed
+  // form (`mcp__minsky__tasks_list`), so normalize before lookup (mt#2787).
+  const custom = toolName ? TOOL_RESULT_RENDERERS[parseToolName(toolName).name] : undefined;
   const rendered = custom ? custom(classified.data, entityIndex) : null;
   return (
     <div className={cn("max-h-72 overflow-auto border-t px-2 py-1", className)}>
