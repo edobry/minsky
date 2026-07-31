@@ -31,6 +31,7 @@ import { CustomConfigFactory, initializeConfiguration } from "@minsky/domain/con
 
 const REACHABILITY_CHECK_NAME = "Reviewer Retrigger Reachability";
 const GITHUB_APP_PERMISSIONS_CHECK_NAME = "GitHub App Permissions";
+const CONFIGURED_MODEL_CHECK_NAME = "Configured Model Validity";
 const MCP_AUTH_TOKEN_ENV_VAR = "MINSKY_MCP_AUTH_TOKEN";
 
 /** Minimal valid params for configDoctorRegistration.execute — none of these
@@ -209,6 +210,42 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
       const diag = result.diagnostics.find((d) => d.check === GITHUB_APP_PERMISSIONS_CHECK_NAME);
       expect(diag).toBeDefined();
       expect(diag?.status).toBe("pass");
+    });
+  });
+
+  /**
+   * Production wiring for the configured-model check (mt#3389, reviewer R1).
+   * The pure functions are covered in `doctor-model-checks.test.ts`; this
+   * proves the REAL registered command actually reaches them and emits the
+   * diagnostic — without it the check would be dead code that no unit test
+   * could distinguish from wired code.
+   *
+   * Deliberately asserts only that the diagnostic is PRESENT and well-formed,
+   * not its status: the handler reads the machine's real model cache
+   * (~/.cache/minsky/models), which is populated on a developer box and empty
+   * on CI. Asserting "warning" here would pass locally and fail in CI for a
+   * reason unrelated to the code — the status-dependent behavior belongs to
+   * the pure-function tests, which control the listing directly.
+   */
+  test("configured-model check is reached by the real command and emits a diagnostic", async () => {
+    await withIsolatedUserConfig(async () => {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          ai: { providers: { anthropic: { model: "definitely-not-a-real-model-id" } } },
+        },
+        skipValidation: true,
+      });
+
+      const result = (await configDoctorRegistration.execute(DOCTOR_EXEC_PARAMS, {})) as {
+        diagnostics: Array<{ check: string; status: string; message: string }>;
+      };
+
+      const diag = result.diagnostics.find((d) => d.check === CONFIGURED_MODEL_CHECK_NAME);
+      expect(diag).toBeDefined();
+      expect(typeof diag?.message).toBe("string");
+      expect(diag?.message.length).toBeGreaterThan(0);
+      // Never the opaque catch-all — that would mean the block threw.
+      expect(diag?.message).not.toContain("Configured model check failed");
     });
   });
 });
