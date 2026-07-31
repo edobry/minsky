@@ -395,7 +395,9 @@ describe("GET /api/driven-session/turn-active", () => {
  * would lose the distinction.
  */
 describe("POST /api/driven-session/attach (mt#3095)", () => {
-  const CONVERSATION = "conv-attach-1";
+  // A syntactically valid conversation id — the route rejects anything that
+  // cannot be one before doing any I/O (PR #2466 R1).
+  const CONVERSATION = "3bc714e7-d40a-40b3-bcfc-c2b1c90ef8c6";
 
   async function attachPost(url: string, body: unknown) {
     const res = await fetch(`${url}/api/driven-session/attach`, {
@@ -481,6 +483,21 @@ describe("POST /api/driven-session/attach (mt#3095)", () => {
       expect(called).toBe(0);
     }
   );
+
+  test("400 on a syntactically impossible id, with zero orchestration work", async () => {
+    let called = 0;
+    const h = await makeHarness({
+      attachDrivenSession: async () => {
+        called += 1;
+        return { outcome: "no-transcript" };
+      },
+    });
+    const res = await attachPost(h.url, { conversationId: "not-a-conversation-id" });
+    expect(res.status).toBe(400);
+    // The point of the check is avoiding a full `~/.claude/projects` walk for
+    // an id that could never have resolved.
+    expect(called).toBe(0);
+  });
 
   test("500 when the orchestration throws, without leaking a stack to the client", async () => {
     const h = await makeHarness({

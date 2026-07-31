@@ -57,6 +57,7 @@ import {
   type OrchestrateDrivenSessionAttachDeps,
 } from "../driven-session-launch";
 import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
+import { looksLikeConversationId } from "../conversation-id-space";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a
@@ -280,6 +281,15 @@ export function mountDrivenSessionRoutes(
     const conversationIdRaw = body["conversationId"];
     if (typeof conversationIdRaw !== "string" || conversationIdRaw.length === 0) {
       res.status(400).json({ error: "conversationId must be a non-empty string" });
+      return;
+    }
+    // A syntactically-impossible id can never resolve to a transcript, and
+    // finding that out otherwise costs a walk of the whole `~/.claude/projects`
+    // tree. Rejected with zero I/O, reusing the same shared predicate the
+    // presence route applies (mt#3131) so the two surfaces agree on what an id
+    // even looks like. (PR #2466 R1, non-blocking.)
+    if (!looksLikeConversationId(conversationIdRaw)) {
+      res.status(400).json({ error: `"${conversationIdRaw}" is not a valid conversation id.` });
       return;
     }
 

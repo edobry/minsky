@@ -705,6 +705,32 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     expect(outcome.reason).toBe("no-telemetry");
   });
 
+  // PR #2466 R1 — ordering. Which answer a caller gets for an unknown id must
+  // not depend on database availability: "no such conversation" is a different
+  // fact from "you may not have it right now", and the refusal names a
+  // fork risk that cannot exist for a conversation with no transcript.
+  test("no-transcript wins over the no-database refusal", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      getDb: async () => null,
+      locateConversation: async () => null,
+    });
+    expect(outcome).toEqual({ outcome: "no-transcript" });
+  });
+
+  test("an unknown conversation never reaches the presence read", async () => {
+    let presenceReads = 0;
+    await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      locateConversation: async () => null,
+      readPresence: async () => {
+        presenceReads += 1;
+        return "IDLE";
+      },
+    });
+    expect(presenceReads).toBe(0);
+  });
+
   test("returns no-transcript when the conversation is not on disk", async () => {
     const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
       ...admitDeps(),

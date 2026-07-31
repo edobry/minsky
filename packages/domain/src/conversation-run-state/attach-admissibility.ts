@@ -65,13 +65,38 @@ const REFUSAL_MESSAGES: Record<AttachRefusalReason, string> = {
 };
 
 /**
+ * Narrowing helper: reaching this means a `ConversationPresence` member was
+ * added without being classified here. The parameter's `never` type is what
+ * turns that omission into a COMPILE error, and the error names the unhandled
+ * member — which the bare "function lacks ending return statement" TS2366 that
+ * the switch alone produces does not.
+ *
+ * The throw is unreachable under a correct build. It exists so that a
+ * `ConversationPresence` widened at runtime by an untyped caller fails loudly
+ * instead of returning `undefined` into a boolean check, where it would read as
+ * "not admitted" by luck rather than by decision. (PR #2466 R1.)
+ */
+function assertNeverPresence(presence: never): never {
+  throw new Error(`Unclassified conversation presence for attach: ${String(presence)}`);
+}
+
+/**
  * Decide whether an actuator may attach to a conversation in `presence`.
  *
- * Exhaustive over `ConversationPresence` by construction: the `switch` returns
- * on every member and the function has no trailing fallback, so adding a
- * seventh presence value makes this a compile error rather than a silent
- * admit-by-default. That direction is deliberate — a new presence value must be
- * classified by a human, not absorbed by a `default:` branch.
+ * Exhaustive over `ConversationPresence`, enforced two ways: the `switch`
+ * returns on every member, and `assertNeverPresence` below makes an unhandled
+ * member a compile error that names it. A new presence value must be
+ * classified by a human, never absorbed by a permissive `default:`.
+ *
+ * PR #2466 R1 asked for this and reported that the switch alone was not
+ * compile-safe. Verified empirically before changing anything: adding a seventh
+ * member DOES already fail the build (`TS2366` — "function lacks ending return
+ * statement and return type does not include 'undefined'"), so the previous
+ * form was not the silent-`undefined` hazard the finding described. The
+ * `never` guard is adopted anyway because it is strictly better: it names the
+ * offending member in the error instead of pointing at the closing brace, and
+ * it keeps holding if the return type is ever widened to include `undefined`,
+ * which would silence TS2366.
  */
 export function attachAdmissibility(presence: ConversationPresence): AttachAdmissibility {
   switch (presence) {
@@ -90,6 +115,8 @@ export function attachAdmissibility(presence: ConversationPresence): AttachAdmis
       return refuse("possibly-wedged");
     case "UNKNOWN":
       return refuse("no-telemetry");
+    default:
+      return assertNeverPresence(presence);
   }
 }
 

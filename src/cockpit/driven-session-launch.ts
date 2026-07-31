@@ -784,11 +784,31 @@ export async function orchestrateDrivenSessionAttach(
   conversationId: string,
   deps: OrchestrateDrivenSessionAttachDeps = {}
 ): Promise<DrivenSessionAttachOutcome> {
+  // Transcript existence is settled FIRST, before anything touches the database
+  // (PR #2466 R1). "There is no such conversation" is a different answer from
+  // "there is one and you may not have it right now", and which one a caller
+  // gets should not depend on database availability — previously an unknown id
+  // during a DB outage reported `refused` (409), naming a risk that cannot
+  // exist for a conversation with no transcript.
+  const locate = deps.locateConversation ?? defaultLocateConversation;
+  const located = await locate(conversationId);
+  if (!located) return { outcome: "no-transcript" };
+  if (!located.cwd) {
+    // A transcript with no recoverable cwd cannot be resumed — `claude --resume`
+    // has nowhere to run. Reported as no-transcript rather than refused: this is
+    // "cannot attach at all", not "not right now".
+    log.warn(
+      `[driven-session] attach: transcript for ${conversationId} has no recoverable cwd (${located.jsonlPath})`
+    );
+    return { outcome: "no-transcript" };
+  }
+
   const db = await (deps.getDb ?? getContextInspectorDb)();
   // No DB means no presence telemetry, and no telemetry is a REFUSAL, not a
   // pass — the same direction attachAdmissibility takes for `UNKNOWN`. Failing
   // open here would make a transient DB outage silently license the fork this
-  // whole path exists to prevent.
+  // whole path exists to prevent. Reached only for a conversation that DOES
+  // exist on disk, so the refusal is about a real attach target.
   if (!db) {
     const { attachAdmissibility } = await import(
       "@minsky/domain/conversation-run-state/attach-admissibility"
@@ -801,19 +821,6 @@ export async function orchestrateDrivenSessionAttach(
       message: verdict.message,
       presence: "UNKNOWN",
     };
-  }
-
-  const locate = deps.locateConversation ?? defaultLocateConversation;
-  const located = await locate(conversationId);
-  if (!located) return { outcome: "no-transcript" };
-  if (!located.cwd) {
-    // A transcript with no recoverable cwd cannot be resumed — `claude --resume`
-    // has nowhere to run. Reported as no-transcript rather than refused: this is
-    // "cannot attach at all", not "not right now".
-    log.warn(
-      `[driven-session] attach: transcript for ${conversationId} has no recoverable cwd (${located.jsonlPath})`
-    );
-    return { outcome: "no-transcript" };
   }
 
   const readPresence = deps.readPresence ?? defaultReadPresence;
