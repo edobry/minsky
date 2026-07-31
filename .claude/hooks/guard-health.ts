@@ -91,6 +91,20 @@ export interface GuardHealthEvent {
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
   sessionId?: string;
+  /**
+   * mt#3358 SC3 — identifies WHICH operation went unchecked, so "was MY create
+   * checked?" is answerable after the fact instead of only "some create in this
+   * session wasn't". `toolName` + `sessionId` narrow it to a session; this names
+   * the individual call (for `tasks_create`, the title being created).
+   *
+   * Deliberately NOT the created task id: this guard runs **PreToolUse**, so the
+   * id does not exist yet — the tool that mints it has not run. Truncated by the
+   * writer; the health log is a diagnostic, not an archive.
+   *
+   * Optional and additive: existing log lines without it stay readable, and
+   * absence means "not recorded", never "no subject".
+   */
+  subject?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,12 +208,27 @@ export function recordGuardError(
  * standalone-duplicate-matcher's infra/logic split) carry that distinction
  * into the health accounting.
  */
+/** Cap on a recorded `subject` — the health log is a diagnostic, not an archive. */
+export const MAX_SUBJECT_LENGTH = 120;
+
+/** Truncate a subject to {@link MAX_SUBJECT_LENGTH}, marking that it was cut. */
+function truncateSubject(subject: string): string {
+  return subject.length <= MAX_SUBJECT_LENGTH
+    ? subject
+    : `${subject.slice(0, MAX_SUBJECT_LENGTH - 1)}…`;
+}
+
 export function recordGuardCheckSkip(
-  input: RecordGuardHealthInput & { reason: string; causeClass?: "infra" | "logic" },
+  input: RecordGuardHealthInput & {
+    reason: string;
+    causeClass?: "infra" | "logic";
+    subject?: string;
+  },
   options?: GuardHealthRecordOptions
 ): void {
   try {
     const now = options?.now ?? (() => new Date());
+    const subject = input.subject?.trim();
     const ev: GuardHealthEvent = {
       timestamp: now().toISOString(),
       guardName: input.guardName,
@@ -209,6 +238,7 @@ export function recordGuardCheckSkip(
       ...(input.causeClass ? { causeClass: input.causeClass } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(subject ? { subject: truncateSubject(subject) } : {}),
     };
     appendEvent(ev, options);
   } catch {

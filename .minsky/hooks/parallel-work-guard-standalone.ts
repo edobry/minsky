@@ -15,6 +15,22 @@
 // with completely different titles/framing — zero cross-detection until a
 // human closed mt#2887 as subsumed.
 //
+// FAIL-OPEN IS DELIBERATE, AND MUST STAY LOUD (mt#3358 SC4).
+// When the probe cannot complete — deadline exceeded, persistence or embeddings
+// unavailable — this guard PERMITS the create rather than blocking it. That is the
+// correct availability tradeoff: a slow or degraded search must never make task
+// creation impossible, and this guard is a backstop under the agent's own manual
+// parallel-work sweep (`/plan-task` gate (g)), not the sole line of defence.
+//
+// The hazard fail-open carries is that "checked, nothing found" and "never looked"
+// are indistinguishable from outside. That is why the degraded path below writes
+// stderr AND records a guard-health check-skip AND surfaces `additionalContext` at
+// the callsite. Do NOT quiet any of those three to reduce noise: on 2026-07-30 the
+// probe timed out intermittently against a deadline set at 1.16x its real latency,
+// two duplicate task pairs were created unchecked, and the only trace was an
+// aggregate counter in a different session. Converting this guard to fail-CLOSED is
+// explicitly out of scope; making its failures visible is the whole remedy.
+//
 // Mechanism: run the tasks similarity search IN-PROCESS (mt#2958 — see
 // ./standalone-dup-probe.ts; through mt#2813 this shelled out a stateless
 // `minsky tasks search` CLI, paying a full second boot per probe) with a
@@ -339,6 +355,35 @@ export async function runStandaloneDuplicateGuardInner(
           toolName: input.tool_name,
           sessionId: input.session_id,
           causeClass: decision.causeClass,
+          // mt#3358 SC3 — name WHICH create went unchecked. PreToolUse, so the
+          // task id does not exist yet; the title is the available identifier.
+          subject:
+            typeof input.tool_input?.["title"] === "string"
+              ? (input.tool_input["title"] as string)
+              : undefined,
+        });
+        // mt#3358 SC2 — the skip must be visible AT THE CREATE. stderr does not
+        // reach the agent and the guard-health banner may not fire until a later
+        // session, so before this the create proceeded with no signal at all that
+        // nothing had vouched for it (two duplicate pairs were created this way on
+        // 2026-07-30). The `warn` branch below already surfaces via
+        // additionalContext; a degraded skip is at least as worth surfacing, since
+        // "no duplicates found" and "never looked" are indistinguishable without it.
+        //
+        // This is also what makes SILENCE meaningful: once a skip is reliably
+        // surfaced here, the absence of this notice means the probe actually ran.
+        // That is deliberately preferred over emitting a positive "check ran" line
+        // on every create, which would put a notification on the common path and
+        // get tuned out.
+        writeOutput({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            additionalContext:
+              `⚠️ [${STANDALONE_DUPLICATE_GUARD_NAME}] Duplicate check SKIPPED for this ` +
+              `tasks_create — it was NOT checked against existing tasks. Reason: ` +
+              `${decision.reason}\nSearch for an existing task covering this before ` +
+              `relying on the new one.`,
+          },
         });
       } else {
         process.stdout.write(
