@@ -13,7 +13,9 @@
  * TabsProvider lives here so the tab model is URL-driven app-wide: any
  * navigation to an entity route (rail, palette, row click, deep link) opens
  * its tab on visit. The global CommandPalette (⌘K) is mounted here so it is
- * available from every route. Children render inside <main> as-is; individual
+ * available from every route, as is TabKeyboardNav (mt#3469), which needs to
+ * sit INSIDE TabsProvider to reach `useTabs` — it renders nothing and exists
+ * only to own the tab-switching key bindings. Children render inside <main> as-is; individual
  * pages control their own internal layout (Layout-flexibility mandate,
  * mt#2370).
  *
@@ -34,6 +36,7 @@ import { type ReactNode } from "react";
 import { Rail } from "./Rail";
 import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
+import { TabKeyboardNav } from "./TabKeyboardNav";
 import { TabsProvider } from "../lib/tabs";
 
 interface Props {
@@ -50,6 +53,7 @@ export function Layout({ children }: Props) {
           <main className="flex-1 overflow-auto min-w-0">{children}</main>
         </div>
         <CommandPalette />
+        <TabKeyboardNav />
       </div>
     </TabsProvider>
   );
