@@ -60,6 +60,19 @@ export function escapeHtml(text: string): string {
 }
 
 /**
+ * Escape for use INSIDE a double-quoted attribute value (PR #2505 R1).
+ *
+ * Body escaping is not sufficient here: a `"` inside `href` or the language
+ * class closes the attribute early, which yields malformed markup, a 400, and
+ * a lost message — and in the `href` case lets link text inject further
+ * attributes. `&quot;` is one of the four named entities the Bot API documents
+ * as supported ("&lt;, &gt;, &amp; and &quot;").
+ */
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
+/**
  * Convert Markdown to the HTML subset Telegram accepts.
  *
  * Total, never throwing: any construct not recognized degrades to escaped
@@ -152,7 +165,7 @@ function renderCodeBlock(body: string, language: string): string {
   // Nested pre+code is how the docs specify a language: "Use nested pre and
   // code tags, to define programming language for pre entity."
   return language.length > 0
-    ? `<pre><code class="language-${escapeHtml(language)}">${escaped}</code></pre>`
+    ? `<pre><code class="language-${escapeAttribute(language)}">${escaped}</code></pre>`
     : `<pre>${escaped}</pre>`;
 }
 
@@ -174,18 +187,32 @@ function renderInline(text: string): string {
 
   // 2. Links -- captured before escaping so the URL is not mangled, and stashed
   //    so the label's own emphasis still renders inside the anchor.
-  working = working.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_match, label: string, href: string) =>
-    stash(spans, `<a href="${escapeHtml(href)}">${renderInline(label)}</a>`)
+  //
+  //    The URL alternation admits ONE level of balanced parentheses (PR #2505
+  //    R1): `[^)\s]+` stopped at the first `)`, which truncates the very common
+  //    Wikipedia/MSDN shape `.../Foo_(bar)` into a broken href and leaves a
+  //    stray `)` in the text. Deeper nesting is vanishingly rare in URLs and
+  //    still degrades to a truncated-but-well-formed anchor.
+  working = working.replace(
+    /\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g,
+    (_match, label: string, href: string) =>
+      stash(spans, `<a href="${escapeAttribute(href)}">${renderInline(label)}</a>`)
   );
 
   // 3. Everything left is literal text.
   working = escapeHtml(working);
 
   // 4. Emphasis, longest marker first so `**` is not eaten by `*`.
-  working = working.replace(/\*\*\*([^*]+)\*\*\*/g, "<b><i>$1</i></b>");
-  working = working.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  working = working.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<i>$1</i>");
-  working = working.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  //
+  //    Each marker must HUG non-whitespace (PR #2505 R1). Without that,
+  //    `a * b * c` -- arithmetic, a glob, a footnote marker -- matched as
+  //    emphasis and ate the literal asterisks, rendering `a <i> b </i> c`.
+  //    Requiring `\S` immediately inside both markers is the rule CommonMark
+  //    uses, and it makes spaced asterisks literal again.
+  working = working.replace(/\*\*\*(\S(?:[^*\n]*\S)?)\*\*\*/g, "<b><i>$1</i></b>");
+  working = working.replace(/\*\*(\S(?:[^*]*\S)?)\*\*/g, "<b>$1</b>");
+  working = working.replace(/(?<!\*)\*(\S(?:[^*\n]*\S)?)\*(?!\*)/g, "<i>$1</i>");
+  working = working.replace(/~~(\S(?:[^~]*\S)?)~~/g, "<s>$1</s>");
 
   return restore(working, spans);
 }

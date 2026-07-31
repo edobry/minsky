@@ -176,6 +176,55 @@ describe("markdownToTelegramHtml — acceptance", () => {
   });
 });
 
+/**
+ * PR #2505 R1 — three real defects the reviewer caught. Each of these produced
+ * markup Telegram would answer with a 400, which on this channel means the
+ * principal receives nothing.
+ */
+describe("markdownToTelegramHtml — attribute and marker edge cases", () => {
+  test("escapes a double quote in a URL so it cannot close the href attribute", () => {
+    const html = markdownToTelegramHtml(`[x](https://e.example/a"b)`);
+    expect(html).toBe(`<a href="https://e.example/a&quot;b">x</a>`);
+    // The attribute must still have exactly one closing quote before `>`.
+    expect(html.match(/href="[^"]*"/)?.[0]).toBe(`href="https://e.example/a&quot;b"`);
+  });
+
+  test("escapes a double quote in a fence language so it cannot close the class attribute", () => {
+    const html = markdownToTelegramHtml('```a"b\nx\n```');
+    expect(html).toBe(`<pre><code class="language-a&quot;b">x</code></pre>`);
+  });
+
+  test("keeps balanced parentheses inside a URL", () => {
+    // The Wikipedia shape: `[^)\s]+` truncated this at the first `)`.
+    const html = markdownToTelegramHtml("[Foo](https://en.wikipedia.org/wiki/Foo_(bar))");
+    expect(html).toBe(`<a href="https://en.wikipedia.org/wiki/Foo_(bar)">Foo</a>`);
+  });
+
+  test("leaves spaced asterisks literal instead of reading them as emphasis", () => {
+    // Arithmetic, globs and footnote markers all produce this shape.
+    expect(markdownToTelegramHtml("a * b * c")).toBe("a * b * c");
+    expect(markdownToTelegramHtml("2 * 3 * 4 = 24")).toBe("2 * 3 * 4 = 24");
+    expect(markdownToTelegramHtml("run rm * then ls *")).toBe("run rm * then ls *");
+  });
+
+  test("still renders emphasis when the markers hug their content", () => {
+    // The hug rule must not cost the feature it guards.
+    expect(markdownToTelegramHtml("*i* and **b** and ***bi***")).toBe(
+      "<i>i</i> and <b>b</b> and <b><i>bi</i></b>"
+    );
+  });
+
+  test("renders single-character emphasis", () => {
+    // `\S(?:...)?` must admit a one-char body, not require two.
+    expect(markdownToTelegramHtml("*x* and **y**")).toBe("<i>x</i> and <b>y</b>");
+  });
+
+  test("leaves spaced tildes literal but still renders hugged strikethrough", () => {
+    expect(markdownToTelegramHtml("a ~~ b ~~ c")).toBe("a ~~ b ~~ c");
+    expect(markdownToTelegramHtml("~~gone~~")).toBe("<s>gone</s>");
+  });
+});
+
 describe("markdownToTelegramHtml — robustness", () => {
   test("leaves an unmatched marker as literal text rather than emitting a stray tag", () => {
     // A truncated reply can end mid-emphasis; an unbalanced tag is a 400.

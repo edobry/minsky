@@ -502,6 +502,9 @@ async function sendReply(
     log.warn("[principal-channel] Telegram rejected the rendered HTML; sent unstyled instead", {
       parseError: result.parseError,
       plainChars: plain.length,
+      // Both lengths (PR #2505 R1): the ratio is the first thing worth seeing
+      // when diagnosing a rejection, and plain alone does not give it.
+      htmlChars: html.length,
     });
   }
   return result.messageId;
