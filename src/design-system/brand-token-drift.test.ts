@@ -14,6 +14,7 @@ import type { DriftInputs } from "./brand-token-drift";
 import {
   findBrandTokenDrift,
   formatDriftReport,
+  normalizeHex,
   oklchEquals,
   parseBareOklchDeclarations,
   parseCanonicalTokens,
@@ -33,6 +34,43 @@ const SITE_CSS = join(REPO_ROOT, "services", "site", "src", "styles", "global.cs
 function readText(path: string): string {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- import-site rationale above: the on-disk content IS the subject of this assertion.
   return readFileSync(path, "utf-8") as string;
+}
+
+/**
+ * Rewrites one declaration's VALUE, locating it by variable name (PR #2488 R1).
+ *
+ * The mutation tests originally matched an exact literal like `--signal-cyan: 0.745 0.124 215;`.
+ * Any benign reformatting — a prettier pass, a spacing change, a re-rounded value — would make
+ * `.replace()` a no-op, and the test would then assert against an UNMUTATED file. Locating by
+ * name is robust to all of that, and the throw makes a genuinely-missing declaration loud
+ * instead of silent.
+ *
+ * `occurrence` selects which match to rewrite: the site stylesheet declares each token twice
+ * (the `oklch()` form, then the hex fallback), so the fallback tests target the second.
+ */
+function mutateDeclaration(css: string, varName: string, newValue: string, occurrence = 1): string {
+  const pattern = new RegExp(`(^[ \\t]*--${varName}:[ \\t]*)([^;\\n]+)(;)`, "gm");
+  const matches = [...css.matchAll(pattern)];
+  if (matches.length < occurrence) {
+    throw new Error(
+      `mutateDeclaration: --${varName} occurrence ${occurrence} not found (saw ` +
+        `${matches.length}) — the fixture is stale, not the checker.`
+    );
+  }
+  const target = matches[occurrence - 1] as RegExpMatchArray;
+  const start = target.index as number;
+  return `${css.slice(0, start)}${target[1]}${newValue}${target[3]}${css.slice(
+    start + target[0].length
+  )}`;
+}
+
+/** Deletes a declaration entirely, located by name. */
+function deleteDeclaration(css: string, varName: string): string {
+  const pattern = new RegExp(`^[ \\t]*--${varName}:[^;\\n]+;[ \\t]*\\n?`, "m");
+  if (!pattern.test(css)) {
+    throw new Error(`deleteDeclaration: --${varName} not found — the fixture is stale.`);
+  }
+  return css.replace(pattern, "");
 }
 
 function readReal(): DriftInputs {
@@ -82,13 +120,8 @@ describe("AT2: mutating one surface's copy is detected", () => {
     const real = readReal();
     const mutated = {
       ...real,
-      cockpitCss: real.cockpitCss.replace(
-        "--signal-cyan: 0.745 0.124 215;",
-        "--signal-cyan: 0.700 0.124 215;"
-      ),
+      cockpitCss: mutateDeclaration(real.cockpitCss, "signal-cyan", "0.700 0.124 215"),
     };
-    // Guard the fixture itself: if the source line ever changes, this test must fail loudly
-    // rather than silently testing an unmutated file.
     expect(mutated.cockpitCss).not.toBe(real.cockpitCss);
 
     const findings = findBrandTokenDrift(mutated);
@@ -107,10 +140,7 @@ describe("AT2: mutating one surface's copy is detected", () => {
     const real = readReal();
     const mutated = {
       ...real,
-      siteCss: real.siteCss.replace(
-        "--color-warn-amber: oklch(0.756 0.180 70);",
-        "--color-warn-amber: oklch(0.756 0.180 90);"
-      ),
+      siteCss: mutateDeclaration(real.siteCss, "color-warn-amber", "oklch(0.756 0.180 90)"),
     };
     expect(mutated.siteCss).not.toBe(real.siteCss);
 
@@ -124,7 +154,9 @@ describe("AT2: mutating one surface's copy is detected", () => {
     const real = readReal();
     const mutated = {
       ...real,
-      siteCss: real.siteCss.replace("--color-signal: #00bfd8;", "--color-signal: #00bfd9;"),
+      // occurrence 2 — the first `--color-signal` is the oklch() form, the second is the
+      // @supports hex fallback this test targets.
+      siteCss: mutateDeclaration(real.siteCss, "color-signal", "#00bfd9", 2),
     };
     expect(mutated.siteCss).not.toBe(real.siteCss);
 
@@ -139,7 +171,7 @@ describe("AT2: mutating one surface's copy is detected", () => {
     const real = readReal();
     const mutated = {
       ...real,
-      cockpitCss: real.cockpitCss.replace("--iso-pastel: 0.911 0.03 75;", ""),
+      cockpitCss: deleteDeclaration(real.cockpitCss, "iso-pastel"),
     };
     expect(mutated.cockpitCss).not.toBe(real.cockpitCss);
 
@@ -170,6 +202,73 @@ describe("numeric comparison, not string comparison", () => {
     expect(a).toBeDefined();
     expect(b).toBeDefined();
     expect(oklchEquals(a as [number, number, number], b as [number, number, number])).toBe(true);
+  });
+});
+
+// PR #2488 R1 — the three real defects the review found.
+describe("R1: CSS comments are not parsed as declarations", () => {
+  it("ignores a commented-out declaration that would otherwise override the real one", () => {
+    const css = [
+      ":root {",
+      "  --signal-cyan: 0.745 0.124 215;",
+      "  /* was, before the retune:",
+      "  --signal-cyan: 0.900 0.124 215;",
+      "  */",
+      "}",
+    ].join("\n");
+    // Without comment-stripping the commented line parses LAST and wins, reporting drift on a
+    // file that is actually correct.
+    expect(parseBareOklchDeclarations(css).get("signal-cyan")).toEqual([0.745, 0.124, 215]);
+  });
+
+  it("ignores a commented-out oklch() declaration on the site side", () => {
+    const css = [
+      ":root {",
+      "  --color-signal: oklch(0.745 0.124 215);",
+      "  /* --color-signal: oklch(0.900 0.124 215); */",
+      "}",
+    ].join("\n");
+    expect(parseOklchFunctionDeclarations(css).get("color-signal")).toEqual([0.745, 0.124, 215]);
+  });
+});
+
+describe("R1: hex comparison is format-insensitive", () => {
+  it("treats #abc and #aabbcc as the same color", () => {
+    expect(normalizeHex("#abc")).toBe(normalizeHex("#AABBCC"));
+  });
+
+  it("drops a fully-opaque alpha but keeps a partial one", () => {
+    expect(normalizeHex("#00bfd8ff")).toBe("#00bfd8");
+    expect(normalizeHex("#00bfd880")).toBe("#00bfd880");
+  });
+
+  it("does not report drift for an equivalent shorthand in the fallback block", () => {
+    // One declaration per line: the parsers are line-anchored, matching the prettier-formatted
+    // shape both real stylesheets are in.
+    const css = [
+      "@supports not (color: oklch(0 0 0)) {",
+      "  :root {",
+      "    --color-x: #FFF;",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(parseHexFallbackDeclarations(css).get("color-x")).toBe("#ffffff");
+  });
+});
+
+describe("R1: CSS Color 4 percentage notation", () => {
+  it("reads lightness percentages as their 0-1 equivalent", () => {
+    const pct = parseOklchFunctionDeclarations("--a: oklch(56% 0.092 220);").get("a");
+    const num = parseOklchFunctionDeclarations("--b: oklch(0.56 0.092 220);").get("b");
+    expect(pct).toBeDefined();
+    expect(oklchEquals(pct as [number, number, number], num as [number, number, number])).toBe(
+      true
+    );
+  });
+
+  it("reads chroma percentages against the CSS 100% = 0.4 basis", () => {
+    const pct = parseOklchFunctionDeclarations("--a: oklch(0.56 23% 220);").get("a");
+    expect(pct?.[1]).toBeCloseTo(0.092, 12);
   });
 });
 

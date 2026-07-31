@@ -118,7 +118,7 @@ export function parseCanonicalTokens(markdown: string): CanonicalToken[] {
     if (!name || !hex || !oklchBody) continue;
     const components = parseOklchComponents(oklchBody);
     if (!components) continue;
-    tokens.push({ name, hex: hex.toLowerCase(), oklch: components });
+    tokens.push({ name, hex: normalizeHex(hex), oklch: components });
   }
 
   if (tokens.length === 0) {
@@ -130,13 +130,72 @@ export function parseCanonicalTokens(markdown: string): CanonicalToken[] {
   return tokens;
 }
 
-/** Parses `L C H` (whitespace- or slash-separated alpha ignored) into numbers. */
+/**
+ * Removes CSS comments before parsing (PR #2488 R1).
+ *
+ * Declarations inside a block comment sit at the start of their own line, so `^\s*--name:`
+ * matches them. Because the parsers write into a Map, a commented-out declaration appearing
+ * AFTER the real one silently overwrites it and produces a false drift finding — someone who
+ * comments out the old declaration while changing a token would break the check rather than be
+ * caught by it.
+ */
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+/**
+ * Parses `L C H` into numbers, honoring CSS Color 4 percentage forms (PR #2488 R1).
+ *
+ * `oklch()` accepts lightness as a number 0-1 OR a percentage (`56%` === `0.56`), and chroma as
+ * a number OR a percentage where `100%` === `0.4`. Without this, `56%` parsed as `56` and drifted
+ * against a canonical `0.56` — a false positive on valid CSS. Hue is always a number (or an angle
+ * unit we do not currently emit; `deg` is tolerated since it is the identity unit).
+ *
+ * Any alpha after `/` is ignored: it is not part of the palette contract.
+ */
 function parseOklchComponents(body: string): [number, number, number] | null {
   const parts = body.trim().split("/")[0]?.trim().split(/\s+/);
   if (!parts || parts.length < 3) return null;
-  const nums = parts.slice(0, 3).map((p) => Number.parseFloat(p));
-  if (nums.some((n) => Number.isNaN(n))) return null;
-  return [nums[0] as number, nums[1] as number, nums[2] as number];
+
+  const lightness = parseComponent(parts[0] as string, 1);
+  const chroma = parseComponent(parts[1] as string, 0.4);
+  const hue = parseComponent((parts[2] as string).replace(/deg$/i, ""), null);
+  if (lightness === null || chroma === null || hue === null) return null;
+  return [lightness, chroma, hue];
+}
+
+/**
+ * Parses one component. `percentBasis` is the value `100%` maps to; pass `null` for components
+ * where a percentage is not meaningful (hue), which then rejects rather than silently coercing.
+ */
+function parseComponent(raw: string, percentBasis: number | null): number | null {
+  const isPercent = raw.endsWith("%");
+  if (isPercent && percentBasis === null) return null;
+  const parsed = Number.parseFloat(isPercent ? raw.slice(0, -1) : raw);
+  if (Number.isNaN(parsed)) return null;
+  return isPercent ? (parsed / 100) * (percentBasis as number) : parsed;
+}
+
+/**
+ * Normalizes a hex color for comparison (PR #2488 R1).
+ *
+ * `#abc` and `#aabbcc` are the same color; comparing raw strings flagged them as drift. Expands
+ * the 3- and 4-digit shorthands by doubling each nibble (the CSS rule), lowercases, and drops a
+ * fully-opaque alpha so `#00bfd8ff` compares equal to `#00bfd8`. A non-opaque alpha is preserved
+ * — that IS a different color and should be reported.
+ */
+export function normalizeHex(hex: string): string {
+  const body = hex.replace(/^#/, "").toLowerCase();
+  const expanded =
+    body.length === 3 || body.length === 4
+      ? body
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : body;
+  const withoutOpaqueAlpha =
+    expanded.length === 8 && expanded.endsWith("ff") ? expanded.slice(0, 6) : expanded;
+  return `#${withoutOpaqueAlpha}`;
 }
 
 /**
@@ -145,8 +204,8 @@ function parseOklchComponents(body: string): [number, number, number] | null {
  */
 export function parseBareOklchDeclarations(css: string): Map<string, [number, number, number]> {
   const out = new Map<string, [number, number, number]>();
-  const pattern = /^\s*--([a-z0-9-]+):\s*([0-9.]+\s+[0-9.]+\s+[0-9.]+)\s*;/gim;
-  for (const match of css.matchAll(pattern)) {
+  const pattern = /^\s*--([a-z0-9-]+):\s*([0-9.%]+\s+[0-9.%]+\s+[0-9.a-z]+)\s*;/gim;
+  for (const match of stripCssComments(css).matchAll(pattern)) {
     const [, name, value] = match;
     if (!name || !value) continue;
     const components = parseOklchComponents(value);
@@ -159,7 +218,7 @@ export function parseBareOklchDeclarations(css: string): Map<string, [number, nu
 export function parseOklchFunctionDeclarations(css: string): Map<string, [number, number, number]> {
   const out = new Map<string, [number, number, number]>();
   const pattern = /^\s*--([a-z0-9-]+):\s*oklch\(([^)]+)\)\s*;/gim;
-  for (const match of css.matchAll(pattern)) {
+  for (const match of stripCssComments(css).matchAll(pattern)) {
     const [, name, body] = match;
     if (!name || !body) continue;
     const components = parseOklchComponents(body);
@@ -174,7 +233,8 @@ export function parseOklchFunctionDeclarations(css: string): Map<string, [number
  * Scoping matters: hex outside `@supports not (color: oklch(0 0 0))` is not part of the fallback
  * contract, and picking it up would compare unrelated declarations against the palette.
  */
-export function parseHexFallbackDeclarations(css: string): Map<string, string> {
+export function parseHexFallbackDeclarations(rawCss: string): Map<string, string> {
+  const css = stripCssComments(rawCss);
   const out = new Map<string, string>();
   const blockStart = css.search(/@supports\s+not\s*\(\s*color:\s*oklch\([^)]*\)\s*\)/i);
   if (blockStart === -1) return out;
@@ -200,7 +260,7 @@ export function parseHexFallbackDeclarations(css: string): Map<string, string> {
   const pattern = /^\s*--([a-z0-9-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/gim;
   for (const match of block.matchAll(pattern)) {
     const [, name, hex] = match;
-    if (name && hex) out.set(name, hex.toLowerCase());
+    if (name && hex) out.set(name, normalizeHex(hex));
   }
   return out;
 }
@@ -211,6 +271,19 @@ export function parseHexFallbackDeclarations(css: string): Map<string, string> {
  * Compared NUMERICALLY, not as strings: the surfaces legitimately format the same value
  * differently (`0.56` in the cockpit vs `0.560` on the site, `0.18` vs `0.180`). A string compare
  * would report drift on every one of those and be turned off within a day.
+ *
+ * **On the epsilon (PR #2488 R1).** The review suggested 1e-9 is too tight because of "float/
+ * string parse variance". Measured — there is none: decimal-string to IEEE-754 double is
+ * deterministic and correctly rounded, so `parseFloat("0.560") === parseFloat("0.56")` is exactly
+ * true and their difference is exactly 0 (verified in-repo before keeping this value). Two
+ * spellings of the same decimal always land on the same double.
+ *
+ * The epsilon is therefore NOT absorbing parse noise — it exists only so a future derived value
+ * (a computed tint, a generated table) isn't reported as drift for a last-bit difference.
+ * Loosening it would start accepting genuinely different palette values: at 1e-4, a canonical
+ * `0.7450` and a surface's `0.7451` would compare equal, and that is exactly the perceptual drift
+ * §2 says this table exists to prevent. The real format gap in this area was percentage notation,
+ * which `parseComponent` now handles explicitly rather than papering over with tolerance.
  */
 export function oklchEquals(a: [number, number, number], b: [number, number, number]): boolean {
   const EPSILON = 1e-9;
@@ -268,8 +341,10 @@ export function findBrandTokenDrift(inputs: DriftInputs): DriftFinding[] {
           token: token.name,
           surface: "cockpit index.css",
           variable: `--${mapping.cockpitVar}`,
-          expected: token.oklch.join(" "),
-          actual: actual.join(" "),
+          // Same rendering as every other surface's finding (PR #2488 R1) — a report that
+          // switches notation between rows is harder to scan than one that does not.
+          expected: formatOklch(token.oklch),
+          actual: formatOklch(actual),
         });
       }
     }
