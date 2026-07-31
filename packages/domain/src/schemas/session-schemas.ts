@@ -161,6 +161,10 @@ export const SessionPRParametersSchema = z
     skipUpdate: z.boolean().optional(),
     autoResolveDeleteConflicts: z.boolean().default(false),
     draft: z.boolean().default(false),
+    // mt#3480 — forwarded to the pre-PR session update's push. Optional with no
+    // default so `undefined` falls through to DEFAULT_PUSH_CONFIRM_TIMEOUT_MS,
+    // leaving existing callers unchanged.
+    pushTimeoutMs: z.number().int().positive().optional(),
   })
   .extend(BaseBackendParametersSchema.shape);
 

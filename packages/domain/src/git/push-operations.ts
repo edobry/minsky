@@ -123,6 +123,13 @@ export interface PushDependencies {
     command: string,
     options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Clock seam for the mt#3480 elapsed-time reporting. Optional — production
+   * omits it and gets `Date.now`. Injectable so a test can assert an exact
+   * `elapsedMs` instead of a range, which would otherwise make the assertion
+   * timing-dependent and flaky on a loaded machine.
+   */
+  now?: () => number;
 }
 
 // POSIX shell single-quote escape: wrap in '...', and replace each ' with '\''.
@@ -362,6 +369,33 @@ export interface PushWithConfirmationResult extends PushResult {
    * clean/synced-implying-pushed result while this is set.
    */
   pushUnconfirmed?: boolean;
+  /**
+   * Wall-clock milliseconds the push call itself consumed, always set (mt#3480).
+   *
+   * Added because a bare `pushTimedOut: true` is not diagnosable. On 2026-07-31
+   * a routine one-commit session push repeatedly hit the 2-minute bound; the
+   * result said only "timed out", which reads as "hung" and sent an
+   * investigation through GitHub status, credential helpers, orphaned
+   * processes, and an MCP restart before a longer bound revealed the push was
+   * merely SLOW (it succeeded at 400s, unchanged). Had the result reported
+   * "elapsed 120000ms, bound 120000ms", the first question would have been "how
+   * much longer does it need?" instead of "what is broken?".
+   *
+   * On the timeout path this is the BOUND, not the push's true duration — the
+   * call is abandoned at that point and its real cost is unobservable from
+   * here. `pushTimeoutMs` is reported alongside so a reader can tell a push
+   * that finished just under the wire from one that was cut off at it.
+   */
+  elapsedMs?: number;
+  /** The bound that applied, so `elapsedMs` can be read against it (mt#3480). */
+  pushTimeoutMs?: number;
+  /**
+   * How far the call got (mt#3480). `"push"` means the push itself was still
+   * running when the bound elapsed; `"remote-verify"` means the push was
+   * abandoned and the follow-up remote-ref check is what did not settle.
+   * Absent on a clean success, where there is no phase to disambiguate.
+   */
+  timedOutDuring?: "push" | "remote-verify";
 }
 
 /** Config for `pushWithConfirmation` — all fields optional/overridable. */
@@ -468,6 +502,10 @@ export async function pushWithConfirmation(
 ): Promise<PushWithConfirmationResult> {
   const pushTimeoutMs = config.pushTimeoutMs ?? DEFAULT_PUSH_CONFIRM_TIMEOUT_MS;
   const workdir = options.repoPath ?? validateProcess(process).cwd();
+  // mt#3480: every return path reports how long it took and against what bound,
+  // so a slow push is distinguishable from a stuck one WITHOUT re-running it.
+  const startedAt = deps.now?.() ?? Date.now();
+  const elapsed = (): number => (deps.now?.() ?? Date.now()) - startedAt;
 
   let pushed = false;
   let pushTimedOut = false;
@@ -492,6 +530,8 @@ export async function pushWithConfirmation(
     return {
       workdir: resolvedWorkdir,
       pushed,
+      elapsedMs: elapsed(),
+      pushTimeoutMs,
       ...(pushError !== undefined ? { pushError } : {}),
     };
   }
@@ -512,6 +552,9 @@ export async function pushWithConfirmation(
       pushed: true,
       pushTimedOut: true,
       pushConfirmedVia: "remote-check",
+      elapsedMs: elapsed(),
+      pushTimeoutMs,
+      timedOutDuring: "push",
     };
   }
 
@@ -520,5 +563,11 @@ export async function pushWithConfirmation(
     pushed: false,
     pushTimedOut: true,
     pushUnconfirmed: true,
+    elapsedMs: elapsed(),
+    pushTimeoutMs,
+    // The push is what ran out of time; the remote check then ran and simply
+    // did not find the ref. Naming the phase keeps a reader from concluding the
+    // VERIFICATION was the slow part.
+    timedOutDuring: "push",
   };
 }

@@ -39,6 +39,8 @@ export async function sessionPrCreate(
     autoResolveDeleteConflicts?: boolean;
     skipConflictCheck?: boolean;
     draft?: boolean;
+    /** mt#3480 — bound for the pre-PR session update's push. */
+    pushTimeoutMs?: number;
   },
   deps: SessionPrCreateDependencies,
   options?: {
@@ -101,6 +103,11 @@ export async function sessionPrCreate(
       skipConflictCheck: params.skipConflictCheck || false,
       draft: params.draft || false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
+      // mt#3480: NOT `|| false` like its neighbours — this is a numeric bound
+      // whose absence must stay `undefined` so it falls through to
+      // DEFAULT_PUSH_CONFIRM_TIMEOUT_MS. Coercing it would pass 0 and bound the
+      // push at zero milliseconds.
+      pushTimeoutMs: params.pushTimeoutMs,
     },
     { sessionDB, gitService, persistenceProvider, taskService },
     options

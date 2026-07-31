@@ -3187,6 +3187,11 @@
                 {
                   "flags": ["--draft"],
                   "description": "Create draft PR (GitHub only, skips session update)"
+                },
+                {
+                  "flags": ["--push-timeout-ms"],
+                  "description": "Override the push-phase wall-clock bound in milliseconds for the session update this command performs before opening the PR. Defaults to 2 minutes. Raise it when pushes from this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
+                  "takesValue": true
                 }
               ]
             },
