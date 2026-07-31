@@ -443,9 +443,11 @@ const MAX_COMMITS_FETCHED = 500;
  * Filtering is done on the commit's own authored/committed date rather than
  * by SHA-diffing against the prior review's `commitId`, so a rebase or
  * force-push that changes SHAs without changing intent still resolves
- * correctly — the same tradeoff `diff-scoper.ts`'s fix-commit-diff
- * extraction currently approximates with the full PR diff (see its module
- * doc). When `sinceIso` is omitted, all commits on the PR are returned
+ * correctly. Note the deliberate contrast with `fetchIncrementalDiffSince`
+ * (mt#3471), which resolves by SHA instead: over-including an unrelated commit
+ * MESSAGE is harmless to a topical-overlap heuristic, whereas silently scoping
+ * a review's DIFF to the wrong commit range is not, so that path prefers a
+ * loud 404 to a lenient match. When `sinceIso` is omitted, all commits on the PR are returned
  * (bounded by MAX_COMMITS_FETCHED) — used for the first-review case where
  * there is no prior review to bound against, though callers typically skip
  * calling this at all in that case (there is nothing to respond to yet).
@@ -575,6 +577,116 @@ export async function fetchChangedFilesSince(
     const message = err instanceof Error ? err.message : String(err);
     log.warn("reviewer.compare_commits_failed", {
       event: "reviewer.compare_commits_failed",
+      owner,
+      repo,
+      baseSha,
+      headSha,
+      error: message,
+    });
+    return undefined;
+  }
+}
+
+/**
+ * The diff of the commits a PR gained since a given base SHA, in both the
+ * forms the review pipeline consumes (mt#3471).
+ */
+export interface IncrementalDiffResult {
+  /** Raw unified diff, as produced by GitHub's own diff media type. */
+  diff: string;
+  /** Per-file entries for the same commit range, for chunked-review packing. */
+  fileEntries: PrFileEntry[];
+}
+
+/**
+ * Fetch the diff of the commits added between `baseSha` and `headSha` (mt#3471).
+ *
+ * Used to give a re-review round (R>=2) only the delta pushed since the last
+ * posted review, instead of re-sending the entire PR diff every round. `baseSha`
+ * is the prior review's `commit_id` — resolving by SHA rather than by commit
+ * date means a rebase that rewrites author/committer dates cannot silently
+ * produce a wrong scope: an unreachable base yields a clean 404, which routes
+ * to the caller's full-diff fallback.
+ *
+ * Both forms come from the same `compare` call so they cannot disagree about
+ * the commit range: the raw diff (GitHub's `application/vnd.github.diff` media
+ * type, so the prompt sees byte-identical formatting to `pr.diff`) and the JSON
+ * `files` array (which `runChunkedReview` packs per file).
+ *
+ * Returns `undefined` — meaning "cannot scope; use the full diff" — when:
+ *   - `baseSha` is empty or equals `headSha` (no new commits to review);
+ *   - either request fails (force-push made the base unreachable; GitHub 5xx on
+ *     a large comparison, which its docs call out explicitly);
+ *   - the `files` array hit `GITHUB_COMPARE_FILES_CAP` and may be truncated;
+ *   - the comparison resolves but carries no diff text.
+ * It never returns a partial or empty scope — narrowing a review to nothing is
+ * strictly worse than reviewing the full diff again.
+ */
+export async function fetchIncrementalDiffSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseSha: string,
+  headSha: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<IncrementalDiffResult | undefined> {
+  if (!baseSha || baseSha === headSha) return undefined;
+
+  try {
+    const [diffResponse, jsonResponse] = await Promise.all([
+      withTimeout("github.repos.compareCommits.diff", timeoutMs, (signal) =>
+        octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+          owner,
+          repo,
+          basehead: `${baseSha}...${headSha}`,
+          mediaType: { format: "diff" },
+          request: { signal },
+        })
+      ),
+      withTimeout("github.repos.compareCommits", timeoutMs, (signal) =>
+        octokit.rest.repos.compareCommits({
+          owner,
+          repo,
+          base: baseSha,
+          head: headSha,
+          request: { signal },
+        })
+      ),
+    ]);
+
+    const files = jsonResponse.data.files ?? [];
+    if (files.length >= GITHUB_COMPARE_FILES_CAP) {
+      log.warn("reviewer.incremental_diff_possibly_truncated", {
+        event: "reviewer.incremental_diff_possibly_truncated",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
+
+    // mediaType: { format: "diff" } makes Octokit return the body as a raw
+    // string at runtime even though the typed response is the comparison object.
+    const diff = String(diffResponse.data);
+    if (!diff.trim()) return undefined;
+
+    return {
+      diff,
+      fileEntries: files.map((f) => ({
+        filename: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        patch: f.patch,
+        ...(f.previous_filename ? { previousFilename: f.previous_filename } : {}),
+      })),
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("reviewer.incremental_diff_failed", {
+      event: "reviewer.incremental_diff_failed",
       owner,
       repo,
       baseSha,

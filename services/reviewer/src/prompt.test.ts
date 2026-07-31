@@ -511,6 +511,61 @@ describe("extractOutOfRepoReferences", () => {
   });
 });
 
+describe("buildReviewPrompt incremental-scope notice (mt#3471)", () => {
+  const baseInput: ReviewPromptInput = {
+    prNumber: 999,
+    prTitle: "Test PR",
+    prBody: "",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/test",
+    baseBranch: "main",
+  };
+
+  test("omits the notice by default, so a full-diff review reads exactly as before", () => {
+    const prompt = buildReviewPrompt(baseInput);
+
+    expect(prompt).not.toContain("NOT the full PR");
+    expect(prompt).toContain("## Diff");
+  });
+
+  test("omits the notice when incrementalScope is explicitly false", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: false });
+
+    expect(prompt).not.toContain("NOT the full PR");
+  });
+
+  test("announces the narrowed scope when incrementalScope is true", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("NOT the full PR");
+    expect(prompt).toContain("commits pushed since your most recent review");
+  });
+
+  test("cancels the absence-is-evidence rules that a narrowed diff would otherwise trip", () => {
+    // The load-bearing half. Without this, the Critic Constitution's
+    // diff-vs-description exception reads a file changed in an EARLIER commit
+    // as "claimed but not in the diff" and may raise it as BLOCKING.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("absence from this diff is NOT evidence");
+    expect(prompt).toContain("diff-vs-description exception");
+    expect(prompt).toContain("never BLOCKING");
+  });
+
+  test("keeps the notice outside the untrusted-content fence", () => {
+    // It is our instruction ABOUT the PR content, not PR content — the model
+    // must not treat it as author-controlled data it is allowed to ignore.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    const noticeIdx = prompt.indexOf("NOT the full PR");
+    const fenceIdx = prompt.indexOf(UNTRUSTED_CONTENT_OPEN, prompt.indexOf("## Diff"));
+    expect(noticeIdx).toBeGreaterThan(0);
+    expect(fenceIdx).toBeGreaterThan(noticeIdx);
+  });
+});
+
 describe("buildReviewPrompt out-of-repo section", () => {
   const OUT_OF_REPO_HEADING = "## Out-of-repo references observed";
   const baseInput: ReviewPromptInput = {
