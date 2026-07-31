@@ -6,6 +6,7 @@ import {
 } from "./embedding-service-openai";
 import { RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
+import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 
 // mt#2980: injected in place of the module's shared retry service for tests
 // that actually exercise the retry loop, following the
@@ -464,6 +465,41 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
 
     // The whole point: a non-settling promise could never reach attempt 2.
     expect(attempts).toBeGreaterThan(1);
+  });
+
+  it("AT5: a stall is recorded as errorCode 'timeout', not the catch-all 'unknown'", async () => {
+    const url = startStalledServer();
+    EmbeddingsHealthTracker.resetForTest();
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    const recorded: Array<{ provider: string; errorCode: string }> = [];
+    const realRecordError = tracker.recordError.bind(tracker);
+    tracker.recordError = async (provider: string, errorCode: string, message: string) => {
+      recorded.push({ provider, errorCode });
+      return realRecordError(provider, errorCode, message);
+    };
+
+    const svc = new OpenAIEmbeddingService(
+      TEST_API_KEY,
+      url,
+      TEST_MODEL,
+      new IntelligentRetryService({ maxRetries: 0, baseDelay: 1, maxDelay: 1, jitterMaxMs: 0 }),
+      TIMEOUT_MS
+    );
+
+    try {
+      await svc.generateEmbedding("probe");
+    } catch {
+      // expected
+    } finally {
+      tracker.recordError = realRecordError;
+      EmbeddingsHealthTracker.resetForTest();
+    }
+
+    // The operator-visible half: a stall must be distinguishable from an error
+    // the API returned. Before this change it fell through to "unknown".
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.errorCode).toBe("timeout");
+    expect(recorded[0]?.provider).toBe("openai");
   });
 
   it("AT4: a normal (fast) request is unaffected by the bound", async () => {
