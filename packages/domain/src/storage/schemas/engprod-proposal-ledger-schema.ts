@@ -116,6 +116,12 @@ export const engprodMinerRunsTable = pgTable("engprod_miner_runs", {
   suppressedByDedupe: integer("suppressed_by_dedupe").notNull(),
   suppressedByBudget: integer("suppressed_by_budget").notNull(),
 
+  /** mt#3429 SC1: clusters suppressed because a higher-ranked cluster's tool sequence already covers them. */
+  suppressedByMaximalCollapse: integer("suppressed_by_maximal_collapse").notNull().default(0),
+
+  /** mt#3429 SC2: generic clusters excluded from the LLM stage for lacking a concentrated arg_fingerprint sub-pattern. */
+  suppressedByLowDistinctiveness: integer("suppressed_by_low_distinctiveness").notNull().default(0),
+
   /** Number of stage-2 (LLM) calls that errored this run. >0 triggers a loop error. */
   llmErrors: integer("llm_errors").notNull().default(0),
 

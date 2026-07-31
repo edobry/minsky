@@ -1,0 +1,2 @@
+ALTER TABLE "engprod_miner_runs" ADD COLUMN "suppressed_by_maximal_collapse" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "engprod_miner_runs" ADD COLUMN "suppressed_by_low_distinctiveness" integer DEFAULT 0 NOT NULL;

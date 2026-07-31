@@ -357,6 +357,8 @@ export async function toilMinerTick(
       proposalsGenerated: counters.proposalsGenerated,
       suppressedByDedupe: counters.suppressedByDedupe,
       suppressedByBudget: counters.suppressedByBudget,
+      suppressedByMaximalCollapse: counters.suppressedByMaximalCollapse,
+      suppressedByLowDistinctiveness: counters.suppressedByLowDistinctiveness,
       llmErrors: counters.llmErrors,
       errored,
     });

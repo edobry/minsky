@@ -372,10 +372,11 @@ describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture
   test("collapses the ten live-shaped clusters to zero new proposals; every one lands suppressed", async () => {
     const clusters = liveShapedClusters();
     const fake = fakeLedgerWithLiveProposedRows(clusters);
+    const db = makeRunsDb();
 
     const counters = await toilMinerTick(
       {
-        db: makeRunsDb() as never,
+        db: db as never,
         taskService: fakeTaskService() as never,
         cognitionProvider: NOOP_COGNITION_PROVIDER as never,
         taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
@@ -417,6 +418,15 @@ describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture
     // Every one of the ten clusters was accounted for (6 + 4 = 10) — none
     // silently dropped.
     expect(fake.maximalCollapseCalls.length + fake.lowDistinctivenessCalls.length).toBe(10);
+
+    // The two new counters are PERSISTED in the run-history row, not just
+    // returned/logged — parity with every other counter (mt#3429 R1: a
+    // reviewer finding on the first round of this PR).
+    expect(db.rows).toHaveLength(1);
+    expect((db.rows[0] as unknown as Record<string, number>).suppressedByMaximalCollapse).toBe(6);
+    expect((db.rows[0] as unknown as Record<string, number>).suppressedByLowDistinctiveness).toBe(
+      4
+    );
   });
 
   test("a concentrated fingerprint sub-pattern on the surviving maximal cluster reaches the LLM as a REFINED cluster", async () => {
