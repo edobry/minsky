@@ -104,6 +104,16 @@ export interface WorkspaceOverviewFields {
 export interface ConversationCandidate {
   agentSessionId: string;
   startedAt: string | null;
+  /**
+   * How the link was resolved (mt#3529). `"link-row"` is a row a writer
+   * stamped in `minsky_session_links`; `"derived-agent-id"` was derived from
+   * the workspace record's own `agentId` because no writer stamped one — a
+   * weaker basis (ADR-006 gives the identity scheme no forgery defense), so it
+   * is reported rather than folded in silently. Optional: conversation-keyed
+   * arrivals construct their single candidate client-side, with no server
+   * round-trip to carry provenance.
+   */
+  source?: "link-row" | "derived-agent-id";
 }
 
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {

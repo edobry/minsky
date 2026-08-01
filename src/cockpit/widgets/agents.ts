@@ -33,6 +33,7 @@ import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index"
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
+import { resolveDerivedConversationLinks } from "../derived-conversation-link";
 import {
   deriveRowAttachState,
   groupAttachmentsBySessionId,
@@ -609,6 +610,25 @@ export function createAgentsWidget(
                 row.cwd = attrs.cwd;
                 row.subagents = attrs.subagents;
                 row.model = attrs.model;
+              }
+            }
+
+            // mt#3529 — rows the link-row merge left unresolved fall back to
+            // the conversation their own agentId names (existence-checked).
+            // Runs AFTER the merge, over only the still-null rows, so a
+            // stamped link always wins. This keeps the list in agreement with
+            // /api/agents/:id, which applies the same fallback — a row that
+            // showed null here while the detail page resolved a conversation
+            // would be a worse bug than the one being fixed.
+            const unresolved = workspaceRows.filter((r) => r.conversationId == null);
+            if (unresolved.length > 0) {
+              const derived = await resolveDerivedConversationLinks(
+                db,
+                unresolved.map((r) => ({ sessionId: r.sessionId, agentId: r.agentId }))
+              );
+              for (const row of unresolved) {
+                const link = derived.get(row.sessionId);
+                if (link) row.conversationId = link.agentSessionId;
               }
             }
             standaloneRows = merge.standaloneRows.map((r) => ({

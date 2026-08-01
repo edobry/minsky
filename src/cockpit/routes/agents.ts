@@ -8,6 +8,10 @@
 import type express from "express";
 import { log } from "@minsky/shared/logger";
 import { getServerSessionProvider, getContextInspectorDb } from "../db-providers";
+import {
+  resolveDerivedConversationLinks,
+  type ConversationLinkSource,
+} from "../derived-conversation-link";
 
 /**
  * Resolve every `minsky_session_links` candidate for a workspace session
@@ -23,8 +27,16 @@ import { getServerSessionProvider, getContextInspectorDb } from "../db-providers
  *
  * NO cwd LIKE fallback (mt#2768 — deleted): the substrate prerequisites
  * (mt#2441, mt#2756) have landed and backfilled, so link rows are the sole
- * resolution mechanism now. A conversation with no link row is reported as
- * unresolved rather than falling back to a live heuristic query.
+ * HEURISTIC-free resolution mechanism now, and nothing here reinstates a
+ * heuristic query.
+ *
+ * Derived fallback (mt#3529): when the link-row query comes back EMPTY, the
+ * workspace record's own `agentId` is consulted — see
+ * ../derived-conversation-link. That is a recorded fact about the workspace,
+ * not a heuristic match, and the candidate it produces is existence-checked
+ * against `agent_transcripts` before being emitted. It is marked
+ * `source: "derived-agent-id"` so callers can tell it from a stamped row; a
+ * stamped row always wins, because the fallback only runs when there is none.
  *
  * @returns every candidate row, newest-`startedAt`-first — the run-detail
  *   page's conversation switcher (mt#2768 Behavior: "multi-conversation
@@ -33,11 +45,15 @@ import { getServerSessionProvider, getContextInspectorDb } from "../db-providers
  *   feed the FULL candidate set into `pickBestConversationLink` for the
  *   back-compat singular `conversation` field.
  */
-async function resolveWorkspaceConversations(minskySessionId: string): Promise<
+async function resolveWorkspaceConversations(
+  minskySessionId: string,
+  workspaceAgentId?: string | null
+): Promise<
   Array<{
     agentSessionId: string;
     confidence: number | null;
     startedAt: string | null;
+    source: ConversationLinkSource;
   }>
 > {
   try {
@@ -65,11 +81,33 @@ async function resolveWorkspaceConversations(minskySessionId: string): Promise<
       .where(eq(minskySessionLinksTable.minskySessionId, minskySessionId))
       .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`);
 
-    return linkRows.map((r) => ({
-      agentSessionId: r.agentSessionId,
-      confidence: r.confidence,
-      startedAt: r.startedAt instanceof Date ? r.startedAt.toISOString() : null,
-    }));
+    if (linkRows.length > 0) {
+      return linkRows.map((r) => ({
+        agentSessionId: r.agentSessionId,
+        confidence: r.confidence,
+        startedAt: r.startedAt instanceof Date ? r.startedAt.toISOString() : null,
+        source: "link-row" as const,
+      }));
+    }
+
+    // mt#3529 — no writer stamped a row for this workspace. Fall back to the
+    // conversation its OWN agentId names, if that conversation is ingested.
+    const derived = await resolveDerivedConversationLinks(db, [
+      { sessionId: minskySessionId, agentId: workspaceAgentId },
+    ]);
+    const derivedLink = derived.get(minskySessionId);
+    if (!derivedLink) return [];
+    return [
+      {
+        agentSessionId: derivedLink.agentSessionId,
+        // No stamped confidence exists for a derived link; `source` carries
+        // the provenance instead, so leave this null rather than inventing a
+        // number that would sort against real writer confidences.
+        confidence: null,
+        startedAt: derivedLink.startedAt,
+        source: "derived-agent-id" as const,
+      },
+    ];
   } catch (convErr) {
     const msg = convErr instanceof Error ? convErr.message : String(convErr);
     log.debug(`[agents] conversation enrichment degraded: ${msg}`);
@@ -132,7 +170,7 @@ export function mountAgentRoutes(app: express.Express): void {
 
       const { buildWorkspaceOverview } = await import("../workspace-overview");
       const overviewPromise = buildWorkspaceOverview(record, workdir);
-      const conversationsPromise = resolveWorkspaceConversations(sessionId);
+      const conversationsPromise = resolveWorkspaceConversations(sessionId, record.agentId);
 
       const [{ session, commits, pr }, conversations] = await Promise.all([
         overviewPromise,
@@ -166,6 +204,10 @@ export function mountAgentRoutes(app: express.Express): void {
         conversations: conversations.map((c) => ({
           agentSessionId: c.agentSessionId,
           startedAt: c.startedAt,
+          // mt#3529 — provenance, so a consumer can tell a writer-stamped link
+          // from one derived from the workspace's own (unforgeable-only-by-
+          // convention, per ADR-006) agentId.
+          source: c.source,
         })),
         driven,
       });
@@ -226,9 +268,12 @@ export function mountAgentRoutes(app: express.Express): void {
       }
 
       // 2. Resolve agentSessionId via the join (mt#2768 — "workspace-keyed
-      //    resolution via the join" success criterion). No cwd LIKE fallback:
-      //    a workspace with no link row is reported unresolved rather than
-      //    falling back to a live cwd heuristic query.
+      //    resolution via the join" success criterion). Still no cwd LIKE
+      //    fallback; a workspace with no resolvable conversation is reported
+      //    unresolved rather than falling back to a live cwd heuristic query.
+      //    mt#3529 adds the same derived-from-agentId fallback the detail
+      //    route uses — a live tail is exactly as dead as the Conversation tab
+      //    when a link row was never stamped, so both consult it.
       const db = await getContextInspectorDb();
       if (!db) {
         res.status(503).json({
@@ -238,7 +283,7 @@ export function mountAgentRoutes(app: express.Express): void {
       }
 
       const { pickBestConversationLink } = await import("../session-detail");
-      const candidates = await resolveWorkspaceConversations(workspaceSessionId);
+      const candidates = await resolveWorkspaceConversations(workspaceSessionId, record.agentId);
       const linked = pickBestConversationLink(candidates);
       if (!linked) {
         res.status(404).json({
