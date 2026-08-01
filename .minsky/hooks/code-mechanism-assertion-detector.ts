@@ -700,6 +700,159 @@ export function buildWriteEchoCorpus(turnLines: TranscriptLine[]): string {
   return buildCorpora(turnLines).writeEcho;
 }
 
+/**
+ * Input keys carrying the NEW content of a write, and the keys carrying the text
+ * it replaces. Both spellings exist because `session_search_replace` accepts the
+ * Claude Code aliases (`old_string`/`new_string`) alongside its own
+ * (`search`/`replace`).
+ */
+const WRITE_INPUT_NEW_KEYS = ["replace", "new_string", "content", "contents"];
+const WRITE_INPUT_OLD_KEYS = ["search", "old_string"];
+
+/** Keys carrying a whole-file body — no old text accompanies these. */
+const WHOLE_FILE_INPUT_KEYS = ["content", "contents"];
+
+/**
+ * A single-line comment, a block-comment body line, or a JSDoc continuation.
+ *
+ * `#!` is excluded: a shebang is not a comment about anything, and matching it
+ * would put an interpreter path into the claim corpus (PR #2549 R1).
+ */
+const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#(?!!))\s?(.*)$/;
+
+/**
+ * Extract comment text that this turn's writes ADDED (mt#3571).
+ *
+ * Why the ADDED qualifier is load-bearing: a claim is worth surfacing when the
+ * agent WRITES it, not every time a diff happens to carry it. Scanning whole
+ * files — or even whole replacement payloads — would re-flag untouched comments
+ * on every edit to a well-commented file, which is noise that trains readers to
+ * ignore the detector (mem#719: a detector emitting unmatchable output erodes
+ * trust in its correct output).
+ *
+ * So for a search/replace the old text's comment lines are subtracted from the
+ * new text's: a comment that merely moved is not an assertion being made.
+ *
+ * A whole-file write carries no old text, so "added" cannot be computed from the
+ * payload — and treating every line as added would be exactly the whole-file
+ * scan this is supposed to avoid (PR #2549 R1). Such a write is therefore
+ * included ONLY when its `tool_result` reports `created: true`, i.e. the file did
+ * not previously exist, which makes every comment in it genuinely new. An
+ * overwrite of an existing file is skipped, and so is a write whose result
+ * cannot be found or does not carry the flag — absent evidence, exclude.
+ *
+ * Consequence worth knowing: comments added by OVERWRITING an existing file are
+ * not covered. Covering them needs a before-image the payload does not carry.
+ *
+ * Reads the tool INPUT for content rather than the `tool_result` echo (the input
+ * is exactly what the agent authored, with no envelope to strip) and the RESULT
+ * only for the `created` flag.
+ */
+/**
+ * True when a `tool_result` body reports a TOP-LEVEL `created: true`.
+ *
+ * Parsed, not regexed (PR #2549 R1). A regex over the stringified body has a
+ * real false-positive path: writing a JSON file whose own CONTENT contains
+ * `"created": true` would match, and the result envelope echoes that content —
+ * so authoring a fixture could make the detector believe a file was newly
+ * created. Reading the parsed top-level field cannot be fooled by nested or
+ * echoed text.
+ *
+ * Unparseable or unexpected shapes return false: absent evidence, exclude.
+ */
+function resultReportsCreated(raw: unknown): boolean {
+  const fromValue = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    return (value as Record<string, unknown>)["created"] === true;
+  };
+
+  if (typeof raw === "string") {
+    try {
+      return fromValue(JSON.parse(raw));
+    } catch {
+      return false; // not JSON — no claim about creation
+    }
+  }
+  // Claude Code may deliver a result as an array of content blocks.
+  if (Array.isArray(raw)) {
+    return raw.some((block) => {
+      const text = (block as Record<string, unknown> | null)?.["text"];
+      return typeof text === "string" && resultReportsCreated(text);
+    });
+  }
+  return fromValue(raw);
+}
+
+export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
+  const commentLines = (text: string): string[] => {
+    const out: string[] = [];
+    for (const raw of text.split("\n")) {
+      const m = raw.match(COMMENT_LINE_RE);
+      const body = m?.[1]?.trim();
+      if (body) out.push(body);
+    }
+    return out;
+  };
+
+  const pick = (input: Record<string, unknown>, keys: string[]): string =>
+    keys
+      .map((k) => input[k])
+      .filter((v): v is string => typeof v === "string")
+      .join("\n");
+
+  // `created: true` on the correlated result is the only signal distinguishing a
+  // NEW file (every comment genuinely added) from an overwrite (most of them
+  // pre-existing). Absent, the write is skipped.
+  const createdByToolUseId = new Set<string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "user" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_result") continue;
+      const id = block["tool_use_id"];
+      if (typeof id !== "string") continue;
+      if (resultReportsCreated(block["content"])) createdByToolUseId.add(id);
+    }
+  }
+
+  // Deduped: the same comment written by two tools in one turn is one assertion,
+  // and duplicates would inflate the claim corpus (PR #2549 R1).
+  const added = new Set<string>();
+
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      const name = (block["name"] as string) ?? "";
+      if (!WRITE_CLASS_TOOL_RE.test(name)) continue;
+      const input = block["input"];
+      if (!input || typeof input !== "object") continue;
+
+      const asRecord = input as Record<string, unknown>;
+      const oldText = pick(asRecord, WRITE_INPUT_OLD_KEYS);
+      const isWholeFile = oldText.length === 0 && pick(asRecord, WHOLE_FILE_INPUT_KEYS).length > 0;
+      if (isWholeFile) {
+        const id = block["id"];
+        if (typeof id !== "string" || !createdByToolUseId.has(id)) continue;
+      }
+
+      const newComments = commentLines(pick(asRecord, WRITE_INPUT_NEW_KEYS));
+      if (newComments.length === 0) continue;
+
+      const oldComments = new Set(commentLines(oldText));
+      for (const c of newComments) {
+        if (!oldComments.has(c)) added.add(c);
+      }
+    }
+  }
+
+  return [...added].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Relay-context detection (mt#3113 leg 3)
 // ---------------------------------------------------------------------------
@@ -1178,12 +1331,23 @@ export function run(
 
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
+  let commentResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
+    // mt#3571 — the comment surface. A SEPARATE pass, never fed into
+    // `computeSuppressionReasons` or the injection branch, so it is log-only by
+    // construction rather than by a suppression flag that a one-line edit could
+    // remove. Same verification corpus: a comment about a symbol the agent
+    // actually read this turn is backed, exactly as in chat prose.
+    commentResult = detectCodeMechanismAssertion(
+      buildAddedCommentCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1191,7 +1355,10 @@ export function run(
     return null;
   }
 
-  if (!result.matched) return null;
+  // Both surfaces gate the record. Returning on `!result.matched` alone would
+  // have made the comment surface silently dead: on a turn whose chat prose
+  // asserts nothing, the guard would exit before writing any calibration record.
+  if (!result.matched && !commentResult.matched) return null;
 
   const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
   const {
@@ -1199,6 +1366,20 @@ export function run(
     claimSetSignature: signature,
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id, shouldInjectClaimSetFn);
+
+  // mt#3571 / PR #2549 R1. An earlier draft recorded the comment surface with NO
+  // suppression reason, on the reasoning that "suppressed" misdescribes a claim
+  // that never entered the injection path. That reasoning was about what the
+  // LABEL means and ignored what the CONSUMER does with it: `isSuppressedRecord`
+  // (`calibration-sweep.ts`) is `suppressionReasons.length > 0`, and its docblock
+  // states that a record without one "counts as injected here: unknown is treated
+  // as operator-facing so a missing outcome can never hide a real fire."
+  //
+  // So an unlabeled comment-only record would be counted as an operator-facing
+  // fire it never was — inflating the injected count AND driving the review
+  // cadence, which keys off `injectedFiresSinceLastReview`. The measurement this
+  // surface exists to enable would have been corrupted by its own records.
+  if (!result.matched) suppressionReasons.push("comment-surface-only");
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -1210,10 +1391,19 @@ export function run(
       claimSetSignature: signature,
       suppressionReasons,
       relayReasons,
+      // mt#3571 — recorded, never injected. Present as its own fields rather
+      // than merged into `claims` so calibration review can measure this
+      // surface's FP rate separately from the chat surface's before anyone
+      // proposes wiring it.
+      commentSurfaceClaims: commentResult.claims,
+      commentSurfaceClaimCount: commentResult.claims.length,
     },
   };
 
-  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
+  // `result.matched` is required here, not implied. Since the early return above
+  // now also admits comment-only turns, without it a turn whose ONLY claim is in
+  // a comment would inject a reminder built from an EMPTY chat-claim array.
+  if (INJECTION_ENABLED && result.matched && suppressionReasons.length === 0) {
     outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
   }
 
@@ -1276,12 +1466,19 @@ export async function main(): Promise<void> {
 
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
+  let commentResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
+    // mt#3571 — comment surface, identical composition to run()'s path.
+    commentResult = detectCodeMechanismAssertion(
+      buildAddedCommentCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -1289,7 +1486,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!result.matched) process.exit(0);
+  if (!result.matched && !commentResult.matched) process.exit(0);
 
   // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
   // identical composition to run()'s dispatcher path.
@@ -1298,6 +1495,9 @@ export async function main(): Promise<void> {
     claimSetSignature: signature,
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id);
+
+  // See run()'s comment: without this the record classifies as operator-facing.
+  if (!result.matched) suppressionReasons.push("comment-surface-only");
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
@@ -1309,10 +1509,13 @@ export async function main(): Promise<void> {
       claimSetSignature: signature,
       suppressionReasons,
       relayReasons,
+      commentSurfaceClaims: commentResult.claims,
+      commentSurfaceClaimCount: commentResult.claims.length,
     });
   }
 
-  if (!INJECTION_ENABLED || suppressionReasons.length > 0) process.exit(0);
+  // `!result.matched` is required, not implied — see run()'s matching comment.
+  if (!INJECTION_ENABLED || !result.matched || suppressionReasons.length > 0) process.exit(0);
 
   const output: HookOutput = {
     hookSpecificOutput: {
