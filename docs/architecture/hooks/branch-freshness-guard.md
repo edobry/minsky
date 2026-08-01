@@ -16,13 +16,19 @@ and related tasks.
 
 1. Detects the current HEAD branch from `input.cwd`.
 2. Checks whether `origin/<branch>` exists — if not (fresh branch, not yet pushed), allows silently.
-3. Compares `origin/<branch>..origin/main` — if main has commits the branch lacks, blocks.
-4. Block message lists: the count of diverging commits, the first 10 commit subjects (oneline), and the instruction "Review the new commits on main before continuing."
+3. Compares `origin/<branch>..origin/main`. If main has no new commits, allows silently.
+4. **(mt#3484)** If main IS ahead, asks the question that actually matters: do those commits
+   touch anything this branch touches? `computeDiffOverlap` intersects `mainRef...branchRef`
+   (this branch's own diff) plus the working tree against `branchRef...mainRef` (main's new
+   changes). No intersection → **allow**, with a non-silent line saying the branch is behind
+   but disjoint. Intersection → block.
+5. Block message leads with the reason — the overlapping files (capped at 10), or the failed
+   probe on the fail-closed path — then the diverging commit subjects and the remedy.
 
-**On block:** run `session_update` to rebase on main, review the merged PRs to check for
-overlap, then retry the original operation. As of mt#2815, the common case of this — a
-clean working tree and a merge that applies with no conflicts — is now handled inline (see
-"Clean-tree auto-merge" below) and no longer requires this manual round-trip.
+**On block:** review the named overlapping files for a sibling fix that subsumes this work,
+then `session_update` (or `git_push` — see "Two states, opposite remedies" below) and retry.
+As of mt#2815 a clean tree whose merge applies without conflicts is handled inline (see
+"Clean-tree auto-merge" below).
 
 **Override mechanism:** Set `MINSKY_SKIP_FRESHNESS=1` in your environment before invoking
 the tool:
@@ -150,3 +156,80 @@ with the same constraint. The `events` option (default
 The walker performs exact-or-suffix path-segment matching against the
 hook's basename — case-sensitive, separator-normalised so Windows-style
 backslash paths in settings.json work cross-platform.
+
+## Diff-overlap predicate (mt#3484)
+
+Until mt#3484 the guard blocked on **ahead-count**: `origin/<branch>..origin/main` being
+non-empty. That is a proxy for the question the guard's own rationale states — "sibling PRs
+that merged may have already fixed the same bug, making the current work redundant or
+conflicting" — and under concurrent-agent load the proxy fires constantly while the underlying
+risk stays rare.
+
+**The measurement that forced the change (2026-07-31, mt#3484).** The prescribed remedy cycle
+took ~205s end-to-end (`session_update` 114–115s plus `git_push` 91–92s, both pushes hitting
+their 90s bound). Over the same window main advanced every ~2.6 min on average — 12 PRs merged
+between 19:36:57Z and 20:08:21Z, with sub-minute clusters. The precondition was re-invalidated
+faster than its own remedy could satisfy it: **seven consecutive `session_commit` denials in
+fifteen minutes** in one conversation, six more concurrently in another. Guard deny counts were
+rising with fleet size (3 on 07-26 → 23 on 07-31) against flat allow volume. Not one of the
+seven blocking batches touched a file the blocked PR's diff touched.
+
+A second-order effect made it worse: each `session_update` writes a
+`Merge remote-tracking branch 'origin/main' into task/mt-XXXX` commit that lands on main with
+the PR, inflating every other agent's ahead-count. 16 of the 45 commits listed across that
+incident's block messages (~36%) were other branches' merge-from-main commits. Complying with
+the guard generated the load the guard measured.
+
+**What did NOT change.** GitHub's `requiresStrictStatusChecks` ("Require branches to be up to
+date before merging") is enabled on `main` and stays enabled. This guard was always an
+_additional_, strictly earlier copy of that requirement, applied on every commit rather than
+once per merge. Only the copy narrows; the merge-time guarantee is untouched.
+
+**Fail-closed.** `computeDiffOverlap`'s probes return `string[] | null`, and `null` (a non-zero
+`git` exit) is NOT "no overlap" — it forces `overlaps: true` with `undetermined` naming the
+failed probe, and the block message says so. An empty array is distinct: it means the probe ran
+and found nothing. Conflating the two would make every no-op diff fail closed; conflating them
+the other way would let a broken probe read as a pass, which is the failure mem#704 names.
+Budget exhaustion likewise falls back to the pre-mt#3484 ahead-count block rather than allowing.
+
+**Working tree is included on the branch side.** At `session_commit` time the edit about to be
+committed is not in any committed range yet, but it is exactly the content at risk. Rename
+entries in `git status --porcelain` (`R  old -> new`) contribute the destination path.
+
+### Two states, opposite remedies
+
+When `origin/main` is ahead of `origin/<branch>` there are two situations, and the old message
+conflated them:
+
+| State                                  | What happened                   | Remedy           |
+| -------------------------------------- | ------------------------------- | ---------------- |
+| (a) local branch already contains main | someone merged and never pushed | **`git_push`**   |
+| (b) local branch does not contain main | main genuinely advanced         | `session_update` |
+
+`session_update` does not fix (a): a local branch that is already `ahead` short-circuits to
+`skipped: "No update needed - session is current or ahead"`
+(`packages/domain/src/git/conflict-detection.ts`) and returns via `finalize()` **before** its
+push step (`session-update-operations.ts`), so `origin/<branch>` never advances and the guard
+blocks again — indefinitely. mt#2815's own auto-merge CREATES state (a), because it merges
+local-only and never pushes.
+
+The agent cannot distinguish these from any tool it has: `git_status` against a session
+workspace returns `upstream: null, ahead: null, behind: null`. `localBranchContainsMain` runs
+`git merge-base --is-ancestor <mainRef> HEAD` and the message names the right remedy. Exit 0 is
+yes, exit 1 is no, and any **other** exit is a real failure returning `null` — rendering the
+generic guidance rather than confidently asserting the wrong remedy.
+
+### Effect on the mt#2815 auto-merge
+
+The clean-tree auto-merge now runs only when the guard has **positive overlap knowledge** —
+`shouldAttemptAutoMerge` requires `overlap.overlaps === true`, which covers a real file overlap and
+the `undetermined` probe (a clean merge resolves either). It deliberately does **not** run on the
+budget-exhausted deny, where `overlap` is `undefined`: auto-merge WRITES to the branch, and
+mutating a branch about which nothing was established is precisely what "narrowed scope" excludes.
+That predicate is an exported function rather than an entrypoint conditional so it is testable —
+"when do we mutate the branch?" should not live only in unreachable `import.meta.main` code
+(PR #2536 R1). Its original justification — resolving disjoint-file staleness inline — is
+obsolete: those cases no longer block at all, which is strictly better than resolving them by
+mutating the branch. What remains is a genuinely useful narrower slot: the files overlap, but
+git merges them cleanly, so absorb main and proceed. The protective property is unchanged — a
+conflicting merge is aborted and the call denied.
