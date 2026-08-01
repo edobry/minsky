@@ -62,6 +62,24 @@ Replies are rendered — bold, italic, code, fenced blocks, links, quotes — vi
 Telegram's HTML mode. Tables become monospace blocks and headings become bold
 lines, because Telegram has no markup for either.
 
+**Replies stream.** Rather than arriving as one blob when the turn ends, the
+answer appears as soon as there is any of it and fills in as it is written. It
+is a single message being edited in place, roughly once a second — so your phone
+notifies you ONCE, when the reply first appears, not on every update. A reply
+too long for one Telegram message continues into a second one, split at a
+paragraph or line break rather than mid-word.
+
+Two things worth knowing about how it settles:
+
+- **What you see mid-stream can change.** A turn that uses tools writes text
+  around each step; the message settles on the turn's final answer when it
+  finishes, which is not always the concatenation of everything that flickered
+  past.
+- **Streaming can never cost you the reply.** If editing fails partway, the
+  complete answer is sent as a fresh message rather than left half-drawn — you
+  may see some text twice, which is the deliberate trade. A half-written reply
+  that never finishes would be worse than the blob this replaced.
+
 **Telegram's ✓ / ✓✓ checkmarks mean nothing here.** They are a client
 affordance between Telegram's servers and your app: the Bot API exposes no
 read-receipt or tick state at all, so the bot can neither read nor set them, and
