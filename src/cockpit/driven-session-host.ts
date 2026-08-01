@@ -50,6 +50,7 @@ import { statSync } from "fs";
 import { stat } from "fs/promises";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
+import { INTERRUPTION_NOTICE_TEXT } from "@minsky/shared/minsky-notices";
 import {
   buildDrivenSessionMcpConfig,
   mcpConfigArgs,
@@ -1110,12 +1111,14 @@ function wireChildProcess(
  * VERIFIES rather than blindly re-executes when told to — this notice turns
  * that observed behavior into a designed one rather than leaving it to
  * chance whether the model happens to notice the gap on its own.
+ *
+ * The string itself moved to `@minsky/shared/minsky-notices` (mt#3396) and is
+ * re-exported here so existing importers are unaffected. It needs a second
+ * consumer the browser bundle can reach: the render surface detects this notice
+ * so it stops rendering under the operator's label, and
+ * `custom/no-node-import-in-cockpit-web` forbids importing this module there.
  */
-export const INTERRUPTION_NOTICE_TEXT =
-  "[minsky] This conversation was resumed after an unexpected interruption — the previous " +
-  "actuator process was terminated (most likely a cockpit daemon restart) potentially " +
-  "mid-turn. Before continuing, verify whether your last in-flight action actually " +
-  "completed rather than assuming it did.";
+export { INTERRUPTION_NOTICE_TEXT };
 
 /** The subset of a persisted/in-memory record {@link resumeDrivenSession} needs to respawn. */
 export interface DrivenSessionResumeSource {
