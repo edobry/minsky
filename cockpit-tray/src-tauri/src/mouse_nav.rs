@@ -86,6 +86,20 @@ pub(crate) fn install(app: &tauri::AppHandle) {
 
         // `Some(true)` = forward, `Some(false)` = back, `None` = not ours.
         let direction: Option<bool> = match ev.r#type() {
+            // A two-finger TRACKPAD page-swipe also lands here, and that is not
+            // separable (PR #2547 R1). Measured on this machine: both the thumb
+            // buttons and a trackpad swipe produce `deltaX = +/-1.0` with a
+            // began->ended phase pair and no fractional deltas -- AppKit
+            // deliberately normalizes both input sources into one "swipe"
+            // abstraction, so there is no field left to discriminate on.
+            //
+            // Accepted rather than worked around: a trackpad page-swipe
+            // navigating cockpit history is the platform-conventional behavior,
+            // and swallowing it costs nothing, because horizontal SCROLLING is
+            // `NSEventTypeScrollWheel` -- a different type this monitor never
+            // sees. Nothing else in the tray consumes swipes: the webview's own
+            // `allowsBackForwardNavigationGestures` is off (never set), so there
+            // is no competing handler to double-navigate.
             NSEventType::Swipe => {
                 let dx = ev.deltaX();
                 if dx > SWIPE_DEADZONE {

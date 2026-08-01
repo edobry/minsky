@@ -270,9 +270,16 @@ pub(crate) fn eval_history_nav(app: &AppHandle, forward: bool, guard_editable: b
         return;
     };
     let method = if forward { "forward" } else { "back" };
+    // Only TEXT-ENTRY focus suppresses the keyboard path. mt#3535 tested
+    // `tagName === 'INPUT'`, which was over-broad (PR #2547 R1): a focused
+    // checkbox, radio, or button is an INPUT where Cmd+[ is not an editing
+    // command, so navigation should still happen. SELECT is likewise not
+    // text entry. Matching on the input TYPE keeps the carve-out to the case
+    // it exists for -- losing typed text mid-edit.
     let guard = if guard_editable {
         "var a = document.activeElement;\n  \
-         if (a && (a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;\n  "
+         var textEntry = a && a.tagName === 'INPUT' && /^(text|search|url|tel|email|password|number|date|datetime-local|month|week|time)$/i.test(a.type || 'text');\n  \
+         if (a && (a.isContentEditable || textEntry || a.tagName === 'TEXTAREA')) return;\n  "
     } else {
         ""
     };
