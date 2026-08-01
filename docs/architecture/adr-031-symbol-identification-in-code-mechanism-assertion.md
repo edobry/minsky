@@ -9,8 +9,10 @@ Accepted — 2026-08-01. Decided under mt#3549.
 `code-mechanism-assertion` fires when an agent asserts how a code mechanism behaves without having
 read it that turn. To do that it must first decide, for each token in the assertion, whether the
 token names a code mechanism at all. `isPlausibleSymbol`
-(`.minsky/hooks/code-mechanism-assertion-detector.ts:404`) answers that by SHAPE — camelCase,
+(`.minsky/hooks/code-mechanism-assertion-detector.ts`) answers that by SHAPE — camelCase,
 snake_case, backticked, path-like — minus a list of shapes that look like symbols but are not.
+(Named, not line-anchored: this ADR's own doc-comment addition to that function shifted the line
+it would have cited, which is the drift a line number in a durable record buys.)
 
 That exclusion list has been extended five times, each round closing a class observed in
 calibration data:

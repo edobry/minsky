@@ -110,7 +110,8 @@ embedding; learned confirm) are gated by measured evidence, not dates.
   ADR, recorded there rather than here: the rungs below are about matching trigger PHRASES, so
   they do not reach the separate question of whether a token names a code symbol at all. That
   axis went five rounds of shape exclusions without a rung to belong to; ADR-031 names it and
-  decides it (shape-based, allowlist rejected on measurement).
+  decides it (shape-based, allowlist rejected on measurement) — with three explicit conditions
+  that reopen the question, so the rejection is bounded rather than permanent.
 - Reuse: `.claude/hooks/block-out-of-band-merge.ts` (`elideMarkdownNonProse` — the Rung-1
   elision pattern); shared detector framework `packages/domain/src/detectors/` (mt#1035,
   mt#1543; part of the attention-allocation subsystem).
