@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   runPollCycle,
   truncateReply,
+  type BindTopicOutcome,
   type ChannelActuator,
   type PollCursor,
   type PollCycleDeps,
@@ -22,6 +23,8 @@ const TOKEN = "tok";
 const CHAT = "167346572";
 const GET_UPDATES = "/getUpdates";
 const SEND_MESSAGE = "/sendMessage";
+/** Telegram's wire key for a topic thread — shared across many test bodies below. */
+const THREAD_ID_KEY = "message_thread_id";
 
 interface Recorded {
   type: string;
@@ -81,6 +84,10 @@ function harness(
     duplicateUpdateIds?: number[];
     /** mt#3505 — resolves the actuator for a message carrying a thread id. */
     resolveTopicActuator?: PollCycleDeps["resolveTopicActuator"];
+    /** mt#3507 — carries out a `/bind`. */
+    bindTopic?: PollCycleDeps["bindTopic"];
+    /** mt#3507 — records a topic mapping as dead after drift reconciliation. */
+    markTopicDead?: PollCycleDeps["markTopicDead"];
   } = {}
 ): Harness {
   const recorded: Recorded[] = [];
@@ -150,6 +157,8 @@ function harness(
     ...(overrides.resolveTopicActuator
       ? { resolveTopicActuator: overrides.resolveTopicActuator }
       : {}),
+    ...(overrides.bindTopic ? { bindTopic: overrides.bindTopic } : {}),
+    ...(overrides.markTopicDead ? { markTopicDead: overrides.markTopicDead } : {}),
   };
 
   return { deps, recorded, sentTexts, actuatorCalls, cursorWrites, order, baseFetch };
@@ -719,7 +728,7 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
     };
 
     await runPollCycle(h.deps);
-    expect(sentBody["message_thread_id"]).toBe(749667);
+    expect(sentBody[THREAD_ID_KEY]).toBe(749667);
   });
 
   test("two messages in the SAME topic remain strictly ordered", async () => {
@@ -815,6 +824,210 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
 
     expect(topicInterrupted).toEqual(["topic"]);
     expect(standingInterrupted).toEqual([]);
+  });
+});
+
+/**
+ * Ask replies land in the topic they arrived in (mt#3507 success criterion).
+ *
+ * Already true structurally as of mt#3505 — `sendReply` threads
+ * `message.messageThreadId` for EVERY route, `/answer` included. This locks
+ * the behavior in explicitly rather than leaving it as an inference from the
+ * generic per-topic tests above.
+ */
+describe("runPollCycle — /answer replies land in the topic it was asked in (mt#3507)", () => {
+  test("/answer inside a topic is answered in that same topic", async () => {
+    let sentThreadId: unknown;
+    const h = harness(
+      updateBody([
+        { updateId: 97, text: "/answer abc123 go with option B", messageThreadId: 749667 },
+      ]),
+      {
+        resolveTopicActuator: async () => ({
+          converse: async (text) => text,
+          interrupt: async () => "stopped",
+          reset: async () => "fresh",
+          answerAsk: async (ref, text) => `ask ${ref} answered: ${text}`,
+        }),
+      }
+    );
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        sentThreadId = (JSON.parse(String(init?.body)) as Record<string, unknown>)[THREAD_ID_KEY];
+      }
+      return inner(url, init);
+    };
+
+    await runPollCycle(h.deps);
+    expect(sentThreadId).toBe(749667);
+  });
+});
+
+/**
+ * `/bind` handling (mt#3507).
+ *
+ * No actuator is ever consulted here — binding writes a mapping row, it does
+ * not run a conversational turn, so every case below asserts `bindTopic`
+ * (or its absence) drives the reply, not `converse`.
+ */
+describe("runPollCycle — /bind (mt#3507)", () => {
+  test("in the standing conversation (no thread id), refuses without calling bindTopic", async () => {
+    let called = false;
+    const h = harness(updateBody([{ updateId: 90, text: "/bind mt#3507" }]), {
+      bindTopic: async () => {
+        called = true;
+        return { kind: "bound", taskId: "mt#3507" };
+      },
+    });
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(called).toBe(false);
+    expect(h.sentTexts[0]).toContain("standing conversation");
+    expect(h.actuatorCalls).toEqual([]);
+  });
+
+  test("with no bindTopic dep wired at all, answers that binding isn't available", async () => {
+    const h = harness(
+      updateBody([{ updateId: 91, text: "/bind mt#3507", messageThreadId: 100 }])
+      // no bindTopic override — mirrors a poller launched without topic support
+    );
+    await runPollCycle(h.deps);
+    expect(h.sentTexts[0]).toContain("isn't available");
+  });
+
+  test("inside a topic, calls bindTopic with the thread id and task ref", async () => {
+    const seen: Array<[number, string]> = [];
+    const h = harness(
+      updateBody([{ updateId: 92, text: "/bind mt#3507", messageThreadId: 749667 }]),
+      {
+        bindTopic: async (threadId, taskRef) => {
+          seen.push([threadId, taskRef]);
+          return { kind: "bound", taskId: "mt#3507" };
+        },
+      }
+    );
+    const outcome = await runPollCycle(h.deps);
+
+    expect(seen).toEqual([[749667, "mt#3507"]]);
+    expect(outcome.handled).toBe(1);
+    expect(h.sentTexts[0]).toContain("mt#3507");
+    expect(h.sentTexts[0]).toContain("Bound");
+  });
+
+  test("a malformed or nonexistent task id is refused, with the reason from bindTopic", async () => {
+    const h = harness(
+      updateBody([{ updateId: 93, text: "/bind not-a-task", messageThreadId: 749667 }]),
+      {
+        bindTopic: async (): Promise<BindTopicOutcome> => ({
+          kind: "invalid-task",
+          detail: '"not-a-task" isn\'t a task id I recognize (expected e.g. mt#123).',
+        }),
+      }
+    );
+    await runPollCycle(h.deps);
+    expect(h.sentTexts[0]).toContain("Could not bind");
+    expect(h.sentTexts[0]).toContain("isn't a task id I recognize");
+  });
+
+  test("never dispatches to the conversation actuator", async () => {
+    // Regression against the failure mode "bind quietly became a chat turn":
+    // no route to converse/answerAsk/etc for a bind route, ever.
+    const h = harness(
+      updateBody([{ updateId: 94, text: "/bind mt#3507", messageThreadId: 749667 }]),
+      {
+        bindTopic: async () => ({ kind: "bound", taskId: "mt#3507" }),
+        resolveTopicActuator: async () => {
+          throw new Error("must not be called for a bind route");
+        },
+      }
+    );
+    const outcome = await runPollCycle(h.deps);
+    expect(outcome.handled).toBe(1);
+  });
+
+  test("a /bind reply is recorded in the audit log with route 'bind'", async () => {
+    const h = harness(
+      updateBody([{ updateId: 95, text: "/bind mt#3507", messageThreadId: 749667 }]),
+      { bindTopic: async () => ({ kind: "bound", taskId: "mt#3507" }) }
+    );
+    await runPollCycle(h.deps);
+    expect(h.recorded[0]?.payload.route).toBe("bind");
+  });
+});
+
+/**
+ * Reply-time drift reconciliation (mt#3507) — a reply INTO a topic whose
+ * thread Telegram no longer recognizes must not be lost.
+ */
+describe("runPollCycle — reply drift reconciliation (mt#3507)", () => {
+  function harnessWithThreadNotFound(messageThreadId: number): {
+    h: Harness;
+    sentBodies: Record<string, unknown>[];
+  } {
+    const sentBodies: Record<string, unknown>[] = [];
+    const h = harness(updateBody([{ updateId: 96, text: "go", messageThreadId }]), {
+      resolveTopicActuator: async () => ({
+        converse: async () => "the answer",
+        interrupt: async () => "stopped",
+        reset: async () => "fresh",
+        answerAsk: async () => "answered",
+      }),
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sentBodies.push(body);
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(
+            JSON.stringify({ ok: false, description: "Bad Request: message thread not found" }),
+            { status: 400 }
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } }));
+      }
+      return inner(url, init);
+    };
+    return { h, sentBodies };
+  }
+
+  test("a reply into a dead topic falls back to the standing conversation with a note", async () => {
+    const { h, sentBodies } = harnessWithThreadNotFound(749667);
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    // The reply is short enough to attempt formatted (HTML) first, so
+    // sendTelegramMessage's OWN pre-existing markup-retry fires once against
+    // the (still dead) thread before this wrapper's outer fallback finally
+    // drops the thread id — every attempt up to the last carries the topic's
+    // thread id; only the FINAL, successful one does not.
+    const last = sentBodies[sentBodies.length - 1];
+    expect(sentBodies.length).toBeGreaterThanOrEqual(2);
+    expect(sentBodies[0]?.[THREAD_ID_KEY]).toBe(749667);
+    expect(THREAD_ID_KEY in (last ?? {})).toBe(false);
+    expect(String(last?.["text"])).toContain("could not be found");
+  });
+
+  test("calls markTopicDead with the chat and the dead thread id", async () => {
+    const deadCalls: Array<[string, number]> = [];
+    const { h } = harnessWithThreadNotFound(749667);
+    h.deps.markTopicDead = async (chatId, messageThreadId) => {
+      deadCalls.push([chatId, messageThreadId]);
+    };
+
+    await runPollCycle(h.deps);
+    expect(deadCalls).toEqual([[CHAT, 749667]]);
+  });
+
+  test("with no markTopicDead dep wired, the reply still falls back (just isn't recorded)", async () => {
+    const { h, sentBodies } = harnessWithThreadNotFound(749667);
+    // No markTopicDead override — mirrors a poller launched without it wired.
+    const outcome = await runPollCycle(h.deps);
+    expect(outcome.handled).toBe(1);
+    const last = sentBodies[sentBodies.length - 1];
+    expect(THREAD_ID_KEY in (last ?? {})).toBe(false);
   });
 });
 

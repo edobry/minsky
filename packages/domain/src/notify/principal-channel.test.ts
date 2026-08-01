@@ -8,15 +8,22 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   clearPrincipalChannelCache,
+  findTelegramTopicForTask,
+  markTelegramChannelTopicDead,
   notifyPrincipal,
   resolvePrincipalChannel,
   TELEGRAM_CHAT_ID_PULUMI_KEY,
   type PrincipalChannelDeps,
+  type TelegramTopicDb,
 } from "./principal-channel";
 
 const NOTHING_IN_ENV = () => undefined;
 const NO_PULUMI_TOKEN = async () => null;
 const NO_PULUMI_PLAIN = async () => null;
+/** Telegram's wire key for a topic thread — shared across the taskId-routing cases. */
+const THREAD_ID_KEY = "message_thread_id";
+/** A representative alert body — shared across the byte-for-byte regression cases. */
+const SOAK_TEST_MESSAGE = "soak test is green";
 
 function deps(overrides: Partial<PrincipalChannelDeps> = {}): PrincipalChannelDeps {
   return {
@@ -167,7 +174,7 @@ describe("notifyPrincipal", () => {
   test("sends the message and reports the delivered id", async () => {
     let sent: Record<string, unknown> = {};
     const result = await notifyPrincipal({
-      message: "soak test is green",
+      message: SOAK_TEST_MESSAGE,
       deps: configured(async (_url, init) => {
         sent = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({ ok: true, result: { message_id: 55 } }));
@@ -176,7 +183,7 @@ describe("notifyPrincipal", () => {
 
     expect(result).toEqual({ delivered: true, messageId: 55, chatId: "999", source: "pulumi" });
     expect(sent["chat_id"]).toBe("999");
-    expect(sent["text"]).toBe("soak test is green");
+    expect(sent["text"]).toBe(SOAK_TEST_MESSAGE);
   });
 
   test("renders the title above the body", async () => {
@@ -220,5 +227,228 @@ describe("notifyPrincipal", () => {
     expect(result.delivered).toBe(false);
     if (result.delivered) return;
     expect(result.detail).not.toContain("/bottok/");
+  });
+
+  // mt#3507 — the `taskId` parameter is a prerequisite for posting into a
+  // task's bound topic. Every case here uses `configured()`, so the WIRE
+  // send happens exactly as in the tests above; only the topic-lookup deps
+  // vary.
+  describe("taskId topic routing (mt#3507)", () => {
+    test("a taskId with no lookupTaskTopic wired falls back to standing (no crash, no topic)", async () => {
+      let sent: Record<string, unknown> = {};
+      await notifyPrincipal({
+        message: "PR is up",
+        taskId: "mt#3507",
+        deps: configured(async (_url, init) => {
+          sent = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+        }),
+      });
+      expect(sent[THREAD_ID_KEY]).toBeUndefined();
+    });
+
+    test("posts into the topic when lookupTaskTopic resolves one", async () => {
+      let sent: Record<string, unknown> = {};
+      const d = configured(async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+      });
+      d.lookupTaskTopic = async (taskId) => {
+        expect(taskId).toBe("mt#3507");
+        return { messageThreadId: 749667 };
+      };
+
+      await notifyPrincipal({ message: "PR is up", taskId: "mt#3507", deps: d });
+      expect(sent[THREAD_ID_KEY]).toBe(749667);
+    });
+
+    test("falls back to the standing conversation (no topic in the payload) when the task has no bound topic", async () => {
+      let sent: Record<string, unknown> = {};
+      const d = configured(async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+      });
+      d.lookupTaskTopic = async () => null;
+
+      await notifyPrincipal({ message: "PR is up", taskId: "mt#9999", deps: d });
+      expect(THREAD_ID_KEY in sent).toBe(false);
+    });
+
+    test("regression: omitting taskId reproduces today's wire payload byte-for-byte", async () => {
+      // The exact regression the spec calls for.
+      let rawBody = "";
+      await notifyPrincipal({
+        message: SOAK_TEST_MESSAGE,
+        deps: configured(async (_url, init) => {
+          rawBody = String(init?.body);
+          return new Response(JSON.stringify({ ok: true, result: { message_id: 55 } }));
+        }),
+      });
+      expect(rawBody).toBe(
+        JSON.stringify({
+          chat_id: "999",
+          text: SOAK_TEST_MESSAGE,
+          disable_web_page_preview: true,
+        })
+      );
+    });
+
+    test("never calls lookupTaskTopic when no taskId is supplied", async () => {
+      let called = false;
+      const d = configured(
+        async () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }))
+      );
+      d.lookupTaskTopic = async () => {
+        called = true;
+        return null;
+      };
+      await notifyPrincipal({ message: "hi", deps: d });
+      expect(called).toBe(false);
+    });
+
+    test("drift reconciliation: a dead topic falls back to standing and says so in the delivered text", async () => {
+      const sentBodies: Record<string, unknown>[] = [];
+      const d = configured(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sentBodies.push(body);
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(
+            JSON.stringify({ ok: false, description: "Bad Request: message thread not found" }),
+            { status: 400 }
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } }));
+      });
+      d.lookupTaskTopic = async () => ({ messageThreadId: 749667 });
+
+      const result = await notifyPrincipal({
+        message: "your PR is up",
+        taskId: "mt#3507",
+        deps: d,
+      });
+
+      expect(result.delivered).toBe(true);
+      if (!result.delivered) return;
+      expect(result.fellBackFromDeadTopic).toBe(true);
+      expect(sentBodies).toHaveLength(2);
+      expect(sentBodies[1]?.[THREAD_ID_KEY]).toBeUndefined();
+      expect(String(sentBodies[1]?.["text"])).toContain("could not be found");
+    });
+
+    test("drift reconciliation: marks the mapping dead via markTopicDead", async () => {
+      const deadCalls: Array<[string, number]> = [];
+      const d = configured(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(
+            JSON.stringify({ ok: false, description: "Bad Request: message thread not found" }),
+            { status: 400 }
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } }));
+      });
+      d.lookupTaskTopic = async () => ({ messageThreadId: 749667 });
+      d.markTopicDead = async (chatId, messageThreadId) => {
+        deadCalls.push([chatId, messageThreadId]);
+      };
+
+      await notifyPrincipal({ message: "your PR is up", taskId: "mt#3507", deps: d });
+      expect(deadCalls).toEqual([["999", 749667]]);
+    });
+
+    test("an unrelated send failure (not the thread-not-found signal) is NOT treated as drift", async () => {
+      const d = configured(async () => new Response("nope", { status: 500 }));
+      d.lookupTaskTopic = async () => ({ messageThreadId: 749667 });
+      let deadCalled = false;
+      d.markTopicDead = async () => {
+        deadCalled = true;
+      };
+
+      const result = await notifyPrincipal({ message: "hi", taskId: "mt#3507", deps: d });
+      expect(result.delivered).toBe(false);
+      expect(deadCalled).toBe(false);
+    });
+  });
+});
+
+/**
+ * Task-topic mapping helpers (mt#3507) — the raw DB-backed functions
+ * `notifyPrincipal`'s `lookupTaskTopic`/`markTopicDead` deps wrap in
+ * production. Tested directly against a fake `TelegramTopicDb` so no test
+ * touches a real database.
+ */
+describe("findTelegramTopicForTask (mt#3507)", () => {
+  function fakeDb(rows: unknown[]): { db: TelegramTopicDb; queries: unknown[] } {
+    const queries: unknown[] = [];
+    return {
+      queries,
+      db: {
+        execute: async (query: unknown) => {
+          queries.push(query);
+          return rows;
+        },
+      },
+    };
+  }
+
+  test("returns the bound topic's thread id", async () => {
+    const { db } = fakeDb([{ message_thread_id: 749667 }]);
+    const result = await findTelegramTopicForTask("mt#3507", { getDb: async () => db });
+    expect(result).toEqual({ messageThreadId: 749667 });
+  });
+
+  test("returns null when no row matches (an unbound task)", async () => {
+    const { db } = fakeDb([]);
+    const result = await findTelegramTopicForTask("mt#9999", { getDb: async () => db });
+    expect(result).toBeNull();
+  });
+
+  test("degrades to null, not a throw, when persistence is unavailable", async () => {
+    const result = await findTelegramTopicForTask("mt#3507", { getDb: async () => null });
+    expect(result).toBeNull();
+  });
+
+  test("degrades to null, not a throw, when the query itself throws", async () => {
+    const result = await findTelegramTopicForTask("mt#3507", {
+      getDb: async () => ({
+        execute: async () => {
+          throw new Error("db down");
+        },
+      }),
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe("markTelegramChannelTopicDead (mt#3507)", () => {
+  test("issues a delete keyed on (chatId, messageThreadId)", async () => {
+    const queries: unknown[] = [];
+    await markTelegramChannelTopicDead("999", 749667, {
+      getDb: async () => ({
+        execute: async (query: unknown) => {
+          queries.push(query);
+          return [];
+        },
+      }),
+    });
+    expect(queries).toHaveLength(1);
+  });
+
+  test("does not throw when persistence is unavailable", async () => {
+    await expect(
+      markTelegramChannelTopicDead("999", 749667, { getDb: async () => null })
+    ).resolves.toBeUndefined();
+  });
+
+  test("does not throw when the delete itself fails", async () => {
+    await expect(
+      markTelegramChannelTopicDead("999", 749667, {
+        getDb: async () => ({
+          execute: async () => {
+            throw new Error("db down");
+          },
+        }),
+      })
+    ).resolves.toBeUndefined();
   });
 });
