@@ -48,6 +48,7 @@ import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
+import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
   Select,
   SelectContent,
@@ -104,6 +105,13 @@ export interface WorkspaceOverviewFields {
 export interface ConversationCandidate {
   agentSessionId: string;
   startedAt: string | null;
+  /**
+   * How the link was resolved (mt#3529) — the union is imported, not restated,
+   * so a third provenance cannot land server-side while this copy goes stale.
+   * Optional: conversation-keyed arrivals construct their single candidate
+   * client-side, with no server round-trip to carry provenance.
+   */
+  source?: ConversationLinkSource;
 }
 
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {

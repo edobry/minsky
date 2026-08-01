@@ -947,3 +947,82 @@ describe("createAgentsWidget — activity bound applied to the row source (mt#31
     expect(payload.hiddenInactiveCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3529 (PR #2523 R1) — derived-link fallback survives an unavailable merge
+// ---------------------------------------------------------------------------
+
+/**
+ * The reviewer's scenario: the conversation DB is present but the standalone-row
+ * merge is not usable. Before R1 the derived fallback was nested inside the
+ * merge's guard, so the list would report `conversationId: null` while
+ * `/api/agents/:id` — which has no merge at all — resolved a conversation for
+ * the same workspace. The two surfaces must agree.
+ *
+ * The stub fails every merge query and serves only the derived existence check,
+ * distinguished by its projection (exactly `agentSessionId` + `startedAt`;
+ * run-merge's projections are all wider). `mergeConversationRows` catches its
+ * own failures and degrades to an empty result, which is precisely the
+ * merge-unavailable state under test.
+ */
+function makeMergeHostileDb(transcriptRows: Array<{ agentSessionId: string; startedAt: null }>) {
+  return {
+    select: (fields: Record<string, unknown>) => {
+      const keys = Object.keys(fields ?? {});
+      const isDerivedProbe =
+        keys.length === 2 && keys.includes("agentSessionId") && keys.includes("startedAt");
+      if (!isDerivedProbe) {
+        // Any merge query — reject so mergeConversationRows degrades to empty.
+        const reject = () => Promise.reject(new Error("merge unavailable"));
+        const chain: Record<string, unknown> = {};
+        for (const m of ["from", "innerJoin", "where", "orderBy", "limit"]) {
+          chain[m] = () => chain;
+        }
+        chain.then = (...args: unknown[]) =>
+          (reject() as Promise<never>).then(...(args as [never, never]));
+        return chain;
+      }
+      return {
+        from: () => ({ where: () => Promise.resolve(transcriptRows) }),
+      };
+    },
+  };
+}
+
+describe("createAgentsWidget — mt#3529 derived conversation fallback", () => {
+  const CONV = "ac34711e-ad50-41dd-8e42-1af8828bf343";
+
+  test("populates conversationId from agentId when the merge is unavailable", async () => {
+    const session = makeActiveSession({
+      sessionId: S1,
+      agentId: `com.anthropic.claude-code:conv:${CONV}`,
+    });
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([session]),
+      async () => makeTaskProvider({}),
+      async () => makeMergeHostileDb([{ agentSessionId: CONV, startedAt: null }]) as never
+    );
+
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error(`expected ok, got ${data.state}`);
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.map((a) => a.conversationId)).toEqual([CONV]);
+  });
+
+  test("leaves conversationId null for an unknown:hash workspace", async () => {
+    const session = makeActiveSession({
+      sessionId: S2,
+      agentId: "unknown:hash:3defa5b5675196ca",
+    });
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([session]),
+      async () => makeTaskProvider({}),
+      async () => makeMergeHostileDb([{ agentSessionId: CONV, startedAt: null }]) as never
+    );
+
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error(`expected ok, got ${data.state}`);
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.map((a) => a.conversationId)).toEqual([null]);
+  });
+});
