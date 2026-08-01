@@ -642,10 +642,15 @@ export function startTypingLoop(opts: {
     });
   };
 
+  let timer: ReturnType<typeof setInterval> | null = null;
+
   const loop: TypingLoop = {
     stop(): void {
       stopped = true;
-      clearInterval(timer);
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
       opts.signal?.removeEventListener("abort", onAbort);
     },
   };
@@ -656,16 +661,28 @@ export function startTypingLoop(opts: {
     loop.stop();
   }
 
-  // Already-aborted is a real state: a turn can start on the same tick a stop
-  // lands. Check it rather than only subscribing to the future event.
+  // Subscribe BEFORE reading `aborted`, then re-check (PR #2525 R3).
+  //
+  // Checking first and subscribing after would be correct today — nothing
+  // between them suspends, so no abort can interleave on a single-threaded
+  // event loop — but that correctness rests on an invariant a later edit could
+  // break by introducing one `await`. Subscribe-then-check needs no such
+  // argument: whichever way the abort arrives, exactly one of the two paths
+  // catches it, and `stop()` is idempotent.
+  opts.signal?.addEventListener("abort", onAbort);
   if (opts.signal?.aborted === true) {
-    stopped = true;
+    loop.stop();
+    return loop;
   }
 
   send();
-  const timer = setInterval(send, opts.refreshMs ?? TYPING_REFRESH_MS);
-  if (stopped) clearInterval(timer);
-  else opts.signal?.addEventListener("abort", onAbort);
+  timer = setInterval(send, opts.refreshMs ?? TYPING_REFRESH_MS);
+  // The listener may have fired during `send()` in a future where that
+  // suspends; honour it rather than leaving an interval behind.
+  if (stopped) {
+    clearInterval(timer);
+    timer = null;
+  }
 
   return loop;
 }
