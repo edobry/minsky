@@ -14,7 +14,9 @@ import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
 } from "@minsky/shared/entity-thread-types";
+import { isPgRetryableConnectionError } from "@minsky/domain/persistence/postgres-retry";
 import {
+  isDatabaseUnavailableError,
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
@@ -72,6 +74,69 @@ describe("parseEntityType", () => {
     expect((parseEntityType(undefined) as { error: string }).error).toContain("required");
     expect((parseEntityType("") as { error: string }).error).toContain("required");
     expect(typeof parseEntityType(42)).toBe("object");
+  });
+});
+
+describe("isDatabaseUnavailableError (mt#3398)", () => {
+  /** The postgres-js shape: a transport-layer code, no `query` own-property. */
+  function connectionError(code: string): Error {
+    return Object.assign(new Error(`connection failure: ${code}`), { code });
+  }
+
+  /**
+   * The Drizzle shape actually observed in the 2026-07-30 incident: the message
+   * IS the query text, and `query` is an own-property with a DEFINED value —
+   * which is exactly what `isPgRetryableConnectionError` rejects.
+   */
+  function drizzleWrapped(cause: unknown): Error {
+    return Object.assign(
+      new Error(
+        'Failed query: select "id", "short_id" from "asks" where "asks"."id" = $1 limit $2'
+      ),
+      { query: 'select "id" from "asks"', cause }
+    );
+  }
+
+  test("detects a bare connection error", () => {
+    expect(isDatabaseUnavailableError(connectionError("CONNECTION_ENDED"))).toBe(true);
+    expect(isDatabaseUnavailableError(connectionError("ECONNRESET"))).toBe(true);
+  });
+
+  test("detects a connection error WRAPPED by Drizzle — the incident's actual shape", () => {
+    // The load-bearing case. Calling `isPgRetryableConnectionError` directly on
+    // this returns FALSE (its query-shape guard rejects it, correctly, for
+    // RETRY purposes), so a fix built on that predicate alone would pass its
+    // own tests and do nothing in production.
+    const wrapped = drizzleWrapped(connectionError("CONNECTION_CLOSED"));
+    expect(isPgRetryableConnectionError(wrapped)).toBe(false);
+    expect(isDatabaseUnavailableError(wrapped)).toBe(true);
+  });
+
+  test("does NOT classify an ordinary application error as unavailable", () => {
+    // Over-reporting 503 would tell an operator to wait out a handler bug that
+    // will never clear on its own.
+    expect(isDatabaseUnavailableError(new Error("Cannot read property 'id' of undefined"))).toBe(
+      false
+    );
+    expect(isDatabaseUnavailableError(drizzleWrapped(new Error("syntax error at or near")))).toBe(
+      false
+    );
+  });
+
+  test("tolerates a non-error, a null cause, and a cyclic chain without spinning", () => {
+    expect(isDatabaseUnavailableError(undefined)).toBe(false);
+    expect(isDatabaseUnavailableError("a string")).toBe(false);
+    expect(isDatabaseUnavailableError(drizzleWrapped(null))).toBe(false);
+
+    const cyclic = new Error("outer") as Error & { cause?: unknown };
+    cyclic.cause = cyclic;
+    expect(isDatabaseUnavailableError(cyclic)).toBe(false);
+  });
+
+  test("finds a connection cause nested more than one level down", () => {
+    expect(
+      isDatabaseUnavailableError(drizzleWrapped(drizzleWrapped(connectionError("EPIPE"))))
+    ).toBe(true);
   });
 });
 
