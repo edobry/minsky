@@ -221,8 +221,14 @@ generic guidance rather than confidently asserting the wrong remedy.
 
 ### Effect on the mt#2815 auto-merge
 
-The clean-tree auto-merge now only runs on the overlap path, since that is the only path that
-still blocks. Its original justification — resolving disjoint-file staleness inline — is
+The clean-tree auto-merge now runs only when the guard has **positive overlap knowledge** —
+`shouldAttemptAutoMerge` requires `overlap.overlaps === true`, which covers a real file overlap and
+the `undetermined` probe (a clean merge resolves either). It deliberately does **not** run on the
+budget-exhausted deny, where `overlap` is `undefined`: auto-merge WRITES to the branch, and
+mutating a branch about which nothing was established is precisely what "narrowed scope" excludes.
+That predicate is an exported function rather than an entrypoint conditional so it is testable —
+"when do we mutate the branch?" should not live only in unreachable `import.meta.main` code
+(PR #2536 R1). Its original justification — resolving disjoint-file staleness inline — is
 obsolete: those cases no longer block at all, which is strictly better than resolving them by
 mutating the branch. What remains is a genuinely useful narrower slot: the files overlap, but
 git merges them cleanly, so absorb main and proceed. The protective property is unchanged — a

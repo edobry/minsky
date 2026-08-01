@@ -136,6 +136,19 @@ export interface BranchFreshnessResult {
    * the check fell back to blocking on ahead-count alone.
    */
   overlap?: DiffOverlapResult;
+  /**
+   * Why `overlap` is absent on a path that WOULD otherwise have computed it
+   * (mt#3484, PR #2536 R1 BLOCKING #2). Set only on the budget-exhausted deny
+   * path, so a consumer can tell "the probe was skipped, and here is why" from
+   * "this result never reached the probe at all" — without inferring either
+   * from a bare `undefined`.
+   *
+   * Deliberately NOT a synthesized `DiffOverlapResult`: the probe did not run,
+   * so there is no verdict, and manufacturing `overlaps: true/false` here would
+   * put a fabricated finding on a field whose whole contract is that it reports
+   * what was measured.
+   */
+  overlapSkipped?: "budget-exhausted";
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +602,7 @@ export function checkBranchFreshness(
       currentBranch,
       comparisonRan: true,
       branchRef,
+      overlapSkipped: "budget-exhausted",
     };
   }
 
@@ -893,6 +907,24 @@ const DEFAULT_AUTO_MERGE_DEPS: AutoMergeDeps = {
   },
 };
 
+/**
+ * Whether the entrypoint should attempt the mt#2815 clean-tree auto-merge for
+ * a given freshness result (mt#3484, PR #2536 R1 BLOCKING #1 + NON-BLOCKING #2).
+ *
+ * Extracted from the `import.meta.main` entrypoint specifically so this decision
+ * is testable: the auto-merge WRITES to the branch, and "when do we mutate?" is
+ * exactly the kind of predicate that should not live only in an unreachable
+ * entrypoint conditional.
+ *
+ * True only on POSITIVE overlap knowledge — a real overlap or an `undetermined`
+ * probe, both of which a clean merge would resolve. False when the probe never
+ * ran (budget-exhausted deny), because mutating a branch we have established
+ * nothing about is not something a narrowed guard should do.
+ */
+export function shouldAttemptAutoMerge(result: BranchFreshnessResult): boolean {
+  return result.blocked === true && result.overlap?.overlaps === true;
+}
+
 export type AutoMergeOutcome =
   | { attempted: false; reason: string }
   | { attempted: true; merged: true; mergedCommitCount: number }
@@ -1018,8 +1050,15 @@ export function formatBlockMessage(
   } else {
     // Budget-exhausted fallback: the overlap probe never ran, so the pre-mt#3484
     // ahead-count wording is the honest description of what was actually checked.
+    // On a BLOCK, `overlap === undefined` has exactly one cause — the hook ran
+    // out of wall-clock budget before the probe — so the message can name it
+    // rather than leaving the reader to infer it from an absence (PR #2536 R1).
     lines.push(
-      `Branch-freshness guard: blocked — ${mainRef} is ${aheadCount} commit(s) ahead of origin/${branch} (overlap not evaluated).`
+      `Branch-freshness guard: blocked — ${mainRef} is ${aheadCount} commit(s) ahead of origin/${branch}.`
+    );
+    lines.push("");
+    lines.push(
+      "The overlap check did NOT run (the hook exhausted its time budget first), so this block is on commit count alone — it does NOT mean an overlap was found. Retrying usually gets a real answer."
     );
   }
 
@@ -1184,8 +1223,21 @@ if (import.meta.main) {
   // for the full rationale and the protective-property guarantee (any
   // conflict aborts the merge and denies exactly as before — no silent
   // conflict resolution).
+  //
+  // mt#3484 (PR #2536 R1 BLOCKING #1): gate on POSITIVE overlap knowledge, not
+  // on `blocked` alone. Post-mt#3484 there are two ways to be blocked, and only
+  // one of them justifies mutating the branch:
+  //   - `overlap.overlaps === true` — either a real file overlap, or an
+  //     `undetermined` probe. Both warrant the attempt: a clean merge resolves
+  //     the overlap, and on the undetermined path it also resolves the
+  //     uncertainty that caused the block.
+  //   - `overlap === undefined` — the budget-exhausted fallback, where the probe
+  //     never ran. We do NOT know whether anything overlaps, and auto-merge
+  //     WRITES to the branch. Attempting a mutation on a branch we have not
+  //     established anything about is exactly the "narrowed scope" this task
+  //     claims to have; running it here would make that claim false.
   let autoMergeOutcome: AutoMergeOutcome | undefined;
-  if (result.blocked) {
+  if (shouldAttemptAutoMerge(result)) {
     autoMergeOutcome = attemptCleanTreeAutoMerge(
       repoDir,
       result.branchRef,

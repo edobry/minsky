@@ -9,8 +9,10 @@ import { describe, test, expect } from "bun:test";
 import {
   formatBlockMessage,
   computeDiffOverlap,
+  shouldAttemptAutoMerge,
   MAX_SHARED_FILES_SHOWN,
   type OverlapDeps,
+  type BranchFreshnessResult,
 } from "./check-branch-fresh";
 
 const SHARED_FILE = "packages/domain/src/shared.ts";
@@ -244,5 +246,68 @@ describe("formatBlockMessage — overlap + two-state remedy (mt#3484)", () => {
     // does or does not already contain main.
     expect(msg).toContain(GENERIC_UPDATE_REMEDY);
     expect(msg).not.toContain(SESSION_UPDATE_WONT_HELP);
+  });
+});
+
+describe("shouldAttemptAutoMerge (mt#3484, PR #2536 R1)", () => {
+  function makeResult(over: Partial<BranchFreshnessResult>): BranchFreshnessResult {
+    return {
+      blocked: true,
+      aheadCount: 3,
+      aheadSubjects: FIXTURE_COMMITS,
+      reason: "test",
+      mainRef: OVERLAP_MAIN_REF,
+      branchRef: OVERLAP_BRANCH_REF,
+      comparisonRan: true,
+      ...over,
+    };
+  }
+
+  test("attempts when a real overlap was found — the merge would resolve it", () => {
+    const result = makeResult({ overlap: { overlaps: true, sharedFiles: [SHARED_FILE] } });
+
+    expect(shouldAttemptAutoMerge(result)).toBe(true);
+  });
+
+  test("attempts on the undetermined path — the merge also resolves the uncertainty", () => {
+    const result = makeResult({
+      overlap: { overlaps: true, sharedFiles: [], undetermined: MAIN_DIFF_PROBE_FAILED },
+    });
+
+    expect(shouldAttemptAutoMerge(result)).toBe(true);
+  });
+
+  test("does NOT attempt on the budget-exhausted deny — nothing was established about the branch", () => {
+    // The mutation guard: auto-merge WRITES. With no overlap verdict we have no
+    // basis for writing, and running it here would falsify this task's claim
+    // that the auto-merge is scoped to the overlap path.
+    const result = makeResult({ overlap: undefined, overlapSkipped: "budget-exhausted" });
+
+    expect(shouldAttemptAutoMerge(result)).toBe(false);
+  });
+
+  test("does NOT attempt when the branch was allowed despite being behind", () => {
+    const result = makeResult({ blocked: false, overlap: { overlaps: false, sharedFiles: [] } });
+
+    expect(shouldAttemptAutoMerge(result)).toBe(false);
+  });
+
+  test("does NOT attempt on an early-return result that never reached the probe", () => {
+    const result = makeResult({ blocked: false, overlap: undefined, silent: true });
+
+    expect(shouldAttemptAutoMerge(result)).toBe(false);
+  });
+});
+
+describe("formatBlockMessage — budget-exhausted block (mt#3484, PR #2536 R1)", () => {
+  test("says the overlap check did not run, and that this is not an overlap finding", () => {
+    // Omitting `overlap` entirely is the budget-exhausted shape. The message
+    // must not let a reader mistake a count-only block for a found overlap.
+    const msg = formatBlockMessage("task/mt-3484", OVERLAP_MAIN_REF, 5, FIXTURE_COMMITS);
+
+    expect(msg).toContain("The overlap check did NOT run");
+    expect(msg).toContain("does NOT mean an overlap was found");
+    expect(msg).toContain("5 commit(s) ahead of origin/task/mt-3484");
+    expect(msg).not.toContain("are also changed by this branch");
   });
 });
