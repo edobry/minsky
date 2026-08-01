@@ -550,6 +550,19 @@ export const sessionPrCreateCommandParams = {
     required: false,
     defaultValue: false,
   },
+  // mt#3480: this command performs a session update (and therefore a PUSH)
+  // before opening the PR, but exposed no way to bound it — so a slow push made
+  // PR creation fail outright with no operator recourse, while `session.commit`,
+  // `session.update` and `git.push` all accepted an override. Forwarded to the
+  // internal update below.
+  pushTimeoutMs: {
+    schema: z.number().int().positive(),
+    description:
+      "Override the push-phase wall-clock bound in milliseconds for the session update this " +
+      "command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from " +
+      "this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
+    required: false,
+  },
 };
 
 /**

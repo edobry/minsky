@@ -140,14 +140,27 @@ export class MassDeletionGuardError extends MinskyError {
 export const DEFAULT_COMMIT_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Default wall-clock bound for the PUSH phase (`git push` — no hooks fire on
- * this side, so cost is dominated by network round-trip) — mt#3049. 2
- * minutes is generous for a push (typically seconds) while still bounding
- * the caller's wait well below the 30-minute incident duration; a push that
- * genuinely needs longer than 2 minutes on a healthy network is itself
- * diagnostic-worthy.
+ * Default wall-clock bound for the PUSH phase — mt#3049, raised from 2 to 10
+ * minutes by mt#3480.
+ *
+ * The original docblock read "`git push` — no hooks fire on this side, so cost
+ * is dominated by network round-trip". **That is factually wrong**, and the
+ * 2-minute value followed from it. `.husky/pre-push` (mt#2716) fires on exactly
+ * this side and runs the full local test suite — measured 2026-07-31 at 209.71s
+ * for the main run (10865 tests across 770 files) plus ~19 further suites. Cost
+ * is dominated by the test gate, not the network, and a healthy push here takes
+ * ~4 minutes.
+ *
+ * So the bound was shorter than the gate it had to wait for, and `session.commit`
+ * pushes timed out routinely — the incident that produced mt#3480 needed explicit
+ * 420s/600s overrides on every commit to get its own changes pushed.
+ *
+ * Kept in step with `DEFAULT_PUSH_CONFIRM_TIMEOUT_MS` (`git/push-operations.ts`),
+ * which was raised for the same reason: the two are independently configurable
+ * but describe the same physical wait, and letting them diverge would mean a
+ * push bounded differently depending on which caller issued it.
  */
-export const DEFAULT_PUSH_PHASE_TIMEOUT_MS = 2 * 60 * 1000;
+export const DEFAULT_PUSH_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * mt#3177: `raceAgainstTimeout` moved to `@minsky/shared/timeout` so the git

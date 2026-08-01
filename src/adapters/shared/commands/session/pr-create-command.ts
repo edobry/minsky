@@ -411,6 +411,10 @@ export async function executeSessionPrCreate(
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
         draft: params.draft,
+        // mt#3480: this object is built field-by-field, so a parameter absent
+        // HERE is accepted by the command and silently dropped before the
+        // domain ever sees it. Forwarded to the pre-PR session update's push.
+        pushTimeoutMs: params.pushTimeoutMs,
       },
       {
         sessionDB: deps.sessionProvider,

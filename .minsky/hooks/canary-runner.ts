@@ -250,6 +250,15 @@ export async function runAllRegistryCanaries(
 export interface StandaloneGuardCanary {
   guardName: string;
   expects: CanaryExpectation;
+  /**
+   * Logical calibration-log name this guard writes, mirroring
+   * `GuardRegistration.calibrationLog` (mt#3502). Standalone guards are absent
+   * from `GUARD_REGISTRY`, so without this there is no declared join between a
+   * calibration log and the guard that writes it — and the coverage-receipt
+   * check cannot find the guard's invocation evidence in the fire log. Omit for
+   * guards that write no calibration records.
+   */
+  calibrationLog?: string;
   /** Invokes the guard's real exported decision logic and returns its outcome-equivalent. Injectable for the sabotage test. */
   check: () => boolean | Promise<boolean>;
 }
