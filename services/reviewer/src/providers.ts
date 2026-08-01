@@ -359,7 +359,15 @@ const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = D
 const DOC_IMPACT_REMINDER_USER_MSG =
   "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
   'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
-  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths). " +
+  // mt#3527: this forced pass pins tool_choice to submit_documentation_impact, so the model
+  // CANNOT call read_file here. It must therefore report what it actually read during the
+  // loop rather than assert an accuracy it never checked — the exact shape of the PR #2508
+  // miss ("existing docs ... remain accurate", asserted without opening the doc).
+  "You cannot read files on this call. If you did not read the docs covering behavior this PR " +
+  "changes, do NOT claim they remain accurate — state in `evidence` which docs you checked and " +
+  "which you did not. Remember that a doc needing an update may be one whose existing prose the " +
+  "PR makes FALSE, not only one that omits something the PR adds.";
 
 /**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
