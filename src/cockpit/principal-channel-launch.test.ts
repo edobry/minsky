@@ -298,6 +298,34 @@ describe("bindTelegramChannelTopicToTask (mt#3507)", () => {
     expect(queries).toHaveLength(1);
   });
 
+  test("never touches driven_sessions, and writes the SAME deterministic localId ensureTelegramChannelTopic would — the conversation identity is untouched by a bind", async () => {
+    // The spec's own requirement: "driven_sessions.local_id must be
+    // IDENTICAL before and after". This function never references that
+    // table at all, and the local_id it writes into the mapping row is the
+    // SAME value telegramTopicLocalId (and therefore ensureTelegramChannelTopic)
+    // would produce for this exact (chatId, messageThreadId) — asserted by
+    // rendering the actual query text and parameters, not by inspecting the
+    // implementation's source.
+    const { db, queries } = fakeDb();
+    await bindTelegramChannelTopicToTask(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, "mt#3507", {
+      getDb: async () => db,
+      getTask: async () => ({ id: "mt#3507" }),
+    });
+
+    const query = queries[0] as { queryChunks: unknown[] };
+    const rendered = query.queryChunks
+      .map((chunk) =>
+        chunk && typeof chunk === "object" && "value" in chunk
+          ? (chunk as { value: string[] }).value.join("")
+          : String(chunk)
+      )
+      .join("");
+
+    expect(rendered).toContain("telegram_channel_topics");
+    expect(rendered).not.toContain("driven_sessions");
+    expect(rendered).toContain(SAMPLE_LOCAL_ID);
+  });
+
   test("refuses (does not crash) when persistence is unavailable, after confirming the task exists", async () => {
     const result = await bindTelegramChannelTopicToTask(
       SAMPLE_CHAT_ID,
