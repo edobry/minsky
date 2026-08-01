@@ -41,7 +41,7 @@ import type { ClaudeHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { extractAssistantText, extractFinalTurn } from "./transcript";
 import {
-  detectTriggerPhrases,
+  detectTriggerPhrasesWithNomination,
   hasRetrospectiveSkillInvocation,
   OVERRIDE_ENV_VAR,
 } from "./retrospective-trigger-scanner";
@@ -79,11 +79,11 @@ function buildTurnEndReminder(matches: TriggerMatch[]): string {
  * Guard-dispatcher entry point (GuardModule contract). `storeDir` is a test
  * seam for the dedup store location; the dispatcher never passes it.
  */
-export function run(
+export async function run(
   input: StopHookInput,
   ctx: DispatchContext,
   storeDir?: string
-): GuardOutcome | null {
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -116,8 +116,36 @@ export function run(
   }
   if (!text) return null;
 
-  const matches = detectTriggerPhrases(text);
-  if (matches.length === 0) return null;
+  // mt#3408: routed through the shared Rung-1 + Rung-2 entry point rather than
+  // calling `detectTriggerPhrases` directly, so this hook inherits embedding
+  // nomination by construction. mt#3341's absorbed constraint 4 flagged that
+  // inheritance is automatic ONLY for a prose-matcher change — Rung 2 is not
+  // one, so the wiring is explicit here.
+  const detected = await detectTriggerPhrasesWithNomination(text);
+  const matches = detected.matches;
+  if (matches.length === 0) {
+    // Record a degraded Rung 2 (ADR-024: never silent-skip) AND a log-only
+    // nomination, which never reaches `matches` by construction — dropping it
+    // would leave the stage unmeasurable, which is the whole reason it runs
+    // log-only in the first place.
+    if (detected.degradedReason !== undefined || detected.nominatedFamilies.length > 0) {
+      return {
+        calibration: {
+          source: "live",
+          channel: "stop",
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          matches: [],
+          nominated_families: detected.nominatedFamilies,
+          nomination_enforcing: detected.enforcing === true,
+          ...(detected.degradedReason !== undefined
+            ? { nomination_degraded: detected.degradedReason }
+            : {}),
+        },
+      };
+    }
+    return null;
+  }
 
   const sessionId = input.session_id ?? "unknown";
   const turnKey = turnKeyFor(openingPrompt);
