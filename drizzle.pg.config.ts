@@ -76,6 +76,7 @@ export default {
     "./packages/domain/src/storage/schemas/scheduled-follow-ups-schema.ts",
     "./packages/domain/src/storage/schemas/conversation-run-state-schema.ts",
     "./packages/domain/src/storage/schemas/engprod-proposal-ledger-schema.ts",
+    "./packages/domain/src/storage/schemas/telegram-channel-topics-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",

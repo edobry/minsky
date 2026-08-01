@@ -8,10 +8,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   createEventLogCursor,
+  createTopicActuatorResolver,
+  ensureTelegramChannelTopic,
   loadPrincipalChannelLaunchConfig,
+  logTopicModeCapability,
   resolveAllowedUserIds,
   startPrincipalChannel,
+  telegramTopicLocalId,
+  type DbLike,
 } from "./principal-channel-launch";
+import type { ChannelActuator } from "./principal-channel-poller";
+import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
 
 describe("loadPrincipalChannelLaunchConfig (mt#3230 — config, not env)", () => {
   test("an absent section leaves the channel off", () => {
@@ -143,5 +150,161 @@ describe("startPrincipalChannel", () => {
       ...unusedDeps,
     });
     expect(handle).toBeNull();
+  });
+});
+
+/**
+ * Telegram topic mapping + per-topic actuator wiring (mt#3505, parent
+ * mt#3500). These are the composition-root pieces the poller's
+ * `resolveTopicActuator` dep is built from.
+ */
+// mt#3505 — shared fixture so the expected localId string lives in one place.
+const SAMPLE_CHAT_ID = "167346572";
+const SAMPLE_THREAD_ID = 749667;
+const SAMPLE_LOCAL_ID = `telegram-topic:${SAMPLE_CHAT_ID}:${SAMPLE_THREAD_ID}`;
+
+describe("telegramTopicLocalId (mt#3505)", () => {
+  test("is deterministic and readable, in the driven_sessions.local_id keyspace", () => {
+    // Per the spec: "readable, not hashed, deterministic where possible" —
+    // the same keyspace entityThreadLocalId already uses.
+    expect(telegramTopicLocalId(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID)).toBe(SAMPLE_LOCAL_ID);
+  });
+
+  test("different threads in the same chat produce different ids", () => {
+    expect(telegramTopicLocalId("1", 100)).not.toBe(telegramTopicLocalId("1", 200));
+  });
+
+  test("the same (chat, thread) pair always produces the same id", () => {
+    expect(telegramTopicLocalId("1", 100)).toBe(telegramTopicLocalId("1", 100));
+  });
+});
+
+describe("ensureTelegramChannelTopic (mt#3505)", () => {
+  function fakeDb(): { db: DbLike; queries: unknown[] } {
+    const queries: unknown[] = [];
+    return {
+      queries,
+      db: {
+        execute: async (query: unknown) => {
+          queries.push(query);
+          return [];
+        },
+      } as unknown as DbLike,
+    };
+  }
+
+  test("returns the deterministic localId and issues an idempotent insert", async () => {
+    const { db, queries } = fakeDb();
+    const localId = await ensureTelegramChannelTopic(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, {
+      getDb: async () => db,
+    });
+
+    expect(localId).toBe(SAMPLE_LOCAL_ID);
+    expect(queries).toHaveLength(1);
+  });
+
+  test("still returns the localId when persistence is unavailable, without throwing", async () => {
+    const localId = await ensureTelegramChannelTopic(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, {
+      getDb: async () => null,
+    });
+    expect(localId).toBe(SAMPLE_LOCAL_ID);
+  });
+
+  test("still returns the localId when the insert itself throws", async () => {
+    const localId = await ensureTelegramChannelTopic(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, {
+      getDb: async () =>
+        ({
+          execute: async () => {
+            throw new Error("db down");
+          },
+        }) as unknown as DbLike,
+    });
+    expect(localId).toBe(SAMPLE_LOCAL_ID);
+  });
+});
+
+describe("createTopicActuatorResolver (mt#3505)", () => {
+  function stubActuator(): ChannelActuator {
+    return {
+      converse: async (text) => text,
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    };
+  }
+
+  test("resolves to the SAME actuator for the same thread id across calls", async () => {
+    let buildCalls = 0;
+    const resolve = createTopicActuatorResolver({
+      chatId: "167346572",
+      getDb: async () => null,
+      buildActuator: () => {
+        buildCalls += 1;
+        return stubActuator();
+      },
+    });
+
+    const first = await resolve(749667);
+    const second = await resolve(749667);
+
+    expect(second).toBe(first);
+    expect(buildCalls).toBe(1);
+  });
+
+  test("resolves to DIFFERENT actuators for different thread ids", async () => {
+    const resolve = createTopicActuatorResolver({
+      chatId: "167346572",
+      getDb: async () => null,
+      buildActuator: stubActuator,
+    });
+
+    const a = await resolve(100);
+    const b = await resolve(200);
+    expect(a).not.toBe(b);
+  });
+
+  test("builds the actuator with the topic's deterministic localId", async () => {
+    const seenLocalIds: string[] = [];
+    const resolve = createTopicActuatorResolver({
+      chatId: SAMPLE_CHAT_ID,
+      getDb: async () => null,
+      buildActuator: (localId) => {
+        seenLocalIds.push(localId);
+        return stubActuator();
+      },
+    });
+
+    await resolve(SAMPLE_THREAD_ID);
+    expect(seenLocalIds).toEqual([SAMPLE_LOCAL_ID]);
+  });
+});
+
+describe("logTopicModeCapability (mt#3505)", () => {
+  test("does not throw when topic mode is enabled", async () => {
+    const getMe = async (): Promise<TelegramGetMeResult> => ({
+      ok: true,
+      hasTopicsEnabled: true,
+      allowsUsersToCreateTopics: true,
+    });
+    await expect(logTopicModeCapability("tok", getMe)).resolves.toBeUndefined();
+  });
+
+  test("does not throw and does not block startup when topic mode is off", async () => {
+    // AT: "when false, the channel behaves exactly as today with an
+    // operator-legible log line rather than failing."
+    const getMe = async (): Promise<TelegramGetMeResult> => ({
+      ok: true,
+      hasTopicsEnabled: false,
+      allowsUsersToCreateTopics: false,
+    });
+    await expect(logTopicModeCapability("tok", getMe)).resolves.toBeUndefined();
+  });
+
+  test("does not throw when the probe itself fails", async () => {
+    const getMe = async (): Promise<TelegramGetMeResult> => ({
+      ok: false,
+      detail: "network error",
+    });
+    await expect(logTopicModeCapability("tok", getMe)).resolves.toBeUndefined();
   });
 });

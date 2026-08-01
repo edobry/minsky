@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyGetUpdatesFailure,
   fetchTelegramFile,
+  getTelegramMe,
   getTelegramUpdates,
   highestUpdateIdOf,
   parseInboundUpdates,
@@ -297,6 +298,8 @@ describe("parseInboundUpdates", () => {
         replyToText: undefined,
         attachments: [],
         unsupportedMedia: undefined,
+        messageThreadId: undefined,
+        isTopicMessage: false,
       },
     ]);
   });
@@ -804,5 +807,177 @@ describe("fetchTelegramFile", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+});
+
+/**
+ * Telegram topic-mode support (mt#3505, parent mt#3500).
+ *
+ * These cases carry the byte-identical regression the spec calls for: the
+ * reviewer's alert sink and `notifyPrincipal` never pass `messageThreadId`, so
+ * their wire payload must be unchanged.
+ */
+describe("parseInboundUpdates — topics (mt#3505)", () => {
+  test("captures message_thread_id and is_topic_message on a topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 20,
+          message: {
+            message_id: 8,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello from the topic",
+            message_thread_id: 749667,
+            is_topic_message: true,
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBe(749667);
+    expect(messages[0]?.isTopicMessage).toBe(true);
+  });
+
+  test("leaves messageThreadId undefined and isTopicMessage false on a non-topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 21,
+          message: {
+            message_id: 9,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello, no topic",
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBeUndefined();
+    expect(messages[0]?.isTopicMessage).toBe(false);
+  });
+});
+
+describe("sendTelegramMessage — topics (mt#3505)", () => {
+  test("forwards messageThreadId as message_thread_id", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(sent["message_thread_id"]).toBe(749667);
+  });
+
+  test("omits message_thread_id when not given", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect("message_thread_id" in sent).toBe(false);
+  });
+
+  // The regression the spec's own acceptance criteria call out by name: the
+  // reviewer's TelegramAlertSink and notifyPrincipal never pass a thread id,
+  // so their wire body must be byte-for-byte unchanged by this feature.
+  test("regression: omitting messageThreadId reproduces today's wire payload byte-for-byte", async () => {
+    let rawBody = "";
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "circuit breaker tripped",
+      replyToMessageId: 12,
+      fetchFn: async (_url, init) => {
+        rawBody = String(init?.body);
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+
+    expect(rawBody).toBe(
+      JSON.stringify({
+        chat_id: CHAT,
+        text: "circuit breaker tripped",
+        disable_web_page_preview: true,
+        reply_to_message_id: 12,
+      })
+    );
+  });
+});
+
+describe("getTelegramMe (mt#3505)", () => {
+  test("reports has_topics_enabled and allows_users_to_create_topics on success", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: {
+            id: 8913559862,
+            username: "edobry_minsky_bot",
+            has_topics_enabled: true,
+            allows_users_to_create_topics: true,
+          },
+        }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      hasTopicsEnabled: true,
+      allowsUsersToCreateTopics: true,
+    });
+  });
+
+  test("reports both flags false when Telegram returns them false", () => {
+    return getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: { id: 1, username: "bot", has_topics_enabled: false },
+        }),
+    }).then((result) => {
+      expect(result).toEqual({
+        ok: true,
+        hasTopicsEnabled: false,
+        allowsUsersToCreateTopics: false,
+      });
+    });
+  });
+
+  test("redacts the token out of a failure detail", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        new Response(`{"ok":false,"description":"unauthorized ${TOKEN}"}`, { status: 401 }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail).not.toContain(TOKEN);
+    expect(result.status).toBe(401);
+  });
+
+  test("reports a network error without throwing", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () => {
+        throw new Error("connect refused");
+      },
+    });
+    expect(result.ok).toBe(false);
   });
 });
