@@ -22,10 +22,12 @@ import {
 } from "./driven-session-host";
 import {
   createDrivenSessionActuator,
+  createTopicActuatorRegistry,
   resultText,
   PRINCIPAL_CHANNEL_LOCAL_ID,
   type DrivenSessionActuatorOptions,
 } from "./principal-channel-actuator";
+import type { ChannelActuator } from "./principal-channel-poller";
 
 // mt#3397 — the host preflights the spawn cwd, so this has to be a REAL
 // directory or every spawn below would take the missing-cwd branch instead.
@@ -612,6 +614,74 @@ describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
   test("a child that stays silent is reported as a timeout", async () => {
     const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
     await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting within/);
+  });
+});
+
+/**
+ * Per-topic actuator registry (mt#3505, parent mt#3500).
+ *
+ * Phase 1 generalizes the channel from one standing conversation to one
+ * conversation PER TOPIC while preserving the module's own "one caller at a
+ * time" contract per conversation. `createDrivenSessionActuator` already
+ * parametrizes over `localId` (originally added so a live probe would not
+ * collide with the running channel's own row); this registry is what lets
+ * the launch-time composition root reuse ONE actuator instance per topic
+ * across calls, rather than constructing a fresh closure (and therefore a
+ * fresh `standingLocalId`/in-flight guard) on every message — which would
+ * silently break the "concurrent callers share one conversation" guarantee
+ * for a topic that receives two messages back to back.
+ */
+describe("createTopicActuatorRegistry (mt#3505)", () => {
+  test("returns the SAME instance for the same localId across calls", () => {
+    const registry = createTopicActuatorRegistry();
+    let factoryCalls = 0;
+    const factory = (): ChannelActuator => {
+      factoryCalls += 1;
+      return {
+        converse: async (text) => text,
+        interrupt: async () => "stopped",
+        reset: async () => "fresh",
+        answerAsk: async () => "answered",
+      };
+    };
+
+    const first = registry.getOrCreate("entity-thread:telegram-topic:1:100", factory);
+    const second = registry.getOrCreate("entity-thread:telegram-topic:1:100", factory);
+
+    expect(second).toBe(first);
+    expect(factoryCalls).toBe(1);
+  });
+
+  test("returns DIFFERENT instances for different localIds", () => {
+    const registry = createTopicActuatorRegistry();
+    const makeStub = (): ChannelActuator => ({
+      converse: async (text) => text,
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    });
+
+    const a = registry.getOrCreate("telegram-topic:1:100", makeStub);
+    const b = registry.getOrCreate("telegram-topic:1:200", makeStub);
+
+    expect(a).not.toBe(b);
+  });
+
+  test("get() returns undefined for a localId never created", () => {
+    const registry = createTopicActuatorRegistry();
+    expect(registry.get("telegram-topic:1:999")).toBeUndefined();
+  });
+
+  test("get() returns the cached instance after getOrCreate", () => {
+    const registry = createTopicActuatorRegistry();
+    const localId = ["telegram-topic", "1", "100"].join(":");
+    const created = registry.getOrCreate(localId, () => ({
+      converse: async (text) => text,
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    }));
+    expect(registry.get(localId)).toBe(created);
   });
 });
 
