@@ -94,22 +94,73 @@ export function specDescribesDefect(specContent: string): boolean {
 // Hole 3 — the negative-control record
 // ---------------------------------------------------------------------------
 
+/** The bare phrase, with no delimiter or placement requirement. Used ONLY to tell
+ *  "no negative control was recorded" apart from "one was recorded in a shape this
+ *  matcher does not accept" (mt#3511) — never to decide that evidence is present. */
+const NEGATIVE_CONTROL_PHRASE = /negative control|failing[- ]first/i;
+
 /**
- * Accepted marker forms for a failing-first record, mirroring `hasExecutionEvidence`'s
- * two-form convention (mt#2648):
+ * Form A — a Markdown heading naming the record: `## Negative control`,
+ * `### Failing-first run:`. Trailing colon OPTIONAL, because the heading itself is
+ * already an unambiguous structural marker.
+ */
+const NEGATIVE_CONTROL_HEADING =
+  /^ {0,3}(#{1,6})\s+(?:negative control|failing[- ]first(?:\s+run)?)\b[^\n]*$/i;
+
+/**
+ * Form B — a label line. A DELIMITER is required so that bare prose mentioning the
+ * phrase ("we should add a negative control here") does not false-positive. Two
+ * delimiters are accepted:
  *
- *   A. A Markdown heading, level 1-6, naming the record — `## Negative control`,
- *      `### Failing-first run:` — trailing colon OPTIONAL.
- *   B. A plain label line — `Negative control:`, `Failing-first:` — colon REQUIRED,
- *      so bare prose mentioning the phrase does not false-positive.
+ *   - a colon — `Negative control:`
+ *   - an em or en dash — `Negative control — telegram-transport.ts (3 poller tests)`
  *
- * A parenthetical between the phrase and the colon is allowed, because the useful
- * form in practice states the method inline: `Negative control (fix reverted, test
- * run against the un-fixed tree):`. `[^:\n]*` permits that without letting the match
+ * The dash form was added by mt#3511. It is not a stylistic nicety: when a PR records
+ * SEVERAL negative controls, each needs a subject after the label, and
+ * `Negative control: telegram-transport.ts (...)` reads as a sentence fragment where
+ * the dash reads as a heading. PR #2508 carried five real negative controls written
+ * that way and the gate reported zero — the exact false-negative class mem#719 warns
+ * erodes trust in a detector's true positives.
+ *
+ * A parenthetical between the phrase and the delimiter stays allowed, because the
+ * useful form states the method inline: `Negative control (fix reverted, test run
+ * against the un-fixed tree):`. `[^:\n]*?` permits that without letting the match
  * wander across lines.
  */
-const NEGATIVE_CONTROL_MARKER =
-  /^(?: {0,3}(#{1,6})\s+)?(?:negative control|failing[- ]first(?:\s+run)?)\b[^:\n]*(:)?\s*(.*)$/i;
+const NEGATIVE_CONTROL_LABEL =
+  /^ {0,3}(?:negative control|failing[- ]first(?:\s+run)?)\b([^:\n]*?)(?::|\s[—–]\s)(.*)$/i;
+
+/**
+ * Strip decoration a writer puts AROUND the label, so the matcher sees the label.
+ *
+ * `- **Negative control — foo**` and `**Negative control:**` are the same record as
+ * `Negative control:`; before mt#3511 neither matched, because the pattern is anchored
+ * and a leading `*` or `-` is not the phrase. Heading hashes are PRESERVED — form A
+ * depends on them.
+ *
+ * Only OPENING decoration is stripped. A trailing `**` survives into the content,
+ * which is harmless: it is content either way.
+ */
+function stripLabelDecoration(line: string): string {
+  const heading = line.match(/^( {0,3}#{1,6}\s+)([\s\S]*)$/);
+  if (heading) {
+    return `${heading[1] ?? ""}${(heading[2] ?? "").replace(/^(?:\*\*|__|\*|_)+/, "")}`;
+  }
+  return line.replace(/^ {0,3}(?:[-*+]|\d+\.)\s+/, "").replace(/^ {0,3}(?:\*\*|__|\*|_)+/, "");
+}
+
+/**
+ * True when the text MENTIONS a negative control anywhere — including inside a fence,
+ * without a delimiter, in any decoration. Deliberately far looser than the matcher.
+ *
+ * This exists to make the gate's own false negatives measurable (mt#3511). A record
+ * that reports "absent" when it means "present but unmatched" makes a formatting
+ * mismatch indistinguishable from a real missing control, which is why the class
+ * recurred four times before anyone could count it.
+ */
+export function mentionsNegativeControl(text: string): boolean {
+  return NEGATIVE_CONTROL_PHRASE.test(text.replace(/<!--[\s\S]*?-->/g, ""));
+}
 
 /**
  * True when `text` records a run observed FAILING against the un-fixed tree.
@@ -130,25 +181,27 @@ export function hasNegativeControlEvidence(text: string): boolean {
   const fenceInternal = computeFenceInternalLines(lines);
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) continue;
-    // A marker inside a fence is quoted text, not a record.
+    const raw = lines[i];
+    if (raw === undefined) continue;
+    // A marker inside a fence is quoted text, not a record. This is what makes the
+    // marker line's PLACEMENT load-bearing — see the message in `checkTestFirstEvidence`,
+    // which must keep saying so (mt#3506, folded into mt#3511 as instance 2).
     if (fenceInternal[i]) continue;
-    const match = line.match(NEGATIVE_CONTROL_MARKER);
-    if (!match) continue;
 
-    const isHeading = (match[1] ?? "").length > 0;
-    const hasColon = (match[2] ?? "") === ":";
-    // Form B (plain label) requires the colon; form A (heading) does not.
-    if (!isHeading && !hasColon) continue;
+    const line = stripLabelDecoration(raw);
+    const headingMatch = line.match(NEGATIVE_CONTROL_HEADING);
+    const labelMatch = headingMatch ? null : line.match(NEGATIVE_CONTROL_LABEL);
+    if (!headingMatch && !labelMatch) continue;
 
-    // Negation guard — "No negative control: n/a" must not count as a record.
+    // Negation guard — "No negative control: n/a" must not count as a record. Both
+    // patterns anchor the phrase at line start, so a preceding "No" already fails to
+    // match; this stays as defense-in-depth against a future loosening of the anchor.
     const lower = line.toLowerCase();
     const phraseIdx = Math.max(lower.indexOf("negative control"), lower.indexOf("failing"));
     const beforeMarker = phraseIdx > 0 ? lower.slice(0, phraseIdx) : "";
     if (/\bno\b/.test(beforeMarker)) continue;
 
-    const inlineContent = (match[3] ?? "").trim();
+    const inlineContent = (labelMatch?.[2] ?? "").trim();
     if (inlineContent.length > 0) return true;
 
     for (let j = i + 1; j < lines.length; j++) {
@@ -202,6 +255,15 @@ export interface TestFirstEvidenceResult {
   requiresNegativeControl: boolean;
   /** Whether the evidence block records a run observed failing pre-fix. */
   negativeControlPresent: boolean;
+  /**
+   * The evidence MENTIONS a negative control but no marker matched (mt#3511).
+   *
+   * Splits the flagged population into two kinds that were previously indistinguishable:
+   * a genuinely missing control, and one written in a shape the matcher rejects. Without
+   * this, every widening is argued from anecdote — four instances of the class landed
+   * before anyone could measure its rate.
+   */
+  negativeControlUnmatched: boolean;
   /** Tracking task id from a `[negative-control-deferred: mt#N]` marker, if present. */
   deferralMarker: string | null;
   /** Required, absent, and not deferred. */
@@ -237,12 +299,14 @@ export function checkTestFirstEvidence(
       modifiedTestFiles,
       requiresNegativeControl: false,
       negativeControlPresent: false,
+      negativeControlUnmatched: false,
       deferralMarker: null,
       flagged: false,
     };
   }
 
   const negativeControlPresent = hasNegativeControlEvidence(evidenceText);
+  const negativeControlUnmatched = !negativeControlPresent && mentionsNegativeControl(evidenceText);
   const deferralMarker = extractNegativeControlDeferral(prBody);
   const flagged = !negativeControlPresent && deferralMarker === null;
 
@@ -251,23 +315,48 @@ export function checkTestFirstEvidence(
     modifiedTestFiles,
     requiresNegativeControl: true,
     negativeControlPresent,
+    negativeControlUnmatched,
     deferralMarker,
     flagged,
   };
 
   if (flagged) {
+    // The accepted-forms paragraph is the ONLY place most authors ever learn the
+    // convention, so it states the PLACEMENT rule the matcher actually enforces
+    // (mt#3506 / mt#3511 instance 2). The previous wording — "Accepted forms inside
+    // the `Execution evidence:` block" — read as "inside the fence," which is the one
+    // placement that can never match, because a fenced marker is treated as quoted
+    // text. An author who followed the message got warned anyway.
+    const acceptedForms =
+      `Accepted forms (case-insensitive), on their own line NOT inside a code fence — ` +
+      `put the label just above or below the fenced run output, not within it:\n` +
+      `  - \`Negative control: <what you reverted and what failed>\`\n` +
+      `  - \`Negative control — <subject>\` (em or en dash; use this when a PR has several)\n` +
+      `  - \`Failing-first:\` in either form, or a Markdown heading naming either.\n` +
+      `Surrounding \`**bold**\` and a leading \`-\` bullet are fine. The failing run itself ` +
+      `MAY be fenced beneath the label — only the label line has to be outside.\n` +
+      `If it genuinely cannot be run pre-merge, use ` +
+      `\`[negative-control-deferred: mt#NNNN]\` naming a tracking task.`;
+
+    // Distinguish "absent" from "present but unmatched" in the operator-facing text
+    // as well as in the calibration record — the whole point of mt#3511.
+    const lead = negativeControlUnmatched
+      ? `This PR is bugfix-shaped and modifies ${modifiedTestFiles.length} existing test ` +
+        `file(s). Its evidence block MENTIONS a negative control, but no marker matched — ` +
+        `so this is most likely a FORMATTING mismatch, not a missing control. Check the ` +
+        `accepted forms below before treating it as a real gap.`
+      : `This PR is bugfix-shaped and modifies ${modifiedTestFiles.length} existing test ` +
+        `file(s), but its execution-evidence block records no negative control — no run ` +
+        `observed FAILING against the un-fixed tree.`;
+
     result.reason =
-      `This PR is bugfix-shaped and modifies ${modifiedTestFiles.length} existing test ` +
-      `file(s), but its execution-evidence block records no negative control — no run ` +
-      `observed FAILING against the un-fixed tree.\n\n` +
+      `${lead}\n\n` +
       `A test that passes both with and without the fix carries no information about ` +
       `the fix (mem#704). Revert the fix (or stub the condition), run the changed ` +
       `test, and paste the failure alongside the passing run.\n\n` +
-      `Modified test file(s):\n${modifiedTestFiles.map((f) => `  - ${f}`).join("\n")}\n\n` +
-      `Accepted forms inside the \`Execution evidence:\` block (case-insensitive): a ` +
-      `\`Negative control:\` / \`Failing-first:\` label line (colon required), or a ` +
-      `Markdown heading naming either. If it genuinely cannot be run pre-merge, use ` +
-      `\`[negative-control-deferred: mt#NNNN]\` naming a tracking task.`;
+      `Modified test file(s):\n${modifiedTestFiles.map((f) => `  - ${f}`).join("\n")}\n\n${
+        acceptedForms
+      }`;
   }
 
   return result;
@@ -303,6 +392,10 @@ export type TestFirstCalibrationRecord = {
   modifiedTestFiles: string[];
   bugfixShaped: boolean;
   negativeControlPresent: boolean;
+  /** True when the evidence mentions a negative control that no marker matched (mt#3511).
+   *  This is the field that makes the gate's own false-negative rate countable — a
+   *  `/calibration-review` sweep can now separate formatting misses from real gaps. */
+  negativeControlUnmatched: boolean;
   deferralMarker: string | null;
 };
 
@@ -358,6 +451,7 @@ export function runTestFirstCalibration(
       modifiedTestFiles: result.modifiedTestFiles,
       bugfixShaped: result.bugfixShaped,
       negativeControlPresent: result.negativeControlPresent,
+      negativeControlUnmatched: result.negativeControlUnmatched,
       deferralMarker: result.deferralMarker,
     },
   };
