@@ -567,15 +567,80 @@ function collectStrings(value: unknown, out: string[]): void {
 }
 
 /**
- * Build the same-turn verification corpus: the concatenation of
- *   - read-class tool_use INPUT strings (file paths, grep patterns, queries), and
- *   - ALL tool_result CONTENT in the turn (so a read of a symbol's file backs a
- *     claim about that symbol — the file source lands in the result).
+ * Tool names whose `tool_result` echoes content the AGENT itself just authored
+ * (mt#3489). A write tool's result repeats the payload that was sent to it —
+ * `session_search_replace` echoes `searchText`/`replaceText`, `Write` echoes the
+ * written content — so the symbols in it were WRITTEN, not inspected.
  *
- * A symbol that appears in this corpus was inspected this turn.
+ * Before this split, those echoes landed in the verification corpus alongside
+ * genuine reads, which meant a claim about code the agent had just written was
+ * treated as BACKED and suppressed. That is the inversion mem#736 names: "Self-
+ * authorship is an aggravating factor, not a mitigating one." The detector's
+ * blind spot sat exactly where self-authored claims live.
+ *
+ * Measured before the split (`.minsky/code-mechanism-assertion-calibration.jsonl`,
+ * 298 records): 108 carried `same-turn-read`, 58 of them suppressed by that
+ * reason ALONE — and nothing in the record distinguished a read from a write
+ * echo, so the size of this class was unknown rather than small.
  */
-export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
-  const parts: string[] = [];
+/**
+ * Membership rule, so this list can be extended without guessing: a tool belongs
+ * here when its `tool_result` reflects back CONTENT THE AGENT SUPPLIED, rather
+ * than state the tool went and read. `session_search_replace` qualifies (it
+ * echoes `searchText`/`replaceText`); `session_commit` qualifies (it echoes the
+ * message the agent wrote); `git_status` does not (it reports observed state).
+ *
+ * Erring inclusive is the safe direction WHILE both reasons suppress. A genuine
+ * read misclassified as a write echo stops backing its claim, so the claim is
+ * labeled `write-echo-backed` instead of `same-turn-read` — a mislabel in the
+ * calibration record, with no injection consequence. A write tool MISSING from
+ * this list keeps the original bug alive for that tool. The costs are not
+ * symmetric, so prefer adding.
+ *
+ * That asymmetry ends if the `write-echo-backed` leg is ever removed to let these
+ * claims surface: a false member would then surface claims that were genuinely
+ * read-backed. Re-audit this list as part of that decision, not before.
+ */
+const WRITE_CLASS_TOOL_RE =
+  /(?:^|_)(?:Write|Edit|MultiEdit|NotebookEdit)$|(?:session_write_file|session_search_replace|session_edit_file|session_move_file|session_rename_file|session_delete_file|session_create_directory|session_commit|session_pr_create|session_pr_edit|tasks_create|tasks_edit|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create|asks_respond|asks_edit)$/i;
+
+/**
+ * Map `tool_use.id` -> tool name across a turn.
+ *
+ * A `tool_result` block names only the `tool_use_id` it answers, never the tool
+ * — so attributing a result to the tool that produced it requires this
+ * correlation. Verified against a real transcript (2026-08-01): every
+ * `tool_result.tool_use_id` matches an assistant `tool_use.id` in the turn.
+ */
+function buildToolNameById(turnLines: TranscriptLine[]): Map<string, string> {
+  const byId = new Map<string, string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      const id = block["id"];
+      const name = block["name"];
+      if (typeof id === "string" && typeof name === "string") byId.set(id, name);
+    }
+  }
+  return byId;
+}
+
+/**
+ * Split the turn's tool evidence into the READ corpus (genuine inspection) and
+ * the WRITE-ECHO corpus (the agent's own authored payload, reflected back).
+ *
+ * Single traversal so the two can never drift apart. A `tool_result` whose
+ * originating tool cannot be identified counts as READ — the conservative
+ * default, since it preserves the pre-mt#3489 suppression behavior rather than
+ * surfacing a claim on evidence we cannot attribute.
+ */
+function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: string } {
+  const toolNameById = buildToolNameById(turnLines);
+  const readParts: string[] = [];
+  const writeParts: string[] = [];
 
   for (const line of turnLines) {
     const role = line.message?.role ?? line.type;
@@ -587,14 +652,17 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
         if (role === "assistant" && block["type"] === "tool_use") {
           const name = (block["name"] as string) ?? "";
           if (READ_CLASS_TOOL_RE.test(name)) {
-            collectStrings(block["input"], parts);
+            collectStrings(block["input"], readParts);
           }
         }
         // tool_result CONTENT — authentic tool outputs live on USER-role lines
         // (Claude Code records tool_result as user role). Role-gating prevents an
         // assistant-echoed tool_result block from counting as backing (PR #1697 R1).
         if (role === "user" && block["type"] === "tool_result") {
-          collectStrings(block["content"], parts);
+          const originId = block["tool_use_id"];
+          const originName = typeof originId === "string" ? toolNameById.get(originId) : undefined;
+          const isWriteEcho = originName !== undefined && WRITE_CLASS_TOOL_RE.test(originName);
+          collectStrings(block["content"], isWriteEcho ? writeParts : readParts);
         }
       }
     }
@@ -603,12 +671,36 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
     if (line.type === "tool_use") {
       const name = line.name ?? line.tool_name ?? "";
       if (READ_CLASS_TOOL_RE.test(name)) {
-        collectStrings(line.input, parts);
+        collectStrings(line.input, readParts);
       }
     }
   }
 
-  return parts.join("\n");
+  return { read: readParts.join("\n"), writeEcho: writeParts.join("\n") };
+}
+
+/**
+ * Build the same-turn verification corpus: the concatenation of
+ *   - read-class tool_use INPUT strings (file paths, grep patterns, queries), and
+ *   - tool_result CONTENT in the turn (so a read of a symbol's file backs a
+ *     claim about that symbol — the file source lands in the result),
+ *     EXCLUDING results echoed back by write-class tools (mt#3489).
+ *
+ * A symbol that appears in this corpus was inspected this turn. A symbol that
+ * appears only in the write-echo corpus was AUTHORED this turn, which is not
+ * the same thing and must not back a claim about it.
+ */
+export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
+  return buildCorpora(turnLines).read;
+}
+
+/**
+ * The turn's write-class `tool_result` content — what the agent authored, not
+ * what it inspected. Used to label a claim `write-echo-backed` rather than
+ * silently treating authorship as verification.
+ */
+export function buildWriteEchoCorpus(turnLines: TranscriptLine[]): string {
+  return buildCorpora(turnLines).writeEcho;
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +885,20 @@ export interface CodeMechanismDetectionResult {
   hadSameTurnRead: boolean;
   /** Number of (symbol, predicate) pairs excluded from `claims` as backed (mt#2673). */
   backedClaimCount: number;
+  /**
+   * TURN-level aggregate (mt#3489): true when at least one claimed symbol
+   * appears ONLY in the write-echo corpus — the agent WROTE it this turn and
+   * never read it. Deliberately disjoint from `hadSameTurnRead`: a symbol that
+   * was genuinely read sets that flag instead, even if it was also written.
+   *
+   * Before mt#3489 these cases were indistinguishable — a write echo set
+   * `hadSameTurnRead` and the claim was suppressed as though inspected. Both
+   * still suppress injection, so this changes no injection behavior; it makes
+   * the authorship-as-verification class countable in the calibration record
+   * for the first time, which is the precondition for deciding whether it
+   * should surface.
+   */
+  hadWriteEchoBacking: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -805,26 +911,39 @@ export interface CodeMechanismDetectionResult {
  *
  * @param assistantText - concatenated assistant text from the prior turn
  * @param verificationCorpus - same-turn read-class inputs + tool_result content
+ * @param writeEchoCorpus - same-turn WRITE-class tool_result content (mt#3489).
+ *   Symbols found only here were authored this turn, not inspected: they do NOT
+ *   back a claim, but they are recorded via `hadWriteEchoBacking` so the class
+ *   is countable. Defaults to empty, which reproduces the pre-mt#3489 call
+ *   shape for existing callers and tests.
  */
 export function detectCodeMechanismAssertion(
   assistantText: string,
-  verificationCorpus: string
+  verificationCorpus: string,
+  writeEchoCorpus = ""
 ): CodeMechanismDetectionResult {
   const empty: CodeMechanismDetectionResult = {
     matched: false,
     claims: [],
     hadSameTurnRead: false,
     backedClaimCount: 0,
+    hadWriteEchoBacking: false,
   };
   if (!assistantText) return empty;
 
   const prose = elideBlocksAndQuotes(assistantText);
   const corpusLower = verificationCorpus.toLowerCase();
+  const writeEchoLower = writeEchoCorpus.toLowerCase();
   const symbolBacked = (sym: string): boolean => corpusLower.includes(sym.toLowerCase());
+  // Checked only for symbols that are NOT read-backed, so a symbol both read and
+  // written counts as read — the stronger evidence wins.
+  const symbolWriteEchoed = (sym: string): boolean =>
+    writeEchoLower.length > 0 && writeEchoLower.includes(sym.toLowerCase());
 
   const claims: Array<{ symbol: string; predicate: string }> = [];
   const seen = new Set<string>();
   const backedSeen = new Set<string>();
+  const writeEchoedSeen = new Set<string>();
 
   for (const pattern of PREDICATE_PATTERNS) {
     const globalFlags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
@@ -838,6 +957,9 @@ export function detectCodeMechanismAssertion(
           backedSeen.add(key);
           continue;
         }
+        // Authored-not-inspected: recorded, but NOT treated as backing, so the
+        // claim still lands in `claims` rather than being silently dropped.
+        if (symbolWriteEchoed(sym)) writeEchoedSeen.add(key);
         if (seen.has(key)) continue;
         seen.add(key);
         claims.push({ symbol: sym, predicate: m[0].slice(0, 40) });
@@ -850,6 +972,7 @@ export function detectCodeMechanismAssertion(
     claims,
     hadSameTurnRead: backedSeen.size > 0,
     backedClaimCount: backedSeen.size,
+    hadWriteEchoBacking: writeEchoedSeen.size > 0,
   };
 }
 
@@ -957,6 +1080,20 @@ export function computeSuppressionReasons(
   // proposal.
   if (result.hadSameTurnRead) reasons.push("same-turn-read");
 
+  // Leg 1b (mt#3489): the claimed symbol was WRITTEN this turn, not read. Before
+  // this split, a write tool's tool_result echo landed in the verification
+  // corpus and set `hadSameTurnRead` — so authorship suppressed the claim under
+  // the same label as inspection, and the two were indistinguishable in the
+  // record.
+  //
+  // This still SUPPRESSES, deliberately: injection behavior is unchanged by
+  // mt#3489, because widening a live injector (INJECTION_ENABLED = true) before
+  // measuring the class would be the wrong order. What changes is that the class
+  // now has its own reason in the calibration record, so its size and FP rate
+  // become measurable for the first time. Removing this leg — letting these
+  // claims surface — is a separate, evidence-gated decision.
+  if (result.hadWriteEchoBacking) reasons.push("write-echo-backed");
+
   // Leg 3 (mt#3113) NO LONGER SUPPRESSES — reversed by mt#3152.
   //
   // mt#3113 treated "this claim came from a subagent's report" as grounds to
@@ -1047,7 +1184,7 @@ export function run(
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
-    result = detectCodeMechanismAssertion(assistantText, corpus);
+    result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
   } catch (err) {
@@ -1145,7 +1282,7 @@ export async function main(): Promise<void> {
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
-    result = detectCodeMechanismAssertion(assistantText, corpus);
+    result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
   } catch (err) {

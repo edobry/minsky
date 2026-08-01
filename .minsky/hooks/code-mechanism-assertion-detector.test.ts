@@ -18,6 +18,7 @@ import { join } from "node:path";
 import {
   detectCodeMechanismAssertion,
   buildVerificationCorpus,
+  buildWriteEchoCorpus,
   elideBlocksAndQuotes,
   buildRelayCorpus,
   detectRelayContext,
@@ -828,6 +829,151 @@ describe("mt#3113 leg 3 — detectRelayContext", () => {
   });
 });
 
+describe("write-echo split (mt#3489)", () => {
+  // A write tool's tool_result echoes the payload the AGENT sent it. Before this
+  // split those echoes landed in the verification corpus, so a claim about code
+  // the agent had just written counted as BACKED and was suppressed — mem#736's
+  // inversion, with the detector blindest exactly where self-authored claims are.
+  //
+  // Measured A/B before the fix: identical claim prose produced 0 claims when the
+  // turn's write echoed the symbol, and 2 claims when it echoed something else.
+
+  const WRITE_TOOL = "mcp__minsky__session_search_replace";
+  const WRITE_ECHO = JSON.stringify({
+    success: true,
+    searchText: "const cycle = cycleRef.current;",
+    replaceText: "if (cycleRef.current) return;",
+  });
+
+  /** A turn whose only tool call is a write, correlated by tool_use_id. */
+  function writeTurn(toolName: string, resultContent: string): TranscriptLine[] {
+    return [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_w1", name: toolName, input: { path: "a.ts" } }],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_w1", content: resultContent }],
+        },
+      },
+    ] as TranscriptLine[];
+  }
+
+  test("a write tool's echo is kept OUT of the verification corpus", () => {
+    const turn = writeTurn(WRITE_TOOL, WRITE_ECHO);
+    expect(buildVerificationCorpus(turn)).not.toContain("cycleRef");
+  });
+
+  test("a write tool's echo lands in the write-echo corpus instead", () => {
+    const turn = writeTurn(WRITE_TOOL, WRITE_ECHO);
+    expect(buildWriteEchoCorpus(turn)).toContain("cycleRef");
+  });
+
+  test("the write class covers every tool that echoes agent-supplied content", () => {
+    // PR #2545 R1 (non-blocking): the original list named only file-edit tools,
+    // so any other content-echoing tool kept the old bug. Asserted per-tool
+    // rather than by re-listing the regex, which would just restate the source.
+    for (const tool of [
+      "mcp__minsky__session_write_file",
+      "mcp__minsky__session_edit_file",
+      "mcp__minsky__session_commit",
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__tasks_spec_patch",
+      "mcp__minsky__memory_create",
+      "mcp__minsky__asks_create",
+      "Write",
+      "Edit",
+    ]) {
+      const turn = writeTurn(tool, WRITE_ECHO);
+      expect(buildWriteEchoCorpus(turn)).toContain("cycleRef");
+      expect(buildVerificationCorpus(turn)).not.toContain("cycleRef");
+    }
+  });
+
+  test("a tool that REPORTS state rather than echoing input still backs a claim", () => {
+    // The membership rule is "echoes content the agent supplied", not "is a
+    // mutation". git_status reports observed state, so its result is evidence.
+    const turn = writeTurn("mcp__minsky__git_status", "cycleRef appears in the diff");
+    expect(buildVerificationCorpus(turn)).toContain("cycleRef");
+    expect(buildWriteEchoCorpus(turn)).toBe("");
+  });
+
+  test("a READ tool's result still backs a claim, unchanged", () => {
+    const turn = writeTurn("Read", "export function cycleRef() {}");
+    expect(buildVerificationCorpus(turn)).toContain("cycleRef");
+    expect(buildWriteEchoCorpus(turn)).toBe("");
+  });
+
+  test("an unattributable tool_result counts as READ, preserving prior behavior", () => {
+    // No tool_use_id to correlate — fail toward the pre-mt#3489 behavior rather
+    // than surfacing a claim on evidence we cannot attribute. This is also why
+    // every pre-existing fixture in this file (none of which set tool_use_id)
+    // keeps passing.
+    const turn = [
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", content: "cycleRef source here" }],
+        },
+      },
+    ] as TranscriptLine[];
+    expect(buildVerificationCorpus(turn)).toContain("cycleRef");
+    expect(buildWriteEchoCorpus(turn)).toBe("");
+  });
+
+  test("a claim about a WRITTEN-only symbol survives detection and is labeled", () => {
+    const turn = writeTurn(WRITE_TOOL, WRITE_ECHO);
+    const result = detectCodeMechanismAssertion(
+      "The `cycleRef` guard returns early, so the effect never creates a tab.",
+      buildVerificationCorpus(turn),
+      buildWriteEchoCorpus(turn)
+    );
+    expect(result.matched).toBe(true);
+    expect(result.hadWriteEchoBacking).toBe(true);
+    // Crucially NOT read-backed: authorship is no longer laundered as inspection.
+    expect(result.hadSameTurnRead).toBe(false);
+  });
+
+  test("a symbol both read AND written counts as read — the stronger evidence wins", () => {
+    const result = detectCodeMechanismAssertion(
+      "The `cycleRef` guard returns early, so the effect never creates a tab.",
+      "export function cycleRef() {}",
+      "cycleRef written payload"
+    );
+    expect(result.hadSameTurnRead).toBe(true);
+    expect(result.hadWriteEchoBacking).toBe(false);
+  });
+
+  test("write-echo backing still SUPPRESSES injection, under its own reason", () => {
+    // mt#3489 changes no injection behavior — INJECTION_ENABLED is true, and
+    // widening a live injector before measuring the class would be the wrong
+    // order. The reason exists so the class becomes countable.
+    const result = {
+      matched: true,
+      claims: [{ symbol: "cycleRef", predicate: "returns" }],
+      hadSameTurnRead: false,
+      backedClaimCount: 0,
+      hadWriteEchoBacking: true,
+    };
+    const { reasons } = computeSuppressionReasons(
+      result,
+      { relayed: false, relayedSymbols: [] },
+      "sess-x",
+      () => true
+    );
+    expect(reasons).toContain("write-echo-backed");
+    expect(reasons).not.toContain("same-turn-read");
+    expect(reasons.length).toBeGreaterThan(0); // still suppressed
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [
@@ -1118,6 +1264,7 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       claims: [{ symbol: "foo", predicate: "clamps" }],
       hadSameTurnRead: false,
       backedClaimCount: 0,
+      hadWriteEchoBacking: false,
     };
     const relay = { relayed: false, relayedSymbols: [] };
     const { reasons } = computeSuppressionReasons(result, relay, "sess-x", () => true);
@@ -1130,6 +1277,7 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       claims: [{ symbol: "foo", predicate: "clamps" }],
       hadSameTurnRead: true,
       backedClaimCount: 1,
+      hadWriteEchoBacking: false,
     };
     const relay = {
       relayed: true,
@@ -1155,6 +1303,7 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       claims: [{ symbol: "foo", predicate: "clamps" }],
       hadSameTurnRead: false,
       backedClaimCount: 0,
+      hadWriteEchoBacking: false,
     };
     const relay = { relayed: false, relayedSymbols: [] };
     const a = computeSuppressionReasons(result, relay, "sess-x", () => true);
@@ -1172,6 +1321,7 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       claims: [{ symbol: "foo", predicate: "clamps" }],
       hadSameTurnRead: false,
       backedClaimCount: 0,
+      hadWriteEchoBacking: false,
     };
     const relay = {
       relayed: true,
