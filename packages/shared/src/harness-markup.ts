@@ -75,6 +75,18 @@ export const LOCAL_COMMAND_TAGS = ["local-command-stdout", "local-command-caveat
 export const SYSTEM_REMINDER_TAGS = ["system-reminder"] as const;
 
 /**
+ * Background-task completion notices (mt#3396).
+ *
+ * The harness emits one of these as a whole `user` turn when a background task
+ * finishes — `<task-notification><task-id>…</task-id><status>…</status>…`. The
+ * operator wrote none of it, so like the caveat above it must never render as
+ * operator prose. Measured across the local transcript corpus: 48 turns carry
+ * the tag and ALL 48 are role `user`, which is exactly why it reached the
+ * render surface under the operator's label.
+ */
+export const TASK_NOTIFICATION_TAGS = ["task-notification"] as const;
+
+/**
  * Every harness markup tag, flattened. This is the DISCARD set for the label
  * surface: a tag here has contents that are never operator prose, so the
  * whole block (markers and body) is dropped rather than unwrapped.
@@ -83,6 +95,7 @@ export const HARNESS_MARKUP_TAGS = [
   ...COMMAND_WRAPPER_TAGS,
   ...LOCAL_COMMAND_TAGS,
   ...SYSTEM_REMINDER_TAGS,
+  ...TASK_NOTIFICATION_TAGS,
 ] as const;
 
 export type HarnessMarkupTag = (typeof HARNESS_MARKUP_TAGS)[number];

@@ -61,9 +61,11 @@
 import {
   COMMAND_WRAPPER_TAGS,
   LOCAL_COMMAND_TAGS,
+  TASK_NOTIFICATION_TAGS,
   tagBlockSource,
   tagOpenSource,
 } from "@minsky/shared/harness-markup";
+import { INTERRUPTION_NOTICE_PREFIX } from "@minsky/shared/minsky-notices";
 import { stripAnsi } from "@minsky/shared/strip-ansi";
 
 /** Origin classification for one injected span. */
@@ -72,7 +74,9 @@ export type InjectedContentKind =
   | "skill-body"
   | "system-reminder"
   | "local-command-output"
-  | "local-command-caveat";
+  | "local-command-caveat"
+  | "task-notification"
+  | "session-notice";
 
 /** Defensive bound on how many wrapper blocks one turn-start run may consume.
  * The harness emits at most four (`command-name` / `command-message` /
@@ -137,10 +141,25 @@ export const INJECTED_KIND_NOUN: Record<InjectedContentKind, string> = {
   "system-reminder": "system reminder",
   "local-command-output": "command output",
   "local-command-caveat": "harness caveat",
+  "task-notification": "task notification",
+  // NOT "harness notice" (mt#3396): this text is MINSKY's own
+  // (`INTERRUPTION_NOTICE_TEXT`), not the harness's. Naming it "harness" would
+  // layer a second misattribution on top of the one this task removes — the
+  // whole point is that a notice Minsky wrote must not be presented as someone
+  // else's words, whether that someone is the operator or the harness.
+  "session-notice": "session notice",
 };
 
-/** Per-tag presentation for a local-command block. */
-const LOCAL_COMMAND_PRESENTATION: Record<string, { kind: InjectedContentKind; label: string }> = {
+/**
+ * Per-tag presentation for a whole-block tag at turn start.
+ *
+ * Covers the local-command pair and, since mt#3396, `task-notification` — one
+ * table and one matcher rather than a parallel path per tag family, because
+ * they are the same shape (a paired tag whose entire block leads the turn) and
+ * a second code path is how the two tag lists this module consumes drifted
+ * apart in the first place.
+ */
+const TURN_START_TAG_PRESENTATION: Record<string, { kind: InjectedContentKind; label: string }> = {
   "local-command-stdout": {
     kind: "local-command-output",
     label: INJECTED_KIND_NOUN["local-command-output"],
@@ -148,6 +167,10 @@ const LOCAL_COMMAND_PRESENTATION: Record<string, { kind: InjectedContentKind; la
   "local-command-caveat": {
     kind: "local-command-caveat",
     label: INJECTED_KIND_NOUN["local-command-caveat"],
+  },
+  "task-notification": {
+    kind: "task-notification",
+    label: INJECTED_KIND_NOUN["task-notification"],
   },
 };
 
@@ -177,9 +200,10 @@ const WRAPPER_BLOCK_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = COMMA
   (tag) => ({ tag, re: new RegExp(`^${tagBlockSource(tag, true)}`, "i") })
 );
 
-const LOCAL_COMMAND_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = LOCAL_COMMAND_TAGS.map(
-  (tag) => ({ tag, re: new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i") })
-);
+const TURN_START_TAG_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = [
+  ...LOCAL_COMMAND_TAGS,
+  ...TASK_NOTIFICATION_TAGS,
+].map((tag) => ({ tag, re: new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i") }));
 
 /** One wrapper block matched at the head of `text`, whichever tag it is. */
 function matchOneWrapperBlock(text: string): { tag: string; body: string; length: number } | null {
@@ -219,12 +243,15 @@ function consumeWrapperRun(text: string): WrapperRun | null {
   return consumed > 0 ? { consumed, parts } : null;
 }
 
-/** A `<local-command-stdout>` / `<local-command-caveat>` block at turn start. */
-function matchLocalCommandBlock(text: string): PrefixMatch | null {
-  for (const { tag, re } of LOCAL_COMMAND_MATCHERS) {
+/**
+ * A whole-block harness tag at turn start — `<local-command-stdout>`,
+ * `<local-command-caveat>`, or `<task-notification>`.
+ */
+function matchTurnStartTagBlock(text: string): PrefixMatch | null {
+  for (const { tag, re } of TURN_START_TAG_MATCHERS) {
     const match = re.exec(text);
     if (!match) continue;
-    const presentation = LOCAL_COMMAND_PRESENTATION[tag];
+    const presentation = TURN_START_TAG_PRESENTATION[tag];
     if (!presentation) continue;
     return {
       consumedLength: match[0].length,
@@ -282,7 +309,37 @@ function matchTurnStartInjection(text: string): PrefixMatch | null {
     };
   }
 
-  return matchLocalCommandBlock(text);
+  const notice = matchSessionNotice(text);
+  if (notice) return notice;
+
+  return matchTurnStartTagBlock(text);
+}
+
+/**
+ * Minsky's own resume-interruption notice, delivered through the input channel
+ * and therefore recorded as a `user` turn (mt#3396).
+ *
+ * Anchored at turn start against the shared prefix constant, so operator prose
+ * that quotes the notice mid-sentence is not matched — the same conservatism
+ * the tag detectors above apply.
+ *
+ * **Consumes the whole turn.** The notice is sent as its own input line
+ * (`sendDrivenSessionInput(record, INTERRUPTION_NOTICE_TEXT)` in
+ * `driven-session-host.ts`), so the turn IS the notice; bounding the span to
+ * the constant's length instead would leave a trailing empty prose segment on
+ * every match, and bounding it to some guessed delimiter would be inventing a
+ * structure the sender does not produce.
+ */
+function matchSessionNotice(text: string): PrefixMatch | null {
+  if (!text.trimStart().startsWith(INTERRUPTION_NOTICE_PREFIX)) return null;
+  return {
+    consumedLength: text.length,
+    span: {
+      kind: "session-notice",
+      label: INJECTED_KIND_NOUN["session-notice"],
+      content: stripAnsi(text.trim()),
+    },
+  };
 }
 
 /**

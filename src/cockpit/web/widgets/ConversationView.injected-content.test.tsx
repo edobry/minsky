@@ -12,6 +12,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { INTERRUPTION_NOTICE_TEXT } from "@minsky/shared/minsky-notices";
 import { ConversationView } from "./ConversationView";
 import type {
   SessionContextSnapshot,
@@ -435,5 +436,59 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     // operator's interjection, and the orphaned stdout the command could not
     // absorb across it.
     expect(turnLabels()).toEqual(["command", "user", "command output"]);
+  });
+});
+
+/**
+ * mt#3396 — the two shapes mt#3374's live verification found still claiming to
+ * be the operator's messages.
+ *
+ * `turnLabels()` is the load-bearing assertion: the render can show the harness
+ * noun somewhere and STILL label the turn `user`, which is precisely the defect
+ * (the label is what attributes authorship).
+ */
+describe("ConversationView — remaining harness-origin shapes (mt#3396)", () => {
+  afterEach(cleanup);
+
+  const TASK_NOTIFICATION_TURN = [
+    "<task-notification>",
+    "<task-id>bhlkh6oiq</task-id>",
+    "<status>completed</status>",
+    "<summary>Background shell command finished.</summary>",
+    "</task-notification>",
+  ].join("\n");
+
+  test("AT4: a task-notification turn is labeled a task notification, never 'user'", () => {
+    renderCV(snapshotWithBlocks([userTextBlock(0, TASK_NOTIFICATION_TURN)]));
+
+    expect(turnLabels()).toEqual(["task notification"]);
+    expect(screen.queryAllByText("user")).toHaveLength(0);
+  });
+
+  test("AT4: a resume-notice turn is labeled a session notice, never 'user'", () => {
+    renderCV(snapshotWithBlocks([userTextBlock(0, INTERRUPTION_NOTICE_TEXT)]));
+
+    expect(turnLabels()).toEqual(["session notice"]);
+    expect(screen.queryAllByText("user")).toHaveLength(0);
+  });
+
+  test("neither shape leaks raw markup into the rendered text", () => {
+    const { container } = renderCV(
+      snapshotWithBlocks([userTextBlock(0, TASK_NOTIFICATION_TURN)])
+    );
+    expect(container.textContent).not.toContain("<task-notification>");
+  });
+
+  test("SC5: a turn mixing a notification with genuine prose still labels as the operator's", () => {
+    // `classifyTurnOrigin`'s prose-wins rule, unchanged by this task — asserted
+    // here because these new kinds are the first ones that could have broken
+    // it, and a turn the operator actually contributed to is theirs.
+    renderCV(
+      snapshotWithBlocks([
+        userTextBlock(0, `${TASK_NOTIFICATION_TURN}\nthanks — go ahead and merge it`),
+      ])
+    );
+
+    expect(turnLabels()).toEqual(["user"]);
   });
 });
