@@ -37,8 +37,8 @@ import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import { assertKnownKind, isTerminal } from "../workflows";
 import {
   validateStatusTransition,
-  hasCloseoutEvidence,
-  READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
+  checkCloseoutEvidence,
+  closeoutEvidenceFailureMessage,
 } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
 import type { TaskGraphService } from "../task-graph-service";
@@ -265,8 +265,13 @@ export async function setTaskStatusFromParams(
         // If spec cannot be read, treat as missing — the check will fail below.
         specContent = "";
       }
-      if (!hasCloseoutEvidence(specContent)) {
-        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
+      // Three distinguishable causes, three messages (mt#3443): no section at all, a
+      // heading that nearly matched, or an accepted heading over an empty section. One
+      // undifferentiated content-focused refusal for all three is what made mt#3431 take a
+      // source read to diagnose.
+      const failureMessage = closeoutEvidenceFailureMessage(checkCloseoutEvidence(specContent));
+      if (failureMessage !== null) {
+        throw new ValidationError(failureMessage, undefined, undefined);
       }
     }
 
