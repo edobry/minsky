@@ -1,13 +1,10 @@
 ---
 name: data-engineering-lens
 description: >-
-  Apply the core Designing Data-Intensive Applications (Kleppmann) decision frames at
-  data-design time, as a checklist — not a book summary. Use when designing a schema,
-  a new persistence path, a cache/index/materialized view, a sync mechanism, an
-  event/queue, or a schema migration: it asks the system-of-record-vs-derived-data,
-  no-dual-writes, denormalization-tradeoff, rebuildability, idempotency, and
-  schema-evolution questions before the design locks in. The filtered-vector-search
-  skill is a specialization of these frames.
+  Apply the core Designing Data-Intensive Applications decision frames at data-design
+  time, as a checklist. Use when designing a schema, a persistence path, a
+  cache/index/materialized view, a sync mechanism, an event/queue, or a migration — it
+  asks the system-of-record, dual-writes, rebuildability, and idempotency questions first.
 user-invocable: true
 ---
 

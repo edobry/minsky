@@ -1,15 +1,10 @@
 ---
 name: research-sandwich
 description: >-
-  Run a deep research / investigation pass with the Fable-bookended fan-out
-  pattern: a Fable advisor decomposes the question into independent workstreams
-  (plan), fresh subagents each research one workstream in parallel (fan-out), and
-  a Fable advisor assembles the results into one coherent deliverable
-  (synthesize). Use when the principal asks for research, prior-art, a landscape
-  survey, "get clarity / perspective," "find the existing language/frameworks
-  for X," or explicitly asks for "the Fable sandwich" / "plan, fan out,
-  synthesize." NOT for a single-fact lookup or a one-source question — sandwiching
-  a one-liner is waste.
+  Deep research pass with the Fable-bookended fan-out pattern: plan (decompose into
+  independent workstreams), fan out (fresh subagents research in parallel), synthesize.
+  Use for research, prior-art, or landscape surveys — or an explicit "plan, fan out,
+  synthesize". NOT for a single-fact lookup; sandwiching a one-liner is waste.
 user-invocable: true
 ---
 

@@ -1,18 +1,10 @@
 ---
 name: postmortem
 description: >-
-  Blameless postmortem for a production / infrastructure incident — a real
-  outage, degradation, data-loss event, or near-miss affecting shared/prod
-  state or customers. Produces a docs/incidents/<date>-<topic>.md analysis
-  grounded in industry best practice (Google SRE Ch.15, Allspaw blameless
-  culture, Cook "How Complex Systems Fail"): quantified impact, a UTC timeline,
-  contributing factors (NOT a single root cause), and typed action items
-  tracked as Minsky tasks. Use when an incident is RESOLVED and the user asks
-  for a "postmortem", "post-incident review", "PIR", "what caused the outage",
-  "why did it go down", "root cause of the incident", or when a SEV-1/SEV-2
-  production incident closes. Distinct from /retrospective (agent cognitive /
-  process failures) and /incident-memo (end-of-session cross-incident
-  synthesis).
+  Blameless postmortem for a RESOLVED production incident — outage, degradation, data
+  loss, or near-miss affecting shared/prod state or customers. Produces
+  docs/incidents/<date>-<topic>.md. Distinct from /retrospective (agent process failures)
+  and /incident-memo (cross-incident synthesis).
 user-invocable: true
 ---
 
