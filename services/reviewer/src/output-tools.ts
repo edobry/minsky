@@ -618,7 +618,15 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "updates alongside the code; 'blocking-needs-update' when the PR affects " +
         "documented behavior but does NOT update the docs (the reviewer should also " +
         "emit a submit_finding with severity BLOCKING for the same issue). " +
-        "evidence must justify the verdict and reference specific docs when applicable. " +
+        "'affects documented behavior' covers TWO cases, not one: the PR ADDS surface the " +
+        "docs omit, AND the PR CHANGES or REMOVES behavior that existing doc prose still " +
+        "asserts. The second leaves a doc that is not silent but WRONG, and is the case " +
+        "reviews habitually miss — check it by reading the doc that covers the changed " +
+        "behavior, not by searching the docs for identifiers the diff adds. " +
+        "evidence must justify the verdict and reference specific docs when applicable; when " +
+        "the verdict rests on invalidated prose, quote the specific sentence the diff " +
+        "falsifies. Do not claim existing docs 'remain accurate' unless you read them — say " +
+        "which you checked and which you did not. " +
         "affectedDocs is optional but recommended for 'updated-in-pr' and " +
         "'blocking-needs-update' — list the affected documentation file paths.",
       parameters: {
@@ -640,7 +648,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "array",
             items: { type: "string", minLength: 1 },
             description:
-              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — do not speculatively list docs based on topic area alone.",
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — which INCLUDES a doc whose existing prose describes the OLD behavior this PR changes, even if it never mentions a single identifier the diff adds; its prose being false is the reason it needs updating. What remains forbidden is topic-area speculation: a doc is not affected merely because it covers the same general area.",
           },
         },
         required: ["kind", "evidence"],
