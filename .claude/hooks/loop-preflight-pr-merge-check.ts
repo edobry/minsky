@@ -26,14 +26,8 @@
 // @see mt#1555 — tracking task
 // @see parallel-work-guard.ts — reference implementation (same shape)
 
-import {
-  readInput,
-  writeOutput,
-  execWithPath,
-  readHostCap,
-  deriveBudgets,
-  TERMINAL_TASK_STATUSES,
-} from "./types";
+import { readInput, writeOutput, execWithPath, readHostCap, deriveBudgets } from "./types";
+import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------

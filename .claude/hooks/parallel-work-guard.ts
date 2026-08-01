@@ -48,7 +48,8 @@
 // @see mt#1305 — Tier-2 skill-step enforcement (floor)
 // @see feedback_check_parallel_work_before_decomposing — four-incident history
 
-import { readInput, writeOutput, execWithPath, TERMINAL_TASK_STATUSES } from "./types";
+import { readInput, writeOutput, execWithPath } from "./types";
+import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 import {
   DUPLICATE_CHILD_GUARD_NAME,
