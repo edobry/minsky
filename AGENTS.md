@@ -800,6 +800,13 @@ discipline-tier. Recipes + leak-containment runbook:
   its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
+- **Still unsafe, tracked at mt#3572**: `test:all`, `test:debug`, `test:integration`, and
+  `test:debug:integration` pass NO path argument, and bare discovery also walks `src/mcp` —
+  `bunfig.toml`'s `pathIgnorePatterns` lists only `services/**` and `src/cockpit/web/**`, because
+  the mechanism does not reliably prune a subdirectory (its own comment records why). Confirmed
+  truncating. They were not migrated with the rest because `run-tests-main.ts`'s `ROOTS` omits
+  `./tests/integration`, so routing them through it would silently DROP integration coverage —
+  a worse bug than the one being fixed. Treat a green result from these four as unverified.
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
