@@ -50,6 +50,7 @@ import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
+import { computeFenceInternalLines } from "./markdown-sections";
 import {
   deriveRepoFromGit,
   fetchPrContext,
@@ -148,6 +149,7 @@ const SIZE_BUDGET_JUSTIFICATION_MARKER =
 export function hasSizeBudgetJustification(prBody: string): boolean {
   const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const lines = stripped.split("\n");
+  const fenceInternal = computeFenceInternalLines(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
@@ -164,7 +166,12 @@ export function hasSizeBudgetJustification(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading — stop
+      // Only a REAL heading ends the section (PR #2533 R1). Third instance of the
+      // same class: this gate's MARKER scan already rejects a fence-quoted marker
+      // (verified — `hasSizeBudgetJustification(fence-quoted only) -> false`), so
+      // mt#3530's spec scoped it out on that question; the CONTENT scan is a
+      // separate sub-issue the R1 review surfaced, and it is present here too.
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       if (nextLine.trim().length > 0) parts.push(nextLine.trim());
     }
     if (parts.join(" ").trim().length === 0) continue; // empty section — keep looking

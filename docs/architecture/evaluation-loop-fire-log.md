@@ -503,3 +503,32 @@ fire-log JSONL record itself).
 - mt#3078 — invocation-path audit that classified the merge-gate fire-log absence as by-design
   (not a wiring bug) and named the alternative evidence sources (see the dedicated section
   above); mt#3084 — the Phase-3 build-out task this classification filed.
+
+## Tuning ownership and project scoping (mt#3518, 2026-08-01)
+
+Two amendments to this document's original single-operator framing, both governed by the
+beyond-Minsky RFC's 2026-08-01 amendment (Notion `37a937f0-3cb4-81ed-9a08-fbdeebd8845d`, §3
+"Tuning-loop ownership") and the mem#802 principle (customers emit signal; the system/vendor
+tunes; calibration review never routes to a customer):
+
+- **Tuning ownership is now a registry field.** Every `GUARD_REGISTRY` entry carries
+  `tuningOwnership: "invariant" | "preference" | "advisory"` (see the field's doc comment in
+  `.minsky/hooks/registry.ts` for the class definitions and per-class decision surfaces), and
+  `registry.test.ts` requires the stamp on every entry — new guards are classified at birth.
+  Preference-class thresholds read their values via `readPositiveIntEnv` (`types.ts`): the
+  shipped constant is the vendor default, a registered `MINSKY_*` env var is the local
+  override. First instances: `MINSKY_WALL_OF_TEXT_WORD_BUDGET`,
+  `MINSKY_SILENT_STRETCH_GAP_MINUTES`, `MINSKY_SILENT_STRETCH_TOOL_CALLS`.
+  Guards NOT yet migrated into the registry (the merge-gate stack and other
+  settings.json-direct hooks, ADR-028 Phases 4–6) are uniformly **invariant**-class; they
+  inherit a structural stamp when their phase migrates them.
+
+- **Scoping decision for ingest (constrains mt#3334).** The storage decision above (one
+  machine-local file) stands for the ON-DISK format — no JSONL schema change. Project scoping
+  happens AT INGEST into the DB: stamped on write from the record's `cwd` (or the session's
+  project), following the `resolveRunStateProjectId` precedent in
+  `packages/domain/src/conversation-run-state/repository.ts` (nullable on resolution failure;
+  ingest never blocks on it). This gives the ingested streams their second consumer —
+  per-project calibration-signal aggregation for vendor-side tuning — without touching the
+  emit path. Cold-start is the registry defaults: a project with zero fires gets shipped
+  behavior; no local auto-adaptation ships yet.

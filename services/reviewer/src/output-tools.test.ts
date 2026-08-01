@@ -15,6 +15,9 @@ import { describe, expect, test } from "bun:test";
 import {
   OUTPUT_TOOL_DEFINITIONS,
   parseToolCall,
+  parseToolCallExpanded,
+  BATCHED_SPEC_VERIFICATION_TOOL,
+  MAX_BATCHED_SPEC_VERIFICATIONS,
   type ConcludeReviewArgs,
   type ReviewToolCall,
   type SubmitDocumentationImpactArgs,
@@ -197,6 +200,104 @@ describe("parseToolCall — submit_inline_comment", () => {
 // ---------------------------------------------------------------------------
 // submit_spec_verification
 // ---------------------------------------------------------------------------
+
+/** The singular tool name a batch expands into. */
+const SINGULAR_SPEC_TOOL = "submit_spec_verification";
+
+describe("parseToolCallExpanded — batched spec verifications (mt#3545)", () => {
+  const entry = (criterion: string, status = "Met") => ({
+    criterion,
+    status,
+    evidence: `evidence for ${criterion}`,
+  });
+
+  test("a batch expands to N singular calls, in spec order", () => {
+    // The whole design rests on this: downstream consumers (compose-review,
+    // provenance, severity-recovery) must see exactly what N singular calls
+    // would have produced, or batching becomes a behavior change.
+    const expanded = parseToolCallExpanded(
+      BATCHED_SPEC_VERIFICATION_TOOL,
+      JSON.stringify({
+        verifications: [entry("SC1"), entry("SC2", "Not Met"), entry("SC3", "N/A")],
+      })
+    );
+
+    expect(expanded).toHaveLength(3);
+    expect(expanded.map((c) => c.name)).toEqual([
+      SINGULAR_SPEC_TOOL,
+      SINGULAR_SPEC_TOOL,
+      SINGULAR_SPEC_TOOL,
+    ]);
+    expect(expanded.map((c) => (c.args as SubmitSpecVerificationArgs).criterion)).toEqual([
+      "SC1",
+      "SC2",
+      "SC3",
+    ]);
+    expect(expanded.map((c) => (c.args as SubmitSpecVerificationArgs).status)).toEqual([
+      "Met",
+      "Not Met",
+      "N/A",
+    ]);
+  });
+
+  test("a batched entry is byte-identical to the singular call for the same entry", () => {
+    const single = parseToolCall(SINGULAR_SPEC_TOOL, JSON.stringify(entry("SC1")));
+    const [batched] = parseToolCallExpanded(
+      BATCHED_SPEC_VERIFICATION_TOOL,
+      JSON.stringify({ verifications: [entry("SC1")] })
+    );
+
+    expect(batched).toEqual(single);
+  });
+
+  test("per-entry validation still applies — one bad entry rejects the whole batch", () => {
+    // SC3: batching must not weaken per-item validation. All-or-nothing is the
+    // safe failure mode: a partial verdict set would look like a complete one.
+    expect(() =>
+      parseToolCallExpanded(
+        BATCHED_SPEC_VERIFICATION_TOOL,
+        JSON.stringify({
+          verifications: [entry("SC1"), { criterion: "SC2", status: "Maybe", evidence: "x" }],
+        })
+      )
+    ).toThrow(/verifications\.1\.status/);
+  });
+
+  test("an empty batch is rejected rather than silently recording nothing", () => {
+    expect(() =>
+      parseToolCallExpanded(BATCHED_SPEC_VERIFICATION_TOOL, JSON.stringify({ verifications: [] }))
+    ).toThrow(/verifications/);
+  });
+
+  test("a batch beyond the cap is rejected", () => {
+    const tooMany = Array.from({ length: MAX_BATCHED_SPEC_VERIFICATIONS + 1 }, (_, i) =>
+      entry(`SC${i}`)
+    );
+    expect(() =>
+      parseToolCallExpanded(
+        BATCHED_SPEC_VERIFICATION_TOOL,
+        JSON.stringify({ verifications: tooMany })
+      )
+    ).toThrow(/verifications/);
+  });
+
+  test("non-batched tools pass through unchanged, as a single-element array", () => {
+    const expanded = parseToolCallExpanded(
+      "conclude_review",
+      JSON.stringify({ event: "APPROVE", summary: "Looks good to me, shipping it." })
+    );
+
+    expect(expanded).toHaveLength(1);
+    expect(expanded[0]?.name).toBe("conclude_review");
+  });
+
+  test("the batched tool is exposed to the model", () => {
+    const names = OUTPUT_TOOL_DEFINITIONS.map((d) => d.function.name);
+    expect(names).toContain(BATCHED_SPEC_VERIFICATION_TOOL);
+    // The singular form stays available for a late single correction.
+    expect(names).toContain(SINGULAR_SPEC_TOOL);
+  });
+});
 
 describe("parseToolCall — submit_spec_verification", () => {
   const BASE_ARGS: SubmitSpecVerificationArgs = {
@@ -499,8 +600,12 @@ describe("parseToolCall — submit_inline_comment — inReplyTo", () => {
 // ---------------------------------------------------------------------------
 
 describe("OUTPUT_TOOL_DEFINITIONS", () => {
-  test("has exactly 7 entries", () => {
-    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(7);
+  test("has exactly 8 entries", () => {
+    // 8 as of mt#3545, which added the batched `submit_spec_verifications`
+    // alongside the singular form. This count is a deliberate guard: adding a
+    // tool widens the model's option surface and should be a decision, not a
+    // drive-by, so the number is asserted rather than derived.
+    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(8);
   });
 
   test("each entry has type: function", () => {

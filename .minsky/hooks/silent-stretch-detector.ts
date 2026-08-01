@@ -109,7 +109,7 @@
 // @see mt#3003 — this task: shared anchoring fix (resolveParentTranscriptLines) + dedupe guard
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot, readPositiveIntEnv } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -180,8 +180,15 @@ const CALIBRATION_LOG = ".minsky/silent-stretch-calibration.jsonl";
 // Cadence thresholds (pinned at planning, 2026-07-15 — see header comment)
 // ---------------------------------------------------------------------------
 
-export const GAP_MINUTES_THRESHOLD = 10;
-export const TOOL_CALL_THRESHOLD = 15;
+/**
+ * PREFERENCE-class thresholds (mt#3518, mem#802): the shipped defaults (10
+ * minutes / 15 calls) are this operator's heartbeat cadence, verbatim from
+ * `user-preferences.mdc §Progress heartbeats` — not universal constants.
+ * Locally overridable via the registered env vars below; malformed values
+ * fall back to the defaults.
+ */
+export const GAP_MINUTES_THRESHOLD = readPositiveIntEnv("MINSKY_SILENT_STRETCH_GAP_MINUTES", 10);
+export const TOOL_CALL_THRESHOLD = readPositiveIntEnv("MINSKY_SILENT_STRETCH_TOOL_CALLS", 15);
 
 /**
  * mt#3336 (ask#6448 disposition): the bare call-count leg over-fired — 9 of

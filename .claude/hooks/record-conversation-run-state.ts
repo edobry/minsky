@@ -72,7 +72,11 @@ export interface RunStateIo {
 
 /** The real, process-bound IO surface. */
 export const REAL_IO: RunStateIo = {
-  readFile: (filePath) => fs.readFileSync(filePath, { encoding: "utf-8" }),
+  // Both `readFileSync` encoding forms resolve to `string | Buffer` under this
+  // repo's types, which does not satisfy RunStateIo.readFile's `string`. The
+  // encoding argument makes the Buffer arm unreachable at runtime, so this is a
+  // types-only narrowing, not a behavioral assumption.
+  readFile: (filePath) => fs.readFileSync(filePath, "utf-8") as string,
   readDir: (dirPath) => fs.readdirSync(dirPath),
   env: process.env,
 };
@@ -147,15 +151,114 @@ export function readCockpitToken(io: RunStateIo = REAL_IO): string | null {
 }
 
 /**
+ * Per-field ceiling applied to the forwarded payload.
+ *
+ * Every field `event-mapping.ts` actually reads is a short scalar string
+ * (`prompt_id`, `tool_name`, `error_type`, `error_message`, `type`, `trigger`,
+ * `reason`), so this ceiling is orders of magnitude above anything consumed
+ * while cutting the fields that are not: `tool_response` on a `PostToolUse`
+ * routinely runs to megabytes.
+ */
+export const MAX_PAYLOAD_FIELD_CHARS = 4096;
+
+/**
+ * Ceiling for the whole serialized body, held below the daemon's accepted
+ * `express.json` limit so a payload of many mid-sized fields cannot sum past it
+ * even when no single field trips {@link MAX_PAYLOAD_FIELD_CHARS}.
+ */
+export const MAX_BODY_CHARS = 64 * 1024;
+
+/** Marker replacing an oversized non-string value; carries the dropped size. */
+interface TruncationMarker {
+  __truncated: true;
+  chars: number;
+}
+
+function truncationMarker(chars: number): TruncationMarker {
+  return { __truncated: true, chars };
+}
+
+/**
+ * Bound the payload by SIZE, never by field name.
+ *
+ * Deliberately generic: `buildIngestBody`'s contract is that the event -> column
+ * mapping stays server-side so revising it never requires redistributing hooks
+ * across the fleet. An allowlist of the keys `event-mapping.ts` happens to read
+ * today would move field selection into the hook and break exactly that
+ * property, so this bounds by size and lets the server keep choosing.
+ *
+ * Oversized strings are truncated in place (keeping the type, so a consumer's
+ * `typeof value === "string"` test still passes); oversized non-strings become a
+ * {@link TruncationMarker}, which reads as absent to the server's string-typed
+ * accessors rather than as a plausible value.
+ */
+export function boundPayload(
+  payload: Record<string, unknown>,
+  /**
+   * Chars available to the PAYLOAD specifically. Callers that wrap the payload
+   * in an envelope pass the ceiling minus the envelope's own cost, so the
+   * guarantee holds for the bytes actually sent rather than for the payload in
+   * isolation (PR #2531 R1).
+   */
+  budget: number = MAX_BODY_CHARS
+): Record<string, unknown> {
+  const bounded: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value === "string") {
+      bounded[key] =
+        value.length > MAX_PAYLOAD_FIELD_CHARS
+          ? `${value.slice(0, MAX_PAYLOAD_FIELD_CHARS)}…[truncated ${value.length - MAX_PAYLOAD_FIELD_CHARS} chars]`
+          : value;
+      continue;
+    }
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value) ?? "";
+    } catch {
+      // A cyclic or otherwise unserializable value would make the whole body
+      // unsendable; drop it to a marker rather than lose the event.
+      bounded[key] = truncationMarker(-1);
+      continue;
+    }
+    bounded[key] =
+      serialized.length > MAX_PAYLOAD_FIELD_CHARS ? truncationMarker(serialized.length) : value;
+  }
+
+  // Second pass: even all-small fields can sum past the body ceiling, which a
+  // per-field bound alone would miss. REMOVE the largest remaining entry until
+  // the payload fits.
+  //
+  // Removal, not marker-substitution (PR #2531 R1): a marker keeps the key, so
+  // substituting cannot shrink a payload whose bulk is many small fields — or
+  // long key NAMES — and the previous version bailed out of that case via a
+  // `break`, returning a payload still over the ceiling. Every iteration here
+  // drops one entry, so the loop terminates at worst on the empty object and
+  // the ceiling is a GUARANTEE rather than a best effort. Entry size counts the
+  // KEY as well as the value, since a key is just as able to be the bulk.
+  // Consumed fields are short scalars, so they are the last things standing.
+  const entries = Object.entries(bounded);
+  const entrySize = ([key, value]: [string, unknown]): number =>
+    key.length + (JSON.stringify(value) ?? "").length;
+  entries.sort((a, b) => entrySize(b) - entrySize(a)); // largest first
+  while (entries.length > 0 && JSON.stringify(Object.fromEntries(entries)).length > budget) {
+    entries.shift();
+  }
+
+  return Object.fromEntries(entries);
+}
+
+/**
  * Build the ingest body from a harness payload.
  *
  * `observedAt` is stamped HERE, at observation time, so that queueing or retry
  * latency between the hook and the daemon cannot backdate the liveness
  * heartbeat the absence-detection sweep reads.
  *
- * The full payload is forwarded verbatim: the event -> column mapping lives
- * server-side (event-mapping.ts) so revising it never requires recompiling and
- * redistributing hooks across the fleet.
+ * The payload is forwarded whole but SIZE-BOUNDED (see {@link boundPayload}):
+ * the event -> column mapping stays server-side (event-mapping.ts) so revising
+ * it never requires recompiling and redistributing hooks across the fleet, and
+ * the bound is by size rather than by key so that property survives.
  *
  * Returns null when the payload lacks the two fields that make it addressable.
  */
@@ -164,12 +267,22 @@ export function buildIngestBody(
   observedAt: Date
 ): Record<string, unknown> | null {
   if (!input?.session_id || !input?.hook_event_name) return null;
-  return {
+
+  const envelope = {
     conversationId: input.session_id,
     eventName: input.hook_event_name,
     observedAt: observedAt.toISOString(),
     cwd: input.cwd ?? null,
-    payload: { ...input },
+  };
+  // Charge the envelope against the ceiling before bounding the payload, so
+  // MAX_BODY_CHARS bounds the BYTES ACTUALLY SENT rather than the payload alone
+  // (PR #2531 R1: the payload fit while the assembled body did not). The `+ 16`
+  // covers the `,"payload":{}` that joining the two adds.
+  const budget = MAX_BODY_CHARS - JSON.stringify(envelope).length - 16;
+
+  return {
+    ...envelope,
+    payload: boundPayload({ ...input } as Record<string, unknown>, Math.max(budget, 0)),
   };
 }
 
@@ -189,9 +302,22 @@ export async function postRunState(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(RUN_STATE_POST_TIMEOUT_MS),
     });
+    if (!res.ok) {
+      // A PRESENT daemon that REJECTED us is a different condition from an
+      // absent one, and collapsing the two is why an unbounded payload went
+      // unnoticed: every large PostToolUse was rejected 413 and dropped as
+      // though the daemon were down. Still fail-open — one stderr line, no
+      // throw, no retry, turn unaffected — but no longer silent.
+      process.stderr.write(
+        `record-conversation-run-state: daemon rejected event (HTTP ${res.status})\n`
+      );
+    }
     return res.ok;
   } catch {
     // Daemon down, timed out, connection refused — all the same to us: drop it.
+    // Deliberately NOT logged: an absent daemon is the expected steady state
+    // whenever the cockpit isn't running, and a line per tool call would be
+    // pure noise.
     return false;
   }
 }

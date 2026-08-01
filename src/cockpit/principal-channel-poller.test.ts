@@ -15,9 +15,15 @@ import {
   type ChannelActuator,
   type PollCursor,
   type PollCycleDeps,
+  startTypingLoop,
 } from "./principal-channel-poller";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
+import {
+  REACTION_DONE,
+  REACTION_ERROR,
+  REACTION_RECEIVED,
+} from "@minsky/domain/notify/principal-reactions";
 
 const TOKEN = "tok";
 const CHAT = "167346572";
@@ -1028,6 +1034,246 @@ describe("runPollCycle — reply drift reconciliation (mt#3507)", () => {
     expect(outcome.handled).toBe(1);
     const last = sentBodies[sentBodies.length - 1];
     expect(THREAD_ID_KEY in (last ?? {})).toBe(false);
+  });
+});
+
+/**
+ * Pipeline-state acks (mt#3486).
+ *
+ * The principal asked for "some kind of acknowledgement that it's received."
+ * Telegram's checkmarks cannot supply it — a bot can neither read nor set them
+ * — so reactions on the inbound message are the only mechanism that marks a
+ * SPECIFIC message as having reached a stage.
+ */
+/** Bot API method fragments matched against the stubbed fetch URL. */
+const SET_REACTION = "setMessageReaction";
+const CHAT_ACTION = "sendChatAction";
+/** The forum-topic field, as it appears on the wire. */
+const THREAD_FIELD = "message_thread_id";
+
+describe("runPollCycle — receipt acks", () => {
+  /** Capture reaction + chat-action calls alongside the normal harness. */
+  function ackHarness(opts: { fail?: boolean; threadId?: number } = {}): {
+    h: Harness;
+    reactions: Array<{ messageId: number; emoji: string }>;
+    typing: Array<Record<string, unknown>>;
+  } {
+    const reactions: Array<{ messageId: number; emoji: string }> = [];
+    const typing: Array<Record<string, unknown>> = [];
+
+    const body = {
+      ok: true,
+      result: [
+        {
+          update_id: 60,
+          message: {
+            message_id: 60,
+            date: 1700000000,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "go",
+            ...(opts.threadId === undefined
+              ? {}
+              : { message_thread_id: opts.threadId, is_topic_message: true }),
+          },
+        },
+      ],
+    };
+
+    const h = harness(body, {
+      actuator: {
+        converse: async () => {
+          if (opts.fail) throw new Error("boom");
+          return "done";
+        },
+      },
+    });
+
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      const target = String(url);
+      const parsed = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (target.includes(SET_REACTION)) {
+        const list = parsed["reaction"] as Array<{ emoji: string }> | undefined;
+        reactions.push({
+          messageId: Number(parsed["message_id"]),
+          emoji: list && list.length > 0 ? (list[0]?.emoji ?? "") : "",
+        });
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      }
+      if (target.includes(CHAT_ACTION)) {
+        typing.push(parsed);
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      }
+      return inner(url, init);
+    };
+
+    return { h, reactions, typing };
+  }
+
+  test("marks the message as picked up, then as done", async () => {
+    const { h, reactions } = ackHarness();
+    await runPollCycle(h.deps);
+
+    // Both target the PRINCIPAL's message, not the reply — the point is to
+    // mark which inbound message reached which stage.
+    expect(reactions.map((r) => r.emoji)).toEqual([REACTION_RECEIVED, REACTION_DONE]);
+    expect(reactions.every((r) => r.messageId === 60)).toBe(true);
+  });
+
+  test("marks a failed turn with the error reaction, not the done one", async () => {
+    const { h, reactions } = ackHarness({ fail: true });
+    await runPollCycle(h.deps);
+
+    expect(reactions.map((r) => r.emoji)).toEqual([REACTION_RECEIVED, REACTION_ERROR]);
+  });
+
+  test("marks a turn whose reply never got delivered with the error reaction", async () => {
+    // The actuator succeeds, but Telegram rejects the reply. The principal is
+    // left with no answer, so 👌 would assert delivery of something they never
+    // received — and here the reaction is the ONLY signal they get, because the
+    // reply itself is what went missing.
+    const { h, reactions } = ackHarness();
+    const withAcks = h.deps.fetchFn ?? h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        return new Response(JSON.stringify({ ok: false, description: "Bad Request" }), {
+          status: 400,
+        });
+      }
+      return withAcks(url, init);
+    };
+
+    await runPollCycle(h.deps);
+
+    expect(reactions.map((r) => r.emoji)).toEqual([REACTION_RECEIVED, REACTION_ERROR]);
+  });
+
+  test("a reaction failure never affects the reply", async () => {
+    // Fire-and-forget by contract: the ack reports on the pipeline, so it must
+    // never be able to break the thing it reports on.
+    const { h } = ackHarness();
+    const withAcks = h.deps.fetchFn ?? h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SET_REACTION)) {
+        return new Response(JSON.stringify({ ok: false, description: "REACTION_INVALID" }), {
+          status: 400,
+        });
+      }
+      return withAcks(url, init);
+    };
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(h.sentTexts).toEqual(["done"]);
+  });
+
+  test("shows the typing indicator, and targets the message's topic", async () => {
+    // Without the thread id the cue appears in General while the reply lands in
+    // the topic — a latency signal pointing at the wrong conversation.
+    const { h, typing } = ackHarness({ threadId: 42 });
+    await runPollCycle(h.deps);
+
+    expect(typing.length).toBeGreaterThan(0);
+    expect(typing[0]?.["action"]).toBe("typing");
+    expect(typing[0]?.[THREAD_FIELD]).toBe(42);
+  });
+
+  test("omits the thread id outside a topic", async () => {
+    const { h, typing } = ackHarness();
+    await runPollCycle(h.deps);
+
+    expect(typing.length).toBeGreaterThan(0);
+    expect(THREAD_FIELD in (typing[0] ?? {})).toBe(false);
+  });
+});
+
+/**
+ * The typing loop's lifetime (PR #2525 R2).
+ *
+ * Exercised DIRECTLY with a short refresh rather than through `runPollCycle`.
+ * At the 4-second production cadence a poll-cycle test finishes before a single
+ * refresh fires, so an assertion about stopping would pass whether or not
+ * stopping worked — the can't-fail shape mem#704 warns about. Driving the loop
+ * itself is what makes these discriminating.
+ */
+describe("startTypingLoop", () => {
+  function collector(): { calls: number[]; fetchFn: FetchFn } {
+    const calls: number[] = [];
+    const fetchFn: FetchFn = async () => {
+      calls.push(Date.now());
+      return new Response(JSON.stringify({ ok: true, result: true }));
+    };
+    return { calls, fetchFn };
+  }
+
+  const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("keeps refreshing for as long as it runs", async () => {
+    // The property the whole change exists for: one call is not enough,
+    // because Telegram expires the action after ~5s.
+    const { calls, fetchFn } = collector();
+    const loop = startTypingLoop({ token: "t", chatId: "c", refreshMs: 5, fetchFn });
+
+    await settle(40);
+    loop.stop();
+
+    expect(calls.length).toBeGreaterThan(2);
+  });
+
+  test("stop() ends the refreshes", async () => {
+    const { calls, fetchFn } = collector();
+    const loop = startTypingLoop({ token: "t", chatId: "c", refreshMs: 5, fetchFn });
+
+    await settle(25);
+    loop.stop();
+    const atStop = calls.length;
+    await settle(30);
+
+    expect(calls.length).toBe(atStop);
+  });
+
+  test("aborting the poller's signal stops it, without stop() being called", async () => {
+    // Per-turn teardown is not sufficient: the poller aborts on shutdown while
+    // an in-flight turn keeps awaiting its actuator, so without this binding
+    // the interval outlives the poller it belongs to.
+    const controller = new AbortController();
+    const { calls, fetchFn } = collector();
+    startTypingLoop({
+      token: "t",
+      chatId: "c",
+      refreshMs: 5,
+      signal: controller.signal,
+      fetchFn,
+    });
+
+    await settle(25);
+    controller.abort();
+    const atAbort = calls.length;
+    await settle(30);
+
+    expect(atAbort).toBeGreaterThan(1);
+    expect(calls.length).toBe(atAbort);
+  });
+
+  test("an already-aborted signal never starts the interval", async () => {
+    // A turn can begin on the same tick a stop lands; subscribing to a future
+    // event would miss it.
+    const controller = new AbortController();
+    controller.abort();
+    const { calls, fetchFn } = collector();
+    startTypingLoop({
+      token: "t",
+      chatId: "c",
+      refreshMs: 5,
+      signal: controller.signal,
+      fetchFn,
+    });
+
+    await settle(30);
+
+    expect(calls.length).toBe(0);
   });
 });
 

@@ -40,9 +40,11 @@
  * Presence chrome (mt#3261, split by mt#3344): the header carries mt#3130's
  * single always-visible Presence VALUE, read from
  * `GET /api/conversation/:id/presence`, and passes it into `RunDetail`'s
- * pinned `chrome` slot so it stays on screen at any scroll depth. mt#3130
- * placement decision (1) put the Activity sub-line there too; mt#3344 narrows
- * that — Activity now renders at the transcript's tail via `conversationTail`,
+ * pinned region via `renderActiveConversationChrome` so it stays on screen at
+ * any scroll depth. mt#3130 placement decision (1) put the Activity sub-line
+ * there too; mt#3344 narrows that — Activity now renders at the transcript's
+ * tail via `renderActiveConversationTail` (both slots became render props in
+ * mt#3554, so `/agents/:id` mounts the same two readouts),
  * because an operator reading "Running <tool>" is following the live edge at
  * the bottom of the transcript, not the page chrome at the top. The presence
  * VALUE stays in the chrome: it is a property of the conversation, not of the
@@ -261,10 +263,18 @@ export function ConversationPage() {
                 {resolved}
               </span>
             )}
-            <ConversationPresenceChip conversationId={resolved} />
           </div>
         }
-        conversationTail={<ConversationActivityLine conversationId={resolved} />}
+        // mt#3554 — presence and activity moved onto the shared
+        // active-conversation slots so `/agents/:id` can mount the same two
+        // readouts. Here `activeConversationId` IS `resolved` (the conversation
+        // keyspace resolves to its own id), so both render exactly as before.
+        renderActiveConversationChrome={(conversationId) => (
+          <ConversationPresenceChip conversationId={conversationId} />
+        )}
+        renderActiveConversationTail={(conversationId) => (
+          <ConversationActivityLine conversationId={conversationId} />
+        )}
       />
     </div>
   );
