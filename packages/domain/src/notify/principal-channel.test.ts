@@ -6,6 +6,7 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   clearPrincipalChannelCache,
   findTelegramTopicForTask,
@@ -415,25 +416,70 @@ describe("findTelegramTopicForTask (mt#3507)", () => {
     };
   }
 
+  /**
+   * Render a drizzle `sql` template into its parameterized SQL text plus its
+   * bound values, via drizzle's own dialect rather than by walking
+   * `queryChunks` by hand. Hand-walking is what the repo's older helpers do,
+   * but the chunk shapes are an internal detail that varies by construction
+   * path; `sqlToQuery` is the supported seam and is what makes the assertion
+   * below about the PREDICATE rather than about drizzle's internals.
+   */
+  const pgDialect = new PgDialect();
+
+  function renderQuery(query: unknown): { text: string; params: unknown[] } {
+    const { sql: text, params } = pgDialect.sqlToQuery(query as never);
+    return { text, params: params as unknown[] };
+  }
+
   test("returns the bound topic's thread id", async () => {
     const { db } = fakeDb([{ message_thread_id: 749667 }]);
-    const result = await findTelegramTopicForTask("mt#3507", { getDb: async () => db });
+    const result = await findTelegramTopicForTask("mt#3507", "167346572", {
+      getDb: async () => db,
+    });
     expect(result).toEqual({ messageThreadId: 749667 });
+  });
+
+  /**
+   * PR #2513 R1. `telegram_channel_topics` is unique on the PAIR
+   * `(chat_id, message_thread_id)`, so a task lookup that ignored chat_id
+   * could return a thread belonging to another chat. Sending that thread id
+   * to the configured chat fails "message thread not found", and the
+   * dead-marking that follows IS chat-scoped — so it would match no row and
+   * the bad mapping would survive, failing over on every later notify.
+   *
+   * Asserts the predicate itself, not just the return value: a fake db
+   * returning a canned row passes regardless of what was asked for, so only
+   * inspecting the query can distinguish a chat-scoped lookup from an
+   * unscoped one.
+   */
+  test("scopes the lookup by chat_id, not by task alone", async () => {
+    const { db, queries } = fakeDb([{ message_thread_id: 749667 }]);
+    await findTelegramTopicForTask("mt#3507", "167346572", { getDb: async () => db });
+
+    expect(queries).toHaveLength(1);
+    const { text, params } = renderQuery(queries[0]);
+    expect(text).toContain("chat_id =");
+    expect(params).toContain("167346572");
+    expect(params).toContain("mt#3507");
   });
 
   test("returns null when no row matches (an unbound task)", async () => {
     const { db } = fakeDb([]);
-    const result = await findTelegramTopicForTask("mt#9999", { getDb: async () => db });
+    const result = await findTelegramTopicForTask("mt#9999", "167346572", {
+      getDb: async () => db,
+    });
     expect(result).toBeNull();
   });
 
   test("degrades to null, not a throw, when persistence is unavailable", async () => {
-    const result = await findTelegramTopicForTask("mt#3507", { getDb: async () => null });
+    const result = await findTelegramTopicForTask("mt#3507", "167346572", {
+      getDb: async () => null,
+    });
     expect(result).toBeNull();
   });
 
   test("degrades to null, not a throw, when the query itself throws", async () => {
-    const result = await findTelegramTopicForTask("mt#3507", {
+    const result = await findTelegramTopicForTask("mt#3507", "167346572", {
       getDb: async () => ({
         execute: async () => {
           throw new Error("db down");

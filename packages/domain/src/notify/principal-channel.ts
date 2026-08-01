@@ -84,7 +84,7 @@ export interface PrincipalChannelDeps {
    * "no topic found", which is exactly the un-bound-task behavior the spec
    * calls for (post to the standing conversation).
    */
-  lookupTaskTopic?: (taskId: string) => Promise<{ messageThreadId: number } | null>;
+  lookupTaskTopic?: (taskId: string, chatId: string) => Promise<{ messageThreadId: number } | null>;
   /**
    * Record that a topic's mapping is dead after Telegram reported its thread
    * gone (mt#3507 drift reconciliation). Best-effort — a caller with no
@@ -288,7 +288,7 @@ export async function notifyPrincipal(
   // documented fallback, not a degraded case.
   const topic =
     opts.taskId !== undefined && deps.lookupTaskTopic
-      ? await deps.lookupTaskTopic(opts.taskId)
+      ? await deps.lookupTaskTopic(opts.taskId, chatId)
       : null;
 
   const markTopicDead = deps.markTopicDead;
@@ -341,6 +341,17 @@ export interface TaskTopicDeps {
 /**
  * Look up the Telegram topic bound to a task, if one exists.
  *
+ * SCOPED BY CHAT, deliberately (PR #2513 R1). `telegram_channel_topics` is
+ * unique on the PAIR `(chat_id, message_thread_id)`, not on the thread id
+ * alone, so a thread id only identifies a topic WITHIN its chat. A lookup
+ * that filtered on `entity_id` alone could return a thread belonging to a
+ * different chat; sending it to the configured chat would fail with "message
+ * thread not found", and the reconciliation that follows — which IS chat-scoped,
+ * see {@link markTelegramChannelTopicDead} — would then match no row, leaving the
+ * bad mapping in place so every subsequent notify for that task failed over
+ * again. Scoping both sides identically is what keeps lookup and dead-marking
+ * addressing the same row.
+ *
  * Best-effort: a DB outage or an unreadable connection degrades to "no topic
  * found" rather than throwing, because the caller's correct behavior on a
  * genuinely unbound task is IDENTICAL (post to the standing conversation) —
@@ -349,6 +360,7 @@ export interface TaskTopicDeps {
  */
 export async function findTelegramTopicForTask(
   taskId: string,
+  chatId: string,
   deps: TaskTopicDeps
 ): Promise<{ messageThreadId: number } | null> {
   const db = await deps.getDb();
@@ -357,7 +369,7 @@ export async function findTelegramTopicForTask(
     const { sql } = await import("drizzle-orm");
     const rows = (await db.execute(sql`
       SELECT message_thread_id FROM telegram_channel_topics
-      WHERE entity_type = 'task' AND entity_id = ${taskId}
+      WHERE chat_id = ${chatId} AND entity_type = 'task' AND entity_id = ${taskId}
       LIMIT 1
     `)) as Array<{ message_thread_id: number }>;
     const row = rows[0];
@@ -365,6 +377,7 @@ export async function findTelegramTopicForTask(
   } catch (err: unknown) {
     log.debug("principal-channel: task-topic lookup failed", {
       taskId,
+      chatId,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;

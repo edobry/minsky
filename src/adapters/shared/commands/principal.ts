@@ -107,7 +107,8 @@ export function registerPrincipalCommands(registry?: SharedCommandRegistry): voi
         const getDb = getDbFromContainer(ctx);
         if (getDb) {
           deps = {
-            lookupTaskTopic: (taskId) => findTelegramTopicForTask(taskId, { getDb }),
+            lookupTaskTopic: (taskId, chatId) =>
+              findTelegramTopicForTask(taskId, chatId, { getDb }),
             markTopicDead: (chatId, messageThreadId) =>
               markTelegramChannelTopicDead(chatId, messageThreadId, { getDb }),
           };
