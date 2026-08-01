@@ -1573,7 +1573,11 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     const prompt = buildCriticConstitution(true, "normal", true);
     expect(prompt).toContain("### Does NOT cover");
     expect(prompt).toContain(DOES_NOT_COVER_H2_HEADING);
-    expect(prompt).toContain("ALSO call submit_spec_verification");
+    // mt#3545 changed the emission SHAPE (carve-out entries now ride in the same
+    // batched `submit_spec_verifications` call) without changing the obligation:
+    // every carve-out entry still gets its own verification entry.
+    expect(prompt).toContain("one entry per carve-out entry");
+    expect(prompt).toContain("submit_spec_verifications");
   });
 
   test("tool-emission variant forbids treating a code comment as evidence of compliance", () => {
@@ -1658,7 +1662,7 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     // flag the mt#3001 divergence end-to-end) is a live-verification item, not a unit-testable
     // one — see this PR's body.
     expect(buildCriticConstitution(true, "normal", true)).toContain(
-      "ALSO call submit_spec_verification"
+      "one entry per carve-out entry"
     );
   });
 });
