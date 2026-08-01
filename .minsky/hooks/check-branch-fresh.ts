@@ -128,6 +128,14 @@ export interface BranchFreshnessResult {
    * R1 BLOCKING #1).
    */
   branchRef?: string;
+  /**
+   * The diff-overlap verdict (mt#3484), set whenever the overlap probe ran —
+   * on BOTH the block path (it found overlap, or could not determine it) and
+   * the allow-despite-behind path (it found none). Undefined when the probe
+   * never ran: the comparison returned early, or the budget was exhausted and
+   * the check fell back to blocking on ahead-count alone.
+   */
+  overlap?: DiffOverlapResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,16 +570,235 @@ export function checkBranchFreshness(
     };
   }
 
+  // mt#3484: main being ahead is NOT by itself a reason to block — see the
+  // "Diff-overlap predicate" section's header for the measurement that drove
+  // this. Ask the question the guard actually exists to ask: do main's new
+  // commits touch anything this branch touches?
+  //
+  // Budget-guarded because the probe costs up to three local git calls. On
+  // exhaustion we fall back to the PRE-mt#3484 behavior (block on ahead-count)
+  // rather than allowing — a guard that silently weakens under time pressure
+  // is worse than one that is occasionally over-strict.
+  if (overBudget(GIT_TIMEOUT_MS * 3)) {
+    return {
+      blocked: true,
+      aheadCount: count,
+      aheadSubjects: subjects,
+      reason: `${mainRef} is ${count} commit(s) ahead of ${branchRef} (overlap probe skipped — budget exhausted)`,
+      mainRef,
+      currentBranch,
+      comparisonRan: true,
+      branchRef,
+    };
+  }
+
+  const overlap = computeDiffOverlap(repoDir, branchRef, mainRef, GIT_TIMEOUT_MS);
+
+  if (!overlap.overlaps) {
+    // Main advanced, but on disjoint files. Allow — and say so out loud rather
+    // than silently, because the operator should still see that the branch is
+    // behind (the Behavioral Contract's four silent paths are the "nothing to
+    // report" cases; this one has something to report).
+    return {
+      blocked: false,
+      aheadCount: count,
+      aheadSubjects: subjects,
+      reason: `${mainRef} is ${count} commit(s) ahead of ${branchRef}, but none of those commits touch files this branch changes — allowing.`,
+      mainRef,
+      currentBranch,
+      comparisonRan: true,
+      branchRef,
+      overlap,
+    };
+  }
+
   return {
     blocked: true,
     aheadCount: count,
     aheadSubjects: subjects,
-    reason: `${mainRef} is ${count} commit(s) ahead of ${branchRef}`,
+    reason: overlap.undetermined
+      ? `${mainRef} is ${count} commit(s) ahead of ${branchRef} and the overlap probe could not run (${overlap.undetermined}) — blocking on the safe side`
+      : `${mainRef} is ${count} commit(s) ahead of ${branchRef} and ${overlap.sharedFiles.length} file(s) overlap this branch's diff`,
     mainRef,
     currentBranch,
     comparisonRan: true,
     branchRef,
+    overlap,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Diff-overlap predicate (mt#3484)
+// ---------------------------------------------------------------------------
+//
+// Why the predicate changed from ahead-count to diff-overlap:
+//
+// The guard's stated purpose (see this file's header) is that "sibling PRs
+// that merged while the agent was mid-iteration may have already fixed the
+// same bug from a different angle, making the current work redundant or
+// conflicting." That is a claim about the RELATIONSHIP between two diffs.
+// `origin/<branch>..origin/main` being non-empty is only a proxy for it, and
+// under concurrent-agent load the proxy fires constantly while the underlying
+// risk stays rare.
+//
+// Measured on 2026-07-31 (mt#3484): seven consecutive `session_commit` denials
+// in fifteen minutes in one conversation, six more concurrently in another,
+// against a remedy cycle (~205s) longer than the interval at which main
+// advanced (~2.6 min mean). Not one of the seven blocking batches touched a
+// file the blocked PR's own diff touched. The proxy was wrong every time.
+//
+// GitHub's equivalent control is "Require branches to be up to date before
+// merging" (`requiresStrictStatusChecks`), which IS enabled on this repo at
+// merge time. This guard is therefore not the only thing standing between a
+// stale branch and main — it is an additional, strictly earlier copy of that
+// requirement, applied on every commit rather than once per merge. Narrowing
+// it to real overlap leaves the merge-time guarantee untouched.
+
+/** Injectable git-mechanics for the overlap probe — tests inject fakes for a hermetic run. */
+export interface OverlapDeps {
+  /**
+   * File paths changed by a `git diff --name-only <range>` invocation, or
+   * `null` when the probe itself failed (non-zero exit). `null` is distinct
+   * from `[]`: an empty array means "ran, found nothing changed"; `null` means
+   * "could not establish what changed" and must fail CLOSED.
+   */
+  filesChangedInRange: (repoDir: string, range: string, timeoutMs: number) => string[] | null;
+  /** Paths with staged or unstaged modifications, or `null` when the probe failed. */
+  workingTreeFiles: (repoDir: string, timeoutMs: number) => string[] | null;
+}
+
+const DEFAULT_OVERLAP_DEPS: OverlapDeps = {
+  filesChangedInRange: (repoDir, range, timeoutMs) => {
+    const result = execWithPath(["git", "-C", repoDir, "diff", "--name-only", range], {
+      timeout: timeoutMs,
+    });
+    if (result.exitCode !== 0) return null;
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  },
+  workingTreeFiles: (repoDir, timeoutMs) => {
+    const result = execWithPath(["git", "-C", repoDir, "status", "--porcelain"], {
+      timeout: timeoutMs,
+    });
+    if (result.exitCode !== 0) return null;
+    return (
+      result.stdout
+        .split("\n")
+        .filter((line) => line.length > 3)
+        // Porcelain v1 format is `XY <path>`; a rename reads `R  old -> new`.
+        // Take the destination path, which is the one that exists post-change.
+        .map((line) => {
+          const path = line.slice(3).trim();
+          const arrow = path.indexOf(" -> ");
+          return arrow === -1 ? path : path.slice(arrow + 4);
+        })
+        .filter(Boolean)
+    );
+  },
+};
+
+export interface DiffOverlapResult {
+  /** True when the guard should still block: a real overlap, or an undetermined probe. */
+  overlaps: boolean;
+  /** The intersecting paths, sorted. Empty when `overlaps` is false, or when `undetermined` is set. */
+  sharedFiles: string[];
+  /** Set when a probe failed; the value names which one. `overlaps` is forced true. */
+  undetermined?: string;
+}
+
+/** Cap on how many shared paths the denial message enumerates. */
+export const MAX_SHARED_FILES_SHOWN = 10;
+
+/**
+ * Decide whether main's new commits actually touch anything this branch
+ * touches.
+ *
+ * Two three-dot ranges, both measured from the merge base so neither side is
+ * polluted by the other's history:
+ *   - `mainRef...branchRef` — what THIS branch changed.
+ *   - `branchRef...mainRef` — what main changed since the branch diverged.
+ *
+ * `extraBranchFiles` folds in the working tree (the edit about to be
+ * committed, which is not in either committed range yet but is exactly the
+ * content at risk at `session_commit` time).
+ *
+ * FAILS CLOSED. If either probe returns `null` the function cannot establish
+ * non-overlap, so it reports `overlaps: true` with `undetermined` set. A
+ * broken probe must never be the reason a risky commit is allowed through —
+ * per mem#704, a check that cannot fail carries no information, and the
+ * inverse holds too: a check that cannot SUCCEED must not read as a pass.
+ */
+export function computeDiffOverlap(
+  repoDir: string,
+  branchRef: string,
+  mainRef: string,
+  timeoutMs: number,
+  deps: OverlapDeps = DEFAULT_OVERLAP_DEPS
+): DiffOverlapResult {
+  const branchFiles = deps.filesChangedInRange(repoDir, `${mainRef}...${branchRef}`, timeoutMs);
+  if (branchFiles === null) {
+    return { overlaps: true, sharedFiles: [], undetermined: "branch-diff probe failed" };
+  }
+
+  const mainFiles = deps.filesChangedInRange(repoDir, `${branchRef}...${mainRef}`, timeoutMs);
+  if (mainFiles === null) {
+    return { overlaps: true, sharedFiles: [], undetermined: "main-diff probe failed" };
+  }
+
+  const workingFiles = deps.workingTreeFiles(repoDir, timeoutMs);
+  if (workingFiles === null) {
+    return { overlaps: true, sharedFiles: [], undetermined: "working-tree probe failed" };
+  }
+
+  const mainSet = new Set(mainFiles);
+  const shared = new Set<string>();
+  for (const file of [...branchFiles, ...workingFiles]) {
+    if (mainSet.has(file)) shared.add(file);
+  }
+
+  const sharedFiles = [...shared].sort();
+  return { overlaps: sharedFiles.length > 0, sharedFiles };
+}
+
+/**
+ * Distinguish the two states the old message conflated (mt#3484 criterion 5).
+ *
+ * When `origin/main` is ahead of `origin/<branch>`, there are two very
+ * different situations and the remedies are opposites:
+ *
+ *   (a) The LOCAL branch already contains main's tip — someone merged and
+ *       never pushed. `session_update` will not help: a local branch that is
+ *       `ahead` short-circuits to `skipped: "No update needed - session is
+ *       current or ahead"` (conflict-detection.ts) and returns BEFORE its push
+ *       step, so the remote never advances and the guard blocks forever. The
+ *       remedy is a push.
+ *   (b) The local branch does NOT contain main's tip — main genuinely advanced.
+ *       The remedy is to merge it.
+ *
+ * The agent cannot currently tell these apart from any tool it has:
+ * `git_status` against a session workspace reports `upstream: null, ahead:
+ * null, behind: null`. Note that mt#2815's auto-merge CREATES state (a) — it
+ * merges local-only and never pushes.
+ *
+ * Returns `null` when the probe fails, so callers can omit the claim rather
+ * than assert the wrong remedy.
+ */
+export function localBranchContainsMain(
+  repoDir: string,
+  mainRef: string,
+  timeoutMs: number
+): boolean | null {
+  const result = execWithPath(
+    ["git", "-C", repoDir, "merge-base", "--is-ancestor", mainRef, "HEAD"],
+    { timeout: timeoutMs }
+  );
+  // `--is-ancestor` documents exit 0 = yes, 1 = no. Any OTHER code is a real
+  // failure (bad ref, not a repo) and must not be read as a confident "no".
+  if (result.exitCode === 0) return true;
+  if (result.exitCode === 1) return false;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -756,17 +983,50 @@ export function formatBlockMessage(
   branch: string,
   mainRef: string,
   aheadCount: number,
-  subjects: string[]
+  subjects: string[],
+  overlap?: DiffOverlapResult,
+  localHasMain?: boolean | null
 ): string {
   // Derive the branch name from the ref so guidance reflects the actual default
   // branch (e.g. "origin/master" → "master") rather than hardcoding "main".
   const mainBranch = mainRef.replace(/^origin\//, "");
-  const lines: string[] = [
-    `Branch-freshness guard: blocked — ${mainRef} is ${aheadCount} commit(s) ahead of origin/${branch}.`,
-    "",
-    `New commits on ${mainRef} not in this branch (first ${Math.min(subjects.length, 10)} of ${aheadCount}):`,
-  ];
+  const lines: string[] = [];
 
+  // mt#3484: lead with WHY this blocked. Post-mt#3484 the guard only blocks on
+  // real diff overlap (or an overlap probe that could not run), so the count
+  // alone is no longer the reason and must not be presented as one.
+  if (overlap?.undetermined) {
+    lines.push(
+      `Branch-freshness guard: blocked — could not determine whether ${mainRef}'s new commits overlap this branch (${overlap.undetermined}).`
+    );
+    lines.push("");
+    lines.push(
+      "This is the fail-closed path: the guard blocks when it cannot establish that the change is safe, rather than assuming it is."
+    );
+  } else if (overlap && overlap.sharedFiles.length > 0) {
+    const shown = overlap.sharedFiles.slice(0, MAX_SHARED_FILES_SHOWN);
+    lines.push(
+      `Branch-freshness guard: blocked — ${overlap.sharedFiles.length} file(s) changed by ${mainRef} are also changed by this branch.`
+    );
+    lines.push("");
+    lines.push(
+      `Overlapping file(s)${overlap.sharedFiles.length > shown.length ? ` (first ${shown.length} of ${overlap.sharedFiles.length})` : ""}:`
+    );
+    for (const file of shown) {
+      lines.push(`  ${file}`);
+    }
+  } else {
+    // Budget-exhausted fallback: the overlap probe never ran, so the pre-mt#3484
+    // ahead-count wording is the honest description of what was actually checked.
+    lines.push(
+      `Branch-freshness guard: blocked — ${mainRef} is ${aheadCount} commit(s) ahead of origin/${branch} (overlap not evaluated).`
+    );
+  }
+
+  lines.push("");
+  lines.push(
+    `New commits on ${mainRef} not in this branch (first ${Math.min(subjects.length, 10)} of ${aheadCount}):`
+  );
   for (const subject of subjects.slice(0, 10)) {
     lines.push(`  ${subject}`);
   }
@@ -776,9 +1036,25 @@ export function formatBlockMessage(
     `Review the new commits on ${mainBranch} before continuing — they may subsume or conflict with this PR.`
   );
   lines.push("");
+
+  // mt#3484 criterion 5: name the state, because the two states have OPPOSITE
+  // remedies and nothing else the agent can call distinguishes them.
   lines.push("Recommended actions:");
-  lines.push(`  1. RUN session_update to rebase this branch on current ${mainBranch}.`);
-  lines.push("  2. REVIEW the new commits for overlap with the current diff.");
+  if (localHasMain === true) {
+    lines.push(
+      `  1. PUSH. Your LOCAL branch already contains ${mainBranch} — only origin/${branch} is behind.`
+    );
+    lines.push(
+      `     session_update will NOT help here: a local branch that is already ahead short-circuits`
+    );
+    lines.push(
+      `     ("No update needed - session is current or ahead") and returns before its push step, so`
+    );
+    lines.push(`     the remote never advances and this guard keeps firing. Run git_push instead.`);
+  } else {
+    lines.push(`  1. RUN session_update to merge current ${mainBranch} into this branch.`);
+  }
+  lines.push("  2. REVIEW the overlapping files above for a sibling fix that subsumes this work.");
   lines.push("  3. If a sibling PR already fixed the same issue, consider closing this one.");
   lines.push("");
   lines.push("Emergency override: set MINSKY_SKIP_FRESHNESS=1 in your environment and retry.");
@@ -1003,11 +1279,22 @@ if (import.meta.main) {
   // instead of re-detecting — re-detection could yield different values
   // under flaky probes, AND re-detection would run outside the budget guard.
   const mainRef = result.mainRef ?? "origin/main";
+
+  // mt#3484 criterion 5: probe which of the two behind-states this is, so the
+  // message can name the right remedy. Budget-guarded and failure-tolerant —
+  // `null` (probe failed or budget gone) renders the generic session_update
+  // guidance rather than asserting the wrong one.
+  const localHasMain = budgetAllows(hookStart, GIT_TIMEOUT_MS)
+    ? localBranchContainsMain(repoDir, mainRef, GIT_TIMEOUT_MS)
+    : null;
+
   const message = formatBlockMessage(
     denialBranchName(result),
     mainRef,
     result.aheadCount,
-    result.aheadSubjects
+    result.aheadSubjects,
+    result.overlap,
+    localHasMain
   );
 
   // When fetch failed, the comparison ran against possibly-stale refs.
