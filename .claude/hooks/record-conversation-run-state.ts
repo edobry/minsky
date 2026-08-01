@@ -192,7 +192,16 @@ function truncationMarker(chars: number): TruncationMarker {
  * {@link TruncationMarker}, which reads as absent to the server's string-typed
  * accessors rather than as a plausible value.
  */
-export function boundPayload(payload: Record<string, unknown>): Record<string, unknown> {
+export function boundPayload(
+  payload: Record<string, unknown>,
+  /**
+   * Chars available to the PAYLOAD specifically. Callers that wrap the payload
+   * in an envelope pass the ceiling minus the envelope's own cost, so the
+   * guarantee holds for the bytes actually sent rather than for the payload in
+   * isolation (PR #2531 R1).
+   */
+  budget: number = MAX_BODY_CHARS
+): Record<string, unknown> {
   const bounded: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(payload)) {
@@ -216,28 +225,24 @@ export function boundPayload(payload: Record<string, unknown>): Record<string, u
       serialized.length > MAX_PAYLOAD_FIELD_CHARS ? truncationMarker(serialized.length) : value;
   }
 
-  // Second pass: even all-small fields can sum past the body ceiling. Drop the
-  // largest remaining fields until the body fits. Consumed fields are short, so
-  // they are the last things standing.
-  let entries = Object.entries(bounded);
-  while (
-    entries.length > 0 &&
-    JSON.stringify(Object.fromEntries(entries)).length > MAX_BODY_CHARS
-  ) {
-    let largestIndex = 0;
-    let largestSize = -1;
-    for (let i = 0; i < entries.length; i++) {
-      const size = (JSON.stringify(entries[i]?.[1]) ?? "").length;
-      if (size > largestSize) {
-        largestSize = size;
-        largestIndex = i;
-      }
-    }
-    const [droppedKey] = entries[largestIndex] ?? [];
-    entries = entries.filter((_, i) => i !== largestIndex);
-    if (droppedKey !== undefined) entries.push([droppedKey, truncationMarker(largestSize)]);
-    // The marker is smaller than anything it replaces, so this terminates.
-    if (largestSize <= JSON.stringify(truncationMarker(0)).length) break;
+  // Second pass: even all-small fields can sum past the body ceiling, which a
+  // per-field bound alone would miss. REMOVE the largest remaining entry until
+  // the payload fits.
+  //
+  // Removal, not marker-substitution (PR #2531 R1): a marker keeps the key, so
+  // substituting cannot shrink a payload whose bulk is many small fields — or
+  // long key NAMES — and the previous version bailed out of that case via a
+  // `break`, returning a payload still over the ceiling. Every iteration here
+  // drops one entry, so the loop terminates at worst on the empty object and
+  // the ceiling is a GUARANTEE rather than a best effort. Entry size counts the
+  // KEY as well as the value, since a key is just as able to be the bulk.
+  // Consumed fields are short scalars, so they are the last things standing.
+  const entries = Object.entries(bounded);
+  const entrySize = ([key, value]: [string, unknown]): number =>
+    key.length + (JSON.stringify(value) ?? "").length;
+  entries.sort((a, b) => entrySize(b) - entrySize(a)); // largest first
+  while (entries.length > 0 && JSON.stringify(Object.fromEntries(entries)).length > budget) {
+    entries.shift();
   }
 
   return Object.fromEntries(entries);
@@ -262,12 +267,22 @@ export function buildIngestBody(
   observedAt: Date
 ): Record<string, unknown> | null {
   if (!input?.session_id || !input?.hook_event_name) return null;
-  return {
+
+  const envelope = {
     conversationId: input.session_id,
     eventName: input.hook_event_name,
     observedAt: observedAt.toISOString(),
     cwd: input.cwd ?? null,
-    payload: boundPayload({ ...input } as Record<string, unknown>),
+  };
+  // Charge the envelope against the ceiling before bounding the payload, so
+  // MAX_BODY_CHARS bounds the BYTES ACTUALLY SENT rather than the payload alone
+  // (PR #2531 R1: the payload fit while the assembled body did not). The `+ 16`
+  // covers the `,"payload":{}` that joining the two adds.
+  const budget = MAX_BODY_CHARS - JSON.stringify(envelope).length - 16;
+
+  return {
+    ...envelope,
+    payload: boundPayload({ ...input } as Record<string, unknown>, Math.max(budget, 0)),
   };
 }
 

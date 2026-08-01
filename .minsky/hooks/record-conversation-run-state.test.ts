@@ -128,6 +128,21 @@ describe("buildIngestBody", () => {
     expect((body?.["payload"] as Record<string, unknown>)["tool_name"]).toBe("Bash");
   });
 
+  // PR #2531 R1 — the bulk is in the KEY NAMES and the field COUNT, not in any
+  // single value. Marker-substitution cannot shrink this (a marker keeps its
+  // key), so the previous implementation hit its bail-out `break` and returned
+  // a payload still over the ceiling. The ceiling is a guarantee, not a best
+  // effort.
+  test("fits even when the bulk is key names and field count, not value size", () => {
+    const fields = Object.fromEntries(
+      Array.from({ length: 4000 }, (_, i) => [`${"k".repeat(60)}_${i}`, "v"])
+    );
+    const input = { ...BASE_INPUT, ...fields, tool_name: "Bash" } as unknown as ClaudeHookInput;
+
+    const body = buildIngestBody(input, AT);
+    expect(JSON.stringify(body).length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+  });
+
   test("keeps an oversized non-string as a marker rather than a plausible value", () => {
     const input = {
       ...BASE_INPUT,
