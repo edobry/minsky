@@ -286,6 +286,75 @@ const FILE_EXTENSION_RE = /\.(?:md|mdc|json|ya?ml|txt)$/i;
 const HEX_ID_RE = /^[0-9a-f]{8,40}$/i;
 
 /**
+ * Slash-separated non-identifier exclusion (mt#3540). An IANA timezone
+ * (`America/New_York`) reaches extraction backticked, and the window slice can
+ * cut it so the surviving token is a bare `New_York` — which then reads as
+ * symbol+predicate next to a nearby verb. The 2026-08-01 calibration pass
+ * logged `New_York/limit` FOUR times in a single day.
+ *
+ * The shape that distinguishes it: Capitalized_Words joined by underscores,
+ * with no lowercase-leading camel hump and no path separator. Genuine all-caps
+ * env vars (`MINSKY_SKIP_SIZE_JUSTIFICATION`) are fully upper; genuine snake
+ * identifiers (`session_pr_merge`) are fully lower; a Title_Case_Underscore
+ * token is neither, and no symbol in the regression set has that shape.
+ */
+const TITLE_CASE_UNDERSCORE_RE = /^[A-Z][a-z0-9]+(?:_[A-Z][a-z0-9]+)+$/;
+
+/**
+ * Product/application-name exclusion (mt#3540). A terminal emulator, editor or
+ * vendor product mentioned in prose (`iTerm2`, logged as `iTerm2/drop` in the
+ * 2026-08-01 pass) matches CAMEL_CASE_RE's shape but names no symbol this
+ * project defines. This extends the SAME class the existing stoplist entries
+ * cover (`github`, `postgresql`, `macos`, `commonjs`) — kept as its own named
+ * set rather than folded into SYMBOL_STOPLIST so the calibration provenance of
+ * each group stays legible.
+ */
+const PRODUCT_NAME_STOPLIST: ReadonlySet<string> = new Set([
+  "iterm",
+  "iterm2",
+  "vscode",
+  "jetbrains",
+  "ghostty",
+  "tmux",
+  "supabase",
+  "railway",
+  "cloudflare",
+]);
+
+/**
+ * Multi-segment bare-path exclusion (mt#3540). `BARE_DIR_REF_RE` above rejects
+ * a SINGLE segment with a trailing slash (`dist/`); it deliberately keeps
+ * multi-segment paths, because `src/exec.ts` is a meaningful reference. But a
+ * multi-segment path ending in a slash names a DIRECTORY, not a file or a
+ * symbol — the 2026-08-01 pass logged `packages/domain/src/detectors//guard`
+ * (note the doubled slash: a directory reference with a trailing separator).
+ * A directory cannot be the subject of a code-mechanism claim.
+ */
+const BARE_DIR_PATH_RE = /^[A-Za-z_][\w.-]*(?:\/[\w.-]+)+\/$/;
+
+/**
+ * Documented-override env-var exclusion (mt#3540). Guard documentation ends
+ * with a standard line — "Override: set `MINSKY_ACK_UNTAKEN_ACTION=1`" — and an
+ * agent quoting that boilerplate near a mechanism verb logged
+ * `MINSKY_ACK_UNTAKEN_ACTION/Override` and `/guard` in the 2026-08-01 pass.
+ *
+ * This is the one shape of the four that ADR-024 actually reaches: it is
+ * "explicit discussion-framing" under the ADR's Rung 1, whose prose-quotation
+ * half is not implemented for any detector in this family. Scoped here as the
+ * narrowest form of that idea — the token is excluded only when the
+ * override-boilerplate framing is present in the surrounding window, NOT
+ * whenever the env var appears — so a genuine claim about what the var DOES
+ * still fires. When the shared Rung-1 prefilter lands, this predicate is the
+ * piece it should absorb.
+ */
+const OVERRIDE_BOILERPLATE_RE = /\boverride\b\s*:?\s*(?:set\s+)?`?MINSKY_[A-Z0-9_]+/i;
+
+export function isOverrideBoilerplateMention(tok: string, window: string): boolean {
+  if (!/^MINSKY_[A-Z0-9_]+$/.test(tok)) return false;
+  return OVERRIDE_BOILERPLATE_RE.test(window);
+}
+
+/**
  * UPPERCASE-exact SQL/DDL keyword exclusion (mt#3042). A migration/DDL
  * discussion in prose ("`ALTER` ... `DROP` ... `CREATE`") extracts SQL
  * keywords as backticked "symbols" near the `drops?` predicate — the
@@ -324,6 +393,11 @@ function isPlausibleSymbol(tok: string): boolean {
   if (HEX_ID_RE.test(t)) return false;
   if (SQL_KEYWORDS_UPPER.has(t)) return false;
   if (BARE_DIR_REF_RE.test(t)) return false;
+  // mt#3540 — the four shapes the 2026-08-01 calibration pass classified as
+  // false positives, all of them non-code text read as a code symbol.
+  if (TITLE_CASE_UNDERSCORE_RE.test(t)) return false;
+  if (PRODUCT_NAME_STOPLIST.has(t.toLowerCase())) return false;
+  if (BARE_DIR_PATH_RE.test(t)) return false;
   return true;
 }
 
@@ -398,7 +472,12 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
     const containedInSibling = occs.some(
       (p) => p.cls === o.cls && p.s <= o.s && p.e >= o.e && p.e - p.s > o.e - o.s
     );
-    if (!containedInSibling) found.add(o.tok);
+    if (containedInSibling) continue;
+    // mt#3540 — window-aware exclusion: an env var quoted inside a guard's
+    // documented override line is discussion-framing, not a mechanism claim.
+    // Needs the slice, so it cannot live in the token-only isPlausibleSymbol.
+    if (isOverrideBoilerplateMention(o.tok, slice)) continue;
+    found.add(o.tok);
   }
   return [...found];
 }
