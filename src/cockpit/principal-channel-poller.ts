@@ -543,6 +543,26 @@ async function handleRoute(
       streamedMessageId !== undefined ? streamedMessageId : await sendReply(deps, message, reply);
     const delivered = replyMessageId !== undefined;
 
+    // Make a streaming no-op VISIBLE (PR #2538 R1, non-blocking).
+    //
+    // The reviewer's concern was that dropped deltas are silent. They are, and
+    // that matters: if the event shape ever changes, `partialAssistantText`
+    // returns null for every frame, streaming quietly stops, and the reply
+    // still arrives — so nothing anywhere looks wrong and the feature is just
+    // gone.
+    //
+    // Logging per dropped delta would be the wrong altitude: thinking and
+    // tool-call deltas are dropped constantly BY DESIGN, so it would be noise
+    // that hides the signal. The actionable event is a whole agent turn that
+    // streamed nothing, which is once per turn and close to impossible in
+    // normal operation.
+    if (stream !== undefined && !stream.hasDelivered()) {
+      log.info("[principal-channel] the turn produced no streamed partials", {
+        updateId: message.updateId,
+        replyChars: reply.length,
+      });
+    }
+
     // Close the ack (mt#3486). Replaces the pickup reaction rather than
     // accumulating, so the message carries exactly one state at a time.
     //
