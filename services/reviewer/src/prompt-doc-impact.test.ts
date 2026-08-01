@@ -97,6 +97,25 @@ describe("doc-impact instruction — parity across the surfaces that carry it", 
     expect(description).toContain("quote the specific sentence the diff");
   });
 
+  test("the affectedDocs SCHEMA field agrees with the tool description", () => {
+    // PR #2532 R1 BLOCKING: the top-level description was widened to admit a doc
+    // naming no new identifier while this field-level description still said
+    // "only list docs that actually reference the changed symbols, routes, or
+    // behavior". Both strings reach the model, and the narrower one would have
+    // excluded exactly the invalidation case the change exists to catch.
+    const def = OUTPUT_TOOL_DEFINITIONS.find(
+      (t) => t.function.name === "submit_documentation_impact"
+    );
+    if (!def) throw new Error("submit_documentation_impact tool definition is missing");
+    // Assert against the serialized `parameters` schema rather than casting into it:
+    // the tool's top-level description lives outside `parameters`, so a hit here can
+    // only come from the field description — and this is the payload the model is sent.
+    const schema = JSON.stringify(def.function.parameters);
+
+    expect(schema).toContain("even if it never mentions a single identifier the diff adds");
+    expect(schema).toContain("topic-area speculation");
+  });
+
   test("the prose output-format variant asks for both halves too", () => {
     // Reviews without output tools compose from prose; the instruction must not
     // silently apply to only one of the two composition paths.

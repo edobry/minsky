@@ -24,6 +24,8 @@
  *   bun services/reviewer/scripts/replay-doc-impact.ts --out=/tmp/baseline.json
  *
  * Flags:
+ *   --owner=O      Repo owner. Default: GITHUB_REPOSITORY's owner, else edobry.
+ *   --repo=R       Repo name.  Default: GITHUB_REPOSITORY's repo,  else minsky.
  *   --prs=N,N      PR numbers to replay. Default: the mt#3527 corpus.
  *   --attempts=K   Attempts per PR (the check is model output; K>1 shows spread). Default 1.
  *   --model=M      Model id. Default gpt-5.
@@ -44,8 +46,44 @@ import { readFileAtRef, listDirectoryAtRef } from "../src/github-client";
 import type { ReviewToolCall } from "../src/output-tools";
 import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
 
-const OWNER = "edobry";
-const REPO = "minsky";
+/**
+ * Target repository for the PR fetch.
+ *
+ * Resolution order: `--owner`/`--repo` flags, then `GITHUB_REPOSITORY` ("owner/repo",
+ * which CI sets), then the default below. The default is not a portability shortcut —
+ * the corpus PR numbers are meaningless in any other repo — but it must stay
+ * overridable so a fork or mirror does not silently replay against upstream.
+ */
+const DEFAULT_OWNER = "edobry";
+const DEFAULT_REPO = "minsky";
+
+export function resolveRepoCoordinates(
+  argv: string[],
+  env: Record<string, string | undefined>
+): { owner: string; repo: string } {
+  let owner: string | undefined;
+  let repo: string | undefined;
+
+  const fromEnv = env.GITHUB_REPOSITORY;
+  if (fromEnv?.includes("/")) {
+    const [envOwner, envRepo] = fromEnv.split("/", 2);
+    if (envOwner) owner = envOwner;
+    if (envRepo) repo = envRepo;
+  }
+
+  // Flags win over the environment.
+  for (const arg of argv) {
+    if (arg.startsWith("--owner=")) {
+      const value = arg.slice("--owner=".length).trim();
+      if (value) owner = value;
+    } else if (arg.startsWith("--repo=")) {
+      const value = arg.slice("--repo=".length).trim();
+      if (value) repo = value;
+    }
+  }
+
+  return { owner: owner ?? DEFAULT_OWNER, repo: repo ?? DEFAULT_REPO };
+}
 
 /**
  * The mt#3527 corpus.
@@ -107,15 +145,28 @@ interface PrContext {
   branchName: string;
   baseBranch: string;
   headSha: string;
+  /**
+   * Repo the head SHA lives in. For a fork PR this differs from the base repo, and
+   * reading file content at that SHA under the BASE coordinates is not reliable —
+   * so content reads use these, while the PR/diff fetch uses the base coordinates.
+   * Falls back to the base repo when the head repo is gone (deleted fork).
+   */
+  headOwner: string;
+  headRepo: string;
   diff: string;
 }
 
-async function fetchPr(octokit: Octokit, prNumber: number): Promise<PrContext> {
+async function fetchPr(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<PrContext> {
   const [prResponse, diffResponse] = await Promise.all([
-    octokit.rest.pulls.get({ owner: OWNER, repo: REPO, pull_number: prNumber }),
+    octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
     octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-      owner: OWNER,
-      repo: REPO,
+      owner,
+      repo,
       pull_number: prNumber,
       mediaType: { format: "diff" },
     }),
@@ -130,6 +181,8 @@ async function fetchPr(octokit: Octokit, prNumber: number): Promise<PrContext> {
     branchName: pr.head.ref,
     baseBranch: pr.base.ref,
     headSha: pr.head.sha,
+    headOwner: pr.head.repo?.owner?.login ?? owner,
+    headRepo: pr.head.repo?.name ?? repo,
     diff: String(diffResponse.data),
   };
 }
@@ -227,10 +280,26 @@ async function replayPr(
     const output = await callOpenAIWithClient(client, model, systemPrompt, userPrompt, {
       readFile: async (path: string, signal?: AbortSignal) => {
         docsRead.push(path);
-        return readFileAtRef(octokit, OWNER, REPO, path, ctx.headSha, undefined, signal);
+        return readFileAtRef(
+          octokit,
+          ctx.headOwner,
+          ctx.headRepo,
+          path,
+          ctx.headSha,
+          undefined,
+          signal
+        );
       },
       listDirectory: async (path: string, signal?: AbortSignal) =>
-        listDirectoryAtRef(octokit, OWNER, REPO, path, ctx.headSha, undefined, signal),
+        listDirectoryAtRef(
+          octokit,
+          ctx.headOwner,
+          ctx.headRepo,
+          path,
+          ctx.headSha,
+          undefined,
+          signal
+        ),
     });
 
     const { kind, evidence, affectedDocs } = extractDocImpact(output.toolCalls);
@@ -270,9 +339,10 @@ async function main(): Promise<void> {
   const githubToken = resolveGitHubTokenOrSkip();
 
   const { prNumbers, attempts, model, outPath } = parseArgs();
+  const { owner, repo } = resolveRepoCoordinates(process.argv.slice(2), process.env);
 
   console.log(
-    `doc-impact replay: prs=[${prNumbers.join(", ")}] attempts=${attempts} model=${model} auth=${getAuthSource()}`
+    `doc-impact replay: repo=${owner}/${repo} prs=[${prNumbers.join(", ")}] attempts=${attempts} model=${model} auth=${getAuthSource()}`
   );
 
   const client = new OpenAI({ apiKey: openaiApiKey });
@@ -282,7 +352,7 @@ async function main(): Promise<void> {
 
   for (const prNumber of prNumbers) {
     console.log(`\nPR #${prNumber}`);
-    const ctx = await fetchPr(octokit, prNumber);
+    const ctx = await fetchPr(octokit, owner, repo, prNumber);
     console.log(`  ${ctx.title} (head ${ctx.headSha.slice(0, 9)}, ${ctx.diff.length} diff chars)`);
     results.push(await replayPr(client, octokit, model, ctx, attempts));
   }
@@ -295,6 +365,7 @@ async function main(): Promise<void> {
   const total = results.reduce((acc, r) => acc + r.observations.length, 0);
 
   const artifact = {
+    repo: `${owner}/${repo}`,
     model,
     attempts,
     prNumbers,

@@ -13,7 +13,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { evidenceQuotesDocProse } from "./replay-doc-impact";
+import { evidenceQuotesDocProse, resolveRepoCoordinates } from "./replay-doc-impact";
 
 describe("evidenceQuotesDocProse", () => {
   test("detects a straight-quoted doc sentence", () => {
@@ -58,5 +58,47 @@ describe("evidenceQuotesDocProse", () => {
     // Two apostrophes far apart would otherwise look like a quoted span.
     const evidence = "The reviewer's verdict rests on the author's summary, not on a doc read.";
     expect(evidenceQuotesDocProse(evidence)).toBe(false);
+  });
+});
+
+describe("resolveRepoCoordinates", () => {
+  test("falls back to the documented default when nothing is supplied", () => {
+    expect(resolveRepoCoordinates([], {})).toEqual({ owner: "edobry", repo: "minsky" });
+  });
+
+  test("reads GITHUB_REPOSITORY", () => {
+    expect(resolveRepoCoordinates([], { GITHUB_REPOSITORY: "acme/widgets" })).toEqual({
+      owner: "acme",
+      repo: "widgets",
+    });
+  });
+
+  test("flags win over the environment", () => {
+    expect(
+      resolveRepoCoordinates(["--owner=fork-owner", "--repo=fork-repo"], {
+        GITHUB_REPOSITORY: "acme/widgets",
+      })
+    ).toEqual({ owner: "fork-owner", repo: "fork-repo" });
+  });
+
+  test("a partial flag override keeps the other half from the environment", () => {
+    expect(
+      resolveRepoCoordinates(["--repo=mirror"], { GITHUB_REPOSITORY: "acme/widgets" })
+    ).toEqual({ owner: "acme", repo: "mirror" });
+  });
+
+  test("ignores a malformed GITHUB_REPOSITORY rather than splitting it wrongly", () => {
+    // No slash: not "owner/repo", so it tells us nothing about either half.
+    expect(resolveRepoCoordinates([], { GITHUB_REPOSITORY: "widgets" })).toEqual({
+      owner: "edobry",
+      repo: "minsky",
+    });
+  });
+
+  test("ignores an empty flag value instead of resolving to an empty owner", () => {
+    expect(resolveRepoCoordinates(["--owner="], { GITHUB_REPOSITORY: "acme/widgets" })).toEqual({
+      owner: "acme",
+      repo: "widgets",
+    });
   });
 });

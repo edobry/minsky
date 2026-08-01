@@ -565,7 +565,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "array",
             items: { type: "string", minLength: 1 },
             description:
-              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — do not speculatively list docs based on topic area alone.",
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — which INCLUDES a doc whose existing prose describes the OLD behavior this PR changes, even if it never mentions a single identifier the diff adds; its prose being false is the reason it needs updating. What remains forbidden is topic-area speculation: a doc is not affected merely because it covers the same general area.",
           },
         },
         required: ["kind", "evidence"],
