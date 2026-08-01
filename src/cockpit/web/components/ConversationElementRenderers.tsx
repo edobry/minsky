@@ -30,6 +30,7 @@ import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan } from "../lib/injected-content";
+import { isApiErrorText } from "../lib/conversation-outcome";
 
 // ── Shared element types ─────────────────────────────────────────────────────
 
@@ -73,20 +74,15 @@ export type PreparedElement =
     }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
-// ── API-error text detection (mt#2793) ──────────────────────────────────────
+// ── API-error text detection (mt#2793, re-homed by mt#3132) ─────────────────
 //
-// Harness-emitted failure text sometimes lands as an ordinary assistant text
-// turn (e.g. "API Error: Connection closed mid-response.") rather than a
-// tool-result error — it renders identically to normal prose and is easy to
-// scroll past. Detection is intentionally conservative: an ANCHORED prefix
-// match on the turn's TRIMMED text, not a substring match anywhere in the
-// turn — a turn that merely discusses "the API Error" elsewhere in its text
-// stays unstyled.
-const API_ERROR_PREFIX = "API Error:";
-
-export function isApiErrorText(text: string): boolean {
-  return text.trimStart().startsWith(API_ERROR_PREFIX);
-}
+// The detection itself now lives in `../lib/conversation-outcome.ts`, which
+// owns the shared terminal-condition taxonomy: the SAME anchored match that
+// styles a turn here also decides whether that turn's Outcome chip reads
+// `Errored` or `Rate-limited`. Two copies of one rule is precisely the drift
+// mt#3132 removes — this re-export keeps the renderer's existing call sites
+// (and its published surface) working against the single implementation.
+export { isApiErrorText };
 
 // ── Element renderers ──────────────────────────────────────────────────────────
 

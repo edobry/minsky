@@ -30,6 +30,8 @@ function message(overrides: Partial<InboundTelegramMessage> = {}): InboundTelegr
     replyToText: undefined,
     attachments: [],
     unsupportedMedia: undefined,
+    messageThreadId: undefined,
+    isTopicMessage: false,
     ...overrides,
   };
 }
@@ -208,6 +210,21 @@ describe("audit payload", () => {
     });
     const payload = buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
     expect(payload.attachmentCount).toBe(1);
+  });
+
+  // mt#3505: the router "gains a thread dimension" — the audit record must
+  // say WHICH topic a message came from, or the audit trail cannot answer
+  // "did this conversation actually route to the right topic?".
+  test("records messageThreadId when the message arrived in a topic", () => {
+    const msg = message({ text: "in a topic", messageThreadId: 749667, isTopicMessage: true });
+    const payload = buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
+    expect(payload.messageThreadId).toBe(749667);
+  });
+
+  test("omits messageThreadId for a message with no topic", () => {
+    const msg = message({ text: "no topic here" });
+    const payload = buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
+    expect("messageThreadId" in payload).toBe(false);
   });
 });
 

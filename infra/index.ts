@@ -227,6 +227,18 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   // but this variable was never declared here, so the check has been deployed-but-inert;
   // mt#2575 instance 5 (PR #2325, 2026-07-26) is the incident it targets.
   REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED: plain("true"),
+  // mt#3471: narrow a re-review round (R>=2) to the commits pushed since the
+  // last posted review, instead of re-sending the whole PR diff every round.
+  // Approved as a cost lever in ask#6603 — re-review rounds are ~68% of the
+  // reviewer's LLM calls and ~68% of its spend, at a median 412K input tokens
+  // each, only ~7% below a first review's. Any unresolvable range (force-push
+  // orphaning the base, a truncated or 5xx comparison) falls back to the full
+  // diff, so the failure mode is today's cost, not a narrowed review.
+  //
+  // Deliberately NOT the same flag as REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED
+  // (mt#1875), which additionally arms a severity-downgrade pass that changes
+  // what the reviewer BLOCKS on. That one stays undeclared and off.
+  REVIEWER_INCREMENTAL_DIFF_ENABLED: plain("true"),
   // mt#2799: zero-downtime redeploy drain/overlap. Originally declared to
   // DUPLICATE services/reviewer/railway.json's `deploy.drainingSeconds` /
   // `deploy.overlapSeconds` as a belt-and-suspenders measure, because the

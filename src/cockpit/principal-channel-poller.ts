@@ -47,6 +47,7 @@ import {
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
+import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
 import {
   buildInboundEventPayload,
   inboundEventToken,
@@ -68,6 +69,15 @@ const ERROR_BACKOFF_MS = 30_000;
 
 /** Cap on a single outbound reply. Telegram hard-rejects above 4096. */
 const MAX_REPLY_CHARS = 3500;
+
+/**
+ * Telegram's own hard ceiling for a single message (mt#3465).
+ *
+ * {@link MAX_REPLY_CHARS} bounds the MARKDOWN; this bounds what actually goes
+ * on the wire after tags and entities inflate it. The two are different limits
+ * and both have to hold.
+ */
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 /**
  * What the router's decision is carried out against.
@@ -142,7 +152,22 @@ export interface PollCycleDeps {
   token: string;
   chatId: string;
   auth: InboundAuthorization;
+  /** The standing (non-topic) conversation's actuator — used for a message with no thread id. */
   actuator: ChannelActuator;
+  /**
+   * Resolve the actuator for a specific Telegram topic (mt#3505, parent
+   * mt#3500).
+   *
+   * Called ONLY for a message carrying a `messageThreadId` — a message with
+   * none always uses {@link actuator} instead, unconditionally, so a poller
+   * launched without topic support (this field omitted) behaves EXACTLY as
+   * before. The resolver is expected to return the SAME actuator instance for
+   * the same thread id across calls (a cache, not a fresh actuator per
+   * message) — see `./principal-channel-actuator.ts`'s
+   * `createTopicActuatorRegistry`, which is what the composition root
+   * (`./principal-channel-launch.ts`) backs this with.
+   */
+  resolveTopicActuator?: (messageThreadId: number) => Promise<ChannelActuator>;
   cursor: PollCursor;
   recordEvent: InboundEventRecorder;
   longPollSec?: number;
@@ -169,10 +194,20 @@ export interface PollCycleOutcome {
 /**
  * Run one long-poll and act on everything it returns.
  *
- * Messages are handled SEQUENTIALLY, not concurrently: they are turns in one
- * conversation, and a human who sends two messages in a row means them in that
- * order. Racing them would interleave turns and destroy the grounding the
- * standing conversation exists to provide.
+ * Messages are handled SEQUENTIALLY WITHIN one conversation, but conversations
+ * for DIFFERENT topics run concurrently (mt#3505, parent mt#3500). A human who
+ * sends two messages in a row means them in that order — racing them would
+ * interleave turns and destroy the grounding a conversation exists to
+ * provide — but two messages in two DIFFERENT topics are two independent
+ * conversations, and there is no reason one should wait on the other.
+ *
+ * Serialization is per {@link topicKeyFor}, via a tiny per-key promise chain
+ * (`enqueue` below): the first task for a key runs immediately, and each
+ * subsequent task for the SAME key is chained onto the previous one's
+ * completion, so ordering within a key is preserved exactly as it always was
+ * for the single-conversation case (every message shares the `"standing"`
+ * key). Different keys have independent chains and therefore run
+ * concurrently — no lock, no scheduler, just promise chaining.
  */
 export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcome> {
   const offset = await deps.cursor.read();
@@ -192,6 +227,22 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   let failed = 0;
   let rejected = 0;
   let duplicates = 0;
+
+  // One promise chain per conversation key, so messages in the SAME
+  // conversation stay strictly ordered while different conversations run
+  // concurrently. `.then(task, task)` runs `task` regardless of whether the
+  // prior task in the chain resolved or rejected — `handleRoute` never
+  // actually throws (its own try/catch reports a failure as a return value),
+  // but chaining defensively here means one topic's chain can never wedge
+  // because of another message's unexpected error.
+  const chains = new Map<string, Promise<unknown>>();
+  const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
+    const prior = chains.get(key) ?? Promise.resolve();
+    const next = prior.then(task, task);
+    chains.set(key, next);
+    return next;
+  };
+  const pending: Promise<void>[] = [];
 
   for (const message of result.messages) {
     const route = routeInboundMessage(message, deps.auth);
@@ -221,10 +272,20 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
       continue;
     }
 
-    const succeeded = await handleRoute(deps, message, route);
-    if (succeeded) handled += 1;
-    else failed += 1;
+    const key = topicKeyFor(message);
+    pending.push(
+      enqueue(key, async () => {
+        const succeeded = await handleRoute(deps, message, route);
+        if (succeeded) handled += 1;
+        else failed += 1;
+      })
+    );
   }
+
+  // Wait for every conversation's queued work — across ALL keys — before
+  // returning, so a caller awaiting this cycle still sees every reply sent
+  // and every counter final, exactly as when everything ran sequentially.
+  await Promise.all(pending);
 
   // Advance the cursor past EVERY update Telegram handed over, including ones
   // that failed to parse — otherwise an unparseable update is re-fetched
@@ -234,6 +295,39 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   }
 
   return { received: result.messages.length, handled, failed, rejected, duplicates };
+}
+
+/**
+ * The per-conversation serialization key for a message (mt#3505).
+ *
+ * `"standing"` for a message with no thread id — every such message shares
+ * ONE key, so they stay strictly ordered exactly as before this change.
+ * A message carrying a thread id gets a key scoped to that thread, so two
+ * different topics never share a chain.
+ */
+function topicKeyFor(message: InboundTelegramMessage): string {
+  return message.messageThreadId === undefined ? "standing" : `topic:${message.messageThreadId}`;
+}
+
+/**
+ * Resolve the actuator a message's conversation should be carried out
+ * against (mt#3505).
+ *
+ * A message with no thread id ALWAYS uses the standing actuator, regardless
+ * of whether `resolveTopicActuator` is configured — the untouched default the
+ * spec calls for. Only a message carrying a thread id consults the resolver,
+ * and only when one was supplied; a poller launched without topic support
+ * (the resolver omitted) falls back to standing rather than throwing, so it
+ * degrades safely.
+ */
+async function resolveActuatorForMessage(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage
+): Promise<ChannelActuator> {
+  if (message.messageThreadId !== undefined && deps.resolveTopicActuator) {
+    return deps.resolveTopicActuator(message.messageThreadId);
+  }
+  return deps.actuator;
 }
 
 /** A cycle that acted on nothing, optionally carrying a poll error. */
@@ -335,7 +429,8 @@ async function handleRoute(
   let reply: string;
   let succeeded = true;
   try {
-    reply = await runActuator(deps.actuator, route, images, notes);
+    const actuator = await resolveActuatorForMessage(deps, message);
+    reply = await runActuator(actuator, route, images, notes);
   } catch (err: unknown) {
     succeeded = false;
     const detail = err instanceof Error ? err.message : String(err);
@@ -454,16 +549,52 @@ async function sendReply(
   reply: string
 ): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
+
+  // Truncate the MARKDOWN, then convert (mt#3465). Doing it in this order
+  // means the length budget applies to what the principal actually reads
+  // rather than to tag overhead, and the converter — which always emits
+  // balanced tags — never sees a string cut through the middle of one.
+  const plain = truncateReply(text);
+  const html = markdownToTelegramHtml(plain);
+
+  // Tags and entities inflate the payload, so a markdown body inside the
+  // budget can still exceed Telegram's own 4096 ceiling. Send the unstyled
+  // text rather than a message Telegram will reject outright.
+  const formatted = html.length <= TELEGRAM_MAX_MESSAGE_CHARS;
+  if (!formatted) {
+    log.info("[principal-channel] reply too long once rendered; sending unstyled", {
+      plainChars: plain.length,
+      htmlChars: html.length,
+    });
+  }
+
   const result = await sendTelegramMessage({
     token: deps.token,
     chatId: deps.chatId,
-    text: truncateReply(text),
+    text: formatted ? html : plain,
+    ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
+    // Post the reply INTO the topic it answers (mt#3505) — otherwise a reply
+    // to a topic-routed conversation would land in General even though the
+    // turn itself ran against that topic's conversation.
+    ...(message.messageThreadId === undefined ? {} : { messageThreadId: message.messageThreadId }),
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
   });
   if (!result.ok) {
     log.error("[principal-channel] reply delivery failed", { detail: result.detail });
     return undefined;
+  }
+  if (result.fellBackToPlain) {
+    // The message DID arrive, so this is not an error — but it means the
+    // converter emitted markup Telegram refused, and without a log that is
+    // invisible: every reply would keep landing, just never formatted.
+    log.warn("[principal-channel] Telegram rejected the rendered HTML; sent unstyled instead", {
+      parseError: result.parseError,
+      plainChars: plain.length,
+      // Both lengths (PR #2505 R1): the ratio is the first thing worth seeing
+      // when diagnosing a rejection, and plain alone does not give it.
+      htmlChars: html.length,
+    });
   }
   return result.messageId;
 }

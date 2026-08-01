@@ -40,7 +40,14 @@ interface Harness {
 }
 
 function updateBody(
-  messages: Array<{ updateId: number; text: string; chatId?: string; messageId?: number }>,
+  messages: Array<{
+    updateId: number;
+    text: string;
+    chatId?: string;
+    messageId?: number;
+    /** mt#3505 — omitted by default so every pre-existing call keeps producing today's payload. */
+    messageThreadId?: number;
+  }>,
   extraUpdates: unknown[] = []
 ): unknown {
   return {
@@ -54,6 +61,9 @@ function updateBody(
           chat: { id: m.chatId ?? CHAT, type: "private" },
           from: { id: 777 },
           text: m.text,
+          ...(m.messageThreadId === undefined
+            ? {}
+            : { message_thread_id: m.messageThreadId, is_topic_message: true }),
         },
       })),
       ...extraUpdates,
@@ -69,6 +79,8 @@ function harness(
     recordEventThrows?: boolean;
     /** Update ids the recorder reports as already-recorded replays. */
     duplicateUpdateIds?: number[];
+    /** mt#3505 — resolves the actuator for a message carrying a thread id. */
+    resolveTopicActuator?: PollCycleDeps["resolveTopicActuator"];
   } = {}
 ): Harness {
   const recorded: Recorded[] = [];
@@ -135,6 +147,9 @@ function harness(
       return overrides.duplicateUpdateIds?.includes(payload.updateId) ? "duplicate" : "recorded";
     },
     fetchFn: baseFetch,
+    ...(overrides.resolveTopicActuator
+      ? { resolveTopicActuator: overrides.resolveTopicActuator }
+      : {}),
   };
 
   return { deps, recorded, sentTexts, actuatorCalls, cursorWrites, order, baseFetch };
@@ -541,6 +556,265 @@ describe("runPollCycle — media", () => {
     await runPollCycle(h.deps);
 
     expect(h.cursorWrites).toEqual([30]);
+  });
+});
+
+/**
+ * Reply formatting through the poll cycle (mt#3465).
+ *
+ * The principal reported reading literal `**bold**` on their phone, twice. The
+ * unit tests for the converter prove the CONVERSION; these prove the poller
+ * actually applies it on the path a real reply takes.
+ */
+describe("runPollCycle — reply formatting", () => {
+  /** Capture the sendMessage payloads rather than just their text. */
+  function harnessCapturingSends(reply: string): {
+    h: Harness;
+    sends: Record<string, unknown>[];
+  } {
+    const sends: Record<string, unknown>[] = [];
+    const h = harness(updateBody([{ updateId: 40, text: "go" }]), {
+      actuator: { converse: async () => reply },
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        sends.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+      }
+      return inner(url, init);
+    };
+    return { h, sends };
+  }
+
+  test("sends the reply as Telegram HTML, not as literal Markdown", async () => {
+    const { h, sends } = harnessCapturingSends("**bold** and `code`");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["parse_mode"]).toBe("HTML");
+    expect(sends[0]?.["text"]).toBe("<b>bold</b> and <code>code</code>");
+  });
+
+  test("a rejected markup send still delivers the reply, unstyled", async () => {
+    // The invariant the plain-text default was built on: a delivery failure is
+    // worse than unstyled text. Simulate Telegram refusing the markup and
+    // assert the principal still receives the answer.
+    const sends: Record<string, unknown>[] = [];
+    const h = harness(updateBody([{ updateId: 41, text: "go" }]), {
+      actuator: { converse: async () => "**bold**" },
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sends.push(body);
+        if (body["parse_mode"] !== undefined) {
+          return new Response(JSON.stringify({ ok: false, description: "can't parse entities" }), {
+            status: 400,
+          });
+        }
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } }));
+      }
+      return inner(url, init);
+    };
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(sends).toHaveLength(2);
+    expect(sends[1]?.["text"]).toBe("**bold**");
+    expect("parse_mode" in (sends[1] ?? {})).toBe(false);
+  });
+
+  test("escapes agent output that contains angle brackets", async () => {
+    const { h, sends } = harnessCapturingSends("returns Promise<string> when a<b");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["text"]).toBe("returns Promise&lt;string&gt; when a&lt;b");
+  });
+
+  test("leaves snake_case identifiers intact end-to-end", async () => {
+    const { h, sends } = harnessCapturingSends("set parse_mode on send_message");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["text"]).toBe("set parse_mode on send_message");
+  });
+
+  test("falls back to unstyled when the rendered form exceeds Telegram's ceiling", async () => {
+    // Tag overhead can push a reply inside the markdown budget past the 4096
+    // wire limit; sending it formatted would be an outright rejection.
+    const heavy = Array.from({ length: 400 }, (_, i) => `**b${i}**`).join(" ");
+    const { h, sends } = harnessCapturingSends(heavy);
+    await runPollCycle(h.deps);
+
+    expect(sends).toHaveLength(1);
+    expect("parse_mode" in (sends[0] ?? {})).toBe(false);
+    expect(String(sends[0]?.["text"])).toContain("**b0**");
+  });
+});
+
+/**
+ * Per-topic routing and concurrency (mt#3505, parent mt#3500).
+ *
+ * `converse` is documented as NOT concurrency-safe (principal-channel-actuator
+ * docblock), and the poller has historically enforced that by handling every
+ * message strictly sequentially, globally. Phase 1 generalizes to one
+ * conversation PER topic while preserving that safety property: serialize
+ * per-topic, run different topics concurrently.
+ */
+describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
+  test("a message with no thread id still uses the standing actuator, unchanged", async () => {
+    // AT: "Send a message with no topic at all: answered in the standing
+    // conversation, exactly as before." resolveTopicActuator must never be
+    // consulted for this case.
+    const h = harness(updateBody([{ updateId: 50, text: "hi" }]), {
+      resolveTopicActuator: async () => {
+        throw new Error("must not be called for a message with no thread id");
+      },
+    });
+    const outcome = await runPollCycle(h.deps);
+    expect(outcome.handled).toBe(1);
+    expect(h.actuatorCalls).toEqual(["converse:hi"]);
+  });
+
+  test("a message carrying a thread id is routed through resolveTopicActuator", async () => {
+    const seenThreadIds: number[] = [];
+    const h = harness(
+      updateBody([{ updateId: 51, text: "topic message", messageThreadId: 749667 }]),
+      {
+        resolveTopicActuator: async (threadId) => {
+          seenThreadIds.push(threadId);
+          return {
+            converse: async (text) => `topic-answer:${text}`,
+            interrupt: async () => "stopped",
+            reset: async () => "fresh",
+            answerAsk: async () => "answered",
+          };
+        },
+      }
+    );
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(seenThreadIds).toEqual([749667]);
+    expect(h.sentTexts).toEqual(["topic-answer:topic message"]);
+  });
+
+  test("the reply to a topic message carries message_thread_id on the wire", async () => {
+    let sentBody: Record<string, unknown> = {};
+    const h = harness(updateBody([{ updateId: 52, text: "go", messageThreadId: 749667 }]), {
+      resolveTopicActuator: async () => ({
+        converse: async () => "ok",
+        interrupt: async () => "stopped",
+        reset: async () => "fresh",
+        answerAsk: async () => "answered",
+      }),
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      }
+      return inner(url, init);
+    };
+
+    await runPollCycle(h.deps);
+    expect(sentBody["message_thread_id"]).toBe(749667);
+  });
+
+  test("two messages in the SAME topic remain strictly ordered", async () => {
+    const order: string[] = [];
+    const h = harness(
+      updateBody([
+        { updateId: 60, text: "first", messageThreadId: 100 },
+        { updateId: 61, text: "second", messageThreadId: 100 },
+      ]),
+      {
+        resolveTopicActuator: async () => ({
+          converse: async (text) => {
+            order.push(`start:${text}`);
+            await Promise.resolve();
+            order.push(`end:${text}`);
+            return `ok:${text}`;
+          },
+          interrupt: async () => "stopped",
+          reset: async () => "fresh",
+          answerAsk: async () => "answered",
+        }),
+      }
+    );
+
+    await runPollCycle(h.deps);
+
+    expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
+  });
+
+  test("two messages in DIFFERENT topics are handled concurrently — a slow topic does not block a fast one", async () => {
+    const order: string[] = [];
+    let releaseSlow: () => void = () => {};
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+
+    const actuatorFor = (threadId: number): ChannelActuator => ({
+      converse: async (text) => {
+        order.push(`${threadId}-start`);
+        if (threadId === 100) await slowGate;
+        order.push(`${threadId}-end`);
+        return `${threadId}:${text}`;
+      },
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    });
+
+    const h = harness(
+      updateBody([
+        { updateId: 70, text: "slow one", messageThreadId: 100 },
+        { updateId: 71, text: "fast one", messageThreadId: 200 },
+      ]),
+      { resolveTopicActuator: async (threadId) => actuatorFor(threadId) }
+    );
+
+    const cyclePromise = runPollCycle(h.deps);
+    // Give the fast (unblocked) topic a chance to run to completion while the
+    // slow topic is still gated — proves the two ran CONCURRENTLY, not that
+    // the loop merely doesn't throw when run sequentially.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["100-start", "200-start", "200-end"]);
+
+    releaseSlow();
+    const outcome = await cyclePromise;
+
+    expect(order).toEqual(["100-start", "200-start", "200-end", "100-end"]);
+    expect(outcome.handled).toBe(2);
+  });
+
+  test("/stop inside a topic interrupts THAT topic's actuator, not the standing one", async () => {
+    const standingInterrupted: string[] = [];
+    const topicInterrupted: string[] = [];
+    const h = harness(updateBody([{ updateId: 80, text: "/stop", messageThreadId: 100 }]), {
+      actuator: {
+        interrupt: async () => {
+          standingInterrupted.push("standing");
+          return "stopped";
+        },
+      },
+      resolveTopicActuator: async () => ({
+        converse: async (text) => text,
+        interrupt: async () => {
+          topicInterrupted.push("topic");
+          return "stopped";
+        },
+        reset: async () => "fresh",
+        answerAsk: async () => "answered",
+      }),
+    });
+
+    await runPollCycle(h.deps);
+
+    expect(topicInterrupted).toEqual(["topic"]);
+    expect(standingInterrupted).toEqual([]);
   });
 });
 

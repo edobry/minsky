@@ -50,6 +50,15 @@ export interface IngestPriorReviewsResult {
    * pushed since the last review (see fetchCommitMessagesSince).
    */
   latestSubmittedAt?: string;
+  /**
+   * `commit_id` of the most recent prior review — the SHA the reviewer actually
+   * looked at (undefined when none / on error, or when GitHub omitted it).
+   * mt#3471: the base for the incremental diff-since-last-review fetch. Kept
+   * separate from `latestSubmittedAt` deliberately: a SHA survives a rebase
+   * that rewrites commit dates, so scoping by SHA fails loudly (404 → full-diff
+   * fallback) where scoping by date would fail silently into a wrong range.
+   */
+  latestCommitId?: string;
 }
 
 /**
@@ -91,6 +100,10 @@ export async function ingestPriorReviews(
       // fetch.
       sanitizedBodies: priorReviews.map((r) => r.body),
       ...(latest !== undefined ? { latestSubmittedAt: latest.submittedAt } : {}),
+      // mt#3471: fetchPriorReviews coalesces a missing commit_id to "", which is
+      // not a usable compare base — surface it as absent rather than as an empty
+      // SHA the caller would have to re-check.
+      ...(latest !== undefined && latest.commitId ? { latestCommitId: latest.commitId } : {}),
     };
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);

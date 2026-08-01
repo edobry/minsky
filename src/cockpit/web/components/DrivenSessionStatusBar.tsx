@@ -12,6 +12,7 @@
 import { cn } from "../lib/utils";
 import type { DrivenSessionStatus } from "../hooks/useDrivenSession";
 import type { DrivenSessionResultSummary } from "../lib/driven-session-accumulator";
+import { classifyOutcome, isTerminalActuatorStatus } from "../lib/conversation-outcome";
 
 export interface DrivenSessionStatusBarProps {
   status: DrivenSessionStatus;
@@ -20,14 +21,43 @@ export interface DrivenSessionStatusBarProps {
   className?: string;
 }
 
-const STATUS_LABEL: Record<DrivenSessionStatus, string> = {
+/**
+ * Labels for the TRANSPORT states only (mt#3132).
+ *
+ * The three terminal states — `exited` / `crashed` / `unrecoverable` — are no
+ * longer labeled here. They are terminal CONDITIONS, and their vocabulary now
+ * comes from the shared classifier in `../lib/conversation-outcome.ts`, the
+ * same one the transcript path's per-turn Outcome chip reads. Before mt#3132
+ * this bar and that chip named the same conditions differently, which is the
+ * per-pipeline drift the unification removes.
+ *
+ * Transport states stay local because they are NOT outcomes: a channel
+ * reconnecting says nothing about how the conversation ended, and folding them
+ * into an outcome vocabulary would be the category error the two-axis model
+ * exists to prevent.
+ */
+const TRANSPORT_LABEL: Record<"connecting" | "live" | "reconnecting", string> = {
   connecting: "Connecting…",
   live: "Live",
   reconnecting: "Reconnecting…",
-  exited: "Exited",
-  crashed: "Crashed",
-  unrecoverable: "Unrecoverable",
 };
+
+/**
+ * `unrecoverable` classifies as `Crashed` like any other crash, but it carries
+ * one extra fact the shared vocabulary has no value for: this session can never
+ * be resumed (mt#3038 R1 delta #2 — read-only history from here on). Rendering
+ * it as a modifier keeps that distinction visible without inventing a seventh
+ * outcome value that only one pipeline could ever produce.
+ */
+const NOT_RESUMABLE_NOTE = "not resumable";
+
+function statusLabel(status: DrivenSessionStatus): string {
+  if (isTerminalActuatorStatus(status)) {
+    // Non-null by construction: the actuator arm always classifies.
+    return classifyOutcome({ source: "actuator", status }) as string;
+  }
+  return TRANSPORT_LABEL[status];
+}
 
 function formatResultSummary(summary: DrivenSessionResultSummary | null | undefined): string | null {
   if (!summary) return null;
@@ -73,8 +103,11 @@ export function DrivenSessionStatusBar({
           status === "live" && "text-emerald-500"
         )}
       >
-        {STATUS_LABEL[status]}
+        {statusLabel(status)}
       </span>
+      {status === "unrecoverable" && (
+        <span className="text-muted-foreground">· {NOT_RESUMABLE_NOTE}</span>
+      )}
       {status === "exited" && summaryText && <span className="text-muted-foreground">{summaryText}</span>}
       {(status === "crashed" || status === "unrecoverable") && errorMessage && (
         <span className="text-destructive">{errorMessage}</span>

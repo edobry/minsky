@@ -27,6 +27,7 @@ import {
   fetchPriorReviews,
   fetchCommitMessagesSince,
   fetchChangedFilesSince,
+  fetchIncrementalDiffSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -1082,5 +1083,152 @@ describe("fetchChangedFilesSince", () => {
     const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
 
     expect(result).toHaveLength(299);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchIncrementalDiffSince (mt#3471)
+// ---------------------------------------------------------------------------
+
+const SAMPLE_INCREMENTAL_DIFF = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -10,2 +10,3 @@",
+  " context",
+  "+added line",
+  " context",
+  "",
+].join("\n");
+
+interface FakeCompareFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previous_filename?: string;
+}
+
+/**
+ * Fake Octokit covering BOTH calls fetchIncrementalDiffSince makes in parallel:
+ * octokit.request (raw diff media type) and rest.repos.compareCommits (JSON).
+ * Either can be made to reject to exercise the fallback path.
+ */
+function buildFakeIncrementalOctokit(opts: {
+  diff?: string;
+  files?: FakeCompareFile[];
+  diffRejects?: boolean;
+  jsonRejects?: boolean;
+}): { octokit: Octokit; requestMock: ReturnType<typeof mock> } {
+  const requestMock = mock(async () => {
+    if (opts.diffRejects) throw new Error("404 Not Found: no common ancestor");
+    return { data: opts.diff ?? SAMPLE_INCREMENTAL_DIFF };
+  });
+  const compareCommitsMock = mock(async () => {
+    if (opts.jsonRejects) throw new Error("502 Bad Gateway");
+    return { data: { files: opts.files ?? [] } };
+  });
+  const octokit = {
+    request: requestMock,
+    rest: { repos: { compareCommits: compareCommitsMock } },
+  } as unknown as Octokit;
+  return { octokit, requestMock };
+}
+
+describe("fetchIncrementalDiffSince", () => {
+  test("returns the raw diff and mapped file entries for a resolvable range", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({
+      files: [
+        { filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -10,2" },
+      ],
+    });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeDefined();
+    expect(result?.diff).toBe(SAMPLE_INCREMENTAL_DIFF);
+    expect(result?.fileEntries).toEqual([
+      { filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -10,2" },
+    ]);
+  });
+
+  test("carries previousFilename through for a rename", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({
+      files: [
+        {
+          filename: "src/new.ts",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+          previous_filename: "src/old.ts",
+        },
+      ],
+    });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result?.fileEntries[0]?.previousFilename).toBe("src/old.ts");
+  });
+
+  test("returns undefined without calling the API when baseSha === headSha", async () => {
+    const { octokit, requestMock } = buildFakeIncrementalOctokit({});
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "same", "same");
+
+    expect(result).toBeUndefined();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test("returns undefined without calling the API when baseSha is empty", async () => {
+    // fetchPriorReviews coalesces a missing commit_id to "" — an empty base is
+    // not a usable comparison point and must not be sent to GitHub.
+    const { octokit, requestMock } = buildFakeIncrementalOctokit({});
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "", "head2");
+
+    expect(result).toBeUndefined();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test("falls back (undefined) when the range is unreachable after a force-push", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({ diffRejects: true });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "orphaned", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) when the comparison 5xxs on a large diff", async () => {
+    // GitHub's own docs warn that "larger diffs may time out and return a 5xx
+    // status code" — the documented reason the caller must keep a full-diff path.
+    const { octokit } = buildFakeIncrementalOctokit({ jsonRejects: true });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) when the files array may be truncated at the cap", async () => {
+    const files = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
+    }));
+    const { octokit } = buildFakeIncrementalOctokit({ files });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) rather than narrowing a review to an empty diff", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({ diff: "   \n  ", files: [] });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
   });
 });

@@ -132,7 +132,7 @@ describe("mt#3400 — the driven banner is pinned with the chrome", () => {
     const { getByTestId, getByLabelText } = renderWorkspaceDetailPage();
 
     const chrome = await waitFor(() => getByTestId("run-detail-chrome"));
-    const banner = await waitFor(() => getByLabelText("Open driven session (running)"));
+    const banner = await waitFor(() => getByLabelText("Open the drive view (running)"));
 
     // Containment IS the fix. mt#3344 pinned the chrome but left this banner a
     // following sibling, so on the Conversation tab it scrolled out of view the
@@ -148,7 +148,7 @@ describe("mt#3400 — the driven banner is pinned with the chrome", () => {
     const { getByTestId, queryByLabelText } = renderWorkspaceDetailPage();
 
     const chrome = await waitFor(() => getByTestId("run-detail-chrome"));
-    expect(queryByLabelText(/^Open driven session/)).toBeNull();
+    expect(queryByLabelText(/^Open the drive view/)).toBeNull();
     // The no-banner case must be untouched by this change: spacing comes from
     // the banner's own `mb-2`, never from padding added to the container.
     expect(chrome.className).toContain("pt-4");
