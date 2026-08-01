@@ -262,7 +262,31 @@ describe("notifyPrincipal", () => {
       expect(sent[THREAD_ID_KEY]).toBe(749667);
     });
 
-    test("falls back to the standing conversation (no topic in the payload) when the task has no bound topic", async () => {
+    test("AT2: notifying twice about the same bound task lands in that topic both times, creating nothing", async () => {
+      const sentThreadIds: unknown[] = [];
+      const lookupCalls: string[] = [];
+      const d = configured(async (_url, init) => {
+        sentThreadIds.push(
+          (JSON.parse(String(init?.body)) as Record<string, unknown>)[THREAD_ID_KEY]
+        );
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+      });
+      d.lookupTaskTopic = async (taskId) => {
+        lookupCalls.push(taskId);
+        return { messageThreadId: 749667 };
+      };
+
+      await notifyPrincipal({ message: "first", taskId: "mt#3507", deps: d });
+      await notifyPrincipal({ message: "second", taskId: "mt#3507", deps: d });
+
+      expect(sentThreadIds).toEqual([749667, 749667]);
+      expect(lookupCalls).toEqual(["mt#3507", "mt#3507"]);
+      // notifyPrincipal itself never writes to the mapping table — only
+      // reads it via lookupTaskTopic — so there is no write path here that
+      // could ever create a second topic for the same task.
+    });
+
+    test("AT3: a task with no bound topic lands in the standing conversation, creating nothing", async () => {
       let sent: Record<string, unknown> = {};
       const d = configured(async (_url, init) => {
         sent = JSON.parse(String(init?.body));
@@ -274,7 +298,7 @@ describe("notifyPrincipal", () => {
       expect(THREAD_ID_KEY in sent).toBe(false);
     });
 
-    test("regression: omitting taskId reproduces today's wire payload byte-for-byte", async () => {
+    test("AT5 / regression: omitting taskId reproduces today's wire payload byte-for-byte", async () => {
       // The exact regression the spec calls for.
       let rawBody = "";
       await notifyPrincipal({
@@ -306,7 +330,7 @@ describe("notifyPrincipal", () => {
       expect(called).toBe(false);
     });
 
-    test("drift reconciliation: a dead topic falls back to standing and says so in the delivered text", async () => {
+    test("AT4: a dead topic (deleted from the phone) falls back to standing and says so in the delivered text", async () => {
       const sentBodies: Record<string, unknown>[] = [];
       const d = configured(async (_url, init) => {
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

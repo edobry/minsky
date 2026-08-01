@@ -298,7 +298,7 @@ describe("bindTelegramChannelTopicToTask (mt#3507)", () => {
     expect(queries).toHaveLength(1);
   });
 
-  test("never touches driven_sessions, and writes the SAME deterministic localId ensureTelegramChannelTopic would — the conversation identity is untouched by a bind", async () => {
+  test("AT1: never touches driven_sessions, and writes the SAME deterministic localId ensureTelegramChannelTopic would — the conversation identity is untouched by a bind", async () => {
     // The spec's own requirement: "driven_sessions.local_id must be
     // IDENTICAL before and after". This function never references that
     // table at all, and the local_id it writes into the mapping row is the
