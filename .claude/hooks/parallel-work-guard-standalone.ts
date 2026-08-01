@@ -78,7 +78,8 @@
 //      this module's design mirrors, and the caller of runStandaloneDuplicateGuard
 // @see docs/architecture/hooks/parallel-work-guard.md — full mechanism + calibration writeup
 
-import { writeOutput, TERMINAL_TASK_STATUSES } from "./types";
+import { writeOutput } from "./types";
+import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
 import { safeTruncate } from "../../src/utils/safe-truncate";
