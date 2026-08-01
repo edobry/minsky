@@ -52,6 +52,14 @@ jobs:
       # (mt#2424) — the cockpit frontend has its own dedicated typecheck project since
       # the root tsconfig excludes it (browser-only lib/DOM settings) and `vite build`
       # transpiles it without type-checking.
+      # mt#3476: the injected skill listing is charged against a shared cumulative
+      # budget, and going over it silently drops descriptions — a skill listed
+      # name-only cannot be routed to. Fails on an OWNED description over the cap or
+      # on the listing total; vendored descriptions are reported, not gated (their
+      # text is upstream-owned and reverts on refetch, per ADR-015).
+      - name: Skill listing description budget
+        run: bun run skills:budget:check
+
       - name: Type check
         run: bun run typecheck
 

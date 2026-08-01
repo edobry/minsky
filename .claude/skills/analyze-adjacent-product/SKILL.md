@@ -3,16 +3,10 @@
 name: analyze-adjacent-product
 description: >-
   Semiotic analysis of an adjacent product's marketing surface or brand
-  positioning. Encodes the Peirce icon/index/symbol triad, Barthes' three orders
-  of signification (denotation / connotation / myth), and Oswald's
-  cultural-codes framework as the analytical substrate. Names the Pepsi/Arnell
-  trap as the anti-pattern: semiotic vocabulary as post-hoc theater rather than
-  driving reasoning. Use when reading a competitor's marketing site, an
-  inspirational reference, or any adjacent brand you want to understand
-  structurally — for competitive positioning, RFC support, build-vs-buy
-  decisions, or feeding the marketing-site-design workshop's cultural-code
-  identification step. Pairs with marketing-site-design (which consumes this
-  skill's analytical output to drive brand-positioning decisions).
+  positioning, via the Peirce triad, Barthes' orders of signification, and
+  Oswald's cultural codes. Use when reading a competitor site or reference brand
+  structurally — for positioning, RFC support, build-vs-buy, or feeding a
+  marketing-site-design workshop.
 user-invocable: true
 ---
 

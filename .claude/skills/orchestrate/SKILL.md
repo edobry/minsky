@@ -3,11 +3,9 @@
 name: orchestrate
 description: >-
   Multi-task coordination: parent+subtask decomposition, parallel dispatch
-  planning, dependency-graph navigation, and cross-task scope assessment. Use
-  when: 'decompose mt#X', 'break this down into subtasks', 'coordinate mt#A and
-  mt#B', 'dispatch in parallel', 'dependency order', "what's the order for...",
-  'run X Y Z in parallel'. Does NOT own single-task lifecycle transitions —
-  those belong to /plan-task, /implement-task, and /verify-task.
+  planning, dependency-graph navigation, cross-task scope assessment. Use for
+  'decompose mt#X', 'coordinate mt#A and mt#B', 'dispatch in parallel', 'what's
+  the order for...'. Does NOT own single-task lifecycle transitions.
 user-invocable: true
 ---
 

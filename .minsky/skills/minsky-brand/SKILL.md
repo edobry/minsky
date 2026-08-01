@@ -1,18 +1,10 @@
 ---
 name: minsky-brand
 description: >-
-  The Minsky brand foundation — locked myth (exocortex / flock), cultural code
-  (Cyberbrain / Section 9), five-layer reference architecture (Ghost in the
-  Shell SAC / Evangelion / Mitsuo Iso / Magilumière / Stross *Accelerando*),
-  bridge-as-affect discipline, code-architecture synthesis, and the locked
-  vocabulary inventory. The agent-consumable tier of the brand foundation:
-  position paper (Notion) is the *strategic* tier, `docs/brand-system.md` is
-  the *operational* tier, this skill is the *agent-consumable* tier. Composes
-  with `pz-voice` (signal — what is claimed); this skill is the channel
-  (how it feels to the audience).
-  Invoke as the strategic anchor for any Minsky-surface design work
-  (`marketing-site-design`, `cockpit-design`) or any artifact that needs to
-  carry the cyberbrain register without re-deriving the workshop output.
+  The Minsky brand foundation in agent-consumable form — locked myth, cultural code,
+  five-layer reference architecture, bridge-as-affect discipline, and locked vocabulary.
+  Invoke as the strategic anchor for any Minsky-surface design work, or any artifact that
+  must carry the brand register without re-deriving the workshop output.
 user-invocable: true
 ---
 
