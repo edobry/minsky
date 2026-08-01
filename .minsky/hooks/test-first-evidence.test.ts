@@ -167,6 +167,31 @@ describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () 
       expect(hasNegativeControlEvidence(text)).toBe(true);
     });
 
+    // The criterion this test exists for: "following the message must produce a
+    // match." Before mt#3511 the message said accepted forms go "inside the
+    // `Execution evidence:` block", and an author who did exactly that got told
+    // no negative control was recorded (mt#3506 / PR #2499). This constructs the
+    // shape the CURRENT message documents — label on its own line outside the
+    // fence, run output fenced beneath it — and asserts it matches.
+    it("accepts the exact shape the gate's own message documents", () => {
+      const text = [
+        "## Testing",
+        "",
+        "Execution evidence:",
+        "",
+        "```",
+        "bun test ./x.test.ts -> 12 pass, 0 fail",
+        "```",
+        "",
+        "Negative control: reverted the fix; the changed test observed FAILING.",
+        "",
+        "```",
+        " 1 fail",
+        "```",
+      ].join("\n");
+      expect(hasNegativeControlEvidence(text)).toBe(true);
+    });
+
     it("accepts an en dash as well as an em dash", () => {
       expect(hasNegativeControlEvidence("Negative control – reverted the guard; 1 fail")).toBe(
         true
