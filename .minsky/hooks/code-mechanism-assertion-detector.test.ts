@@ -549,10 +549,26 @@ describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech 
     // Each has a paired negative control: a genuine symbol that RESEMBLES the
     // excluded shape must still fire, or the exclusion is written too broadly.
 
-    test("timezone fragment: `New_York` is not a symbol", () => {
-      const text = "The window limits results to `America/New_York` for the digest.";
-      const result = detectCodeMechanismAssertion(text, "");
-      expect(result.claims.map((c) => c.symbol)).not.toContain("New_York");
+    // PR #2527 R1: assert on the WHOLE claim list, not one expected spelling.
+    // The window slice sometimes severs `America/`, so the same false positive
+    // arrives as `America/New_York` OR as a bare `New_York` — asserting only
+    // the latter passed while the former still produced a claim.
+    test("timezone: neither the whole token nor the severed tail is a symbol", () => {
+      const whole = detectCodeMechanismAssertion(
+        "The window limits results to `America/New_York` for the digest.",
+        ""
+      );
+      expect(whole.claims.map((c) => c.symbol)).toEqual([]);
+
+      const severed = detectCodeMechanismAssertion("The `New_York` window limits the digest.", "");
+      expect(severed.claims.map((c) => c.symbol)).toEqual([]);
+    });
+
+    test("timezone: multi-segment and underscore-free forms are also excluded", () => {
+      for (const tz of ["Europe/London", "America/Argentina/Buenos_Aires"]) {
+        const result = detectCodeMechanismAssertion(`The \`${tz}\` window limits the digest.`, "");
+        expect(result.claims.map((c) => c.symbol)).toEqual([]);
+      }
     });
 
     test("negative control: an all-caps env var with underscores still counts", () => {
@@ -570,7 +586,7 @@ describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech 
     test("product name: `iTerm2` is not a symbol", () => {
       const text = "iTerm2 drops the passthrough sequence unless it is enabled.";
       const result = detectCodeMechanismAssertion(text, "");
-      expect(result.claims.map((c) => c.symbol)).not.toContain("iTerm2");
+      expect(result.claims.map((c) => c.symbol)).toEqual([]);
       expect(result.matched).toBe(false);
     });
 
@@ -597,7 +613,9 @@ describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech 
       const text =
         "Override: set `MINSKY_ACK_UNTAKEN_ACTION=1`. The guard warns on a named action.";
       const result = detectCodeMechanismAssertion(text, "");
-      expect(result.claims.map((c) => c.symbol)).not.toContain("MINSKY_ACK_UNTAKEN_ACTION");
+      // Whole-list assertion (PR #2527 R1): no claim may name the var in ANY
+      // spelling, rather than checking one expected token.
+      expect(result.claims.filter((c) => c.symbol.includes("MINSKY_ACK"))).toEqual([]);
     });
 
     test("negative control: a genuine claim about what the same env var DOES still fires", () => {

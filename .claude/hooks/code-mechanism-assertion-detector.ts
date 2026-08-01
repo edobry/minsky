@@ -304,6 +304,23 @@ const HEX_ID_RE = /^[0-9a-f]{8,40}$/i;
 const TITLE_CASE_UNDERSCORE_RE = /^[A-Z][a-z0-9]+(?:_[A-Z][a-z0-9]+)+$/;
 
 /**
+ * The same timezone in its UNCUT form (mt#3540, PR #2527 R1). The window slice
+ * only sometimes severs `America/`; when it does not, the whole
+ * `America/New_York` arrives as one backticked token, which
+ * TITLE_CASE_UNDERSCORE_RE does not match because of the slash. Both forms are
+ * the same false positive and both must be excluded.
+ *
+ * Shape: every slash-separated segment is a Title-case word, optionally
+ * underscore-joined Title-case words — `America/New_York`, `Europe/London`,
+ * `America/Argentina/Buenos_Aires`. Requiring EVERY segment to be Title-case
+ * keeps genuine path references out of the exclusion: `src/exec.ts`,
+ * `packages/domain/detectors` and `scripts/verify-foo.ts` all have
+ * lowercase segments and are unaffected.
+ */
+const TITLE_CASE_PATH_RE =
+  /^[A-Z][a-z0-9]+(?:_[A-Z][a-z0-9]+)*(?:\/[A-Z][a-z0-9]+(?:_[A-Z][a-z0-9]+)*)+$/;
+
+/**
  * Product/application-name exclusion (mt#3540). A terminal emulator, editor or
  * vendor product mentioned in prose (`iTerm2`, logged as `iTerm2/drop` in the
  * 2026-08-01 pass) matches CAMEL_CASE_RE's shape but names no symbol this
@@ -399,6 +416,7 @@ function isPlausibleSymbol(tok: string): boolean {
   // mt#3540 — the four shapes the 2026-08-01 calibration pass classified as
   // false positives, all of them non-code text read as a code symbol.
   if (TITLE_CASE_UNDERSCORE_RE.test(t)) return false;
+  if (TITLE_CASE_PATH_RE.test(t)) return false;
   if (PRODUCT_NAME_STOPLIST.has(t.toLowerCase())) return false;
   if (BARE_DIR_PATH_RE.test(t)) return false;
   return true;
