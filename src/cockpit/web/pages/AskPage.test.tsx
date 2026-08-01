@@ -28,6 +28,7 @@ import { AskPage } from "./AskPage";
 import { TabsProvider } from "../lib/tabs";
 import type { AskItem } from "../widgets/AskDetail";
 import { RESOLVE_PROPOSAL_FENCE } from "../lib/resolve-proposal";
+import { RESOLVE_PROPOSAL_SURFACE } from "../components/ResolveProposalCard";
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -317,37 +318,147 @@ describe("AskPage import-chain browser safety (mt#3239)", () => {
 });
 
 describe("AskPage thread resolve proposal wiring (mt#3368)", () => {
-  // These are SOURCE-level guards, deliberately weaker than a render test.
+  // These WERE source-level guards, written because a behavioral render test
+  // appeared impossible — AskPage seemed to blank whenever its thread had
+  // turns. That premise was wrong (mt#3452): the blank came from an invalid
+  // `state: "pending"` in the FIXTURE, not from thread turns. `pending` is not
+  // an AskState; the real set is detected/classified/routed/suspended/
+  // responded/closed/cancelled/expired.
   //
-  // The behavioral version — render the page with a thread turn, click confirm,
-  // assert the POSTed body equals what the card displayed — cannot run today:
-  // rendering AskPage with ANY thread block blanks the tree in this harness
-  // (reproduced with marker-free prose, so it is not this feature). Tracked as
-  // mt#3452, which owns upgrading these to the real thing.
-  //
-  // The mt#3239 guards above set the precedent for reading this file's own
-  // source when the runtime check is out of reach.
+  // The behavioral test now lives below and asserts the same property by
+  // actually clicking confirm, so only the one guard the render test cannot
+  // cover is kept: the terminal-ask gating, which is an ABSENCE (no slot is
+  // supplied) and so has no rendered artifact to assert against.
   const source = readFileSync(
     fileURLToPath(new URL("./AskPage.tsx", import.meta.url)),
     "utf8"
   );
-
-  test("the confirm passes the SAME surface constant the card renders", () => {
-    // The card promises "this is what will be recorded" and composes its
-    // preview with RESOLVE_PROPOSAL_SURFACE. If the mutation sent a different
-    // `resolvedIn`, the operator would confirm a payload that is not the one
-    // written. This exact divergence existed mid-implementation: the card said
-    // "thread" while the mutation hardcoded "inbox".
-    expect(source).toContain("resolvedIn: RESOLVE_PROPOSAL_SURFACE");
-    // And the mutation must actually honor a caller-supplied surface rather
-    // than pinning "inbox" for every caller.
-    expect(source).toContain("composeResolvePayload(target, optionLetter, resolvedIn)");
-  });
 
   test("the proposal slot is withheld from a terminal ask", () => {
     // A resolved ask has nothing left to confirm; offering the control there
     // invites a second write to a closed record.
     expect(source).toMatch(/terminal\s*\n?\s*\?\s*\{\}/);
     expect(source).toContain("proposalSlot:");
+  });
+});
+
+describe("AskPage renders with an entity thread (mt#3452)", () => {
+  const ID = "0147caa5-e208-4fac-9b1c-0479787a9a24";
+
+  function stubWithThread(blocks: unknown[]): void {
+    const ask = makeAsk({ id: ID });
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/entity-thread/")) {
+        return jsonResponse({
+          localId: `entity-thread:ask:${ID}`,
+          entityType: "ask",
+          entityId: ID,
+          live: false,
+          blocks,
+        });
+      }
+      if (url.includes(`/api/asks/${ID}`)) return jsonResponse({ ask });
+      return jsonResponse({ state: "degraded" });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  test("renders with an EMPTY thread (control)", async () => {
+    stubWithThread([]);
+    renderAskPage(ID);
+    await waitFor(() => {
+      expect(screen.getByText("Calibration-review disposition")).toBeDefined();
+    });
+  });
+
+  test("renders with ONE agent turn in the thread", async () => {
+    stubWithThread([
+      {
+        id: "t#1",
+        type: "assistant-text",
+        source: "observed",
+        content: "hello",
+        timestamp: "2026-07-31T06:00:00.000Z",
+        rawJsonlType: "assistant",
+      },
+    ]);
+    renderAskPage(ID);
+    await waitFor(() => {
+      expect(screen.getByText("Calibration-review disposition")).toBeDefined();
+    });
+  });
+});
+
+describe("mt#3368 behavioral: the payload SENT equals the payload DISPLAYED", () => {
+  const ID = "0147caa5-e208-4fac-9b1c-0479787a9a25";
+
+  function stub(letter: string, captured: unknown[]): void {
+    const ask = makeAsk({
+      id: ID,
+      state: "routed",
+      // `value` is required on AskOption — omitting it is the same class of
+      // invalid-fixture mistake that produced mt#3452's false premise.
+      options: [
+        { label: "Run it", value: "run" },
+        { label: "Hold off", value: "hold" },
+      ],
+    });
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/resolve")) {
+        captured.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ ok: true });
+      }
+      if (url.includes("/api/entity-thread/")) {
+        return jsonResponse({
+          localId: `entity-thread:ask:${ID}`,
+          entityType: "ask",
+          entityId: ID,
+          live: false,
+          blocks: [
+            {
+              id: "t#1",
+              type: "assistant-text",
+              source: "observed",
+              content:
+                "Hold off.\n\n```" +
+                RESOLVE_PROPOSAL_FENCE +
+                '\n{"optionLetter": "' +
+                letter +
+                '", "rationale": "the branch is stale"}\n```',
+              timestamp: "2026-07-31T06:00:00.000Z",
+              rawJsonlType: "assistant",
+            },
+          ],
+        });
+      }
+      if (url.includes(`/api/asks/${ID}`)) return jsonResponse({ ask });
+      return jsonResponse({ state: "degraded" });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  test("confirm sends exactly what the card rendered", async () => {
+    const captured: unknown[] = [];
+    stub("B", captured);
+    renderAskPage(ID);
+
+    const confirm = await screen.findByRole("button", { name: /confirm and answer/i });
+    // Rendering a proposal must not resolve anything.
+    expect(captured).toEqual([]);
+
+    const displayed = screen.getByLabelText("Proposed resolve payload").textContent;
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(captured.length).toBe(1));
+    expect(JSON.stringify(captured[0], null, 2)).toBe(displayed);
+
+    // Equality alone is NOT sufficient (PR #2524 R1 BLOCKING): if the card
+    // rendered `resolvedIn: "inbox"` AND the mutation sent "inbox", the
+    // assertion above still passes while the thread/inbox distinction is
+    // silently lost. The deleted source-guard pinned that surface; this pins it
+    // behaviorally, on the payload actually POSTed.
+    const sent = captured[0] as { attentionCost?: { resolvedIn?: string } };
+    expect(sent.attentionCost?.resolvedIn).toBe(RESOLVE_PROPOSAL_SURFACE);
+    expect(sent.attentionCost?.resolvedIn).not.toBe("inbox");
   });
 });
