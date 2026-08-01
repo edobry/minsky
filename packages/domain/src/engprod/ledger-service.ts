@@ -50,8 +50,9 @@ export type ProposalVerdict = "proposed" | "accepted" | "rejected" | "superseded
  *
  * The two arguments must name the SAME column — passing mismatched ones would
  * silently write one column's incoming value over another's existing value.
- * Both `upsertSuppressedChunk` call sites are asserted in
- * `ledger-service.suppression-preserves-verdict.test.ts`.
+ * The resulting behavior of both suppression write paths is asserted against a
+ * real Postgres in
+ * `tests/integration/engprod-ledger-suppression-verdict.integration.test.ts`.
  */
 function preserveWhenProposed(column: AnyPgColumn, excludedColumn: string): SQL {
   return sql`CASE WHEN ${engprodProposalLedgerTable.everProposed} THEN ${column} ELSE EXCLUDED.${sql.raw(excludedColumn)} END`;

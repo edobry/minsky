@@ -49,9 +49,21 @@
  * @see packages/domain/src/engprod/ledger-service.ts — the fixed write path
  */
 import { drizzle } from "drizzle-orm/postgres-js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { engprodProposalLedgerTable } from "@minsky/domain/storage/schemas/engprod-proposal-ledger-schema";
+import { tasksTable } from "@minsky/domain/storage/schemas/task-embeddings";
+
+/**
+ * Task statuses that mean the proposal was already triaged to an end state.
+ * SC3 scopes the repair to non-terminal tasks: `reconcileVerdicts` re-derives
+ * accepted/rejected from a `proposed` row's task status, and handing it a row
+ * whose task is already finished would have it re-derive a terminal verdict
+ * from history rather than from live triage. No production row is in this
+ * state today (all 10 are BLOCKED) — the condition is here because SC3 states
+ * it, so the script cannot drift from its spec on data that does hit it.
+ */
+const TERMINAL_TASK_STATUSES = ["DONE", "CLOSED"];
 
 const CONNECTION_URL = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
 const EXECUTE = process.argv.includes("--execute");
@@ -75,6 +87,13 @@ async function main(): Promise<number> {
   const db = drizzle(client);
 
   try {
+    // SC3's full predicate. `ever_proposed = true AND verdict = 'suppressed'` is
+    // the contradiction the bug produces; `filed_task_id IS NOT NULL` and the
+    // non-terminal task check are SC3's stated scope. Today the first pair
+    // already implies the second (only `recordProposed` sets `ever_proposed`,
+    // and it always supplies a `filed_task_id`), so all four conditions select
+    // the same 10 production rows — they are stated explicitly anyway rather
+    // than relying on that implication holding as the write paths evolve.
     const corrupted = await db
       .select({
         clusterSignature: engprodProposalLedgerTable.clusterSignature,
@@ -82,17 +101,24 @@ async function main(): Promise<number> {
         suppressedReason: engprodProposalLedgerTable.suppressedReason,
         updatedAt: engprodProposalLedgerTable.updatedAt,
         suppressionCount: engprodProposalLedgerTable.suppressionCount,
+        taskStatus: tasksTable.status,
       })
       .from(engprodProposalLedgerTable)
+      .innerJoin(tasksTable, eq(tasksTable.id, engprodProposalLedgerTable.filedTaskId))
       .where(
         and(
           eq(engprodProposalLedgerTable.everProposed, true),
-          eq(engprodProposalLedgerTable.verdict, "suppressed")
+          eq(engprodProposalLedgerTable.verdict, "suppressed"),
+          isNotNull(engprodProposalLedgerTable.filedTaskId),
+          notInArray(tasksTable.status, TERMINAL_TASK_STATUSES)
         )
       );
 
     console.log(`${EXECUTE ? "EXECUTE" : "DRY RUN"} — repair engprod ledger verdicts (mt#3510)`);
-    console.log(`Selector: ever_proposed = true AND verdict = 'suppressed'`);
+    console.log(
+      `Selector: ever_proposed = true AND verdict = 'suppressed' AND filed_task_id IS NOT NULL ` +
+        `AND task status NOT IN (${TERMINAL_TASK_STATUSES.join(", ")})`
+    );
     console.log(
       `Rows matched: ${corrupted.length} (operator-approved scope: ${APPROVED_ROW_COUNT})\n`
     );
@@ -132,6 +158,12 @@ async function main(): Promise<number> {
     // Preserve the suppression signal onto the columns that now carry it, using
     // the row's own updated_at as the observed suppression time. Done in ONE
     // statement so a partial repair cannot leave rows half-migrated.
+    //
+    // Scoped by the exact signatures the dry-run listed rather than re-running
+    // the predicate: what gets written is then guaranteed to be what was
+    // displayed and approved, even if a concurrent miner run changes which rows
+    // match between the read and the write.
+    const targetSignatures = corrupted.map((row) => row.clusterSignature);
     const updated = await db
       .update(engprodProposalLedgerTable)
       .set({
@@ -139,24 +171,19 @@ async function main(): Promise<number> {
         lastSuppressedAt: sql`COALESCE(${engprodProposalLedgerTable.lastSuppressedAt}, ${engprodProposalLedgerTable.updatedAt})`,
         suppressionCount: sql`${engprodProposalLedgerTable.suppressionCount} + 1`,
       })
-      .where(
-        and(
-          eq(engprodProposalLedgerTable.everProposed, true),
-          eq(engprodProposalLedgerTable.verdict, "suppressed")
-        )
-      )
+      .where(inArray(engprodProposalLedgerTable.clusterSignature, targetSignatures))
       .returning({ filedTaskId: engprodProposalLedgerTable.filedTaskId });
 
     console.log(`Repaired ${updated.length} row(s).`);
 
-    // Verify the OUTCOME, not the statement: re-read and confirm the
-    // contradiction no longer exists.
+    // Verify the OUTCOME, not the statement: re-read the repaired signatures and
+    // confirm none still carries the contradiction.
     const remaining = await db
       .select({ clusterSignature: engprodProposalLedgerTable.clusterSignature })
       .from(engprodProposalLedgerTable)
       .where(
         and(
-          eq(engprodProposalLedgerTable.everProposed, true),
+          inArray(engprodProposalLedgerTable.clusterSignature, targetSignatures),
           eq(engprodProposalLedgerTable.verdict, "suppressed")
         )
       );
