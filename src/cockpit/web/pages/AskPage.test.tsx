@@ -28,6 +28,7 @@ import { AskPage } from "./AskPage";
 import { TabsProvider } from "../lib/tabs";
 import type { AskItem } from "../widgets/AskDetail";
 import { RESOLVE_PROPOSAL_FENCE } from "../lib/resolve-proposal";
+import { RESOLVE_PROPOSAL_SURFACE } from "../components/ResolveProposalCard";
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -450,5 +451,14 @@ describe("mt#3368 behavioral: the payload SENT equals the payload DISPLAYED", ()
 
     await waitFor(() => expect(captured.length).toBe(1));
     expect(JSON.stringify(captured[0], null, 2)).toBe(displayed);
+
+    // Equality alone is NOT sufficient (PR #2524 R1 BLOCKING): if the card
+    // rendered `resolvedIn: "inbox"` AND the mutation sent "inbox", the
+    // assertion above still passes while the thread/inbox distinction is
+    // silently lost. The deleted source-guard pinned that surface; this pins it
+    // behaviorally, on the payload actually POSTed.
+    const sent = captured[0] as { attentionCost?: { resolvedIn?: string } };
+    expect(sent.attentionCost?.resolvedIn).toBe(RESOLVE_PROPOSAL_SURFACE);
+    expect(sent.attentionCost?.resolvedIn).not.toBe("inbox");
   });
 });
