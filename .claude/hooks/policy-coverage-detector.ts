@@ -55,7 +55,7 @@ import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
-import { recordFireLogEntry } from "./fire-log";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
 import type { FireLogDecision } from "./fire-log";
 
 import {
@@ -264,20 +264,6 @@ if (import.meta.main) {
   // running without diff-checking the hook source. Per PR #951 R2.
   process.stdout.write(`[policy-coverage-detector] mode=${mode} tool=${input.tool_name}\n`);
 
-  if (mode === "disabled") {
-    // Deliberately NOT fire-logged. `disabled` means the operator turned the
-    // detector off; recording an invocation would let the coverage-receipt
-    // check report it as "dormant" (healthy, just quiet) when it is in fact
-    // not evaluating anything. A disabled detector SHOULD surface.
-    process.exit(0);
-  }
-
-  // Only fire on covered write tools (Edit/Write/NotebookEdit + MCP session
-  // file-write variants — see COVERED_TOOL_NAMES above).
-  if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
-    process.exit(0);
-  }
-
   /**
    * Record the invocation, emit any output, and exit (mt#3502).
    *
@@ -287,9 +273,37 @@ if (import.meta.main) {
    * held the EXCEPTIONAL outcomes, and after mt#2670 stopped recording
    * `covered` there was no signal at all that this detector still runs. It
    * appeared zero times in a 39 MB fire log while firing on every write.
+   *
+   * `MINSKY_POLICY_COVERAGE_MODE=disabled` is a registered override (it is in
+   * `known-override-env-vars.ts`), so that path is recorded too, WITH the
+   * override attribution the fire log has fields for — not omitted. An earlier
+   * draft skipped it, reasoning that a switched-off detector should surface as
+   * flagged. That was the wrong instrument: it would have produced a factually
+   * false claim ("no evidence the entry point ran") to trigger a desired
+   * alert, which is the exact anti-pattern this task exists to remove. The
+   * bypass surfaces through `overrideClassification` instead, where it is true.
+   *
+   * `block` sets a STRICTER posture, so it is not an override and carries no
+   * attribution.
    */
   const startedAt = Date.now();
-  const finishRun = (decision: FireLogDecision, output?: HookOutput): never => {
+  const overrideFields =
+    mode === "disabled"
+      ? {
+          overrideEnvVar: MODE_ENV_VAR,
+          overrideClassification: classifyOverride(MODE_ENV_VAR),
+          overrideSource: "env" as const,
+        }
+      : {};
+  // The explicit annotation is load-bearing, not style: TypeScript only treats
+  // a call as never-returning (and so keeps narrowing alive past it) when the
+  // callee is a function declaration or an identifier with an EXPLICIT type
+  // annotation. Without it, `if (!filterResult.fires) finishRun("allow")` stops
+  // narrowing `filterResult` and the reads below it fail to compile.
+  const finishRun: (decision: FireLogDecision, output?: HookOutput) => never = (
+    decision,
+    output
+  ) => {
     recordFireLogEntry({
       guardName: "policy-coverage",
       event: "PreToolUse",
@@ -297,10 +311,21 @@ if (import.meta.main) {
       durationMs: Date.now() - startedAt,
       toolName: input.tool_name,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
+      ...overrideFields,
     });
     if (output) writeOutput(output);
     process.exit(0);
   };
+
+  if (mode === "disabled") {
+    finishRun("allow");
+  }
+
+  // Only fire on covered write tools (Edit/Write/NotebookEdit + MCP session
+  // file-write variants — see COVERED_TOOL_NAMES above).
+  if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
+    process.exit(0);
+  }
 
   // Apply action filter
   const params = extractToolCallParams(input.tool_name, input.tool_input);

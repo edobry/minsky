@@ -156,8 +156,14 @@ async function main(): Promise<void> {
 
   if (detectors.length === 0) {
     if (json) {
+      // Same key set as the populated path below — a JSON consumer must not
+      // see a different schema just because the repo has no calibration logs.
       process.stdout.write(
-        `${JSON.stringify({ results: [], flaggedCount: 0, allCovered: true }, null, 2)}\n`
+        `${JSON.stringify(
+          { results: [], flaggedCount: 0, dormantCount: 0, allCovered: true, unmapped: [] },
+          null,
+          2
+        )}\n`
       );
     } else {
       console.log("No calibration logs found under .minsky/ — nothing to check.");
