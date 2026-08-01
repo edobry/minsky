@@ -12,7 +12,16 @@ tags:
 - **Runtime**: Bun (not Node.js)
 - **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
 - **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
+- **Tests**: `bun scripts/run-tests-gated.ts` — the full suite, and the ONLY invocation that
+  fail-closes on a truncated run. Do NOT hand-type `bun test <directories>` for a broad run:
+  passing `./src` recurses into `src/mcp`, which triggers a Bun 1.2.21 defect that silently
+  stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
+  zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
+  what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
+  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
+  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
+  single file or a subdirectory that is not `./src` itself is unaffected.
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
