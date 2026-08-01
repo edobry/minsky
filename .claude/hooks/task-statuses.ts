@@ -7,8 +7,10 @@
 // imports from the domain layer, and the contract module must stay
 // dependency-free so the observability-baseline hooks can be vendored into
 // foreign projects (see `.minsky/hooks/SPEC.md` §Self-containment). This
-// module is PLANT-ONLY — it is never part of the vendored baseline, so its
-// repo-relative domain reach is safe here and only here.
+// module is PLANT-ONLY — never part of the vendored baseline — so its
+// repo-relative domain reach is safe HERE, where the path resolves. (Other
+// plant-only hooks carry their own domain imports directly; what matters is
+// that none sits on the contract module's load path.)
 
 import { TERMINAL_TASK_STATUS_VALUES } from "../../packages/domain/src/tasks/workflows";
 
