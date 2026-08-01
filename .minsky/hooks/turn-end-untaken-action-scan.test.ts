@@ -8,6 +8,7 @@ import {
   run,
   TAIL_WINDOW_CHARS,
   OVERRIDE_ENV_VAR,
+  SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
 } from "./turn-end-untaken-action-scan";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import type { DispatchContext } from "./registry";
@@ -194,5 +195,23 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
       false
     );
     expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  // mt#3207: the boolean above is detector-specific detail that
+  // `isSuppressedRecord` cannot see — which is why the 2026-08-01 sweep read
+  // 18 dedup-suppressed fires as injected. These pin the SHARED field.
+  test("mt#3207: a suppressed fire names the gate in suppressionReasons", () => {
+    const both = "Everything is staged and green. Say the word and it ships.";
+    const outcome = run(inputFor(both), ctx, storeDir);
+    expect((outcome?.calibration as Record<string, unknown>).suppressionReasons).toEqual([
+      SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
+    ]);
+  });
+
+  test("mt#3207: an injected fire records an EMPTY suppressionReasons, not an absent one", () => {
+    const outcome = run(inputFor(R3_FINAL_MESSAGE), ctx, storeDir);
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressionReasons).toEqual([]);
+    expect(Object.keys(cal)).toContain("suppressionReasons");
   });
 });

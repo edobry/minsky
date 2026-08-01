@@ -168,6 +168,16 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_WALL_OF_TEXT";
 
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
 
+/**
+ * Reason string for this detector's ONE suppression gate — the mt#3112
+ * depth-request override (mt#3207).
+ *
+ * Stable and greppable, following `code-mechanism-assertion`'s vocabulary
+ * (`same-turn-read`, `deduped`, ...) rather than free-form prose: a calibration
+ * reviewer must be able to tell WHICH gate fired from the record alone.
+ */
+export const SUPPRESSION_DEPTH_REQUEST = "depth-request-override";
+
 // ---------------------------------------------------------------------------
 // Thresholds (grounded in the contract — see header comment)
 // ---------------------------------------------------------------------------
@@ -660,6 +670,12 @@ function buildCalibrationRecord(
     // so this field is what lets a future calibration pass measure the
     // override's OWN accuracy (recorded on every fire, live or suppressed).
     suppressedByDepthRequest,
+    // mt#3207: the SHARED suppression contract (ADR-028 §D4, generalized by
+    // mt#3197). `suppressedByDepthRequest` above is detector-specific detail
+    // that `isSuppressedRecord` cannot see; this field is what the sweep reads
+    // to keep a suppressed fire out of the injected count. Empty (not absent)
+    // when the fire was injected — absent means "does not record the outcome".
+    suppressionReasons: suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : [],
   };
 }
 

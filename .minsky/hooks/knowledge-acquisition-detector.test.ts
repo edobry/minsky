@@ -35,6 +35,7 @@ import {
   OVERRIDE_ENV_VAR,
   TRAILING_WINDOW_TURNS,
   RESEARCH_TOOL_NAMES,
+  SUPPRESSION_PROPAGATION_IN_WINDOW,
   run,
 } from "./knowledge-acquisition-detector";
 import type { TranscriptLine } from "./transcript";
@@ -251,6 +252,9 @@ describe("detectKnowledgeAcquisition", () => {
     expect(detection).toBeNull();
   });
 
+  // mt#3207: these three used to assert `null` — the true negative left no
+  // trace, so the propagation gate's own fire rate was unmeasurable. They now
+  // assert the SUPPRESSED record instead: detected, named gate, never injected.
   test("suppressed (true negative): memory_create in the trailing window", () => {
     const lines = buildLines({
       fillerTurns: TRAILING_WINDOW_TURNS,
@@ -258,7 +262,8 @@ describe("detectKnowledgeAcquisition", () => {
       propagationInFillerIndex: 1,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
-    expect(detection).toBeNull();
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    expect(detection?.result.hadPropagation).toBe(true);
   });
 
   test("suppressed (true negative): tasks_create in the trailing window", () => {
@@ -268,7 +273,7 @@ describe("detectKnowledgeAcquisition", () => {
       propagationInFillerIndex: 2,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
-    expect(detection).toBeNull();
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
   });
 
   test("suppressed (true negative): a `/learn` Skill invocation in the trailing window", () => {
@@ -277,7 +282,21 @@ describe("detectKnowledgeAcquisition", () => {
       learnSkillInFillerIndex: 0,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
-    expect(detection).toBeNull();
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  test("mt#3207: a live fire records an EMPTY suppressionReasons, not an absent one", () => {
+    const lines = buildLines({ fillerTurns: TRAILING_WINDOW_TURNS });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([]);
+    expect(detection?.result.hadPropagation).toBe(false);
+  });
+
+  test("mt#3207: the grace-period leg records NOTHING — it is a deferral, not a suppression", () => {
+    // Not yet due for evaluation: recording it would fire every turn AND burn
+    // the dedupe key the eventual real fire needs (mt#3207 §D2).
+    const lines = buildLines({ fillerTurns: 1 });
+    expect(detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set())).toBeNull();
   });
 
   test("suppressed: no keyword overlap with any loaded skill -> null", () => {

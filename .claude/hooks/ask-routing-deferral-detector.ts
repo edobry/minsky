@@ -74,6 +74,17 @@ export const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
 
 const CALIBRATION_LOG = ".minsky/ask-routing-deferral-calibration.jsonl";
 
+/**
+ * Reason string for this detector's ONE suppression gate — the turn already
+ * routed a decision through `asks_create` (mt#3207).
+ *
+ * Before mt#3207 this gate skipped DETECTION entirely and exited before the
+ * calibration write, so a suppressed deferral produced no record at all and
+ * the sweep counted the gate as costless. Detection now runs unconditionally
+ * and the suppressed fire is recorded; the injection decision is unchanged.
+ */
+export const SUPPRESSION_ASKS_CREATE_THIS_TURN = "asks-create-this-turn";
+
 // ---------------------------------------------------------------------------
 // Sub-class types
 // ---------------------------------------------------------------------------
@@ -340,10 +351,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (lines.length === 0) return null;
 
   let matches: DeferralMatch[] = [];
+  let suppressedByAsksCreate = false;
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
-    if (turnHasAsksCreate(turnLines)) return null;
+    // mt#3207: detect FIRST, suppress SECOND. This gate used to return before
+    // detection ran, so a deferral phrase in a turn that also routed an ask
+    // left no trace anywhere — indistinguishable from a clean turn.
+    suppressedByAsksCreate = turnHasAsksCreate(turnLines);
     const text = extractAssistantText(turnLines);
     if (text) {
       matches = detectDeferralPhrases(text);
@@ -357,16 +372,19 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (matches.length === 0) return null;
 
+  const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
       matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+      suppressionReasons,
     },
   };
 
-  if (INJECTION_ENABLED) {
+  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
     outcome.additionalContext = buildReminder(matches);
   }
 
@@ -421,14 +439,13 @@ export async function main(): Promise<void> {
     if (turnLines.length === 0) {
       process.exit(0);
     }
-    // Suppress entirely if the agent already routed a decision this turn.
-    if (turnHasAsksCreate(turnLines)) {
-      suppressedByAsksCreate = true;
-    } else {
-      const text = extractAssistantText(turnLines);
-      if (text) {
-        matches = detectDeferralPhrases(text);
-      }
+    // mt#3207: detect FIRST, suppress SECOND (mirrors `run()`). Suppression
+    // still withholds the injection below; what changed is that the suppressed
+    // detection is now recorded instead of vanishing.
+    suppressedByAsksCreate = turnHasAsksCreate(turnLines);
+    const text = extractAssistantText(turnLines);
+    if (text) {
+      matches = detectDeferralPhrases(text);
     }
   } catch (err) {
     // Fail-open: never block the prompt.
@@ -438,20 +455,25 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (suppressedByAsksCreate || matches.length === 0) {
+  if (matches.length === 0) {
     process.exit(0);
   }
 
-  // Calibration record (always — this is the v1 product).
+  const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
+
+  // Calibration record (always — this is the v1 product). mt#3207: "always"
+  // now includes the suppressed fire, which used to exit above this line.
   appendCalibrationRecord(input.cwd, {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
     matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+    suppressionReasons,
   });
 
-  // Calibration-first: inject only when the gate is flipped on.
-  if (!INJECTION_ENABLED) {
+  // Calibration-first: inject only when the gate is flipped on, and never for
+  // a suppressed fire.
+  if (!INJECTION_ENABLED || suppressionReasons.length > 0) {
     process.exit(0);
   }
 
