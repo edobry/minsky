@@ -18,14 +18,29 @@
  * Measuring before/after: run it on the baseline tree, apply the change, run it
  * again. There is deliberately no "disable the budget counter" flag — a flag
  * that exists only for the benchmark can drift from what production actually
- * sends, and a git-checkout comparison cannot. Recipe (the harness itself stays
- * in the working tree; only the reviewed source moves):
+ * sends, and a git-checkout comparison cannot.
  *
- *   git checkout <base-sha> -- services/reviewer/src
+ * **The instrumentation must be present in BOTH arms.** `toolLoop` (round count,
+ * concludedInLoop) shipped in the same commit as the intervention it measures, so
+ * a naive `git restore --source=<base> -- services/reviewer/src` produces a
+ * baseline with no diagnostics at all — this harness then throws rather than
+ * silently recording zeros. Restore the INTERVENTION, keep the MEASUREMENT:
+ *
+ *   # baseline arm — pre-change prompt, injection off, diagnostics retained
+ *   git restore --source=<base-sha> services/reviewer/src/prompt.ts
+ *   #   then disable only the `messages.push(buildRoundBudgetNotice(...))` block
+ *   #   in providers.ts, leaving the `toolLoop` return field in place
  *   bun services/reviewer/scripts/replay-round-budget.ts --out=/tmp/before.json
- *   git checkout HEAD -- services/reviewer/src
+ *
+ *   # changed arm — restore everything
+ *   git restore --source=HEAD services/reviewer/src
  *   bun services/reviewer/scripts/replay-round-budget.ts --out=/tmp/after.json
+ *
  *   bun services/reviewer/scripts/replay-round-budget.ts --compare=/tmp/before.json,/tmp/after.json
+ *
+ * The general rule this instance taught: when a change ships its own
+ * observability, "check out the base tree" is not a valid control — the control
+ * needs the observability and not the behavior. Separate the two by hand.
  *
  * Usage:
  *   bun services/reviewer/scripts/replay-round-budget.ts
@@ -43,7 +58,11 @@
  *   --compare=A,B  Read two prior result files and print the A/B table. Makes
  *                  no API calls and needs no credentials.
  *
- * Skips cleanly (exit 0) when OPENAI_API_KEY or a GitHub token is absent.
+ * Credentials: the OpenAI key comes from OPENAI_API_KEY, else from Minsky's own
+ * configuration (`ai.providers.openai.apiKey`) — a harness runs on a developer
+ * machine, where the key normally lives in the config system rather than the
+ * shell. Skips cleanly (exit 0) when neither source has it, or when no GitHub
+ * token is available.
  */
 
 import OpenAI from "openai";
@@ -56,7 +75,12 @@ import { callOpenAIWithClient } from "../src/providers";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import { readFileAtRef, listDirectoryAtRef } from "../src/github-client";
 import type { ReviewToolCall } from "../src/output-tools";
-import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
+import {
+  resolveOpenAIKeyOrSkip,
+  getOpenAIKeySource,
+  resolveGitHubTokenWithConfigOrSkip,
+  getGitHubTokenSource,
+} from "./harness-config-auth";
 
 const DEFAULT_OWNER = "edobry";
 const DEFAULT_REPO = "minsky";
@@ -423,19 +447,19 @@ async function main(): Promise<void> {
     return;
   }
 
-  const openaiApiKey = process.env.OPENAI_API_KEY;
-  if (!openaiApiKey) {
-    console.log("SKIP: OPENAI_API_KEY not set; skipping live round-budget replay.");
-    return;
-  }
-  const githubToken = resolveGitHubTokenOrSkip();
+  // Resolves OPENAI_API_KEY, else Minsky's configured ai.providers.openai.apiKey.
+  // Reading env alone would report "no key" on a machine where the key is
+  // configured — see resolveOpenAIKey's docstring.
+  const openaiApiKey = await resolveOpenAIKeyOrSkip();
+  const githubToken = await resolveGitHubTokenWithConfigOrSkip();
 
   const { owner, repo } = resolveRepoCoordinates(process.argv.slice(2), process.env);
   const { prNumbers, attempts, model, outPath } = args;
 
   console.log(
     `round-budget replay: repo=${owner}/${repo} prs=[${prNumbers.join(", ")}] ` +
-      `attempts=${attempts} model=${model} auth=${getAuthSource()}`
+      `attempts=${attempts} model=${model} githubToken=${await getGitHubTokenSource()} ` +
+      `openaiKey=${await getOpenAIKeySource()}`
   );
 
   const client = new OpenAI({ apiKey: openaiApiKey });
