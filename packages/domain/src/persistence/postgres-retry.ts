@@ -170,6 +170,58 @@ export function isPgRetryableConnectionError(err: unknown): boolean {
   return isPgPoolExhaustionError(err) || isPgStaleConnectionError(err);
 }
 
+/**
+ * How deep to follow an error's `cause` chain (mt#3480 / mt#3398).
+ *
+ * Drizzle wraps a driver error once; a defensive wrapper could add one more. 5
+ * is comfortably above the deepest chain observed (2) while staying a hard stop,
+ * so a self-referential chain cannot spin.
+ */
+const MAX_CAUSE_DEPTH = 5;
+
+/**
+ * Is this failure the DATABASE being unreachable, as opposed to a bug in the
+ * caller? (mt#3398)
+ *
+ * ## Why this is not `isPgRetryableConnectionError` itself
+ *
+ * That predicate answers a DIFFERENT question — "is it safe to re-run this?" —
+ * and both of its halves begin by rejecting any error carrying a `query`
+ * own-property (`hasNonRetryableQueryShape`). That guard is correct there: a
+ * post-send failure may already have applied a mutation, so retrying could
+ * double-apply it.
+ *
+ * But a caller asking "should I report 503 or 500?" needs the other question,
+ * and the two are independent — a post-send connection failure is unsafe to
+ * retry AND is a database outage. The error observed in the 2026-07-30 cockpit
+ * incident was exactly that shape: a Drizzle wrapper whose message IS the query
+ * text (`Failed query: select "id" … from "asks" …`), for which
+ * `isPgRetryableConnectionError` returns false. A caller that used it directly
+ * for status classification would pass its own unit tests and misreport the
+ * real outage as an application bug.
+ *
+ * So this walks the `cause` chain and applies the SAME vetted predicate to each
+ * link: the Drizzle wrapper is rejected by the query-shape guard, and the
+ * postgres-js cause underneath it — no `query` own-property, a
+ * `CONNECTION_*`/`ECONNRESET` code — is accepted by the strong code path. One
+ * set of matching rules, reused, rather than a second copy that drifts.
+ *
+ * Deliberately conservative: anything not POSITIVELY identified as a connection
+ * failure returns false. Over-reporting unavailability tells an operator to wait
+ * out a bug that will never clear on its own.
+ */
+export function isDatabaseUnavailableError(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; current && depth < MAX_CAUSE_DEPTH; depth++) {
+    if (isPgRetryableConnectionError(current)) return true;
+    current =
+      typeof current === "object" && current !== null && "cause" in current
+        ? (current as { cause?: unknown }).cause
+        : undefined;
+  }
+  return false;
+}
+
 export async function withPgPoolRetry<T>(
   fn: () => Promise<T>,
   label: string,

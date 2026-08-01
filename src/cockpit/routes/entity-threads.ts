@@ -40,6 +40,8 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
@@ -96,6 +98,18 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
  * the database comes back instead of staying dead for the daemon's lifetime.
  */
 const getEntityThreadDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+/**
+ * The 503 body for both the missing-handle and wedged-pool cases (mt#3398).
+ *
+ * One string for both so the panel has a single thing to recognize, and so the
+ * two paths cannot drift into saying different things about the same condition.
+ * Names the DATABASE rather than the thread: the thread's turns are intact and
+ * its agent may still be running, so "failed to load discussion" was actively
+ * misleading — it read as "your thread is broken" during an incident where
+ * nothing about the thread was.
+ */
+const DB_UNAVAILABLE_MESSAGE = "entity-thread store unavailable";
 
 /**
  * The supported set is declared ONCE, in `@minsky/shared/entity-thread-types`,
@@ -196,7 +210,7 @@ export function mountEntityThreadRoutes(
     if (!db) {
       // 503, not 500: a missing SQL provider is a transient environment
       // condition, and the panel should retry rather than render an error.
-      res.status(503).json({ error: "entity-thread store unavailable" });
+      res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
       return;
     }
 
@@ -239,9 +253,20 @@ export function mountEntityThreadRoutes(
           : {}),
       });
     } catch (err) {
+      // mt#3398: `err.message` on a Drizzle failure is the QUERY TEXT — the
+      // Postgres cause sits in `err.cause` and was being discarded, which is why
+      // diagnosing the 2026-07-30 incident required inferring the cause from
+      // which tables happened to be failing.
       log.error(`GET entity-thread failed for ${entityType}/${entityId}`, {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
+      if (isDatabaseUnavailableError(err)) {
+        // Same 503 the missing-handle branch above already returns — a wedged
+        // pool is the same transient environment condition, and the panel keeps
+        // polling through it instead of presenting a dead thread.
+        res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+        return;
+      }
       res.status(500).json({ error: "failed to load thread" });
     }
   });
@@ -265,7 +290,7 @@ export function mountEntityThreadRoutes(
 
     const db = options.dbOverride ?? (await getEntityThreadDb());
     if (!db) {
-      res.status(503).json({ error: "entity-thread store unavailable" });
+      res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
       return;
     }
 
@@ -314,8 +339,12 @@ export function mountEntityThreadRoutes(
       res.json({ turn, localId: thread.localId, seeded: session.seeded, delivered });
     } catch (err) {
       log.error(`POST entity-thread message failed for ${entityType}/${entityId}`, {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
+      if (isDatabaseUnavailableError(err)) {
+        res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+        return;
+      }
       res.status(500).json({ error: "failed to post message" });
     }
   });
