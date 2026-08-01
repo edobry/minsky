@@ -1102,7 +1102,11 @@ export async function createAsk(
   // in-memory result while the row stayed "detected" forever — the
   // write-only-graveyard root cause. The returned object is reconciled from
   // the persisted row so the tool response never narrates unpersisted state.
-  const { write } = routeResultToOutcomeWrite(routed);
+  // `ask.routingTarget` is whatever the CREATOR passed to `repo.create`. When
+  // it is an explicit "operator" it wins over the kind→target default (mt#3491)
+  // — see routeResultToOutcomeWrite's docblock for why (the reviewer
+  // circuit-breaker emitter is the live case).
+  const { write } = routeResultToOutcomeWrite(routed, ask.routingTarget);
   const persisted = await repo.persistRouteOutcome(ask.id, write);
 
   if (write.state === "suspended") {
@@ -1112,7 +1116,10 @@ export async function createAsk(
     const suspended: SuspendedAsk = {
       ...routed,
       state: "suspended",
-      routingTarget: routed.routingTarget,
+      // From the PERSISTED row, not the router result — a creator-specified
+      // target overrides the router's, and the response must not narrate a
+      // different target than the one on disk (mt#3491).
+      routingTarget: persisted.routingTarget ?? routed.routingTarget,
       transport: routed.transport,
       packagedPayload: routed.packagedPayload,
       routedAt: persisted.routedAt,

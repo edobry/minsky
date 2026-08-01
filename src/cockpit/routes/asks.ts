@@ -18,12 +18,35 @@ export interface AskRoutesOptions {
 }
 
 /**
- * Shared defer/escalate handler (mt#2615) — both endpoints transition the Ask
- * back to "routed" via the identical repository call; they differ only in
- * the response shape (`escalated: true` on the escalate path) and log/error
- * framing. Collapsing them into one parameterized handler removes the
- * copy-pasted duplicate that server.ts previously carried (lines 2012-2069
- * pre-split).
+ * Shared defer/escalate handler (mt#2615, made inert by mt#3491).
+ *
+ * ## Why these no longer transition state
+ *
+ * Both endpoints used to call `repo.transition(askId, "routed")`, on the
+ * expectation that something would re-dispatch the Ask into the operator
+ * queue on the next service window. Nothing does: `ServiceWindowReaper`
+ * (packages/domain/src/ask/service-window-reaper.ts) — the only component
+ * that performs `routed -> suspended` — has no production callsite.
+ *
+ * Meanwhile an operator-bound Ask never legitimately reaches `routed` at all.
+ * `routeResultToOutcomeWrite` maps the inbox/elicitation transports straight
+ * to `suspended` ("'Dispatch' for the inbox transport IS landing on the
+ * operator surface" — ask/advancement.ts); only subagent/mesh/retriever
+ * persist as `routed`, awaiting transports that do not exist yet.
+ *
+ * So for an operator Ask, `routed` was a TRAP STATE whose only entrances were
+ * these two buttons, and `GET /api/asks` lists `suspended` only — pressing
+ * either one silently removed the Ask from the operator's queue forever. That
+ * is not a hypothetical: a `direction.decide` Ask asking the principal to
+ * commit to a public brand name was lost this way for 23 days.
+ *
+ * These handlers are therefore INERT: they report the Ask's current state and
+ * change nothing. The routes and response shapes are preserved so no caller
+ * breaks. Restoring a real defer (a `snoozedUntil` column plus something that
+ * fires when it elapses) and a real escalate (set `forceImmediate`, page the
+ * principal out-of-band, keep the Ask visible throughout) belongs to the
+ * delivery-layer work, not to this fix — an affordance that silently deletes
+ * a decision is worse than no affordance at all.
  */
 function makeDeferOrEscalateHandler(
   mode: "defer" | "escalate",
@@ -41,12 +64,18 @@ function makeDeferOrEscalateHandler(
         res.status(503).json({ error: "Ask repository unavailable" });
         return;
       }
-      const ask = await repo.transition(askId, "routed");
+      // Read-only: report current state, never transition. See docblock.
+      const ask = await repo.getById(askId);
+      if (!ask) {
+        res.status(404).json({ error: `Ask ${askId} not found` });
+        return;
+      }
       res.json({
         ok: true,
         id: ask.id,
         state: ask.state,
-        ...(mode === "escalate" ? { escalated: true } : {}),
+        inert: true,
+        ...(mode === "escalate" ? { escalated: false } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -89,7 +89,10 @@ export interface SweepSummary {
  * Exported so `createAsk` and the sweep share ONE mapping — the route
  * result's persisted shape must not drift between the two entry points.
  */
-export function routeResultToOutcomeWrite(result: RouterResult): {
+export function routeResultToOutcomeWrite(
+  result: RouterResult,
+  creatorRoutingTarget?: string | null
+): {
   write: RouteOutcomeWrite;
   kind: AdvanceOutcomeKind;
 } {
@@ -110,6 +113,33 @@ export function routeResultToOutcomeWrite(result: RouterResult): {
     return {
       write: { state: "suspended", routingTarget: result.routingTarget },
       kind: "suspended-for-window",
+    };
+  }
+
+  // A creator-specified `routingTarget: "operator"` is AUTHORITATIVE over the
+  // kind→target default (mt#3491). Some emitters deliberately address an Ask to
+  // the operator even though its KIND would bind elsewhere — the reviewer's
+  // circuit-breaker emitter (services/reviewer/src/ask-emitter.ts) is the live
+  // case: it is a `coordination.notify`, which the ADR-008 matrix binds to
+  // "peer"/mesh, but a tripped circuit breaker is something the PRINCIPAL needs
+  // to see, and the mesh transport does not exist.
+  //
+  // That emitter documented the workaround (`repo.create` with an explicit
+  // "operator" target, bypassing `createAsk`'s router) — and the later-added
+  // advancement sweep silently defeated it: rows land in `detected`, the sweep
+  // re-routes them, and `pickTransport` recomputed the target from kind,
+  // discarding "operator". Four real circuit-breaker alerts (PRs #1950, #2009,
+  // #2056, #2057) were stranded in `routed`/peer where nothing lists them.
+  //
+  // Honoring the creator's target lands them on the operator surface for the
+  // same reason the inbox branch below does: for an operator-bound Ask,
+  // "dispatch" IS landing on that surface. Policy-closed and window-deferred
+  // outcomes above are unaffected — a policy answer needs no operator, and a
+  // window-deferred Ask is already `suspended`.
+  if (creatorRoutingTarget === "operator") {
+    return {
+      write: { state: "suspended", routingTarget: "operator" },
+      kind: "suspended-for-operator",
     };
   }
 
@@ -179,7 +209,7 @@ export async function advanceDetectedAsk(
     }
 
     const result = await policyFirstRoute(ask, { ...routerOptions, nowMs });
-    const { write, kind } = routeResultToOutcomeWrite(result);
+    const { write, kind } = routeResultToOutcomeWrite(result, ask.routingTarget);
     await repo.persistRouteOutcome(ask.id, write);
     return { askId: ask.id, kind };
   } catch (err) {
