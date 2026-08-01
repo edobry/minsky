@@ -4,6 +4,9 @@ import {
   isReasoningModel,
   callOpenAIWithClient,
   buildReadFileEnvelope,
+  applyReadFileWindow,
+  MAX_READ_FILE_LINES,
+  MAX_READ_FILE_CHARS,
   buildListDirectoryEnvelope,
 } from "./providers";
 import type OpenAI from "openai";
@@ -136,6 +139,105 @@ describe("buildReadFileEnvelope", () => {
     // Structural disambiguation — a missing file no longer collides with a
     // file whose content is the literal string "null".
     expect(buildReadFileEnvelope(null)).toEqual({ ok: false, error: "not_found" });
+  });
+});
+
+describe("read_file windowing (mt#3544)", () => {
+  const bigFile = (lines: number): string =>
+    Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join("\n");
+
+  test("a file under the cap is returned verbatim, with no window and no notice", () => {
+    // SC3: the common case must be byte-identical to pre-cap behavior. If this
+    // regresses, every ordinary source read silently changes shape.
+    const content = bigFile(50);
+    const envelope = buildReadFileEnvelope({ kind: "text", content, truncated: false });
+
+    expect(envelope).toEqual({ ok: true, content, truncated: false });
+    if (envelope.ok) expect(envelope.content).not.toContain("Showing lines");
+  });
+
+  test("a file over the line cap is windowed and says so, with a usable nextOffset", () => {
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: bigFile(MAX_READ_FILE_LINES + 500),
+      truncated: false,
+    });
+
+    expect(envelope.ok).toBe(true);
+    if (!envelope.ok || !("window" in envelope) || envelope.window === undefined) {
+      throw new Error("expected a windowed envelope");
+    }
+    expect(envelope.window.startLine).toBe(1);
+    expect(envelope.window.endLine).toBe(MAX_READ_FILE_LINES);
+    expect(envelope.window.totalLines).toBe(MAX_READ_FILE_LINES + 500);
+    expect(envelope.window.nextOffset).toBe(MAX_READ_FILE_LINES + 1);
+    // The in-band notice is the load-bearing half: a silent truncation lets the
+    // model answer confidently from a partial file.
+    expect(envelope.content).toContain(`Showing lines 1-${MAX_READ_FILE_LINES}`);
+    expect(envelope.content).toContain(`offset=${MAX_READ_FILE_LINES + 1}`);
+  });
+
+  test("successive windows reconstruct the file exactly", () => {
+    const total = MAX_READ_FILE_LINES + 250;
+    const content = bigFile(total);
+
+    const first = applyReadFileWindow(content, 1);
+    expect(first.window?.nextOffset).toBe(MAX_READ_FILE_LINES + 1);
+    const second = applyReadFileWindow(content, first.window?.nextOffset ?? 1);
+
+    expect(`${first.content}\n${second.content}`).toBe(content);
+    expect(second.window?.nextOffset).toBeUndefined();
+  });
+
+  test("the char cap fires before the line cap on dense content, without splitting a line", () => {
+    // One long line per row: the line count is far under the cap but the byte
+    // mass is not — the single-huge-line gap mt#2243 closed for chunked patches.
+    const dense = Array.from({ length: 100 }, () => "x".repeat(2000)).join("\n");
+    const result = applyReadFileWindow(dense, 1);
+
+    expect(result.window).toBeDefined();
+    expect(result.content.length).toBeLessThanOrEqual(MAX_READ_FILE_CHARS);
+    // No partial line: every line kept is a whole 2000-char row.
+    for (const line of result.content.split("\n")) {
+      expect(line.length).toBe(2000);
+    }
+  });
+
+  test("a single line longer than the char cap is kept rather than dropped", () => {
+    // Losing the only line entirely would be worse than showing a prefix of it.
+    const oneHugeLine = "y".repeat(MAX_READ_FILE_CHARS + 5000);
+    const result = applyReadFileWindow(oneHugeLine, 1);
+
+    expect(result.content.length).toBe(MAX_READ_FILE_CHARS);
+    expect(result.window).toBeDefined();
+  });
+
+  test("an offset past EOF returns empty content rather than throwing", () => {
+    const result = applyReadFileWindow(bigFile(10), 999);
+
+    expect(result.content).toBe("");
+    expect(result.window?.totalLines).toBe(10);
+    expect(result.window?.nextOffset).toBeUndefined();
+  });
+
+  test("a nonsensical offset degrades to reading from the top", () => {
+    // The offset is model-supplied; an off-by-one or a zero should read the file,
+    // not error out mid-review.
+    const content = bigFile(10);
+    expect(applyReadFileWindow(content, 0).content).toBe(content);
+    expect(applyReadFileWindow(content, -5).content).toBe(content);
+  });
+
+  test("binary results are unaffected by windowing", () => {
+    const envelope = buildReadFileEnvelope({ kind: "binary", size: 4096, truncated: false });
+
+    expect(envelope).toEqual({
+      ok: true,
+      content: "[BINARY FILE: 4096 bytes, not decoded]",
+      truncated: false,
+      binary: true,
+      size: 4096,
+    });
   });
 });
 
