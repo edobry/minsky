@@ -48,7 +48,11 @@ import {
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
-import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
+import {
+  createReplyStream,
+  renderTelegramPayload,
+  type ReplyStream,
+} from "./principal-channel-reply-stream";
 import {
   REACTION_DONE,
   REACTION_ERROR,
@@ -105,16 +109,38 @@ export interface ChannelImage {
   mediaType: string;
 }
 
-export interface ChannelActuator {
+/**
+ * Everything a turn needs beyond its text (mt#3542).
+ *
+ * An options object rather than more positional parameters: the signature was
+ * already at three positionals with two optional, and `onPartial` would have
+ * made a fourth — the shape where call sites start passing `undefined`
+ * placeholders to reach the argument they care about.
+ */
+export interface ConverseOptions {
   /**
-   * Hand text to the standing channel conversation; resolve with its reply.
-   *
-   * `replyToText` is the quoted message when the principal used Telegram's
-   * reply affordance (mt#3243). Optional because most messages are not
-   * replies — and because the reply target is context for the turn, not a
-   * routing decision, so the poller stays out of how it is presented.
+   * The quoted message when the principal used Telegram's reply affordance
+   * (mt#3243). Optional because most messages are not replies — and because the
+   * reply target is context for the turn, not a routing decision, so the poller
+   * stays out of how it is presented.
    */
-  converse(text: string, replyToText?: string, images?: ChannelImage[]): Promise<string>;
+  replyToText?: string;
+  images?: ChannelImage[];
+  /**
+   * Called with the assistant text accumulated SO FAR as the turn produces it
+   * (mt#3542), for rendering progress into an edited placeholder.
+   *
+   * Advisory, and not every actuator emits it. The resolved value — not the
+   * last `onPartial` argument — is the turn's authoritative answer: a turn with
+   * tool-use rounds streams text around each round, while the resolved result
+   * carries the final reply. Callers settle on the resolved value.
+   */
+  onPartial?: (accumulated: string) => void;
+}
+
+export interface ChannelActuator {
+  /** Hand text to the standing channel conversation; resolve with its reply. */
+  converse(text: string, opts?: ConverseOptions): Promise<string>;
   /** Interrupt the current turn. Must not queue behind it. */
   interrupt(): Promise<string>;
   /** Abandon the current conversation; the next message starts fresh. */
@@ -474,6 +500,13 @@ async function handleRoute(
     const { images, notes } = await resolveAttachments(deps, route);
 
     const startedAtMs = Date.now();
+
+    // Stream the turn into an edited placeholder (mt#3542). Only a
+    // `channel-agent` route runs an agent turn at all — every other route
+    // synthesizes its answer immediately, so there is nothing to stream and no
+    // placeholder is created.
+    const stream = route.kind === "channel-agent" ? createStreamFor(deps, message) : undefined;
+
     let reply: string;
     let succeeded = true;
     try {
@@ -483,7 +516,7 @@ async function handleRoute(
         reply = await handleBind(deps, message, route);
       } else {
         const actuator = await resolveActuatorForMessage(deps, message);
-        reply = await runActuator(actuator, route, images, notes);
+        reply = await runActuator(actuator, route, images, notes, stream);
       }
     } catch (err: unknown) {
       succeeded = false;
@@ -501,7 +534,13 @@ async function handleRoute(
     // that never arrives.
     typing?.stop();
 
-    const replyMessageId = await sendReply(deps, message, reply);
+    // Settle the stream on the authoritative text. It resolves `undefined` when
+    // nothing was ever streamed (a turn that produced no partials, or one whose
+    // placeholder never landed), which is the signal to deliver normally —
+    // SC6: streaming is an enhancement, never a way to lose a reply.
+    const streamedMessageId = stream === undefined ? undefined : await stream.finish(reply);
+    const replyMessageId =
+      streamedMessageId !== undefined ? streamedMessageId : await sendReply(deps, message, reply);
     const delivered = replyMessageId !== undefined;
 
     // Close the ack (mt#3486). Replaces the pickup reaction rather than
@@ -565,11 +604,33 @@ async function handleBind(
   }
 }
 
+/**
+ * Build the stream that renders a turn's progress into the chat (mt#3542).
+ *
+ * The placeholder is sent through the SAME path as an ordinary reply — thread
+ * targeting, dead-topic fallback, HTML-with-plain-fallback — so a streamed
+ * reply lands exactly where a non-streamed one would. Only the subsequent
+ * edits are new.
+ */
+function createStreamFor(deps: PollCycleDeps, message: InboundTelegramMessage): ReplyStream {
+  return createReplyStream({
+    token: deps.token,
+    chatId: deps.chatId,
+    maxChars: MAX_REPLY_CHARS,
+    maxRenderedChars: TELEGRAM_MAX_MESSAGE_CHARS,
+    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    transport: {
+      send: (text: string) => sendReply(deps, message, text),
+    },
+  });
+}
+
 function runActuator(
   actuator: ChannelActuator,
   route: Exclude<InboundRoute, { kind: "rejected" } | { kind: "bind" }>,
   images: ChannelImage[],
-  notes: string[]
+  notes: string[],
+  stream?: ReplyStream
 ): Promise<string> {
   switch (route.kind) {
     case "ask-response":
@@ -587,7 +648,11 @@ function runActuator(
           `Send it as a caption or describe it and I'll pick it up from there.`
       );
     case "channel-agent":
-      return actuator.converse(withChannelNotes(route.text, notes), route.replyToText, images);
+      return actuator.converse(withChannelNotes(route.text, notes), {
+        ...(route.replyToText === undefined ? {} : { replyToText: route.replyToText }),
+        ...(images.length > 0 ? { images } : {}),
+        ...(stream ? { onPartial: (accumulated: string) => stream.push(accumulated) } : {}),
+      });
   }
 }
 
@@ -788,16 +853,14 @@ async function sendReply(
   // rather than to tag overhead, and the converter — which always emits
   // balanced tags — never sees a string cut through the middle of one.
   const plain = truncateReply(text);
-  const html = markdownToTelegramHtml(plain);
-
-  // Tags and entities inflate the payload, so a markdown body inside the
-  // budget can still exceed Telegram's own 4096 ceiling. Send the unstyled
-  // text rather than a message Telegram will reject outright.
-  const formatted = html.length <= TELEGRAM_MAX_MESSAGE_CHARS;
+  // Shared with the streaming path (mt#3542) so a placeholder, every edit, and
+  // the final settle all render by exactly the same rules.
+  const payload = renderTelegramPayload(plain, TELEGRAM_MAX_MESSAGE_CHARS);
+  const formatted = payload.parseMode !== undefined;
   if (!formatted) {
     log.info("[principal-channel] reply too long once rendered; sending unstyled", {
       plainChars: plain.length,
-      htmlChars: html.length,
+      renderedChars: payload.text.length,
     });
   }
 
@@ -805,7 +868,7 @@ async function sendReply(
   const result = await sendTelegramMessageWithThreadFallback({
     token: deps.token,
     chatId: deps.chatId,
-    text: formatted ? html : plain,
+    text: payload.text,
     ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
     // Post the reply INTO the topic it answers (mt#3505) — otherwise a reply
@@ -843,7 +906,7 @@ async function sendReply(
       plainChars: plain.length,
       // Both lengths (PR #2505 R1): the ratio is the first thing worth seeing
       // when diagnosing a rejection, and plain alone does not give it.
-      htmlChars: html.length,
+      htmlChars: payload.text.length,
     });
   }
   return result.messageId;
