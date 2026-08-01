@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test";
 import {
   getGuardsForEvent,
   findDuplicateRegistrations,
+  isIntentionalPair,
+  INTENTIONAL_MATCHER_PAIRS,
   GUARD_REGISTRY,
   NON_TOOL_SCOPED_EVENTS,
   type GuardRegistration,
@@ -70,6 +72,10 @@ describe("getGuardsForEvent", () => {
 // ---------------------------------------------------------------------------
 // findDuplicateRegistrations
 // ---------------------------------------------------------------------------
+
+/** The two guards declared as an intentional same-matcher pair (mt#3282). */
+const PAIR_GUARD_A = "check-guessed-session-path";
+const PAIR_GUARD_B = "block-secret-file-read";
 
 describe("findDuplicateRegistrations", () => {
   test("two guards, same event, overlapping matcher token -> flagged", () => {
@@ -160,6 +166,43 @@ describe("findDuplicateRegistrations", () => {
   test("current GUARD_REGISTRY has no duplicate registrations (regression guard)", () => {
     expect(findDuplicateRegistrations(GUARD_REGISTRY)).toEqual([]);
   });
+
+  // mt#3282: two tool-scoped guards may intentionally share a matcher — the
+  // dispatcher runs every match, first-deny-wins. The exemption is a declared
+  // list, so it must NOT degrade into "tool-scoped overlaps are always fine."
+  test("a DECLARED intentional pair is exempt", () => {
+    const regs = [
+      makeReg({ name: PAIR_GUARD_A, event: "PreToolUse", matcher: "Bash" }),
+      makeReg({ name: PAIR_GUARD_B, event: "PreToolUse", matcher: "Bash" }),
+    ];
+    expect(findDuplicateRegistrations(regs)).toEqual([]);
+  });
+
+  test("an UNDECLARED overlap on the same event+matcher is still flagged", () => {
+    const regs = [
+      makeReg({ name: "some-guard", event: "PreToolUse", matcher: "Bash" }),
+      makeReg({ name: "another-guard", event: "PreToolUse", matcher: "Bash" }),
+    ];
+    const dupes = findDuplicateRegistrations(regs);
+    expect(dupes.length).toBe(1);
+    expect(dupes[0]?.sharedTokens).toContain("Bash");
+  });
+
+  test("isIntentionalPair is order-insensitive", () => {
+    expect(isIntentionalPair(PAIR_GUARD_A, PAIR_GUARD_B)).toBe(true);
+    expect(isIntentionalPair(PAIR_GUARD_B, PAIR_GUARD_A)).toBe(true);
+    expect(isIntentionalPair(PAIR_GUARD_B, "unrelated-guard")).toBe(false);
+  });
+
+  test("every declared pair names guards that actually exist in the registry", () => {
+    // A stale entry would silently exempt a name that no longer registers,
+    // re-opening the hole the declaration was meant to bound.
+    const names = new Set(GUARD_REGISTRY.map((r) => r.name));
+    for (const [a, b] of INTENTIONAL_MATCHER_PAIRS) {
+      expect(names.has(a)).toBe(true);
+      expect(names.has(b)).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,7 +233,7 @@ describe("NON_TOOL_SCOPED_EVENTS", () => {
 
 describe("GUARD_REGISTRY", () => {
   test("pilot guard (check-guessed-session-path) is registered on PreToolUse", () => {
-    const pilot = GUARD_REGISTRY.find((r) => r.name === "check-guessed-session-path");
+    const pilot = GUARD_REGISTRY.find((r) => r.name === PAIR_GUARD_A);
     expect(pilot).toBeDefined();
     expect(pilot?.event).toBe("PreToolUse");
     expect(pilot?.denyCapable).toBe(true);

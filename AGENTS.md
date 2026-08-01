@@ -767,7 +767,21 @@ Mixing both on one variable leaked mt#2738's Pulumi token.
 ```
 
 Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
-Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
+
+**Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
+CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
+purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
+cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+
+**A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
+UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
+a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
+Never `producer | gh secret set` (empty stdin writes an EMPTY secret): capture → guard → write.
+
+File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
+discipline-tier. Recipes + leak-containment runbook:
+`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
 
 ## General
 
@@ -1166,6 +1180,10 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
+  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
+  `MINSKY_ALLOW_SECRET_FILE_READ`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
