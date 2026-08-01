@@ -13,9 +13,17 @@
  *
  * A future class plugs in at `extractStructuralClaim`'s dispatch — add a claim extractor +
  * counter pair there rather than a new top-level pipeline stage. Both classes share the same
- * skeleton: extract at most ONE subject from the finding's own evidence, count that subject in
- * the file's CURRENT content at the review ref, and demote only when the count disproves the
+ * skeleton: extract the claim's subject(s) from the finding's own evidence, count each subject in
+ * the file's CURRENT content at the review ref, and demote only when the counts disprove the
  * claim.
+ *
+ * The classes differ in extraction CARDINALITY, deliberately. The declaration class takes exactly
+ * ONE identifier — more than one candidate means genuine ambiguity about which the claim is about
+ * (its extraction can pick up an unrelated anchor identifier), so it declines. The section class
+ * takes the whole quoted SET (capped at `MAX_SECTION_CANDIDATES`), because naming a neighbouring
+ * landmark heading alongside the claimed one is ordinary prose — the real originating finding does
+ * exactly that. Demotion then requires ALL of the set to be non-duplicated, so the wider
+ * extraction is strictly more conservative, never less. See `extractDuplicateSectionClaim`.
  *
  * ## Origin (mt#2575 instance 5, mt#3245 spec)
  *
@@ -368,8 +376,9 @@ export function extractDuplicateDeclarationClaim(summary: string, details: strin
  * and because dispatch tries declaration first.
  *
  * `appears twice` is deliberately included even though it is generic on its own: it only ever
- * reaches a demotion when the same finding ALSO yields exactly one quoted heading, which is the
- * real precision guard.
+ * reaches a demotion when the same finding ALSO yields at least one quoted heading AND every one
+ * of those headings is non-duplicated in the file. That conjunction, not the trigger phrase, is
+ * the real precision guard.
  */
 const DUPLICATE_SECTION_TRIGGER_RE =
   /duplicate[\s\p{Pd}]*(section|heading|block)|(section|heading|block)[^.\n]{0,60}duplicat|repeated\s+(section|heading|block)|appears\s+twice|appears\s+(more\s+than\s+once|again\s+later)|(section|heading|block)[^.\n]{0,60}(twice|more than once)/imu;
