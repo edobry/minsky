@@ -14,9 +14,11 @@ import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
 } from "@minsky/shared/entity-thread-types";
-import { isPgRetryableConnectionError } from "@minsky/domain/persistence/postgres-retry";
 import {
   isDatabaseUnavailableError,
+  isPgRetryableConnectionError,
+} from "@minsky/domain/persistence/postgres-retry";
+import {
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
@@ -77,6 +79,8 @@ describe("parseEntityType", () => {
   });
 });
 
+const CONNECTION_ENDED_CODE = "CONNECTION_ENDED";
+
 describe("isDatabaseUnavailableError (mt#3398)", () => {
   /** The postgres-js shape: a transport-layer code, no `query` own-property. */
   function connectionError(code: string): Error {
@@ -98,7 +102,7 @@ describe("isDatabaseUnavailableError (mt#3398)", () => {
   }
 
   test("detects a bare connection error", () => {
-    expect(isDatabaseUnavailableError(connectionError("CONNECTION_ENDED"))).toBe(true);
+    expect(isDatabaseUnavailableError(connectionError(CONNECTION_ENDED_CODE))).toBe(true);
     expect(isDatabaseUnavailableError(connectionError("ECONNRESET"))).toBe(true);
   });
 
@@ -115,9 +119,7 @@ describe("isDatabaseUnavailableError (mt#3398)", () => {
   test("does NOT classify an ordinary application error as unavailable", () => {
     // Over-reporting 503 would tell an operator to wait out a handler bug that
     // will never clear on its own.
-    expect(isDatabaseUnavailableError(new Error("Cannot read property 'id' of undefined"))).toBe(
-      false
-    );
+    expect(isDatabaseUnavailableError(new Error(ORDINARY_HANDLER_ERROR))).toBe(false);
     expect(isDatabaseUnavailableError(drizzleWrapped(new Error("syntax error at or near")))).toBe(
       false
     );
@@ -137,6 +139,22 @@ describe("isDatabaseUnavailableError (mt#3398)", () => {
     expect(
       isDatabaseUnavailableError(drizzleWrapped(drizzleWrapped(connectionError("EPIPE"))))
     ).toBe(true);
+  });
+
+  test("the depth bound is a real stop, and sits above any observed nesting", () => {
+    // PR #2514 R1 non-blocking asked for the rationale to be testable rather
+    // than asserted in a comment. Both directions:
+    //   - a chain within the bound resolves,
+    //   - a chain deeper than it gives up rather than searching forever.
+    // The deepest chain actually observed is 2 (Drizzle over postgres-js), so
+    // the bound has ample headroom; what matters is that it terminates.
+    const nest = (depth: number): unknown => {
+      let err: unknown = connectionError(CONNECTION_ENDED_CODE);
+      for (let i = 0; i < depth; i++) err = drizzleWrapped(err);
+      return err;
+    };
+    expect(isDatabaseUnavailableError(nest(4))).toBe(true);
+    expect(isDatabaseUnavailableError(nest(9))).toBe(false);
   });
 });
 
@@ -248,7 +266,7 @@ describe("validate-before-write ordering", () => {
     });
     const res = await fetch(`${url}/api/entity-thread/ask/does-not-exist/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": JSON_CONTENT_TYPE },
       body: JSON.stringify({ text: "what is this?" }),
     });
     expect(res.status).toBe(404);
@@ -280,5 +298,102 @@ describe("validate-before-write ordering", () => {
     expect(body.blocks).toEqual([]);
     expect(body.localId).toBe("entity-thread:ask:real");
     expect(inserted).toBe(false);
+  });
+});
+
+/**
+ * Route-level status classification (mt#3398, PR #2514 R1 BLOCKING).
+ *
+ * The predicate tests above prove the CLASSIFIER is right. They do not prove the
+ * ROUTES use it — a handler could classify correctly and still answer 500. That
+ * gap is the production-wiring failure class this family has hit before
+ * (mt#3402: a helper existed, the callsite never supplied it, hermetic tests
+ * stayed green), so the status codes are asserted over real HTTP here.
+ */
+const JSON_CONTENT_TYPE = "application/json";
+const ORDINARY_HANDLER_ERROR = "Cannot read property 'id' of undefined";
+
+describe("DB-unavailable status classification on the routes", () => {
+  const servers: Server[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      servers
+        .splice(0)
+        .map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+    );
+  });
+
+  async function serveWithFailingSeed(err: unknown): Promise<string> {
+    const app = express();
+    app.use(express.json());
+    mountEntityThreadRoutes(app, {
+      // A db handle must be PRESENT, or the pre-existing missing-handle branch
+      // would return 503 for the wrong reason and the test would pass vacuously.
+      dbOverride: { execute: async () => [], insert: () => ({}) } as never,
+      loadSeed: async () => {
+        throw err;
+      },
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no ephemeral port");
+    return `http://127.0.0.1:${address.port}`;
+  }
+
+  /** The exact shape from the 2026-07-30 daemon log: Drizzle wrapper, pg cause. */
+  function wedgedDbError(): Error {
+    return Object.assign(
+      new Error(
+        'Failed query: select "id", "short_id" from "asks" where "asks"."id" = $1 limit $2'
+      ),
+      {
+        query: 'select "id" from "asks"',
+        cause: Object.assign(new Error("write CONNECTION_ENDED"), { code: CONNECTION_ENDED_CODE }),
+      }
+    );
+  }
+
+  test("GET answers 503 and names the store when the database is unreachable", async () => {
+    const url = await serveWithFailingSeed(wedgedDbError());
+    const res = await fetch(`${url}/api/entity-thread/ask/real`);
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    // Names the STORE as unavailable rather than claiming the thread failed —
+    // the turns are intact and the agent may still be running. ("thread" itself
+    // appears in the store's name, `entity-thread store`, so the meaningful
+    // assertion is the absence of failure language, not of the word.)
+    expect(body.error).toContain("store unavailable");
+    expect(body.error).not.toMatch(/fail/i);
+  });
+
+  test("POST answers 503 when the database is unreachable", async () => {
+    const url = await serveWithFailingSeed(wedgedDbError());
+    const res = await fetch(`${url}/api/entity-thread/ask/real/message`, {
+      method: "POST",
+      headers: { "Content-Type": JSON_CONTENT_TYPE },
+      body: JSON.stringify({ text: "what is this?" }),
+    });
+    expect(res.status).toBe(503);
+  });
+
+  test("GET still answers 500 for an ordinary handler error", async () => {
+    // The negative control: without this, a route that returned 503 for
+    // EVERYTHING would pass the two tests above.
+    const url = await serveWithFailingSeed(new Error(ORDINARY_HANDLER_ERROR));
+    const res = await fetch(`${url}/api/entity-thread/ask/real`);
+    expect(res.status).toBe(500);
+  });
+
+  test("POST still answers 500 for an ordinary handler error", async () => {
+    const url = await serveWithFailingSeed(new Error(ORDINARY_HANDLER_ERROR));
+    const res = await fetch(`${url}/api/entity-thread/ask/real/message`, {
+      method: "POST",
+      headers: { "Content-Type": JSON_CONTENT_TYPE },
+      body: JSON.stringify({ text: "what is this?" }),
+    });
+    expect(res.status).toBe(500);
   });
 });

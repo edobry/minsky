@@ -41,7 +41,7 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
-import { isPgRetryableConnectionError } from "@minsky/domain/persistence/postgres-retry";
+import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
@@ -74,55 +74,6 @@ import {
   hasLiveActuator,
   sendDrivenSessionInput,
 } from "../driven-session-host";
-
-/**
- * How deep to follow an error's `cause` chain (mt#3398).
- *
- * Drizzle wraps a driver error once; a defensive wrapper could add one more.
- * Bounded so a self-referential or pathologically nested chain cannot spin.
- */
-const MAX_CAUSE_DEPTH = 5;
-
-/**
- * Is this failure the database being unreachable, rather than a bug here? (mt#3398)
- *
- * ## Why this is NOT just `isPgRetryableConnectionError(err)`
- *
- * That predicate answers a DIFFERENT question — "is it safe to re-run this?" —
- * and both of its halves start by rejecting any error carrying a `query`
- * own-property (`hasNonRetryableQueryShape`). That guard is right for retry: a
- * post-send failure may already have applied a mutation, so re-running could
- * double-apply it.
- *
- * But the error this task exists to classify is exactly that shape. The observed
- * incident (2026-07-30) produced a Drizzle wrapper whose message IS the query
- * text — `Failed query: select "id", "short_id", … from "asks" …` — so calling
- * the retry predicate on it directly returns false, and the 503 would never fire
- * on the real bug.
- *
- * "Unsafe to retry" and "database is down" are independent: a post-send
- * connection failure is both. So this walks the `cause` chain and applies the
- * SAME vetted predicate to each link. The Drizzle wrapper is rejected by the
- * query-shape guard; the postgres-js cause underneath it — no `query` own-
- * property, a `CONNECTION_*`/`ECONNRESET` code — is accepted by that predicate's
- * strong code path. Reusing it beats duplicating a second copy of the matching
- * rules that would drift.
- *
- * Deliberately conservative: anything not positively identified as a connection
- * failure stays a 500. Over-reporting 503 would tell an operator to wait out a
- * genuine handler bug that will never clear on its own.
- */
-export function isDatabaseUnavailableError(err: unknown): boolean {
-  let current: unknown = err;
-  for (let depth = 0; current && depth < MAX_CAUSE_DEPTH; depth++) {
-    if (isPgRetryableConnectionError(current)) return true;
-    current =
-      typeof current === "object" && current !== null && "cause" in current
-        ? (current as { cause?: unknown }).cause
-        : undefined;
-  }
-  return false;
-}
 
 /**
  * Is an agent actually able to answer on this thread right now? (mt#3402)

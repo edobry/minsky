@@ -118,6 +118,12 @@ export async function fetchEntityThread(
   // 503 is the daemon saying "my database is unreachable", not "this thread
   // failed" — distinguished before the generic error so the two cannot be
   // conflated in the UI.
+  //
+  // 503 ONLY, deliberately (PR #2514 R1 non-blocking asked about 502/504). Those
+  // come from a proxy in front of the daemon, not from the daemon, so rendering
+  // "the cockpit can't reach its database" for one would assert a cause we have
+  // no evidence for — the precise habit this whole task exists to remove. 503 is
+  // our own contract with our own route; the rest stay a generic error.
   if (res.status === 503) throw new ThreadStoreUnavailableError();
   if (!res.ok) throw new Error(`Failed to load thread (${res.status})`);
   return res.json() as Promise<EntityThreadResponse>;
