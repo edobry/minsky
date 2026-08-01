@@ -61,6 +61,8 @@
     "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
     "smoke:oauth-consent": "bun scripts/smoke-oauth-consent-https.ts",
     "typecheck": "bun run typecheck:root && bun run typecheck:cockpit-web",
+    "skills:budget": "bun scripts/skill-listing-budget.ts",
+    "skills:budget:check": "bun scripts/skill-listing-budget.ts --check",
     "typecheck:root": "bunx @typescript/native-preview --noEmit",
     "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",
     "typecheck:scripts": "bunx @typescript/native-preview --noEmit -p tsconfig.scripts.json",

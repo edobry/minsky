@@ -1,17 +1,10 @@
 ---
 name: check-premise
 description: >-
-  Before asserting a causal or mechanism claim about tool/system behavior, OR
-  a factual claim about what a CURRENT artifact (spec/doc/config/rule) says,
-  requires, or contradicts, OR changing behavior to conform to a remembered
-  criterion, OR a casual claim about what a task/artifact IS/DOES/its
-  status/scope — list the factual premises the claim rests on, identify the
-  cheapest falsifier first, and check it (read the installed source / query
-  the system's own record / re-read the live, AUTHORITATIVE artifact — not a
-  stale local cache) before asserting or acting. Use when about to explain WHY
-  something happened, WHAT a tool will do, WHAT a spec/doc says or requires,
-  or WHAT a task/artifact is/does/its status is, based on an assumed or
-  remembered claim.
+  List the factual premises a claim rests on and check the cheapest falsifier — against the
+  installed source, the system's own record, or the live authoritative artifact — before
+  asserting or acting. Use before explaining WHY something happened, WHAT a tool will do,
+  what a spec says or requires, or what a task is/does, when the basis is remembered.
 user-invocable: true
 ---
 
