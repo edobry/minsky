@@ -223,6 +223,30 @@ export interface GuardRegistration {
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
+   * Tuning-ownership class (mt#3518; mem#802; beyond-Minsky RFC amendment
+   * 2026-08-01 §3). Names WHO may move this guard's thresholds and through
+   * WHAT surface — the registration-schema sibling of `attentionCost`
+   * (mt#2597) and `contextPriority` (mt#3394):
+   *
+   * - `"invariant"` — safety/correctness-relevant. Vendor-fixed: changes only
+   *   via a code change in this repo; never auto-relaxed by local dismissal
+   *   behavior, never locally configurable.
+   * - `"preference"` — encodes a workflow-style choice (report length,
+   *   heartbeat cadence). The shipped constant is the vendor default; local
+   *   override via a registered `MINSKY_*` env var (see `readPositiveIntEnv`
+   *   in `types.ts`). Customer-facing tuning questions, where they exist,
+   *   are phrased as preference consent — never flip/tune/keep review.
+   * - `"advisory"` — calibration-first detectors and informational
+   *   injections. Freely adjustable/mutable locally (ack/skip vars);
+   *   flip/tune/keep disposition stays vendor-side, fed by the calibration
+   *   stream.
+   *
+   * Typed optional so an unrated guard fails soft at runtime, but
+   * `registry.test.ts` requires every entry to carry it — new guards are
+   * stamped at birth.
+   */
+  tuningOwnership?: "invariant" | "preference" | "advisory";
+  /**
    * Ordering weight for this guard's `additionalContext` fragment within the
    * dispatcher's MERGED output block (mt#3394). Higher survives first.
    *
@@ -405,6 +429,7 @@ export interface GuardRegistration {
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",
+    tuningOwnership: "invariant",
     event: "PreToolUse",
     matcher: "Bash|mcp__minsky__session_exec",
     module: () => import("./check-guessed-session-path").then((m) => ({ run: m.run })),
@@ -434,6 +459,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "auto-session-title",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -456,6 +482,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-current-time",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -471,6 +498,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-git-state",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -513,6 +541,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-prod-state",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -529,6 +558,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-dispatch-watchdog",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -580,6 +610,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "memory-search",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -636,6 +667,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "skill-staleness-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -674,6 +706,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "mcp-daemon-staleness-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -764,6 +797,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "substrate-bypass-detector",
+    tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
     timeoutMs: 15000,
@@ -796,6 +830,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "retrospective-trigger-scanner",
+    tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -821,6 +856,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "pre-narration-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -852,6 +888,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "causal-premise-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -886,6 +923,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "code-mechanism-assertion-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -916,6 +954,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "ask-routing-deferral-detector",
+    tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -948,6 +987,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "constructed-identifier-batch-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -999,6 +1039,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "operator-deferral-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1027,6 +1068,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "operator-deferral-ask-surface",
+    tuningOwnership: "advisory",
     event: "PreToolUse",
     matcher: "AskUserQuestion",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
@@ -1060,6 +1102,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "guard-health-escalation-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -1104,6 +1147,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "silent-stretch-detector",
+    tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./silent-stretch-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1172,6 +1216,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "wall-of-text-detector",
+    tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./wall-of-text-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1232,6 +1277,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "build-claim-injection-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./build-claim-injection-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1283,6 +1329,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "knowledge-acquisition-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1348,6 +1395,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "turn-end-retro-scan",
+    tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-retro-scan").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
@@ -1391,6 +1439,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // in `last_assistant_message`, so nothing followed it), not on the agent's
     // stated reason. Full rationale: the guard module's header.
     name: "turn-end-untaken-action-scan",
+    tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
@@ -1430,6 +1479,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "calibration-review-cadence-detector",
+    tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,

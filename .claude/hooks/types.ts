@@ -451,6 +451,47 @@ export function writeOutput(output: HookOutput): void {
   emitHookFiredOnDeny(output);
 }
 
+/**
+ * Ceiling multiplier for a preference-class override, relative to the guard's
+ * shipped default (PR #2526 R1). An override is a TUNE, not an off switch: a
+ * value far above the default silently disables the guard, which is the same
+ * outcome as the dedicated `MINSKY_SKIP_*` var but without the audit trail
+ * that makes a disabled guard visible. 10x is wide enough for any legitimate
+ * re-tune (a 200-word budget → 2000 words is already well past any real
+ * report) while keeping a typo'd extra zero from reading as intent.
+ *
+ * Deliberately NOT a per-var absolute bound: the ceiling scales with whatever
+ * default the guard ships, so a future preference threshold gets a sane bound
+ * for free rather than needing its own constant.
+ */
+export const PREFERENCE_OVERRIDE_MAX_MULTIPLE = 10;
+
+/**
+ * Read a positive-integer tuning value from the environment, falling back to
+ * the shipped default on absence, non-numeric input, a non-positive value, or
+ * a value above {@link PREFERENCE_OVERRIDE_MAX_MULTIPLE}x the default
+ * (mt#3518). This is the config channel for PREFERENCE-class guard thresholds
+ * (`tuningOwnership: "preference"` in the registry): the shipped constant is
+ * the vendor default every project inherits; the env var is the local
+ * override. Fail-open to the default — a malformed or out-of-range override
+ * must never break a guard, and must never silently disable one.
+ *
+ * To turn a guard OFF, use its `MINSKY_SKIP_*` / `MINSKY_HOOK_OVERRIDE`
+ * channel, which is what the audit trail reads.
+ */
+export function readPositiveIntEnv(
+  envVarName: string,
+  defaultValue: number,
+  env: Record<string, string | undefined> = process.env
+): number {
+  const raw = env[envVarName];
+  if (raw === undefined || raw.trim() === "") return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return defaultValue;
+  if (parsed > defaultValue * PREFERENCE_OVERRIDE_MAX_MULTIPLE) return defaultValue;
+  return parsed;
+}
+
 // ---------------------------------------------------------------------------
 // hook.fired system-event bridge (mt#2537)
 // ---------------------------------------------------------------------------
