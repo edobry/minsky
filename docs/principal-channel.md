@@ -46,6 +46,37 @@ Reuse is a grounding requirement, not an optimization: "focus on that one" only
 resolves against what was just said. A session per message would force you to
 restate context every time.
 
+## How to tell it heard you
+
+An agent turn can run for a minute or more, so the channel marks progress on
+your own message rather than leaving you watching an empty chat.
+
+| Signal             | Means                                                             |
+| ------------------ | ----------------------------------------------------------------- |
+| 👀 on your message | The message reached the actuator; a turn is starting.             |
+| "typing…"          | A turn is running. Refreshed continuously for its whole duration. |
+| 👌 on your message | The turn finished and the reply was delivered.                    |
+| 🤨 on your message | The turn failed. The reply says what went wrong.                  |
+
+Replies are rendered — bold, italic, code, fenced blocks, links, quotes — via
+Telegram's HTML mode. Tables become monospace blocks and headings become bold
+lines, because Telegram has no markup for either.
+
+**Telegram's ✓ / ✓✓ checkmarks mean nothing here.** They are a client
+affordance between Telegram's servers and your app: the Bot API exposes no
+read-receipt or tick state at all, so the bot can neither read nor set them, and
+no Minsky pipeline stage can be bound to them. The reactions above are the real
+signal — they are the only mechanism that can mark a _specific_ message as
+having reached a _specific_ stage.
+
+Every one of these is best-effort by design: a reaction or an indicator can fail
+without affecting the reply. That is deliberate — the ack reports on the
+pipeline, so it must never be able to break what it is reporting on. The
+consequence worth knowing is that a failed ack is SILENT, which is why
+`scripts/principal-channel/verify-reaction-emoji.ts` exists: Telegram's reaction
+emoji are a fixed allowlist it can revise, and that script re-checks membership
+rather than trusting a remembered list.
+
 ### One conversation per topic
 
 Telegram supports **forum topics inside a private bot chat** (Bot API 9.3/9.4),

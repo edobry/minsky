@@ -458,57 +458,66 @@ async function handleRoute(
   // affordance a bot can neither read nor set.
   void react(deps, message, REACTION_RECEIVED);
 
-  // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
-  // per image, so it happens once here rather than inside the actuator, which
-  // is the seam every test stubs.
-  const { images, notes } = await resolveAttachments(deps, route);
-
-  const startedAtMs = Date.now();
-  let reply: string;
-  let succeeded = true;
+  // `finally` guarantees the interval is cleared on EVERY exit, including one
+  // this function does not handle (PR #2525 R1). The explicit stop below still
+  // runs first — it controls WHEN the cue disappears; this only guarantees it
+  // disappears at all. A leaked interval would keep calling `sendChatAction`
+  // for a turn nobody is waiting on, forever.
   try {
-    if (route.kind === "bind") {
-      // No conversation actuator involved: binding writes a mapping row, it
-      // does not carry out a turn.
-      reply = await handleBind(deps, message, route);
-    } else {
-      const actuator = await resolveActuatorForMessage(deps, message);
-      reply = await runActuator(actuator, route, images, notes);
+    // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
+    // per image, so it happens once here rather than inside the actuator, which
+    // is the seam every test stubs.
+    const { images, notes } = await resolveAttachments(deps, route);
+
+    const startedAtMs = Date.now();
+    let reply: string;
+    let succeeded = true;
+    try {
+      if (route.kind === "bind") {
+        // No conversation actuator involved: binding writes a mapping row, it
+        // does not carry out a turn.
+        reply = await handleBind(deps, message, route);
+      } else {
+        const actuator = await resolveActuatorForMessage(deps, message);
+        reply = await runActuator(actuator, route, images, notes);
+      }
+    } catch (err: unknown) {
+      succeeded = false;
+      const detail = err instanceof Error ? err.message : String(err);
+      // Report the failure TO THE PRINCIPAL rather than only to the log. They are
+      // holding a phone waiting for an answer; a silent swallow is the one
+      // outcome the channel must never produce.
+      reply = `Could not carry that out: ${detail}`;
+      log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
+      await recordFailureOutcome(deps, message, route, detail);
     }
-  } catch (err: unknown) {
-    succeeded = false;
-    const detail = err instanceof Error ? err.message : String(err);
-    // Report the failure TO THE PRINCIPAL rather than only to the log. They are
-    // holding a phone waiting for an answer; a silent swallow is the one
-    // outcome the channel must never produce.
-    reply = `Could not carry that out: ${detail}`;
-    log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
-    await recordFailureOutcome(deps, message, route, detail);
+
+    // Stop the indicator BEFORE the reply lands, so the two never overlap — a
+    // "typing…" still showing under a delivered answer reads as a second reply
+    // that never arrives.
+    typing?.stop();
+
+    const replyMessageId = await sendReply(deps, message, reply);
+
+    // Close the ack (mt#3486). Replaces the pickup reaction rather than
+    // accumulating, so the message carries exactly one state at a time.
+    void react(deps, message, succeeded ? REACTION_DONE : REACTION_ERROR);
+
+    // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
+    // failures, so "no errors" got read as "replies delivered" — an inference
+    // that was wrong. `replyMessageId` is the delivery receipt: present means
+    // Telegram accepted the reply, absent means it did not.
+    log.info("[principal-channel] handled an inbound message", {
+      updateId: message.updateId,
+      route: route.kind,
+      succeeded,
+      durationMs: Date.now() - startedAtMs,
+      replyMessageId,
+    });
+    return succeeded;
+  } finally {
+    typing?.stop();
   }
-
-  // Stop the indicator BEFORE the reply lands, so the two never overlap — a
-  // "typing…" still showing under a delivered answer reads as a second reply
-  // that never arrives.
-  typing?.stop();
-
-  const replyMessageId = await sendReply(deps, message, reply);
-
-  // Close the ack (mt#3486). Replaces the pickup reaction rather than
-  // accumulating, so the message carries exactly one state at a time.
-  void react(deps, message, succeeded ? REACTION_DONE : REACTION_ERROR);
-
-  // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
-  // failures, so "no errors" got read as "replies delivered" — an inference
-  // that was wrong. `replyMessageId` is the delivery receipt: present means
-  // Telegram accepted the reply, absent means it did not.
-  log.info("[principal-channel] handled an inbound message", {
-    updateId: message.updateId,
-    route: route.kind,
-    succeeded,
-    durationMs: Date.now() - startedAtMs,
-    replyMessageId,
-  });
-  return succeeded;
 }
 
 /**
