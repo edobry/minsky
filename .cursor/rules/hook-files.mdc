@@ -18,7 +18,7 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
 - **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
-- **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
+- **Branch-freshness** — commit/PR whose diff OVERLAPS main's new commits (mt#3484: ahead-count alone no longer blocks; a failed overlap probe fails closed). `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
