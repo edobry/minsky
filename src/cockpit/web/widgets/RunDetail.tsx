@@ -468,11 +468,26 @@ export interface RunDetailProps {
    */
   chrome?: ReactNode;
   /**
-   * Rendered at the tail of the Conversation tab, after the transcript
-   * (mt#3344) — where the live-activity readout belongs. Only
-   * `/conversation/:id` supplies one; `/agents/:id` mounts no presence readout.
+   * Chrome keyed on the ACTIVE conversation, rendered inside the pinned region
+   * below `chrome` (mt#3554). Separate from `chrome` because the host cannot
+   * build it alone: which conversation is active is resolved HERE — from the
+   * workspace->conversation join, then the switcher's selection — so the id has
+   * to come back out. Not called when no conversation resolves, so a host
+   * cannot accidentally render an empty presence chip for an unlinked
+   * workspace.
    */
-  conversationTail?: ReactNode;
+  renderActiveConversationChrome?: (conversationId: string) => ReactNode;
+  /**
+   * Content for the tail of the Conversation tab, after the transcript
+   * (mt#3344) — where the live-activity readout belongs.
+   *
+   * A render prop rather than a plain node (mt#3554): `/agents/:id` needs the
+   * same readout, and its host does NOT know the conversation id — it is
+   * resolved here. Both hosts now go through this one slot; a static-node
+   * variant kept alongside it would be a second mechanism for the same job,
+   * and the copy the next change forgets.
+   */
+  renderActiveConversationTail?: (conversationId: string) => ReactNode;
 }
 
 export function RunDetail({
@@ -481,7 +496,8 @@ export function RunDetail({
   resolvedConversationId,
   onConversationNotFound,
   chrome,
-  conversationTail,
+  renderActiveConversationChrome,
+  renderActiveConversationTail,
 }: RunDetailProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -560,6 +576,10 @@ export function RunDetail({
         data-testid="run-detail-chrome"
       >
         {chrome}
+        {/* mt#3554 — conversation-keyed chrome (the presence value). Gated on a
+            resolved conversation so an unlinked workspace renders nothing here
+            rather than an empty or "unknown" chip. */}
+        {activeConversationId && renderActiveConversationChrome?.(activeConversationId)}
         <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
             {runTabsFor(keySpace).map((t) => (
@@ -658,7 +678,7 @@ export function RunDetail({
               No conversation linked to this workspace yet.
             </p>
           )}
-          {conversationTail}
+          {activeConversationId && renderActiveConversationTail?.(activeConversationId)}
         </div>
       )}
 
