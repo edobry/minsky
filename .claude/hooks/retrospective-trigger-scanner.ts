@@ -524,17 +524,54 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
 /** Operator kill switch for the Rung-2 stage (mt#3408). */
 export const NOMINATION_DISABLE_ENV_VAR = "MINSKY_DISABLE_RUNG2_NOMINATION";
 
-function isNominationDisabled(): boolean {
-  const value = process.env[NOMINATION_DISABLE_ENV_VAR];
+/**
+ * Opt-in to letting Rung-2 nominations actually CONTRIBUTE to the injected
+ * reminder. Unset, the stage runs and records but does not fire.
+ *
+ * Log-only is the default because the measurement said so, not as caution for
+ * its own sake. `scripts/replay-retrospective-trigger-corpus.ts --rung2` over a
+ * 40-turn real-transcript sample produced 3 new-only fires, and all 3
+ * hand-classified as FALSE POSITIVES ("Dereferencing it.", "Investigation is
+ * complete and it changed the fix.", "Probing both for live claims before I
+ * touch either…") — none is an admission. Rung 1 fired 0 times on the same
+ * turns, so enforcing would have been a pure 7.5%-of-turns noise addition.
+ *
+ * ADR-024's sign-off (b) sets the bar at "0 known-FP"; 3/3 fails it. Per the
+ * mt#2263 ladder a stage in that state runs calibration-first, so nominations
+ * land in the calibration log — where the FP rate keeps being measurable — and
+ * nowhere else. Flip this on only when a tuned threshold or exemplar set
+ * demonstrably clears the bar on a real sample.
+ */
+export const NOMINATION_ENFORCE_ENV_VAR = "MINSKY_RUNG2_NOMINATION_ENFORCE";
+
+function isEnvFlagSet(name: string): boolean {
+  const value = process.env[name];
   return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
+}
+
+function isNominationDisabled(): boolean {
+  return isEnvFlagSet(NOMINATION_DISABLE_ENV_VAR);
+}
+
+/** True when nominations may contribute to the injected reminder (default: false). */
+export function isNominationEnforcing(): boolean {
+  return isEnvFlagSet(NOMINATION_ENFORCE_ENV_VAR);
 }
 
 export interface NominatedDetection {
   matches: TriggerMatch[];
   /** Set when the Rung-2 stage could not run; the caller still injects on Rung 1. */
   degradedReason?: DegradedReason;
-  /** Rung-2 nominations that were NOT already covered by a Rung-1 match. */
+  /**
+   * Rung-2 nominations that were NOT already covered by a Rung-1 match.
+   *
+   * Populated regardless of mode. In the default log-only mode these are
+   * REPORTED but deliberately absent from `matches`, so they reach the
+   * calibration log without reaching the injected reminder.
+   */
   nominatedFamilies: string[];
+  /** True when nominations were allowed to contribute to `matches`. */
+  enforcing?: boolean;
 }
 
 /**
@@ -598,6 +635,12 @@ export async function detectTriggerPhrasesWithNomination(
     return { matches: rung1, degradedReason: result.degradedReason, nominatedFamilies: [] };
   }
 
+  // Log-only unless explicitly enforcing. Nominations are always REPORTED (the
+  // caller writes them to the calibration line, which is what keeps the FP rate
+  // measurable), but they only join `matches` — and therefore the injected
+  // reminder — when the operator has opted in. See NOMINATION_ENFORCE_ENV_VAR
+  // for the measured 3/3-false-positive result this default encodes.
+  const enforcing = isNominationEnforcing();
   const alreadyMatched = new Set(rung1.map((m) => m.family as string));
   const matches = [...rung1];
   const nominatedFamilies: string[] = [];
@@ -605,13 +648,14 @@ export async function detectTriggerPhrasesWithNomination(
     if (alreadyMatched.has(nomination.family)) continue;
     alreadyMatched.add(nomination.family);
     nominatedFamilies.push(nomination.family);
+    if (!enforcing) continue;
     matches.push({
       family: nomination.family as TriggerFamily,
       matchedPhrase: nomination.segment,
     });
   }
 
-  return { matches, nominatedFamilies };
+  return { matches, nominatedFamilies, enforcing };
 }
 
 export function detectUserCorrection(userText: string): TriggerMatch[] {
@@ -876,18 +920,26 @@ export async function run(
   }
 
   if (allMatches.length === 0) {
-    // Never silent-skip a degraded Rung 2 (ADR-024's fail-to-Rung-1 invariant).
-    // With no Rung-1 findings there is nothing to inject, but the degradation
-    // still has to be visible — otherwise a provider that is down is
-    // indistinguishable from a clean turn in the calibration record.
-    if (nominationDegradedReason !== undefined) {
+    // Two things still have to be recorded when nothing is injectable:
+    //
+    //  - a DEGRADED Rung 2, or a provider that is down looks identical to a
+    //    clean turn (ADR-024's fail-to-Rung-1 invariant: never silent-skip);
+    //  - a LOG-ONLY nomination, which by construction never reaches `matches`.
+    //    Dropping it here would discard the only signal the calibration review
+    //    has to work from, leaving the stage permanently unmeasurable — the
+    //    exact shape of a mechanism that exists and produces nothing.
+    if (nominationDegradedReason !== undefined || nominatedFamilies.length > 0) {
       return {
         calibration: {
           source: "live",
           timestamp: new Date().toISOString(),
           session_id: input.session_id,
           matches: [],
-          nomination_degraded: nominationDegradedReason,
+          nominated_families: nominatedFamilies,
+          nomination_enforcing: false,
+          ...(nominationDegradedReason !== undefined
+            ? { nomination_degraded: nominationDegradedReason }
+            : {}),
         },
       };
     }

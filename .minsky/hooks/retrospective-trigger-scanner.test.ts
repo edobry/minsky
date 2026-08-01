@@ -1387,13 +1387,16 @@ describe("detectTriggerPhrasesWithNomination (Rung 1 + Rung 2)", () => {
 
   beforeEach(() => {
     delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
   });
 
   afterEach(() => {
     process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
   });
 
-  test("nominates a family Rung 1 did not match", async () => {
+  test("nominates a family Rung 1 did not match (enforcing)", async () => {
+    process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = "1";
     // Rung 1 alone is blind to this flat, non-apologetic admission.
     expect(detectTriggerPhrases(FLAT_ADMISSION)).toEqual([]);
 
@@ -1404,8 +1407,25 @@ describe("detectTriggerPhrasesWithNomination (Rung 1 + Rung 2)", () => {
     );
 
     expect(result.degradedReason).toBeUndefined();
+    expect(result.enforcing).toBe(true);
     expect(result.nominatedFamilies).toContain("R1");
     expect(result.matches.map((m) => m.family)).toContain("R1");
+  });
+
+  test("log-only by default: nomination is REPORTED but never reaches matches", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      depsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    // The nomination happened and is visible to the calibration log...
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.enforcing).toBe(false);
+    // ...but it must NOT reach the injected reminder. Measured precision on a
+    // real-transcript sample was 3/3 false positives; ADR-024 sign-off (b)
+    // requires 0 known-FP before this contributes to a fire.
+    expect(result.matches).toEqual([]);
   });
 
   test("does not duplicate a family Rung 1 already matched", async () => {

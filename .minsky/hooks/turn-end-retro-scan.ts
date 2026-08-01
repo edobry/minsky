@@ -121,9 +121,11 @@ export async function run(
   const detected = await detectTriggerPhrasesWithNomination(text);
   const matches = detected.matches;
   if (matches.length === 0) {
-    // A degraded Rung 2 with no Rung-1 findings still records the degradation
-    // (ADR-024: never silent-skip), even though there is nothing to remind about.
-    if (detected.degradedReason !== undefined) {
+    // Record a degraded Rung 2 (ADR-024: never silent-skip) AND a log-only
+    // nomination, which never reaches `matches` by construction — dropping it
+    // would leave the stage unmeasurable, which is the whole reason it runs
+    // log-only in the first place.
+    if (detected.degradedReason !== undefined || detected.nominatedFamilies.length > 0) {
       return {
         calibration: {
           source: "live",
@@ -131,7 +133,11 @@ export async function run(
           timestamp: new Date().toISOString(),
           session_id: input.session_id,
           matches: [],
-          nomination_degraded: detected.degradedReason,
+          nominated_families: detected.nominatedFamilies,
+          nomination_enforcing: detected.enforcing === true,
+          ...(detected.degradedReason !== undefined
+            ? { nomination_degraded: detected.degradedReason }
+            : {}),
         },
       };
     }
