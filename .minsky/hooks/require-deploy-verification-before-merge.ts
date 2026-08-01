@@ -166,7 +166,11 @@ export function hasDeployVerification(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
+      // Only a REAL heading ends the section (PR #2533 R1) — a `#` comment inside a
+      // pasted transcript is content, not a boundary. Same fix as the sibling
+      // execution-evidence gate; without it, fenced deploy output containing a
+      // heading-like line truncates the scan and produces a false negative.
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       if (nextLine.trim().length > 0) parts.push(nextLine.trim());
     }
     const content = parts.join(" ").trim();

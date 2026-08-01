@@ -263,6 +263,23 @@ describe("hasExecutionEvidence — fence awareness (mt#3530)", () => {
     expect(hasExecutionEvidence(body)).toBe(true);
   });
 
+  // NOTE (PR #2533 R1): the content scan here is ALSO fence-gated for consistency with
+  // `collectHeadingSections` and `test-first-evidence.ts`, but no test asserts a verdict
+  // change from it — because none can. This function returns on the FIRST non-empty line
+  // after the marker, and a fence's opening ``` line is itself non-empty, so a
+  // fence-internal `#` is unreachable as a truncation point. Measured both ways:
+  // unfixed=true, fixed=true. A test pinning it would pass with and without the change
+  // and would therefore assert nothing — the exact shape this repo's negative-control
+  // discipline rejects. The gating stays as defense against a future refactor that makes
+  // it reachable; the honest claim is "consistency", not "fixes a live bug here".
+  // The gate where it IS reachable is `hasDeployVerification` — see its test.
+  it("still stops at a REAL heading after the marker, so an empty section is empty", () => {
+    // This one DOES discriminate on the marker-scan change and guards the section
+    // boundary: fence-awareness must not turn "no content" into "content".
+    const body = ["## Testing", "", EE_MARKER, "", "## Next section", "", "text"].join("\n");
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
   it("counts a real marker even when an unrelated fence elsewhere quotes one too", () => {
     const body = [
       "## Notes",

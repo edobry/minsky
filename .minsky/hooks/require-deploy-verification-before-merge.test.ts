@@ -48,6 +48,28 @@ describe("hasDeployVerification — fence awareness (mt#3530)", () => {
     expect(hasDeployVerification(body)).toBe(false);
   });
 
+  // PR #2533 R1. The content scan used to break on ANY heading-like line, including a
+  // `#` comment inside the fenced output. On THIS gate that is exploitable rather than
+  // merely untidy: the deferral-text check (mt#2353 Recurrence 3) runs on the collected
+  // content, so truncating at a fenced `#` HIDES a deferral that follows it — and a
+  // deferral-only section then satisfies a blocking gate.
+  //
+  // This case discriminates: unfixed -> true (deferral unseen, gate accepts),
+  // fixed -> false (deferral seen, gate correctly refuses). Verified both ways.
+  test("a deferral hidden after a `#` comment inside the fence is still detected", () => {
+    const body = [
+      "## Deploy",
+      "",
+      DV_MARKER,
+      "",
+      "```bash",
+      "# note",
+      "will verify later",
+      "```",
+    ].join("\n");
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
   test("still counts a real marker with its output fenced BENEATH it", () => {
     const body = [
       "## Deploy",

@@ -276,7 +276,13 @@ export function hasExecutionEvidence(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
+      // Only a REAL heading ends the section (PR #2533 R1). An evidence block IS a
+      // pasted shell transcript, so a `# revert the fix first` comment inside the
+      // fence looks like a heading and would truncate the scan — a false NEGATIVE,
+      // and one that contradicts this function's own claim that fenced content
+      // beneath a real marker still counts. Matches `collectHeadingSections` below
+      // (:662) and `test-first-evidence.ts`, which both already gate on the fence.
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       if (nextLine.trim().length > 0) return true; // found content
     }
     // Heading found but no content — keep looking in case there's another
