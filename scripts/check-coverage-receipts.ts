@@ -23,6 +23,30 @@
  * next calibration review — this is a review-surfacing signal, NOT a merge
  * gate).
  *
+ * `--json` output shape (mt#3519 added `nonGuard` and changed what `results`
+ * covers — documented here because there is no schema version and the textual
+ * `Checked:` count is derived from the same set):
+ *
+ *   {
+ *     results: CoverageReceiptResult[],  // one per CHECKED detector
+ *     flaggedCount: number,
+ *     dormantCount: number,
+ *     allCovered: boolean,
+ *     unmapped: string[],   // logs no guard declares — a defect to fix
+ *     nonGuard: string[]    // logs with a declared NON-guard producer
+ *   }
+ *
+ * `results` covers the discovered calibration logs MINUS `nonGuard` — a
+ * non-guard producer has no entry point to instrument, so a coverage verdict
+ * on it would be a claim about something that does not exist. `Checked:` in
+ * the textual summary is `results.length` and therefore excludes them too;
+ * they are printed on their own `[NON-GUARD]` line. Consumers were audited
+ * when this changed (mt#3519): the only ones are this file's own textual
+ * output, `.minsky/skills/calibration-review/SKILL.md` Step 1b, and
+ * `docs/architecture/evaluation-loop-fire-log.md` — no CI job or script parses
+ * the JSON. Anything added later should read `results` + `nonGuard` together
+ * if it needs the full discovered set.
+ *
  * @see .minsky/hooks/coverage-receipt.ts — core check logic this wraps
  * @see scripts/run-guard-canaries.ts — the synthetic-input sibling (mt#2889)
  * @see .claude/skills/calibration-review/SKILL.md — the cadence that runs this

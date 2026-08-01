@@ -238,8 +238,15 @@ export interface GuardRegistration {
    * coverage-receipt join can find the guard's invocation evidence, not so the
    * dispatcher can write to them (writing one record to N logs would inflate
    * every downstream fire count).
+   *
+   * The list type is NON-EMPTY by construction (PR #2543 R1). `[]` is truthy,
+   * so a plain `string[]` let an empty declaration pass every `if
+   * (reg.calibrationLog)` check and then write nothing — a guard silently
+   * logging no calibration records at all, which is the exact failure class
+   * this task exists to make visible. Registrations are hand-authored, so the
+   * empty state must not be representable.
    */
-  calibrationLog?: string | string[];
+  calibrationLog?: string | [string, ...string[]];
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**

@@ -274,6 +274,24 @@ describe("GUARD_REGISTRY", () => {
     expect(GUARD_REGISTRY.find((r) => r.name === "policy-coverage-detector")).toBeUndefined();
   });
 
+  test("no registration declares an EMPTY calibrationLog list (PR #2543 R1)", () => {
+    // The type is `string | [string, ...string[]]`, so `[]` should be
+    // unrepresentable — but registrations are hand-authored and a cast or a
+    // widened local can get past it. An empty list is truthy, so it would sail
+    // through every `if (reg.calibrationLog)` and then write nothing: a guard
+    // silently recording no calibration data, the failure class mt#3519 exists
+    // to make visible. This is the runtime backstop for the type.
+    for (const reg of GUARD_REGISTRY) {
+      const decl = reg.calibrationLog as string | string[] | undefined;
+      if (Array.isArray(decl)) {
+        expect(decl.length, `${reg.name} declares an empty calibrationLog list`).toBeGreaterThan(0);
+        for (const name of decl) expect(name.length).toBeGreaterThan(0);
+      } else if (decl !== undefined) {
+        expect(decl.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   test("every registration carries a tuningOwnership class (mt#3518 — stamp at birth)", () => {
     // The field is TYPED optional so an unrated guard fails soft at runtime,
     // but authoring-time coverage is mandatory: a new guard must be classified
