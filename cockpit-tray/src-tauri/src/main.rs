@@ -24,6 +24,7 @@ mod deeplink;
 mod hotkey;
 mod launchd;
 mod menu;
+mod mouse_nav;
 mod supervisor;
 mod watcher_backend;
 mod watcher_web;
@@ -108,6 +109,12 @@ fn main() {
             let hotkey_registered = hotkey::register(&handle);
 
             menu::build(app, hotkey_registered)?;
+
+            // Mouse back/forward -> cockpit history (mt#3570). Installed after
+            // the menu so both navigation surfaces share one seam; must be
+            // native because WKWebView never surfaces these buttons to the DOM
+            // (tauri#10936 -- see mouse_nav.rs for the measurement).
+            mouse_nav::install(&handle);
 
             // Command channel: menu handler (main thread) → supervisor thread.
             supervisor::spawn(handle, spawned_setup.clone());
