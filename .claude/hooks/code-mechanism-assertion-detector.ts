@@ -712,8 +712,16 @@ export function buildWriteEchoCorpus(turnLines: TranscriptLine[]): string {
 const WRITE_INPUT_NEW_KEYS = ["replace", "new_string", "content", "contents"];
 const WRITE_INPUT_OLD_KEYS = ["search", "old_string"];
 
-/** A single-line comment, a block-comment body line, or a JSDoc continuation. */
-const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#)\s?(.*)$/;
+/** Keys carrying a whole-file body — no old text accompanies these. */
+const WHOLE_FILE_INPUT_KEYS = ["content", "contents"];
+
+/**
+ * A single-line comment, a block-comment body line, or a JSDoc continuation.
+ *
+ * `#!` is excluded: a shebang is not a comment about anything, and matching it
+ * would put an interpreter path into the claim corpus (PR #2549 R1).
+ */
+const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#(?!!))\s?(.*)$/;
 
 /**
  * Extract comment text that this turn's writes ADDED (mt#3571).
@@ -726,13 +734,22 @@ const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#)\s?(.*)$/;
  * trust in its correct output).
  *
  * So for a search/replace the old text's comment lines are subtracted from the
- * new text's: a comment that merely moved is not an assertion being made. For a
- * whole-file write there is no old text in the payload, so every comment line
- * counts — correct for a new file, and deliberately over-inclusive for a
- * rewrite, which is rare and still represents authored content.
+ * new text's: a comment that merely moved is not an assertion being made.
  *
- * Reads the tool INPUT rather than the `tool_result` echo: the input is exactly
- * what the agent authored, with no result envelope to strip.
+ * A whole-file write carries no old text, so "added" cannot be computed from the
+ * payload — and treating every line as added would be exactly the whole-file
+ * scan this is supposed to avoid (PR #2549 R1). Such a write is therefore
+ * included ONLY when its `tool_result` reports `created: true`, i.e. the file did
+ * not previously exist, which makes every comment in it genuinely new. An
+ * overwrite of an existing file is skipped, and so is a write whose result
+ * cannot be found or does not carry the flag — absent evidence, exclude.
+ *
+ * Consequence worth knowing: comments added by OVERWRITING an existing file are
+ * not covered. Covering them needs a before-image the payload does not carry.
+ *
+ * Reads the tool INPUT for content rather than the `tool_result` echo (the input
+ * is exactly what the agent authored, with no envelope to strip) and the RESULT
+ * only for the `created` flag.
  */
 export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
   const commentLines = (text: string): string[] => {
@@ -751,7 +768,27 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
       .filter((v): v is string => typeof v === "string")
       .join("\n");
 
-  const added: string[] = [];
+  // `created: true` on the correlated result is the only signal distinguishing a
+  // NEW file (every comment genuinely added) from an overwrite (most of them
+  // pre-existing). Absent, the write is skipped.
+  const createdByToolUseId = new Set<string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "user" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_result") continue;
+      const id = block["tool_use_id"];
+      if (typeof id !== "string") continue;
+      const raw = block["content"];
+      const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
+      if (/"created"\s*:\s*true/.test(text)) createdByToolUseId.add(id);
+    }
+  }
+
+  // Deduped: the same comment written by two tools in one turn is one assertion,
+  // and duplicates would inflate the claim corpus (PR #2549 R1).
+  const added = new Set<string>();
 
   for (const line of turnLines) {
     const role = line.message?.role ?? line.type;
@@ -766,17 +803,24 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
       if (!input || typeof input !== "object") continue;
 
       const asRecord = input as Record<string, unknown>;
+      const oldText = pick(asRecord, WRITE_INPUT_OLD_KEYS);
+      const isWholeFile = oldText.length === 0 && pick(asRecord, WHOLE_FILE_INPUT_KEYS).length > 0;
+      if (isWholeFile) {
+        const id = block["id"];
+        if (typeof id !== "string" || !createdByToolUseId.has(id)) continue;
+      }
+
       const newComments = commentLines(pick(asRecord, WRITE_INPUT_NEW_KEYS));
       if (newComments.length === 0) continue;
 
-      const oldComments = new Set(commentLines(pick(asRecord, WRITE_INPUT_OLD_KEYS)));
+      const oldComments = new Set(commentLines(oldText));
       for (const c of newComments) {
-        if (!oldComments.has(c)) added.push(c);
+        if (!oldComments.has(c)) added.add(c);
       }
     }
   }
 
-  return added.join("\n");
+  return [...added].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,6 +1337,20 @@ export function run(
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id, shouldInjectClaimSetFn);
 
+  // mt#3571 / PR #2549 R1. An earlier draft recorded the comment surface with NO
+  // suppression reason, on the reasoning that "suppressed" misdescribes a claim
+  // that never entered the injection path. That reasoning was about what the
+  // LABEL means and ignored what the CONSUMER does with it: `isSuppressedRecord`
+  // (`calibration-sweep.ts`) is `suppressionReasons.length > 0`, and its docblock
+  // states that a record without one "counts as injected here: unknown is treated
+  // as operator-facing so a missing outcome can never hide a real fire."
+  //
+  // So an unlabeled comment-only record would be counted as an operator-facing
+  // fire it never was — inflating the injected count AND driving the review
+  // cadence, which keys off `injectedFiresSinceLastReview`. The measurement this
+  // surface exists to enable would have been corrupted by its own records.
+  if (!result.matched) suppressionReasons.push("comment-surface-only");
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
@@ -1407,6 +1465,9 @@ export async function main(): Promise<void> {
     claimSetSignature: signature,
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id);
+
+  // See run()'s comment: without this the record classifies as operator-facing.
+  if (!result.matched) suppressionReasons.push("comment-surface-only");
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {

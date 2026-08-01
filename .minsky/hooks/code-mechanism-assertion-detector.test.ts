@@ -893,6 +893,77 @@ describe("comment surface (mt#3571)", () => {
     expect(corpus).toContain("and a hash one");
   });
 
+  /** A whole-file write whose result may or may not report `created`. */
+  function wholeFileTurn(body: string, created: boolean | undefined): TranscriptLine[] {
+    const lines: unknown[] = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_wf1",
+              name: "mcp__minsky__session_write_file",
+              input: { path: "a.ts", content: body },
+            },
+          ],
+        },
+      },
+    ];
+    if (created !== undefined) {
+      lines.push({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_wf1",
+              content: JSON.stringify({ success: true, created }),
+            },
+          ],
+        },
+      });
+    }
+    return lines as TranscriptLine[];
+  }
+
+  test("a NEW-file write contributes its comments (created: true)", () => {
+    // Every comment in a file that did not previously exist is genuinely added,
+    // so this is the one whole-file case SC2 admits.
+    expect(buildAddedCommentCorpus(wholeFileTurn(CLAIM_COMMENT, true))).toContain(
+      "cycleRef guard returns early"
+    );
+  });
+
+  test("an OVERWRITE of an existing file contributes nothing (created: false)", () => {
+    // PR #2549 R1: treating every line of a rewrite as "added" is precisely the
+    // whole-file scan SC2 forbids — most of those comments were already there.
+    expect(buildAddedCommentCorpus(wholeFileTurn(CLAIM_COMMENT, false))).toBe("");
+  });
+
+  test("a whole-file write with no created flag contributes nothing", () => {
+    // Absent evidence, exclude — the conservative direction.
+    expect(buildAddedCommentCorpus(wholeFileTurn(CLAIM_COMMENT, undefined))).toBe("");
+  });
+
+  test("the same comment written twice in one turn is counted once", () => {
+    const turn = [
+      ...editTurn({ search: "a", replace: CLAIM_COMMENT }),
+      ...editTurn({ search: "b", replace: CLAIM_COMMENT }),
+    ] as TranscriptLine[];
+    const corpus = buildAddedCommentCorpus(turn);
+    expect(corpus.split("\n").filter((l) => l.includes("cycleRef"))).toHaveLength(1);
+  });
+
+  test("a shebang is not collected as a comment", () => {
+    const turn = editTurn({ search: "a", replace: "#!/usr/bin/env bun\n# cycleRef clamps it." });
+    const corpus = buildAddedCommentCorpus(turn);
+    expect(corpus).not.toContain("/usr/bin/env");
+    expect(corpus).toContain("cycleRef clamps it.");
+  });
+
   test("a read-class tool's input is not treated as authored comment text", () => {
     const turn = [
       {
@@ -1242,6 +1313,7 @@ describe("run() (dispatcher-compatible)", () => {
       claims: unknown[];
       commentSurfaceClaims: Array<{ symbol: string }>;
       commentSurfaceClaimCount: number;
+      suppressionReasons: string[];
     };
     expect(outcome?.calibration).toBeDefined();
     expect(cal.commentSurfaceClaimCount).toBeGreaterThan(0);
@@ -1249,6 +1321,12 @@ describe("run() (dispatcher-compatible)", () => {
     // The chat prose asserted nothing, so the injecting surface stays silent.
     expect(cal.claims).toHaveLength(0);
     expect(outcome?.additionalContext).toBeUndefined();
+    // PR #2549 R1: the record must ALSO carry a suppression reason, or
+    // `isSuppressedRecord` (suppressionReasons.length > 0) counts this
+    // never-injected record as an operator-facing fire and it drives the review
+    // cadence. Asserting the classification, not just the absence of injection.
+    expect(cal.suppressionReasons).toContain("comment-surface-only");
+    expect(cal.suppressionReasons.length).toBeGreaterThan(0);
   });
 
   test("no transcript_path -> null", () => {
