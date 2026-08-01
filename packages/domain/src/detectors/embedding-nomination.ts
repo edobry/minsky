@@ -59,7 +59,16 @@ export type DegradedReason =
   | "provider-unconfigured"
   | "provider-error"
   | "timeout"
-  | "non-semantic-provider";
+  | "non-semantic-provider"
+  /**
+   * The provider returned a batch whose length does not match the inputs it was
+   * given. Distinct from `provider-error` on purpose: an exception is a
+   * provider that FAILED, whereas this is a provider that SUCCEEDED while
+   * returning something unusable — usually a model/config mismatch. Collapsing
+   * the two hides that distinction from the calibration log, which is the only
+   * place this is diagnosable after the fact.
+   */
+  | "provider-shape-mismatch";
 
 export interface ExemplarSet {
   family: string;
@@ -78,6 +87,13 @@ export interface NominationResult {
   nominations: Nomination[];
   degraded: boolean;
   degradedReason?: DegradedReason;
+  /**
+   * Human-readable specifics for a degraded result, when the reason alone is
+   * not enough to act on (e.g. the observed vs expected batch size). Carried
+   * into the calibration record so a degradation is diagnosable after the fact
+   * rather than only countable.
+   */
+  degradedDetail?: string;
 }
 
 export interface NominationDeps {
@@ -217,10 +233,21 @@ export async function nominate(
   }
 
   const vectors = outcome.value;
-  if (!Array.isArray(vectors) || vectors.length !== segments.length + exemplars.length) {
+  const expectedLength = segments.length + exemplars.length;
+  if (!Array.isArray(vectors) || vectors.length !== expectedLength) {
     // A provider that returns a differently-shaped batch than it was asked for
-    // is malfunctioning; scoring against it would be meaningless.
-    return { nominations: [], degraded: true, degradedReason: "provider-error" };
+    // is malfunctioning; scoring against it would silently mis-pair segments
+    // with exemplars and produce confident nonsense. `expected`/`received` are
+    // carried so the calibration log can say WHICH shape came back, rather than
+    // only that something was wrong.
+    return {
+      nominations: [],
+      degraded: true,
+      degradedReason: "provider-shape-mismatch",
+      degradedDetail: `expected ${expectedLength} vectors, received ${
+        Array.isArray(vectors) ? vectors.length : typeof vectors
+      }`,
+    };
   }
 
   const segmentVectors = vectors.slice(0, segments.length);

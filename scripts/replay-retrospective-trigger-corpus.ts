@@ -361,13 +361,24 @@ async function runRung2Delta(
   return 0;
 }
 
-const { files, probe, rung2, limit, json, projectsDir, corpusDir } = parseArgs(
-  process.argv.slice(2)
-);
-if (probe) {
-  process.exit(runProbe(json));
-} else if (rung2) {
-  process.exit(await runRung2Delta(files, limit, projectsDir, json, corpusDir));
-} else {
-  process.exit(runReplay(files, projectsDir, json, corpusDir));
+async function main(): Promise<number> {
+  const { files, probe, rung2, limit, json, projectsDir, corpusDir } = parseArgs(
+    process.argv.slice(2)
+  );
+  if (probe) return runProbe(json);
+  if (rung2) return runRung2Delta(files, limit, projectsDir, json, corpusDir);
+  return runReplay(files, projectsDir, json, corpusDir);
 }
+
+// Deliberately NOT a top-level await. `--rung2` is the only async path; the
+// long-standing `--probe` and default replay paths are synchronous, and a
+// top-level await would make the entire module async for every invocation
+// style regardless of which path runs. Keeping the entry point a `.then` leaves
+// those two paths' execution shape exactly as it was before --rung2 existed.
+main().then(
+  (code) => process.exit(code),
+  (error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+);

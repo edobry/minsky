@@ -1,5 +1,5 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the mt#2357 filterStopFlagged tests exercise the real turn-end-scan-store roundtrip (writeFlagged -> dedup-read) in an isolated mkdtemp dir, mirroring substrate-bypass-detector.test.ts's precedent */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   detectTriggerPhrases,
   detectTriggerPhrasesWithNomination,
@@ -14,6 +14,8 @@ import {
   run,
 } from "./retrospective-trigger-scanner";
 import type { NominationDeps } from "../../packages/domain/src/detectors/embedding-nomination";
+import { DEFAULT_NOMINATION_TIMEOUT_MS } from "../../packages/domain/src/detectors/embedding-nomination";
+import { GUARD_REGISTRY } from "./registry";
 import {
   extractAssistantText,
   extractLastAssistantTurn,
@@ -32,7 +34,18 @@ import { join } from "node:path";
 // Rung 2 is switched off here so no test reaches for a live embedding provider;
 // nomination has its own coverage with injected deps (see the Rung-2 describe
 // block below and packages/domain/src/detectors/embedding-nomination.test.ts).
+// The prior value is captured and restored so this file cannot leak process
+// state into any suite that runs after it in the same process.
+const ORIGINAL_RUNG2_DISABLE = process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+const ORIGINAL_RUNG2_ENFORCE = process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
 process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+
+afterAll(() => {
+  if (ORIGINAL_RUNG2_DISABLE === undefined) delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+  else process.env.MINSKY_DISABLE_RUNG2_NOMINATION = ORIGINAL_RUNG2_DISABLE;
+  if (ORIGINAL_RUNG2_ENFORCE === undefined) delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+  else process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = ORIGINAL_RUNG2_ENFORCE;
+});
 
 const WHY_DID_YOU_DO_THAT = "why did you do that?";
 const APOLOGY_FIXTURE = "I owe you an apology for that mistake.";
@@ -1484,5 +1497,48 @@ describe("detectTriggerPhrasesWithNomination (Rung 1 + Rung 2)", () => {
     expect(result.nominatedFamilies).toEqual([]);
     // An operator disabling the stage is not a provider failure.
     expect(result.degradedReason).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3408 PR #2511 R1: the Rung-2 budget must stay a strict subset of every
+// consuming guard's declared budget.
+//
+// This is the specific drift the whole log-only/degrade design depends on NOT
+// happening. If the nomination bound ever exceeds a guard's `timeoutMs`, the
+// guard is killed by the harness BEFORE the degrade-to-Rung-1 branch can run —
+// the fallback becomes unreachable by construction and a slow provider turns
+// into the silent skip ADR-024 forbids. The relationship was stated in prose in
+// the spec and in the constant's docblock; prose does not fail a build.
+// ---------------------------------------------------------------------------
+
+describe("Rung-2 nomination budget vs consuming guard budgets", () => {
+  const CONSUMERS = ["retrospective-trigger-scanner", "turn-end-retro-scan"];
+
+  test("every consuming guard is registered and declares a timeout", () => {
+    const registered = GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name));
+    expect(registered.map((g) => g.name).sort()).toEqual([...CONSUMERS].sort());
+    for (const guard of registered) {
+      expect(typeof guard.timeoutMs).toBe("number");
+      expect(guard.timeoutMs).toBeGreaterThan(0);
+    }
+  });
+
+  test("the nomination bound is strictly less than each guard's declared timeout", () => {
+    const registered = GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name));
+    for (const guard of registered) {
+      expect(DEFAULT_NOMINATION_TIMEOUT_MS).toBeLessThan(guard.timeoutMs);
+    }
+  });
+
+  test("the bound leaves usable headroom, not a hair's breadth", () => {
+    // A bound at 99% of the guard budget satisfies "strictly less" while
+    // leaving nothing for transcript I/O, the Rung-1 pass, or dispatcher
+    // overhead. Require the nomination call to fit in half the smallest
+    // consuming guard's budget.
+    const smallest = Math.min(
+      ...GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name)).map((g) => g.timeoutMs)
+    );
+    expect(DEFAULT_NOMINATION_TIMEOUT_MS).toBeLessThanOrEqual(smallest / 2);
   });
 });

@@ -562,6 +562,8 @@ export interface NominatedDetection {
   matches: TriggerMatch[];
   /** Set when the Rung-2 stage could not run; the caller still injects on Rung 1. */
   degradedReason?: DegradedReason;
+  /** Specifics for the degradation, when the reason alone is not actionable. */
+  degradedDetail?: string;
   /**
    * Rung-2 nominations that were NOT already covered by a Rung-1 match.
    *
@@ -632,7 +634,12 @@ export async function detectTriggerPhrasesWithNomination(
   const result = await nominate(elideQuotedAndCodeContexts(text), NOMINATION_EXEMPLARS, resolved);
 
   if (result.degraded) {
-    return { matches: rung1, degradedReason: result.degradedReason, nominatedFamilies: [] };
+    return {
+      matches: rung1,
+      degradedReason: result.degradedReason,
+      degradedDetail: result.degradedDetail,
+      nominatedFamilies: [],
+    };
   }
 
   // Log-only unless explicitly enforcing. Nominations are always REPORTED (the
@@ -879,6 +886,7 @@ export async function run(
   const allMatches: TriggerMatch[] = [];
   let nominationDegradedReason: DegradedReason | undefined;
   let nominatedFamilies: string[] = [];
+  let nominationEnforcing = false;
 
   let runAssistantText = "";
   try {
@@ -894,6 +902,7 @@ export async function run(
         const detected = await detectTriggerPhrasesWithNomination(runAssistantText);
         nominationDegradedReason = detected.degradedReason;
         nominatedFamilies = detected.nominatedFamilies;
+        nominationEnforcing = detected.enforcing === true;
         allMatches.push(...filterStopFlagged(input.session_id, lines, detected.matches));
       }
     }
@@ -936,7 +945,7 @@ export async function run(
           session_id: input.session_id,
           matches: [],
           nominated_families: nominatedFamilies,
-          nomination_enforcing: false,
+          nomination_enforcing: nominationEnforcing,
           ...(nominationDegradedReason !== undefined
             ? { nomination_degraded: nominationDegradedReason }
             : {}),
@@ -979,7 +988,11 @@ export async function run(
       // whether the stage degraded. Both are what the precision/recall delta
       // is measured from — a fire with an empty `nominated_families` is a
       // pure Rung-1 fire and unchanged from the pre-Rung-2 baseline.
+      // `nomination_enforcing` disambiguates the two readings of a populated
+      // list: enforcing means those families CONTRIBUTED to this fire, log-only
+      // means they were recorded and deliberately withheld from it.
       nominated_families: nominatedFamilies,
+      nomination_enforcing: nominationEnforcing,
       ...(nominationDegradedReason !== undefined
         ? { nomination_degraded: nominationDegradedReason }
         : {}),

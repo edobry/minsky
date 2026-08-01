@@ -187,7 +187,27 @@ describe("nominate — fail-to-Rung-1 degradation (ADR-024 invariant)", () => {
     const result = await nominate(ADMISSION, SETS, deps(service));
 
     expect(result.degraded).toBe(true);
-    expect(result.degradedReason).toBe("provider-error");
+    // Distinct from `provider-error`: this provider SUCCEEDED, it just returned
+    // something unusable. Collapsing the two would hide a model/config mismatch
+    // behind the same counter as a network failure.
+    expect(result.degradedReason).toBe("provider-shape-mismatch");
+    expect(result.nominations).toEqual([]);
+  });
+
+  test("a shape mismatch carries the observed vs expected sizes for diagnosis", async () => {
+    const service: EmbeddingService = {
+      async generateEmbedding(): Promise<number[]> {
+        return [1, 0];
+      },
+      async generateEmbeddings(): Promise<number[][]> {
+        return [[1, 0]];
+      },
+    };
+
+    const result = await nominate(ADMISSION, SETS, deps(service));
+
+    // 1 segment + 1 exemplar requested, 1 vector returned.
+    expect(result.degradedDetail).toBe("expected 2 vectors, received 1");
   });
 
   test("a rejection arriving after the timeout does not escape as an unhandled rejection", async () => {

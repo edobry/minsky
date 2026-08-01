@@ -8,7 +8,7 @@
 // last_assistant_message union covers a lagging transcript; elision keeps
 // quoted phrases silent; the shared override env var is honored.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +28,13 @@ import type { TranscriptLine } from "./transcript";
 // Rung 2 is switched off here so no test reaches for a live embedding provider;
 // nomination has its own coverage with injected deps (see the Rung-2 describe
 // block below and packages/domain/src/detectors/embedding-nomination.test.ts).
+const ORIGINAL_RUNG2_DISABLE = process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
 process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+
+afterAll(() => {
+  if (ORIGINAL_RUNG2_DISABLE === undefined) delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+  else process.env.MINSKY_DISABLE_RUNG2_NOMINATION = ORIGINAL_RUNG2_DISABLE;
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures
