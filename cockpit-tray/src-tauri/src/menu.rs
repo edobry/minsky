@@ -59,39 +59,13 @@ const EXTERNAL_LINK_SHIM: &str = r#"
 })();
 "#;
 
-/// Init script wiring the mouse side buttons (X1/X2) to the SPA's history
-/// (mt#3535). Same gap class as mt#2327 (`Cmd+R`/`Cmd+W`) and mt#2334 (zoom):
-/// Tauri ships no browser chrome, so every affordance a browser window would
-/// provide has to be added explicitly.
-///
-/// WKWebView DOES deliver these buttons to the DOM -- WebKit's
-/// `buttonFromButtonNumber` (`PlatformEventFactoryMac.mm`) maps `NSEvent`
-/// buttonNumber 3/4 to `MouseButton::Back`/`Forward`, whose enum values (3/4,
-/// `dom/MouseEventTypes.h`) ARE the DOM `MouseEvent.button` numbers, so they
-/// are neither dropped nor collapsed onto the middle button. What WebKit does
-/// NOT do is navigate: that is browser-chrome behavior, which this window has
-/// none of. Hence a listener rather than any Rust-side event interception.
-///
-/// Injected ONLY into the tray webview, for the same reason EXTERNAL_LINK_SHIM
-/// is: a browser-viewed cockpit already navigates on these buttons natively, so
-/// a second handler shared with the SPA would move TWO history entries per
-/// click. ADR-023 keeps `src/cockpit/web/**` uniform across delivery surfaces,
-/// which is exactly why this cannot live there.
-const HISTORY_NAV_SHIM: &str = r#"
-(function () {
-  window.addEventListener('mousedown', function (e) {
-    if (e.button !== 3 && e.button !== 4) return;
-    // Suppress the press's default (autoscroll/selection) before navigating.
-    e.preventDefault();
-    if (e.button === 3) window.history.back();
-    else window.history.forward();
-  }, true);
-  // A navigation press must not also activate whatever sits under the cursor.
-  window.addEventListener('auxclick', function (e) {
-    if (e.button === 3 || e.button === 4) e.preventDefault();
-  }, true);
-})();
-"#;
+// mt#3535's HISTORY_NAV_SHIM lived here: a tray-only init script listening for
+// `mousedown` with `event.button` 3/4. It was removed in mt#3570 as verified
+// DEAD CODE, not merely redundant. WKWebView only converts
+// `NSEventTypeOtherMouseDown` into a DOM `mousedown`, and the mice that matter
+// here (the MX Master line) emit `NSEventTypeSwipe` instead -- measured, with
+// `otherMouseDown` never firing once. Upstream: tauri-apps/tauri#10936.
+// The replacement is the native monitor in `mouse_nav.rs`.
 
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
@@ -274,6 +248,40 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     Ok(())
 }
 
+/// Move the cockpit SPA's history by one entry (mt#3535, mt#3570).
+///
+/// The single navigation seam shared by BOTH surfaces -- the History menu /
+/// `Cmd+[` accelerators and the native mouse-button monitor (`mouse_nav.rs`).
+/// Driven by `eval` rather than WKWebView's own `goBack`/`goForward` so both
+/// move the SAME history: the SPA's react-router entries, which are `pushState`
+/// entries on the document's own history. This is the ADR-023 native->SPA seam.
+///
+/// `guard_editable` gates the focused-editable carve-out, which applies to the
+/// KEYBOARD path only (PR #2522 R1): a menu accelerator fires no matter what
+/// holds focus, and `Cmd+[` / `Cmd+]` are editing keys inside a text field, so
+/// navigating mid-edit would discard what was typed. A MOUSE press is never a
+/// text-editing keystroke, so it passes `false` and navigates unconditionally.
+///
+/// The guard lives in the evaluated script rather than Rust-side because focus
+/// state lives in the DOM and `eval` is fire-and-forget: a separate predicate
+/// eval would race the navigation.
+pub(crate) fn eval_history_nav(app: &AppHandle, forward: bool, guard_editable: bool) {
+    let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) else {
+        return;
+    };
+    let method = if forward { "forward" } else { "back" };
+    let guard = if guard_editable {
+        "var a = document.activeElement;\n  \
+         if (a && (a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;\n  "
+    } else {
+        ""
+    };
+    let script = format!("(function () {{\n  {guard}window.history.{method}();\n}})()");
+    if let Err(e) = window.eval(&script) {
+        eprintln!("[cockpit-tray] failed to run history.{method}() on cockpit window: {e}");
+    }
+}
+
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
@@ -284,37 +292,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 }
             }
         }
-        // History navigation (mt#3535). Driven by `eval` rather than a native
-        // WKWebView goBack/goForward so the menu and the mouse side buttons
-        // move the SAME history: the SPA's react-router entries, which are
-        // pushState entries on the document's own history.
+        // History navigation (mt#3535). The KEYBOARD/menu path, so the
+        // focused-editable carve-out applies -- see eval_history_nav.
         "history_back" | "history_forward" => {
-            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
-                let method = if id == "history_back" {
-                    "back"
-                } else {
-                    "forward"
-                };
-                // Focus carve-out, keyboard path ONLY (PR #2522 R1). A menu
-                // accelerator fires no matter what holds keyboard focus, and
-                // Cmd+[ / Cmd+] are editing keys inside a text field -- so
-                // navigating on them mid-edit would discard what was typed.
-                // Guarded in the document rather than Rust-side because focus
-                // state lives in the DOM and `eval` is fire-and-forget: a
-                // separate predicate eval would race the navigation.
-                // HISTORY_NAV_SHIM's MOUSE path deliberately has no such guard;
-                // a side-button press is unambiguous wherever the caret is.
-                let script = format!(
-                    r#"(function () {{
-  var a = document.activeElement;
-  if (a && (a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
-  window.history.{method}();
-}})()"#
-                );
-                if let Err(e) = window.eval(&script) {
-                    eprintln!("[cockpit-tray] failed to run {id} on cockpit window: {e}");
-                }
-            }
+            eval_history_nav(app, id == "history_forward", true);
         }
         "zoom_in" | "zoom_out" | "zoom_reset" => {
             // try_state (not state) so an early/edge invocation before the
@@ -514,10 +495,6 @@ fn create_cockpit_window(app: &AppHandle) {
             }
         })
         .initialization_script(EXTERNAL_LINK_SHIM)
-        // Appended, not replaced: `initialization_script` pushes onto the
-        // webview's script list, so both shims run (tauri 2.11.2,
-        // `webview/mod.rs:868`).
-        .initialization_script(HISTORY_NAV_SHIM)
         .build()
     {
         Ok(window) => {
