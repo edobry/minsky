@@ -122,6 +122,17 @@ export interface SendMessageOptions {
    * the plain-text default was built on, rather than trading it away.
    */
   plainFallback?: string;
+  /**
+   * Post into a specific Telegram DM forum topic (mt#3505).
+   *
+   * Optional and omitted by default so the two alert callers (the reviewer's
+   * circuit-breaker sink, `notifyPrincipal`) — which never target a topic —
+   * produce byte-for-byte the same wire payload as before this field existed.
+   * A send to a thread id whose topic no longer exists answers HTTP 400 with
+   * description "Bad Request: message thread not found" (verified live,
+   * mt#3500 Phase 0) — reconciling that is Phase 2's job, not this field's.
+   */
+  messageThreadId?: number;
   fetchFn?: FetchFn;
 }
 
@@ -160,7 +171,16 @@ export type TelegramSendResult =
  * an unstyled message, never a missing one.
  */
 export async function sendTelegramMessage(opts: SendMessageOptions): Promise<TelegramSendResult> {
-  const { token, chatId, text, replyToMessageId, parseMode, plainFallback, fetchFn = fetch } = opts;
+  const {
+    token,
+    chatId,
+    text,
+    replyToMessageId,
+    parseMode,
+    plainFallback,
+    messageThreadId,
+    fetchFn = fetch,
+  } = opts;
 
   const attempt = await postSendMessage({
     token,
@@ -168,6 +188,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     text,
     replyToMessageId,
     parseMode,
+    messageThreadId,
     fetchFn,
   });
 
@@ -184,6 +205,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     text: plainFallback,
     replyToMessageId,
     parseMode: undefined,
+    messageThreadId,
     fetchFn,
   });
 
@@ -200,9 +222,10 @@ async function postSendMessage(opts: {
   text: string;
   replyToMessageId: number | undefined;
   parseMode: "HTML" | undefined;
+  messageThreadId: number | undefined;
   fetchFn: FetchFn;
 }): Promise<TelegramSendResult> {
-  const { token, chatId, text, replyToMessageId, parseMode, fetchFn } = opts;
+  const { token, chatId, text, replyToMessageId, parseMode, messageThreadId, fetchFn } = opts;
   const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
 
   let response: Response;
@@ -216,6 +239,7 @@ async function postSendMessage(opts: {
         disable_web_page_preview: true,
         ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
         ...(replyToMessageId === undefined ? {} : { reply_to_message_id: replyToMessageId }),
+        ...(messageThreadId === undefined ? {} : { message_thread_id: messageThreadId }),
       }),
     });
   } catch (err: unknown) {
@@ -272,6 +296,57 @@ export async function sendTelegramTypingAction(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Capability probe
+// ---------------------------------------------------------------------------
+
+export type TelegramGetMeResult =
+  | { ok: true; hasTopicsEnabled: boolean; allowsUsersToCreateTopics: boolean }
+  | { ok: false; status?: number; detail: string };
+
+/**
+ * Probe the bot's own topic-mode capability (mt#3505, parent mt#3500).
+ *
+ * `has_topics_enabled` and `allows_users_to_create_topics` are two @BotFather
+ * toggles with no setter in the Bot API — this is read-only. Both fields are
+ * present-with-`false` on a bot with topic mode off, not absent, so a bot on
+ * an older API build and one with the feature deliberately disabled are
+ * indistinguishable from this call alone; the launch-time caller only needs
+ * to know "on or off", not why.
+ *
+ * @see core.telegram.org/bots/api#user — `has_topics_enabled`,
+ *   `allows_users_to_create_topics`
+ */
+export async function getTelegramMe(opts: {
+  token: string;
+  fetchFn?: FetchFn;
+}): Promise<TelegramGetMeResult> {
+  const { token, fetchFn = fetch } = opts;
+  const url = `${TELEGRAM_API_BASE}/bot${token}/getMe`;
+
+  let response: Response;
+  try {
+    response = await fetchFn(url, { method: "POST" });
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      detail: redactSecret(token, `HTTP ${response.status}${await bodySnippet(response)}`),
+    };
+  }
+
+  const result = asRecord(asRecord(await readJson(response))?.["result"]);
+  return {
+    ok: true,
+    hasTopicsEnabled: result?.["has_topics_enabled"] === true,
+    allowsUsersToCreateTopics: result?.["allows_users_to_create_topics"] === true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Receive
 // ---------------------------------------------------------------------------
 
@@ -317,6 +392,24 @@ export interface InboundTelegramMessage {
    * nothing back, with no signal anything had arrived.
    */
   unsupportedMedia: string | undefined;
+  /**
+   * Which DM forum topic this message arrived in (mt#3505, parent mt#3500).
+   *
+   * Undefined for a message in the standing (non-topic) conversation — Bot
+   * API 9.3 documents `message_thread_id` as present "for supergroups and
+   * private chats only" once topic mode is on; a bot without topic mode
+   * enabled never sees this field at all, so the channel degrades to today's
+   * single-conversation behavior automatically, with no gating logic needed.
+   */
+  messageThreadId: number | undefined;
+  /**
+   * Telegram's own flag confirming the message truly belongs to a topic,
+   * echoed back verbatim (mt#3500 Phase 0 live probe). Kept alongside
+   * `messageThreadId` rather than folded into it because Telegram documents
+   * them as two distinct fields — this parser stays a faithful mirror of the
+   * wire shape rather than inferring one from the other.
+   */
+  isTopicMessage: boolean;
 }
 
 /**
@@ -487,6 +580,7 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
     // `text` first: a message has one or the other, but prefer the primary
     // field if a future update type ever carries both.
     const replyToTextRaw = replyTo?.["text"] ?? replyTo?.["caption"];
+    const messageThreadId = message["message_thread_id"];
 
     results.push({
       updateId,
@@ -499,6 +593,8 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
       replyToText: typeof replyToTextRaw === "string" ? replyToTextRaw : undefined,
       attachments,
       unsupportedMedia,
+      messageThreadId: typeof messageThreadId === "number" ? messageThreadId : undefined,
+      isTopicMessage: message["is_topic_message"] === true,
     });
   }
   return results;
