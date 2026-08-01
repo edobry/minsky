@@ -593,4 +593,14 @@ describe("readPositiveIntEnv", () => {
     expect(readPositiveIntEnv("X", 200, { X: "NaN" })).toBe(200);
     expect(readPositiveIntEnv("X", 200, { X: "Infinity" })).toBe(200);
   });
+
+  test("rejects an override above the ceiling — a tune must not become a silent off switch", () => {
+    // PR #2526 R1. The typo case: an extra zero on the 200-word budget.
+    expect(readPositiveIntEnv("X", 200, { X: "2000" })).toBe(2000); // exactly at 10x — allowed
+    expect(readPositiveIntEnv("X", 200, { X: "2001" })).toBe(200); // past it — ignored
+    expect(readPositiveIntEnv("X", 200, { X: "999999" })).toBe(200);
+    // The ceiling scales with the guard's own default, not an absolute number.
+    expect(readPositiveIntEnv("X", 10, { X: "100" })).toBe(100);
+    expect(readPositiveIntEnv("X", 10, { X: "101" })).toBe(10);
+  });
 });
