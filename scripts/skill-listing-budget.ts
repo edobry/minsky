@@ -15,11 +15,12 @@
  *   bun scripts/skill-listing-budget.ts --budget 5800   # override the assumed harness budget
  */
 
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   DESCRIPTION_CAP_CHARS,
   LISTING_TOTAL_TARGET_CHARS,
+  SKILL_SOURCE_FILENAMES,
   descriptionCharsFromSkillMd,
   evaluateSkillListingBudget,
   type SkillListingEntry,
@@ -57,12 +58,21 @@ async function collectSkills(workspacePath: string): Promise<SkillListingEntry[]
     } catch {
       continue; // not a skill dir — charges nothing to the listing
     }
-    let owned = true;
-    try {
-      await readdir(join(workspacePath, ".minsky", "skills", name));
-    } catch {
-      owned = false;
-    }
+    // Ownership is decided by the presence of a source FILE, matching the compile
+    // target exactly — see SKILL_SOURCE_FILENAMES. Testing directory existence here
+    // would let the two disagree about which skills the cap applies to.
+    const sourceDir = join(workspacePath, ".minsky", "skills", name);
+    const ownedChecks = await Promise.all(
+      SKILL_SOURCE_FILENAMES.map(async (filename) => {
+        try {
+          await access(join(sourceDir, filename));
+          return true;
+        } catch {
+          return false;
+        }
+      })
+    );
+    const owned = ownedChecks.some(Boolean);
     const result = descriptionCharsFromSkillMd(raw);
     if ("error" in result) {
       console.error(`WARN: ${name}: ${result.error}`);

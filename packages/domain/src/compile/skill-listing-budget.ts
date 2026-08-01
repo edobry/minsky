@@ -37,10 +37,25 @@ export const DESCRIPTION_CAP_CHARS = 400;
 /** Listing total the corpus aims to stay under (mt#3476 criterion 3). */
 export const LISTING_TOTAL_TARGET_CHARS = 18_000;
 
+/**
+ * The source filenames that make a `.minsky/skills/<name>/` directory an OWNED skill.
+ *
+ * Single source of truth for the ownership rule, shared by the `claude-skills` compile
+ * target and the `skills:budget` CLI. Ownership is decided by the presence of a source
+ * FILE, never by the directory existing: an empty `.minsky/skills/<name>/` produces no
+ * compiled output, so treating it as owned would make the CLI gate a description the
+ * compile target considers vendored — the two would disagree about which skills the cap
+ * applies to. (Found in PR #2504 review: the CLI had been testing directory existence.)
+ */
+export const SKILL_SOURCE_FILENAMES = ["SKILL.md", "skill.ts"] as const;
+
 export interface SkillListingEntry {
   name: string;
   descriptionChars: number;
-  /** True when a `.minsky/skills/<name>/` source exists — i.e. this repo owns the text. */
+  /**
+   * True when `.minsky/skills/<name>/` contains one of {@link SKILL_SOURCE_FILENAMES} —
+   * i.e. this repo owns the text and the cap is enforceable against it.
+   */
   owned: boolean;
 }
 

@@ -19,6 +19,7 @@ import type { SkillDefinition } from "../../definitions/types";
 import { log } from "../../utils/logger";
 import { COMPILE_GENERATED_BANNER } from "../../rules/compile/banner-constants";
 import {
+  SKILL_SOURCE_FILENAMES,
   descriptionCharsFromSkillMd,
   evaluateSkillListingBudget,
   formatSkillListingBudget,
@@ -299,12 +300,15 @@ async function collectSkillListingEntries(
     } catch {
       continue; // not a skill dir (or no SKILL.md) — charges nothing to the listing
     }
+    // Ownership rule shared with the `skills:budget` CLI via SKILL_SOURCE_FILENAMES —
+    // presence of a source FILE, never directory existence. Keeping one constant is
+    // what makes the two call sites unable to disagree about which skills the cap
+    // applies to.
     const sourceDir = skillSourceDir(workspacePath);
-    const [hasMdSource, hasTsSource] = await Promise.all([
-      fileExists(fs, join(sourceDir, dirName, SKILL_MD_SOURCE)),
-      fileExists(fs, join(sourceDir, dirName, SKILL_TS_SOURCE)),
-    ]);
-    const owned = hasMdSource || hasTsSource;
+    const sourceChecks = await Promise.all(
+      SKILL_SOURCE_FILENAMES.map((filename) => fileExists(fs, join(sourceDir, dirName, filename)))
+    );
+    const owned = sourceChecks.some(Boolean);
 
     const result = descriptionCharsFromSkillMd(raw);
     if ("error" in result) {
