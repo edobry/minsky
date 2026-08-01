@@ -12,7 +12,23 @@ tags:
 - **Runtime**: Bun (not Node.js)
 - **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
 - **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
+- **Tests**: `bun scripts/run-tests-gated.ts` — the full suite, and the ONLY invocation that
+  fail-closes on a truncated run. Do NOT hand-type `bun test <directories>` for a broad run:
+  passing `./src` recurses into `src/mcp`, which triggers a Bun 1.2.21 defect that silently
+  stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
+  zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
+  what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
+  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
+  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
+  single file or a subdirectory that is not `./src` itself is unaffected.
+- **Still unsafe, tracked at mt#3572**: `test:all`, `test:debug`, `test:integration`, and
+  `test:debug:integration` pass NO path argument, and bare discovery also walks `src/mcp` —
+  `bunfig.toml`'s `pathIgnorePatterns` lists only `services/**` and `src/cockpit/web/**`, because
+  the mechanism does not reliably prune a subdirectory (its own comment records why). Confirmed
+  truncating. They were not migrated with the rest because `run-tests-main.ts`'s `ROOTS` omits
+  `./tests/integration`, so routing them through it would silently DROP integration coverage —
+  a worse bug than the one being fixed. Treat a green result from these four as unverified.
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
