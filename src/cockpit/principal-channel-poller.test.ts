@@ -15,6 +15,7 @@ import {
   type ChannelActuator,
   type PollCursor,
   type PollCycleDeps,
+  startTypingLoop,
 } from "./principal-channel-poller";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
@@ -1164,6 +1165,94 @@ describe("runPollCycle — receipt acks", () => {
 
     expect(typing.length).toBeGreaterThan(0);
     expect(THREAD_FIELD in (typing[0] ?? {})).toBe(false);
+  });
+});
+
+/**
+ * The typing loop's lifetime (PR #2525 R2).
+ *
+ * Exercised DIRECTLY with a short refresh rather than through `runPollCycle`.
+ * At the 4-second production cadence a poll-cycle test finishes before a single
+ * refresh fires, so an assertion about stopping would pass whether or not
+ * stopping worked — the can't-fail shape mem#704 warns about. Driving the loop
+ * itself is what makes these discriminating.
+ */
+describe("startTypingLoop", () => {
+  function collector(): { calls: number[]; fetchFn: FetchFn } {
+    const calls: number[] = [];
+    const fetchFn: FetchFn = async () => {
+      calls.push(Date.now());
+      return new Response(JSON.stringify({ ok: true, result: true }));
+    };
+    return { calls, fetchFn };
+  }
+
+  const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("keeps refreshing for as long as it runs", async () => {
+    // The property the whole change exists for: one call is not enough,
+    // because Telegram expires the action after ~5s.
+    const { calls, fetchFn } = collector();
+    const loop = startTypingLoop({ token: "t", chatId: "c", refreshMs: 5, fetchFn });
+
+    await settle(40);
+    loop.stop();
+
+    expect(calls.length).toBeGreaterThan(2);
+  });
+
+  test("stop() ends the refreshes", async () => {
+    const { calls, fetchFn } = collector();
+    const loop = startTypingLoop({ token: "t", chatId: "c", refreshMs: 5, fetchFn });
+
+    await settle(25);
+    loop.stop();
+    const atStop = calls.length;
+    await settle(30);
+
+    expect(calls.length).toBe(atStop);
+  });
+
+  test("aborting the poller's signal stops it, without stop() being called", async () => {
+    // Per-turn teardown is not sufficient: the poller aborts on shutdown while
+    // an in-flight turn keeps awaiting its actuator, so without this binding
+    // the interval outlives the poller it belongs to.
+    const controller = new AbortController();
+    const { calls, fetchFn } = collector();
+    startTypingLoop({
+      token: "t",
+      chatId: "c",
+      refreshMs: 5,
+      signal: controller.signal,
+      fetchFn,
+    });
+
+    await settle(25);
+    controller.abort();
+    const atAbort = calls.length;
+    await settle(30);
+
+    expect(atAbort).toBeGreaterThan(1);
+    expect(calls.length).toBe(atAbort);
+  });
+
+  test("an already-aborted signal never starts the interval", async () => {
+    // A turn can begin on the same tick a stop lands; subscribing to a future
+    // event would miss it.
+    const controller = new AbortController();
+    controller.abort();
+    const { calls, fetchFn } = collector();
+    startTypingLoop({
+      token: "t",
+      chatId: "c",
+      refreshMs: 5,
+      signal: controller.signal,
+      fetchFn,
+    });
+
+    await settle(30);
+
+    expect(calls.length).toBe(0);
   });
 });
 

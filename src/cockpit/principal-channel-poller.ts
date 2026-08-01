@@ -450,6 +450,10 @@ async function handleRoute(
           token: deps.token,
           chatId: deps.chatId,
           messageThreadId: message.messageThreadId,
+          // The poller's shutdown signal, so stopping the poller stops the
+          // indicator immediately rather than whenever this turn happens to
+          // finish (PR #2525 R2).
+          ...(deps.signal ? { signal: deps.signal } : {}),
           ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
         });
 
@@ -605,11 +609,29 @@ interface TypingLoop {
  * never able to delay or fail the answer. The loop only changes how LONG the
  * cue lasts.
  */
-function startTypingLoop(opts: {
+export function startTypingLoop(opts: {
   token: string;
   chatId: string;
   messageThreadId?: number;
   fetchFn?: FetchFn;
+  /**
+   * Refresh cadence. Overridable ONLY so tests can observe the loop actually
+   * looping — at the 4s default a test would finish before a single refresh
+   * fired, so an assertion about stopping would pass whether or not stopping
+   * worked.
+   */
+  refreshMs?: number;
+  /**
+   * The poller's shutdown signal (PR #2525 R2).
+   *
+   * Per-turn teardown is not sufficient on its own. `stop()` on the poller
+   * aborts this signal, but a turn already in flight keeps awaiting its
+   * actuator — so without this listener the interval would go on calling
+   * `sendChatAction` after the poller was told to stop, for as long as the
+   * abandoned turn ran. Binding to the signal makes shutdown immediate rather
+   * than eventual.
+   */
+  signal?: AbortSignal;
 }): TypingLoop {
   let stopped = false;
 
@@ -620,15 +642,32 @@ function startTypingLoop(opts: {
     });
   };
 
-  send();
-  const timer = setInterval(send, TYPING_REFRESH_MS);
-
-  return {
+  const loop: TypingLoop = {
     stop(): void {
       stopped = true;
       clearInterval(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
     },
   };
+
+  // Named so it can be removed on stop — an accumulating listener on the
+  // poller's long-lived signal would be its own leak, one per turn.
+  function onAbort(): void {
+    loop.stop();
+  }
+
+  // Already-aborted is a real state: a turn can start on the same tick a stop
+  // lands. Check it rather than only subscribing to the future event.
+  if (opts.signal?.aborted === true) {
+    stopped = true;
+  }
+
+  send();
+  const timer = setInterval(send, opts.refreshMs ?? TYPING_REFRESH_MS);
+  if (stopped) clearInterval(timer);
+  else opts.signal?.addEventListener("abort", onAbort);
+
+  return loop;
 }
 
 /**
