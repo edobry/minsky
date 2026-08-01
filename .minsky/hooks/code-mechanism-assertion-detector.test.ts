@@ -543,6 +543,88 @@ describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech 
     expect(result.claims.map((c) => c.symbol)).not.toContain("CommonJS");
     expect(result.matched).toBe(false);
   });
+
+  describe("mt#3540 — non-code text read as a code symbol", () => {
+    // The four shapes classified false in the 2026-08-01 calibration pass.
+    // Each has a paired negative control: a genuine symbol that RESEMBLES the
+    // excluded shape must still fire, or the exclusion is written too broadly.
+
+    // PR #2527 R1: assert on the WHOLE claim list, not one expected spelling.
+    // The window slice sometimes severs `America/`, so the same false positive
+    // arrives as `America/New_York` OR as a bare `New_York` — asserting only
+    // the latter passed while the former still produced a claim.
+    test("timezone: neither the whole token nor the severed tail is a symbol", () => {
+      const whole = detectCodeMechanismAssertion(
+        "The window limits results to `America/New_York` for the digest.",
+        ""
+      );
+      expect(whole.claims.map((c) => c.symbol)).toEqual([]);
+
+      const severed = detectCodeMechanismAssertion("The `New_York` window limits the digest.", "");
+      expect(severed.claims.map((c) => c.symbol)).toEqual([]);
+    });
+
+    test("timezone: multi-segment and underscore-free forms are also excluded", () => {
+      for (const tz of ["Europe/London", "America/Argentina/Buenos_Aires"]) {
+        const result = detectCodeMechanismAssertion(`The \`${tz}\` window limits the digest.`, "");
+        expect(result.claims.map((c) => c.symbol)).toEqual([]);
+      }
+    });
+
+    test("negative control: an all-caps env var with underscores still counts", () => {
+      const text = "`MINSKY_SKIP_SIZE_JUSTIFICATION` guards the growth check.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toContain("MINSKY_SKIP_SIZE_JUSTIFICATION");
+    });
+
+    test("negative control: a lowercase snake identifier still counts", () => {
+      const text = "`session_pr_merge` guards against an unreviewed merge.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toContain("session_pr_merge");
+    });
+
+    test("product name: `iTerm2` is not a symbol", () => {
+      const text = "iTerm2 drops the passthrough sequence unless it is enabled.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toEqual([]);
+      expect(result.matched).toBe(false);
+    });
+
+    test("negative control: a project camelCase symbol still counts", () => {
+      const text = "`extractTurns` throws when the transcript is truncated.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toContain("extractTurns");
+    });
+
+    test("multi-segment directory path: a trailing-slash path is not a symbol", () => {
+      const text = "`packages/domain/src/detectors/` guards the shared framework.";
+      const result = detectCodeMechanismAssertion(text, "");
+      const syms = result.claims.map((c) => c.symbol);
+      expect(syms.some((s) => s.includes("packages/domain"))).toBe(false);
+    });
+
+    test("negative control: a multi-segment FILE path (no trailing slash) still counts", () => {
+      const text = "`src/exec.ts` throws when the binary is missing.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toContain("src/exec.ts");
+    });
+
+    test("override boilerplate: an env var quoted in an override line is not a claim", () => {
+      const text =
+        "Override: set `MINSKY_ACK_UNTAKEN_ACTION=1`. The guard warns on a named action.";
+      const result = detectCodeMechanismAssertion(text, "");
+      // Whole-list assertion (PR #2527 R1): no claim may name the var in ANY
+      // spelling, rather than checking one expected token.
+      expect(result.claims.filter((c) => c.symbol.includes("MINSKY_ACK"))).toEqual([]);
+    });
+
+    test("negative control: a genuine claim about what the same env var DOES still fires", () => {
+      // No override-boilerplate framing — this is an actual mechanism claim.
+      const text = "`MINSKY_ACK_UNTAKEN_ACTION` guards the Stop-event scan from re-firing.";
+      const result = detectCodeMechanismAssertion(text, "");
+      expect(result.claims.map((c) => c.symbol)).toContain("MINSKY_ACK_UNTAKEN_ACTION");
+    });
+  });
 });
 
 // Shared fixture for leg-3 relay-context tests: a claim set produced by
