@@ -32,9 +32,15 @@ A task in `READY` status can transition directly to `DONE` without going through
 `## Closeout evidence` section with non-empty content**.
 
 The status engine enforces this structurally:
-- The heading must match `## Closeout evidence` (case-insensitive, with or without trailing punctuation).
+- The heading must match `## Closeout evidence` — or its investigation-shaped synonyms `## Findings`
+  and `## Outcome` (mt#455) — case-insensitive, with or without trailing punctuation.
+- A trailing qualifier is accepted when a **delimiter** introduces it (mt#3443): a parenthesis or
+  bracket, an em/en dash, or a colon — `## Findings (2026-07-31)`, `## Outcome — recommendation`,
+  `## Closeout evidence: deployed`. A bare continuation is NOT accepted, because it reads as a
+  different section: `## Findings summary` and `## Outcomes` are both refused.
 - The section must have at least one non-blank line of content before the next `##` heading or end-of-spec.
-- If either condition fails, the transition is refused with a clear error message.
+- If either condition fails, the transition is refused — and the refusal names which one: no section
+  at all, a heading that nearly matched (naming the offending heading), or an empty section.
 
 The closeout evidence section **replaces the merge-commit audit trail** that the standard PR path provides.
 Future readers find the external artifact via the spec.
