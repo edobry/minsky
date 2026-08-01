@@ -83,9 +83,15 @@ helpers (`findRealPromptIndices`, `isRealUserPrompt`, `extractAssistantText`,
   "hadPropagation": false,
   "matchedSkill": "engineering-writing",
   "matchedKeyword": "argumentative",
-  "dedupeKey": "3:WebSearch"
+  "dedupeKey": "3:WebSearch",
+  "suppressionReasons": []
 }
 ```
+
+`suppressionReasons` (mt#3207) is the shared contract the sweep's `isSuppressedRecord` reads:
+`["propagation-in-window"]` on a record the propagation gate suppressed (paired with
+`hadPropagation: true`), `[]` on a fire that injected. An ABSENT field is not the same as `[]` —
+records written before mt#3207 carry no field and count as injected.
 
 Diversity axis for the calibration-review cadence machinery: distinct `loadedSkills` values, NOT
 matched phrases — declared per the mt#2708 spec's Graduation contract (a tool-use-pattern detector
