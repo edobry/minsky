@@ -3,10 +3,39 @@ import {
   countDeclarationForms,
   extractDeclaredIdentifiers,
   extractDuplicateDeclarationClaim,
+  countHeadingOccurrences,
+  extractQuotedHeadings,
+  extractDuplicateSectionClaim,
+  extractStructuralClaim,
   applyStructuralClaimVerification,
   fetchAndApplyStructuralClaimVerification,
 } from "./structural-claim-verifier";
+import type {
+  StructuralClaimDowngradeAuditEntry,
+  DuplicateDeclarationDowngradeAuditEntry,
+  DuplicateSectionDowngradeAuditEntry,
+} from "./structural-claim-verifier";
 import type { ReviewToolCall } from "./output-tools";
+
+/**
+ * Narrow an audit entry to the duplicate-declaration variant. mt#3520 widened
+ * `StructuralClaimDowngradeAuditEntry` into a `claimClass`-discriminated union, so reading
+ * `.identifier` off the union no longer typechecks — assert the class, then narrow.
+ */
+function asDeclarationEntry(
+  entry: StructuralClaimDowngradeAuditEntry | undefined
+): DuplicateDeclarationDowngradeAuditEntry {
+  expect(entry?.claimClass).toBe("duplicate-declaration");
+  return entry as DuplicateDeclarationDowngradeAuditEntry;
+}
+
+/** Sibling of `asDeclarationEntry` for the duplicate-section variant. */
+function asSectionEntry(
+  entry: StructuralClaimDowngradeAuditEntry | undefined
+): DuplicateSectionDowngradeAuditEntry {
+  expect(entry?.claimClass).toBe(DUPLICATE_SECTION_CLASS);
+  return entry as DuplicateSectionDowngradeAuditEntry;
+}
 
 const TEST_FILE = "services/reviewer/src/prompt.test.ts";
 
@@ -256,8 +285,8 @@ describe("applyStructuralClaimVerification", () => {
     const result = applyStructuralClaimVerification(toolCalls, new Map([[TEST_FILE, fileContent]]));
 
     expect(result.downgrades).toHaveLength(1);
-    expect(result.downgrades[0]?.identifier).toBe(ID_1);
-    expect(result.downgrades[0]?.declarationCount).toBe(1);
+    expect(asDeclarationEntry(result.downgrades[0]).identifier).toBe(ID_1);
+    expect(asDeclarationEntry(result.downgrades[0]).declarationCount).toBe(1);
     expect(result.downgrades[0]?.reason).toContain("structural-claim-verification");
     const finding = result.toolCalls[0];
     expect(finding?.name).toBe("submit_finding");
@@ -281,8 +310,8 @@ describe("applyStructuralClaimVerification", () => {
     const result = applyStructuralClaimVerification(toolCalls, new Map([[TEST_FILE, fileContent]]));
 
     expect(result.downgrades).toHaveLength(1);
-    expect(result.downgrades[0]?.identifier).toBe(ID_2);
-    expect(result.downgrades[0]?.declarationCount).toBe(1);
+    expect(asDeclarationEntry(result.downgrades[0]).identifier).toBe(ID_2);
+    expect(asDeclarationEntry(result.downgrades[0]).declarationCount).toBe(1);
     const finding = result.toolCalls[0];
     if (finding?.name === "submit_finding") {
       expect(finding.args.severity).toBe("NON-BLOCKING");
@@ -389,7 +418,7 @@ describe("fetchAndApplyStructuralClaimVerification", () => {
 
     expect(fetched).toEqual([TEST_FILE]);
     expect(result.downgrades).toHaveLength(1);
-    expect(result.downgrades[0]?.identifier).toBe(ID_1);
+    expect(asDeclarationEntry(result.downgrades[0]).identifier).toBe(ID_1);
   });
 
   it("treats a thrown fetcher error as unfetchable and preserves BLOCKING", async () => {
@@ -402,5 +431,213 @@ describe("fetchAndApplyStructuralClaimVerification", () => {
 
     expect(result.downgrades).toHaveLength(0);
     expect(result.toolCalls).toEqual(toolCalls);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// duplicate-SECTION class (mt#3520 — mt#2575 instance 6, PR #2498)
+// ---------------------------------------------------------------------------
+
+const SKILL_SOURCE_FILE = ".minsky/skills/plan-task/skill.ts";
+const GATE_P_HEADING = "#### Gate criterion (p) — First-party decision-record check";
+const STEP_4_HEADING = "### Step 4: Act on gate results";
+
+/**
+ * The real R1 finding from PR #2498 (review 4832326740), reconstructed from its posted text.
+ * Note it quotes TWO headings — the one it claims is duplicated AND a neighbouring landmark —
+ * which is why the section class verifies the whole quoted set rather than demanding exactly one.
+ */
+const PR2498_SUMMARY =
+  "Gate (p) section is duplicated in the source skill (appears twice), breaking the " +
+  "append-only manifest and tests";
+const PR2498_DETAILS = [
+  `The heading \`${GATE_P_HEADING}\` appears twice in \`${SKILL_SOURCE_FILE}\`:`,
+  "once immediately after gate (o) and again later before the",
+  `\`${STEP_4_HEADING}\` section repeats.`,
+  "This duplication violates the append-only gate-letter manifest and will cause",
+  "parseGates to return two (p) entries.",
+].join(" ");
+
+/** The section claim class, named once (custom/no-magic-string-duplication). */
+const DUPLICATE_SECTION_CLASS = "duplicate-section";
+
+/**
+ * A skill source in this repo carries its whole markdown body inside a TypeScript template
+ * literal, so the headings below live INSIDE a string — the shape that makes
+ * `stripCommentsAndStrings` the wrong pre-pass for this class.
+ */
+function skillSourceContent(gatePHeadingLines: string[]): string {
+  return [
+    'import { defineSkill } from "../../../packages/domain/src/definitions/factories";',
+    "",
+    "export default defineSkill({",
+    '  name: "plan-task",',
+    "  content: `",
+    "#### Gate criterion (o) — Problem-statement verification",
+    "",
+    "Prose about gate (o).",
+    "",
+    ...gatePHeadingLines,
+    "",
+    STEP_4_HEADING,
+    "",
+    "Prose about step 4.",
+    "`,",
+    "});",
+  ].join("\n");
+}
+
+const SOURCE_WITH_ONE_GATE_P = skillSourceContent([GATE_P_HEADING, "", "Prose about gate (p)."]);
+const SOURCE_WITH_TWO_GATE_P = skillSourceContent([
+  GATE_P_HEADING,
+  "",
+  "Prose about gate (p).",
+  "",
+  GATE_P_HEADING,
+  "",
+  "An actual duplicate.",
+]);
+
+describe("countHeadingOccurrences", () => {
+  it("counts a heading that lives inside a TypeScript template literal", () => {
+    expect(countHeadingOccurrences(SOURCE_WITH_ONE_GATE_P, GATE_P_HEADING)).toBe(1);
+    expect(countHeadingOccurrences(SOURCE_WITH_ONE_GATE_P, STEP_4_HEADING)).toBe(1);
+  });
+
+  it("counts 2 when the heading genuinely repeats", () => {
+    expect(countHeadingOccurrences(SOURCE_WITH_TWO_GATE_P, GATE_P_HEADING)).toBe(2);
+  });
+
+  it("does not count prose that mentions the heading text without the # prefix", () => {
+    const content = ["Gate criterion (p) — First-party decision-record check", "", "prose"].join(
+      "\n"
+    );
+    expect(countHeadingOccurrences(content, GATE_P_HEADING)).toBe(0);
+  });
+
+  it("normalizes dash variants and extra whitespace on both sides", () => {
+    const asciiHyphenClaim = "####  Gate criterion (p) - First-party decision-record check";
+    expect(countHeadingOccurrences(SOURCE_WITH_ONE_GATE_P, asciiHyphenClaim)).toBe(1);
+  });
+});
+
+describe("extractQuotedHeadings / extractDuplicateSectionClaim", () => {
+  it("extracts both headings quoted by the real PR #2498 finding", () => {
+    const headings = extractQuotedHeadings(`${PR2498_SUMMARY}\n${PR2498_DETAILS}`);
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toContain("Gate criterion (p)");
+    expect(headings[1]).toContain("Step 4");
+  });
+
+  it("returns the quoted headings for a duplicate-section claim", () => {
+    expect(extractDuplicateSectionClaim(PR2498_SUMMARY, PR2498_DETAILS)).toHaveLength(2);
+  });
+
+  it("returns null when no trigger phrase is present", () => {
+    const details = `The heading \`${GATE_P_HEADING}\` is well written and clear.`;
+    expect(extractDuplicateSectionClaim("Nice heading", details)).toBeNull();
+  });
+
+  it("returns null when the claim quotes no heading", () => {
+    expect(
+      extractDuplicateSectionClaim("Duplicate section detected", "Something appears twice here.")
+    ).toBeNull();
+  });
+});
+
+describe("extractStructuralClaim dispatch", () => {
+  it("routes a declaration-shaped finding to the declaration class even when it says 'appears twice'", () => {
+    const claim = extractStructuralClaim(
+      DUPLICATE_IDENTIFIER_ERROR_SUMMARY,
+      `The identifier appears twice: \`const ${ID_1} = "x";\``
+    );
+    expect(claim?.claimClass).toBe("duplicate-declaration");
+    expect(claim?.subjects).toEqual([ID_1]);
+  });
+
+  it("routes a heading-shaped finding to the section class", () => {
+    const claim = extractStructuralClaim(PR2498_SUMMARY, PR2498_DETAILS);
+    expect(claim?.claimClass).toBe(DUPLICATE_SECTION_CLASS);
+    expect(claim?.subjects).toHaveLength(2);
+  });
+});
+
+describe("applyStructuralClaimVerification — duplicate-section class", () => {
+  it("demotes the real PR #2498 finding when every quoted heading appears once", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(SKILL_SOURCE_FILE, PR2498_SUMMARY, PR2498_DETAILS, { line: 882 }),
+    ];
+    const result = applyStructuralClaimVerification(
+      toolCalls,
+      new Map([[SKILL_SOURCE_FILE, SOURCE_WITH_ONE_GATE_P]])
+    );
+
+    expect(result.downgrades).toHaveLength(1);
+    const entry = asSectionEntry(result.downgrades[0]);
+    expect(entry.file).toBe(SKILL_SOURCE_FILE);
+    expect(entry.headings).toHaveLength(2);
+    expect(entry.headings.every((h) => h.occurrenceCount === 1)).toBe(true);
+
+    const finding = result.toolCalls[0];
+    expect(finding?.name).toBe("submit_finding");
+    if (finding?.name === "submit_finding") {
+      expect(finding.args.severity).toBe("NON-BLOCKING");
+      expect(finding.args.summary).toContain("[duplicate-section-unverified]");
+    }
+  });
+
+  it("preserves BLOCKING when one quoted heading genuinely appears twice", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(SKILL_SOURCE_FILE, PR2498_SUMMARY, PR2498_DETAILS, { line: 882 }),
+    ];
+    const result = applyStructuralClaimVerification(
+      toolCalls,
+      new Map([[SKILL_SOURCE_FILE, SOURCE_WITH_TWO_GATE_P]])
+    );
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("preserves BLOCKING when the file content is unavailable", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(SKILL_SOURCE_FILE, PR2498_SUMMARY, PR2498_DETAILS, { line: 882 }),
+    ];
+    const result = applyStructuralClaimVerification(
+      toolCalls,
+      new Map([[SKILL_SOURCE_FILE, null]])
+    );
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("leaves a NON-BLOCKING duplicate-section finding untouched", () => {
+    const toolCalls: ReviewToolCall[] = [
+      nonBlockingFinding(SKILL_SOURCE_FILE, PR2498_SUMMARY, PR2498_DETAILS),
+    ];
+    const result = applyStructuralClaimVerification(
+      toolCalls,
+      new Map([[SKILL_SOURCE_FILE, SOURCE_WITH_ONE_GATE_P]])
+    );
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("fetches the cited file for a section claim and demotes end-to-end", async () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(SKILL_SOURCE_FILE, PR2498_SUMMARY, PR2498_DETAILS, { line: 882 }),
+      specVerification("gate letters remain append-only", "Met"),
+    ];
+    const fetched: string[] = [];
+    const result = await fetchAndApplyStructuralClaimVerification(toolCalls, async (path) => {
+      fetched.push(path);
+      return SOURCE_WITH_ONE_GATE_P;
+    });
+
+    expect(fetched).toEqual([SKILL_SOURCE_FILE]);
+    expect(result.downgrades).toHaveLength(1);
+    expect(asSectionEntry(result.downgrades[0]).claimClass).toBe(DUPLICATE_SECTION_CLASS);
   });
 });
