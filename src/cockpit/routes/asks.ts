@@ -2,8 +2,8 @@
  * Cockpit ask routes (mt#2615 — extracted from server.ts, mt#1147 / mt#1916).
  *
  *   GET  /api/asks               — list pending operator-routed asks
- *   POST /api/asks/:id/defer     — defer an ask to the next service window
- *   POST /api/asks/:id/escalate  — mark an ask as principal-critical
+ *   POST /api/asks/:id/defer     — INERT (mt#3491); reports state, changes nothing
+ *   POST /api/asks/:id/escalate  — INERT (mt#3491); reports state, changes nothing
  *   POST /api/asks/:id/resolve   — mark an Ask as resolved
  */
 import type express from "express";
@@ -75,17 +75,26 @@ function makeDeferOrEscalateHandler(
         id: ask.id,
         state: ask.state,
         inert: true,
+        // ADOPTED BEHAVIOR CHANGE (PR #2509 R1): the escalate path previously
+        // returned `escalated: true`. Nothing is escalated any more, so
+        // reporting `true` would be a false claim about what the call did —
+        // exactly the class of silent misreport this PR exists to remove. The
+        // field is kept (rather than dropped) so the response shape is stable,
+        // and its value is now honest. Verified adoptable: no consumer reads
+        // it — a repo-wide grep for `.escalated` / `escalated:` across `src`,
+        // `packages`, and `services` returns only this file and the unrelated
+        // `escalatedCount` in service-window-reaper.test.ts. Pinned by
+        // asks.test.ts so the value cannot drift back silently.
         ...(mode === "escalate" ? { escalated: false } : {}),
       });
     } catch (err) {
+      // No transition happens here any more, so the former "Invalid
+      // transition" -> 409 branch is unreachable and was removed (R1
+      // non-blocking). `repo.getById` can still fail for unrelated reasons;
+      // those surface as 500. The 404 for a missing Ask is returned above
+      // from the null check, not from this handler.
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("not found")) {
-        res.status(404).json({ error: message });
-      } else if (message.includes("Invalid transition")) {
-        res.status(409).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+      res.status(500).json({ error: message });
     }
   };
 }
@@ -217,19 +226,27 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
   });
 
   /**
-   * POST /api/asks/:id/defer — defer an ask to the next service window (mt#1916)
+   * POST /api/asks/:id/defer — INERT since mt#3491 (was: mt#1916)
    *
-   * Transitions the ask back to "routed" state so it re-enters the routing
-   * queue and appears in the next window's cohort.
+   * Formerly transitioned the ask back to "routed" so it would re-enter the
+   * routing queue in the next window's cohort. Nothing re-dispatches a `routed`
+   * ask, so that was a one-way trip out of the operator's queue. Now a no-op
+   * that reports current state. See makeDeferOrEscalateHandler's docblock.
    */
   app.post("/api/asks/:id/defer", makeDeferOrEscalateHandler("defer", askRepoOverride));
 
   /**
-   * POST /api/asks/:id/escalate — mark an ask as principal-critical (mt#1916)
+   * POST /api/asks/:id/escalate — INERT since mt#3491 (was: mt#1916)
    *
-   * Transitions the ask back to "routed" state with escalation semantics.
-   * Full escalation metadata (priority bump, visibility flag) is tracked
-   * in mt#1528; this endpoint provides the operator affordance now.
+   * Formerly transitioned the ask back to "routed" "with escalation
+   * semantics", deferring the real metadata (priority bump, visibility flag)
+   * to mt#1528 — which closed as "Inbox data model + lifecycle diagram"
+   * without ever supplying them. So this endpoint's only observable effect was
+   * to remove the ask from the operator surface. Now a no-op that reports
+   * current state; the response's `escalated` field is `false` accordingly.
+   *
+   * A real escalate belongs to the delivery layer: set `forceImmediate`, page
+   * the principal out-of-band, and keep the ask visible throughout.
    */
   app.post("/api/asks/:id/escalate", makeDeferOrEscalateHandler("escalate", askRepoOverride));
 

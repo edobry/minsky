@@ -91,7 +91,10 @@ export interface SweepSummary {
  */
 export function routeResultToOutcomeWrite(
   result: RouterResult,
-  creatorRoutingTarget?: string | null
+  // Typed off `Ask` rather than a bare `string` (R1 non-blocking) so a future
+  // change to the routing-target union is enforced here instead of silently
+  // making the `=== "operator"` comparison below dead.
+  creatorRoutingTarget?: Ask["routingTarget"] | null
 ): {
   write: RouteOutcomeWrite;
   kind: AdvanceOutcomeKind;

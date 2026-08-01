@@ -1110,6 +1110,17 @@ export async function createAsk(
   const persisted = await repo.persistRouteOutcome(ask.id, write);
 
   if (write.state === "suspended") {
+    if (!persisted.routingTarget) {
+      // A suspended row should always carry a routingTarget — both write paths
+      // that produce `state: "suspended"` set one. Falling back to the router
+      // result keeps the response usable, but the divergence means the DB layer
+      // dropped a field, so say so loudly rather than papering over it
+      // (R1 non-blocking).
+      log.warn(
+        "createAsk: persisted suspended ask has no routingTarget; falling back to the router result",
+        { askId: ask.id, routerRoutingTarget: routed.routingTarget }
+      );
+    }
     // Operator-bound (inbox / elicitation-fallback) or window-deferred:
     // suspended = waiting for a response; visible on the cockpit /asks
     // surface and respondable via respondAndClose.

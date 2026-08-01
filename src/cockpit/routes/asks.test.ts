@@ -102,6 +102,31 @@ describe("/api/asks defer + escalate are inert (mt#3491)", () => {
     });
   }
 
+  test("POST /escalate reports escalated:false — the adopted R1 behavior change", async () => {
+    // The escalate path used to return `escalated: true`. Nothing is escalated
+    // now, so `true` would be a false claim about what the call did. The field
+    // is kept for shape stability and its value made honest; this test pins
+    // that so it cannot drift back. Adoption was verified by a repo-wide grep:
+    // no consumer reads `escalated` off this response.
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedOperatorAsk(repo);
+    const { url } = await makeHarness(repo);
+
+    const res = await fetch(`${url}/api/asks/${ask.id}/escalate`, { method: "POST" });
+    const body = (await res.json()) as { escalated?: boolean };
+    expect(body.escalated).toBe(false);
+  });
+
+  test("POST /defer omits the escalated field entirely", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedOperatorAsk(repo);
+    const { url } = await makeHarness(repo);
+
+    const res = await fetch(`${url}/api/asks/${ask.id}/defer`, { method: "POST" });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect("escalated" in body).toBe(false);
+  });
+
   test("POST /defer on an unknown id returns 404", async () => {
     const repo = new FakeAskRepository();
     const { url } = await makeHarness(repo);
