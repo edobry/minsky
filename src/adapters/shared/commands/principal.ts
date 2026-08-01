@@ -24,10 +24,18 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
+  type SharedCommandRegistry,
 } from "../command-registry";
 import { CommonParameters } from "../common-parameters";
 import { log } from "@minsky/shared/logger";
-import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import {
+  findTelegramTopicForTask,
+  markTelegramChannelTopicDead,
+  notifyPrincipal,
+  type PrincipalChannelDeps,
+  type TelegramTopicDb,
+} from "@minsky/domain/notify/principal-channel";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 const principalNotifyParams = {
   message: {
@@ -40,11 +48,48 @@ const principalNotifyParams = {
     description: "Optional leading line rendered above the body (e.g. a task id).",
     required: false,
   },
+  taskId: {
+    schema: z.string().optional(),
+    description:
+      "Post into the Telegram topic bound to this task, if one exists (mt#3507); otherwise " +
+      "the standing conversation. Never creates a topic.",
+    required: false,
+  },
   json: CommonParameters.json,
 } satisfies CommandParameterMap;
 
-export function registerPrincipalCommands(): void {
-  sharedCommandRegistry.registerCommand({
+/**
+ * Resolve a SQL connection through the command's DI container, for the
+ * `taskId` topic lookup/drift-reconciliation (mt#3507).
+ *
+ * Mirrors `asks.ts`'s own `container.get("persistence")` pattern rather than
+ * reaching into the cockpit daemon's `db-providers.ts`: this command can run
+ * in a bare MCP-server process with no cockpit daemon at all, and importing
+ * from `src/cockpit/` here would invert the Domain -> Adapters ->
+ * Infrastructure layering (cockpit already depends on this adapter layer).
+ * Returns undefined (never throws) when no persistence is reachable — the
+ * caller then simply omits `taskId` routing and posts to the standing
+ * conversation, which is the correct degrade for an unbound/unreachable case.
+ */
+function getDbFromContainer(
+  ctx?: CommandExecutionContext
+): (() => Promise<TelegramTopicDb | null>) | undefined {
+  const persistenceProvider = ctx?.container?.get("persistence") as
+    | SqlCapablePersistenceProvider
+    | undefined;
+  if (!persistenceProvider?.getDatabaseConnection) return undefined;
+  return async () => (await persistenceProvider.getDatabaseConnection?.()) ?? null;
+}
+
+/**
+ * Registry parameter mirrors the `registerAuthorshipCommands` pattern
+ * (`./authorship.ts`): optional, defaulting to the module-level singleton,
+ * so a test can register into an isolated `createSharedCommandRegistry()`
+ * instance instead of the shared one every other test file also touches.
+ */
+export function registerPrincipalCommands(registry?: SharedCommandRegistry): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+  targetRegistry.registerCommand({
     id: "principal.notify",
     name: "notify",
     description:
@@ -53,21 +98,47 @@ export function registerPrincipalCommands(): void {
     category: CommandCategory.PRINCIPAL,
     parameters: principalNotifyParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
+      // Only build the DB-backed deps when a taskId was actually supplied —
+      // a call with no taskId (every caller before this parameter existed,
+      // and any caller with nothing to name) needs none of this and reaches
+      // notifyPrincipal exactly as it always did.
+      let deps: PrincipalChannelDeps | undefined;
+      if (params.taskId !== undefined) {
+        const getDb = getDbFromContainer(ctx);
+        if (getDb) {
+          deps = {
+            lookupTaskTopic: (taskId, chatId) =>
+              findTelegramTopicForTask(taskId, chatId, { getDb }),
+            markTopicDead: (chatId, messageThreadId) =>
+              markTelegramChannelTopicDead(chatId, messageThreadId, { getDb }),
+          };
+        }
+      }
+
       const result = await notifyPrincipal({
         message: params.message,
         ...(params.title === undefined ? {} : { title: params.title }),
+        ...(params.taskId === undefined ? {} : { taskId: params.taskId }),
+        ...(deps ? { deps } : {}),
       });
 
       const human = !params.json && ctx?.format !== "json";
 
       if (result.delivered) {
-        if (human) log.cli(`Delivered to the principal (chat ${result.chatId}).`);
+        if (human) {
+          log.cli(
+            result.fellBackFromDeadTopic
+              ? `Delivered to the principal (chat ${result.chatId}) — the task's topic was gone, so this fell back to the standing conversation.`
+              : `Delivered to the principal (chat ${result.chatId}).`
+          );
+        }
         return {
           success: true,
           delivered: true,
           messageId: result.messageId,
           chatId: result.chatId,
           configSource: result.source,
+          ...(result.fellBackFromDeadTopic ? { fellBackFromDeadTopic: true } : {}),
         };
       }
 

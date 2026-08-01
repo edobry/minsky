@@ -25,19 +25,28 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import type { PrincipalChannelConfig } from "@minsky/domain/configuration/schemas/principal-channel";
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  markTelegramChannelTopicDead,
+  resolvePrincipalChannel,
+} from "@minsky/domain/notify/principal-channel";
 import {
   inboundEventToken,
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
 import { getTelegramMe, type TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
-import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
+import { parseTaskId } from "@minsky/domain/tasks/task-id";
+import {
+  createCachedSqlDbGetter,
+  getServerAskRepository,
+  getServerTaskService,
+} from "./db-providers";
 import {
   createDrivenSessionActuator,
   createTopicActuatorRegistry,
 } from "./principal-channel-actuator";
 import {
   startPrincipalChannelPoller,
+  type BindTopicOutcome,
   type ChannelActuator,
   type InboundEventRecorder,
   type PollCursor,
@@ -285,6 +294,96 @@ export async function ensureTelegramChannelTopic(
   return localId;
 }
 
+/** Deps {@link bindTelegramChannelTopicToTask} needs. */
+export interface BindTelegramChannelTopicDeps {
+  getDb: DbGetter;
+  /**
+   * Resolve a task by id, or null if it does not exist. Defaults to the real
+   * TaskService; overridable so a test never spins up a real one.
+   */
+  getTask?: (taskId: string) => Promise<unknown | null>;
+}
+
+/**
+ * Bind (chatId, messageThreadId)'s topic mapping to a task (mt#3507's
+ * `/bind` command).
+ *
+ * All-or-nothing: the task id is validated (parseable) and confirmed to
+ * exist BEFORE any write happens, so a malformed or nonexistent task id never
+ * leaves a half-written row — the spec's explicit requirement. Never creates
+ * the task; a task that does not exist is refused, not conjured.
+ *
+ * The write itself is an upsert (`INSERT ... ON CONFLICT DO UPDATE`), not an
+ * `UPDATE`-only statement: `/bind` is the FIRST message in a topic often
+ * enough (a principal opening a fresh topic and immediately naming its task)
+ * that the mapping row may not exist yet — `ensureTelegramChannelTopic` is
+ * normally what creates it, but that only runs when a message is routed
+ * through `resolveActuatorForMessage`, which a `bind` route deliberately
+ * skips (see `principal-channel-poller.ts`'s `handleBind`). Only the
+ * `entity_type`/`entity_id` columns are ever touched here — `local_id`
+ * (and therefore `driven_sessions.local_id`, which shares that keyspace) is
+ * never written to by this function, which is what keeps the bound
+ * conversation's identity unchanged before and after a bind.
+ */
+export async function bindTelegramChannelTopicToTask(
+  chatId: string,
+  messageThreadId: number,
+  taskRef: string,
+  deps: BindTelegramChannelTopicDeps
+): Promise<BindTopicOutcome> {
+  const parsed = parseTaskId(taskRef.trim());
+  if (!parsed) {
+    return {
+      kind: "invalid-task",
+      detail: `"${taskRef}" isn't a task id I recognize (expected e.g. mt#123).`,
+    };
+  }
+  const taskId = parsed.full;
+
+  const getTask = deps.getTask ?? defaultGetTask;
+  const task = await getTask(taskId);
+  if (!task) {
+    return { kind: "invalid-task", detail: `${taskId} does not exist.` };
+  }
+
+  const db = await deps.getDb();
+  if (!db) {
+    return {
+      kind: "invalid-task",
+      detail: "the topic mapping store is unavailable right now — try again shortly.",
+    };
+  }
+
+  const localId = telegramTopicLocalId(chatId, messageThreadId);
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO telegram_channel_topics (local_id, chat_id, message_thread_id, entity_type, entity_id)
+      VALUES (${localId}, ${chatId}, ${messageThreadId}, 'task', ${taskId})
+      ON CONFLICT (chat_id, message_thread_id)
+      DO UPDATE SET entity_type = 'task', entity_id = ${taskId}, updated_at = now()
+    `);
+  } catch (err: unknown) {
+    log.warn("[principal-channel] failed to bind a topic to a task", {
+      chatId,
+      messageThreadId,
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      kind: "invalid-task",
+      detail: "could not save the binding — try again shortly.",
+    };
+  }
+  return { kind: "bound", taskId };
+}
+
+async function defaultGetTask(taskId: string): Promise<unknown | null> {
+  const service = await getServerTaskService();
+  if (!service) return null;
+  return service.getTask(taskId);
+}
+
 /** Deps {@link createTopicActuatorResolver} needs to build and cache per-topic actuators. */
 export interface TopicActuatorResolverDeps {
   chatId: string;
@@ -429,6 +528,12 @@ export async function startPrincipalChannel(opts: {
     auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
     resolveTopicActuator,
+    bindTopic: (messageThreadId, taskRef) =>
+      bindTelegramChannelTopicToTask(chatId, messageThreadId, taskRef, {
+        getDb: getPrincipalChannelDb,
+      }),
+    markTopicDead: (deadChatId, messageThreadId) =>
+      markTelegramChannelTopicDead(deadChatId, messageThreadId, { getDb: getPrincipalChannelDb }),
     cursor: createEventLogCursor(opts.readHighestUpdateId, async (updateId) => {
       await opts.recordEvent("principal.poll_advanced", {
         // A distinct token so the recorder's dedupe does not confuse this with

@@ -38,28 +38,78 @@ reads, so that script reports "no chats visible" — expected, not a regression.
 
 ## What answers you
 
-One **standing driven session** — a long-lived `claude` conversation, reused
-across messages, that is your counterpart on the phone. It holds full MCP access
-to the substrate and commands the swarm on your behalf.
+A **driven session** — a long-lived `claude` conversation that is your
+counterpart on the phone. It holds full MCP access to the substrate and commands
+the swarm on your behalf.
 
 Reuse is a grounding requirement, not an optimization: "focus on that one" only
 resolves against what was just said. A session per message would force you to
 restate context every time.
 
-The router does not classify intent. Free text goes to that conversation, which
-works out what you meant. Only two cases take a deterministic path, where
-determinism beats an agent turn:
+### One conversation per topic
+
+Telegram supports **forum topics inside a private bot chat** (Bot API 9.3/9.4),
+and this channel uses them: **each topic you create gets its own conversation**,
+with its own history. Talking about three things means three topics, not three
+interleaved threads in one chat you disambiguate by reply-quoting.
+
+Messages in different topics are handled **concurrently**; messages within one
+topic stay strictly ordered. A message sent outside any topic goes to the
+**standing conversation** — the original single conversation, still there and
+unchanged.
+
+Creating a topic is entirely your move. Nothing else opens one: an agent cannot,
+and this version of the channel never does. That is deliberate — a new topic is
+a push notification plus a durable list entry, so the ability to mint one is the
+ability to spend your attention.
+
+Requires two @BotFather toggles on the bot: topic mode, and "allow users to
+create topics." With them off, Telegram simply never sends a thread id and the
+channel behaves exactly as it did before topics existed.
+
+### Binding a topic to a task
+
+A topic starts **unbound** — it is just a thread about something. Send
+`/bind mt#NNNN` inside it to bind it to a task. Binding is in place: the
+conversation does not move, fork, or lose history; only the mapping gains the
+task reference. Once bound, agent notifications about that task land in that
+topic instead of the main chat.
+
+Bind refuses, with an explanation, if the task does not exist or if you send it
+outside a topic. It never creates the task.
+
+### Commands
+
+The router does not classify intent. Free text goes to that topic's
+conversation, which works out what you meant. Only these cases take a
+deterministic path, where determinism beats an agent turn:
 
 | You send                  | What happens                                                                                   |
 | ------------------------- | ---------------------------------------------------------------------------------------------- |
 | `/answer <ask-id> <text>` | Answers that ask directly; the existing wake-bridge resumes whichever agent was waiting on it. |
+| `/bind mt#NNNN`           | Binds the current topic to that task, so notifications about it arrive here.                   |
 | `/stop` or `/halt`        | Interrupts the current turn.                                                                   |
 | `/new` or `/reset`        | Abandons the conversation; the next message starts fresh.                                      |
-| anything else             | Goes to the standing conversation.                                                             |
+| anything else             | Goes to this topic's conversation.                                                             |
+
+`/answer`, `/stop`, and `/new` all act on **the topic you sent them in** — a
+`/new` in one topic does not disturb any other conversation.
 
 An unrecognized `/command` is _not_ an error — it falls through to the agent,
 which can explain itself. A channel that answers "unknown command" to a human
 typing naturally is a channel you stop using.
+
+### If you delete a topic
+
+Telegram offers bots no way to list their own topics, so the channel keeps its
+own record of which topic maps to what. Deleting a topic on your phone makes
+that record stale, and the next message aimed at it comes back
+`Bad Request: message thread not found`.
+
+That case is reconciled rather than dropped: the stale mapping is discarded and
+the message is **re-delivered to the standing conversation** with a note saying
+it fell back. A notification is never silently lost to a topic that no longer
+exists.
 
 ## Setup
 

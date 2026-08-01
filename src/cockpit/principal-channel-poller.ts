@@ -42,7 +42,7 @@ import { log } from "@minsky/shared/logger";
 import {
   fetchTelegramFile,
   getTelegramUpdates,
-  sendTelegramMessage,
+  sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
   type FetchFn,
   type InboundTelegramMessage,
@@ -117,6 +117,11 @@ export interface ChannelActuator {
   answerAsk(askRef: string, text: string): Promise<string>;
 }
 
+/** Outcome of a `/bind` attempt (mt#3507). */
+export type BindTopicOutcome =
+  | { kind: "bound"; taskId: string }
+  | { kind: "invalid-task"; detail: string };
+
 /** Persisted poll cursor. Backed by the append-only inbound event log. */
 export interface PollCursor {
   read(): Promise<number | undefined>;
@@ -168,6 +173,23 @@ export interface PollCycleDeps {
    * (`./principal-channel-launch.ts`) backs this with.
    */
   resolveTopicActuator?: (messageThreadId: number) => Promise<ChannelActuator>;
+  /**
+   * Carry out a `/bind` (mt#3507). Called only for a `bind` route ALREADY
+   * confirmed to carry a thread id — a `/bind` typed in the standing
+   * conversation is refused before this is ever consulted, since there is no
+   * topic there to bind. Omitted entirely for a poller launched without
+   * topic support, in which case `/bind` answers that binding is not
+   * available on this channel.
+   */
+  bindTopic?: (messageThreadId: number, taskRef: string) => Promise<BindTopicOutcome>;
+  /**
+   * Record that a topic's mapping is dead after Telegram reports its thread
+   * gone (mt#3507 drift reconciliation) — see
+   * `telegram-transport.ts`'s `sendTelegramMessageWithThreadFallback`, which
+   * this is wired into for every threaded reply. Omitted degrades to "the
+   * reply still falls back correctly, it just cannot be recorded."
+   */
+  markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
   cursor: PollCursor;
   recordEvent: InboundEventRecorder;
   longPollSec?: number;
@@ -429,8 +451,14 @@ async function handleRoute(
   let reply: string;
   let succeeded = true;
   try {
-    const actuator = await resolveActuatorForMessage(deps, message);
-    reply = await runActuator(actuator, route, images, notes);
+    if (route.kind === "bind") {
+      // No conversation actuator involved: binding writes a mapping row, it
+      // does not carry out a turn.
+      reply = await handleBind(deps, message, route);
+    } else {
+      const actuator = await resolveActuatorForMessage(deps, message);
+      reply = await runActuator(actuator, route, images, notes);
+    }
   } catch (err: unknown) {
     succeeded = false;
     const detail = err instanceof Error ? err.message : String(err);
@@ -458,9 +486,43 @@ async function handleRoute(
   return succeeded;
 }
 
+/**
+ * Answer a `/bind` (mt#3507).
+ *
+ * Refuses, rather than binds silently or crashes, in the two cases the spec
+ * calls out by name: no topic to bind (the standing conversation has no
+ * mapping row — `messageThreadId` is checked here, not in the pure router,
+ * because the router does no I/O and this is the first place that can act on
+ * it), and a malformed/nonexistent task id (surfaced by `deps.bindTopic`,
+ * which never writes a row in that case).
+ */
+async function handleBind(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  route: Extract<InboundRoute, { kind: "bind" }>
+): Promise<string> {
+  if (message.messageThreadId === undefined) {
+    return (
+      "/bind only works inside a topic — the standing conversation has no topic to bind. " +
+      "Open a topic thread and try again there."
+    );
+  }
+  if (!deps.bindTopic) {
+    return "Binding isn't available on this channel yet.";
+  }
+
+  const outcome = await deps.bindTopic(message.messageThreadId, route.taskRef);
+  switch (outcome.kind) {
+    case "bound":
+      return `Bound this topic to ${outcome.taskId}. Notifications about it will land here.`;
+    case "invalid-task":
+      return `Could not bind: ${outcome.detail}`;
+  }
+}
+
 function runActuator(
   actuator: ChannelActuator,
-  route: Exclude<InboundRoute, { kind: "rejected" }>,
+  route: Exclude<InboundRoute, { kind: "rejected" } | { kind: "bind" }>,
   images: ChannelImage[],
   notes: string[]
 ): Promise<string> {
@@ -568,7 +630,8 @@ async function sendReply(
     });
   }
 
-  const result = await sendTelegramMessage({
+  const markTopicDead = deps.markTopicDead;
+  const result = await sendTelegramMessageWithThreadFallback({
     token: deps.token,
     chatId: deps.chatId,
     text: formatted ? html : plain,
@@ -579,10 +642,26 @@ async function sendReply(
     // turn itself ran against that topic's conversation.
     ...(message.messageThreadId === undefined ? {} : { messageThreadId: message.messageThreadId }),
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    // Drift reconciliation (mt#3507): if the topic this reply targets was
+    // deleted since the inbound message arrived, fall back to the standing
+    // conversation rather than losing the reply — the never-resurrect rule
+    // still holds because this send already had a reason to happen (it is a
+    // reply, not a standalone housekeeping message).
+    ...(markTopicDead
+      ? {
+          onThreadNotFound: (threadId: number) => markTopicDead(deps.chatId, threadId),
+        }
+      : {}),
   });
   if (!result.ok) {
     log.error("[principal-channel] reply delivery failed", { detail: result.detail });
     return undefined;
+  }
+  if (result.fellBackFromDeadTopic) {
+    log.warn(
+      "[principal-channel] the topic this reply targeted is gone; delivered to the standing conversation instead",
+      { messageThreadId: message.messageThreadId }
+    );
   }
   if (result.fellBackToPlain) {
     // The message DID arrive, so this is not an error — but it means the

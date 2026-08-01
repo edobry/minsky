@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  bindTelegramChannelTopicToTask,
   createEventLogCursor,
   createTopicActuatorResolver,
   ensureTelegramChannelTopic,
@@ -220,6 +221,157 @@ describe("ensureTelegramChannelTopic (mt#3505)", () => {
         }) as unknown as DbLike,
     });
     expect(localId).toBe(SAMPLE_LOCAL_ID);
+  });
+});
+
+/**
+ * `/bind` write path (mt#3507) — validated, all-or-nothing, never creates
+ * the task.
+ */
+describe("bindTelegramChannelTopicToTask (mt#3507)", () => {
+  function fakeDb(): { db: DbLike; queries: unknown[] } {
+    const queries: unknown[] = [];
+    return {
+      queries,
+      db: {
+        execute: async (query: unknown) => {
+          queries.push(query);
+          return [];
+        },
+      } as unknown as DbLike,
+    };
+  }
+
+  test("refuses a malformed task id, writing nothing", async () => {
+    const { db, queries } = fakeDb();
+    const result = await bindTelegramChannelTopicToTask(
+      SAMPLE_CHAT_ID,
+      SAMPLE_THREAD_ID,
+      "not-a-task-id",
+      {
+        getDb: async () => db,
+        getTask: async () => ({ id: "should never be reached" }),
+      }
+    );
+
+    expect(result).toEqual({
+      kind: "invalid-task",
+      detail: '"not-a-task-id" isn\'t a task id I recognize (expected e.g. mt#123).',
+    });
+    expect(queries).toHaveLength(0);
+  });
+
+  test("refuses a nonexistent task id, writing nothing — never creates the task", async () => {
+    const { db, queries } = fakeDb();
+    let getTaskCalledWith: string | undefined;
+    const result = await bindTelegramChannelTopicToTask(
+      SAMPLE_CHAT_ID,
+      SAMPLE_THREAD_ID,
+      "mt#99999999",
+      {
+        getDb: async () => db,
+        getTask: async (taskId) => {
+          getTaskCalledWith = taskId;
+          return null; // does not exist
+        },
+      }
+    );
+
+    expect(result).toEqual({ kind: "invalid-task", detail: "mt#99999999 does not exist." });
+    expect(getTaskCalledWith).toBe("mt#99999999");
+    expect(queries).toHaveLength(0);
+  });
+
+  test("binds an existing task, issuing exactly one upsert", async () => {
+    const { db, queries } = fakeDb();
+    const result = await bindTelegramChannelTopicToTask(
+      SAMPLE_CHAT_ID,
+      SAMPLE_THREAD_ID,
+      "mt#3507",
+      {
+        getDb: async () => db,
+        getTask: async () => ({ id: "mt#3507" }),
+      }
+    );
+
+    expect(result).toEqual({ kind: "bound", taskId: "mt#3507" });
+    expect(queries).toHaveLength(1);
+  });
+
+  test("AT1: never touches driven_sessions, and writes the SAME deterministic localId ensureTelegramChannelTopic would — the conversation identity is untouched by a bind", async () => {
+    // The spec's own requirement: "driven_sessions.local_id must be
+    // IDENTICAL before and after". This function never references that
+    // table at all, and the local_id it writes into the mapping row is the
+    // SAME value telegramTopicLocalId (and therefore ensureTelegramChannelTopic)
+    // would produce for this exact (chatId, messageThreadId) — asserted by
+    // rendering the actual query text and parameters, not by inspecting the
+    // implementation's source.
+    const { db, queries } = fakeDb();
+    await bindTelegramChannelTopicToTask(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, "mt#3507", {
+      getDb: async () => db,
+      getTask: async () => ({ id: "mt#3507" }),
+    });
+
+    const query = queries[0] as { queryChunks: unknown[] };
+    const rendered = query.queryChunks
+      .map((chunk) =>
+        chunk && typeof chunk === "object" && "value" in chunk
+          ? (chunk as { value: string[] }).value.join("")
+          : String(chunk)
+      )
+      .join("");
+
+    expect(rendered).toContain("telegram_channel_topics");
+    expect(rendered).not.toContain("driven_sessions");
+    expect(rendered).toContain(SAMPLE_LOCAL_ID);
+  });
+
+  test("refuses (does not crash) when persistence is unavailable, after confirming the task exists", async () => {
+    const result = await bindTelegramChannelTopicToTask(
+      SAMPLE_CHAT_ID,
+      SAMPLE_THREAD_ID,
+      "mt#3507",
+      {
+        getDb: async () => null,
+        getTask: async () => ({ id: "mt#3507" }),
+      }
+    );
+    expect(result.kind).toBe("invalid-task");
+  });
+
+  test("refuses (does not throw) when the write itself fails", async () => {
+    const result = await bindTelegramChannelTopicToTask(
+      SAMPLE_CHAT_ID,
+      SAMPLE_THREAD_ID,
+      "mt#3507",
+      {
+        getDb: async () =>
+          ({
+            execute: async () => {
+              throw new Error("db down");
+            },
+          }) as unknown as DbLike,
+        getTask: async () => ({ id: "mt#3507" }),
+      }
+    );
+    expect(result.kind).toBe("invalid-task");
+  });
+
+  test("checks task existence BEFORE writing — a task check that throws still writes nothing", async () => {
+    const { db, queries } = fakeDb();
+    // A thrown existence check propagates rather than silently writing a
+    // half-confirmed binding — the spec's "never leave a half-written row"
+    // requirement extends to a check that couldn't complete, not just one
+    // that completed negatively.
+    await expect(
+      bindTelegramChannelTopicToTask(SAMPLE_CHAT_ID, SAMPLE_THREAD_ID, "mt#3507", {
+        getDb: async () => db,
+        getTask: async () => {
+          throw new Error("task service unavailable");
+        },
+      })
+    ).rejects.toThrow("task service unavailable");
+    expect(queries).toHaveLength(0);
   });
 });
 

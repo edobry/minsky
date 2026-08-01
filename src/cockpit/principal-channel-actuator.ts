@@ -258,11 +258,16 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     const resumed = await orchestrateResume(channelLocalId, { registry });
     if (resumed.outcome === "resumed") {
       standingLocalId = resumed.record.localId;
-      log.info("[principal-channel] resumed the standing channel conversation", {
-        localId: resumed.record.localId,
-        harnessSessionId: resumed.record.harnessSessionId,
-        actuatorGeneration: resumed.record.actuatorGeneration,
-      });
+      log.info(
+        channelLocalId === PRINCIPAL_CHANNEL_LOCAL_ID
+          ? "[principal-channel] resumed the standing channel conversation"
+          : "[principal-channel] resumed a per-topic channel conversation",
+        {
+          localId: resumed.record.localId,
+          harnessSessionId: resumed.record.harnessSessionId,
+          actuatorGeneration: resumed.record.actuatorGeneration,
+        }
+      );
       return resumed.record;
     }
     if (resumed.outcome === "locked") {
@@ -296,10 +301,20 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       ...(opts.command === undefined ? {} : { command: opts.command }),
     });
     standingLocalId = record.localId;
-    log.info("[principal-channel] starting the standing channel conversation", {
-      localId: record.localId,
-      cwd: opts.cwd,
-    });
+    // The message this replaced asserted "standing" unconditionally, which
+    // became false the moment this factory started being called per topic
+    // (mt#3505) — every per-topic conversation logged the exact opposite of
+    // what happened. Keyed on the SAME localId already in the payload, so the
+    // distinction costs nothing extra to compute (mt#3507).
+    log.info(
+      channelLocalId === PRINCIPAL_CHANNEL_LOCAL_ID
+        ? "[principal-channel] starting the standing channel conversation"
+        : "[principal-channel] starting a per-topic channel conversation",
+      {
+        localId: record.localId,
+        cwd: opts.cwd,
+      }
+    );
     return record;
   };
 

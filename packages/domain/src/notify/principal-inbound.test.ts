@@ -117,6 +117,38 @@ describe("routeInboundMessage — explicit commands", () => {
   test("a word that merely starts with stop is not the command", () => {
     expect(routeInboundMessage(message({ text: "/stopwatch" }), AUTH).kind).toBe("channel-agent");
   });
+
+  // mt#3507
+  test("/bind extracts the task ref", () => {
+    const route = routeInboundMessage(message({ text: "/bind mt#3507" }), AUTH);
+    expect(route).toEqual({ kind: "bind", taskRef: "mt#3507" });
+  });
+
+  test("/bind is case-insensitive and tolerates surrounding whitespace", () => {
+    expect(routeInboundMessage(message({ text: "  /BIND mt#42  " }), AUTH)).toEqual({
+      kind: "bind",
+      taskRef: "mt#42",
+    });
+  });
+
+  test("/bind with no task ref is not a command", () => {
+    // Mirrors /answer-with-no-text: falls through so the agent can ask what
+    // was meant, rather than erroring at a human typing naturally.
+    expect(routeInboundMessage(message({ text: "/bind" }), AUTH).kind).toBe("channel-agent");
+  });
+
+  test("a word that merely starts with bind is not the command", () => {
+    expect(routeInboundMessage(message({ text: "/bindery mt#1" }), AUTH).kind).toBe(
+      "channel-agent"
+    );
+  });
+
+  test("/bind carries whatever ref the principal typed, malformed or not — validation is downstream", () => {
+    // The router does no I/O, so it cannot tell a malformed ref from a real
+    // one; that check belongs to whatever carries the route out.
+    const route = routeInboundMessage(message({ text: "/bind not-a-task-id" }), AUTH);
+    expect(route).toEqual({ kind: "bind", taskRef: "not-a-task-id" });
+  });
 });
 
 describe("routeInboundMessage — default", () => {

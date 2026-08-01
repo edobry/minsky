@@ -13,14 +13,22 @@ import {
   getTelegramMe,
   getTelegramUpdates,
   highestUpdateIdOf,
+  isThreadNotFoundError,
   parseInboundUpdates,
   redactSecret,
   sendTelegramMessage,
+  sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
 } from "./telegram-transport";
 
 const TOKEN = "123456:FAKE-TOKEN-VALUE";
 const CHAT = "42";
+/** Telegram's wire key for a topic thread — shared across many test bodies below. */
+const THREAD_ID_KEY = "message_thread_id";
+/** Telegram's rejection text for markup it cannot parse — shared across the parse-mode cases. */
+const CANT_PARSE_ENTITIES = "can't parse entities";
+/** A representative alert body — shared across the byte-for-byte regression cases. */
+const SAMPLE_ALERT_TEXT = "circuit breaker tripped";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -175,7 +183,7 @@ describe("sendTelegramMessage — parse mode", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       bodies.push(body);
       if (body["parse_mode"] !== undefined) {
-        return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+        return jsonResponse({ ok: false, description: CANT_PARSE_ENTITIES }, 400);
       }
       return jsonResponse({ ok: true, result: { message_id: 9 } });
     };
@@ -229,7 +237,7 @@ describe("sendTelegramMessage — parse mode", () => {
     let calls = 0;
     const fetchFn: FetchFn = async () => {
       calls += 1;
-      return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+      return jsonResponse({ ok: false, description: CANT_PARSE_ENTITIES }, 400);
     };
 
     const result = await sendTelegramMessage({
@@ -874,7 +882,7 @@ describe("sendTelegramMessage — topics (mt#3505)", () => {
         return jsonResponse({ ok: true, result: { message_id: 1 } });
       },
     });
-    expect(sent["message_thread_id"]).toBe(749667);
+    expect(sent[THREAD_ID_KEY]).toBe(749667);
   });
 
   test("omits message_thread_id when not given", async () => {
@@ -888,7 +896,7 @@ describe("sendTelegramMessage — topics (mt#3505)", () => {
         return jsonResponse({ ok: true, result: { message_id: 1 } });
       },
     });
-    expect("message_thread_id" in sent).toBe(false);
+    expect(THREAD_ID_KEY in sent).toBe(false);
   });
 
   // The regression the spec's own acceptance criteria call out by name: the
@@ -899,7 +907,7 @@ describe("sendTelegramMessage — topics (mt#3505)", () => {
     await sendTelegramMessage({
       token: TOKEN,
       chatId: CHAT,
-      text: "circuit breaker tripped",
+      text: SAMPLE_ALERT_TEXT,
       replyToMessageId: 12,
       fetchFn: async (_url, init) => {
         rawBody = String(init?.body);
@@ -910,11 +918,191 @@ describe("sendTelegramMessage — topics (mt#3505)", () => {
     expect(rawBody).toBe(
       JSON.stringify({
         chat_id: CHAT,
-        text: "circuit breaker tripped",
+        text: SAMPLE_ALERT_TEXT,
         disable_web_page_preview: true,
         reply_to_message_id: 12,
       })
     );
+  });
+});
+
+/**
+ * Drift reconciliation (mt#3507) — the exact HTTP 400 / description signal
+ * measured live at mt#3500 Phase 0, and the fallback that keeps a
+ * notification from being silently lost to a stale mapping.
+ */
+describe("isThreadNotFoundError (mt#3507)", () => {
+  function failed(status: number, detail: string): ReturnType<typeof failedResult> {
+    return failedResult(status, detail);
+  }
+  function failedResult(status: number, detail: string) {
+    return { ok: false as const, status, detail };
+  }
+
+  test("matches the exact measured signal", () => {
+    expect(
+      isThreadNotFoundError(
+        failed(400, 'HTTP 400: {"ok":false,"description":"Bad Request: message thread not found"}')
+      )
+    ).toBe(true);
+  });
+
+  test("does not match an unrelated 400 (e.g. bad markup)", () => {
+    expect(
+      isThreadNotFoundError(failed(400, "HTTP 400: can't parse entities: unexpected tag"))
+    ).toBe(false);
+  });
+
+  test("does not match a non-400 status carrying similar text", () => {
+    expect(isThreadNotFoundError(failed(403, "message thread not found"))).toBe(false);
+  });
+
+  test("does not match a successful result", () => {
+    expect(isThreadNotFoundError({ ok: true, messageId: 1 })).toBe(false);
+  });
+});
+
+describe("sendTelegramMessageWithThreadFallback (mt#3507)", () => {
+  const THREAD_NOT_FOUND_BODY = JSON.stringify({
+    ok: false,
+    error_code: 400,
+    description: "Bad Request: message thread not found",
+  });
+
+  test("a message with no messageThreadId is a single plain send — unaffected", async () => {
+    let calls = 0;
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async () => {
+        calls += 1;
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(calls).toBe(1);
+    expect(result).toEqual({ ok: true, messageId: 1 });
+  });
+
+  test("regression: omitting messageThreadId reproduces today's wire payload byte-for-byte", async () => {
+    // The exact regression the spec calls for: a notify/reply with no topic
+    // in play must produce an unchanged request body.
+    let rawBody = "";
+    await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: SAMPLE_ALERT_TEXT,
+      replyToMessageId: 12,
+      fetchFn: async (_url, init) => {
+        rawBody = String(init?.body);
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(rawBody).toBe(
+      JSON.stringify({
+        chat_id: CHAT,
+        text: SAMPLE_ALERT_TEXT,
+        disable_web_page_preview: true,
+        reply_to_message_id: 12,
+      })
+    );
+  });
+
+  test("on the measured thread-not-found signal, falls back to the standing conversation with a note", async () => {
+    const sentBodies: Record<string, unknown>[] = [];
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "your PR is up",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sentBodies.push(body);
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(THREAD_NOT_FOUND_BODY, { status: 400 });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 99 } });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fellBackFromDeadTopic).toBe(true);
+    // Two attempts: the doomed topic send, then the standing-conversation retry.
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[0]?.[THREAD_ID_KEY]).toBe(749667);
+    expect(THREAD_ID_KEY in (sentBodies[1] ?? {})).toBe(false);
+    expect(String(sentBodies[1]?.["text"])).toContain("your PR is up");
+    expect(String(sentBodies[1]?.["text"])).toContain("could not be found");
+  });
+
+  test("calls onThreadNotFound with the dead thread id before the fallback send", async () => {
+    const notified: number[] = [];
+    await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 500,
+      onThreadNotFound: (threadId) => {
+        notified.push(threadId);
+      },
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(THREAD_NOT_FOUND_BODY, { status: 400 });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(notified).toEqual([500]);
+  });
+
+  test("an unrelated 400 (bad markup) does NOT trigger the thread fallback", async () => {
+    // Distinguishing the two 400s is the whole point of matching on the
+    // description, not just the status — a markup rejection must keep going
+    // through the EXISTING plain-text retry (plainFallback), not this one.
+    let calls = 0;
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>bold</b>",
+      parseMode: "HTML",
+      plainFallback: "bold",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        calls += 1;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        if (body["parse_mode"] !== undefined) {
+          return new Response(JSON.stringify({ ok: false, description: CANT_PARSE_ENTITIES }), {
+            status: 400,
+          });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 2 } });
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fellBackFromDeadTopic).toBeUndefined();
+    expect(result.fellBackToPlain).toBe(true);
+    // The markup retry (still threaded) plus the pre-existing formatted
+    // attempt — no third, thread-fallback call.
+    expect(calls).toBe(2);
+  });
+
+  test("a genuinely dead thread that ALSO never recovers is surfaced, not silently dropped", async () => {
+    // "A notification must never be lost to a stale mapping" — if even the
+    // fallback send fails, the caller must see a failure, not a swallowed one.
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      fetchFn: async () => new Response("service unavailable", { status: 503 }),
+    });
+    // The FIRST attempt with a thread id gets a 503, not the 400 signal —
+    // so this never even reaches the fallback branch, and the caller sees
+    // the real failure directly.
+    expect(result.ok).toBe(false);
   });
 });
 

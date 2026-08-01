@@ -7009,6 +7009,11 @@
               "takesValue": true
             },
             {
+              "flags": ["--task-id"],
+              "description": "Post into the Telegram topic bound to this task, if one exists (mt#3507); otherwise the standing conversation. Never creates a topic.",
+              "takesValue": true
+            },
+            {
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
