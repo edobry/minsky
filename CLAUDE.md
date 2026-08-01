@@ -399,6 +399,13 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Secret-file-read** (mt#3282) — a Bash/`session_exec` command that would PRINT a
+  known-secret-bearing file (`~/.config/minsky/config.yaml`, `.env*`, `~/.aws/credentials`,
+  `~/.netrc`, `*.pem`, `id_*`, `*credential*`/`*secret*`) via an emitting reader (`cat`, `head`,
+  `sed`, `grep` without `-c`/`-q`, …). Naming the path is fine; only reader+path together deny.
+  Denial names the safe presence-check forms. Do NOT answer it by adding a redaction filter — a
+  `sed` that matches nothing emits its input verbatim, which is how the R3 leak happened
+  (mem#808). `MINSKY_ALLOW_SECRET_FILE_READ`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
@@ -752,7 +759,26 @@ Mixing both on one variable leaked mt#2738's Pulumi token.
 ```
 
 Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
-Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
+
+**Secret-bearing OUTPUT, not just secret variables (mt#3282).** The rule above is about a value
+you already hold in a variable. The class it misses is output that CONTAINS a secret you don't
+hold yet: a credential-mint API response, or a read of a file whose content is credential material
+(`~/.config/minsky/config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Two tells: **the
+command's own purpose is to produce a credential** (any mint/create/rotate call returns the secret
+in its SUCCESS body — the error body is safe, which is the asymmetry that makes printing it feel
+justified), or **the file's own purpose is to hold one**. Use a presence/shape check that cannot
+emit the value — `grep -c`, `grep -q`, `test -f`, `wc -l` — or pipe through an extractor that
+emits only the needed field into a variable.
+
+**A redaction filter is not a mitigation.** A `sed`/`awk`/`cut` pattern that matches nothing
+passes its input through UNCHANGED, and nothing in the output distinguishes that from a redaction
+that fired. `postgres://` vs `postgresql://` is what leaked a production DB password on
+2026-08-01. Truncation (`head -c`, `cut -c`) does not help either. If a filter must sit on a
+safety path, assert it fired and fail closed.
+
+Enforced by the `block-secret-file-read` PreToolUse guard (`hook-files.mdc`) for the file-read
+half; the API-response half stays discipline-tier. Detail:
+`docs/rules-rationale/terminal-command-best-practices.md`.
 
 # Terminology: workspace / conversation / transport session
 
