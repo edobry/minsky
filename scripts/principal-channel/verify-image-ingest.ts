@@ -158,9 +158,9 @@ async function main(): Promise<void> {
 
   let reply: string;
   try {
-    reply = await actuator.converse(PROMPT, undefined, [
-      { base64: MAGENTA_PNG_BASE64, mediaType: "image/png" },
-    ]);
+    reply = await actuator.converse(PROMPT, {
+      images: [{ base64: MAGENTA_PNG_BASE64, mediaType: "image/png" }],
+    });
   } catch (err) {
     console.error(
       `FAIL after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`
