@@ -589,6 +589,13 @@
       "when": 1785531758245,
       "tag": "0083_red_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1785550858547,
+      "tag": "0084_optimal_beast",
+      "breakpoints": true
     }
   ]
 }

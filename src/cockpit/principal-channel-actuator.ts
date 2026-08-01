@@ -36,27 +36,45 @@
  * Deployments wanting the tighter posture set `permissionMode: "default"` and
  * accept that the channel can answer questions but not act.
  *
- * ## Concurrency contract: one caller at a time
+ * ## Concurrency contract: one caller at a time PER ACTUATOR INSTANCE
  *
- * `converse` is NOT safe to call concurrently, and deliberately so (PR #2330
- * R1). A standing conversation is a single sequential turn-taker: every caller
- * subscribes to the same event stream, so two overlapping calls both resolve on
- * whichever `result` arrives first, and the second caller receives the first
- * one's answer.
+ * `converse` is NOT safe to call concurrently on the SAME actuator instance,
+ * and deliberately so (PR #2330 R1). A standing conversation is a single
+ * sequential turn-taker: every caller subscribes to the same event stream, so
+ * two overlapping calls both resolve on whichever `result` arrives first, and
+ * the second caller receives the first one's answer.
  *
  * That is not a bug to guard against here — it is what "one conversation"
  * means. Per-caller correlation would require the child to tag results with the
  * input that produced them, which the stream-json protocol does not do. The
- * poller enforces the contract by handling messages strictly sequentially,
- * which is also what the principal means: two messages in a row are two turns
- * in one conversation, in order.
+ * poller enforces the contract by handling messages for the SAME conversation
+ * strictly sequentially, which is also what the principal means: two messages
+ * in a row in the same topic are two turns in one conversation, in order.
  *
- * A future caller that needs parallelism needs its OWN conversation, not a
- * lock around this one.
+ * ## Generalizing to one conversation per topic (mt#3505, parent mt#3500)
+ *
+ * Phase 1 of threaded mode needs many conversations, not one — a topic per
+ * principal-initiated thought — while preserving the invariant above for EACH
+ * one. This factory already parametrizes over `{@link
+ * DrivenSessionActuatorOptions.localId}` (originally added so a live probe
+ * would not collide with the running channel's own row), so no change to
+ * `ensureRecord`/`converse` was needed to support this: the launch-time
+ * composition root (`./principal-channel-launch.ts`) calls this factory once
+ * per Telegram topic, caches each returned actuator in a
+ * {@link createTopicActuatorRegistry} keyed by that topic's `localId`, and the
+ * poller resolves the right cached instance per inbound message. Each
+ * instance's `standingLocalId`/in-flight guard is independent, so the
+ * "one caller at a time" contract above holds PER TOPIC while different
+ * topics run fully concurrently — serialize per-conversation, not globally.
+ *
+ * A future caller that needs parallelism WITHIN one conversation still needs
+ * its own conversation, not a lock around this one — that has not changed.
  *
  * @see mt#3228 — the bidirectional principal channel
+ * @see mt#3505 — Phase 1 (principal-initiated topics), the generalization above
  * @see ./driven-session-host.ts — spawn / input / registry mechanics
- * @see ./principal-channel-poller.ts — what calls this, sequentially
+ * @see ./principal-channel-poller.ts — what calls this, serialized per topic
+ * @see ./principal-channel-launch.ts — builds and caches one actuator per topic
  */
 
 import { log } from "@minsky/shared/logger";
@@ -402,6 +420,37 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
 
     async answerAsk(askRef: string, text: string): Promise<string> {
       return opts.respondToAsk(askRef, text);
+    },
+  };
+}
+
+/**
+ * Cache of per-topic actuators, keyed by the topic's `localId` (mt#3505).
+ *
+ * See this module's "Generalizing to one conversation per topic" docblock
+ * section for why a cache is the right shape here rather than constructing a
+ * fresh actuator per message: each instance closes over its own
+ * `standingLocalId`/in-flight-spawn guard, so a fresh instance per call would
+ * lose the "concurrent callers share one conversation" guarantee for any
+ * topic that receives more than one message.
+ */
+export interface TopicActuatorRegistry {
+  /** The cached actuator for `localId`, or undefined if never created. */
+  get(localId: string): ChannelActuator | undefined;
+  /** The cached actuator for `localId`, creating and caching one via `factory` on first use. */
+  getOrCreate(localId: string, factory: () => ChannelActuator): ChannelActuator;
+}
+
+export function createTopicActuatorRegistry(): TopicActuatorRegistry {
+  const cache = new Map<string, ChannelActuator>();
+  return {
+    get: (localId) => cache.get(localId),
+    getOrCreate: (localId, factory) => {
+      const existing = cache.get(localId);
+      if (existing) return existing;
+      const created = factory();
+      cache.set(localId, created);
+      return created;
     },
   };
 }
