@@ -154,6 +154,35 @@ describe("createReplyStream", () => {
     expect(sends.length).toBe(1);
   });
 
+  test("SC2 — a mid-tag markdown prefix still renders as balanced HTML", async () => {
+    // The failure this guards against: slicing RENDERED html can cut through a
+    // tag ("<b>bo") and Telegram 400s the edit. Converting from the accumulated
+    // MARKDOWN instead means a half-written "**bo" is just literal text.
+    //
+    // A stream necessarily renders mid-token states — every delta boundary is
+    // one — so this is the steady state, not an edge case.
+    const { stream, sends, edits } = harness({ throttleMs: 5 });
+
+    for (const prefix of ["**bo", "**bold** and `co", "**bold** and `code` [link](htt"]) {
+      stream.push(prefix);
+      await settle();
+    }
+    await stream.finish("**bold** and `code` [link](https://example.com)");
+    await settle();
+
+    for (const text of [...sends, ...edits.map((e) => e.text)]) {
+      const opens = (text.match(/<(b|i|code|pre|a|s|u|blockquote)\b/g) ?? []).length;
+      const closes = (text.match(/<\/(b|i|code|pre|a|s|u|blockquote)>/g) ?? []).length;
+      expect(opens).toBe(closes);
+      // A lone "<" from a severed tag would be the tell.
+      expect(text).not.toContain("<b>bo<");
+    }
+
+    // And the settled message is the fully formed thing.
+    expect(edits.at(-1)?.text).toContain("<b>bold</b>");
+    expect(edits.at(-1)?.text).toContain('href="https://example.com"');
+  });
+
   test("only the placeholder is a new message; later updates are edits", async () => {
     const { stream, sends, edits } = harness({ throttleMs: 5 });
 
