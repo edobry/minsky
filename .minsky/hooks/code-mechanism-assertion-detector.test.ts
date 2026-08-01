@@ -834,6 +834,8 @@ describe("mt#3113 leg 3 — detectRelayContext", () => {
 const WRITE_TOOL = "mcp__minsky__session_search_replace";
 /** A read-class result that legitimately backs a `cycleRef` claim. */
 const CYCLE_REF_SOURCE = "export function cycleRef() {}";
+/** Whole-file write tool, used by the mt#3571 created-flag fixtures. */
+const WHOLE_FILE_TOOL = "mcp__minsky__session_write_file";
 
 describe("comment surface (mt#3571)", () => {
   // The originating incident (mt#3469 / PR #2478 R1): a guard was justified by a
@@ -904,7 +906,7 @@ describe("comment surface (mt#3571)", () => {
             {
               type: "tool_use",
               id: "toolu_wf1",
-              name: "mcp__minsky__session_write_file",
+              name: WHOLE_FILE_TOOL,
               input: { path: "a.ts", content: body },
             },
           ],
@@ -941,6 +943,45 @@ describe("comment surface (mt#3571)", () => {
     // PR #2549 R1: treating every line of a rewrite as "added" is precisely the
     // whole-file scan SC2 forbids — most of those comments were already there.
     expect(buildAddedCommentCorpus(wholeFileTurn(CLAIM_COMMENT, false))).toBe("");
+  });
+
+  test("writing a file whose CONTENT contains 'created: true' does not fake creation", () => {
+    // PR #2549 R1: the first implementation regexed the stringified result, so
+    // authoring a JSON fixture containing that literal would have made the
+    // detector believe the file was newly created. The parsed top-level field
+    // cannot be fooled by echoed content.
+    const body = `${CLAIM_COMMENT}\nconst fixture = { "created": true };`;
+    const turn = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_wf2",
+              name: WHOLE_FILE_TOOL,
+              input: { path: "fixture.ts", content: body },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_wf2",
+              // The envelope says created:false; the BODY says created:true.
+              content: JSON.stringify({ success: true, created: false, contents: body }),
+            },
+          ],
+        },
+      },
+    ] as TranscriptLine[];
+    expect(buildAddedCommentCorpus(turn)).toBe("");
   });
 
   test("a whole-file write with no created flag contributes nothing", () => {

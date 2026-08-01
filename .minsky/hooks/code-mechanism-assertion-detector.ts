@@ -748,6 +748,41 @@ const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#(?!!))\s?(.*)$/;
  * is exactly what the agent authored, with no envelope to strip) and the RESULT
  * only for the `created` flag.
  */
+/**
+ * True when a `tool_result` body reports a TOP-LEVEL `created: true`.
+ *
+ * Parsed, not regexed (PR #2549 R1). A regex over the stringified body has a
+ * real false-positive path: writing a JSON file whose own CONTENT contains
+ * `"created": true` would match, and the result envelope echoes that content —
+ * so authoring a fixture could make the detector believe a file was newly
+ * created. Reading the parsed top-level field cannot be fooled by nested or
+ * echoed text.
+ *
+ * Unparseable or unexpected shapes return false: absent evidence, exclude.
+ */
+function resultReportsCreated(raw: unknown): boolean {
+  const fromValue = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    return (value as Record<string, unknown>)["created"] === true;
+  };
+
+  if (typeof raw === "string") {
+    try {
+      return fromValue(JSON.parse(raw));
+    } catch {
+      return false; // not JSON — no claim about creation
+    }
+  }
+  // Claude Code may deliver a result as an array of content blocks.
+  if (Array.isArray(raw)) {
+    return raw.some((block) => {
+      const text = (block as Record<string, unknown> | null)?.["text"];
+      return typeof text === "string" && resultReportsCreated(text);
+    });
+  }
+  return fromValue(raw);
+}
+
 export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
   const commentLines = (text: string): string[] => {
     const out: string[] = [];
@@ -777,9 +812,7 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
       if (block["type"] !== "tool_result") continue;
       const id = block["tool_use_id"];
       if (typeof id !== "string") continue;
-      const raw = block["content"];
-      const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
-      if (/"created"\s*:\s*true/.test(text)) createdByToolUseId.add(id);
+      if (resultReportsCreated(block["content"])) createdByToolUseId.add(id);
     }
   }
 
