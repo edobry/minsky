@@ -89,16 +89,38 @@ async function bootstrap(): Promise<{
   };
 }
 
+/**
+ * Exit code for an unverified run.
+ *
+ * Default 0, so running this unattended (or from a machine with no DB) is safe
+ * — the established convention for the `scripts/verify-*.ts` family. But a SKIP
+ * is an ABSENCE of verification, not a pass, and a caller that wired this into
+ * a gate would otherwise read the two as identical. Set
+ * `MINSKY_REQUIRE_DERIVED_LINK_PROBE=1` to make a SKIP fail loudly instead.
+ */
+function skipExitCode(): number {
+  return process.env.MINSKY_REQUIRE_DERIVED_LINK_PROBE === "1" ? 2 : 0;
+}
+
+function skip(reason: string): number {
+  const code = skipExitCode();
+  console.log(`SKIP: ${reason}`);
+  if (code !== 0) {
+    console.error(
+      "SKIP treated as failure: MINSKY_REQUIRE_DERIVED_LINK_PROBE=1 demanded a real verification."
+    );
+  }
+  return code;
+}
+
 async function main(): Promise<number> {
   const boot = await bootstrap();
   if (!boot) {
-    console.log("SKIP: persistence provider is not SQL-capable in this environment");
-    return 0;
+    return skip("persistence provider is not SQL-capable in this environment");
   }
   const { db } = boot;
   if (!db) {
-    console.log("SKIP: no Postgres connection available in this environment");
-    return 0;
+    return skip("no Postgres connection available in this environment");
   }
 
   const records = await boot.listSessions();

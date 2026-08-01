@@ -596,30 +596,50 @@ export function createAgentsWidget(
         // workspace rows above. Degrades silently to "workspace rows only"
         // when no conversation DB is configured or the merge itself fails.
         let standaloneRows: AgentRow[] = [];
-        if (getConversationDb && cachedMerge) {
+        if (getConversationDb) {
           const db = await getConversationDb().catch(() => null);
           if (db) {
-            const merge = await cachedMerge.getMerge(
-              db,
-              workspaceRows.map((r) => r.sessionId)
-            );
-            for (const row of workspaceRows) {
-              const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);
-              if (attrs) {
-                row.conversationId = attrs.conversationId;
-                row.cwd = attrs.cwd;
-                row.subagents = attrs.subagents;
-                row.model = attrs.model;
+            // The standalone-row merge is the only part that needs `cachedMerge`.
+            // The mt#3529 derived fallback below needs the transcripts DB and
+            // nothing else, so it is NOT nested under this guard — coupling the
+            // two would let the list disagree with /api/agents/:id (which has no
+            // merge) whenever the merge is unavailable but the DB is not.
+            if (cachedMerge) {
+              const merge = await cachedMerge.getMerge(
+                db,
+                workspaceRows.map((r) => r.sessionId)
+              );
+              for (const row of workspaceRows) {
+                const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);
+                if (attrs) {
+                  row.conversationId = attrs.conversationId;
+                  row.cwd = attrs.cwd;
+                  row.subagents = attrs.subagents;
+                  row.model = attrs.model;
+                }
               }
+              standaloneRows = merge.standaloneRows.map((r) => ({
+                ...r,
+                driven: null,
+                // Conversation-derived rows have no Minsky workspace sessionId
+                // — attachState (mt#2284/mt#2286) doesn't apply.
+                attachState: null,
+                // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
+                interfaceBinding: null,
+                // Nor a `ws#N` short id (mt#3259) — that is a workspace handle,
+                // and these rows are conversations.
+                shortId: null,
+              }));
             }
 
-            // mt#3529 — rows the link-row merge left unresolved fall back to
+            // mt#3529 — rows still unresolved (whether because the merge found
+            // no link row, or because there was no merge at all) fall back to
             // the conversation their own agentId names (existence-checked).
-            // Runs AFTER the merge, over only the still-null rows, so a
-            // stamped link always wins. This keeps the list in agreement with
-            // /api/agents/:id, which applies the same fallback — a row that
-            // showed null here while the detail page resolved a conversation
-            // would be a worse bug than the one being fixed.
+            // Runs AFTER the merge, over only the still-null rows, so a stamped
+            // link always wins. This keeps the list in agreement with
+            // /api/agents/:id, which applies the same fallback — a row showing
+            // null here while the detail page resolved a conversation would be
+            // a worse bug than the one being fixed.
             const unresolved = workspaceRows.filter((r) => r.conversationId == null);
             if (unresolved.length > 0) {
               const derived = await resolveDerivedConversationLinks(
@@ -631,18 +651,6 @@ export function createAgentsWidget(
                 if (link) row.conversationId = link.agentSessionId;
               }
             }
-            standaloneRows = merge.standaloneRows.map((r) => ({
-              ...r,
-              driven: null,
-              // Conversation-derived rows have no Minsky workspace sessionId
-              // — attachState (mt#2284/mt#2286) doesn't apply.
-              attachState: null,
-              // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
-              interfaceBinding: null,
-              // Nor a `ws#N` short id (mt#3259) — that is a workspace handle,
-              // and these rows are conversations.
-              shortId: null,
-            }));
           }
         }
 

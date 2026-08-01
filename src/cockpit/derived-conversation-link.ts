@@ -39,8 +39,9 @@ import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-tran
 import { parseAgentId } from "@minsky/domain/agent-identity/format";
 import type { ConversationId } from "@minsky/domain/ids";
 
-/** Marks how a workspace's conversation candidate was resolved (mt#3529). */
-export type ConversationLinkSource = "link-row" | "derived-agent-id";
+// Re-exported for callers already importing from this module; the union itself
+// lives in its own dependency-free module so the web bundle can share it.
+export type { ConversationLinkSource } from "./conversation-link-source";
 
 /** A conversation candidate derived from a workspace record's own `agentId`. */
 export interface DerivedConversationLink {

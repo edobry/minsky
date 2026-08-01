@@ -48,6 +48,7 @@ import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
+import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
   Select,
   SelectContent,
@@ -105,15 +106,12 @@ export interface ConversationCandidate {
   agentSessionId: string;
   startedAt: string | null;
   /**
-   * How the link was resolved (mt#3529). `"link-row"` is a row a writer
-   * stamped in `minsky_session_links`; `"derived-agent-id"` was derived from
-   * the workspace record's own `agentId` because no writer stamped one — a
-   * weaker basis (ADR-006 gives the identity scheme no forgery defense), so it
-   * is reported rather than folded in silently. Optional: conversation-keyed
-   * arrivals construct their single candidate client-side, with no server
-   * round-trip to carry provenance.
+   * How the link was resolved (mt#3529) — the union is imported, not restated,
+   * so a third provenance cannot land server-side while this copy goes stale.
+   * Optional: conversation-keyed arrivals construct their single candidate
+   * client-side, with no server round-trip to carry provenance.
    */
-  source?: "link-row" | "derived-agent-id";
+  source?: ConversationLinkSource;
 }
 
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {

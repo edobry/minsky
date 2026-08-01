@@ -6,6 +6,7 @@
  *   GET /api/agents/:id/live-tail  — Rung-1 live-tail SSE stream (mt#2232)
  */
 import type express from "express";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getServerSessionProvider, getContextInspectorDb } from "../db-providers";
 import {
@@ -38,6 +39,13 @@ import {
  * `source: "derived-agent-id"` so callers can tell it from a stamped row; a
  * stamped row always wins, because the fallback only runs when there is none.
  *
+ * Exported, with `getDb` injectable, for the contract test in
+ * `../conversation-link-contract.test.ts` — the `source` discriminator is on
+ * the `/api/agents/:id` response and needs coverage that fails if either
+ * branch stops emitting it. Injection rather than a module mock per
+ * `custom/no-global-module-mocks`; production callers pass nothing and get the
+ * shared cockpit connection.
+ *
  * @returns every candidate row, newest-`startedAt`-first — the run-detail
  *   page's conversation switcher (mt#2768 Behavior: "multi-conversation
  *   workspaces") needs the FULL set, not just the best one. `confidence` is
@@ -45,9 +53,10 @@ import {
  *   feed the FULL candidate set into `pickBestConversationLink` for the
  *   back-compat singular `conversation` field.
  */
-async function resolveWorkspaceConversations(
+export async function resolveWorkspaceConversations(
   minskySessionId: string,
-  workspaceAgentId?: string | null
+  workspaceAgentId?: string | null,
+  getDb: () => Promise<PostgresJsDatabase | null> = getContextInspectorDb
 ): Promise<
   Array<{
     agentSessionId: string;
@@ -57,7 +66,7 @@ async function resolveWorkspaceConversations(
   }>
 > {
   try {
-    const db = await getContextInspectorDb();
+    const db = await getDb();
     if (!db) return [];
     const { agentTranscriptsTable } = await import(
       "@minsky/domain/storage/schemas/agent-transcripts-schema"

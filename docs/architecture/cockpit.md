@@ -47,11 +47,43 @@ they need a spatially stable strip, which the working-set model does not guarant
 Two id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate; vocabulary per ADR-022 stage 1,
 mt#2686): `/agents` and `/agents/:id` are keyed by the **Minsky workspace sessionId**
 (`SessionRecord`); `/conversations` and `/conversation/:id` are keyed by the **harness
-agentSessionId** (ingested transcript). The workspace detail page bridges the two — when the
-workspace directory resolves to an ingested transcript's cwd, it links to the conversation at
-`/conversation/:agentSessionId` (served by `GET /api/agents/:id`). (`/agents` and `/agents/:id`
-keep their existing names — the Agents list/detail pair is a separate naming decision, out of
-scope for the ADR-022 rename.)
+agentSessionId** (ingested transcript). The workspace detail page bridges the two, linking to the
+conversation at `/conversation/:agentSessionId` (served by `GET /api/agents/:id`). (`/agents` and
+`/agents/:id` keep their existing names — the Agents list/detail pair is a separate naming
+decision, out of scope for the ADR-022 rename.)
+
+### How the workspace ↔ conversation link resolves (mt#2768, mt#3529)
+
+`GET /api/agents/:id` returns a `conversations[]` array of candidates, each
+`{ agentSessionId, startedAt, source }`. **`source` is the provenance discriminator** and takes
+one of two values — the union is declared once, in `src/cockpit/conversation-link-source.ts`, and
+imported by both the server route and the SPA type:
+
+| `source`           | Meaning                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `link-row`         | A row a writer stamped in `minsky_session_links` (`session_creator`, `pr_author`, `subagent_spawn`, `driven_spawn`, `cwd_match`). The authoritative case.     |
+| `derived-agent-id` | Derived from the workspace record's own `agentId` when NO writer stamped a row (mt#3529). Existence-checked against `agent_transcripts` before being emitted. |
+
+Resolution order: link rows first; the derived fallback runs **only when the link-row query
+returns empty**, so a stamped row always wins and the two can never both appear for one workspace.
+The derived candidate carries `confidence: null` — there is no writer confidence to report, and
+inventing one would let it sort against real values.
+
+Two properties keep a derived link honest, and both are deliberate rather than incidental. It is
+**existence-checked**, so it can never point the Conversation tab at a conversation this
+deployment has not ingested. And it is **marked rather than folded in**, because ADR-006
+§Consequences states the identity scheme has _"No forgery defense"_ — a self-declared `agentId`
+is a weaker basis than a row a writer stamped, and a consumer that cares about the difference must
+be able to see it. Only ADR-006's `conv` scope yields a candidate: `unknown:hash:*`, `proc`,
+`inst`, and `run` name something that is not a conversation, so those workspaces keep reporting
+an empty `conversations[]`.
+
+Note for consumers: `source` was ADDED to existing `conversations[]` elements; no field was
+removed or renamed. Clients that ignore unknown properties are unaffected. The SPA reads it via
+`ConversationCandidate` in `web/widgets/RunDetail.tsx`. `mt#2768` deleted an earlier `cwd LIKE`
+fallback — that was a heuristic, and nothing here reinstates one; `SessionRecord.agentId` is a
+recorded fact about the workspace, which is why it is an admissible source where cwd-matching was
+not.
 
 ## Routes
 
