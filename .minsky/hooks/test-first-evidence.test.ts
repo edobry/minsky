@@ -9,6 +9,7 @@ import {
   checkTestFirstEvidence,
   findModifiedTestFiles,
   hasNegativeControlEvidence,
+  mentionsNegativeControl,
   isBugfixShapedTitle,
   isNegativeControlDeferred,
   isTestFirstSkipped,
@@ -148,6 +149,118 @@ describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () 
   it("does not stop at a `#` comment inside a fenced transcript", () => {
     const text = [NC_MARKER, "", "```bash", "# revert the fix first", " 1 fail", "```"].join("\n");
     expect(hasNegativeControlEvidence(text)).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3511 — the label-shape widening. Every case here is a REAL record that
+  // the pre-mt#3511 matcher reported as absent.
+  // -------------------------------------------------------------------------
+  describe("mt#3511: label shapes a writer actually uses", () => {
+    it("accepts an em-dash-delimited label (PR #2508's shape)", () => {
+      const text = [
+        "**Negative control — telegram-transport.ts (3 poller tests)**",
+        "",
+        "```",
+        " 3 fail",
+        "```",
+      ].join("\n");
+      expect(hasNegativeControlEvidence(text)).toBe(true);
+    });
+
+    // The criterion this test exists for: "following the message must produce a
+    // match." Before mt#3511 the message said accepted forms go "inside the
+    // `Execution evidence:` block", and an author who did exactly that got told
+    // no negative control was recorded (mt#3506 / PR #2499). This constructs the
+    // shape the CURRENT message documents — label on its own line outside the
+    // fence, run output fenced beneath it — and asserts it matches.
+    it("accepts the exact shape the gate's own message documents", () => {
+      const text = [
+        "## Testing",
+        "",
+        "Execution evidence:",
+        "",
+        "```",
+        "bun test ./x.test.ts -> 12 pass, 0 fail",
+        "```",
+        "",
+        "Negative control: reverted the fix; the changed test observed FAILING.",
+        "",
+        "```",
+        " 1 fail",
+        "```",
+      ].join("\n");
+      expect(hasNegativeControlEvidence(text)).toBe(true);
+    });
+
+    it("accepts an en dash as well as an em dash", () => {
+      expect(hasNegativeControlEvidence("Negative control – reverted the guard; 1 fail")).toBe(
+        true
+      );
+    });
+
+    it("accepts N distinct controls, each with its own subject", () => {
+      const text = [
+        "**Negative control — a.test.ts**",
+        " 1 fail",
+        "",
+        "**Negative control — b.test.ts**",
+        " 2 fail",
+      ].join("\n");
+      expect(hasNegativeControlEvidence(text)).toBe(true);
+    });
+
+    it("accepts a bulleted and bolded label", () => {
+      expect(hasNegativeControlEvidence("- **Negative control:** reverted; 1 fail")).toBe(true);
+    });
+
+    it("still accepts the plain colon form unchanged", () => {
+      expect(hasNegativeControlEvidence("Negative control: reverted the fix; 1 fail")).toBe(true);
+    });
+
+    it("still accepts a parenthetical before the colon", () => {
+      expect(hasNegativeControlEvidence("Negative control (fix reverted): 1 fail")).toBe(true);
+    });
+
+    // The load-bearing half: a matcher loosened until everything matches has the
+    // same information content as no gate at all.
+    it("still rejects bare prose with no delimiter", () => {
+      expect(hasNegativeControlEvidence("we should add a negative control here someday")).toBe(
+        false
+      );
+    });
+
+    it("still rejects a negated mention in the dash form", () => {
+      expect(hasNegativeControlEvidence("No negative control — not applicable here")).toBe(false);
+    });
+
+    it("still rejects a marker that only appears inside a fence, dash form included", () => {
+      const text = ["```", "**Negative control — example.ts**", " 1 fail", "```"].join("\n");
+      expect(hasNegativeControlEvidence(text)).toBe(false);
+    });
+
+    it("rejects a hyphen, which is ordinary prose punctuation, not a label delimiter", () => {
+      // `Negative control - foo` is how a sentence continues; only the em/en dash
+      // reads as a heading, so widening to `-` would take prose with it.
+      expect(hasNegativeControlEvidence("Negative control - style records are useful")).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3511 — absent vs. present-but-unmatched. This is what makes the gate's
+  // own false-negative rate countable instead of anecdotal.
+  // -------------------------------------------------------------------------
+  describe("mt#3511: mentionsNegativeControl", () => {
+    it("is true for a mention the matcher rejects", () => {
+      expect(mentionsNegativeControl("we should add a negative control here")).toBe(true);
+    });
+
+    it("is true even inside a fence, where the matcher deliberately will not look", () => {
+      expect(mentionsNegativeControl(["```", "Negative control: x", "```"].join("\n"))).toBe(true);
+    });
+
+    it("is false when the evidence genuinely says nothing about one", () => {
+      expect(mentionsNegativeControl("bun test ./src -> 12 pass, 0 fail")).toBe(false);
+    });
   });
 });
 
