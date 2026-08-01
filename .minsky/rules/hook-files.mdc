@@ -26,13 +26,10 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
-- **Secret-file-read** (mt#3282) — a Bash/`session_exec` command that would PRINT a
-  known-secret-bearing file (`~/.config/minsky/config.yaml`, `.env*`, `~/.aws/credentials`,
-  `~/.netrc`, `*.pem`, `id_*`, `*credential*`/`*secret*`) via an emitting reader (`cat`, `head`,
-  `sed`, `grep` without `-c`/`-q`, …). Naming the path is fine; only reader+path together deny.
-  Denial names the safe presence-check forms. Do NOT answer it by adding a redaction filter — a
-  `sed` that matches nothing emits its input verbatim, which is how the R3 leak happened
-  (mem#808). `MINSKY_ALLOW_SECRET_FILE_READ`.
+- **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
+  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
+  `MINSKY_ALLOW_SECRET_FILE_READ`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
