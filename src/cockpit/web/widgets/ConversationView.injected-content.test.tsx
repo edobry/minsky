@@ -492,3 +492,18 @@ describe("ConversationView — remaining harness-origin shapes (mt#3396)", () =>
     expect(turnLabels()).toEqual(["user"]);
   });
 });
+
+describe("ConversationView — a notice turn with operator prose stays the operator's (PR #2515 R1)", () => {
+  afterEach(cleanup);
+
+  test("SC5 for the session notice: prose still wins", () => {
+    renderCV(
+      snapshotWithBlocks([
+        userTextBlock(0, `${INTERRUPTION_NOTICE_TEXT}\nok, but check the merge queue first`),
+      ])
+    );
+
+    expect(turnLabels()).toEqual(["user"]);
+    expect(screen.getByText(/check the merge queue first/)).toBeDefined();
+  });
+});

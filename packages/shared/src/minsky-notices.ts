@@ -37,10 +37,11 @@ export const INTERRUPTION_NOTICE_TEXT =
  * (which is guidance prose, the part most likely to be tuned) would silently
  * stop detection. Matching this leading clause survives that.
  *
- * The pairing is enforced, not merely intended: `harness-markup.test.ts`
- * asserts `INTERRUPTION_NOTICE_TEXT.startsWith(INTERRUPTION_NOTICE_PREFIX)`, so
- * editing the notice's opening without updating the prefix fails a test instead
- * of quietly disabling the detector.
+ * The pairing is enforced, not merely intended:
+ * `src/cockpit/web/lib/injected-content.test.ts` asserts
+ * `INTERRUPTION_NOTICE_TEXT.startsWith(INTERRUPTION_NOTICE_PREFIX)`, so editing
+ * the notice's opening without updating the prefix fails a test instead of
+ * quietly disabling the detector.
  */
 export const INTERRUPTION_NOTICE_PREFIX =
   "[minsky] This conversation was resumed after an unexpected interruption";

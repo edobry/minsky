@@ -398,3 +398,26 @@ describe("splitInjectedContent — the resume notice (mt#3396 AT2)", () => {
     expect(INTERRUPTION_NOTICE_TEXT.startsWith(INTERRUPTION_NOTICE_PREFIX)).toBe(true);
   });
 });
+
+describe("splitInjectedContent — the notice never swallows operator prose (mt#3396, PR #2515 R1)", () => {
+  test("a notice followed by operator prose splits into injected + prose", () => {
+    // The first cut consumed the whole turn on the reasoning that the notice is
+    // always sent alone. That made correctness depend on the SENDER rather than
+    // on the text, and would have relabeled the operator's own words as
+    // harness-origin — the worst direction for this particular span, since it
+    // is Minsky's label the prose would disappear under.
+    const prose = "\nok, but check the merge queue first";
+    const segments = splitInjectedContent(INTERRUPTION_NOTICE_TEXT + prose);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "session-notice" } });
+    expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+
+  test("the span content stops at the notice, carrying none of the prose", () => {
+    const segments = splitInjectedContent(`${INTERRUPTION_NOTICE_TEXT}\nunrelated operator text`);
+    const span = (segments[0] as { span: { content: string } }).span;
+    expect(span.content).not.toContain("unrelated operator text");
+    expect(span.content).toBe(INTERRUPTION_NOTICE_TEXT);
+  });
+});

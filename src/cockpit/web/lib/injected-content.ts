@@ -323,21 +323,34 @@ function matchTurnStartInjection(text: string): PrefixMatch | null {
  * that quotes the notice mid-sentence is not matched — the same conservatism
  * the tag detectors above apply.
  *
- * **Consumes the whole turn.** The notice is sent as its own input line
+ * **Bounded to the notice's own line, NOT the whole turn** (PR #2515 R1). The
+ * notice is a single line — `INTERRUPTION_NOTICE_TEXT` is concatenated string
+ * literals with no newline — and it is sent as its own input
  * (`sendDrivenSessionInput(record, INTERRUPTION_NOTICE_TEXT)` in
- * `driven-session-host.ts`), so the turn IS the notice; bounding the span to
- * the constant's length instead would leave a trailing empty prose segment on
- * every match, and bounding it to some guessed delimiter would be inventing a
- * structure the sender does not produce.
+ * `driven-session-host.ts`), so in practice the turn IS the notice.
+ *
+ * The first cut consumed `text.length` on that reasoning, which made the
+ * detector's correctness depend on an ASSUMPTION about the sender rather than
+ * on the text in front of it: any trailing operator prose would have been
+ * swallowed into the span and the whole turn relabeled harness-origin —
+ * violating the prose-wins rule (SC5) for the one case that rule most needs to
+ * hold, since the operator's words would vanish under Minsky's label. Bounding
+ * to the line makes SC5 true by construction and costs nothing when the
+ * assumption holds.
  */
 function matchSessionNotice(text: string): PrefixMatch | null {
   if (!text.trimStart().startsWith(INTERRUPTION_NOTICE_PREFIX)) return null;
+  const newline = text.indexOf("\n");
+  const consumedLength = newline === -1 ? text.length : newline;
   return {
-    consumedLength: text.length,
+    consumedLength,
     span: {
       kind: "session-notice",
       label: INJECTED_KIND_NOUN["session-notice"],
-      content: stripAnsi(text.trim()),
+      // Not a truncation hazard: the cut is at a `\n` (or the end of the
+      // string), never mid-character, so no surrogate pair can be split.
+      // eslint-disable-next-line custom/no-unsafe-string-truncation
+      content: stripAnsi(text.slice(0, consumedLength).trim()),
     },
   };
 }
