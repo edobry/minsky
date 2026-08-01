@@ -290,12 +290,28 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         // pushState entries on the document's own history.
         "history_back" | "history_forward" => {
             if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
-                let script = if id == "history_back" {
-                    "window.history.back()"
+                let method = if id == "history_back" {
+                    "back"
                 } else {
-                    "window.history.forward()"
+                    "forward"
                 };
-                if let Err(e) = window.eval(script) {
+                // Focus carve-out, keyboard path ONLY (PR #2522 R1). A menu
+                // accelerator fires no matter what holds keyboard focus, and
+                // Cmd+[ / Cmd+] are editing keys inside a text field -- so
+                // navigating on them mid-edit would discard what was typed.
+                // Guarded in the document rather than Rust-side because focus
+                // state lives in the DOM and `eval` is fire-and-forget: a
+                // separate predicate eval would race the navigation.
+                // HISTORY_NAV_SHIM's MOUSE path deliberately has no such guard;
+                // a side-button press is unambiguous wherever the caret is.
+                let script = format!(
+                    r#"(function () {{
+  var a = document.activeElement;
+  if (a && (a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
+  window.history.{method}();
+}})()"#
+                );
+                if let Err(e) = window.eval(&script) {
                     eprintln!("[cockpit-tray] failed to run {id} on cockpit window: {e}");
                 }
             }
