@@ -15,7 +15,13 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
-import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
+import {
+  OUTPUT_TOOL_DEFINITIONS,
+  parseToolCall,
+  parseToolCallExpanded,
+  BATCHED_SPEC_VERIFICATION_TOOL,
+  type ReviewToolCall,
+} from "./output-tools";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -490,7 +496,15 @@ const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = D
 const DOC_IMPACT_REMINDER_USER_MSG =
   "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
   'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
-  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths). " +
+  // mt#3527: this forced pass pins tool_choice to submit_documentation_impact, so the model
+  // CANNOT call read_file here. It must therefore report what it actually read during the
+  // loop rather than assert an accuracy it never checked — the exact shape of the PR #2508
+  // miss ("existing docs ... remain accurate", asserted without opening the doc).
+  "You cannot read files on this call. If you did not read the docs covering behavior this PR " +
+  "changes, do NOT claim they remain accurate — state in `evidence` which docs you checked and " +
+  "which you did not. Remember that a doc needing an update may be one whose existing prose the " +
+  "PR makes FALSE, not only one that omits something the PR adds.";
 
 /**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
@@ -1064,7 +1078,42 @@ export async function callOpenAIWithClient(
       const fnName = toolCall.function.name;
       let resultContent: string;
 
-      if (OUTPUT_TOOL_NAMES.has(fnName)) {
+      if (fnName === BATCHED_SPEC_VERIFICATION_TOOL) {
+        // mt#3545: the batched form expands to N singular
+        // submit_spec_verification calls. Handled in its own branch rather than
+        // threading a list through the singular path, because none of that
+        // path's guards (conclude_review coherence, finding resolution notes)
+        // apply to spec verifications — and a list-shaped `parsed` would have
+        // reordered entries relative to the spec.
+        try {
+          const expanded = parseToolCallExpanded(fnName, toolCall.function.arguments);
+          accumulatedToolCalls.push(...expanded);
+          log.info("reviewer.output_tool_call", {
+            event: "reviewer.output_tool_call",
+            provider: "openai",
+            tool: fnName,
+            count: accumulatedToolCalls.length,
+            expandedTo: expanded.length,
+          });
+          resultContent = JSON.stringify({
+            ok: true,
+            recorded: true,
+            recordedCount: expanded.length,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.info("reviewer.output_tool_call_parse_error", {
+            event: "reviewer.output_tool_call_parse_error",
+            provider: "openai",
+            tool: fnName,
+            error: errMsg,
+          });
+          // Malformed batch: nothing is accumulated (all-or-nothing, so a bad
+          // entry can never land a partial verdict set), and the model gets the
+          // path-qualified zod issue back so it can self-correct.
+          resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
+        }
+      } else if (OUTPUT_TOOL_NAMES.has(fnName)) {
         // Output tool: parse and accumulate; return a stub success response so
         // the loop continues normally.
         try {

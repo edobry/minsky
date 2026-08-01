@@ -95,6 +95,23 @@ describe("findRulesDirFiles", () => {
 // hasSizeBudgetJustification — mt#2648 marker forms
 // ---------------------------------------------------------------------------
 
+describe("hasSizeBudgetJustification — fenced content scan (PR #2533 R1)", () => {
+  // Third instance of the mt#3530 class. This gate's MARKER scan already rejects a
+  // fence-quoted marker, so mt#3530 scoped it out on that question — but its CONTENT
+  // scan had the same truncate-on-heading-like-line bug the R1 review surfaced in the
+  // two siblings, so it is fixed in the same round.
+  // As with `hasExecutionEvidence`, the fenced-`#` truncation is UNREACHABLE here —
+  // this gate only checks that the collected content is non-empty, and the fence's
+  // opening ``` line already satisfies that. Measured both ways: unfixed=true,
+  // fixed=true. So no test asserts a verdict change from the content-scan gating;
+  // one would pass either way and assert nothing. The gating is kept for consistency
+  // with the family, and the boundary case below is the part that can actually fail.
+  test("still stops at a REAL heading, so an empty section stays empty", () => {
+    const body = ["Size-budget justification:", "", "## Next", "", "text"].join("\n");
+    expect(hasSizeBudgetJustification(body)).toBe(false);
+  });
+});
+
 describe("hasSizeBudgetJustification", () => {
   test("accepts the plain-label form with a colon", () => {
     const body = "## Summary\n\nSize-budget justification: this rule fires every turn.";

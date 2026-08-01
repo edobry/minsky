@@ -25,6 +25,65 @@ const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
 const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("services/reviewer/src/server.ts")];
 
+/** The marker under test, extracted so the fence cases below share one spelling. */
+const DV_MARKER = "Deploy verification:";
+
+describe("hasDeployVerification — fence awareness (mt#3530)", () => {
+  // Found by sweeping the marker-scanner family, not reported: this blocking gate
+  // had the identical defect `hasExecutionEvidence` had. Same paired assertions —
+  // quoted-only must fail, the normal shape must still pass.
+  test("does NOT count a marker whose only occurrence is inside a code fence", () => {
+    const body = [
+      "## Summary",
+      "",
+      "Example shape for reviewers:",
+      "",
+      "```markdown",
+      DV_MARKER,
+      "  deployment_wait-for-latest -> SUCCESS",
+      "```",
+      "",
+      "(example only)",
+    ].join("\n");
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
+  // PR #2533 R1. The content scan used to break on ANY heading-like line, including a
+  // `#` comment inside the fenced output. On THIS gate that is exploitable rather than
+  // merely untidy: the deferral-text check (mt#2353 Recurrence 3) runs on the collected
+  // content, so truncating at a fenced `#` HIDES a deferral that follows it — and a
+  // deferral-only section then satisfies a blocking gate.
+  //
+  // This case discriminates: unfixed -> true (deferral unseen, gate accepts),
+  // fixed -> false (deferral seen, gate correctly refuses). Verified both ways.
+  test("a deferral hidden after a `#` comment inside the fence is still detected", () => {
+    const body = [
+      "## Deploy",
+      "",
+      DV_MARKER,
+      "",
+      "```bash",
+      "# note",
+      "will verify later",
+      "```",
+    ].join("\n");
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
+  test("still counts a real marker with its output fenced BENEATH it", () => {
+    const body = [
+      "## Deploy",
+      "",
+      DV_MARKER,
+      "",
+      "```",
+      "deployment_wait-for-latest -> SUCCESS (minsky-reviewer)",
+      "```",
+    ].join("\n");
+    expect(hasDeployVerification(body)).toBe(true);
+  });
+});
+
 describe("hasDeployVerification (mt#2353)", () => {
   test("true for a heading with content on following lines", () => {
     const body = `## Summary\nfoo\n\n${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS; /health 200.\n`;
@@ -152,7 +211,7 @@ describe("checkDeployVerification (mt#2353)", () => {
     const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
     expect(r.blocked).toBe(true);
     expect(r.deploySurfaceFiles).toEqual([INFRA_INDEX, REVIEWER_RAILWAY_JSON]);
-    expect(r.reason).toContain("Deploy verification:");
+    expect(r.reason).toContain(DV_MARKER);
     expect(r.reason).toContain("deployment_wait-for-latest");
   });
 
@@ -207,7 +266,7 @@ describe("checkDeployVerification (mt#2353)", () => {
       const r = checkDeployVerification(crashingFiles, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
       expect(r.blocked).toBe(true);
       expect(r.deploySurfaceFiles).toEqual([REVIEWER_RAILWAY_JSON]);
-      expect(r.reason).toContain("Deploy verification:");
+      expect(r.reason).toContain(DV_MARKER);
     });
 
     test("ALLOWS with a real verdict when the crashing payload also carries a Deploy verification section", () => {

@@ -122,6 +122,15 @@ export interface DocVerificationResult {
   removed: string[];
 }
 
+/**
+ * Known gap (mt#3553): this keeps a doc only when its text shares a surface term with
+ * the diff, which is the identifier-matching rule mt#3527 deliberately loosened on the
+ * instruction side — a doc whose PROSE the diff falsifies need not repeat any token the
+ * diff touches. So an invalidation finding can be dropped here, and a full drop
+ * downgrades the verdict. Not changed in mt#3527: relaxing this filter is a widening,
+ * and that task's SC5 requires a measured false-positive count before any widening
+ * ships. mt#3553 owns the measurement and the fix.
+ */
 export function verifyAffectedDocs(
   affectedDocs: string[],
   surfaceTerms: string[],
