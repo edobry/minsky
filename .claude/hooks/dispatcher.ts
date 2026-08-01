@@ -739,7 +739,17 @@ export async function runDispatcher(
 
     for (const line of outcome.auditLines ?? []) stdoutWrite(line);
     if (outcome.calibration && reg.calibrationLog) {
-      logCalibration(reg.calibrationLog, outcome.calibration);
+      // mt#3519: a registration may declare several logs. The dispatcher writes
+      // the one record it has to the PRIMARY log — the first declared — never
+      // to all of them, which would duplicate the record across logs and
+      // inflate every fire count downstream. Additional entries name logs the
+      // guard writes ITSELF (e.g. through a module it calls in-process); they
+      // exist so the coverage-receipt join can find the guard's invocations,
+      // not so the dispatcher can write to them.
+      const primaryLog = Array.isArray(reg.calibrationLog)
+        ? reg.calibrationLog[0]
+        : reg.calibrationLog;
+      if (primaryLog) logCalibration(primaryLog, outcome.calibration);
     }
     if (outcome.deny && reg.denyCapable) {
       writeOutputFn({

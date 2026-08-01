@@ -218,8 +218,24 @@ export interface GuardRegistration {
    * filenames `CALIBRATION_LOG_REGISTRY`
    * (`src/domain/calibration/calibration-sweep.ts`) already expects. Omit
    * for guards that never log calibration records.
+   *
+   * A LIST when one guard writes more than one log (mt#3519). The join the
+   * coverage-receipt check builds has always been many-to-many on the read
+   * side — `operator-deferral` and `retrospective-trigger` are each written by
+   * two guards — but the declaration side could only express one log per
+   * guard, so a guard writing two had no way to declare the second. The
+   * execution-evidence merge gate is the case: it writes
+   * `execution-evidence-at-coverage` itself and `execution-evidence-test-first`
+   * through `test-first-evidence.ts`, which it calls in-process.
+   *
+   * When it IS a list, the FIRST entry is the primary log — the one the
+   * dispatcher writes this guard's `outcome.calibration` record to. The rest
+   * name logs the guard writes itself; they are declared so the
+   * coverage-receipt join can find the guard's invocation evidence, not so the
+   * dispatcher can write to them (writing one record to N logs would inflate
+   * every downstream fire count).
    */
-  calibrationLog?: string;
+  calibrationLog?: string | string[];
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
@@ -799,6 +815,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     name: "substrate-bypass-detector",
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
+    // mt#3519: this guard writes `.minsky/operator-instruction-trigger-calibration.jsonl`
+    // (the mt#2303 surface), whose name matches neither the guard nor the file.
+    // Undeclared, the coverage-receipt check had no invocation evidence for that
+    // log and could only report it as unmapped.
+    calibrationLog: "operator-instruction-trigger",
     module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
     timeoutMs: 15000,
     denyCapable: false,

@@ -205,7 +205,11 @@ describe("GUARD_REGISTRY", () => {
 
   test("Phase 2a UserPromptSubmit family (mt#2652) is registered, no duplicates, correct calibration wiring", () => {
     const expectedCalibrationLogs: Record<string, string | undefined> = {
-      "substrate-bypass-detector": undefined,
+      // mt#3519: this used to expect `undefined` — and that undeclared join is
+      // exactly why `operator-instruction-trigger` could only ever be reported
+      // as unmapped by the coverage-receipt check. The guard's log name matches
+      // neither the guard nor the file, so nothing but a declaration can find it.
+      "substrate-bypass-detector": "operator-instruction-trigger",
       "retrospective-trigger-scanner": "retrospective-trigger",
       "pre-narration-detector": "pre-narration",
       "causal-premise-detector": "causal-premise",
