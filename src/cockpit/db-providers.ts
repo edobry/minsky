@@ -283,6 +283,21 @@ let _cachedFollowUpService:
   | import("@minsky/domain/scheduler/follow-up-service").FollowUpService
   | null = null;
 
+// ---------------------------------------------------------------------------
+// EngProd proposal-digest raw db handle (mt#3331) — uses cockpit-wide
+// PersistenceService singleton. cacheNegative: false, same rationale as
+// getServerAskRepository/getFollowUpDb: a failed probe retries on every
+// call. The raw handle (not a wrapped service) is needed here because the
+// accept/reject mutation writes BOTH `tasksTable` and
+// `engprodProposalLedgerTable` inside a single `db.transaction()` — the
+// atomicity the task/ledger writes need per spec SC2 ("if the two writes
+// diverge, the gate's memory is broken") is not expressible through the
+// abstracted TaskServiceInterface, which has no cross-table transaction
+// seam. See ./routes/engprod-proposals.ts.
+// ---------------------------------------------------------------------------
+
+export const getServerEngprodDb = createCachedSqlDbGetter({ cacheNegative: false });
+
 export async function getServerFollowUpService(): Promise<
   import("@minsky/domain/scheduler/follow-up-service").FollowUpService | null
 > {
