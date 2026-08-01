@@ -24,6 +24,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
+  type SharedCommandRegistry,
 } from "../command-registry";
 import { CommonParameters } from "../common-parameters";
 import { log } from "@minsky/shared/logger";
@@ -80,8 +81,15 @@ function getDbFromContainer(
   return async () => (await persistenceProvider.getDatabaseConnection?.()) ?? null;
 }
 
-export function registerPrincipalCommands(): void {
-  sharedCommandRegistry.registerCommand({
+/**
+ * Registry parameter mirrors the `registerAuthorshipCommands` pattern
+ * (`./authorship.ts`): optional, defaulting to the module-level singleton,
+ * so a test can register into an isolated `createSharedCommandRegistry()`
+ * instance instead of the shared one every other test file also touches.
+ */
+export function registerPrincipalCommands(registry?: SharedCommandRegistry): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+  targetRegistry.registerCommand({
     id: "principal.notify",
     name: "notify",
     description:
