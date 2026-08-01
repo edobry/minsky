@@ -161,6 +161,22 @@ export function buildEntityThreadSeedPrompt(seed: EntitySeedContext): string {
     "above, read related memories, and pull in whatever else bears on it, rather than",
     "restating the text above, which the principal has already read and found unclear.",
     "",
+    // ⚠️ THIS SENTENCE IS THE ONLY BARRIER (mt#3435). It is a prompt-level
+    // constraint on a STRUCTURALLY CAPABLE agent, not a guarantee.
+    //
+    // A thread child spawns with `DEFAULT_PERMISSION_MODE` →
+    // `--dangerously-skip-permissions` and, via mt#3377, the COMPLETE Minsky MCP
+    // server with no `--allowedTools`/`--disallowedTools`. So the agent asked to
+    // EXPLAIN an ask can also call `asks_respond` on it, `session_pr_merge`,
+    // `tasks_status_set` — anything. Nothing below the prompt stops it.
+    //
+    // Do not read mt#3368's confirm step as containment either: that guards the
+    // PANEL's resolve path, and the agent never needs the panel.
+    //
+    // The principal reviewed four containment options on 2026-07-30 and chose to
+    // ACCEPT this risk and document it. mt#3435 holds the decision, the verified
+    // capability surface, the revisit triggers, and the option set — read it
+    // before weakening this line or concluding something else already guards it.
     "Do NOT take action on this entity. Do not resolve, close, edit, or respond to it.",
     "Explain it. Any action is the principal's own, taken through the cockpit's own",
     "controls.",
