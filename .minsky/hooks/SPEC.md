@@ -18,6 +18,22 @@ share vocabulary with the `asks_create` authoring-time guard rather than
 maintain a second copy). Importing `@minsky/shared/*` from a hook is
 consistent with this convention; importing `packages/domain` or `src/*` is not.
 
+**Self-containment, checkable form (mt#3503).** Two tiers:
+
+1. **All hooks:** no imports from `src/` or `packages/domain` (the paragraph above).
+   `task-statuses.ts` is the ONE sanctioned domain bridge — plant-only, never
+   vendored — kept separate precisely so the contract module stays clean; it was
+   this constant living in `types.ts` that broke tier 2 (verified: a vendored
+   copy failed module resolution on every event).
+2. **The observability baseline** (`record-conversation-run-state.ts`,
+   `transcript-ingest-on-session-end.ts`, and their contract module `types.ts` —
+   the set `minsky init` vendors into foreign projects, mt#3499): the transitive
+   import closure must be node stdlib + same-directory files ONLY. No
+   `@minsky/shared` either — the exception above assumes this repo's
+   `node_modules`, which a foreign project does not have. Enforced by
+   `self-containment.test.ts`, which walks the closure statically AND executes
+   each baseline hook from a bare temp directory.
+
 Additional standalone hooks beyond the original two subsystems (e.g.,
 `transcript-ingest-on-session-end.ts`) are documented in their own sections
 below; the guard/detector hooks live in `.minsky/rules/hook-files.mdc`.
