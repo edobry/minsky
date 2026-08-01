@@ -272,6 +272,10 @@ export class AgentTranscriptIngestService {
 
     // ── 1. Read the current high-water-mark (and quarantine state) ───────────
     let highWaterMark: Date | null = null;
+    // mt#3482: whether this conversation already has a row in agent_transcripts.
+    // Read here rather than with a second SELECT later — §3a below needs it to
+    // decide whether the attachment insert has a parent row to reference.
+    let parentRowExists = false;
     try {
       const rows = await this.db
         .select({
@@ -299,6 +303,7 @@ export class AgentTranscriptIngestService {
       }
 
       highWaterMark = rows[0]?.lastIngestedJsonlTimestamp ?? null;
+      parentRowExists = rows[0] !== undefined;
     } catch (err) {
       const hwmReadError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to read high-water-mark for session ${agentSessionId}`, {
@@ -538,6 +543,53 @@ export class AgentTranscriptIngestService {
           `[transcripts] No genuine model id found in ${assistantLineCount} assistant line(s) for session ${agentSessionId} — possible transcript-shape drift`,
           { agentSessionId, assistantLineCount }
         );
+      }
+    }
+
+    // ── 3a. Ensure the parent transcript row exists (mt#3482) ────────────────
+    // `agent_transcript_attachments.agent_session_id` carries an FK to
+    // `agent_transcripts`, and §3b below deliberately runs BEFORE the transcript
+    // upsert that would create that parent row (see §3b's own rationale). For a
+    // conversation being ingested for the FIRST time there is no row to
+    // reference yet, so the attachment insert violates the FK and aborts the
+    // whole ingest. Measured 2026-07-31: 68 distinct conversations hit this in
+    // 25h — and because each abort routes through `recordIngestFailure`, every
+    // new conversation burned 2 of the INGEST_QUARANTINE_THRESHOLD (3)
+    // consecutive failures before ingesting a single line.
+    //
+    // This keeps BOTH invariants rather than trading one for the other. It
+    // writes the same real metadata the upsert below would have inserted —
+    // never a placeholder, because a stub `harness` would then be pinned
+    // permanently by that upsert's fill-if-null group (mt#3342) — and it
+    // deliberately does NOT write `transcript`, `lastIngestedJsonlTimestamp`, or
+    // `ingestedAt`. The high-water mark still advances only in the upsert, so an
+    // attachment failure after this point aborts before the watermark moves,
+    // exactly as mt#3278 requires.
+    //
+    // Scoped to the case that needs it: only when this batch carries attachments
+    // AND step 1 saw no existing row. `onConflictDoNothing` covers the race
+    // where a concurrent ingester created the row in between.
+    if (newAttachmentRows.length > 0 && !parentRowExists) {
+      try {
+        await this.db
+          .insert(agentTranscriptsTable)
+          .values({
+            agentSessionId,
+            harness,
+            startedAt: startedAt ?? undefined,
+            cwd: session.cwd ?? undefined,
+            projectDir: deriveProjectDir(jsonlPath),
+            projectId: resolvedProjectId ?? undefined,
+          })
+          .onConflictDoNothing();
+      } catch (err) {
+        const parentRowError = err instanceof Error ? err : new Error(String(err));
+        log.error(
+          `Parent transcript-row insert FAILED for session ${agentSessionId} — aborting ingest before the high-water mark advances`,
+          { error: getLoggableErrorSummary(err), driver: describeDriverError(err) }
+        );
+        await this.recordIngestFailure(agentSessionId, parentRowError);
+        return { ingested: 0, error: parentRowError };
       }
     }
 
