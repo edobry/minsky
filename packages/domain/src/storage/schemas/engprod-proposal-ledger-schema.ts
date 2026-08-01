@@ -83,6 +83,33 @@ export const engprodProposalLedgerTable = pgTable("engprod_proposal_ledger", {
   /** True once this signature has been proposed at least once. */
   everProposed: boolean("ever_proposed").notNull().default(false),
 
+  /**
+   * When a suppression pass last matched this signature (mt#3510).
+   *
+   * A later run can legitimately suppress a signature that an EARLIER run
+   * already filed as a proposal — the cluster recurred and was collapsed
+   * into a higher-ranked one. That is real signal, but it must not reach
+   * `verdict`: overwriting a filed row's verdict destroys the gate's memory
+   * of the proposal (and would destroy an `accepted`/`rejected` verdict the
+   * same way, making rejection non-durable). So suppression against an
+   * already-proposed row lands HERE instead.
+   *
+   * `updatedAt` cannot serve this purpose — every write bumps it, so it
+   * cannot distinguish "suppressed at T" from "reconciled at T".
+   */
+  lastSuppressedAt: timestamp("last_suppressed_at", { withTimezone: true }),
+
+  /**
+   * How many suppression passes have matched this signature (mt#3510).
+   *
+   * Counts every suppression write, whether or not it set `verdict` — the
+   * intended consumer is the re-surface threshold, which wants "how often
+   * has this recurred since we filed it", a question a single timestamp
+   * cannot answer. Nothing reads it yet; see mt#3510's `## Scope` → Out of
+   * scope.
+   */
+  suppressionCount: integer("suppression_count").notNull().default(0),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
