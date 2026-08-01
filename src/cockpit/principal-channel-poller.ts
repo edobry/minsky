@@ -44,10 +44,16 @@ import {
   getTelegramUpdates,
   sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
+  setTelegramMessageReaction,
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
 import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
+import {
+  REACTION_DONE,
+  REACTION_ERROR,
+  REACTION_RECEIVED,
+} from "@minsky/domain/notify/principal-reactions";
 import {
   buildInboundEventPayload,
   inboundEventToken,
@@ -432,15 +438,25 @@ async function handleRoute(
   // a network call with no timeout in front of the work the principal actually
   // asked for. A hung Telegram would delay the answer — including the failure
   // answer — behind a decoration.
-  if (route.kind !== "interrupt") {
-    void sendTelegramTypingAction({
-      token: deps.token,
-      chatId: deps.chatId,
-      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
-    }).catch(() => {
-      // Already swallows its own errors; this guards the unawaited promise.
-    });
-  }
+  //
+  // The indicator now LOOPS for the turn's duration (mt#3486). Telegram expires
+  // a chat action after ~5 seconds, so a single call left every turn longer
+  // than that looking exactly like silence — which is the complaint this
+  // addresses, not a cosmetic upgrade.
+  const typing =
+    route.kind === "interrupt"
+      ? null
+      : startTypingLoop({
+          token: deps.token,
+          chatId: deps.chatId,
+          messageThreadId: message.messageThreadId,
+          ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+        });
+
+  // Mark the message as picked up (mt#3486). This is the only mechanism that
+  // can mark a SPECIFIC inbound message — Telegram's checkmarks are a client
+  // affordance a bot can neither read nor set.
+  void react(deps, message, REACTION_RECEIVED);
 
   // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
   // per image, so it happens once here rather than inside the actuator, which
@@ -470,7 +486,16 @@ async function handleRoute(
     await recordFailureOutcome(deps, message, route, detail);
   }
 
+  // Stop the indicator BEFORE the reply lands, so the two never overlap — a
+  // "typing…" still showing under a delivered answer reads as a second reply
+  // that never arrives.
+  typing?.stop();
+
   const replyMessageId = await sendReply(deps, message, reply);
+
+  // Close the ack (mt#3486). Replaces the pickup reaction rather than
+  // accumulating, so the message carries exactly one state at a time.
+  void react(deps, message, succeeded ? REACTION_DONE : REACTION_ERROR);
 
   // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
   // failures, so "no errors" got read as "replies delivered" — an inference
@@ -544,6 +569,80 @@ function runActuator(
     case "channel-agent":
       return actuator.converse(withChannelNotes(route.text, notes), route.replyToText, images);
   }
+}
+
+/**
+ * Telegram expires a chat action after about five seconds.
+ *
+ * Refreshing at four leaves headroom for a slow round-trip without the
+ * indicator visibly flickering off between refreshes.
+ */
+const TYPING_REFRESH_MS = 4_000;
+
+/** A running typing indicator. */
+interface TypingLoop {
+  stop(): void;
+}
+
+/**
+ * Keep the "typing…" indicator alive for the duration of a turn (mt#3486).
+ *
+ * The single fire-and-forget call this replaces was correct for a fast reply
+ * and wrong for every slow one: the indicator expired after ~5s and the
+ * remaining 90 seconds of a real agent turn looked precisely like the channel
+ * having dropped the message. That is the complaint, not a polish item.
+ *
+ * Every property of the original call is preserved — unawaited, self-swallowing,
+ * never able to delay or fail the answer. The loop only changes how LONG the
+ * cue lasts.
+ */
+function startTypingLoop(opts: {
+  token: string;
+  chatId: string;
+  messageThreadId?: number;
+  fetchFn?: FetchFn;
+}): TypingLoop {
+  let stopped = false;
+
+  const send = (): void => {
+    if (stopped) return;
+    void sendTelegramTypingAction(opts).catch(() => {
+      // Already swallows its own errors; this guards the unawaited promise.
+    });
+  };
+
+  send();
+  const timer = setInterval(send, TYPING_REFRESH_MS);
+
+  return {
+    stop(): void {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+/**
+ * Mark the principal's message with a pipeline-state reaction (mt#3486).
+ *
+ * Fire-and-forget by contract: the ack exists to make the pipeline legible, so
+ * it must never be able to delay or fail the thing it is reporting on. A
+ * rejected emoji (Telegram's allowlist is fixed and revisable) degrades to no
+ * reaction, which is why `verify-reaction-emoji.ts` exists to catch that
+ * silence deliberately rather than in production.
+ */
+async function react(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  emoji: string
+): Promise<void> {
+  await setTelegramMessageReaction({
+    token: deps.token,
+    chatId: deps.chatId,
+    messageId: message.messageId,
+    emoji,
+    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+  });
 }
 
 /**

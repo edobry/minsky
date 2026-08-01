@@ -351,14 +351,74 @@ async function postSendMessage(opts: {
 export async function sendTelegramTypingAction(opts: {
   token: string;
   chatId: string;
+  /**
+   * Target topic in a forum chat (mt#3486). Without it the indicator appears
+   * in the group's General topic while the reply lands in the entity topic —
+   * a latency cue pointing at the wrong conversation is worse than none.
+   */
+  messageThreadId?: number;
   fetchFn?: FetchFn;
 }): Promise<boolean> {
-  const { token, chatId, fetchFn = fetch } = opts;
+  const { token, chatId, messageThreadId, fetchFn = fetch } = opts;
   try {
     const response = await fetchFn(`${TELEGRAM_API_BASE}/bot${token}/sendChatAction`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, action: "typing" }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        action: "typing",
+        ...(messageThreadId === undefined ? {} : { message_thread_id: messageThreadId }),
+      }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * React to one of the principal's messages (mt#3486).
+ *
+ * This is the ONLY mechanism that can mark a SPECIFIC inbound message as
+ * having reached a pipeline stage. Telegram's checkmarks cannot: a full-text
+ * search of the Bot API returns zero occurrences of read-receipt or tick
+ * state, so a bot can neither read nor set them. Reactions are the real
+ * analogue of what the checkmarks appear to promise.
+ *
+ * **The emoji set is a fixed allowlist.** `ReactionTypeEmoji.emoji` is
+ * documented as "Currently, it can be one of <list>", and an emoji outside it
+ * is rejected with a 400. Rather than hard-code an allowlist that Telegram can
+ * revise, this returns a bare boolean and swallows the rejection: an
+ * unsupported emoji degrades to no reaction, never to a failed turn.
+ *
+ * Best-effort by contract, like {@link sendTelegramTypingAction} — a reaction
+ * failure must never affect the reply, which is the whole point of an ack.
+ *
+ * Passing an empty `emoji` CLEARS the reaction, which is how a stage is
+ * replaced rather than accumulated.
+ *
+ * @see core.telegram.org/bots/api#setmessagereaction
+ */
+export async function setTelegramMessageReaction(opts: {
+  token: string;
+  chatId: string;
+  messageId: number;
+  /** A single allowlisted emoji, or "" to clear. */
+  emoji: string;
+  fetchFn?: FetchFn;
+}): Promise<boolean> {
+  const { token, chatId, messageId, emoji, fetchFn = fetch } = opts;
+  try {
+    const response = await fetchFn(`${TELEGRAM_API_BASE}/bot${token}/setMessageReaction`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        // An empty array clears; `is_big` is deliberately omitted (the default
+        // animation is right for a status marker).
+        reaction: emoji.length === 0 ? [] : [{ type: "emoji", emoji }],
+      }),
     });
     return response.ok;
   } catch {
