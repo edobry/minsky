@@ -69,7 +69,11 @@ export interface RunStateIo {
 
 /** The real, process-bound IO surface. */
 export const REAL_IO: RunStateIo = {
-  readFile: (filePath) => fs.readFileSync(filePath, { encoding: "utf-8" }),
+  // Both `readFileSync` encoding forms resolve to `string | Buffer` under this
+  // repo's types, which does not satisfy RunStateIo.readFile's `string`. The
+  // encoding argument makes the Buffer arm unreachable at runtime, so this is a
+  // types-only narrowing, not a behavioral assumption.
+  readFile: (filePath) => fs.readFileSync(filePath, "utf-8") as string,
   readDir: (dirPath) => fs.readdirSync(dirPath),
   env: process.env,
 };
