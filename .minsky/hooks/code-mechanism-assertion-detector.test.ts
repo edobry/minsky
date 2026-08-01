@@ -875,6 +875,35 @@ describe("write-echo split (mt#3489)", () => {
     expect(buildWriteEchoCorpus(turn)).toContain("cycleRef");
   });
 
+  test("the write class covers every tool that echoes agent-supplied content", () => {
+    // PR #2545 R1 (non-blocking): the original list named only file-edit tools,
+    // so any other content-echoing tool kept the old bug. Asserted per-tool
+    // rather than by re-listing the regex, which would just restate the source.
+    for (const tool of [
+      "mcp__minsky__session_write_file",
+      "mcp__minsky__session_edit_file",
+      "mcp__minsky__session_commit",
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__tasks_spec_patch",
+      "mcp__minsky__memory_create",
+      "mcp__minsky__asks_create",
+      "Write",
+      "Edit",
+    ]) {
+      const turn = writeTurn(tool, WRITE_ECHO);
+      expect(buildWriteEchoCorpus(turn)).toContain("cycleRef");
+      expect(buildVerificationCorpus(turn)).not.toContain("cycleRef");
+    }
+  });
+
+  test("a tool that REPORTS state rather than echoing input still backs a claim", () => {
+    // The membership rule is "echoes content the agent supplied", not "is a
+    // mutation". git_status reports observed state, so its result is evidence.
+    const turn = writeTurn("mcp__minsky__git_status", "cycleRef appears in the diff");
+    expect(buildVerificationCorpus(turn)).toContain("cycleRef");
+    expect(buildWriteEchoCorpus(turn)).toBe("");
+  });
+
   test("a READ tool's result still backs a claim, unchanged", () => {
     const turn = writeTurn("Read", "export function cycleRef() {}");
     expect(buildVerificationCorpus(turn)).toContain("cycleRef");

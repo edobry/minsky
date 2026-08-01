@@ -580,8 +580,26 @@ function collectStrings(value: unknown, out: string[]): void {
  * reason ALONE — and nothing in the record distinguished a read from a write
  * echo, so the size of this class was unknown rather than small.
  */
+/**
+ * Membership rule, so this list can be extended without guessing: a tool belongs
+ * here when its `tool_result` reflects back CONTENT THE AGENT SUPPLIED, rather
+ * than state the tool went and read. `session_search_replace` qualifies (it
+ * echoes `searchText`/`replaceText`); `session_commit` qualifies (it echoes the
+ * message the agent wrote); `git_status` does not (it reports observed state).
+ *
+ * Erring inclusive is the safe direction WHILE both reasons suppress. A genuine
+ * read misclassified as a write echo stops backing its claim, so the claim is
+ * labeled `write-echo-backed` instead of `same-turn-read` — a mislabel in the
+ * calibration record, with no injection consequence. A write tool MISSING from
+ * this list keeps the original bug alive for that tool. The costs are not
+ * symmetric, so prefer adding.
+ *
+ * That asymmetry ends if the `write-echo-backed` leg is ever removed to let these
+ * claims surface: a false member would then surface claims that were genuinely
+ * read-backed. Re-audit this list as part of that decision, not before.
+ */
 const WRITE_CLASS_TOOL_RE =
-  /(?:^|_)(?:Write|Edit|MultiEdit|NotebookEdit)$|(?:session_write_file|session_search_replace|session_edit_file|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update)$/i;
+  /(?:^|_)(?:Write|Edit|MultiEdit|NotebookEdit)$|(?:session_write_file|session_search_replace|session_edit_file|session_move_file|session_rename_file|session_delete_file|session_create_directory|session_commit|session_pr_create|session_pr_edit|tasks_create|tasks_edit|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create|asks_respond|asks_edit)$/i;
 
 /**
  * Map `tool_use.id` -> tool name across a turn.
