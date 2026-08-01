@@ -276,3 +276,69 @@ describe("resolveCalibrationLogPath / summarizeCoverage / formatCoverageResult",
     expect(formatCoverageResult(ok).startsWith("[OK]")).toBe(true);
   });
 });
+
+describe("three-state coverage: dormant vs dead (mt#3502)", () => {
+  const IN_WINDOW = "2026-01-14T00:00:00.000Z";
+
+  test("no records but invocations in the window reports dormant, not flagged", () => {
+    const r = checkCoverageReceipt([], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 854, lastAt: IN_WINDOW },
+    });
+    expect(r.state).toBe("dormant");
+    expect(r.flagged).toBe(false);
+    expect(r.hasCoverage).toBe(false);
+    expect(r.invocationCount).toBe(854);
+    expect(r.lastInvocation).toBe(IN_WINDOW);
+    expect(formatCoverageResult(r).startsWith("[DORMANT]")).toBe(true);
+  });
+
+  test("no records and zero invocations still flags — the mt#2057 signal survives", () => {
+    // The negative control for the whole change: if this passes as dormant,
+    // the gate has been disabled rather than taught to distinguish.
+    const r = checkCoverageReceipt([], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 0, lastAt: null },
+    });
+    expect(r.state).toBe("no-liveness-evidence");
+    expect(r.flagged).toBe(true);
+    expect(formatCoverageResult(r).startsWith("[FLAGGED]")).toBe(true);
+  });
+
+  test("omitting invocations preserves the pre-mt#3502 behavior", () => {
+    // A caller that has not been taught the join must not silently gain a
+    // pass. Absent evidence is "did not look", not "there were none".
+    const r = checkCoverageReceipt([], { detectorName: DETECTOR, now: fixedNow });
+    expect(r.state).toBe("no-liveness-evidence");
+    expect(r.flagged).toBe(true);
+    expect(r.invocationCount).toBeNull();
+  });
+
+  test("records in the window win over invocation evidence", () => {
+    const r = checkCoverageReceipt([liveEntry(1)], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 5, lastAt: IN_WINDOW },
+    });
+    expect(r.state).toBe("covered");
+    expect(r.flagged).toBe(false);
+  });
+
+  test("summarizeCoverage counts dormant separately and does not fail the run", () => {
+    const dormant = checkCoverageReceipt([], {
+      detectorName: "dormant-one",
+      now: fixedNow,
+      invocations: { count: 3, lastAt: IN_WINDOW },
+    });
+    const covered = checkCoverageReceipt([liveEntry(1)], {
+      detectorName: "covered-one",
+      now: fixedNow,
+    });
+    const report = summarizeCoverage([dormant, covered]);
+    expect(report.dormantCount).toBe(1);
+    expect(report.flaggedCount).toBe(0);
+    expect(report.allCovered).toBe(true);
+  });
+});

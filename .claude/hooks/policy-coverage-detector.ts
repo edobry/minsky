@@ -23,10 +23,21 @@
 // Calibration: EXCEPTIONAL firings (uncovered, dismissed) append a line to
 // `.minsky/policy-coverage-calibration.jsonl` for firing-rate analysis.
 // Covered outcomes are NOT recorded (mt#2670 exception-only logging): the
-// per-call covered records proved pure noise — 1,600+ lifetime fires, 100%
-// covered, zero uncovered — and dominated the calibration-review sweep. The
+// per-call covered records dominated the calibration-review sweep. The
 // historical covered records remain in the log as baseline; the covered path
 // still injects its permit-with-citation additionalContext unchanged.
+//
+// mt#3502 correction: this comment used to justify that with "1,600+ lifetime
+// fires, 100% covered, zero uncovered". Measured against the log as of mt#2670's
+// merge (2026-07-08) the split was 1633 covered / 39 uncovered — the uncovered
+// stream was small, not empty. The decision stands (dropping 97.7% of records
+// while keeping every exceptional one), but the stated basis was wrong.
+//
+// Liveness (mt#3502): because only exceptional outcomes are recorded, an empty
+// calibration log says nothing about whether this hook still runs. Every
+// evaluated invocation therefore records a fire-log entry via `finishRun`
+// below, which is what `scripts/check-coverage-receipts.ts` reads to tell a
+// dormant detector from a dead one.
 //
 // Mode override: set MINSKY_POLICY_COVERAGE_MODE in environment to control behavior:
 //   - unset / "log-only" (DEFAULT): always permit; record calibration data.
@@ -43,7 +54,9 @@
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, deriveHookRepoRoot } from "./types";
-import type { ToolHookInput } from "./types";
+import type { ToolHookInput, HookOutput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+import type { FireLogDecision } from "./fire-log";
 
 import {
   applyActionFilter,
@@ -252,6 +265,10 @@ if (import.meta.main) {
   process.stdout.write(`[policy-coverage-detector] mode=${mode} tool=${input.tool_name}\n`);
 
   if (mode === "disabled") {
+    // Deliberately NOT fire-logged. `disabled` means the operator turned the
+    // detector off; recording an invocation would let the coverage-receipt
+    // check report it as "dormant" (healthy, just quiet) when it is in fact
+    // not evaluating anything. A disabled detector SHOULD surface.
     process.exit(0);
   }
 
@@ -261,12 +278,36 @@ if (import.meta.main) {
     process.exit(0);
   }
 
+  /**
+   * Record the invocation, emit any output, and exit (mt#3502).
+   *
+   * Every terminal branch below routes through here so the fire log gets ONE
+   * entry per evaluated invocation — including the branches that decide
+   * "nothing to do". That is the whole point: the calibration log only ever
+   * held the EXCEPTIONAL outcomes, and after mt#2670 stopped recording
+   * `covered` there was no signal at all that this detector still runs. It
+   * appeared zero times in a 39 MB fire log while firing on every write.
+   */
+  const startedAt = Date.now();
+  const finishRun = (decision: FireLogDecision, output?: HookOutput): never => {
+    recordFireLogEntry({
+      guardName: "policy-coverage",
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startedAt,
+      toolName: input.tool_name,
+      ...(input.session_id ? { sessionId: input.session_id } : {}),
+    });
+    if (output) writeOutput(output);
+    process.exit(0);
+  };
+
   // Apply action filter
   const params = extractToolCallParams(input.tool_name, input.tool_input);
   const filterResult = applyActionFilter(params);
 
   if (!filterResult.fires) {
-    process.exit(0);
+    finishRun("allow");
   }
 
   const action: ActionDescriptor = {
@@ -296,7 +337,7 @@ if (import.meta.main) {
       action.filePath.endsWith("policy-coverage-detector.ts") ||
       action.filePath.includes("/policy-coverage/"))
   ) {
-    process.exit(0);
+    finishRun("allow");
   }
 
   // Load policy corpus. taskId is optional; in the hook context we don't
@@ -335,13 +376,12 @@ if (import.meta.main) {
   // appendCalibrationRecordIfLoggable enforces the same invariant for any
   // future callsite that does construct a covered record.
   if (coverage.covered) {
-    writeOutput({
+    finishRun("allow", {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         additionalContext: formatPermitMessage(coverage.evidence),
       },
     });
-    process.exit(0);
   }
 
   // Uncovered — check dismissal
@@ -355,13 +395,12 @@ if (import.meta.main) {
       outcome: "dismissed",
       signature,
     });
-    writeOutput({
+    finishRun("allow", {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         additionalContext: `[policy-coverage-detector] Action uncovered but signature ${signature} dismissed — permitting.`,
       },
     });
-    process.exit(0);
   }
 
   // Uncovered: build signal + AskIntent for calibration; in `block` mode also deny.
@@ -378,13 +417,12 @@ if (import.meta.main) {
   });
 
   if (mode === "log-only") {
-    writeOutput({
+    finishRun("warn", {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         additionalContext: `[policy-coverage-detector] log-only: would block (signature ${signature}, reason ${action.reason}). Set ${MODE_ENV_VAR}=block to enforce.`,
       },
     });
-    process.exit(0);
   }
 
   const denyReason = formatBlockMessage(
@@ -393,12 +431,11 @@ if (import.meta.main) {
     signal.suggestedOptions ?? []
   );
 
-  writeOutput({
+  finishRun("deny", {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: denyReason,
     },
   });
-  process.exit(0);
 }

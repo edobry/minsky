@@ -159,13 +159,61 @@ export function isLiveReceipt(entry: CoverageCalibrationEntry): boolean {
   return entry.source !== "synthetic" && entry.truePositive !== false;
 }
 
+/**
+ * What the calibration log plus the invocation evidence jointly say about a
+ * detector (mt#3502).
+ *
+ * The two-state version of this gate conflated the last two: an empty
+ * calibration log was reported as "no coverage" whether the entry point was
+ * running and had nothing exceptional to say, or was not running at all. Those
+ * demand opposite responses — the first is healthy, the second is the mt#2057
+ * dead-hook incident this gate exists for — and both were live in the repo at
+ * once when this was written (`causal-premise` dormant-but-flagged,
+ * `policy-coverage` with no liveness evidence at all).
+ *
+ * - `covered` — at least one live receipt inside the window.
+ * - `dormant` — no receipts, but the entry point demonstrably RAN inside the
+ *   window. Healthy: it had nothing exceptional to report.
+ * - `no-liveness-evidence` — neither. The only state that flags.
+ */
+export type CoverageState = "covered" | "dormant" | "no-liveness-evidence";
+
+/**
+ * Proof that a detector's entry point actually ran, independent of whether it
+ * had anything to record. Supplied by the caller rather than read here: the
+ * detector-name-to-guard-name join lives in the guard registry, and this
+ * module deliberately stays free of that dependency (see the header note).
+ *
+ * A canary result is NOT an acceptable substitute. A canary calls the guard's
+ * exported PURE decision function, so it proves the LOGIC works while saying
+ * nothing about whether anything invokes it — exactly the dead-entry-point
+ * class of mt#3019 / mt#3046 / mt#3308. Only an observed invocation answers
+ * "does it still run".
+ */
+export interface InvocationEvidence {
+  /** Invocations observed inside the window. */
+  count: number;
+  /** ISO timestamp of the most recent one, or null when there are none. */
+  lastAt: string | null;
+}
+
 export interface CoverageReceiptResult {
   detector: string;
   /** True when >=1 live receipt exists inside the window. */
   hasCoverage: boolean;
-  /** True when the detector should be surfaced for review (== !hasCoverage). */
+  /**
+   * True when the detector should be surfaced for review. Equals
+   * `state === "no-liveness-evidence"` — NOT `!hasCoverage`, which is what it
+   * meant before mt#3502 and which flagged every dormant detector.
+   */
   flagged: boolean;
+  /** mt#3502 — see {@link CoverageState}. */
+  state: CoverageState;
   liveFireCount: number;
+  /** Invocations observed in the window; null when the caller supplied none. */
+  invocationCount: number | null;
+  /** Most recent observed invocation inside the window, or null. */
+  lastInvocation: string | null;
   windowDays: number;
   /** ISO timestamp the window ends at (the reference "now"). */
   referenceTime: string;
@@ -181,6 +229,15 @@ export interface CheckCoverageOptions {
   windowDays?: number;
   /** Injectable clock (default `() => new Date()`) so tests are deterministic. */
   now?: () => Date;
+  /**
+   * mt#3502 — invocation evidence for this detector inside the window.
+   *
+   * OMITTED means "the caller did not look", not "there were none": the result
+   * then reports `no-liveness-evidence` on an empty log exactly as the
+   * pre-mt#3502 gate did, so a caller that has not been taught the join keeps
+   * its old behavior instead of silently gaining a pass.
+   */
+  invocations?: InvocationEvidence;
 }
 
 /**
@@ -216,15 +273,34 @@ export function checkCoverageReceipt(
   }
 
   const hasCoverage = liveFireCount > 0;
-  const reason = hasCoverage
-    ? `${liveFireCount} live fire(s) in the last ${windowDays}d (most recent ${lastLiveFire}).`
-    : `No live fires in the last ${windowDays}d — detector has no coverage receipt and is surfaced for review.`;
+  const invocations = options.invocations;
+
+  let state: CoverageState;
+  let reason: string;
+  if (hasCoverage) {
+    state = "covered";
+    reason = `${liveFireCount} live fire(s) in the last ${windowDays}d (most recent ${lastLiveFire}).`;
+  } else if (invocations !== undefined && invocations.count > 0) {
+    state = "dormant";
+    reason =
+      `Dormant: no records in the last ${windowDays}d, but ${invocations.count} invocation(s) ` +
+      `(most recent ${invocations.lastAt}) — the entry point is running and had nothing to report.`;
+  } else {
+    state = "no-liveness-evidence";
+    reason =
+      invocations === undefined
+        ? `No live fires in the last ${windowDays}d and no invocation evidence was supplied — detector has no coverage receipt and is surfaced for review.`
+        : `No live fires AND no invocations in the last ${windowDays}d — no evidence the entry point ran at all.`;
+  }
 
   return {
     detector,
     hasCoverage,
-    flagged: !hasCoverage,
+    flagged: state === "no-liveness-evidence",
+    state,
     liveFireCount,
+    invocationCount: invocations?.count ?? null,
+    lastInvocation: invocations?.lastAt ?? null,
     windowDays,
     referenceTime: now.toISOString(),
     lastLiveFire,
@@ -248,6 +324,7 @@ export function checkDetectorCoverage(
     detectorName,
     windowDays: options.windowDays,
     now: options.now,
+    invocations: options.invocations,
   });
 }
 
@@ -255,19 +332,34 @@ export function checkDetectorCoverage(
 // Report formatting (pure — no I/O)
 // ---------------------------------------------------------------------------
 
-/** One human-readable line per detector result. */
+/**
+ * One human-readable line per detector result.
+ *
+ * The label names the STATE, not just pass/fail (mt#3502): a bare `[OK]` on a
+ * dormant detector hides which of the two very different healthy situations it
+ * is in, and hiding that is what let `policy-coverage` read `[OK]` for weeks on
+ * borrowed records while having no liveness evidence at all.
+ */
 export function formatCoverageResult(r: CoverageReceiptResult): string {
-  const status = r.flagged ? "FLAGGED" : "OK";
+  const status = r.state === "covered" ? "OK" : r.state === "dormant" ? "DORMANT" : "FLAGGED";
   return `[${status}] ${r.detector}: ${r.reason}`;
 }
 
 export interface CoverageReport {
   results: CoverageReceiptResult[];
   flaggedCount: number;
+  /** mt#3502 — detectors running but with nothing to report. Not a failure. */
+  dormantCount: number;
+  /**
+   * True when nothing is flagged. Named for the pre-mt#3502 two-state world;
+   * it now means "nothing lacks liveness evidence", so a run with dormant
+   * detectors is still `allCovered: true` and still exits zero.
+   */
   allCovered: boolean;
 }
 
 export function summarizeCoverage(results: CoverageReceiptResult[]): CoverageReport {
   const flaggedCount = results.filter((r) => r.flagged).length;
-  return { results, flaggedCount, allCovered: flaggedCount === 0 };
+  const dormantCount = results.filter((r) => r.state === "dormant").length;
+  return { results, flaggedCount, dormantCount, allCovered: flaggedCount === 0 };
 }
