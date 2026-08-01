@@ -53,6 +53,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { HookOutput } from "./types";
+import { hookChildEnv } from "./hook-child-env";
 
 const SOURCE_DISPATCHER_PATH = new URL("./dispatch-userpromptsubmit.ts", import.meta.url).pathname;
 
@@ -86,44 +87,6 @@ afterEach(() => {
 });
 
 /**
- * Env vars that put the logger's Console transport on **stdout**, which a hook
- * process cannot tolerate: ADR-028 §Output aggregation fixes the contract as
- * "a hook's `stdout` must be exactly one JSON object."
- *
- * `tests/setup.ts` sets `MINSKY_LOG_MODE = "STRUCTURED"` for the in-process
- * harness. That is correct there — but this canary SPAWNS a child to stand in for
- * a real hook invocation, and a real hook invocation has no such variable. The
- * mt#2975 console-silencing that would otherwise mute the child cannot help: its
- * own doc comment records that it is gated on a globalThis flag which
- * "does NOT cross the process boundary: a spawned child never runs the preload."
- *
- * So before mt#3528 the child booted in STRUCTURED mode and every transitively
- * imported module's `log.info` landed in the payload channel — observed:
- * `{"level":"info","message":"Embedding fallback chain: openai → gemini",…}`
- * from `packages/domain/src/ai/embedding-service-factory.ts`, prepended to the
- * JSON the canary then failed to parse. The canary was red for a reason that had
- * nothing to do with the regression it exists to catch.
- */
-const HARNESS_ONLY_LOG_ENV = ["MINSKY_LOG_MODE", "ENABLE_AGENT_LOGS"] as const;
-
-/**
- * The env a spawned hook child should see: everything the harness has, MINUS the
- * logging vars that only exist because a test runner set them.
- *
- * Exported so the regression test below can assert on it directly — the bug was
- * in what got handed to `Bun.spawn`, so that is what has to be pinned.
- */
-export function hookChildEnv(projectDir: string): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    CLAUDE_PROJECT_DIR: projectDir,
-    MINSKY_STATE_DIR: projectDir,
-  };
-  for (const key of HARNESS_ONLY_LOG_ENV) delete env[key];
-  return env;
-}
-
-/**
  * Spawn a dispatcher entrypoint at `dispatcherPath`, piping `payload` as JSON
  * on stdin — the exact invocation shape Claude Code uses (see
  * `.claude/settings.json`'s `dispatch-userpromptsubmit.ts` registration).
@@ -141,7 +104,7 @@ async function invokeDispatcher(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: hookChildEnv(projectDir),
+    env: hookChildEnv({ CLAUDE_PROJECT_DIR: projectDir, MINSKY_STATE_DIR: projectDir }),
   });
   proc.stdin.write(JSON.stringify(payload));
   proc.stdin.end();
@@ -162,7 +125,7 @@ describe("dispatch-userpromptsubmit.ts e2e canary (mt#2835)", () => {
   // instead of re-reddening the canary for an unrelated-looking reason.
   test("mt#3528: the spawned child does not inherit harness-only logging env", () => {
     const probeDir = "/tmp/mt3528-env-probe";
-    const env = hookChildEnv(probeDir);
+    const env = hookChildEnv({ CLAUDE_PROJECT_DIR: probeDir, MINSKY_STATE_DIR: probeDir });
 
     // The two vars that add a stdout Console transport (packages/shared/src/logger.ts:
     // STRUCTURED mode, or ENABLE_AGENT_LOGS=true) must not reach a hook child.
