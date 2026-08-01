@@ -59,6 +59,7 @@ import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
+import { computeFenceInternalLines } from "./markdown-sections";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
 const GUARD_NAME = "require-deploy-verification-before-merge";
@@ -139,9 +140,20 @@ const DEFERRAL_PATTERN =
 export function hasDeployVerification(prBody: string): boolean {
   const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const lines = stripped.split("\n");
+  // Fence-aware (mt#3530). Same defect as `hasExecutionEvidence` had, found by
+  // sweeping the family rather than reported: a `Deploy verification:` marker whose
+  // only occurrence is inside a code fence is a QUOTED EXAMPLE, and it satisfied this
+  // blocking gate. The doc comment above already says this function "mirrors the
+  // mt#1459 hasExecutionEvidence discipline" — the accepted-forms half was mirrored,
+  // the fence half was not, which is how the gap reached a second gate with nobody
+  // deciding it should.
+  //
+  // Blast radius measured before flipping: 0 verdict changes across the 100 most
+  // recently merged PRs. Fenced content BENEATH a real marker still counts.
+  const fenceInternal = computeFenceInternalLines(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(DEPLOY_VERIFICATION_MARKER);
     if (!match) continue;
 

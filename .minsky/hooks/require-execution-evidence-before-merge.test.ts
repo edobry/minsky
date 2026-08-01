@@ -224,6 +224,61 @@ describe("findNewTestFiles", () => {
 // hasExecutionEvidence
 // ---------------------------------------------------------------------------
 
+/** The marker under test, extracted so the fence cases below share one spelling. */
+const EE_MARKER = "Execution evidence:";
+
+describe("hasExecutionEvidence — fence awareness (mt#3530)", () => {
+  // The defect: a PR that merely QUOTES the expected evidence shape satisfied this
+  // BLOCKING gate. Both directions are pinned, because only the pair proves the fix
+  // discriminates rather than just tightening: a quoted-only marker must fail, and
+  // the normal shape (marker outside, run output fenced beneath) must still pass.
+  it("does NOT count a marker whose only occurrence is inside a code fence", () => {
+    const body = [
+      "## Summary",
+      "",
+      "Reviewers, the expected shape is:",
+      "",
+      "```markdown",
+      EE_MARKER,
+      "  bun test ./x -> 12 pass, 0 fail",
+      "```",
+      "",
+      "(That is an example, not this PR's evidence.)",
+    ].join("\n");
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("still counts a real marker with its run output fenced BENEATH it", () => {
+    // The normal, documented shape. Fenced CONTENT is fine — only a fenced MARKER
+    // is quoted text. If this regressed, every well-formed PR would be blocked.
+    const body = [
+      "## Testing",
+      "",
+      EE_MARKER,
+      "",
+      "```",
+      "bun test ./x -> 12 pass, 0 fail",
+      "```",
+    ].join("\n");
+    expect(hasExecutionEvidence(body)).toBe(true);
+  });
+
+  it("counts a real marker even when an unrelated fence elsewhere quotes one too", () => {
+    const body = [
+      "## Notes",
+      "",
+      "```markdown",
+      EE_MARKER,
+      "  (an example being quoted)",
+      "```",
+      "",
+      EE_MARKER,
+      "  bun test ./y -> 3 pass, 0 fail",
+    ].join("\n");
+    expect(hasExecutionEvidence(body)).toBe(true);
+  });
+});
+
 describe("hasExecutionEvidence", () => {
   it("detects '## Execution evidence:' heading with content on next line", () => {
     const body = `## Summary\nSome PR.\n\n## Execution evidence:\nbun test passed\n`;

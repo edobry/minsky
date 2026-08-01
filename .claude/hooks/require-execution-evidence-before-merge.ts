@@ -239,9 +239,24 @@ export function hasExecutionEvidence(prBody: string): boolean {
     /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
 
   const lines = strippedBody.split("\n");
+  // Fence-aware (mt#3530). A marker whose only occurrence is inside a code fence is
+  // QUOTED TEXT — a PR showing reviewers the expected shape — not a record. Before
+  // this, such a body SATISFIED this blocking gate: `hasExecutionEvidence` imported
+  // `computeFenceInternalLines` for its heading-collection helper below but never
+  // applied it here, so a quoted example counted as real evidence.
+  //
+  // This aligns the gate with the two scanners that already do it
+  // (`test-first-evidence.ts`, `success-criteria-coverage.ts`) and with the accepted-
+  // forms class its siblings' doc comments claim to mirror.
+  //
+  // Blast radius measured before flipping, per the mt#3530 spec: replayed over the 100
+  // most recently merged PRs — 0 verdict changes. The fenced CONTENT beneath a real
+  // marker still counts, so the normal shape (label outside, output fenced under it) is
+  // unaffected; only a marker with NO unfenced occurrence changes verdict.
+  const fenceInternal = computeFenceInternalLines(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(headingPattern);
     if (!match) continue;
 
