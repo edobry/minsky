@@ -42,9 +42,19 @@ research event is evaluated only once `TRAILING_WINDOW_TURNS` (5) turns have ela
 occurred — the agent gets a grace period before the absence of propagation is treated as a miss.
 Once due, if a propagation call (`mcp__minsky__memory_create`, `mcp__minsky__tasks_create`, or a
 `Skill` invocation whose name contains "learn") appears anywhere after the research call, the
-event is a true negative and nothing is logged. If not, the event fires exactly once (a stable
-`${lineIdx}:${toolName}` dedupe key, checked against the calibration log's own tail, prevents a
-matured-but-unresolved event from re-firing on every subsequent turn).
+event is a true negative — since mt#3207 it is still LOGGED, as a suppressed record carrying
+`suppressionReasons: ["propagation-in-window"]`, and never injects. If not, the event fires
+exactly once (a stable `${lineIdx}:${toolName}` dedupe key, checked against the calibration
+log's own tail, prevents a matured-but-unresolved event from re-firing on every subsequent turn).
+
+Recording the true negative is what makes the propagation gate's own fire rate measurable; the
+sweep excludes suppressed records from the injected count (mt#3197), so it does not distort FP
+math. It is safe to burn the dedupe key on it because the gate is TERMINAL — propagation is in
+the past and cannot un-happen. The other two skip legs are deliberately NOT recorded for the
+opposite reason: the grace period is a deferral (re-evaluated next invocation, so a record would
+fire every turn and consume the key the eventual real fire needs), and the missing loaded-skill
+keyword overlap is part of the rung-2-lite detection criterion rather than a gate over a
+completed detection.
 
 ## Whole-session scan
 
