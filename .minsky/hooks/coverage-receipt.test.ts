@@ -15,6 +15,7 @@ import {
   resolveCalibrationLogPath,
   summarizeCoverage,
   formatCoverageResult,
+  countInvocationsPerLog,
   DEFAULT_COVERAGE_WINDOW_DAYS,
   type CoverageCalibrationEntry,
   type CoverageFsDeps,
@@ -340,5 +341,81 @@ describe("three-state coverage: dormant vs dead (mt#3502)", () => {
     expect(report.dormantCount).toBe(1);
     expect(report.flaggedCount).toBe(0);
     expect(report.allCovered).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// countInvocationsPerLog — the many-to-many join (mt#3519)
+// ---------------------------------------------------------------------------
+
+describe("countInvocationsPerLog (mt#3519)", () => {
+  const WINDOW_START = NOW_MS - 7 * MS_PER_DAY;
+  const inWindow = "2026-07-19T12:00:00.000Z";
+  const older = "2026-07-19T06:00:00.000Z";
+  const outOfWindow = "2026-07-01T12:00:00.000Z";
+  /** The real two-log guard this join was widened for. */
+  const TWO_LOG_GUARD = "require-execution-evidence-before-merge";
+
+  test("one guard writing TWO logs credits its invocations to BOTH", () => {
+    // The regression: the guard->log inversion held one log per guard, so the
+    // second declaration overwrote the first and that log counted zero — it
+    // reported "no evidence the entry point ran" while its sibling, backed by
+    // the same invocations, read as dormant.
+    const logToGuards = new Map([
+      ["execution-evidence-at-coverage", [TWO_LOG_GUARD]],
+      ["execution-evidence-test-first", [TWO_LOG_GUARD]],
+    ]);
+    const evidence = countInvocationsPerLog(
+      [
+        { guardName: TWO_LOG_GUARD, timestamp: older },
+        { guardName: TWO_LOG_GUARD, timestamp: inWindow },
+      ],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+
+    expect(evidence.get("execution-evidence-at-coverage")).toEqual({ count: 2, lastAt: inWindow });
+    expect(evidence.get("execution-evidence-test-first")).toEqual({ count: 2, lastAt: inWindow });
+  });
+
+  test("one log written by TWO guards sums both (the pre-existing direction still holds)", () => {
+    const logToGuards = new Map([["operator-deferral", ["guard-a", "guard-b"]]]);
+    const evidence = countInvocationsPerLog(
+      [
+        { guardName: "guard-a", timestamp: older },
+        { guardName: "guard-b", timestamp: inWindow },
+      ],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("operator-deferral")).toEqual({ count: 2, lastAt: inWindow });
+  });
+
+  test("a log with a declared guard but no in-window invocations reports zero, not absent", () => {
+    // Zero-with-evidence and absent-evidence are different states downstream:
+    // one is "the entry point ran and had nothing to say", the other is "no
+    // guard declares this log at all".
+    const logToGuards = new Map([["quiet-log", ["quiet-guard"]]]);
+    const evidence = countInvocationsPerLog(
+      [{ guardName: "quiet-guard", timestamp: outOfWindow }],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("quiet-log")).toEqual({ count: 0, lastAt: null });
+  });
+
+  test("invocations by an undeclared guard are ignored", () => {
+    const logToGuards = new Map([["declared-log", ["declared-guard"]]]);
+    const evidence = countInvocationsPerLog(
+      [{ guardName: "some-other-guard", timestamp: inWindow }],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("declared-log")).toEqual({ count: 0, lastAt: null });
+    expect(evidence.has("some-other-guard")).toBe(false);
   });
 });
