@@ -59,6 +59,40 @@ const EXTERNAL_LINK_SHIM: &str = r#"
 })();
 "#;
 
+/// Init script wiring the mouse side buttons (X1/X2) to the SPA's history
+/// (mt#3535). Same gap class as mt#2327 (`Cmd+R`/`Cmd+W`) and mt#2334 (zoom):
+/// Tauri ships no browser chrome, so every affordance a browser window would
+/// provide has to be added explicitly.
+///
+/// WKWebView DOES deliver these buttons to the DOM -- WebKit's
+/// `buttonFromButtonNumber` (`PlatformEventFactoryMac.mm`) maps `NSEvent`
+/// buttonNumber 3/4 to `MouseButton::Back`/`Forward`, whose enum values (3/4,
+/// `dom/MouseEventTypes.h`) ARE the DOM `MouseEvent.button` numbers, so they
+/// are neither dropped nor collapsed onto the middle button. What WebKit does
+/// NOT do is navigate: that is browser-chrome behavior, which this window has
+/// none of. Hence a listener rather than any Rust-side event interception.
+///
+/// Injected ONLY into the tray webview, for the same reason EXTERNAL_LINK_SHIM
+/// is: a browser-viewed cockpit already navigates on these buttons natively, so
+/// a second handler shared with the SPA would move TWO history entries per
+/// click. ADR-023 keeps `src/cockpit/web/**` uniform across delivery surfaces,
+/// which is exactly why this cannot live there.
+const HISTORY_NAV_SHIM: &str = r#"
+(function () {
+  window.addEventListener('mousedown', function (e) {
+    if (e.button !== 3 && e.button !== 4) return;
+    // Suppress the press's default (autoscroll/selection) before navigating.
+    e.preventDefault();
+    if (e.button === 3) window.history.back();
+    else window.history.forward();
+  }, true);
+  // A navigation press must not also activate whatever sits under the cursor.
+  window.addEventListener('auxclick', function (e) {
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+  }, true);
+})();
+"#;
+
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
 /// ABSOLUTE factor — so we track the current value here in order to step it.
@@ -199,6 +233,20 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&zoom_out_item)
         .item(&zoom_reset_item)
         .build()?;
+    // History items (mt#3535), applied via `WebviewWindow::eval` in
+    // handle_menu_event -- the ADR-023 native->SPA seam, same as "reload".
+    // Plain Cmd+[ / Cmd+] (browser convention); the SHIFTED forms stay free for
+    // TabKeyboardNav's strip-order tab switching, which the SPA handles itself.
+    let history_back_item = MenuItemBuilder::with_id("history_back", "Back")
+        .accelerator("CmdOrCtrl+[")
+        .build(app)?;
+    let history_forward_item = MenuItemBuilder::with_id("history_forward", "Forward")
+        .accelerator("CmdOrCtrl+]")
+        .build(app)?;
+    let history_submenu = SubmenuBuilder::new(app, "History")
+        .item(&history_back_item)
+        .item(&history_forward_item)
+        .build()?;
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .minimize()
         .close_window()
@@ -207,6 +255,7 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&app_submenu)
         .item(&edit_submenu)
         .item(&view_submenu)
+        .item(&history_submenu)
         .item(&window_submenu)
         .build()?;
     app.set_menu(app_menu)?;
@@ -217,9 +266,8 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // global handler also receive tray-menu events on some platforms
     // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
     app.on_menu_event(move |app, event| match event.id().as_ref() {
-        "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" => {
-            handle_menu_event(app, event.id().as_ref())
-        }
+        "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" | "history_back"
+        | "history_forward" => handle_menu_event(app, event.id().as_ref()),
         _ => {}
     });
 
@@ -233,6 +281,22 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
                 if let Err(e) = window.eval("window.location.reload()") {
                     eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+                }
+            }
+        }
+        // History navigation (mt#3535). Driven by `eval` rather than a native
+        // WKWebView goBack/goForward so the menu and the mouse side buttons
+        // move the SAME history: the SPA's react-router entries, which are
+        // pushState entries on the document's own history.
+        "history_back" | "history_forward" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                let script = if id == "history_back" {
+                    "window.history.back()"
+                } else {
+                    "window.history.forward()"
+                };
+                if let Err(e) = window.eval(script) {
+                    eprintln!("[cockpit-tray] failed to run {id} on cockpit window: {e}");
                 }
             }
         }
@@ -434,6 +498,10 @@ fn create_cockpit_window(app: &AppHandle) {
             }
         })
         .initialization_script(EXTERNAL_LINK_SHIM)
+        // Appended, not replaced: `initialization_script` pushes onto the
+        // webview's script list, so both shims run (tauri 2.11.2,
+        // `webview/mod.rs:868`).
+        .initialization_script(HISTORY_NAV_SHIM)
         .build()
     {
         Ok(window) => {
