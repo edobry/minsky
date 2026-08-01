@@ -344,6 +344,13 @@ Please provide a title for your pull request:
       // PRs may have committed identical compile artifacts. Setting true causes phantom conflicts
       // on GitHub merge — see mt#1334.
       skipIfAlreadyMerged: false,
+      // mt#3480: forward the operator's push bound. Without this the update's
+      // push always ran at the 2-minute default, so a legitimately slow push
+      // failed PR creation outright with no recourse — while session.commit,
+      // session.update and git.push all accepted an override. `undefined`
+      // falls through to that same default, so behavior is unchanged unless
+      // the caller asks for more headroom.
+      pushTimeoutMs: params.pushTimeoutMs,
     };
     await updateSessionImpl(updateParams, {
       sessionDB: deps.sessionDB,
