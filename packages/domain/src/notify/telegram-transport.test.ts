@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyGetUpdatesFailure,
   fetchTelegramFile,
+  getTelegramMe,
   getTelegramUpdates,
   highestUpdateIdOf,
   parseInboundUpdates,
@@ -131,6 +132,119 @@ describe("sendTelegramMessage", () => {
   });
 });
 
+/**
+ * Formatted sends (mt#3465).
+ *
+ * The invariant these protect is the one the plain-text default was built on:
+ * a delivery failure is worse than unstyled text. Adding a parse mode must not
+ * trade that away, so a 400 has to degrade to a delivered plain message rather
+ * than to silence.
+ */
+describe("sendTelegramMessage — parse mode", () => {
+  function capture(): { bodies: Record<string, unknown>[]; fetchFn: FetchFn } {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return jsonResponse({ ok: true, result: { message_id: 7 } });
+    };
+    return { bodies, fetchFn };
+  }
+
+  test("omits parse_mode by default, preserving the alert-path contract", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({ token: TOKEN, chatId: CHAT, text: "alert", fetchFn });
+    expect("parse_mode" in (bodies[0] ?? {})).toBe(false);
+  });
+
+  test("sends parse_mode when the caller opts in", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      fetchFn,
+    });
+    expect(bodies[0]?.["parse_mode"]).toBe("HTML");
+    expect(bodies[0]?.["text"]).toBe("<b>hi</b>");
+  });
+
+  test("retries as plain text when Telegram rejects the markup with 400", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body["parse_mode"] !== undefined) {
+        return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+      }
+      return jsonResponse({ ok: true, result: { message_id: 9 } });
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>broken",
+      parseMode: "HTML",
+      plainFallback: "**broken",
+      fetchFn,
+    });
+
+    // Delivered, not lost — the whole point. And FLAGGED: a silent fallback
+    // would make a systematically-broken converter look healthy, since every
+    // message would still arrive (SC3 requires the parse error be logged).
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.messageId).toBe(9);
+      expect(result.fellBackToPlain).toBe(true);
+      expect(result.parseError).toContain("400");
+    }
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.["text"]).toBe("**broken");
+    expect("parse_mode" in (bodies[1] ?? {})).toBe(false);
+  });
+
+  test("does NOT retry on a non-400 failure", async () => {
+    // 429/5xx are about the chat or the service; resending unstyled would not
+    // help and would double the load on an already-failing endpoint.
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: "Too Many Requests" }, 429);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      plainFallback: "hi",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test("does not retry when the caller supplied no fallback", async () => {
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi",
+      parseMode: "HTML",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+});
+
 describe("sendTelegramTypingAction", () => {
   test("reports success on a 2xx", async () => {
     const ok = await sendTelegramTypingAction({
@@ -184,6 +298,8 @@ describe("parseInboundUpdates", () => {
         replyToText: undefined,
         attachments: [],
         unsupportedMedia: undefined,
+        messageThreadId: undefined,
+        isTopicMessage: false,
       },
     ]);
   });
@@ -691,5 +807,177 @@ describe("fetchTelegramFile", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+});
+
+/**
+ * Telegram topic-mode support (mt#3505, parent mt#3500).
+ *
+ * These cases carry the byte-identical regression the spec calls for: the
+ * reviewer's alert sink and `notifyPrincipal` never pass `messageThreadId`, so
+ * their wire payload must be unchanged.
+ */
+describe("parseInboundUpdates — topics (mt#3505)", () => {
+  test("captures message_thread_id and is_topic_message on a topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 20,
+          message: {
+            message_id: 8,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello from the topic",
+            message_thread_id: 749667,
+            is_topic_message: true,
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBe(749667);
+    expect(messages[0]?.isTopicMessage).toBe(true);
+  });
+
+  test("leaves messageThreadId undefined and isTopicMessage false on a non-topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 21,
+          message: {
+            message_id: 9,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello, no topic",
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBeUndefined();
+    expect(messages[0]?.isTopicMessage).toBe(false);
+  });
+});
+
+describe("sendTelegramMessage — topics (mt#3505)", () => {
+  test("forwards messageThreadId as message_thread_id", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(sent["message_thread_id"]).toBe(749667);
+  });
+
+  test("omits message_thread_id when not given", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect("message_thread_id" in sent).toBe(false);
+  });
+
+  // The regression the spec's own acceptance criteria call out by name: the
+  // reviewer's TelegramAlertSink and notifyPrincipal never pass a thread id,
+  // so their wire body must be byte-for-byte unchanged by this feature.
+  test("regression: omitting messageThreadId reproduces today's wire payload byte-for-byte", async () => {
+    let rawBody = "";
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "circuit breaker tripped",
+      replyToMessageId: 12,
+      fetchFn: async (_url, init) => {
+        rawBody = String(init?.body);
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+
+    expect(rawBody).toBe(
+      JSON.stringify({
+        chat_id: CHAT,
+        text: "circuit breaker tripped",
+        disable_web_page_preview: true,
+        reply_to_message_id: 12,
+      })
+    );
+  });
+});
+
+describe("getTelegramMe (mt#3505)", () => {
+  test("reports has_topics_enabled and allows_users_to_create_topics on success", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: {
+            id: 8913559862,
+            username: "edobry_minsky_bot",
+            has_topics_enabled: true,
+            allows_users_to_create_topics: true,
+          },
+        }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      hasTopicsEnabled: true,
+      allowsUsersToCreateTopics: true,
+    });
+  });
+
+  test("reports both flags false when Telegram returns them false", () => {
+    return getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: { id: 1, username: "bot", has_topics_enabled: false },
+        }),
+    }).then((result) => {
+      expect(result).toEqual({
+        ok: true,
+        hasTopicsEnabled: false,
+        allowsUsersToCreateTopics: false,
+      });
+    });
+  });
+
+  test("redacts the token out of a failure detail", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        new Response(`{"ok":false,"description":"unauthorized ${TOKEN}"}`, { status: 401 }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail).not.toContain(TOKEN);
+    expect(result.status).toBe(401);
+  });
+
+  test("reports a network error without throwing", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () => {
+        throw new Error("connect refused");
+      },
+    });
+    expect(result.ok).toBe(false);
   });
 });

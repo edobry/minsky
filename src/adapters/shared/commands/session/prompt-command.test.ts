@@ -138,7 +138,12 @@ describe("session.generate_prompt dispatch-time invocation writer (mt#2796)", ()
     expect(row).toBeDefined();
     expect(row?.taskId).toBe(TASK_ID);
     expect(row?.subagentSessionId).toBe(SESSION_ID);
-    expect(row?.outcome).toBe("crashed-no-output");
+    // mt#1770: the seed is `pending`, matching what this test is already NAMED for
+    // ("writes a pending invocation row"). It previously asserted `crashed-no-output`
+    // — the old pessimistic default, which made a never-closed row indistinguishable
+    // from an observed crash. This is the seed site that actually fires.
+    expect(row?.outcome).toBe("pending");
+    expect(row?.outcome).not.toBe("crashed-no-output");
     expect(row?.suggestedModel).toBe(result.suggestedModel ?? null);
     expect(row?.suggestedModel).toBeTruthy();
     expect(row?.agentType).toBe(result.agentType ?? "implementation");

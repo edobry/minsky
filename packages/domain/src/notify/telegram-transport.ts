@@ -99,23 +99,133 @@ export interface SendMessageOptions {
   text: string;
   /** Thread the outbound message as a reply to an earlier one. */
   replyToMessageId?: number;
+  /**
+   * Render `text` with Telegram's HTML parser (mt#3465).
+   *
+   * Opt-in, and the default stays plain: the two alert callers (the reviewer's
+   * circuit-breaker sink, `notifyPrincipal`) send operator-authored strings
+   * that are not Markdown, and mt#2364's contract is that an alert must never
+   * fail to deliver because of formatting. Only the conversational reply path
+   * opts in.
+   *
+   * `text` must already be valid Telegram HTML — see
+   * `markdownToTelegramHtml`. Pair it with {@link plainFallback}.
+   */
+  parseMode?: "HTML";
+  /**
+   * The un-marked-up text to resend if the formatted attempt is rejected.
+   *
+   * Telegram answers malformed markup with a 400 and delivers NOTHING, which
+   * on this channel means the principal silently gets no answer. Supplying the
+   * original text turns that into a delivery that is merely unstyled —
+   * preserving the "a delivery failure is worse than unstyled text" invariant
+   * the plain-text default was built on, rather than trading it away.
+   */
+  plainFallback?: string;
+  /**
+   * Post into a specific Telegram DM forum topic (mt#3505).
+   *
+   * Optional and omitted by default so the two alert callers (the reviewer's
+   * circuit-breaker sink, `notifyPrincipal`) — which never target a topic —
+   * produce byte-for-byte the same wire payload as before this field existed.
+   * A send to a thread id whose topic no longer exists answers HTTP 400 with
+   * description "Bad Request: message thread not found" (verified live,
+   * mt#3500 Phase 0) — reconciling that is Phase 2's job, not this field's.
+   */
+  messageThreadId?: number;
   fetchFn?: FetchFn;
 }
 
 export type TelegramSendResult =
-  | { ok: true; messageId: number }
+  | {
+      ok: true;
+      messageId: number;
+      /**
+       * Set when the formatted attempt was rejected and this delivery is the
+       * plain-text retry (mt#3465).
+       *
+       * Surfaced rather than logged here: this module has no logger by design
+       * (result unions, no side effects), and a silent fallback would make a
+       * systematically-broken converter indistinguishable from a healthy one —
+       * every message would still arrive, just never formatted. The caller
+       * logs it.
+       */
+      fellBackToPlain?: true;
+      /** Telegram's rejection of the markup, for the caller's log. */
+      parseError?: string;
+    }
   | { ok: false; status?: number; detail: string };
 
 /**
  * Send a message to a chat.
  *
- * Plain text with no `parse_mode`: agent output routinely contains SHAs,
- * underscores, and error strings that Markdown/HTML parse modes reject or
- * mangle, and a delivery failure on an alert channel is worse than unstyled
- * text.
+ * **Plain text by DEFAULT** — unchanged from the original contract: agent
+ * output routinely contains SHAs, underscores, and error strings that a parse
+ * mode can reject, and a delivery failure on an alert channel is worse than
+ * unstyled text.
+ *
+ * A caller that wants formatting opts in with `parseMode` (mt#3465). When it
+ * does, a 400 from Telegram — its answer to markup it cannot parse — is
+ * retried once as plain text using {@link SendMessageOptions.plainFallback},
+ * so the invariant above still holds for the formatted path: the worst case is
+ * an unstyled message, never a missing one.
  */
 export async function sendTelegramMessage(opts: SendMessageOptions): Promise<TelegramSendResult> {
-  const { token, chatId, text, replyToMessageId, fetchFn = fetch } = opts;
+  const {
+    token,
+    chatId,
+    text,
+    replyToMessageId,
+    parseMode,
+    plainFallback,
+    messageThreadId,
+    fetchFn = fetch,
+  } = opts;
+
+  const attempt = await postSendMessage({
+    token,
+    chatId,
+    text,
+    replyToMessageId,
+    parseMode,
+    messageThreadId,
+    fetchFn,
+  });
+
+  // Only a 400 means "I could not parse that" — a 403/429/5xx is about the
+  // chat or the service, and resending unstyled would not help.
+  const shouldRetryPlain =
+    !attempt.ok && attempt.status === 400 && parseMode !== undefined && plainFallback !== undefined;
+  if (!shouldRetryPlain) return attempt;
+
+  const parseError = attempt.ok ? "" : attempt.detail;
+  const retry = await postSendMessage({
+    token,
+    chatId,
+    text: plainFallback,
+    replyToMessageId,
+    parseMode: undefined,
+    messageThreadId,
+    fetchFn,
+  });
+
+  // Mark the degradation so the caller can log it. Without this the fallback
+  // is invisible and a converter that started emitting bad markup would look
+  // exactly like one that works.
+  return retry.ok ? { ...retry, fellBackToPlain: true, parseError } : retry;
+}
+
+/** One `sendMessage` round-trip. Shared by the formatted attempt and its retry. */
+async function postSendMessage(opts: {
+  token: string;
+  chatId: string;
+  text: string;
+  replyToMessageId: number | undefined;
+  parseMode: "HTML" | undefined;
+  messageThreadId: number | undefined;
+  fetchFn: FetchFn;
+}): Promise<TelegramSendResult> {
+  const { token, chatId, text, replyToMessageId, parseMode, messageThreadId, fetchFn } = opts;
   const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
 
   let response: Response;
@@ -127,7 +237,9 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
         chat_id: chatId,
         text,
         disable_web_page_preview: true,
+        ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
         ...(replyToMessageId === undefined ? {} : { reply_to_message_id: replyToMessageId }),
+        ...(messageThreadId === undefined ? {} : { message_thread_id: messageThreadId }),
       }),
     });
   } catch (err: unknown) {
@@ -184,6 +296,57 @@ export async function sendTelegramTypingAction(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Capability probe
+// ---------------------------------------------------------------------------
+
+export type TelegramGetMeResult =
+  | { ok: true; hasTopicsEnabled: boolean; allowsUsersToCreateTopics: boolean }
+  | { ok: false; status?: number; detail: string };
+
+/**
+ * Probe the bot's own topic-mode capability (mt#3505, parent mt#3500).
+ *
+ * `has_topics_enabled` and `allows_users_to_create_topics` are two @BotFather
+ * toggles with no setter in the Bot API — this is read-only. Both fields are
+ * present-with-`false` on a bot with topic mode off, not absent, so a bot on
+ * an older API build and one with the feature deliberately disabled are
+ * indistinguishable from this call alone; the launch-time caller only needs
+ * to know "on or off", not why.
+ *
+ * @see core.telegram.org/bots/api#user — `has_topics_enabled`,
+ *   `allows_users_to_create_topics`
+ */
+export async function getTelegramMe(opts: {
+  token: string;
+  fetchFn?: FetchFn;
+}): Promise<TelegramGetMeResult> {
+  const { token, fetchFn = fetch } = opts;
+  const url = `${TELEGRAM_API_BASE}/bot${token}/getMe`;
+
+  let response: Response;
+  try {
+    response = await fetchFn(url, { method: "POST" });
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      detail: redactSecret(token, `HTTP ${response.status}${await bodySnippet(response)}`),
+    };
+  }
+
+  const result = asRecord(asRecord(await readJson(response))?.["result"]);
+  return {
+    ok: true,
+    hasTopicsEnabled: result?.["has_topics_enabled"] === true,
+    allowsUsersToCreateTopics: result?.["allows_users_to_create_topics"] === true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Receive
 // ---------------------------------------------------------------------------
 
@@ -229,6 +392,24 @@ export interface InboundTelegramMessage {
    * nothing back, with no signal anything had arrived.
    */
   unsupportedMedia: string | undefined;
+  /**
+   * Which DM forum topic this message arrived in (mt#3505, parent mt#3500).
+   *
+   * Undefined for a message in the standing (non-topic) conversation — Bot
+   * API 9.3 documents `message_thread_id` as present "for supergroups and
+   * private chats only" once topic mode is on; a bot without topic mode
+   * enabled never sees this field at all, so the channel degrades to today's
+   * single-conversation behavior automatically, with no gating logic needed.
+   */
+  messageThreadId: number | undefined;
+  /**
+   * Telegram's own flag confirming the message truly belongs to a topic,
+   * echoed back verbatim (mt#3500 Phase 0 live probe). Kept alongside
+   * `messageThreadId` rather than folded into it because Telegram documents
+   * them as two distinct fields — this parser stays a faithful mirror of the
+   * wire shape rather than inferring one from the other.
+   */
+  isTopicMessage: boolean;
 }
 
 /**
@@ -399,6 +580,7 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
     // `text` first: a message has one or the other, but prefer the primary
     // field if a future update type ever carries both.
     const replyToTextRaw = replyTo?.["text"] ?? replyTo?.["caption"];
+    const messageThreadId = message["message_thread_id"];
 
     results.push({
       updateId,
@@ -411,6 +593,8 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
       replyToText: typeof replyToTextRaw === "string" ? replyToTextRaw : undefined,
       attachments,
       unsupportedMedia,
+      messageThreadId: typeof messageThreadId === "number" ? messageThreadId : undefined,
+      isTopicMessage: message["is_topic_message"] === true,
     });
   }
   return results;

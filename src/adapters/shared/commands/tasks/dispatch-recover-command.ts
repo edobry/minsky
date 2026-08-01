@@ -1007,10 +1007,16 @@ export function createTasksDispatchRecoverCommand(
         summary: `Classified as ${classification} by tasks.dispatch-recover; superseded by attempt ${attemptNumber + 1}.`,
       });
 
-      // Insert the NEW (resumed) row. Pessimistic default outcome + no endedAt —
-      // mirrors the dispatch-time convention in tasks.dispatch Step 5: this row
-      // describes the worst-case observed state until the eventual SubagentStop
-      // classifies it for real. It must NOT carry `classification`, which describes
+      // Insert the NEW (resumed) row. `pending` + no endedAt — mirrors the
+      // dispatch-time convention in tasks.dispatch Step 5, which mt#1770 switched
+      // from the old pessimistic `crashed-no-output` default. This row describes
+      // "dispatched, no outcome observed yet" until the eventual SubagentStop
+      // classifies it for real.
+      //
+      // Seeding a crash verdict here was especially costly: this command's own
+      // 2-attempt auto-resume bound reads these rows, so a phantom crash on the
+      // resumed attempt counted against the budget for the real one (mt#2718 burned
+      // both attempts that way). It must NOT carry `classification`, which describes
       // the ORIGINAL attempt (recorded above), not this brand-new one.
       const newInvocationId = await tracker.recordDispatchRecoveryAttempt({
         taskId,
@@ -1018,7 +1024,7 @@ export function createTasksDispatchRecoverCommand(
         agentType: latest.agentType,
         suggestedModel: latest.suggestedModel,
         startedAt: now(),
-        outcome: "crashed-no-output",
+        outcome: "pending",
         resumedFromInvocationId: latest.id,
         attemptNumber: attemptNumber + 1,
         summary: `Auto-resumed via tasks.dispatch-recover from invocation ${latest.id} (attempt ${attemptNumber}, classified ${classification}).`,

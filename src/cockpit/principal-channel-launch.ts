@@ -30,10 +30,15 @@ import {
   inboundEventToken,
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
+import { getTelegramMe, type TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
 import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
-import { createDrivenSessionActuator } from "./principal-channel-actuator";
+import {
+  createDrivenSessionActuator,
+  createTopicActuatorRegistry,
+} from "./principal-channel-actuator";
 import {
   startPrincipalChannelPoller,
+  type ChannelActuator,
   type InboundEventRecorder,
   type PollCursor,
   type PollerHandle,
@@ -212,6 +217,144 @@ export async function respondToAskFromChannel(askRef: string, text: string): Pro
   }
 }
 
+// ---------------------------------------------------------------------------
+// Topic mapping + per-topic actuators (mt#3505, parent mt#3500)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic `driven_sessions.local_id` for one Telegram DM forum topic.
+ *
+ * Lives in the SAME keyspace `entityThreadLocalId` established
+ * (`packages/domain/src/transcripts/entity-thread-store.ts`) — readable, not
+ * hashed, deterministic from stable identifiers Telegram itself assigns
+ * (`chatId`, `messageThreadId`), per the mt#3505 spec's explicit instruction.
+ * Deterministic on purpose: the id needs no lookup to derive, only the
+ * mapping row (see {@link ensureTelegramChannelTopic}) needs a lookup, and
+ * that row's whole job is to say "have I seen this topic before", not to
+ * hand back an id that could otherwise only be looked up.
+ */
+export function telegramTopicLocalId(chatId: string, messageThreadId: number): string {
+  return `telegram-topic:${chatId}:${messageThreadId}`;
+}
+
+/** Deps {@link ensureTelegramChannelTopic} needs — just a DB getter, injected for tests. */
+export interface EnsureTelegramChannelTopicDeps {
+  getDb: DbGetter;
+}
+
+/**
+ * Ensure a `telegram_channel_topics` mapping row exists for (chatId,
+ * messageThreadId), returning the topic's deterministic `localId` either way.
+ *
+ * Best-effort: a DB outage or a failed insert logs a warning and still
+ * returns the localId rather than throwing — the mapping table is the bot's
+ * ONLY inventory of topics (Telegram exposes no `getForumTopics`), but a
+ * transient persistence hiccup must not stop the principal's message from
+ * being answered. The insert itself is idempotent (`ON CONFLICT ... DO
+ * NOTHING` on the unique `(chat_id, message_thread_id)` index), so a
+ * redelivered Telegram update racing a fresh one is harmless.
+ */
+export async function ensureTelegramChannelTopic(
+  chatId: string,
+  messageThreadId: number,
+  deps: EnsureTelegramChannelTopicDeps
+): Promise<string> {
+  const localId = telegramTopicLocalId(chatId, messageThreadId);
+  const db = await deps.getDb();
+  if (!db) {
+    log.warn(
+      "[principal-channel] could not persist a topic mapping (no DB); continuing without it",
+      { chatId, messageThreadId }
+    );
+    return localId;
+  }
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO telegram_channel_topics (local_id, chat_id, message_thread_id)
+      VALUES (${localId}, ${chatId}, ${messageThreadId})
+      ON CONFLICT (chat_id, message_thread_id) DO NOTHING
+    `);
+  } catch (err: unknown) {
+    log.warn("[principal-channel] failed to record a topic mapping", {
+      chatId,
+      messageThreadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return localId;
+}
+
+/** Deps {@link createTopicActuatorResolver} needs to build and cache per-topic actuators. */
+export interface TopicActuatorResolverDeps {
+  chatId: string;
+  getDb: DbGetter;
+  /**
+   * Build a fresh actuator bound to `localId`. Production wraps
+   * `createDrivenSessionActuator` with the channel's `cwd`/`permissionMode`/
+   * `respondToAsk` fixed and only `localId` varying per topic; tests inject a
+   * stub so no `claude` process is ever spawned.
+   */
+  buildActuator: (localId: string) => ChannelActuator;
+}
+
+/**
+ * Build the poller's `resolveTopicActuator` dependency (mt#3505).
+ *
+ * The registry (`createTopicActuatorRegistry`) is what makes this safe to
+ * call once per inbound message rather than once per topic: the SAME
+ * actuator instance is returned for a topic across calls, preserving that
+ * instance's own "one caller at a time" concurrency contract (see
+ * `./principal-channel-actuator.ts`'s docblock) while different topics get
+ * independent instances and therefore run concurrently.
+ */
+export function createTopicActuatorResolver(
+  deps: TopicActuatorResolverDeps
+): (messageThreadId: number) => Promise<ChannelActuator> {
+  const registry = createTopicActuatorRegistry();
+  return async (messageThreadId: number) => {
+    const localId = await ensureTelegramChannelTopic(deps.chatId, messageThreadId, {
+      getDb: deps.getDb,
+    });
+    return registry.getOrCreate(localId, () => deps.buildActuator(localId));
+  };
+}
+
+/**
+ * Log the bot's topic-mode capability at startup (mt#3505 success criterion).
+ *
+ * Diagnostic only — it NEVER gates or fails channel startup, in either
+ * direction. When `has_topics_enabled` is false, Telegram simply never sends
+ * a `message_thread_id` on any inbound message, so the channel degrades to
+ * today's single-conversation behavior automatically; this only makes that
+ * state legible to whoever is reading the daemon's log, per the spec's
+ * "operator-legible log line rather than failing."
+ */
+export async function logTopicModeCapability(
+  token: string,
+  getMe: (opts: { token: string }) => Promise<TelegramGetMeResult> = getTelegramMe
+): Promise<void> {
+  const result = await getMe({ token });
+  if (!result.ok) {
+    log.warn(
+      "[principal-channel] could not probe topic-mode capability via getMe; continuing without it",
+      { detail: result.detail }
+    );
+    return;
+  }
+  log.info("[principal-channel] topic-mode capability probe", {
+    hasTopicsEnabled: result.hasTopicsEnabled,
+    allowsUsersToCreateTopics: result.allowsUsersToCreateTopics,
+  });
+  if (!result.hasTopicsEnabled) {
+    log.warn(
+      "[principal-channel] topic mode is OFF for this bot — the channel behaves as a single " +
+        "standing conversation until it is enabled for this bot in @BotFather",
+      {}
+    );
+  }
+}
+
 /**
  * Start the channel, or explain why it did not start.
  *
@@ -238,10 +381,29 @@ export async function startPrincipalChannel(opts: {
   }
 
   const { token, chatId } = resolution.config;
+
+  // Diagnostic only (mt#3505) — never gates startup either way. See
+  // logTopicModeCapability's own docblock for why: when topic mode is off,
+  // Telegram simply never sends a message_thread_id, so the channel degrades
+  // automatically. Fire-and-forget-adjacent but still awaited so the log line
+  // reliably lands before the "inbound poller started" line below it.
+  await logTopicModeCapability(token);
+
   const actuator = createDrivenSessionActuator({
     cwd: config.cwd,
     permissionMode: config.permissionMode,
     respondToAsk: opts.respondToAsk,
+  });
+  const resolveTopicActuator = createTopicActuatorResolver({
+    chatId,
+    getDb: getPrincipalChannelDb,
+    buildActuator: (localId) =>
+      createDrivenSessionActuator({
+        cwd: config.cwd,
+        permissionMode: config.permissionMode,
+        respondToAsk: opts.respondToAsk,
+        localId,
+      }),
   });
 
   const allowedUserIds = resolveAllowedUserIds(chatId, config.allowedUserIds);
@@ -266,6 +428,7 @@ export async function startPrincipalChannel(opts: {
     chatId,
     auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
+    resolveTopicActuator,
     cursor: createEventLogCursor(opts.readHighestUpdateId, async (updateId) => {
       await opts.recordEvent("principal.poll_advanced", {
         // A distinct token so the recorder's dedupe does not confuse this with

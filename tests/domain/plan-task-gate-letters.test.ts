@@ -39,6 +39,7 @@ const EXPECTED_GATES: string[][] = [
   ["m", "Factual-claim citation verification"],
   ["n", "External-system integration provisioning enumeration"],
   ["o", "Problem-statement verification"],
+  ["p", "First-party decision-record check"],
 ];
 
 // Tolerant of leading whitespace + em/en/hyphen dash variants (reviewer nit R1).

@@ -1102,17 +1102,35 @@ export async function createAsk(
   // in-memory result while the row stayed "detected" forever — the
   // write-only-graveyard root cause. The returned object is reconciled from
   // the persisted row so the tool response never narrates unpersisted state.
-  const { write } = routeResultToOutcomeWrite(routed);
+  // `ask.routingTarget` is whatever the CREATOR passed to `repo.create`. When
+  // it is an explicit "operator" it wins over the kind→target default (mt#3491)
+  // — see routeResultToOutcomeWrite's docblock for why (the reviewer
+  // circuit-breaker emitter is the live case).
+  const { write } = routeResultToOutcomeWrite(routed, ask.routingTarget);
   const persisted = await repo.persistRouteOutcome(ask.id, write);
 
   if (write.state === "suspended") {
+    if (!persisted.routingTarget) {
+      // A suspended row should always carry a routingTarget — both write paths
+      // that produce `state: "suspended"` set one. Falling back to the router
+      // result keeps the response usable, but the divergence means the DB layer
+      // dropped a field, so say so loudly rather than papering over it
+      // (R1 non-blocking).
+      log.warn(
+        "createAsk: persisted suspended ask has no routingTarget; falling back to the router result",
+        { askId: ask.id, routerRoutingTarget: routed.routingTarget }
+      );
+    }
     // Operator-bound (inbox / elicitation-fallback) or window-deferred:
     // suspended = waiting for a response; visible on the cockpit /asks
     // surface and respondable via respondAndClose.
     const suspended: SuspendedAsk = {
       ...routed,
       state: "suspended",
-      routingTarget: routed.routingTarget,
+      // From the PERSISTED row, not the router result — a creator-specified
+      // target overrides the router's, and the response must not narrate a
+      // different target than the one on disk (mt#3491).
+      routingTarget: persisted.routingTarget ?? routed.routingTarget,
       transport: routed.transport,
       packagedPayload: routed.packagedPayload,
       routedAt: persisted.routedAt,

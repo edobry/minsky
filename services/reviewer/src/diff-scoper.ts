@@ -201,15 +201,13 @@ export function parseFixCommitLineRanges(diff: string): FixCommitLineRangeMap {
  * Extract the portion of a PR diff that corresponds to commits after
  * `priorReviewTimestamp`.
  *
- * In the current implementation, the full prDiff is used as the fix-commit
- * diff when the caller has already filtered it to only the recent commits.
- * When the caller supplies the full diff (no filtering), this function parses
- * the diff as-is and uses it as the fix-commit scope.
- *
- * This function is intentionally simple: the filtering by timestamp is
- * expected to happen at the caller site (in runReview) using git commit
- * metadata. This module's responsibility is the line-range extraction and
- * scope-check logic.
+ * This function is intentionally simple: it parses whatever diff the caller
+ * supplies and extracts its line ranges. Resolving WHICH commits belong to the
+ * range is the caller's job — as of mt#3471 `runReview` supplies the real
+ * commits-since-last-review diff (`fetchIncrementalDiffSince`, resolved by the
+ * prior review's `commit_id`), falling back to the full PR diff when that range
+ * is unresolvable. Passing the full PR diff therefore still behaves correctly;
+ * it simply yields a PR-wide scope rather than a per-round one.
  *
  * The `priorReviewTimestamp` parameter is included in the result for logging
  * and audit purposes. It is not used to further filter the diff here, since

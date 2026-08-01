@@ -49,7 +49,7 @@ export function DrivenSessionCostPage() {
       </nav>
 
       <header className="mb-4">
-        <h1 className="text-h1 font-semibold text-foreground m-0">Driven-session cost &amp; usage</h1>
+        <h1 className="text-h1 font-semibold text-foreground m-0">Session cost &amp; usage</h1>
         <p className="text-xs text-muted-foreground mt-1">
           Measured consumption from the driven-session event stream, at API rates. Currently drawn
           from the operator&apos;s subscription at $0 marginal cost (2026-06-15 billing split
@@ -71,7 +71,7 @@ export function DrivenSessionCostPage() {
 
       {data?.status === "no-data" && (
         <p className="text-sm text-muted-foreground" data-testid="driven-session-cost-empty">
-          No driven sessions have completed a turn yet.
+          No sessions have completed a turn yet.
         </p>
       )}
 

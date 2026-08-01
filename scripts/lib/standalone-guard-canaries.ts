@@ -175,6 +175,10 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // wrong hypothesis.
     guardName: "policy-coverage",
     expects: "warn",
+    // mt#3502: the join key the coverage-receipt check uses to find this
+    // guard's invocations in the fire log. Without it the check has no
+    // liveness evidence for the detector and can only ever flag it.
+    calibrationLog: "policy-coverage",
     check: async () => {
       const { applyActionFilter } = await import(
         "../../packages/domain/src/detectors/policy-coverage/action-filter"

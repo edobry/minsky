@@ -386,12 +386,43 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   backward-compatibility — every calibration entry written before the field existed was a
   real runtime fire, and legacy records age out of the rolling window regardless.
 - **The gate** (`.minsky/hooks/coverage-receipt.ts` — `checkCoverageReceipt` /
-  `checkDetectorCoverage`) reads a detector's calibration log and PASSES only when ≥1 live
-  receipt falls inside a rolling window (default 7 days); a detector with zero live fires in
-  the window is FLAGGED and surfaced for review. An entry explicitly labelled
+  `checkDetectorCoverage`) reads a detector's calibration log and PASSES when ≥1 live
+  receipt falls inside a rolling window (default 7 days). An entry explicitly labelled
   `truePositive:false` (a known false positive) does not count, so a detector firing only on
   FPs is still flagged. TP/FP labelling is not mechanized at write time in Phase 1 (RFC "no
   early labelling"), so an unlabelled live fire is treated as a receipt.
+- **Three states, not two (mt#3502).** An EMPTY calibration log has two causes that demand
+  opposite responses, and reporting both as FLAGGED — which is what this gate did until
+  mt#3502 — makes the signal unactionable:
+
+  | State                  | Records in window | Invocations in window | Reported    | Exits |
+  | ---------------------- | ----------------- | --------------------- | ----------- | ----- |
+  | `covered`              | ≥1                | (not consulted)       | `[OK]`      | 0     |
+  | `dormant`              | 0                 | ≥1                    | `[DORMANT]` | 0     |
+  | `no-liveness-evidence` | 0                 | 0 or unknown          | `[FLAGGED]` | 1     |
+
+  Invocation evidence comes from the **fire log** (`recordFireLogEntry`, above), which
+  records every guard invocation regardless of whether the guard fired — so it answers "does
+  it still run" where the calibration log only answers "did it have anything to say". The
+  canary is NOT a substitute: it calls the guard's exported pure decision function, so it
+  proves the LOGIC works while saying nothing about whether anything invokes it (the
+  mt#3019 / mt#3046 / mt#3308 dead-entry-point class). The three instruments are
+  complementary — canary: does it decide correctly; fire log: does it run; calibration log:
+  did it have anything to report.
+
+  Both failure modes were live simultaneously when this shipped: `causal-premise` was
+  FLAGGED with 3 lifetime records while the fire log showed it invoked minutes earlier, and
+  `policy-coverage` read `[OK]` on borrowed records while appearing ZERO times in a 39 MB
+  fire log (it is standalone, so it never got the dispatcher's automatic recording; mt#3502
+  added an explicit `recordFireLogEntry` call).
+
+- **The join is declared, never string-matched (mt#3502).** A calibration-log name and its
+  guard name differ for real detectors — log `untaken-action` is guard
+  `turn-end-untaken-action-scan`, `retrospective-trigger` is `turn-end-retro-scan` — and a
+  name-matching first pass reported both as having zero invocations when they had 874 and 1531. The join key is `GuardRegistration.calibrationLog` (registry guards) and
+  `StandaloneGuardCanary.calibrationLog` (standalone guards); `check-coverage-receipts.ts`
+  builds the map from those declarations and NAMES any calibration log that resolves to no
+  guard, rather than letting it silently read as a dead entry point.
 - **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
   `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
   non-zero when any detector is flagged. It runs at calibration-review cadence
