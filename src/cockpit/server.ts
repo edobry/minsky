@@ -109,6 +109,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST_DIR = cockpitWebDistDir(__dirname);
 const INDEX_HTML = cockpitIndexHtml(__dirname);
 
+/**
+ * Accepted JSON request-body ceiling (mt#3539). Sits above the run-state
+ * writer hook's own 64kb body bound (`MAX_BODY_CHARS` in
+ * `.minsky/hooks/record-conversation-run-state.ts`) with headroom for the
+ * other POST routes, and is stated here rather than inherited from
+ * body-parser's 100kb default. See the `express.json` callsite below.
+ */
+export const JSON_BODY_LIMIT = "256kb";
+
 /** Options accepted by createCockpitServer */
 export interface CockpitServerOptions {
   /** Additional widgets to register alongside builtins (used in tests) */
@@ -274,7 +283,18 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use(hostAllowlistMiddleware(allowedHosts));
   }
 
-  app.use(express.json());
+  /**
+   * Body limit stated DELIBERATELY rather than inherited (mt#3539).
+   *
+   * body-parser's default is 100kb. Nothing chose it, and nothing surfaced
+   * what it rejected: the run-state writer hook forwarded harness payloads
+   * whole, so every `PostToolUse` carrying a large `tool_response` was
+   * rejected 413 and dropped by a hook that treats any failure as
+   * "daemon down". The hook now bounds its body (MAX_BODY_CHARS, 64kb);
+   * this ceiling sits comfortably above that so a bounded body always fits,
+   * while still refusing a genuinely unbounded one rather than buffering it.
+   */
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   // Content-Security-Policy on every GET/HEAD response (harmless on JSON API
   // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
