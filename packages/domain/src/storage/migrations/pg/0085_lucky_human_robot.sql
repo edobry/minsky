@@ -1,0 +1,2 @@
+ALTER TABLE "engprod_proposal_ledger" ADD COLUMN "last_suppressed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "engprod_proposal_ledger" ADD COLUMN "suppression_count" integer DEFAULT 0 NOT NULL;
