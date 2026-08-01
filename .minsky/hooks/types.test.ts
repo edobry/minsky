@@ -22,6 +22,7 @@ import {
   normalizeToolResult,
   findRepoRoot,
   deriveHookRepoRoot,
+  readPositiveIntEnv,
 } from "./types";
 import type { MergeDetectFs } from "./types";
 import { decideReminder } from "./drive-pr-to-convergence";
@@ -565,5 +566,31 @@ describe("deriveHookRepoRoot (mt#3393)", () => {
     const root = deriveHookRepoRoot();
     // eslint-disable-next-line custom/no-real-fs-in-tests -- reading the real tree IS the assertion: the three tests above inject startDir, so none of them would catch the default changing to process.cwd()
     expect(existsSync(join(root, ".minsky", "hooks", "types.ts"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readPositiveIntEnv (mt#3518 — preference-class threshold config channel)
+// ---------------------------------------------------------------------------
+
+describe("readPositiveIntEnv", () => {
+  test("returns the default when the var is absent or blank", () => {
+    expect(readPositiveIntEnv("X", 200, {})).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "   " })).toBe(200);
+  });
+
+  test("returns the parsed value for a positive integer", () => {
+    expect(readPositiveIntEnv("X", 200, { X: "350" })).toBe(350);
+    expect(readPositiveIntEnv("X", 10, { X: "1" })).toBe(1);
+  });
+
+  test("falls back to the default on malformed or non-positive input — never breaks a guard", () => {
+    expect(readPositiveIntEnv("X", 200, { X: "abc" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "0" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "-5" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "2.5" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "NaN" })).toBe(200);
+    expect(readPositiveIntEnv("X", 200, { X: "Infinity" })).toBe(200);
   });
 });

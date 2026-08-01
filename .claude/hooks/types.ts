@@ -451,6 +451,27 @@ export function writeOutput(output: HookOutput): void {
   emitHookFiredOnDeny(output);
 }
 
+/**
+ * Read a positive-integer tuning value from the environment, falling back to
+ * the shipped default on absence, non-numeric input, or a non-positive value
+ * (mt#3518). This is the config channel for PREFERENCE-class guard thresholds
+ * (`tuningOwnership: "preference"` in the registry): the shipped constant is
+ * the vendor default every project inherits; the env var is the local
+ * override. Fail-open to the default — a malformed override must never break
+ * a guard.
+ */
+export function readPositiveIntEnv(
+  envVarName: string,
+  defaultValue: number,
+  env: Record<string, string | undefined> = process.env
+): number {
+  const raw = env[envVarName];
+  if (raw === undefined || raw.trim() === "") return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return defaultValue;
+  return parsed;
+}
+
 // ---------------------------------------------------------------------------
 // hook.fired system-event bridge (mt#2537)
 // ---------------------------------------------------------------------------
