@@ -203,6 +203,14 @@ export interface PrincipalMessageEventPayload {
   attachmentCount?: number;
   /** The label for media that arrived but was not read (mt#3235). */
   unsupportedMedia?: string;
+  /**
+   * Which Telegram DM forum topic this message arrived in, when it arrived in
+   * one (mt#3505, parent mt#3500). Absent for a message in the standing
+   * (non-topic) conversation — the audit record's own thread dimension,
+   * needed to answer "did this land in the right topic's conversation?"
+   * without cross-referencing the `telegram_channel_topics` mapping table.
+   */
+  messageThreadId?: number;
 }
 
 /** Build the idempotency token for an update id. */
@@ -244,5 +252,6 @@ export function buildInboundEventPayload(
     ...(message.unsupportedMedia === undefined
       ? {}
       : { unsupportedMedia: message.unsupportedMedia }),
+    ...(message.messageThreadId === undefined ? {} : { messageThreadId: message.messageThreadId }),
   };
 }
