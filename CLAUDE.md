@@ -776,8 +776,27 @@ that fired. `postgres://` vs `postgresql://` is what leaked a production DB pass
 2026-08-01. Truncation (`head -c`, `cut -c`) does not help either. If a filter must sit on a
 safety path, assert it fired and fail closed.
 
+**Never pipe a producer straight into a secret sink.** `mint | gh secret set NAME` writes an EMPTY
+secret when `mint` fails — `gh` still runs, with empty stdin, and the sink now holds garbage that
+surfaces later as a confusing auth error rather than "not set". `set -o pipefail` does NOT prevent
+it (it reports the failure after `gh` already ran). Capture → guard → write:
+
+```bash
+NEW=$(mint_command | extract_token_only)   # value in a var, never echoed
+[ -z "$NEW" ] && { echo 'MINT FAILED — not writing secret'; exit 1; }
+printf '%s' "$NEW" | gh secret set NAME --repo owner/repo
+```
+
+Applies to every sink: `gh secret set`, `railway variable set`, `config_credentials_add`.
+
+**If a credential does leak, contain it in this order** — it worked in ~2 minutes on 2026-07-28
+and should not be re-derived under pressure: list the credentials on the account → identify the
+leaked one BY ID (never by printing values) → delete it → verify the remaining count → re-mint
+through a non-printing pipeline → verify the new one works. Rotation is the real closure;
+scrubbing a transcript only closes the searchable copy.
+
 Enforced by the `block-secret-file-read` PreToolUse guard (`hook-files.mdc`) for the file-read
-half; the API-response half stays discipline-tier. Detail:
+half; the API-response, pipeline-sink, and containment halves stay discipline-tier. Detail:
 `docs/rules-rationale/terminal-command-best-practices.md`.
 
 # Terminology: workspace / conversation / transport session
