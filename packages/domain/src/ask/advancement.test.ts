@@ -32,6 +32,7 @@ import type { Ask, AskKind } from "./types";
 
 const KIND_DIRECTION_DECIDE: AskKind = "direction.decide";
 const OUTCOME_SUSPENDED_FOR_OPERATOR = "suspended-for-operator";
+const OUTCOME_ROUTED_AWAITING_TRANSPORT = "routed-awaiting-transport";
 
 let tmpDir: string;
 let repo: FakeAskRepository;
@@ -95,11 +96,53 @@ describe("advanceDetectedAsk", () => {
 
     const outcome = await advanceDetectedAsk(repo, ask, ROUTER_OPTS());
 
-    expect(outcome.kind).toBe("routed-awaiting-transport");
+    expect(outcome.kind).toBe(OUTCOME_ROUTED_AWAITING_TRANSPORT);
     const persisted = await repo.getById(ask.id);
     expect(persisted?.state).toBe("routed");
     expect(persisted?.routingTarget).toBe("subagent");
     expect(persisted?.routedAt).toBeDefined();
+  });
+
+  it("honors a creator-specified operator target over the kind default (mt#3491)", async () => {
+    // The reviewer's circuit-breaker emitter creates a `coordination.notify`
+    // with an explicit `routingTarget: "operator"`, because a tripped breaker
+    // is something the PRINCIPAL must see. The ADR-008 matrix binds that kind
+    // to "peer"/mesh, and before mt#3491 the advancement sweep recomputed the
+    // target from kind — discarding "operator" and stranding the row in
+    // `routed`/peer, which `GET /api/asks` does not list. Four real alerts
+    // (PRs #1950, #2009, #2056, #2057) were lost that way.
+    const ask = await repo.create({
+      kind: "coordination.notify",
+      classifierVersion: "v1",
+      requestor: "reviewer-service",
+      title: "Reviewer submission circuit-breaker tripped — PR #1950",
+      question: "The reviewer circuit breaker opened.",
+      serviceStrategy: "asap",
+      windowMissedCount: 0,
+      forceImmediate: false,
+      routingTarget: "operator",
+    });
+
+    const outcome = await advanceDetectedAsk(repo, ask, ROUTER_OPTS());
+
+    expect(outcome.kind).toBe(OUTCOME_SUSPENDED_FOR_OPERATOR);
+    const persisted = await repo.getById(ask.id);
+    // suspended, not routed — otherwise the operator surface never lists it.
+    expect(persisted?.state).toBe("suspended");
+    expect(persisted?.routingTarget).toBe("operator");
+  });
+
+  it("still applies the kind default when the creator specified no target (mt#3491)", async () => {
+    // Negative control for the override above: absent an explicit target, the
+    // ADR-008 kind→target matrix must still govern, so the override cannot be
+    // passing for the trivial reason that every ask now goes to the operator.
+    const ask = await createDetectedAsk("coordination.notify");
+
+    const outcome = await advanceDetectedAsk(repo, ask, ROUTER_OPTS());
+
+    expect(outcome.kind).toBe(OUTCOME_ROUTED_AWAITING_TRANSPORT);
+    const persisted = await repo.getById(ask.id);
+    expect(persisted?.routingTarget).toBe("peer");
   });
 
   it("persists a policy-covered ask as closed with the citation response", async () => {
