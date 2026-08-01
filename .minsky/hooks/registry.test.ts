@@ -226,4 +226,24 @@ describe("GUARD_REGISTRY", () => {
     // UserPromptSubmit. See the mt#2652 spec's recorded discrepancy.
     expect(GUARD_REGISTRY.find((r) => r.name === "policy-coverage-detector")).toBeUndefined();
   });
+
+  test("every registration carries a tuningOwnership class (mt#3518 — stamp at birth)", () => {
+    // The field is TYPED optional so an unrated guard fails soft at runtime,
+    // but authoring-time coverage is mandatory: a new guard must be classified
+    // (invariant / preference / advisory) when it is registered, per mem#802
+    // and the beyond-Minsky RFC's 2026-08-01 amendment. An entry failing here
+    // means the author skipped the classification, not that the value is
+    // optional.
+    const unstamped = GUARD_REGISTRY.filter((r) => r.tuningOwnership === undefined).map(
+      (r) => r.name
+    );
+    expect(unstamped).toEqual([]);
+  });
+
+  test("deny-capable guards are never preference-class (dismissal must not relax a deny gate)", () => {
+    const denyButTunable = GUARD_REGISTRY.filter(
+      (r) => r.denyCapable && r.tuningOwnership === "preference"
+    ).map((r) => r.name);
+    expect(denyButTunable).toEqual([]);
+  });
 });

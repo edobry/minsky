@@ -44,10 +44,16 @@ import {
   getTelegramUpdates,
   sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
+  setTelegramMessageReaction,
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
 import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
+import {
+  REACTION_DONE,
+  REACTION_ERROR,
+  REACTION_RECEIVED,
+} from "@minsky/domain/notify/principal-reactions";
 import {
   buildInboundEventPayload,
   inboundEventToken,
@@ -432,58 +438,97 @@ async function handleRoute(
   // a network call with no timeout in front of the work the principal actually
   // asked for. A hung Telegram would delay the answer — including the failure
   // answer — behind a decoration.
-  if (route.kind !== "interrupt") {
-    void sendTelegramTypingAction({
-      token: deps.token,
-      chatId: deps.chatId,
-      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
-    }).catch(() => {
-      // Already swallows its own errors; this guards the unawaited promise.
-    });
-  }
+  //
+  // The indicator now LOOPS for the turn's duration (mt#3486). Telegram expires
+  // a chat action after ~5 seconds, so a single call left every turn longer
+  // than that looking exactly like silence — which is the complaint this
+  // addresses, not a cosmetic upgrade.
+  const typing =
+    route.kind === "interrupt"
+      ? null
+      : startTypingLoop({
+          token: deps.token,
+          chatId: deps.chatId,
+          messageThreadId: message.messageThreadId,
+          // The poller's shutdown signal, so stopping the poller stops the
+          // indicator immediately rather than whenever this turn happens to
+          // finish (PR #2525 R2).
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+        });
 
-  // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
-  // per image, so it happens once here rather than inside the actuator, which
-  // is the seam every test stubs.
-  const { images, notes } = await resolveAttachments(deps, route);
+  // Mark the message as picked up (mt#3486). This is the only mechanism that
+  // can mark a SPECIFIC inbound message — Telegram's checkmarks are a client
+  // affordance a bot can neither read nor set.
+  void react(deps, message, REACTION_RECEIVED);
 
-  const startedAtMs = Date.now();
-  let reply: string;
-  let succeeded = true;
+  // `finally` guarantees the interval is cleared on EVERY exit, including one
+  // this function does not handle (PR #2525 R1). The explicit stop below still
+  // runs first — it controls WHEN the cue disappears; this only guarantees it
+  // disappears at all. A leaked interval would keep calling `sendChatAction`
+  // for a turn nobody is waiting on, forever.
   try {
-    if (route.kind === "bind") {
-      // No conversation actuator involved: binding writes a mapping row, it
-      // does not carry out a turn.
-      reply = await handleBind(deps, message, route);
-    } else {
-      const actuator = await resolveActuatorForMessage(deps, message);
-      reply = await runActuator(actuator, route, images, notes);
+    // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
+    // per image, so it happens once here rather than inside the actuator, which
+    // is the seam every test stubs.
+    const { images, notes } = await resolveAttachments(deps, route);
+
+    const startedAtMs = Date.now();
+    let reply: string;
+    let succeeded = true;
+    try {
+      if (route.kind === "bind") {
+        // No conversation actuator involved: binding writes a mapping row, it
+        // does not carry out a turn.
+        reply = await handleBind(deps, message, route);
+      } else {
+        const actuator = await resolveActuatorForMessage(deps, message);
+        reply = await runActuator(actuator, route, images, notes);
+      }
+    } catch (err: unknown) {
+      succeeded = false;
+      const detail = err instanceof Error ? err.message : String(err);
+      // Report the failure TO THE PRINCIPAL rather than only to the log. They are
+      // holding a phone waiting for an answer; a silent swallow is the one
+      // outcome the channel must never produce.
+      reply = `Could not carry that out: ${detail}`;
+      log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
+      await recordFailureOutcome(deps, message, route, detail);
     }
-  } catch (err: unknown) {
-    succeeded = false;
-    const detail = err instanceof Error ? err.message : String(err);
-    // Report the failure TO THE PRINCIPAL rather than only to the log. They are
-    // holding a phone waiting for an answer; a silent swallow is the one
-    // outcome the channel must never produce.
-    reply = `Could not carry that out: ${detail}`;
-    log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
-    await recordFailureOutcome(deps, message, route, detail);
+
+    // Stop the indicator BEFORE the reply lands, so the two never overlap — a
+    // "typing…" still showing under a delivered answer reads as a second reply
+    // that never arrives.
+    typing?.stop();
+
+    const replyMessageId = await sendReply(deps, message, reply);
+    const delivered = replyMessageId !== undefined;
+
+    // Close the ack (mt#3486). Replaces the pickup reaction rather than
+    // accumulating, so the message carries exactly one state at a time.
+    //
+    // Gated on DELIVERY, not just on the actuator (PR #2525 R4): a turn can run
+    // clean and still fail to reach the principal — a 400, a 429, a dead topic.
+    // In that case the reaction is the ONLY signal they get, since the reply
+    // itself is what went missing, so marking it 👌 would assert delivery of
+    // something they never received.
+    void react(deps, message, succeeded && delivered ? REACTION_DONE : REACTION_ERROR);
+
+    // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
+    // failures, so "no errors" got read as "replies delivered" — an inference
+    // that was wrong. `replyMessageId` is the delivery receipt: present means
+    // Telegram accepted the reply, absent means it did not.
+    log.info("[principal-channel] handled an inbound message", {
+      updateId: message.updateId,
+      route: route.kind,
+      succeeded,
+      durationMs: Date.now() - startedAtMs,
+      replyMessageId,
+    });
+    return succeeded;
+  } finally {
+    typing?.stop();
   }
-
-  const replyMessageId = await sendReply(deps, message, reply);
-
-  // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
-  // failures, so "no errors" got read as "replies delivered" — an inference
-  // that was wrong. `replyMessageId` is the delivery receipt: present means
-  // Telegram accepted the reply, absent means it did not.
-  log.info("[principal-channel] handled an inbound message", {
-    updateId: message.updateId,
-    route: route.kind,
-    succeeded,
-    durationMs: Date.now() - startedAtMs,
-    replyMessageId,
-  });
-  return succeeded;
 }
 
 /**
@@ -544,6 +589,132 @@ function runActuator(
     case "channel-agent":
       return actuator.converse(withChannelNotes(route.text, notes), route.replyToText, images);
   }
+}
+
+/**
+ * Telegram expires a chat action after about five seconds.
+ *
+ * Refreshing at four leaves headroom for a slow round-trip without the
+ * indicator visibly flickering off between refreshes.
+ */
+const TYPING_REFRESH_MS = 4_000;
+
+/** A running typing indicator. */
+interface TypingLoop {
+  stop(): void;
+}
+
+/**
+ * Keep the "typing…" indicator alive for the duration of a turn (mt#3486).
+ *
+ * The single fire-and-forget call this replaces was correct for a fast reply
+ * and wrong for every slow one: the indicator expired after ~5s and the
+ * remaining 90 seconds of a real agent turn looked precisely like the channel
+ * having dropped the message. That is the complaint, not a polish item.
+ *
+ * Every property of the original call is preserved — unawaited, self-swallowing,
+ * never able to delay or fail the answer. The loop only changes how LONG the
+ * cue lasts.
+ */
+export function startTypingLoop(opts: {
+  token: string;
+  chatId: string;
+  messageThreadId?: number;
+  fetchFn?: FetchFn;
+  /**
+   * Refresh cadence. Overridable ONLY so tests can observe the loop actually
+   * looping — at the 4s default a test would finish before a single refresh
+   * fired, so an assertion about stopping would pass whether or not stopping
+   * worked.
+   */
+  refreshMs?: number;
+  /**
+   * The poller's shutdown signal (PR #2525 R2).
+   *
+   * Per-turn teardown is not sufficient on its own. `stop()` on the poller
+   * aborts this signal, but a turn already in flight keeps awaiting its
+   * actuator — so without this listener the interval would go on calling
+   * `sendChatAction` after the poller was told to stop, for as long as the
+   * abandoned turn ran. Binding to the signal makes shutdown immediate rather
+   * than eventual.
+   */
+  signal?: AbortSignal;
+}): TypingLoop {
+  let stopped = false;
+
+  const send = (): void => {
+    if (stopped) return;
+    void sendTelegramTypingAction(opts).catch(() => {
+      // Already swallows its own errors; this guards the unawaited promise.
+    });
+  };
+
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  const loop: TypingLoop = {
+    stop(): void {
+      stopped = true;
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+      opts.signal?.removeEventListener("abort", onAbort);
+    },
+  };
+
+  // Named so it can be removed on stop — an accumulating listener on the
+  // poller's long-lived signal would be its own leak, one per turn.
+  function onAbort(): void {
+    loop.stop();
+  }
+
+  // Subscribe BEFORE reading `aborted`, then re-check (PR #2525 R3).
+  //
+  // Checking first and subscribing after would be correct today — nothing
+  // between them suspends, so no abort can interleave on a single-threaded
+  // event loop — but that correctness rests on an invariant a later edit could
+  // break by introducing one `await`. Subscribe-then-check needs no such
+  // argument: whichever way the abort arrives, exactly one of the two paths
+  // catches it, and `stop()` is idempotent.
+  opts.signal?.addEventListener("abort", onAbort);
+  if (opts.signal?.aborted === true) {
+    loop.stop();
+    return loop;
+  }
+
+  send();
+  timer = setInterval(send, opts.refreshMs ?? TYPING_REFRESH_MS);
+  // The listener may have fired during `send()` in a future where that
+  // suspends; honour it rather than leaving an interval behind.
+  if (stopped) {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return loop;
+}
+
+/**
+ * Mark the principal's message with a pipeline-state reaction (mt#3486).
+ *
+ * Fire-and-forget by contract: the ack exists to make the pipeline legible, so
+ * it must never be able to delay or fail the thing it is reporting on. A
+ * rejected emoji (Telegram's allowlist is fixed and revisable) degrades to no
+ * reaction, which is why `verify-reaction-emoji.ts` exists to catch that
+ * silence deliberately rather than in production.
+ */
+async function react(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  emoji: string
+): Promise<void> {
+  await setTelegramMessageReaction({
+    token: deps.token,
+    chatId: deps.chatId,
+    messageId: message.messageId,
+    emoji,
+    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+  });
 }
 
 /**
