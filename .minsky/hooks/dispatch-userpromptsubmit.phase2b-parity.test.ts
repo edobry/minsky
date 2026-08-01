@@ -26,6 +26,7 @@ import { join } from "node:path";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
+import { hookChildEnv } from "./hook-child-env";
 
 /** Shared literal — the lifecycle event these fixtures all target. */
 const USER_PROMPT_SUBMIT_EVENT = "UserPromptSubmit";
@@ -138,7 +139,14 @@ async function invokeHookCli(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, ...env },
+    // mt#3528: same class as the e2e canary — this helper's callers `JSON.parse`
+    // the spawned hook's stdout, so the child must not inherit the harness's
+    // `MINSKY_LOG_MODE=STRUCTURED`, which routes the logger onto stdout and
+    // corrupts the payload. Not currently failing here (the guards this file
+    // exercises do not import a module that logs at info), but it is the same
+    // latent defect, so it is patched in the same round rather than waiting for
+    // an unrelated import to make it visible.
+    env: hookChildEnv(env),
   });
   proc.stdin.write(JSON.stringify(input));
   proc.stdin.end();
