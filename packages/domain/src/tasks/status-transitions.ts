@@ -85,6 +85,10 @@ export function validateStatusTransition(from: string, to: string, kind?: string
  *   `## Closeout evidence: deployed 2026-07-31`          accepted
  *   `## Findings from the reviewer that we rejected`     rejected
  *   `## Findings summary` / `## Outcomes`                rejected
+ *   `## Findings (unclosed`                              rejected
+ *
+ * A bracketed qualifier must CLOSE on the same line (PR #2541 R1). An unbalanced opener is
+ * a typo, and accepting it would let a malformed heading pass the gate silently.
  *
  * A bare prose continuation stays rejected because it is a different noun phrase, not a
  * qualified one: `## Findings summary` is a plausible heading for a section that is NOT
@@ -94,7 +98,7 @@ export function validateStatusTransition(from: string, to: string, kind?: string
  * same call mt#3511 made for the negative-control matcher.
  */
 export const CLOSEOUT_EVIDENCE_HEADING =
-  /^##\s+(?:closeout\s+evidence|findings|outcome)\s*(?:[:.]\s*(?:\S.*)?|[—–]\s*\S.*|[([]\s*\S.*)?\s*$/i;
+  /^##\s+(?:closeout\s+evidence|findings|outcome)\s*(?:[:.]\s*(?:\S.*)?|[—–]\s*\S.*|\(\s*\S.*\)|\[\s*\S.*\])?\s*$/i;
 
 /**
  * Headings that OPEN with an accepted noun but that {@link CLOSEOUT_EVIDENCE_HEADING}
@@ -112,24 +116,31 @@ export const CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING =
   /^##\s+(?:closeout\s+evidence|findings|outcome)/i;
 
 /**
- * Error message returned when an evidence-gated transition to DONE is attempted
- * without a valid closeout-evidence section in the spec (READY → DONE for any
- * kind; any → DONE for state-ops, mt#455).
- *
- * Exported so callers (mutation-commands.ts) and tests can reference it without
- * duplicating the string.
+ * Shared opening clause naming the evidence-gated transitions (READY → DONE for any kind;
+ * any → DONE for state-ops, mt#455). Each refusal completes the sentence with what THAT
+ * cause requires.
  */
 const EVIDENCE_GATED_PATHS =
   "Transitioning to DONE on this path (READY → DONE, or any transition to DONE for " +
-  "state-ops kind) requires a";
+  "state-ops kind) requires";
 
 const CLOSEOUT_EVIDENCE_RULE_POINTER =
   "See the External-deliverable closeout rule in .minsky/rules/task-lifecycle-external-deliverable.mdc " +
   "(or the compiled CLAUDE.md section) for details.";
 
-export const READY_TO_DONE_MISSING_EVIDENCE_MESSAGE =
-  `${EVIDENCE_GATED_PATHS} '## Closeout evidence' (or '## Findings' / '## Outcome') ` +
-  `section in the spec with non-empty content. ${CLOSEOUT_EVIDENCE_RULE_POINTER}`;
+/**
+ * Refusal for the case where the spec carries NO closeout-evidence section at all.
+ *
+ * Scoped to the `absent` cause by name and by its leading sentence (PR #2541 R1). It used
+ * to be the single refusal for all three causes under the generic name
+ * `READY_TO_DONE_MISSING_EVIDENCE_MESSAGE`, which is exactly the reuse-in-the-wrong-branch
+ * hazard the rename closes: the content requirement stated here is correct for a spec with
+ * no section, and wrong as generic guidance for one whose heading merely failed to match.
+ */
+export const CLOSEOUT_EVIDENCE_ABSENT_MESSAGE =
+  `No '## Closeout evidence' (or '## Findings' / '## Outcome') section is present in the ` +
+  `spec. ${EVIDENCE_GATED_PATHS} one, with non-empty content. ` +
+  `${CLOSEOUT_EVIDENCE_RULE_POINTER}`;
 
 /**
  * The heading forms the gate accepts, phrased for the author who just hit a refusal.
@@ -142,18 +153,26 @@ const CLOSEOUT_EVIDENCE_ACCEPTED_FORMS =
   "'## Findings summary' and '## Outcomes' read as different sections, so rename the heading or " +
   "add a separate one.";
 
+/** Renders one heading per line, indented, for a refusal that lists offending headings. */
+function formatHeadingList(headings: string[]): string {
+  return headings.map((heading) => `  ${heading}`).join("\n");
+}
+
 /**
  * Refusal for the case where an accepted heading IS present but its section is empty.
- * Split out from {@link READY_TO_DONE_MISSING_EVIDENCE_MESSAGE} so the author is not told
- * to add a section that already exists (mt#3443), and names WHICH heading is empty — in a
- * spec with several accepted headings, that is the whole question.
+ * Split out from {@link CLOSEOUT_EVIDENCE_ABSENT_MESSAGE} so the author is not told to add
+ * a section that already exists (mt#3443), and names WHICH heading is empty — in a spec
+ * with several accepted headings, that is the whole question.
  */
 export function closeoutEvidenceEmptySectionMessage(emptyHeadings: string[]): string {
-  const list = emptyHeadings.map((heading) => `  ${heading}`).join("\n");
+  const subject =
+    emptyHeadings.length === 1
+      ? "An accepted heading is present but its section is EMPTY"
+      : `${emptyHeadings.length} accepted headings are present but all their sections are EMPTY`;
   return (
-    `${EVIDENCE_GATED_PATHS} closeout-evidence section with non-empty content. The heading is ` +
-    `present but its section is EMPTY — write the findings, outcome, or evidence beneath it:\n` +
-    `${list}\n${CLOSEOUT_EVIDENCE_RULE_POINTER}`
+    `${EVIDENCE_GATED_PATHS} a closeout-evidence section with non-empty content. ${subject} — ` +
+    `write the findings, outcome, or evidence beneath it:\n` +
+    `${formatHeadingList(emptyHeadings)}\n${CLOSEOUT_EVIDENCE_RULE_POINTER}`
   );
 }
 
@@ -163,11 +182,14 @@ export function closeoutEvidenceEmptySectionMessage(emptyHeadings: string[]): st
  * two-word edit to that line and the old message pointed at content instead (mt#3443).
  */
 export function closeoutEvidenceNearMissMessage(nearMissHeadings: string[]): string {
-  const list = nearMissHeadings.map((heading) => `  ${heading}`).join("\n");
+  const subject =
+    nearMissHeadings.length === 1
+      ? "The spec carries a section whose heading nearly matches"
+      : `The spec carries ${nearMissHeadings.length} sections whose headings nearly match`;
   return (
-    `${EVIDENCE_GATED_PATHS} closeout-evidence section. The spec carries a section whose ` +
-    "heading nearly matches, so this is a HEADING problem, not missing content:\n" +
-    `${list}\n` +
+    `${EVIDENCE_GATED_PATHS} a closeout-evidence section. ${subject}, so this is a HEADING ` +
+    "problem, not missing content:\n" +
+    `${formatHeadingList(nearMissHeadings)}\n` +
     `${CLOSEOUT_EVIDENCE_ACCEPTED_FORMS} ${CLOSEOUT_EVIDENCE_RULE_POINTER}`
   );
 }
@@ -186,7 +208,7 @@ export function closeoutEvidenceFailureMessage(result: CloseoutEvidenceResult): 
     case "near-miss":
       return closeoutEvidenceNearMissMessage(result.nearMissHeadings);
     case "absent":
-      return READY_TO_DONE_MISSING_EVIDENCE_MESSAGE;
+      return CLOSEOUT_EVIDENCE_ABSENT_MESSAGE;
   }
 }
 

@@ -9,7 +9,7 @@ import {
   CLOSEOUT_EVIDENCE_HEADING,
   CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING,
   closeoutEvidenceEmptySectionMessage,
-  READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
+  CLOSEOUT_EVIDENCE_ABSENT_MESSAGE,
 } from "./status-transitions";
 
 describe("status-transitions", () => {
@@ -469,15 +469,15 @@ describe("status-transitions", () => {
       expect(hasCloseoutEvidence("")).toBe(false);
     });
 
-    // --- READY_TO_DONE_MISSING_EVIDENCE_MESSAGE presence check ---
+    // --- CLOSEOUT_EVIDENCE_ABSENT_MESSAGE presence check ---
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions Closeout evidence", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Closeout evidence");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE mentions Closeout evidence", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Closeout evidence");
     });
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions READY and DONE", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("READY");
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("DONE");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE mentions READY and DONE", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("READY");
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("DONE");
     });
 
     // --- CLOSEOUT_EVIDENCE_HEADING regex ---
@@ -494,9 +494,9 @@ describe("status-transitions", () => {
       expect(CLOSEOUT_EVIDENCE_HEADING.test("## Summary")).toBe(false);
     });
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE names the synonym headings (mt#455)", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Findings");
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Outcome");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE names the synonym headings (mt#455)", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Findings");
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Outcome");
     });
   });
 
@@ -550,6 +550,13 @@ describe("status-transitions", () => {
       expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings - summary")).toBe(false);
     });
 
+    test("a bracketed qualifier must close on the same line (PR #2541 R1)", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings [2026-08-01]")).toBe(true);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings (unclosed")).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings [unclosed")).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings (")).toBe(false);
+    });
+
     test("near-miss pattern matches rejected keyword headings but not unrelated ones", () => {
       expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test(NEAR_MISS_HEADING)).toBe(true);
       expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test("## Outcomes")).toBe(true);
@@ -599,7 +606,7 @@ describe("status-transitions", () => {
     test("a spec with no evidence heading gets the no-section message (AT4)", () => {
       const result = checkCloseoutEvidence(ABSENT_SPEC);
       expect(result.state).toBe("absent");
-      expect(closeoutEvidenceFailureMessage(result)).toBe(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE);
+      expect(closeoutEvidenceFailureMessage(result)).toBe(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE);
     });
 
     test("the three refusals are distinct texts", () => {
@@ -607,6 +614,19 @@ describe("status-transitions", () => {
         closeoutEvidenceFailureMessage(checkCloseoutEvidence(spec))
       );
       expect(new Set(messages).size).toBe(3);
+    });
+
+    test("both refusals are plural-safe when several headings are listed (PR #2541 R1)", () => {
+      const twoNearMisses = `${NEAR_MISS_HEADING}\nProse.\n\n## Outcomes\nMore prose.\n`;
+      const nearMiss = checkCloseoutEvidence(twoNearMisses);
+      expect(nearMiss.nearMissHeadings).toEqual([NEAR_MISS_HEADING, "## Outcomes"]);
+      expect(closeoutEvidenceFailureMessage(nearMiss)).toContain(
+        "2 sections whose headings nearly match"
+      );
+
+      const twoEmpty = checkCloseoutEvidence(`## Findings\n\n## Outcome\n`);
+      expect(twoEmpty.emptyHeadings).toEqual(["## Findings", "## Outcome"]);
+      expect(closeoutEvidenceFailureMessage(twoEmpty)).toContain("2 accepted headings are present");
     });
 
     test("an accepted-but-empty heading outranks a near miss elsewhere in the spec", () => {
