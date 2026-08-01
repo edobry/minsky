@@ -39,7 +39,11 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { sendTelegramMessage, type FetchFn } from "./telegram-transport";
+import {
+  sendTelegramMessageWithThreadFallback,
+  type FetchFn,
+  type ThreadFallbackSendResult,
+} from "./telegram-transport";
 
 /** Pulumi stack-config key holding the principal's chat id (plain, not secret). */
 export const TELEGRAM_CHAT_ID_PULUMI_KEY = "reviewer-telegram-chat-id";
@@ -71,6 +75,23 @@ export interface PrincipalChannelDeps {
   fetchFn?: FetchFn;
   /** Injected clock so cache-expiry is testable without waiting. */
   now?: () => number;
+  /**
+   * Resolve the Telegram topic bound to a task, if one exists (mt#3507).
+   *
+   * Omitted by default — a caller that never passes `taskId` to
+   * {@link notifyPrincipal} never needs this, and one that does but has no
+   * database reachable (e.g. running outside the cockpit daemon) degrades to
+   * "no topic found", which is exactly the un-bound-task behavior the spec
+   * calls for (post to the standing conversation).
+   */
+  lookupTaskTopic?: (taskId: string) => Promise<{ messageThreadId: number } | null>;
+  /**
+   * Record that a topic's mapping is dead after Telegram reported its thread
+   * gone (mt#3507 drift reconciliation). Best-effort — a caller with no
+   * persistence path simply cannot record it, and the send itself still
+   * falls back correctly either way.
+   */
+  markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
 }
 
 interface CacheEntry {
@@ -214,11 +235,28 @@ export interface NotifyPrincipalOptions {
   title?: string;
   /** Thread this under an earlier message in the chat. */
   replyToMessageId?: number;
+  /**
+   * Post into the Telegram topic bound to this task, if one exists — else
+   * the standing conversation (mt#3507). Additive and optional: a caller
+   * that omits it (every caller before this field existed, and any caller
+   * today that has nothing to name) produces byte-for-byte the same wire
+   * payload as before this field existed. Never creates a topic — an
+   * unbound task always falls back to the standing conversation, by design
+   * (topic creation is Phase 3, mt#3508).
+   */
+  taskId?: string;
   deps?: PrincipalChannelDeps;
 }
 
 export type NotifyPrincipalResult =
-  | { delivered: true; messageId: number; chatId: string; source: string }
+  | {
+      delivered: true;
+      messageId: number;
+      chatId: string;
+      source: string;
+      /** Set when the topic named by `taskId` was gone and this landed in the standing conversation instead (mt#3507). */
+      fellBackFromDeadTopic?: true;
+    }
   | { delivered: false; reason: "not-configured" | "send-failed"; detail: string };
 
 /**
@@ -242,16 +280,138 @@ export async function notifyPrincipal(
   const { token, chatId, source } = resolution.config;
   const text = opts.title ? `${opts.title}\n\n${opts.message}` : opts.message;
 
-  const result = await sendTelegramMessage({
+  // Only a caller naming a task, with a way to look one up, ever queries the
+  // topic mapping — every other caller (every one before this field existed)
+  // takes the exact path it always did. Absent-either-way is a NO-OP, not an
+  // error: an unbound task, or a `taskId` with no lookup wired at all, both
+  // mean "post to the standing conversation", which is this feature's own
+  // documented fallback, not a degraded case.
+  const topic =
+    opts.taskId !== undefined && deps.lookupTaskTopic
+      ? await deps.lookupTaskTopic(opts.taskId)
+      : null;
+
+  const markTopicDead = deps.markTopicDead;
+  const result: ThreadFallbackSendResult = await sendTelegramMessageWithThreadFallback({
     token,
     chatId,
     text,
     ...(opts.replyToMessageId === undefined ? {} : { replyToMessageId: opts.replyToMessageId }),
+    ...(topic === null ? {} : { messageThreadId: topic.messageThreadId }),
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    ...(markTopicDead
+      ? { onThreadNotFound: (threadId: number) => markTopicDead(chatId, threadId) }
+      : {}),
   });
 
   if (!result.ok) {
     return { delivered: false, reason: "send-failed", detail: result.detail };
   }
-  return { delivered: true, messageId: result.messageId, chatId, source };
+  return {
+    delivered: true,
+    messageId: result.messageId,
+    chatId,
+    source,
+    ...(result.fellBackFromDeadTopic ? { fellBackFromDeadTopic: true as const } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task-topic mapping (mt#3507) — read/write access to `telegram_channel_topics`
+// for the `principal.notify` command's `taskId` parameter and the poller's
+// drift reconciliation. Lives here, not in the cockpit layer, because BOTH
+// the cockpit daemon's poller AND the `principal.notify` shared command
+// (which can run in a bare MCP-server process with no cockpit daemon at all)
+// need it, and a domain module is the one place both can import from without
+// inverting the Domain -> Adapters -> Infrastructure layering (adapters may
+// depend on domain; domain must never depend on the cockpit application
+// layer built on top of it).
+// ---------------------------------------------------------------------------
+
+/** Minimal shape of a SQL-capable Drizzle connection this module needs. */
+export interface TelegramTopicDb {
+  execute(query: unknown): Promise<unknown>;
+}
+
+/** Deps shared by the task-topic-mapping helpers below. */
+export interface TaskTopicDeps {
+  getDb: () => Promise<TelegramTopicDb | null>;
+}
+
+/**
+ * Look up the Telegram topic bound to a task, if one exists.
+ *
+ * Best-effort: a DB outage or an unreadable connection degrades to "no topic
+ * found" rather than throwing, because the caller's correct behavior on a
+ * genuinely unbound task is IDENTICAL (post to the standing conversation) —
+ * there is no distinct failure mode to surface here that the caller would act
+ * on differently.
+ */
+export async function findTelegramTopicForTask(
+  taskId: string,
+  deps: TaskTopicDeps
+): Promise<{ messageThreadId: number } | null> {
+  const db = await deps.getDb();
+  if (!db) return null;
+  try {
+    const { sql } = await import("drizzle-orm");
+    const rows = (await db.execute(sql`
+      SELECT message_thread_id FROM telegram_channel_topics
+      WHERE entity_type = 'task' AND entity_id = ${taskId}
+      LIMIT 1
+    `)) as Array<{ message_thread_id: number }>;
+    const row = rows[0];
+    return row ? { messageThreadId: row.message_thread_id } : null;
+  } catch (err: unknown) {
+    log.debug("principal-channel: task-topic lookup failed", {
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Mark a topic's mapping dead after Telegram reports its thread gone
+ * (mt#3507 drift reconciliation).
+ *
+ * Deletes the mapping row rather than adding a soft-delete flag: a deleted
+ * Telegram topic's thread id is gone forever (Telegram never reuses one), so
+ * there is nothing to reactivate later, and a future send targeting the same
+ * task finds no row — exactly the "unbound task" case, which already falls
+ * back to the standing conversation. Best-effort and never throws: this runs
+ * from inside a send's error path, and a failure to record the deletion must
+ * never turn into a failure to deliver the fallback message the caller is
+ * already in the middle of sending.
+ */
+export async function markTelegramChannelTopicDead(
+  chatId: string,
+  messageThreadId: number,
+  deps: TaskTopicDeps
+): Promise<void> {
+  const db = await deps.getDb();
+  if (!db) {
+    log.warn("principal-channel: could not mark a topic mapping dead (no DB)", {
+      chatId,
+      messageThreadId,
+    });
+    return;
+  }
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      DELETE FROM telegram_channel_topics
+      WHERE chat_id = ${chatId} AND message_thread_id = ${messageThreadId}
+    `);
+    log.warn(
+      "principal-channel: marked a topic mapping dead after Telegram reported its thread gone",
+      { chatId, messageThreadId }
+    );
+  } catch (err: unknown) {
+    log.warn("principal-channel: failed to mark a topic mapping dead", {
+      chatId,
+      messageThreadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }

@@ -215,6 +215,77 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
   return retry.ok ? { ...retry, fellBackToPlain: true, parseError } : retry;
 }
 
+/**
+ * Detect Telegram's specific "topic deleted" signal (mt#3500 Phase 0 live
+ * probe, reconciled here in mt#3507).
+ *
+ * A `message_thread_id` whose topic no longer exists — the principal deleted
+ * it from their phone — answers this EXACT HTTP 400 with this EXACT
+ * description, measured live rather than guessed. Matched narrowly (both the
+ * status AND the description substring) so an unrelated 400 — bad markup,
+ * a malformed chat id — is never mistaken for topic drift and silently
+ * rerouted to the standing conversation when the real cause was something
+ * else.
+ */
+export function isThreadNotFoundError(result: TelegramSendResult): boolean {
+  return (
+    !result.ok &&
+    result.status === 400 &&
+    result.detail.includes("Bad Request: message thread not found")
+  );
+}
+
+/** A send that fell back to the standing conversation after {@link isThreadNotFoundError}. */
+export type ThreadFallbackSendResult = TelegramSendResult & { fellBackFromDeadTopic?: true };
+
+/**
+ * Send a message, reconciling drift when the target topic is gone (mt#3507).
+ *
+ * `sendTelegramMessage` itself stays ignorant of this: it is wire-level
+ * transport, and reconciliation needs a place to record that the mapping is
+ * dead, which only a caller with database access can provide. This wraps it
+ * with exactly one policy: on {@link isThreadNotFoundError}, tell the caller
+ * (so it can mark the mapping dead — never done here, since this module has
+ * no persistence), then resend to the STANDING conversation (no thread id)
+ * with a note appended so the delivered message itself says it fell back.
+ * "A notification must never be lost to a stale mapping" is the whole point —
+ * silently dropping the send, or silently landing it with no explanation,
+ * both fail that.
+ *
+ * A message with no `messageThreadId` in the first place never runs this
+ * path at all — the two alert callers (the reviewer's circuit-breaker sink,
+ * `notifyPrincipal` with no task topic) produce byte-for-byte the same single
+ * `sendTelegramMessage` call as before this function existed.
+ */
+export async function sendTelegramMessageWithThreadFallback(
+  opts: SendMessageOptions & {
+    /** Called once, before the fallback send, so the caller can mark the mapping dead. */
+    onThreadNotFound?: (messageThreadId: number) => Promise<void> | void;
+  }
+): Promise<ThreadFallbackSendResult> {
+  const { onThreadNotFound, ...sendOpts } = opts;
+  const attempt = await sendTelegramMessage(sendOpts);
+
+  if (sendOpts.messageThreadId === undefined || !isThreadNotFoundError(attempt)) {
+    return attempt;
+  }
+
+  await onThreadNotFound?.(sendOpts.messageThreadId);
+
+  const note =
+    "\n\n[This topic could not be found — delivered to the standing conversation instead.]";
+  const retry = await sendTelegramMessage({
+    ...sendOpts,
+    text: `${sendOpts.text}${note}`,
+    ...(sendOpts.plainFallback === undefined
+      ? {}
+      : { plainFallback: `${sendOpts.plainFallback}${note}` }),
+    messageThreadId: undefined,
+  });
+
+  return retry.ok ? { ...retry, fellBackFromDeadTopic: true } : retry;
+}
+
 /** One `sendMessage` round-trip. Shared by the formatted attempt and its retry. */
 async function postSendMessage(opts: {
   token: string;
