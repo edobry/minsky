@@ -502,10 +502,17 @@ async function handleRoute(
     typing?.stop();
 
     const replyMessageId = await sendReply(deps, message, reply);
+    const delivered = replyMessageId !== undefined;
 
     // Close the ack (mt#3486). Replaces the pickup reaction rather than
     // accumulating, so the message carries exactly one state at a time.
-    void react(deps, message, succeeded ? REACTION_DONE : REACTION_ERROR);
+    //
+    // Gated on DELIVERY, not just on the actuator (PR #2525 R4): a turn can run
+    // clean and still fail to reach the principal — a 400, a 429, a dead topic.
+    // In that case the reaction is the ONLY signal they get, since the reply
+    // itself is what went missing, so marking it 👌 would assert delivery of
+    // something they never received.
+    void react(deps, message, succeeded && delivered ? REACTION_DONE : REACTION_ERROR);
 
     // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
     // failures, so "no errors" got read as "replies delivered" — an inference

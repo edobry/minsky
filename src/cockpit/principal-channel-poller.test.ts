@@ -1128,6 +1128,27 @@ describe("runPollCycle — receipt acks", () => {
     expect(reactions.map((r) => r.emoji)).toEqual([REACTION_RECEIVED, REACTION_ERROR]);
   });
 
+  test("marks a turn whose reply never got delivered with the error reaction", async () => {
+    // The actuator succeeds, but Telegram rejects the reply. The principal is
+    // left with no answer, so 👌 would assert delivery of something they never
+    // received — and here the reaction is the ONLY signal they get, because the
+    // reply itself is what went missing.
+    const { h, reactions } = ackHarness();
+    const withAcks = h.deps.fetchFn ?? h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        return new Response(JSON.stringify({ ok: false, description: "Bad Request" }), {
+          status: 400,
+        });
+      }
+      return withAcks(url, init);
+    };
+
+    await runPollCycle(h.deps);
+
+    expect(reactions.map((r) => r.emoji)).toEqual([REACTION_RECEIVED, REACTION_ERROR]);
+  });
+
   test("a reaction failure never affects the reply", async () => {
     // Fire-and-forget by contract: the ack reports on the pipeline, so it must
     // never be able to break the thing it reports on.

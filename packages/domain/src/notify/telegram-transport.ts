@@ -376,6 +376,9 @@ export async function sendTelegramTypingAction(opts: {
   }
 }
 
+/** The Bot API's `ReactionTypeEmoji` — the only reaction kind this sends. */
+type ReactionTypeEmoji = { type: "emoji"; emoji: string };
+
 /**
  * React to one of the principal's messages (mt#3486).
  *
@@ -417,7 +420,8 @@ export async function setTelegramMessageReaction(opts: {
         message_id: messageId,
         // An empty array clears; `is_big` is deliberately omitted (the default
         // animation is right for a status marker).
-        reaction: emoji.length === 0 ? [] : [{ type: "emoji", emoji }],
+        reaction:
+          emoji.length === 0 ? [] : ([{ type: "emoji", emoji }] satisfies ReactionTypeEmoji[]),
       }),
     });
     return response.ok;

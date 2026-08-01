@@ -51,12 +51,12 @@ restate context every time.
 An agent turn can run for a minute or more, so the channel marks progress on
 your own message rather than leaving you watching an empty chat.
 
-| Signal             | Means                                                             |
-| ------------------ | ----------------------------------------------------------------- |
-| 👀 on your message | The message reached the actuator; a turn is starting.             |
-| "typing…"          | A turn is running. Refreshed continuously for its whole duration. |
-| 👌 on your message | The turn finished and the reply was delivered.                    |
-| 🤨 on your message | The turn failed. The reply says what went wrong.                  |
+| Signal             | Means                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 👀 on your message | The message reached the actuator; a turn is starting.                                                                                         |
+| "typing…"          | A turn is running. Refreshed continuously for its whole duration.                                                                             |
+| 👌 on your message | The turn finished and the reply was delivered.                                                                                                |
+| 🤨 on your message | The turn failed, or its reply never reached you. If a reply did arrive, it says what went wrong; if none did, delivery itself is what failed. |
 
 Replies are rendered — bold, italic, code, fenced blocks, links, quotes — via
 Telegram's HTML mode. Tables become monospace blocks and headings become bold
