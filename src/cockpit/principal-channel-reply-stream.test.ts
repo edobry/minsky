@@ -28,7 +28,12 @@ interface Harness {
 }
 
 function harness(
-  opts: { throttleMs?: number; editStatus?: number; sendFails?: boolean } = {}
+  opts: {
+    throttleMs?: number;
+    editStatus?: number;
+    sendFails?: boolean;
+    editOkFalse?: boolean;
+  } = {}
 ): Harness {
   const sends: string[] = [];
   const edits: Array<{ messageId: number; text: string }> = [];
@@ -45,6 +50,11 @@ function harness(
         return new Response(JSON.stringify({ ok: false, description: "Bad Request" }), {
           status: opts.editStatus,
         });
+      }
+      if (opts.editOkFalse) {
+        // HTTP 200 with an `ok: false` envelope — the shape that looks like
+        // success to anything reading only the status code.
+        return new Response(JSON.stringify({ ok: false, description: "Bad Request: nope" }));
       }
       return new Response(JSON.stringify({ ok: true, result: true }));
     }
@@ -235,6 +245,26 @@ describe("createReplyStream", () => {
     // The edit was attempted and refused...
     expect(edits.length).toBeGreaterThan(0);
     // ...and the reply is still delivered, by falling back to an ordinary send.
+    expect(settled).toBeUndefined();
+    expect(sends).toEqual(["partial"]);
+  });
+
+  test("PR #2538 R1 — an edit answering 200 with `ok: false` does not count as delivered", async () => {
+    // The dangerous shape: a failure that looks like success to anything
+    // reading only the status code. If it were accepted, the stream would
+    // advance its state, `finish()` would hand back a message id, and the
+    // poller would count a stale placeholder as the delivered reply — the
+    // principal never sees the answer.
+    const { stream, sends, edits } = harness({ throttleMs: 5, editOkFalse: true });
+
+    stream.push("partial");
+    await settle();
+    stream.push("partial and more");
+    await settle();
+
+    const settled = await stream.finish("the complete final answer");
+
+    expect(edits.length).toBeGreaterThan(0);
     expect(settled).toBeUndefined();
     expect(sends).toEqual(["partial"]);
   });

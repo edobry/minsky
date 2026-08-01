@@ -860,7 +860,9 @@ async function sendReply(
   if (!formatted) {
     log.info("[principal-channel] reply too long once rendered; sending unstyled", {
       plainChars: plain.length,
-      renderedChars: payload.text.length,
+      // Same key as the rejection warn below (PR #2538 R1) — two names for the
+      // same quantity make the pair unqueryable in aggregate.
+      htmlChars: payload.text.length,
     });
   }
 

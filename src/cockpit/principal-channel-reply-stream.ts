@@ -239,6 +239,17 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
     }
   }
 
+  /**
+   * Arm the next flush.
+   *
+   * **Cadence is favoured over latency for the newest chunk (PR #2538 R1).**
+   * The wait is computed once, when the timer is armed, so a chunk arriving
+   * just after that can wait most of a window before it is drawn. That is the
+   * intended trade: the alternative — re-arming on every push — converges on
+   * one write per chunk, which is the rate-limit behaviour the throttle exists
+   * to prevent. The first flush is exempt (its wait computes to 0), so the
+   * placeholder still appears immediately.
+   */
   function schedule(): void {
     if (timer !== null || finished || degraded) return;
     const wait = Math.max(0, throttleMs - (now() - lastFlushAt));

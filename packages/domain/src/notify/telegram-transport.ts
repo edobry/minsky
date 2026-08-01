@@ -438,20 +438,50 @@ async function postEditMessageText(opts: {
     return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
   }
 
-  if (response.ok) return { ok: true, fellBackToPlain: false, notModified: false };
+  // Read the body ONCE, then interpret it — a Response body cannot be consumed
+  // twice, and both the success check and the failure detail need it.
+  let raw = "";
+  try {
+    raw = await response.text();
+  } catch {
+    // intentional-swallow: an unreadable body is reported via the status below.
+  }
+  let envelope: Record<string, unknown> | null = null;
+  try {
+    envelope = asRecord(JSON.parse(raw));
+  } catch {
+    // intentional-swallow: a non-JSON body is handled as an un-parsed failure.
+  }
 
-  const snippet = await bodySnippet(response);
-  // A no-op edit is a 400. Streaming re-sends identical text whenever a turn
-  // pauses, so this is an expected steady-state answer, not a fault.
-  if (response.status === 400 && /message is not modified/i.test(snippet)) {
+  const description =
+    typeof envelope?.["description"] === "string" ? (envelope["description"] as string) : "";
+
+  // A no-op edit reports "message is not modified". Streaming re-sends
+  // identical text whenever a turn pauses, so this is an expected steady-state
+  // answer, not a fault. Checked BEFORE the ok-flag branch, and without keying
+  // on a status code, because it is a success either way Telegram reports it.
+  if (/message is not modified/i.test(description)) {
     return { ok: true, fellBackToPlain: false, notModified: true };
   }
 
-  return {
-    ok: false,
-    status: response.status,
-    detail: redactSecret(token, `HTTP ${response.status}${snippet}`),
-  };
+  // HTTP 2xx is NOT sufficient (PR #2538 R1). The Bot API carries its own
+  // `ok` flag and can answer 200 with `{ ok: false, description }`; trusting
+  // the status alone would report a failed edit as applied, and the stream
+  // would then advance its state and skip the fallback that guarantees
+  // delivery. `sendMessage` already validates its envelope — this matches it.
+  //
+  // `result` is deliberately not shape-checked: `editMessageText` returns the
+  // edited Message for a normal message but bare `true` for an inline one, so
+  // there is no single shape to require.
+  if (response.ok && envelope?.["ok"] === true) {
+    return { ok: true, fellBackToPlain: false, notModified: false };
+  }
+
+  const detail =
+    description.length > 0
+      ? `HTTP ${response.status}: ${description}`
+      : `HTTP ${response.status}${raw.length > 0 ? `: ${raw.slice(0, 200)}` : ""}`;
+  return { ok: false, status: response.status, detail: redactSecret(token, detail) };
 }
 
 /**

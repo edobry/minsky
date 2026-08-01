@@ -523,6 +523,13 @@ interface PendingTurn {
  * this event family (every block kind, index tracking, block lifecycle). This
  * is deliberately NOT that: a chat reply needs the running text and nothing
  * else, and the accumulator's output is a render-shaped block list.
+ *
+ * **On `index` (PR #2538 R1).** The block index is deliberately not tracked.
+ * The caller concatenates in arrival order, which for a text-only view is
+ * exactly what a reader sees — the ordering the transport already guarantees.
+ * Index tracking earns its keep when blocks INTERLEAVE, and reconstructing that
+ * correctly is what the accumulator above exists for; if streaming ever grows
+ * past assistant text, use it rather than growing index handling here.
  */
 export function partialAssistantText(payload: Record<string, unknown>): string | null {
   if (payload["type"] !== "stream_event") return null;
@@ -532,7 +539,13 @@ export function partialAssistantText(payload: Record<string, unknown>): string |
   if (frame["type"] !== "content_block_delta") return null;
   const delta = frame["delta"];
   if (typeof delta !== "object" || delta === null) return null;
-  const text = (delta as Record<string, unknown>)["text"];
+  const record = delta as Record<string, unknown>;
+  // Gate on the delta's OWN type, not just on the presence of a `text` field
+  // (PR #2538 R1). Keying on the field alone happens to exclude thinking and
+  // tool-call deltas today only because neither carries `text` — a coincidence
+  // of the current shapes, not a rule the Bot's event schema promises.
+  if (record["type"] !== "text_delta") return null;
+  const text = record["text"];
   return typeof text === "string" && text.length > 0 ? text : null;
 }
 
