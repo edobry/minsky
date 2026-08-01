@@ -42,6 +42,18 @@ import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
 /**
+ * Reason string for this guard's ONE suppression gate — the mt#3336 dedup
+ * against the live ask-routing-deferral detector (mt#3207).
+ *
+ * The same verdict is ALSO kept as the detector-specific
+ * `suppressedByAskRoutingDeferral` boolean below: `isSuppressedRecord` reads
+ * only `suppressionReasons`, so the shared field is what the cadence
+ * accounting needs, while the boolean keeps the 18 pre-mt#3207 records the
+ * 2026-08-01 pass measured comparable with new ones.
+ */
+export const SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL = "deduped-by-ask-routing-deferral";
+
+/**
  * How much of the final message's tail to scan. The failure shape is a
  * sign-off — the announcement is the last thing said, not something buried
  * mid-message. A tail window keeps a mid-message "I'll do X" (which the turn
@@ -242,6 +254,12 @@ export function run(
       matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
       suppressedByAskRoutingDeferral,
+      // mt#3207: the shared contract the sweep actually reads. Empty (not
+      // absent) when this guard injected — absent would mean "records no
+      // outcome", which is the state this task removes.
+      suppressionReasons: suppressedByAskRoutingDeferral
+        ? [SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL]
+        : [],
     },
     ...(suppressedByAskRoutingDeferral ? {} : { additionalContext: buildReminder(newMatches) }),
   };

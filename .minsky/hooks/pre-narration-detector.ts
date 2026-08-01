@@ -72,10 +72,17 @@ const CALIBRATION_LOG = ".minsky/pre-narration-calibration.jsonl";
  * the mt#2255 discrimination — tool_result lines do not split turns). When a
  * completion-shaped claim has no backing tool call in the SAME turn, the
  * detector scans this many trailing turns for the category's requiredTools;
- * a hit suppresses the fire entirely (no injection, no calibration record —
- * suppressed fires are the legitimate-back-reference FP class confirmed in
- * the 2026-07-08 calibration review, and logging them would keep polluting
- * FP math, same principle as mt#2670's exception-only logging).
+ * a hit suppresses the INJECTION (the legitimate-back-reference FP class
+ * confirmed in the 2026-07-08 calibration review).
+ *
+ * mt#3207 reverses the "no calibration record" half of that disposition. It
+ * was chosen because logging a suppressed fire "would keep polluting FP math"
+ * — true when every record counted equally, which is no longer the case:
+ * mt#3197 made `suppressionReasons` part of the shared record contract and
+ * keys the review thresholds off `injectedFiresSinceLastReview`, so a
+ * suppressed record is excluded from the FP math BY CONSTRUCTION. Not logging
+ * it now costs what it used to buy: the gate's own fire rate is unmeasurable,
+ * and a suppressed detection is indistinguishable from no detection at all.
  *
  * Why 12: the observed FP range is a verdict fetched 1-10 turns before the
  * back-reference (disposition analysis on ask 0147caa5), plus 2 boundary
@@ -190,6 +197,32 @@ export interface ClaimMatch {
 }
 
 /**
+ * Reason strings for this detector's suppression gate (mt#3207).
+ *
+ * The gate is one condition — the category's `requiredTools` appear — but it
+ * has two sources with different FP profiles, so they get different reasons:
+ * a same-turn tool call is proof the claim was backed as it was written, while
+ * a trailing-window hit (mt#2671) is the weaker back-reference inference. A
+ * calibration reviewer needs to tell them apart from the record alone.
+ */
+export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
+export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
+
+/** A claim that matched its category's patterns but was backed by a real tool call. */
+export interface SuppressedClaimMatch extends ClaimMatch {
+  /** One of the SUPPRESSION_* reason strings above. */
+  reason: string;
+}
+
+/** Both halves of one detection pass: what fired, and what a gate swallowed. */
+export interface PreNarrationDetection {
+  /** Unbacked claims — these inject. */
+  matches: ClaimMatch[];
+  /** Backed claims — detected, then suppressed. Recorded, never injected. */
+  suppressed: SuppressedClaimMatch[];
+}
+
+/**
  * Elide markdown contexts that carry quoted text rather than the agent's own
  * assertions (inline code spans, fenced code blocks, blockquotes). Replaces
  * matched content with same-length whitespace to preserve character positions.
@@ -260,32 +293,99 @@ export function detectPreNarration(
   turnLines: TranscriptLine[],
   windowToolNames?: ReadonlySet<string>
 ): ClaimMatch[] {
+  return detectPreNarrationWithSuppression(turnLines, windowToolNames).matches;
+}
+
+/**
+ * The same pass as `detectPreNarration`, keeping BOTH halves (mt#3207).
+ *
+ * The pattern scan now runs BEFORE the backed-by-tool check rather than after
+ * it. Previously a backed category was `continue`d before its patterns were
+ * ever tested, so a suppressed claim and a turn that made no claim at all
+ * produced identical output — nothing. Running the patterns first costs one
+ * regex pass per backed category and is what makes the gate measurable.
+ */
+export function detectPreNarrationWithSuppression(
+  turnLines: TranscriptLine[],
+  windowToolNames?: ReadonlySet<string>
+): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
-  if (!rawText) return [];
+  if (!rawText) return { matches: [], suppressed: [] };
 
   const text = elideMarkdownContexts(rawText);
   const toolNames = new Set(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];
+  const suppressed: SuppressedClaimMatch[] = [];
   for (const category of OUTCOME_CATEGORIES) {
-    const hasRequiredTool = category.requiredTools.some(
-      (t) => toolNames.has(t) || (windowToolNames?.has(t) ?? false)
-    );
-    if (hasRequiredTool) continue; // claim was backed by a real tool call (this turn or in-window)
-
+    let matched: ClaimMatch | undefined;
     for (const pattern of category.patterns) {
       const m = pattern.exec(text);
       if (m) {
-        matches.push({
+        matched = {
           category: category.key,
           matchedPhrase: m[0].slice(0, 200),
           expectedTool: category.expectedTool,
-        });
+        };
         break; // one match per category is enough
       }
     }
+    if (!matched) continue;
+
+    // Backed by a real tool call — this turn, or in the trailing window
+    // (mt#2671). Same-turn wins when both hold: it is the stronger evidence.
+    const sameTurn = category.requiredTools.some((t) => toolNames.has(t));
+    const inWindow = category.requiredTools.some((t) => windowToolNames?.has(t) ?? false);
+    if (sameTurn || inWindow) {
+      suppressed.push({
+        ...matched,
+        reason: sameTurn ? SUPPRESSION_SAME_TURN_TOOL_CALL : SUPPRESSION_WINDOW_TOOL_CALL,
+      });
+      continue;
+    }
+    matches.push(matched);
   }
-  return matches;
+  return { matches, suppressed };
+}
+
+/**
+ * One calibration record for a detection pass (mt#3207).
+ *
+ * `matches` carries BOTH halves so a suppressed fire stays classifiable —
+ * `hadMatchingTool` (already in the shape, previously hard-coded `false`) is
+ * now the per-claim discriminator. Top-level `suppressionReasons` is the
+ * shared contract `isSuppressedRecord` reads: populated only when the pass
+ * injected NOTHING, because a record with even one live match is a fire the
+ * operator saw and must count as injected.
+ */
+export function buildPreNarrationRecord(
+  sessionId: string | undefined,
+  detection: PreNarrationDetection
+): Record<string, unknown> {
+  const suppressionReasons =
+    detection.matches.length === 0
+      ? [...new Set(detection.suppressed.map((s) => s.reason))].sort()
+      : [];
+  return {
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    matches: [
+      ...detection.matches.map((m) => ({
+        category: m.category,
+        phrase: m.matchedPhrase,
+        expectedTool: m.expectedTool,
+        hadMatchingTool: false,
+      })),
+      ...detection.suppressed.map((m) => ({
+        category: m.category,
+        phrase: m.matchedPhrase,
+        expectedTool: m.expectedTool,
+        hadMatchingTool: true,
+        suppressionReason: m.reason,
+      })),
+    ],
+    suppressionReasons,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -380,14 +480,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
-  let matches: ClaimMatch[];
+  let detection: PreNarrationDetection;
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    matches = detectPreNarration(turnLines, windowToolNames);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -395,21 +495,17 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     return null;
   }
 
-  if (matches.length === 0) return null;
+  // mt#3207: a pass with ONLY suppressed claims still records — that is the
+  // gap this task closes. Nothing detected at all still stays silent.
+  if (detection.matches.length === 0 && detection.suppressed.length === 0) return null;
 
-  return {
-    calibration: {
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      matches: matches.map((m) => ({
-        category: m.category,
-        phrase: m.matchedPhrase,
-        expectedTool: m.expectedTool,
-        hadMatchingTool: false,
-      })),
-    },
-    additionalContext: buildReminder(matches),
+  const outcome: GuardOutcome = {
+    calibration: buildPreNarrationRecord(input.session_id, detection),
   };
+  if (detection.matches.length > 0) {
+    outcome.additionalContext = buildReminder(detection.matches);
+  }
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +558,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  let matches: ClaimMatch[];
+  let detection: PreNarrationDetection;
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) {
@@ -471,7 +567,7 @@ export async function main(): Promise<void> {
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
     // tool calls so legitimate back-references don't fire.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    matches = detectPreNarration(turnLines, windowToolNames);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -479,22 +575,18 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (matches.length === 0) {
+  if (detection.matches.length === 0 && detection.suppressed.length === 0) {
     process.exit(0);
   }
 
-  appendCalibrationRecord(input.cwd, {
-    timestamp: new Date().toISOString(),
-    session_id: input.session_id,
-    matches: matches.map((m) => ({
-      category: m.category,
-      phrase: m.matchedPhrase,
-      expectedTool: m.expectedTool,
-      hadMatchingTool: false,
-    })),
-  });
+  appendCalibrationRecord(input.cwd, buildPreNarrationRecord(input.session_id, detection));
 
-  const reminder = buildReminder(matches);
+  // mt#3207: suppressed-only passes record but never inject (mirrors `run()`).
+  if (detection.matches.length === 0) {
+    process.exit(0);
+  }
+
+  const reminder = buildReminder(detection.matches);
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",

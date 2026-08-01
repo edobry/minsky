@@ -37,9 +37,23 @@ the register by design — calibration data will show how often that happens).
   "trigger": "both | over-budget | lead-labels",
   "leadLabelHits": ["gate-letter"],
   "deeplinkCount": 0,
-  "namedRefCount": 7
+  "namedRefCount": 7,
+  "textHash": "…",
+  "suppressedByDepthRequest": false,
+  "suppressionReasons": []
 }
 ```
+
+`textHash` and `suppressedByDepthRequest` are the dedupe key's two dimensions (mt#3028 fix (2),
+extended by mt#3112): an unchanged report is re-logged only when its suppression state changed.
+
+`suppressionReasons` (mt#3207) is the SHARED contract every calibration record carries —
+`["depth-request-override"]` when the depth-request override withheld the reminder, `[]` when it
+was injected. It duplicates `suppressedByDepthRequest`'s verdict on purpose: `isSuppressedRecord`
+in the sweep reads only `suppressionReasons`, so the detector-specific boolean alone left the
+override's real-world fire rate — ask#5425's stated payoff for flipping this detector live —
+invisible to the review cadence. An ABSENT field is not the same as `[]`: records written before
+mt#3207 carry no field and count as injected.
 
 Diversity axis for the calibration-review cadence machinery: distinct `session_id` values
 (like silent-stretch — there is no matched-phrase concept).

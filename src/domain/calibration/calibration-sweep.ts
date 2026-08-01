@@ -596,6 +596,22 @@ export interface SharedCalibrationFields {
    * - empty `[]` → detected and INJECTED; the operator actually saw it
    * - absent     → this detector does not record the outcome yet, OR the
    *                record predates the field. NOT the same as empty.
+   *
+   * Conforming producers, with the reason strings each can emit (mt#3207
+   * added the last five to `code-mechanism-assertion`'s mt#3113 original):
+   *
+   * | detector | reasons |
+   * | --- | --- |
+   * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
+   * | `wall-of-text` | `depth-request-override` |
+   * | `untaken-action` | `deduped-by-ask-routing-deferral` |
+   * | `ask-routing-deferral` | `asks-create-this-turn` |
+   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
+   * | `knowledge-acquisition` | `propagation-in-window` |
+   *
+   * Records written by those detectors BEFORE mt#3207 carry no field and are
+   * therefore `absent`, not `[]` — they count as injected, which is the
+   * deliberate conservative default (unknown must never hide a real fire).
    */
   suppressionReasons?: string[];
 

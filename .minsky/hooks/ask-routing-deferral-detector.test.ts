@@ -11,6 +11,7 @@ import {
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
+  SUPPRESSION_ASKS_CREATE_THIS_TURN,
   run,
   type DeferralMatch,
 } from "./ask-routing-deferral-detector";
@@ -224,19 +225,52 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.matches.some((m) => m.class === PRINCIPAL_RESERVED)).toBe(true);
   });
 
+  /** A turn that defers nothing — no deferral phrase in any class. */
+  const NO_DEFERRAL_TURN = "I merged the PR and the task is DONE.";
+  /** A turn that defers a principal-reserved decision. */
+  const PRINCIPAL_RESERVED_TURN = "The rail-axis question needs your call.";
+
   test("no match -> null (silent allow)", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine("I merged the PR and the task is DONE."),
+      makeRunAssistantLine(NO_DEFERRAL_TURN),
       makeRunUserLine(),
     ];
     expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("suppressed when the turn already routed via asks_create -> null", () => {
+  // mt#3207: this used to assert `null`. The gate returned BEFORE detection
+  // ran, so a suppressed deferral was indistinguishable from a clean turn and
+  // the gate looked costless to the sweep. It now records and stays silent.
+  test("suppressed when the turn already routed via asks_create -> records, no injection", () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine(),
-      makeRunAssistantLine("The rail-axis question needs your call."),
+      makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
+      { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_ASKS_CREATE_THIS_TURN]);
+  });
+
+  test("mt#3207: an INJECTED fire records an empty suppressionReasons, not an absent one", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  test("mt#3207: a turn that routed an ask and deferred NOTHING still records nothing", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine(),
+      makeRunAssistantLine(NO_DEFERRAL_TURN),
       { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
       makeRunUserLine(),
     ];
