@@ -184,6 +184,86 @@ The `${K:+...}` half was safe; the trailing `${K:-NO}` silently expanded to the 
 because `:-` only substitutes when the variable is _unset_, and here it was set. Tracking task
 for the rule-level fix: mt#2763.
 
+## Secret-bearing output
+
+The `${VAR:-alt}` footgun above is about a value you already hold in a variable. A distinct class
+is output that CONTAINS a secret you don't hold yet. Two recurrences after mt#2763 shipped its fix
+prove the rule's variable-scoped framing missed it:
+
+- **R2 (2026-07-28, mt#3223 token mint).** `projectTokenCreate` returned 403 via urllib; the retry
+  was re-run as `curl … | head -c 600` to see the raw body — correct reasoning that _an error body
+  carries no auth material_, and catastrophically wrong on the retry, which returned 200 with
+  `{"data":{"projectTokenCreate":"<the token>"}}`. The call whose purpose was to mint a credential
+  printed it. **The asymmetry is the trap:** for a FAILING credential call the body is safe; for a
+  SUCCEEDING one it is radioactive by construction. Truncation does not help — `head -c`, `| head`,
+  `cut -c` all still emit the prefix, and a token prefix is a partial leak.
+- **R3 (2026-08-01, mt#3510 closeout).** A `grep` of `~/.config/minsky/config.yaml` piped through
+  `sed 's/postgres:\/\/.*/…<redacted>/'`. The stored value uses the `postgresql://` scheme, so the
+  pattern matched nothing, passed the line through verbatim, and printed a production Postgres
+  password. See §A no-op redaction below.
+
+### A no-op redaction is indistinguishable from one that worked
+
+A `sed`/`awk`/`cut` filter that matches nothing emits its input UNCHANGED. Nothing in the output
+distinguishes "redacted successfully" from "matched nothing and leaked everything" — the failure
+looks exactly like the success. R3 was not a case of forgetting to redact; the redaction was
+written and did nothing.
+
+Two levels, in priority order:
+
+1. **Keep the secret out of the pipeline.** Use a presence/shape check that cannot emit the value:
+   `grep -c`, `grep -q`, `test -f`, `wc -l`.
+2. **If a filter must sit on a safety path, assert it fired** and fail closed — post-filter, grep
+   the result for the secret's shape and abort if it survived.
+
+Note the project already knew both spellings: `packages/domain/src/transcripts/credential-scrubber.ts`'s
+`postgres-url-credentials` shape is `/postgres(?:ql)?:\/\/…/`, written for exactly this threat. The
+hand-rolled regex did not inherit that care — reaching for an ad-hoc pattern when a vetted one
+exists in-repo is the deeper tell.
+
+Enforced for the file-read half by the `block-secret-file-read` PreToolUse guard (mt#3282). The
+credential-endpoint half has no deterministic check — a response body's secret-bearing-ness is not
+statically decidable — so it stays discipline-tier.
+
+### The empty-stdin sink footgun
+
+```bash
+python3 mint.py | gh secret set RAILWAY_REVIEWER_TOKEN --repo edobry/minsky
+```
+
+When `mint.py` exits non-zero, `gh secret set` still runs — with **empty stdin** — silently
+creating a secret with an empty value. Verified on 2026-07-28: the secret appeared with a fresh
+timestamp despite the mint having failed three times. A downstream consumer then fails with a
+confusing auth error rather than a clear "secret not set". `set -o pipefail` does NOT prevent this;
+it reports the failure after `gh` has already written.
+
+Capture → guard → write:
+
+```bash
+NEW=$(mint_command | extract_token_only)   # value in a var, never echoed
+[ -z "$NEW" ] && { echo 'MINT FAILED — not writing secret'; exit 1; }
+printf '%s' "$NEW" | gh secret set NAME --repo owner/repo
+```
+
+Applies to every secret sink: `gh secret set`, `railway variable set`, `config_credentials_add`.
+
+### Containment runbook (when a credential does leak)
+
+This order worked in ~2 minutes on 2026-07-28 and should not be re-derived under pressure — the
+moment a leak is discovered is exactly when the temptation to print a value to "check which one it
+is" is highest:
+
+1. **List** the credentials on the account.
+2. **Identify the leaked one BY ID** — never by printing values.
+3. **Delete** it.
+4. **Verify the remaining count** (the leaked one is gone; the expected ones remain).
+5. **Re-mint** through a non-printing pipeline.
+6. **Verify** the replacement works.
+
+Rotation is the real closure. Scrubbing a transcript only closes the searchable copy — the on-disk
+JSONL and any model-provider round-trip already happened. If the operator declines rotation, that
+is their call to make explicitly, not an outcome to assume.
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode

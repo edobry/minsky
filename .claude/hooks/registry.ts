@@ -457,6 +457,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "deny",
     },
   },
+  {
+    name: "block-secret-file-read",
+    // `invariant`: the set of files whose content is credential material is not
+    // an operator preference to tune. Widening the path list is a code change
+    // with its own review, not a threshold knob.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-secret-file-read").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // mt#3282: measured against buildDenialReason()'s fixed body (excluding the
+    // dynamic per-hit list) — ~1080 chars. Larger than its siblings on purpose:
+    // the message has to teach the safe presence-check forms AND warn off the
+    // redaction workaround, because the originating incident happened to an
+    // agent who did redact and whose filter silently matched nothing. One
+    // remediation option (the MINSKY_ALLOW_SECRET_FILE_READ override).
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
+    // mt#2889: the simplest denying shape — an emitting reader on the config
+    // file that mt#2864 found had leaked all four live API keys. Purely
+    // string-driven (no filesystem or env dependency), so the canary is stable.
+    // The verbatim R3 pipeline, with its quote-nested `\|`, is asserted in
+    // block-secret-file-read.test.ts instead, where escaping is readable.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "cat ~/.config/minsky/config.yaml",
+        },
+      },
+      expects: "deny",
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
   // Phase 2a dispatcher slot in the pre-migration settings.json order.
@@ -1601,6 +1634,35 @@ export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
  * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
  * there.
  */
+/**
+ * Guard pairs that INTENTIONALLY share an event + matcher (mt#3282).
+ *
+ * The overlap heuristic below is deliberately false-positive-tolerant, and two
+ * tool-scoped guards on the same matcher is a shape it cannot distinguish from
+ * an accidental double-registration. The dispatcher supports it: on a matched
+ * event `getGuardsForEvent` returns EVERY matching registration and
+ * `runGuards` executes them in registry order, short-circuiting on the first
+ * `deny` (D1 first-deny-wins). Neither guard shadows the other — a guard only
+ * pre-empts a later one by denying, which blocks the call either way.
+ *
+ * An entry here is a DECLARATION, not a silencer: each pair must be listed
+ * explicitly with a rationale, so a genuinely accidental duplicate (the shape
+ * ADR-028 D7(2) exists to catch) still fails the check.
+ *
+ * Keys are the two guard names, order-insensitive.
+ */
+export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  // Both inspect a Bash/session_exec command string for an unrelated defect:
+  // one for a constructed session path, one for a secret-bearing file read.
+  // Independent checks, independent overrides; running both is the point.
+  ["check-guessed-session-path", "block-secret-file-read"],
+];
+
+/** Is this pair declared as an intentional co-registration? */
+export function isIntentionalPair(a: string, b: string): boolean {
+  return INTENTIONAL_MATCHER_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+}
+
 export function findDuplicateRegistrations(
   registrations: GuardRegistration[]
 ): DuplicateRegistration[] {
@@ -1622,6 +1684,7 @@ export function findDuplicateRegistrations(
       if (!a || !b) continue;
       if (a.event !== b.event) continue;
       if (a.name === b.name) continue;
+      if (isIntentionalPair(a.name, b.name)) continue;
 
       const aTokens = tokensOf(a.matcher);
       const bTokens = tokensOf(b.matcher);
