@@ -1204,18 +1204,25 @@ export async function callOpenAIWithClient(
                 : 1;
             const envelope = buildReadFileEnvelope(content, offset);
             resultContent = JSON.stringify(envelope);
-            // mt#3544 SC4: per-read size logging. Records what the file actually
-            // was against what entered the conversation, so the read-size
-            // distribution (and this cap's real effect) becomes measurable
-            // instead of estimated.
+            // mt#3544 SC4: per-read size logging. Three distinct measurements,
+            // kept separate because conflating them makes the distribution
+            // useless: `preCapChars` is the file as fetched, `postCapChars` is
+            // the content field the model actually receives (window + notice),
+            // and `envelopeChars` is the full serialized tool result — the true
+            // wire cost, which also carries JSON escaping and the window object.
+            // PR #2530 R1: `postCapChars` previously held the envelope's JSON
+            // length, which is not comparable to `preCapChars` and would have
+            // silently corrupted the reduction ratio this log exists to measure.
+            const windowed = "window" in envelope && envelope.window !== undefined;
             log.info("reviewer.read_file_result", {
               event: "reviewer.read_file_result",
               path,
               offset,
               preCapChars: content !== null && content.kind === "text" ? content.content.length : 0,
-              postCapChars: resultContent.length,
-              windowed: "window" in envelope && envelope.window !== undefined,
-              ...("window" in envelope && envelope.window !== undefined
+              postCapChars: "content" in envelope ? envelope.content.length : 0,
+              envelopeChars: resultContent.length,
+              windowed,
+              ...(windowed && envelope.window !== undefined
                 ? { totalLines: envelope.window.totalLines }
                 : {}),
             });

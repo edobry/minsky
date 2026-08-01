@@ -228,6 +228,32 @@ describe("read_file windowing (mt#3544)", () => {
     expect(applyReadFileWindow(content, -5).content).toBe(content);
   });
 
+  test("the window field is absent, not undefined, when a file fits (PR #2530 R1)", () => {
+    // The `window` addition to ReadFileEnvelope must be strictly additive: an
+    // under-cap read serializes to exactly the pre-change key set, so anything
+    // consuming the envelope's shape sees no difference. Asserting the KEY LIST
+    // (not just toEqual) is what pins this — `window: undefined` would serialize
+    // away in JSON but still change the object's shape for a Object.keys consumer.
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: "small file\n",
+      truncated: false,
+    });
+
+    expect(Object.keys(envelope).sort()).toEqual(["content", "ok", "truncated"]);
+    expect("window" in envelope).toBe(false);
+  });
+
+  test("a windowed read adds the window key and nothing else", () => {
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: bigFile(MAX_READ_FILE_LINES + 10),
+      truncated: false,
+    });
+
+    expect(Object.keys(envelope).sort()).toEqual(["content", "ok", "truncated", "window"]);
+  });
+
   test("binary results are unaffected by windowing", () => {
     const envelope = buildReadFileEnvelope({ kind: "binary", size: 4096, truncated: false });
 
