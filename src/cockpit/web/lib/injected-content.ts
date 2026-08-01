@@ -340,7 +340,13 @@ function matchTurnStartInjection(text: string): PrefixMatch | null {
  */
 function matchSessionNotice(text: string): PrefixMatch | null {
   if (!text.trimStart().startsWith(INTERRUPTION_NOTICE_PREFIX)) return null;
-  const newline = text.indexOf("\n");
+  // Search from where the notice actually STARTS, not from index 0 (PR #2515
+  // R2). The guard above tests `trimStart()`, so a turn with leading whitespace
+  // still matches — but scanning the raw text for the first `\n` would then
+  // find the LEADING newline and yield `consumedLength === 0`, a zero-length
+  // span that consumes nothing and silently disables detection for that turn.
+  const noticeStart = text.length - text.trimStart().length;
+  const newline = text.indexOf("\n", noticeStart);
   const consumedLength = newline === -1 ? text.length : newline;
   return {
     consumedLength,

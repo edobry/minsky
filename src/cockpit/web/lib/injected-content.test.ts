@@ -421,3 +421,27 @@ describe("splitInjectedContent — the notice never swallows operator prose (mt#
     expect(span.content).toBe(INTERRUPTION_NOTICE_TEXT);
   });
 });
+
+describe("splitInjectedContent — notice with leading whitespace (PR #2515 R2)", () => {
+  test("a leading newline does not produce a zero-length span", () => {
+    // The guard tests `trimStart()`, so this matched; scanning the RAW text for
+    // the first newline then found the LEADING one and consumed nothing,
+    // silently disabling detection for the turn.
+    const segments = splitInjectedContent(`\n${INTERRUPTION_NOTICE_TEXT}`);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "injected",
+      span: { kind: "session-notice", content: INTERRUPTION_NOTICE_TEXT },
+    });
+  });
+
+  test("leading whitespace AND trailing prose still split correctly", () => {
+    const prose = "\nand then merge it";
+    const segments = splitInjectedContent(`\n  ${INTERRUPTION_NOTICE_TEXT}${prose}`);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "session-notice" } });
+    expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+});
