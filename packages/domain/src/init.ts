@@ -11,6 +11,8 @@ import {
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
+import { provisionObservabilityHooks } from "./setup/hook-provisioning";
+import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
 
@@ -164,5 +166,27 @@ export async function initializeProject(
   // registers Minsky with the MCP client (e.g. .cursor/mcp.json).
   if (mcp?.enabled !== false) {
     await performSetup({ repoPath, client: "cursor", overwrite }, fileSystem);
+
+    // Install the observability baseline so this project's conversations are
+    // visible to cockpit attach + presence (mt#3499). Automatic, per ask#6671.
+    // Developer-local like the rest of Phase 2: the hooks register in
+    // `.claude/settings.local.json` and install into a Minsky-owned state
+    // directory, so nothing lands in the project's committed tree.
+    //
+    // Non-fatal: a project that is otherwise correctly initialized must not
+    // fail `init` because instrumentation could not be installed. The failure
+    // is surfaced, not swallowed — a silently un-instrumented project is the
+    // exact bug this provisioning exists to fix, so it must never look like
+    // success.
+    try {
+      await provisionObservabilityHooks({ repoPath }, fileSystem);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      log.warn(
+        `Minsky observability hooks were NOT installed: ${reason}\n` +
+          `The project is initialized, but its conversations will not appear in the cockpit ` +
+          `(attach and presence will read UNKNOWN). Re-run 'minsky init' after resolving the above.`
+      );
+    }
   }
 }

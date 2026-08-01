@@ -20,6 +20,13 @@ export interface FsLike {
   copyFile(src: string, dest: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
+  /**
+   * Optional (mt#3499) so existing in-memory test doubles keep satisfying this
+   * interface. Needed by hook provisioning: an installed hook is invoked by
+   * path and relies on its `#!/usr/bin/env bun` shebang, so the executable bit
+   * is load-bearing. Callers use `fs.chmod?.(…)`.
+   */
+  chmod?(path: string, mode: number): Promise<void>;
 }
 
 /**
