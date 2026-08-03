@@ -128,13 +128,38 @@ export const DB_REACHABILITY_PROBE_TIMEOUT_MS = 5_000;
 
 /** Outcome of the last completed reachability probe, for `/api/health`. */
 export interface DbCheck {
-  /** ISO timestamp of the last probe that finished (either way), or null. */
+  /**
+   * ISO timestamp of the last probe that actually FINISHED — resolved, rejected,
+   * or hit its deadline — or null if none has.
+   *
+   * Deliberately NOT bumped when a poll merely observes that an earlier probe is
+   * still outstanding (PR #2558 R1): nothing was determined on such a poll, and a
+   * freshly-stamped `checkedAt` would read as a fresh measurement. Letting it go
+   * stale is the more informative behaviour — a stale `checkedAt` alongside
+   * `db: "degraded"` says "stuck since then", which is exactly what an operator
+   * needs to see.
+   */
   checkedAt: string | null;
   /** Round-trip of the last SUCCESSFUL probe in ms, or null if none has succeeded. */
   latencyMs: number | null;
 }
 
+/**
+ * Minimum gap between probes while the last one SUCCEEDED (PR #2558 R1).
+ *
+ * The health route kicks a probe per request, and several pollers hit it (the
+ * tray supervisor, the web header), so without a floor a busy daemon issues a
+ * query per poll per client. The floor applies ONLY in the healthy state: once
+ * degraded we probe on every poll, because the value of detecting recovery
+ * promptly outweighs one extra query against a pool that is not doing anything
+ * else anyway.
+ */
+export const DB_REACHABILITY_MIN_INTERVAL_MS = 2_000;
+
 let _dbCheck: DbCheck = { checkedAt: null, latencyMs: null };
+
+/** Monotonic ms of the last FINISHED probe; drives the healthy-state floor. */
+let _lastProbeFinishedAtMs: number | null = null;
 
 /**
  * A probe query we issued that has NOT come back yet.
@@ -204,12 +229,25 @@ const defaultReachabilityProbe: DbReachabilityProbe = async () => {
  */
 export async function refreshDbReachability(
   probe: DbReachabilityProbe = defaultReachabilityProbe,
-  timeoutMs: number = DB_REACHABILITY_PROBE_TIMEOUT_MS
+  timeoutMs: number = DB_REACHABILITY_PROBE_TIMEOUT_MS,
+  minIntervalMs: number = DB_REACHABILITY_MIN_INTERVAL_MS
 ): Promise<DbStatus> {
   if (_outstandingProbe) {
-    // A probe we already issued has still not come back. Don't issue another.
+    // A probe we already issued has still not come back. Don't issue another,
+    // and do NOT touch `checkedAt` — nothing finished on this poll, so claiming
+    // a fresh measurement would misreport (PR #2558 R1). The value going stale
+    // while the status reads degraded is the signal, not a gap.
     _dbStatus = _instance ? "degraded" : "unreachable";
-    _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    return _dbStatus;
+  }
+
+  // Healthy-state probe floor. Skipped entirely when degraded so recovery is
+  // noticed on the very next poll.
+  if (
+    _dbStatus === "ok" &&
+    _lastProbeFinishedAtMs !== null &&
+    Date.now() - _lastProbeFinishedAtMs < minIntervalMs
+  ) {
     return _dbStatus;
   }
 
@@ -219,9 +257,12 @@ export async function refreshDbReachability(
   try {
     issued = probe();
   } catch (err) {
-    // A probe that threw synchronously never got as far as a connection.
+    // A probe that threw synchronously never got as far as a connection. That
+    // still DETERMINED reachability (we know we could not reach it), so unlike
+    // the outstanding-probe branch above it does stamp `checkedAt`.
     _dbStatus = _instance ? "degraded" : "unreachable";
     _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    _lastProbeFinishedAtMs = Date.now();
     log.warn("[shared-persistence] DB reachability probe failed to start", {
       message: err instanceof Error ? err.message : String(err),
     });
@@ -233,10 +274,24 @@ export async function refreshDbReachability(
   // deadline — so a pool that recovers becomes probeable again with no
   // restart. Both arms are attached here so a late rejection can never
   // surface as an unhandled rejection (which markDbDegraded would then act on).
+  let raceSettled = false;
   const release = (): void => {
     if (_outstandingProbe === issued) _outstandingProbe = null;
   };
-  void issued.then(release, release);
+  void issued.then(release, (err: unknown) => {
+    release();
+    // A rejection arriving AFTER the deadline has no awaiting caller — the race
+    // below already settled — so without this arm its cause is discarded
+    // silently (PR #2558 R1). That cause is the most diagnostic signal available
+    // about WHY the pool stopped answering, which is the open question mt#3092
+    // carries. Logged only in the post-deadline case; a pre-deadline rejection
+    // is already reported by the catch block, and logging both would double up.
+    if (!raceSettled) return;
+    log.warn("[shared-persistence] DB reachability probe rejected after its deadline", {
+      message: err instanceof Error ? err.message : String(err),
+      cause: err instanceof Error && err.cause !== undefined ? String(err.cause) : undefined,
+    });
+  });
 
   try {
     await Promise.race([
@@ -259,6 +314,10 @@ export async function refreshDbReachability(
     });
   } finally {
     if (timer) clearTimeout(timer);
+    // This poll DID finish a probe (resolved, rejected, or hit the deadline), so
+    // it is the reference point for both `checkedAt` and the healthy-state floor.
+    raceSettled = true;
+    _lastProbeFinishedAtMs = Date.now();
   }
   return _dbStatus;
 }
@@ -441,4 +500,5 @@ export function __resetSharedPersistenceForTests(): void {
   // left a probe outstanding would otherwise make the next test report degraded.
   _dbCheck = { checkedAt: null, latencyMs: null };
   _outstandingProbe = null;
+  _lastProbeFinishedAtMs = null;
 }

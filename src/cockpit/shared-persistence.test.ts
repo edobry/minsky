@@ -454,3 +454,75 @@ describe("refreshDbReachability (mt#3563)", () => {
     expect(DB_REACHABILITY_PROBE_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
   });
 });
+
+describe("refreshDbReachability review fixes (PR #2558 R1)", () => {
+  beforeEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
+  afterEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
+  test("does NOT restamp checkedAt on a poll that only observes an outstanding probe", async () => {
+    // First poll issues a probe that never returns; it hits the deadline, which
+    // IS a finish, so it stamps checkedAt.
+    await refreshDbReachability(() => new Promise<never>(() => {}), 20);
+    const afterFirst = getDbCheck().checkedAt;
+    expect(afterFirst).not.toBeNull();
+
+    await new Promise((r) => setTimeout(r, 15));
+
+    // Subsequent polls determine nothing new — they only observe that the same
+    // probe is still out. Restamping here would advertise a fresh measurement
+    // that never happened.
+    await refreshDbReachability(() => new Promise<never>(() => {}), 20);
+    expect(getDbCheck().checkedAt).toBe(afterFirst);
+  });
+
+  test("skips a probe inside the healthy-state floor", async () => {
+    let issued = 0;
+    const ok = async () => {
+      issued++;
+      return [{ reachable: 1 }];
+    };
+
+    await refreshDbReachability(ok, 1000, 10_000);
+    expect(issued).toBe(1);
+    expect(getDbStatus()).toBe("ok");
+
+    // Healthy and inside the floor → no query issued.
+    await refreshDbReachability(ok, 1000, 10_000);
+    await refreshDbReachability(ok, 1000, 10_000);
+    expect(issued).toBe(1);
+  });
+
+  test("the floor never applies while degraded, so recovery is seen on the next poll", async () => {
+    await getSharedPersistenceService(1000, async () => makeService(async () => {}));
+
+    // Reach degraded with the floor disabled, so this step is unambiguous.
+    await refreshDbReachability(
+      async () => {
+        throw new Error("CONNECTION_CLOSED");
+      },
+      1000,
+      0
+    );
+    expect(getDbStatus()).toBe("degraded");
+
+    // A large floor must NOT suppress the next probe — if it did, a recovered
+    // pool would keep reporting degraded for the floor's duration.
+    let issued = 0;
+    const status = await refreshDbReachability(
+      async () => {
+        issued++;
+        return [{ reachable: 1 }];
+      },
+      1000,
+      10_000
+    );
+
+    expect(issued).toBe(1);
+    expect(status).toBe("ok");
+  });
+});
