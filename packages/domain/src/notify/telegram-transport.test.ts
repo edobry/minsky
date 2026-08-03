@@ -16,6 +16,7 @@ import {
   isThreadNotFoundError,
   parseInboundUpdates,
   redactSecret,
+  editTelegramMessage,
   sendTelegramMessage,
   sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
@@ -866,6 +867,108 @@ describe("parseInboundUpdates — topics (mt#3505)", () => {
 
     expect(messages[0]?.messageThreadId).toBeUndefined();
     expect(messages[0]?.isTopicMessage).toBe(false);
+  });
+});
+
+describe("editTelegramMessage (mt#3542)", () => {
+  const BASE = { token: TOKEN, chatId: CHAT, messageId: 42, text: "updated" };
+
+  test("reports success when the envelope says ok", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => jsonResponse({ ok: true, result: { message_id: 42 } }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.notModified).toBe(false);
+  });
+
+  test("accepts a bare `true` result, which is what an inline message returns", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => jsonResponse({ ok: true, result: true }),
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("PR #2538 R1 — a 200 carrying `ok: false` is a FAILURE, not a success", async () => {
+    // HTTP 2xx is not the Bot API's success signal; the envelope's `ok` flag
+    // is. Trusting the status would report a failed edit as applied, and the
+    // streaming caller would then advance its state and skip the fallback that
+    // guarantees the reply is delivered at all.
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () =>
+        jsonResponse({ ok: false, description: "Bad Request: something went wrong" }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.detail).toContain("something went wrong");
+  });
+
+  test("treats 'message is not modified' as success, however it is reported", async () => {
+    // Streaming re-sends identical text whenever a turn pauses, so a no-op edit
+    // is an expected steady state — not a delivery fault.
+    for (const status of [200, 400]) {
+      const result = await editTelegramMessage({
+        ...BASE,
+        fetchFn: async () =>
+          jsonResponse({ ok: false, description: "Bad Request: message is not modified" }, status),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.notModified).toBe(true);
+    }
+  });
+
+  test("retries unstyled when the formatted attempt is rejected", async () => {
+    const attempts: Array<Record<string, unknown>> = [];
+    const result = await editTelegramMessage({
+      ...BASE,
+      text: "<b>bold</b>",
+      parseMode: "HTML",
+      plainFallback: "**bold**",
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        attempts.push(body);
+        return attempts.length === 1
+          ? jsonResponse({ ok: false, description: "can't parse entities" }, 400)
+          : jsonResponse({ ok: true, result: true });
+      },
+    });
+
+    expect(result.ok && result.fellBackToPlain).toBe(true);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.["text"]).toBe("**bold**");
+    // The retry drops parse_mode — resending it would fail the same way.
+    expect(attempts[1]?.["parse_mode"]).toBeUndefined();
+  });
+
+  test("carries no thread parameter — a message is already in its topic", async () => {
+    let sent: Record<string, unknown> = {};
+    await editTelegramMessage({
+      ...BASE,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ ok: true, result: true });
+      },
+    });
+
+    expect(THREAD_ID_KEY in sent).toBe(false);
+    expect(sent["message_id"]).toBe(42);
+  });
+
+  test("a network error is reported, not thrown", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => {
+        throw new Error("connection reset");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.detail).toContain("connection reset");
   });
 });
 

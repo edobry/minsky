@@ -33,6 +33,16 @@ open = "5"
 notify = "8"
 notify-debouncer-mini = "0.7"
 
+# Mouse back/forward (X1/X2) navigation via a native NSEvent monitor (mt#3570).
+# WKWebView never turns these buttons into a DOM `mousedown` (tauri#10936), so
+# they have to be read from AppKit directly. These are the Objective-C bindings
+# tauri itself already pulls in transitively on macOS -- same versions, so no
+# additional crates are actually downloaded.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "block2"] }
+block2 = "0.6"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

@@ -738,8 +738,23 @@ export async function runDispatcher(
     if (!outcome) continue;
 
     for (const line of outcome.auditLines ?? []) stdoutWrite(line);
-    if (outcome.calibration && reg.calibrationLog) {
-      logCalibration(reg.calibrationLog, outcome.calibration);
+    // mt#3519: a registration may declare several logs. The dispatcher writes
+    // the one record it has to the PRIMARY log — the first declared — never to
+    // all of them, which would duplicate the record across logs and inflate
+    // every fire count downstream. Additional entries name logs the guard
+    // writes ITSELF (e.g. through a module it calls in-process); they exist so
+    // the coverage-receipt join can find the guard's invocations, not so the
+    // dispatcher can write to them.
+    //
+    // Gated on the RESOLVED primary rather than on `reg.calibrationLog` (PR
+    // #2543 R1): the declaration is truthy for `[]` too, so gating on it would
+    // enter this branch and then write nothing. The type forbids `[]`, and
+    // this gate means a hand-authored one still cannot produce a silent skip.
+    const primaryLog = Array.isArray(reg.calibrationLog)
+      ? reg.calibrationLog[0]
+      : reg.calibrationLog;
+    if (outcome.calibration && primaryLog) {
+      logCalibration(primaryLog, outcome.calibration);
     }
     if (outcome.deny && reg.denyCapable) {
       writeOutputFn({

@@ -218,8 +218,31 @@ export interface GuardRegistration {
    * filenames `CALIBRATION_LOG_REGISTRY`
    * (`src/domain/calibration/calibration-sweep.ts`) already expects. Omit
    * for guards that never log calibration records.
+   *
+   * A LIST when one guard writes more than one log (mt#3519). The join the
+   * coverage-receipt check builds has always been many-to-many on the read
+   * side — `operator-deferral` and `retrospective-trigger` are each written by
+   * two guards — but the declaration side could only express one log per
+   * guard, so a guard writing two had no way to declare the second. The
+   * execution-evidence merge gate is the case: it writes
+   * `execution-evidence-at-coverage` itself and `execution-evidence-test-first`
+   * through `test-first-evidence.ts`, which it calls in-process.
+   *
+   * When it IS a list, the FIRST entry is the primary log — the one the
+   * dispatcher writes this guard's `outcome.calibration` record to. The rest
+   * name logs the guard writes itself; they are declared so the
+   * coverage-receipt join can find the guard's invocation evidence, not so the
+   * dispatcher can write to them (writing one record to N logs would inflate
+   * every downstream fire count).
+   *
+   * The list type is NON-EMPTY by construction (PR #2543 R1). `[]` is truthy,
+   * so a plain `string[]` let an empty declaration pass every `if
+   * (reg.calibrationLog)` check and then write nothing — a guard silently
+   * logging no calibration records at all, which is the exact failure class
+   * this task exists to make visible. Registrations are hand-authored, so the
+   * empty state must not be representable.
    */
-  calibrationLog?: string;
+  calibrationLog?: string | [string, ...string[]];
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
@@ -448,6 +471,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_name: "Bash",
         tool_input: {
           command: `cd ${CANARY_NONEXISTENT_SESSION_PATH}/ && ls`,
+        },
+      },
+      expects: "deny",
+    },
+  },
+  {
+    name: "block-secret-file-read",
+    // `invariant`: the set of files whose content is credential material is not
+    // an operator preference to tune. Widening the path list is a code change
+    // with its own review, not a threshold knob.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-secret-file-read").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // mt#3282: measured against buildDenialReason()'s fixed body (excluding the
+    // dynamic per-hit list) — ~1080 chars. Larger than its siblings on purpose:
+    // the message has to teach the safe presence-check forms AND warn off the
+    // redaction workaround, because the originating incident happened to an
+    // agent who did redact and whose filter silently matched nothing. One
+    // remediation option (the MINSKY_ALLOW_SECRET_FILE_READ override).
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
+    // mt#2889: the simplest denying shape — an emitting reader on the config
+    // file that mt#2864 found had leaked all four live API keys. Purely
+    // string-driven (no filesystem or env dependency), so the canary is stable.
+    // The verbatim R3 pipeline, with its quote-nested `\|`, is asserted in
+    // block-secret-file-read.test.ts instead, where escaping is readable.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "cat ~/.config/minsky/config.yaml",
         },
       },
       expects: "deny",
@@ -799,6 +855,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     name: "substrate-bypass-detector",
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
+    // mt#3519: this guard writes `.minsky/operator-instruction-trigger-calibration.jsonl`
+    // (the mt#2303 surface), whose name matches neither the guard nor the file.
+    // Undeclared, the coverage-receipt check had no invocation evidence for that
+    // log and could only report it as unmapped.
+    calibrationLog: "operator-instruction-trigger",
     module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
     timeoutMs: 15000,
     denyCapable: false,
@@ -1597,6 +1658,35 @@ export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
  * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
  * there.
  */
+/**
+ * Guard pairs that INTENTIONALLY share an event + matcher (mt#3282).
+ *
+ * The overlap heuristic below is deliberately false-positive-tolerant, and two
+ * tool-scoped guards on the same matcher is a shape it cannot distinguish from
+ * an accidental double-registration. The dispatcher supports it: on a matched
+ * event `getGuardsForEvent` returns EVERY matching registration and
+ * `runGuards` executes them in registry order, short-circuiting on the first
+ * `deny` (D1 first-deny-wins). Neither guard shadows the other — a guard only
+ * pre-empts a later one by denying, which blocks the call either way.
+ *
+ * An entry here is a DECLARATION, not a silencer: each pair must be listed
+ * explicitly with a rationale, so a genuinely accidental duplicate (the shape
+ * ADR-028 D7(2) exists to catch) still fails the check.
+ *
+ * Keys are the two guard names, order-insensitive.
+ */
+export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  // Both inspect a Bash/session_exec command string for an unrelated defect:
+  // one for a constructed session path, one for a secret-bearing file read.
+  // Independent checks, independent overrides; running both is the point.
+  ["check-guessed-session-path", "block-secret-file-read"],
+];
+
+/** Is this pair declared as an intentional co-registration? */
+export function isIntentionalPair(a: string, b: string): boolean {
+  return INTENTIONAL_MATCHER_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+}
+
 export function findDuplicateRegistrations(
   registrations: GuardRegistration[]
 ): DuplicateRegistration[] {
@@ -1618,6 +1708,7 @@ export function findDuplicateRegistrations(
       if (!a || !b) continue;
       if (a.event !== b.event) continue;
       if (a.name === b.name) continue;
+      if (isIntentionalPair(a.name, b.name)) continue;
 
       const aTokens = tokensOf(a.matcher);
       const bTokens = tokensOf(b.matcher);

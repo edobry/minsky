@@ -201,6 +201,65 @@ export interface InvocationEvidence {
   lastAt: string | null;
 }
 
+/** One fire-log entry, reduced to what the invocation count needs. */
+export interface InvocationSource {
+  guardName: string;
+  timestamp: string;
+}
+
+/**
+ * Count fire-log invocations per calibration-log name inside a window (mt#3519).
+ *
+ * Pure and injectable — lives here rather than in
+ * `scripts/check-coverage-receipts.ts` so the many-to-many join can be tested.
+ * It was inline in that script, and its guard→log inversion held ONE log per
+ * guard: when a guard declared two logs (the execution-evidence merge gate
+ * writes `execution-evidence-at-coverage` itself and
+ * `execution-evidence-test-first` through `test-first-evidence.ts`), the second
+ * declaration overwrote the first and that log counted ZERO invocations. It
+ * then reported "no evidence the entry point ran at all" while its sibling,
+ * backed by the very same invocations, read as dormant — the precise ambiguity
+ * mt#3502 removed, reintroduced through the back door.
+ *
+ * @param entries fire-log entries (already read; this function does no I/O)
+ * @param logToGuards calibration-log name -> every guard that writes it
+ */
+export function countInvocationsPerLog(
+  entries: Iterable<InvocationSource>,
+  logToGuards: Map<string, string[]>,
+  cutoffMs: number,
+  nowMs: number
+): Map<string, InvocationEvidence> {
+  // guard -> EVERY log it writes. Both directions are many-to-many:
+  // `operator-deferral` is written by two guards, and the execution-evidence
+  // gate writes two logs.
+  const guardToLogs = new Map<string, string[]>();
+  for (const [log, guards] of logToGuards) {
+    for (const g of guards) {
+      const existing = guardToLogs.get(g);
+      if (existing) existing.push(log);
+      else guardToLogs.set(g, [log]);
+    }
+  }
+
+  const evidence = new Map<string, InvocationEvidence>();
+  for (const log of logToGuards.keys()) evidence.set(log, { count: 0, lastAt: null });
+
+  for (const entry of entries) {
+    const logs = guardToLogs.get(entry.guardName);
+    if (logs === undefined) continue;
+    const t = Date.parse(entry.timestamp);
+    if (Number.isNaN(t) || t < cutoffMs || t > nowMs) continue;
+    for (const log of logs) {
+      const cur = evidence.get(log);
+      if (!cur) continue;
+      cur.count += 1;
+      if (cur.lastAt === null || entry.timestamp > cur.lastAt) cur.lastAt = entry.timestamp;
+    }
+  }
+  return evidence;
+}
+
 export interface CoverageReceiptResult {
   detector: string;
   /** True when >=1 live receipt exists inside the window. */

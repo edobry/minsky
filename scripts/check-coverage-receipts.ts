@@ -23,6 +23,30 @@
  * next calibration review — this is a review-surfacing signal, NOT a merge
  * gate).
  *
+ * `--json` output shape (mt#3519 added `nonGuard` and changed what `results`
+ * covers — documented here because there is no schema version and the textual
+ * `Checked:` count is derived from the same set):
+ *
+ *   {
+ *     results: CoverageReceiptResult[],  // one per CHECKED detector
+ *     flaggedCount: number,
+ *     dormantCount: number,
+ *     allCovered: boolean,
+ *     unmapped: string[],   // logs no guard declares — a defect to fix
+ *     nonGuard: string[]    // logs with a declared NON-guard producer
+ *   }
+ *
+ * `results` covers the discovered calibration logs MINUS `nonGuard` — a
+ * non-guard producer has no entry point to instrument, so a coverage verdict
+ * on it would be a claim about something that does not exist. `Checked:` in
+ * the textual summary is `results.length` and therefore excludes them too;
+ * they are printed on their own `[NON-GUARD]` line. Consumers were audited
+ * when this changed (mt#3519): the only ones are this file's own textual
+ * output, `.minsky/skills/calibration-review/SKILL.md` Step 1b, and
+ * `docs/architecture/evaluation-loop-fire-log.md` — no CI job or script parses
+ * the JSON. Anything added later should read `results` + `nonGuard` together
+ * if it needs the full discovered set.
+ *
  * @see .minsky/hooks/coverage-receipt.ts — core check logic this wraps
  * @see scripts/run-guard-canaries.ts — the synthetic-input sibling (mt#2889)
  * @see .claude/skills/calibration-review/SKILL.md — the cadence that runs this
@@ -37,6 +61,7 @@ const {
   checkDetectorCoverage,
   summarizeCoverage,
   formatCoverageResult,
+  countInvocationsPerLog,
   DEFAULT_COVERAGE_WINDOW_DAYS,
 } = await import("../.minsky/hooks/coverage-receipt");
 const { readFireLogEntries } = await import("../.minsky/hooks/fire-log");
@@ -69,16 +94,47 @@ function buildCalibrationLogToGuards(): Map<string, string[]> {
     if (existing) existing.push(guard);
     else map.set(log, [guard]);
   };
+  // mt#3519: a declaration may name one log or several — the execution-evidence
+  // merge gate writes two. The read side was always many-to-many; this makes
+  // the write side match.
+  const addAll = (logs: string | string[], guard: string): void => {
+    for (const log of Array.isArray(logs) ? logs : [logs]) add(log, guard);
+  };
   for (const reg of GUARD_REGISTRY) {
-    if (reg.calibrationLog) add(reg.calibrationLog, reg.name);
+    if (reg.calibrationLog) addAll(reg.calibrationLog, reg.name);
   }
   // Standalone guards are not in GUARD_REGISTRY; their canary declaration
   // carries the same join key.
   for (const canary of STANDALONE_GUARD_CANARIES) {
-    if (canary.calibrationLog) add(canary.calibrationLog, canary.guardName);
+    if (canary.calibrationLog) addAll(canary.calibrationLog, canary.guardName);
   }
   return map;
 }
+
+/**
+ * Calibration logs written by something that is NOT a guard (mt#3519).
+ *
+ * `ask-form-lint` is the standing case: the log is written by
+ * `src/adapters/shared/commands/ask-form-lint-calibration.ts` on the
+ * `asks_create` command path, not by any hook. It has no guard name, no
+ * dispatcher invocation, and no canary — so neither declaration mechanism can
+ * reach it, and it is NOT the "no guard declares this" defect that the
+ * `Unmapped` line reports.
+ *
+ * Deliberately NOT solved by recording fire-log entries from the command path:
+ * the fire log is the GUARD invocation log (`guardName` is its identity
+ * field), and `src/` is bundled into the deployed MCP server, which must not
+ * import `.minsky/hooks/`. Declaring the producer keeps the signal honest —
+ * these are reported in their own category and never counted as `covered`,
+ * which is what the coverage receipt would otherwise imply.
+ *
+ * A log listed here is EXEMPT from the invocation-evidence join, not from
+ * review: its records still feed the calibration sweep exactly as before.
+ */
+const NON_GUARD_CALIBRATION_PRODUCERS: Record<string, string> = {
+  "ask-form-lint":
+    "src/adapters/shared/commands/ask-form-lint-calibration.ts (asks_create command path, not a hook)",
+};
 
 /**
  * Count fire-log invocations per calibration-log name inside the window.
@@ -91,28 +147,14 @@ function buildInvocationEvidence(
   windowDays: number,
   now: Date
 ): Map<string, InvocationEvidence> {
-  const cutoffMs = now.getTime() - windowDays * MS_PER_DAY;
-  const nowMs = now.getTime();
-
-  const guardToLog = new Map<string, string>();
-  for (const [log, guards] of logToGuards) {
-    for (const g of guards) guardToLog.set(g, log);
-  }
-
-  const evidence = new Map<string, InvocationEvidence>();
-  for (const log of logToGuards.keys()) evidence.set(log, { count: 0, lastAt: null });
-
-  for (const entry of readFireLogEntries()) {
-    const log = guardToLog.get(entry.guardName);
-    if (log === undefined) continue;
-    const t = Date.parse(entry.timestamp);
-    if (Number.isNaN(t) || t < cutoffMs || t > nowMs) continue;
-    const cur = evidence.get(log);
-    if (!cur) continue;
-    cur.count += 1;
-    if (cur.lastAt === null || entry.timestamp > cur.lastAt) cur.lastAt = entry.timestamp;
-  }
-  return evidence;
+  // The counting itself lives in `coverage-receipt.ts` (mt#3519) so the
+  // many-to-many join is testable; this wrapper supplies the I/O and window.
+  return countInvocationsPerLog(
+    readFireLogEntries(),
+    logToGuards,
+    now.getTime() - windowDays * MS_PER_DAY,
+    now.getTime()
+  );
 }
 
 /** Discover every `<name>-calibration.jsonl` under the repo's `.minsky/` dir. */
@@ -160,7 +202,14 @@ async function main(): Promise<void> {
       // see a different schema just because the repo has no calibration logs.
       process.stdout.write(
         `${JSON.stringify(
-          { results: [], flaggedCount: 0, dormantCount: 0, allCovered: true, unmapped: [] },
+          {
+            results: [],
+            flaggedCount: 0,
+            dormantCount: 0,
+            allCovered: true,
+            unmapped: [],
+            nonGuard: [],
+          },
           null,
           2
         )}\n`
@@ -178,9 +227,22 @@ async function main(): Promise<void> {
   // A detector whose log maps to no guard gets NO invocation evidence, which
   // means it can only ever come back flagged. Report those by name rather than
   // letting them read as genuine dead entry points (SC5).
-  const unmapped = detectors.filter((d) => !logToGuards.has(d));
+  //
+  // mt#3519: a log with a DECLARED non-guard producer is not that defect — it
+  // has no guard by construction, so it is reported in its own category rather
+  // than as a missing declaration nobody can add.
+  const nonGuard = detectors.filter((d) => d in NON_GUARD_CALIBRATION_PRODUCERS);
+  const unmapped = detectors.filter(
+    (d) => !logToGuards.has(d) && !(d in NON_GUARD_CALIBRATION_PRODUCERS)
+  );
 
-  const results = detectors.map((name) =>
+  // A non-guard producer is EXCLUDED from the coverage results, not merely
+  // annotated alongside them: `FLAGGED` asserts "no evidence the entry point
+  // ran", which for a log with no entry point to instrument is a false claim,
+  // not a weak one. It is reported in its own category below instead.
+  const checked = detectors.filter((d) => !(d in NON_GUARD_CALIBRATION_PRODUCERS));
+
+  const results = checked.map((name) =>
     checkDetectorCoverage(name, {
       cwd,
       windowDays,
@@ -191,7 +253,7 @@ async function main(): Promise<void> {
   const report = summarizeCoverage(results);
 
   if (json) {
-    process.stdout.write(`${JSON.stringify({ ...report, unmapped }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...report, unmapped, nonGuard }, null, 2)}\n`);
   } else {
     for (const r of report.results) {
       console.log(formatCoverageResult(r));
@@ -200,6 +262,11 @@ async function main(): Promise<void> {
     if (unmapped.length > 0) {
       console.log(
         `Unmapped (no guard declares this calibration log, so no invocation evidence is available): ${unmapped.join(", ")}`
+      );
+    }
+    for (const name of nonGuard) {
+      console.log(
+        `[NON-GUARD] ${name}: written by ${NON_GUARD_CALIBRATION_PRODUCERS[name]} — no guard invocation evidence exists by construction (mt#3519).`
       );
     }
     const covered = results.length - report.flaggedCount - report.dormantCount;

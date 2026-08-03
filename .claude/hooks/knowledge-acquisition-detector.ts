@@ -117,6 +117,20 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ACK_KNOWLEDGE_ACQUISITION";
 export const CALIBRATION_LOG = ".minsky/knowledge-acquisition-calibration.jsonl";
 
 /**
+ * Reason string for this detector's ONE recorded suppression gate — research
+ * whose knowledge WAS propagated somewhere in the trailing window (mt#3207).
+ *
+ * The detection loop has three other skip legs, none of which is a suppression
+ * of a completed detection and none of which records: the already-logged
+ * dedupe key (a repeat of a recorded event), the missing loaded-skill keyword
+ * overlap (part of the rung-2-lite DETECTION criterion), and the trailing-
+ * window grace period (a deferral — non-terminal, re-evaluated next
+ * invocation; recording it would fire every turn AND burn the dedupe key that
+ * the eventual real fire needs). See mt#3207's `## Design decisions` §D2.
+ */
+export const SUPPRESSION_PROPAGATION_IN_WINDOW = "propagation-in-window";
+
+/**
  * Research-tool names whose invocation is rung 1's candidate signal —
  * in-task research per the mt#2707 RFC's scope (WebSearch / WebFetch /
  * knowledge tools).
@@ -451,6 +465,11 @@ export interface KnowledgeAcquisitionDetection {
   result: KnowledgeAcquisitionResult;
   /** Stable per-occurrence dedupe key (`${lineIdx}:${toolName}`) so a matched research event is logged at most once. */
   dedupeKey: string;
+  /**
+   * Empty when this detection injects; `[SUPPRESSION_PROPAGATION_IN_WINDOW]`
+   * when a gate swallowed it (mt#3207).
+   */
+  suppressionReasons: string[];
 }
 
 /**
@@ -482,6 +501,11 @@ export function detectKnowledgeAcquisition(
   const researchTools = [...new Set(occurrences.map((o) => o.toolName))];
   const promptIndices = findRealPromptIndices(lines);
 
+  // mt#3207: the first propagation-suppressed occurrence, returned only if no
+  // LIVE fire is found — scanning continues past it so a suppressed occurrence
+  // can never mask a real one.
+  let suppressedCandidate: KnowledgeAcquisitionDetection | null = null;
+
   for (const occ of occurrences) {
     const dedupeKey = `${occ.idx}:${occ.toolName}`;
     if (alreadyLoggedDedupeKeys.has(dedupeKey)) continue;
@@ -510,7 +534,28 @@ export function detectKnowledgeAcquisition(
     if (elapsedTurns < windowTurns) continue;
 
     // True negative: propagation happened somewhere in the trailing window.
-    if (hasPropagationAfter(lines, occ.idx)) continue;
+    // mt#3207: recorded as a SUPPRESSED detection rather than dropped — this
+    // is the gate whose real-world fire rate was previously unmeasurable. Safe
+    // to record (and so to burn the dedupe key) precisely because it is
+    // TERMINAL: propagation is in the past and cannot un-happen, so this
+    // occurrence can never later become a live fire. The grace-period leg
+    // above is deliberately NOT recorded for the opposite reason.
+    if (hasPropagationAfter(lines, occ.idx)) {
+      suppressedCandidate ??= {
+        result: {
+          matched: true,
+          detectionRung: "1+2-lite",
+          researchTools,
+          loadedSkills,
+          matchedSkill,
+          matchedKeyword,
+          hadPropagation: true,
+        },
+        dedupeKey,
+        suppressionReasons: [SUPPRESSION_PROPAGATION_IN_WINDOW],
+      };
+      continue;
+    }
 
     return {
       result: {
@@ -523,10 +568,11 @@ export function detectKnowledgeAcquisition(
         hadPropagation: false,
       },
       dedupeKey,
+      suppressionReasons: [],
     };
   }
 
-  return null;
+  return suppressedCandidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -600,6 +646,30 @@ function resolveSkillKeywords(cwd: string, loadedSkills: string[]): Map<string, 
 // Injection text (gated by INJECTION_ENABLED — dormant in v1)
 // ---------------------------------------------------------------------------
 
+/**
+ * The one record shape both entry points write (mt#3207).
+ *
+ * Previously duplicated field-by-field in `run()` and `main()`, which is how a
+ * new shared-contract field gets added to one path and forgotten on the other.
+ */
+export function buildCalibrationRecord(
+  input: ClaudeHookInput,
+  detection: KnowledgeAcquisitionDetection
+): Record<string, unknown> {
+  return {
+    timestamp: new Date().toISOString(),
+    session_id: input.session_id,
+    detectionRung: detection.result.detectionRung,
+    researchTools: detection.result.researchTools,
+    loadedSkills: detection.result.loadedSkills,
+    hadPropagation: detection.result.hadPropagation,
+    matchedSkill: detection.result.matchedSkill,
+    matchedKeyword: detection.result.matchedKeyword,
+    dedupeKey: detection.dedupeKey,
+    suppressionReasons: detection.suppressionReasons,
+  };
+}
+
 function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
   return [
     "[knowledge-acquisition-detector] Research surfaced knowledge relevant to a",
@@ -665,20 +735,8 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (!detection) return null;
 
-  const record = {
-    timestamp: new Date().toISOString(),
-    session_id: input.session_id,
-    detectionRung: detection.result.detectionRung,
-    researchTools: detection.result.researchTools,
-    loadedSkills: detection.result.loadedSkills,
-    hadPropagation: detection.result.hadPropagation,
-    matchedSkill: detection.result.matchedSkill,
-    matchedKeyword: detection.result.matchedKeyword,
-    dedupeKey: detection.dedupeKey,
-  };
-
-  const outcome: GuardOutcome = { calibration: record };
-  if (INJECTION_ENABLED) {
+  const outcome: GuardOutcome = { calibration: buildCalibrationRecord(input, detection) };
+  if (INJECTION_ENABLED && detection.suppressionReasons.length === 0) {
     outcome.additionalContext = buildInjectionReminder(detection.result);
   }
   return outcome;
@@ -754,20 +812,11 @@ export async function main(): Promise<void> {
   if (!detection) process.exit(0);
 
   if (Date.now() < overallDeadline) {
-    appendCalibrationRecord(input.cwd, {
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      detectionRung: detection.result.detectionRung,
-      researchTools: detection.result.researchTools,
-      loadedSkills: detection.result.loadedSkills,
-      hadPropagation: detection.result.hadPropagation,
-      matchedSkill: detection.result.matchedSkill,
-      matchedKeyword: detection.result.matchedKeyword,
-      dedupeKey: detection.dedupeKey,
-    });
+    appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, detection));
   }
 
-  if (!INJECTION_ENABLED) process.exit(0);
+  // mt#3207: a suppressed detection records but never injects (mirrors `run()`).
+  if (!INJECTION_ENABLED || detection.suppressionReasons.length > 0) process.exit(0);
 
   const output: HookOutput = {
     hookSpecificOutput: {

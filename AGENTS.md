@@ -767,7 +767,21 @@ Mixing both on one variable leaked mt#2738's Pulumi token.
 ```
 
 Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
-Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
+
+**Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
+CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
+purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
+cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+
+**A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
+UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
+a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
+Never `producer | gh secret set` (empty stdin writes an EMPTY secret): capture → guard → write.
+
+File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
+discipline-tier. Recipes + leak-containment runbook:
+`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
 
 ## General
 
@@ -776,7 +790,23 @@ Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
 - **Runtime**: Bun (not Node.js)
 - **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
 - **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
+- **Tests**: `bun scripts/run-tests-gated.ts` — the full suite, and the ONLY invocation that
+  fail-closes on a truncated run. Do NOT hand-type `bun test <directories>` for a broad run:
+  passing `./src` recurses into `src/mcp`, which triggers a Bun 1.2.21 defect that silently
+  stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
+  zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
+  what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
+  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
+  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
+  single file or a subdirectory that is not `./src` itself is unaffected.
+- **Still unsafe, tracked at mt#3572**: `test:all`, `test:debug`, `test:integration`, and
+  `test:debug:integration` pass NO path argument, and bare discovery also walks `src/mcp` —
+  `bunfig.toml`'s `pathIgnorePatterns` lists only `services/**` and `src/cockpit/web/**`, because
+  the mechanism does not reliably prune a subdirectory (its own comment records why). Confirmed
+  truncating. They were not migrated with the rest because `run-tests-main.ts`'s `ROOTS` omits
+  `./tests/integration`, so routing them through it would silently DROP integration coverage —
+  a worse bug than the one being fixed. Treat a green result from these four as unverified.
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
@@ -1157,7 +1187,7 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
 - **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
-- **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
+- **Branch-freshness** — commit/PR whose diff OVERLAPS main's new commits (mt#3484: ahead-count alone no longer blocks; a failed overlap probe fails closed). `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
@@ -1166,6 +1196,10 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
+  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
+  `MINSKY_ALLOW_SECRET_FILE_READ`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
@@ -1195,7 +1229,7 @@ so measurement is unaffected. Separate events still mean separate blocks: a `Sto
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Turn-end-untaken-action** — Stop-event scan (mt#3179): the turn's final message names a next action ("I'll implement it", "say the word") without taking it. Keys on the SURFACE phrase, not the reason, and dedups per phrase per turn. Suppressed when the same message also matches ask-routing-deferral, whose guidance is the more specific (mt#3336). `MINSKY_ACK_UNTAKEN_ACTION`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read (measured: 108 of 298 records carried that reason, 58 by it alone). Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is UNCHANGED — both still suppress; the split makes the authorship-as-verification class countable, which is the precondition for deciding whether it should surface. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted as an operator-facing fire it never was and would drive the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.

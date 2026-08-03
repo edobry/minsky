@@ -128,6 +128,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
     expect(producing).toEqual(
       [
         "ask-routing-deferral-detector",
+        "block-secret-file-read",
         "calibration-review-cadence-detector",
         "check-guessed-session-path",
         "code-mechanism-assertion-detector",
