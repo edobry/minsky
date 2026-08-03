@@ -288,3 +288,177 @@ describe("AsksPage option labels — redundant letter markers stripped (mt#3253)
     expect(list?.textContent).not.toContain("B. B —");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Expanded-row Markdown rendering (mt#3639)
+//
+// Ask questions are agent-authored Markdown. This surface rendered them as
+// `whitespace-pre-wrap` text, so a GFM comparison table reached the operator as
+// literal `| --- |` rows and a bolded lead kept its asterisks — while
+// /ask/:id rendered the SAME field correctly through <Prose>.
+//
+// The three task ids in the fixture are deliberately distinct: `mt#77` is the
+// parent (which the row header already links), `mt#78` lives in the question,
+// and `mt#79` lives in an option description. Asserting on the two body ids
+// keeps these tests from passing on the header's pre-existing link.
+// ---------------------------------------------------------------------------
+
+const MARKDOWN_QUESTION = [
+  "**Decide what to do with mt#78.** The evidence has firmed since filing.",
+  "",
+  "| metric | before | after |",
+  "| --- | --- | --- |",
+  "| median rounds | 10.0 | 10.0 |",
+  "| median input tokens | ~609k | ~396k |",
+].join("\n");
+
+function askWithMarkdownQuestion(): AskItem {
+  return {
+    id: "1f0a5cfe-0000-4000-8000-000000000002",
+    shortId: "ask#6768",
+    kind: "direction.decide",
+    state: "routed",
+    title: "Reviewer round-budget: rounds didn't move, but input tokens fell 35%",
+    question: MARKDOWN_QUESTION,
+    requestor: "unattributed agent",
+    parentTaskId: "mt#77",
+    options: [
+      { label: "Ship it", value: "a", description: "Merge. Post-deploy watch tracked at mt#79." },
+    ],
+    createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+    windowMissedCount: 0,
+    metadata: {},
+  };
+}
+
+/** `renderAsksPage`, plus a populated entity index (it fetches /api/tasks/ids). */
+function renderAsksPageWithTaskIds(asks: AskItem[], ids: string[]) {
+  global.fetch = mock(async (url: string) => {
+    if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
+    if (url.startsWith("/api/tasks/ids")) return jsonResponse({ ids });
+    if (url.startsWith("/api/tasks/meta")) {
+      return jsonResponse({
+        tasks: ids.map((id) => ({ id, title: `Title ${id}`, status: "READY" })),
+      });
+    }
+    return fallback();
+  }) as unknown as typeof fetch;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AsksPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+/** Expand the first row and hand back the container. */
+async function expandFirstRow(container: HTMLElement): Promise<void> {
+  const expand = await waitFor(() => {
+    const el = container.querySelector(ROW_EXPAND_SELECTOR);
+    if (!el) throw new Error("row not rendered yet");
+    return el as HTMLElement;
+  });
+  fireEvent.click(expand);
+}
+
+describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () => {
+  test("a GFM table renders as a real table, not literal pipe rows", async () => {
+    const { container } = renderAsksPage([askWithMarkdownQuestion()]);
+    await expandFirstRow(container);
+
+    const table = await waitFor(() => {
+      const t = container.querySelector("table");
+      if (!t) throw new Error("table not rendered");
+      return t;
+    });
+    expect(Array.from(table.querySelectorAll("th")).map((th) => th.textContent)).toEqual([
+      "metric",
+      "before",
+      "after",
+    ]);
+    expect(table.querySelectorAll("tbody tr").length).toBe(2);
+    expect(container.textContent).not.toContain("| --- |");
+  });
+
+  test("the bolded lead renders as emphasis, with no literal asterisks left over", async () => {
+    const { container } = renderAsksPage([askWithMarkdownQuestion()]);
+    await expandFirstRow(container);
+
+    const strong = await waitFor(() => {
+      const el = container.querySelector("strong");
+      if (!el) throw new Error("emphasis not rendered");
+      return el;
+    });
+    expect(strong.textContent).toContain("Decide what to do with mt#78.");
+    expect(container.textContent).not.toContain("**");
+  });
+
+  test("a bare task ref in the question links when the entity index knows it", async () => {
+    const { container } = renderAsksPageWithTaskIds(
+      [askWithMarkdownQuestion()],
+      ["mt#77", "mt#78", "mt#79"]
+    );
+    await expandFirstRow(container);
+    await waitFor(() => {
+      if (!container.querySelector('a[href="/tasks/mt%2378"]')) throw new Error("no question link");
+    });
+  });
+
+  test("an option description is linkified the way the detail page linkifies it", async () => {
+    const { container } = renderAsksPageWithTaskIds(
+      [askWithMarkdownQuestion()],
+      ["mt#77", "mt#78", "mt#79"]
+    );
+    await expandFirstRow(container);
+    await waitFor(() => {
+      if (!container.querySelector('a[href="/tasks/mt%2379"]')) throw new Error("no option link");
+    });
+  });
+
+  test("an empty entity index leaves the refs as plain text, not broken links", async () => {
+    // renderAsksPage mocks only /api/asks; /api/tasks/ids falls through to the
+    // degraded fallback, which useEntityIndex tolerates as an empty index.
+    const { container } = renderAsksPage([askWithMarkdownQuestion()]);
+    await expandFirstRow(container);
+
+    await waitFor(() => {
+      if (!container.querySelector("table")) throw new Error("question not rendered yet");
+    });
+    expect(container.querySelector('a[href="/tasks/mt%2378"]')).toBeNull();
+    expect(container.querySelector('a[href="/tasks/mt%2379"]')).toBeNull();
+    expect(container.textContent).toContain("mt#78");
+  });
+
+  test("a queue of collapsed rows never builds the entity index", async () => {
+    // The index hook mounts with the EXPANDED body, not the row — otherwise
+    // every row in the inbox pays to rebuild the id-set Map. /api/tasks/ids is
+    // fetched by useEntityIndex and by nothing else on this page, so its
+    // absence from the call log is the discriminator.
+    const urls: string[] = [];
+    const asks = [0, 1, 2].map((i) => ({
+      ...askWithMarkdownQuestion(),
+      id: `1f0a5cfe-0000-4000-8000-00000000001${i}`,
+      parentTaskId: `mt#8${i}`,
+    }));
+    global.fetch = mock(async (url: string) => {
+      urls.push(url);
+      if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
+      return fallback();
+    }) as unknown as typeof fetch;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AsksPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Expand question" }).length).toBe(3)
+    );
+    expect(urls.some((u) => u.startsWith("/api/tasks/ids"))).toBe(false);
+  });
+});

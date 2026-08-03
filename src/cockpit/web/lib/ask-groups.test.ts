@@ -135,6 +135,37 @@ describe("consequenceSnippet", () => {
   test("skips leading blank lines", () => {
     expect(consequenceSnippet("\n\nDo the thing.")).toBe("Do the thing.");
   });
+
+  // The collapsed row is a truncated single line, so it cannot go through
+  // <Prose> the way the expanded question does (mt#3639) — the markers are
+  // stripped instead.
+  test("strips a bolded lead whose closing marker sits past the sentence cut", () => {
+    const out = consequenceSnippet(
+      "**Decide what to do with mt#3547. The evidence has firmed since filing.**\n\nDetail."
+    );
+    expect(out).toBe("Decide what to do with mt#3547.");
+    expect(out).not.toContain("*");
+  });
+
+  test("unwraps links and code spans", () => {
+    expect(
+      consequenceSnippet("See [the spec](https://example.com/x) and `--execute` before deciding.")
+    ).toBe("See the spec and --execute before deciding.");
+  });
+
+  test("drops a leading list or heading marker", () => {
+    expect(consequenceSnippet("- Approve the rollout.")).toBe("Approve the rollout.");
+    expect(consequenceSnippet("## Approve the rollout.")).toBe("Approve the rollout.");
+  });
+
+  test("leaves snake_case identifiers and arithmetic asterisks intact", () => {
+    expect(consequenceSnippet("Applies feedback_user_does_not_review to the queue.")).toBe(
+      "Applies feedback_user_does_not_review to the queue."
+    );
+    expect(consequenceSnippet("Raises the budget to 2 * 3 * 4 units.")).toBe(
+      "Raises the budget to 2 * 3 * 4 units."
+    );
+  });
 });
 
 describe("inlineActionsFor", () => {
