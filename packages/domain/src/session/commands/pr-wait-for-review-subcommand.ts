@@ -754,6 +754,23 @@ export async function sessionPrWaitForReview(
   const createBackend = deps.createBackend ?? createRepositoryBackendFromSession;
   const getTokenProvider = deps.getTokenProvider ?? defaultGetTokenProvider;
 
+  // PR #2571 R1 (non-blocking): validate the mt#3551 final-check budget seam
+  // eagerly, and THROW rather than clamp. A non-positive budget would make
+  // every final-check call exceed its deadline instantly; that error is caught
+  // downstream and degrades to `finalCheckPerformed: false` — indistinguishable
+  // from a legitimately-unavailable check. Silently accepting a bad value would
+  // therefore turn a typo into a test that passes while verifying nothing (the
+  // fail-open trap in mem#620). Validated here, at setup, so it lands outside
+  // `finalizeTimeout`'s try/catch and cannot be swallowed.
+  const finalCheckBudgetMs = deps.finalCheckDeadlineMs ?? FINAL_CHECK_DEADLINE_MS;
+  if (!Number.isFinite(finalCheckBudgetMs) || finalCheckBudgetMs <= 0) {
+    throw new ValidationError(
+      `deps.finalCheckDeadlineMs must be a finite number greater than 0 (got ${String(
+        deps.finalCheckDeadlineMs
+      )})`
+    );
+  }
+
   // Parameter schema enforces the outer cap of 1800s; clamp defensively here.
   const timeoutMs = clamp(params.timeoutSeconds ?? 600, 1, 1800) * 1000;
   // Polling interval: 15s default, clamped [5, 60] so callers can't hammer
@@ -909,7 +926,7 @@ export async function sessionPrWaitForReview(
      */
     const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
       let finalCheckPerformed = false;
-      const finalCheckDeadline = now() + (deps.finalCheckDeadlineMs ?? FINAL_CHECK_DEADLINE_MS);
+      const finalCheckDeadline = now() + finalCheckBudgetMs;
       try {
         if (getHeadSha) {
           headSha = await withDeadline(
