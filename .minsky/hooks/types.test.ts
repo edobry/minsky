@@ -364,6 +364,28 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
     expect(result.stdout).toBe("hello");
   });
 
+  test("execWithPath's 10s timeout is a caller-overridable default; execSync sets none", () => {
+    // PR #2580 R1 BLOCKING claimed mt#3630 "now forces" a 10s timeout on execWithPath.
+    // Verified false positive — `?? 10000` is context in `git diff main...HEAD`, not an
+    // added line. Asserted here rather than only documented, so the property is checked
+    // rather than claimed: the default applies, a caller value WINS over it, and
+    // execSync (the plain wrapper) still passes the caller's value through untouched.
+    const withDefault = makeSpawnSyncRecorder({ exitCode: 0 });
+    execWithPath(["git", "status"], { spawnSyncImpl: withDefault.spawnSyncImpl });
+    expect(withDefault.calls[0]?.options.timeout).toBe(10000);
+
+    const withOverride = makeSpawnSyncRecorder({ exitCode: 0 });
+    execWithPath(["git", "status"], {
+      timeout: 250,
+      spawnSyncImpl: withOverride.spawnSyncImpl,
+    });
+    expect(withOverride.calls[0]?.options.timeout).toBe(250);
+
+    const plain = makeSpawnSyncRecorder({ exitCode: 0 });
+    execSync(["git", "status"], { spawnSyncImpl: plain.spawnSyncImpl });
+    expect(plain.calls[0]?.options.timeout).toBeUndefined();
+  });
+
   test("a null exitCode (killed/timed-out spawn) degrades to exitCode 1 + timedOut", () => {
     const spawn = makeSpawnSyncRecorder({ exitCode: null });
     const result = execWithPath(["git", "log"], { spawnSyncImpl: spawn.spawnSyncImpl });

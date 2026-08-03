@@ -208,6 +208,20 @@ export interface ExecOptions extends ExecInjection {
 const realSpawnSync: SpawnSyncImpl = (cmd, options) => Bun.spawnSync(cmd, options);
 
 /**
+ * Forward only the injection fields a caller actually supplied (PR #2580 R1
+ * NON-BLOCKING). Every exec helper funnels its DI through this ONE place, so adding a
+ * future injection point is a single edit here rather than a per-helper conditional
+ * spread. Conditional rather than unconditional so an absent field stays absent instead
+ * of becoming an explicit `undefined` — which would defeat the `??` defaults below.
+ */
+function execInjection(options?: ExecInjection): ExecInjection {
+  return {
+    ...(options?.spawnSyncImpl ? { spawnSyncImpl: options.spawnSyncImpl } : {}),
+    ...(options?.onDegraded ? { onDegraded: options.onDegraded } : {}),
+  };
+}
+
+/**
  * Spawn a command synchronously WITHOUT throwing on failure to resolve or
  * exec the binary (mt#2810 fix #1 — see the module comment above). Every
  * exec helper in this module funnels through here so a spawn failure
@@ -388,8 +402,7 @@ export function execSync(cmd: string[], options?: ExecOptions): ExecResult {
   return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
     timeout: options?.timeout,
-    ...(options?.spawnSyncImpl ? { spawnSyncImpl: options.spawnSyncImpl } : {}),
-    ...(options?.onDegraded ? { onDegraded: options.onDegraded } : {}),
+    ...execInjection(options),
   });
 }
 
@@ -428,14 +441,17 @@ export function execWithPath(cmd: string[], options?: ExecOptions): ExecResult {
   const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
   return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
+    // PRE-EXISTING default, unchanged by mt#3630 (PR #2580 R1 BLOCKING, verified false
+    // positive against `git diff main...HEAD`): `?? 10000` is a caller-overridable
+    // FALLBACK, not a forced cap, and has been this helper's default since before this
+    // refactor. `execSync` deliberately has no default — it is the plain wrapper.
     timeout: options?.timeout ?? 10000,
     env: {
       MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
       ...process.env,
       PATH: pathPrefix,
     },
-    ...(options?.spawnSyncImpl ? { spawnSyncImpl: options.spawnSyncImpl } : {}),
-    ...(options?.onDegraded ? { onDegraded: options.onDegraded } : {}),
+    ...execInjection(options),
   });
 }
 
