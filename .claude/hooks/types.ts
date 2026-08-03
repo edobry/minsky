@@ -67,6 +67,16 @@ export interface HookOutput {
      * whose output is a scalar session label rather than additive context.
      */
     sessionTitle?: string;
+    /**
+     * PreToolUse-only: replaces the tool's arguments before it runs. Part of
+     * Claude Code's documented hook-output contract — verified present in the
+     * installed 2.1.220 bundle's own embedded hook documentation, which lists
+     * it under `hookSpecificOutput` as "Modified tool input (PreToolUse
+     * only)". Added by mt#3612 so a guard can reach the field at all; the
+     * dispatcher's aggregation rule for it lives on `GuardOutcome` in
+     * `./registry.ts`.
+     */
+    updatedInput?: Record<string, unknown>;
   };
 }
 
