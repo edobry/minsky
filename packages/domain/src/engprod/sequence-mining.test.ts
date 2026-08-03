@@ -496,14 +496,27 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
     expect(maximal.length).toBe(FAMILIES);
     expect(suppressed.length).toBe(N - FAMILIES);
 
-    // With the short-circuit, a suppressed candidate stops at its family's
-    // head rather than scanning every survivor. Measured both ways on this
-    // fixture: 323,810 comparisons WITH the early exit, 633,925 with it
-    // removed (each suppressed candidate then scans all 50 survivors) —
-    // against a no-short-circuit ceiling of N x FAMILIES = 635,200. The bound
-    // below sits between the two, so losing the `break` fails this test while
-    // ordinary variation in the fixture does not.
-    const ceiling = N * FAMILIES;
-    expect(comparisons).toBeLessThan(ceiling * 0.75);
-  });
+    // Exact expected count, derived from the fixture's structure rather than
+    // picked as a threshold.
+    //
+    // Family heads are inserted into `maximal` in family order, so candidate i
+    // (i >= FAMILIES) finds its head at index i % FAMILIES and stops there —
+    // costing (i % FAMILIES) + 1 comparisons. Head j itself scans the j heads
+    // already kept, matching none, costing j.
+    //
+    //   heads:      sum(j for j in 0..49)                      =   1,225
+    //   candidates: 253 whole cycles x sum(k+1 for k in 0..49)
+    //               = 253 x 1,275                              = 322,575
+    //               + 4 leftover candidates (k = 0..3)         =      10
+    //                                                            -------
+    //                                                            323,810
+    //
+    // Asserting the exact value rather than an upper bound is what makes this
+    // a guard: removing the `break` makes each of the 12,654 suppressed
+    // candidates scan all 50 survivors, giving 12,654 x 50 + 1,225 = 633,925.
+    // Verified by running it both ways (mt#3494).
+    const HEAD_SCANS = (FAMILIES * (FAMILIES - 1)) / 2;
+    expect(comparisons).toBe(323810);
+    expect(comparisons).toBeLessThan(N * FAMILIES + HEAD_SCANS);
+  }, 20000);
 });
