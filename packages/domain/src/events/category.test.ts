@@ -33,6 +33,11 @@ describe("event category classification", () => {
         // mt#3228: carrying out an accepted message failed — the pre-action
         // audit row alone never says whether the channel actually worked.
         "principal.message_failed",
+        // mt#3595: a severity ask could not page the principal. Actionable
+        // because it fires exactly when the mechanism for getting the
+        // operator's attention has failed to get it — classifying its own
+        // failure as informational would mean nobody is reading.
+        "ask.page_failed",
       ].sort()
     );
   });

@@ -35,10 +35,7 @@ import {
   SUPPRESSION_PROPAGATION_IN_WINDOW,
   type KnowledgeAcquisitionDetection,
 } from "./knowledge-acquisition-detector";
-import {
-  run as runUntakenAction,
-  SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
-} from "./turn-end-untaken-action-scan";
+import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
 import { SUPPRESSION_ASKS_CREATE_THIS_TURN } from "./ask-routing-deferral-detector";
 import { SUPPRESSION_DEPTH_REQUEST } from "./wall-of-text-detector";
 import type { ClaudeHookInput } from "./types";
@@ -116,18 +113,21 @@ describe("mt#3207 — the sweep sees each detector's suppression outcome", () =>
     expect(result.injectedFiresSinceLastReview).toBe(0);
   });
 
-  test("untaken-action: the record the 2026-08-01 pass miscounted now reads as suppressed", () => {
-    // Verbatim shape of the miscount: "say the word" matches BOTH detectors,
-    // so mt#3336's dedup withholds the injection. The record carried only the
-    // bespoke boolean, so the sweep read all 24 such fires as injected.
+  test("untaken-action: an overlapping fire now counts as INJECTED, not suppressed (mt#3620)", () => {
+    // Same verbatim shape the 2026-08-01 pass miscounted: "say the word"
+    // matches BOTH detectors. mt#3336 withheld this guard's injection and the
+    // record was miscounted as injected because it carried only a bespoke
+    // boolean. mt#3620 inverted the yield — the Stop guard now injects — so the
+    // record is genuinely an injected fire, and the shared field says so.
     const input = {
       session_id: "mt3207-contract",
       last_assistant_message: "Everything is staged and green. Say the word and it ships.",
     } as StopHookInput;
     const outcome = runUntakenAction(input, CTX, storeDir);
     const record = outcome?.calibration as Record<string, unknown>;
-    expect(record.suppressedByAskRoutingDeferral).toBe(true);
-    expect(record.suppressionReasons).toEqual([SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL]);
+    expect(record.deferralOverlap).toBe(true);
+    expect(record.suppressionReasons).toEqual([]);
+    expect(outcome?.additionalContext).toBeDefined();
 
     const result = computeLogResult(
       entryFor("untaken-action"),
@@ -135,8 +135,8 @@ describe("mt#3207 — the sweep sees each detector's suppression outcome", () =>
       true,
       undefined
     );
-    expect(result.suppressedSinceLastReview).toBe(1);
-    expect(result.injectedFiresSinceLastReview).toBe(0);
+    expect(result.suppressedSinceLastReview).toBe(0);
+    expect(result.injectedFiresSinceLastReview).toBe(1);
   });
 
   test("a mixed log reports both counts — suppression never hides an injected fire", () => {
