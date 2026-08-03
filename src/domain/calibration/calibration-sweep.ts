@@ -106,7 +106,8 @@ export interface CalibrationLogEntry {
     | "knowledge-acquisition"
     | "constructed-identifier-batch"
     | "operator-deferral"
-    | "untaken-action";
+    | "untaken-action"
+    | "retrospective-completeness";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -349,6 +350,20 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // the registry invariant (PR #2263 R1) requires unique kinds per entry.
     kind: "untaken-action",
   },
+  {
+    path: ".minsky/retrospective-completeness-calibration.jsonl",
+    name: "retrospective-completeness",
+    // mt#3601 — the OTHER axis from retrospective-trigger: that log measures
+    // whether a retrospective FIRES, this one whether a retrospective that
+    // fired is COMPLETE. Deliberately a separate log rather than a second
+    // writer on "retrospective-trigger": the two answer different graduation
+    // questions, and merging them would make each one's FP rate unreadable.
+    //
+    // Record shape is its own (`missing_sections` / `unverified_task_ids`
+    // rather than `matches: {family, phrase}[]`), so it does not parse through
+    // the shared matched-phrase fallback branch.
+    kind: "retrospective-completeness",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -543,6 +558,16 @@ export interface WallOfTextRecord {
   leadLabelHits?: string[];
   deeplinkCount?: number;
   namedRefCount?: number;
+  /**
+   * The measured report's lead, capped by the detector (mt#3576).
+   *
+   * Optional because the 186 records written before mt#3576 have no such
+   * field — absent means "written before the excerpt shipped," not "the report
+   * was empty." Read it as the evidence for classifying a `lead-labels` fire:
+   * `leadLabelHits` names which pattern matched, and only this carries the text
+   * it matched.
+   */
+  excerpt?: string;
 }
 
 /**
@@ -604,14 +629,20 @@ export interface SharedCalibrationFields {
    * | --- | --- |
    * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
    * | `wall-of-text` | `depth-request-override` |
-   * | `untaken-action` | `deduped-by-ask-routing-deferral` |
-   * | `ask-routing-deferral` | `asks-create-this-turn` |
+   * | `untaken-action` | (none — see below) |
+   * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
    * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
    * | `knowledge-acquisition` | `propagation-in-window` |
    *
    * Records written by those detectors BEFORE mt#3207 carry no field and are
    * therefore `absent`, not `[]` — they count as injected, which is the
    * deliberate conservative default (unknown must never hide a real fire).
+   *
+   * mt#3620: `untaken-action` no longer emits any reason. It used to emit
+   * `deduped-by-ask-routing-deferral` when it yielded to the prompt-time
+   * detector; that yield is inverted — the Stop guard now injects and the
+   * prompt-time one goes quiet under `deduped-by-untaken-action-stop`. Records
+   * carrying the old string are pre-mt#3620 and still classify correctly.
    */
   suppressionReasons?: string[];
 
@@ -779,6 +810,19 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
  * Returns `undefined` rather than `{}` when nothing was dropped, so a record
  * that carries no detector-specific fields is byte-identical to what it parsed
  * to before this change.
+ *
+ * **A lifted field cannot ALSO appear in the passthrough, and the reason is
+ * this function alone** (mt#3576, PR #2568 R1). The raw JSONL line is FLAT —
+ * `detectorFields` is DERIVED here from the line's unconsumed keys, never read
+ * from it — so a field cannot arrive nested and be surfaced twice. Nor does the
+ * guarantee depend on how a branch spells the assignment: a key is dropped only
+ * when the raw line HAS it and the branch did NOT set it, and a branch that
+ * reads `raw[k]` at all sets `k` under either spelling (`k: v ?? undefined` or a
+ * conditional spread). Both forms were run against the wall-of-text branch;
+ * neither duplicates. What WOULD break it is changing the `consumed` set below
+ * to anything narrower than the record's own keys — verified by making that
+ * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
+ * together. Those are the tests that pin this; a per-field strip would not.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -955,6 +999,13 @@ function parseCalibrationRecordCore(
           : undefined,
         deeplinkCount: typeof raw["deeplinkCount"] === "number" ? raw["deeplinkCount"] : undefined,
         namedRefCount: typeof raw["namedRefCount"] === "number" ? raw["namedRefCount"] : undefined,
+        // mt#3576: read explicitly rather than leaving it to the
+        // `detectorFields` passthrough, for the reason PR #2420 R1 gave for
+        // `transcript_excerpt` — a field declared on the record type that the
+        // parser never populates makes the type promise something the parser
+        // does not deliver, and every consumer keying on `excerpt` would find
+        // it nested a level down instead.
+        excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
@@ -1587,6 +1638,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   // surface actually fired, and `/calibration-review` reads that.
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
+  "retrospective-completeness": "retrospective-completeness-detector",
 };
 
 /**

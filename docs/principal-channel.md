@@ -46,6 +46,41 @@ Reuse is a grounding requirement, not an optimization: "focus on that one" only
 resolves against what was just said. A session per message would force you to
 restate context every time.
 
+## How to tell the channel is even running
+
+The acks below tell you a message was picked up. They cannot tell you the
+channel is **alive** — every one of them is set by the poller, so if the poller
+never started, none of them fire and an unanswered message looks exactly like an
+agent with nothing to say. That is not hypothetical: on 2026-08-03 a transient
+DNS failure against the Pulumi backend stopped the channel from starting **five
+times**, and each was noticed only when a message went unanswered (mt#3608).
+
+`GET /api/health` therefore reports the channel's own state, independent of the
+poller:
+
+```json
+{ "principalChannel": { "state": "running", "chatId": "167346572" } }
+```
+
+| `state`        | Means                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up and consuming updates. Carries the `chatId`.                                                 |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                 |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                        |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                  |
+| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.** |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                      |
+
+**`failed` and `unconfigured` are deliberately different states.** The first
+means the credentials probably exist but could not be READ — a fault, usually
+transient, and retrying is the right response. The second means they were never
+set — an operator has to act. Before mt#3608 both reported the same
+"not configured" message, which reads as an operator oversight and is why five
+faults in one day went unexamined.
+
+The tray does not parse this field (it reads only `db` and
+`processStartedAtMs`), so it is for operators and the cockpit UI.
+
 ## How to tell it heard you
 
 An agent turn can run for a minute or more, so the channel marks progress on
@@ -61,6 +96,24 @@ your own message rather than leaving you watching an empty chat.
 Replies are rendered — bold, italic, code, fenced blocks, links, quotes — via
 Telegram's HTML mode. Tables become monospace blocks and headings become bold
 lines, because Telegram has no markup for either.
+
+**Replies stream.** Rather than arriving as one blob when the turn ends, the
+answer appears as soon as there is any of it and fills in as it is written. It
+is a single message being edited in place, roughly once a second — so your phone
+notifies you ONCE, when the reply first appears, not on every update. A reply
+too long for one Telegram message continues into a second one, split at a
+paragraph or line break rather than mid-word.
+
+Two things worth knowing about how it settles:
+
+- **What you see mid-stream can change.** A turn that uses tools writes text
+  around each step; the message settles on the turn's final answer when it
+  finishes, which is not always the concatenation of everything that flickered
+  past.
+- **Streaming can never cost you the reply.** If editing fails partway, the
+  complete answer is sent as a fresh message rather than left half-drawn — you
+  may see some text twice, which is the deliberate trade. A half-written reply
+  that never finishes would be worse than the blob this replaced.
 
 **Telegram's ✓ / ✓✓ checkmarks mean nothing here.** They are a client
 affordance between Telegram's servers and your app: the Bot API exposes no

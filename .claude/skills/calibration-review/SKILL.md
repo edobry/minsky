@@ -87,6 +87,20 @@ It reports one of three states per detector and exits non-zero only on the third
   shape. Fold it into the Ask you emit in Step 4, or file a fix task — do not silently pass
   over it.
 
+Two lines below the per-detector report name logs that no coverage verdict applies to
+(mt#3519). They are different problems and must not be conflated:
+
+- **`Unmapped: <names>`** — no guard DECLARES these logs, so the check has no invocation
+  evidence and can only ever flag them. A DEFECT: add the missing `calibrationLog`
+  declaration (or the `recordFireLogEntry` wiring, if the guard records no invocations at
+  all) rather than reading the eventual flag as a dead detector.
+- **`[NON-GUARD] <name>: written by <producer>`** — the log has a declared producer that is
+  not a guard at all (today: `ask-form-lint`, written on the `asks_create` command path).
+  Not a defect and not fixable by a declaration — there is no entry point to instrument, so
+  the check EXCLUDES these from `Checked:` rather than reporting a verdict about something
+  that does not exist. Their records still feed the sweep in Step 1 exactly as before; only
+  the liveness question is inapplicable.
+
 The tool now makes the dormant-vs-dead call itself, from fire-log invocation evidence.
 **Do not substitute the canary for that judgment.** An earlier version of this step said
 "canary PASS + zero live fires → dormant"; that inference does not hold. A canary calls the

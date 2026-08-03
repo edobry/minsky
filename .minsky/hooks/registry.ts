@@ -133,11 +133,16 @@ export interface GuardOutcome {
    */
   additionalContext?: string;
   /**
-   * Raw non-JSON line(s) the guard wants written to stdout verbatim — e.g.
+   * Raw non-JSON line(s) the guard wants written verbatim to STDERR — e.g.
    * its own legacy per-guard override audit line (the "legacy vars remain
    * honored by the guards themselves" carve-out; deprecation-shim removal is
    * Phase 7, not this task). Each string should include its own trailing
    * newline.
+   *
+   * STDERR, not stdout (mt#3625). These went to stdout until the dispatch's
+   * JSON was found to be discarded wholesale by Claude Code whenever stdout
+   * carried anything else — so an audit line could silently void a later
+   * guard's deny on the same call.
    */
   auditLines?: string[];
   /**
@@ -156,6 +161,32 @@ export interface GuardOutcome {
    * it, so ordering is moot.
    */
   sessionTitle?: string;
+  /**
+   * PreToolUse-only: replaces the tool's ARGUMENTS before it runs, forwarded
+   * verbatim as `hookSpecificOutput.updatedInput` (mt#3612). A third output
+   * shape alongside `deny` (short-circuit) and `additionalContext`
+   * (concatenate) — it is a REPLACEMENT value, so neither of those rules
+   * applies to it.
+   *
+   * Aggregation: **first guard in registry order wins.** A later guard's
+   * rewrite is DISCARDED and the discard is written as a stderr audit line
+   * naming both guards (stderr because Claude Code drops a PreToolUse hook's
+   * whole output if stdout holds anything but the one JSON object). Registry order is ADR-028 D1's explicit declared ordering
+   * property (the same one first-deny-wins rests on) — deliberately NOT the
+   * last-write-wins that `sessionTitle` above uses, because that rule is
+   * documented as moot for a single-writer field and a silently dropped
+   * argument rewrite is a correctness failure rather than a cosmetic one.
+   *
+   * A guard returning both `deny` and `updatedInput` gets the deny: the tool
+   * never runs, so its arguments are irrelevant.
+   *
+   * Claude Code honors the field on PreToolUse only. The dispatcher forwards
+   * it on whatever event the guard is registered for — same as `sessionTitle`
+   * above, which is documented UserPromptSubmit-only and likewise forwarded
+   * unconditionally. Scoping is the harness's; the dispatcher does not silently
+   * drop a value a guard deliberately returned.
+   */
+  updatedInput?: Record<string, unknown>;
 }
 
 export type GuardRunResult = GuardOutcome | null | undefined | void;
@@ -218,8 +249,31 @@ export interface GuardRegistration {
    * filenames `CALIBRATION_LOG_REGISTRY`
    * (`src/domain/calibration/calibration-sweep.ts`) already expects. Omit
    * for guards that never log calibration records.
+   *
+   * A LIST when one guard writes more than one log (mt#3519). The join the
+   * coverage-receipt check builds has always been many-to-many on the read
+   * side — `operator-deferral` and `retrospective-trigger` are each written by
+   * two guards — but the declaration side could only express one log per
+   * guard, so a guard writing two had no way to declare the second. The
+   * execution-evidence merge gate is the case: it writes
+   * `execution-evidence-at-coverage` itself and `execution-evidence-test-first`
+   * through `test-first-evidence.ts`, which it calls in-process.
+   *
+   * When it IS a list, the FIRST entry is the primary log — the one the
+   * dispatcher writes this guard's `outcome.calibration` record to. The rest
+   * name logs the guard writes itself; they are declared so the
+   * coverage-receipt join can find the guard's invocation evidence, not so the
+   * dispatcher can write to them (writing one record to N logs would inflate
+   * every downstream fire count).
+   *
+   * The list type is NON-EMPTY by construction (PR #2543 R1). `[]` is truthy,
+   * so a plain `string[]` let an empty declaration pass every `if
+   * (reg.calibrationLog)` check and then write nothing — a guard silently
+   * logging no calibration records at all, which is the exact failure class
+   * this task exists to make visible. Registrations are hand-authored, so the
+   * empty state must not be representable.
    */
-  calibrationLog?: string;
+  calibrationLog?: string | [string, ...string[]];
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
@@ -448,6 +502,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_name: "Bash",
         tool_input: {
           command: `cd ${CANARY_NONEXISTENT_SESSION_PATH}/ && ls`,
+        },
+      },
+      expects: "deny",
+    },
+  },
+  {
+    name: "block-secret-file-read",
+    // `invariant`: the set of files whose content is credential material is not
+    // an operator preference to tune. Widening the path list is a code change
+    // with its own review, not a threshold knob.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-secret-file-read").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // mt#3282: measured against buildDenialReason()'s fixed body (excluding the
+    // dynamic per-hit list) — ~1080 chars. Larger than its siblings on purpose:
+    // the message has to teach the safe presence-check forms AND warn off the
+    // redaction workaround, because the originating incident happened to an
+    // agent who did redact and whose filter silently matched nothing. One
+    // remediation option (the MINSKY_ALLOW_SECRET_FILE_READ override).
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
+    // mt#2889: the simplest denying shape — an emitting reader on the config
+    // file that mt#2864 found had leaked all four live API keys. Purely
+    // string-driven (no filesystem or env dependency), so the canary is stable.
+    // The verbatim R3 pipeline, with its quote-nested `\|`, is asserted in
+    // block-secret-file-read.test.ts instead, where escaping is readable.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "cat ~/.config/minsky/config.yaml",
         },
       },
       expects: "deny",
@@ -799,6 +886,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     name: "substrate-bypass-detector",
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
+    // mt#3519: this guard writes `.minsky/operator-instruction-trigger-calibration.jsonl`
+    // (the mt#2303 surface), whose name matches neither the guard nor the file.
+    // Undeclared, the coverage-receipt check had no invocation evidence for that
+    // log and could only report it as unmapped.
+    calibrationLog: "operator-instruction-trigger",
     module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
     timeoutMs: 15000,
     denyCapable: false,
@@ -827,6 +919,25 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       ],
       expects: "warn",
     },
+  },
+  {
+    // mt#3601 — LOG-ONLY. Checks that a retrospective produced the sections its
+    // declared triage level requires, and that every cited structural-fix task
+    // had its status read in-turn. No `additionalContext`, so no canary: this
+    // guard never warns by design until the FP rate is measured.
+    //
+    // `UserPromptSubmit`, not `Stop`, per ADR-031: this detector is
+    // tool-inspecting (it reads the turn's `tool_use` blocks for the Skill
+    // invocation and for `tasks_status_get` calls), and tool calls are read at
+    // the moment of MAXIMUM transcript flush.
+    name: "retrospective-completeness-detector",
+    tuningOwnership: "preference",
+    event: "UserPromptSubmit",
+    module: () => import("./retrospective-completeness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-completeness",
+    denyCapable: false,
+    needsTranscript: true,
   },
   {
     name: "retrospective-trigger-scanner",
@@ -1467,6 +1578,72 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3536 — state-keyed sibling of the guard above. That one keys on the
+    // final message's PHRASING; this one keys on what the turn DID: minted a
+    // task id, made no call that moves it forward. The R4 incident ended
+    // naming no next action at all, so the phrase-keyed guard correctly stayed
+    // silent — the silent stop is the gap this closes. Full rationale: the
+    // guard module's header.
+    name: "turn-end-unwalked-task-scan",
+    tuningOwnership: "preference",
+    event: "Stop",
+    module: () => import("./turn-end-unwalked-task-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "unwalked-task",
+    denyCapable: false,
+    // TRUE, unlike the phrase-keyed sibling: the whole signal is the turn's
+    // tool calls, which live only in the transcript.
+    needsTranscript: true,
+    // Measured, not estimated: 470 chars for the one-task canary below; the
+    // MAX_LISTED_IDS cap bounds the multi-task case at ~600. See that
+    // constant's docblock for why the cap exists.
+    attentionCost: { denialMessageSizeChars: 620, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3536-unwalked-task-canary",
+        transcript_path: "/nonexistent/mt3536-canary.jsonl",
+        // Deliberately names NO next action — the R4 shape, and the case the
+        // phrase-keyed sibling cannot see.
+        last_assistant_message: "Filed as mt#9999. The daemon is crash-looping.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "the cockpit isn't loading" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_mt3536_canary",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "Cockpit daemon crash-loops" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_mt3536_canary",
+                content: JSON.stringify({ success: true, taskId: "mt#9999" }),
+              },
+            ],
+          },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3536-unwalked-task-canary");
+      },
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
@@ -1597,6 +1774,35 @@ export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
  * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
  * there.
  */
+/**
+ * Guard pairs that INTENTIONALLY share an event + matcher (mt#3282).
+ *
+ * The overlap heuristic below is deliberately false-positive-tolerant, and two
+ * tool-scoped guards on the same matcher is a shape it cannot distinguish from
+ * an accidental double-registration. The dispatcher supports it: on a matched
+ * event `getGuardsForEvent` returns EVERY matching registration and
+ * `runGuards` executes them in registry order, short-circuiting on the first
+ * `deny` (D1 first-deny-wins). Neither guard shadows the other — a guard only
+ * pre-empts a later one by denying, which blocks the call either way.
+ *
+ * An entry here is a DECLARATION, not a silencer: each pair must be listed
+ * explicitly with a rationale, so a genuinely accidental duplicate (the shape
+ * ADR-028 D7(2) exists to catch) still fails the check.
+ *
+ * Keys are the two guard names, order-insensitive.
+ */
+export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  // Both inspect a Bash/session_exec command string for an unrelated defect:
+  // one for a constructed session path, one for a secret-bearing file read.
+  // Independent checks, independent overrides; running both is the point.
+  ["check-guessed-session-path", "block-secret-file-read"],
+];
+
+/** Is this pair declared as an intentional co-registration? */
+export function isIntentionalPair(a: string, b: string): boolean {
+  return INTENTIONAL_MATCHER_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+}
+
 export function findDuplicateRegistrations(
   registrations: GuardRegistration[]
 ): DuplicateRegistration[] {
@@ -1618,6 +1824,7 @@ export function findDuplicateRegistrations(
       if (!a || !b) continue;
       if (a.event !== b.event) continue;
       if (a.name === b.name) continue;
+      if (isIntentionalPair(a.name, b.name)) continue;
 
       const aTokens = tokensOf(a.matcher);
       const bTokens = tokensOf(b.matcher);

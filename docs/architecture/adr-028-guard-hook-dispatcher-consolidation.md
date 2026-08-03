@@ -183,7 +183,13 @@ pure function in sequence within the same process — mirroring `PreCommitHook.r
 step-by-step shape.
 
 **Output aggregation** (a concrete implementation constraint surfaced by researching Claude
-Code's hook contract): a hook's `stdout` must be exactly one JSON object. For deny-capable
+Code's hook contract): a hook's `stdout` must be exactly one JSON object. **This is enforced by
+Claude Code silently, and destructively (mt#3625): on PreToolUse, stdout carrying ANYTHING besides
+that object causes the harness to discard the hook's ENTIRE output — the guard's `deny` never
+takes effect, the tool runs, and nothing is logged. Measured with controls (mt#3612 / PR #2573);
+the dispatcher violated it on its own audit paths for months. Guard diagnostics therefore go to
+STDERR, and the dispatcher deliberately exposes no general-purpose stdout writer beside the JSON
+emitter.** For deny-capable
 events (`PreToolUse`), the dispatcher **short-circuits on the first `deny`** — preserving
 today's implicit "first hook's denial fires first" ordering (documented ad hoc in
 `block-subagent-bypass-merge.ts`'s comments), now made an **explicit, declared property of the
@@ -191,6 +197,54 @@ registry's guard order** rather than an accident of `settings.json` array positi
 injection-capable events (`UserPromptSubmit`, `PostToolUse`), the dispatcher **concatenates**
 every matched guard's `additionalContext` fragment (registry order, one guard's output per
 paragraph) into a single consolidated `HookOutput`.
+
+**Amendment (2026-08-03, mt#3612) — `updatedInput`, a third output shape.** The two rules above
+cover the only two shapes that existed when this ADR was accepted. Claude Code's PreToolUse
+contract carries a third: `hookSpecificOutput.updatedInput`, which REPLACES the tool's arguments
+before it runs. Neither existing rule applies — "concatenate" is meaningless for a replacement
+value, and "first `deny` wins" is about short-circuiting, not about choosing among values. The
+rule, now explicit rather than implied:
+
+- **First guard in registry order wins.** A later guard's `updatedInput` is DISCARDED, and the
+  discard is written as a `REWRITE-DISCARDED` audit line naming both the losing and the winning
+  guard — **on stderr**. Rewrites cannot be merged: each guard builds its object from the ORIGINAL
+  tool input, so merging would resurrect fields the first guard deliberately changed.
+
+  The stderr choice is load-bearing, and it sharpens the "exactly one JSON object" constraint this
+  section already states. Measured live (mt#3612 / PR #2573): a PreToolUse hook emitting ONE
+  non-JSON line ahead of a well-formed JSON object had its **entire output discarded** — the tool
+  ran with its original arguments. Controls: the identical hook with JSON-only stdout applied the
+  rewrite; adding a single junk line, with everything else held constant, reverted it. So the
+  constraint is not merely a convention for readability — violating it silently voids the hook's
+  decision, with no error surfaced anywhere.
+
+  **Consequence for the paths that predate this amendment (mt#3625):** the dispatcher's override
+  audit line (`buildOverrideAuditLine`) and its `outcome.auditLines` pass-through both write to
+  STDOUT before any JSON is emitted. By the finding above, any dispatch in which one of those
+  fires AND a later guard emits a `deny` or `additionalContext` has that JSON discarded by Claude
+  Code — a silently dropped deny. That is a pre-existing defect surfaced by this amendment's
+  verification, not introduced by it; it is filed as mt#3625 rather than fixed here, since it
+  touches guard paths outside this task's scope.
+
+- **Registry order, not last-write-wins.** This deliberately does NOT follow `sessionTitle`
+  (Phase 2b), which is last-write-wins. That rule is documented in `GuardOutcome` as moot — only
+  one guard in any family sets it — so it was never a considered choice for a value that carries
+  correctness. Argument rewrites do, and registry order is the ordering property D1 already
+  declares.
+- **A `deny` beats a rewrite.** A guard returning both gets the deny; the tool never runs, so its
+  arguments are irrelevant. This follows from the short-circuit above rather than adding to it —
+  it is stated here because it was previously only an accident of statement order in the loop.
+- **Absent when unset.** When no guard returns the field, the key is omitted from the emitted JSON
+  entirely — not emitted as `null` or `{}`.
+- **Not silently dropped off-event.** Claude Code honors `updatedInput` on PreToolUse only. The
+  dispatcher still forwards whatever a guard returns, on whatever event it is registered for —
+  matching how `sessionTitle` is handled. Scoping belongs to the harness; the dispatcher does not
+  discard a value a guard deliberately set.
+
+Evidential note: the vendor contract for this field is documented, and the installed Claude Code
+2.1.220 bundle's own embedded hook documentation lists it under `hookSpecificOutput` as "Modified
+tool input (PreToolUse only)". mt#3612 additionally verifies the end-to-end behaviour live rather
+than resting on either document.
 
 **Self-contained constraint preserved.** The dispatcher and its shared framework services
 (D2–D6) live inside the hooks tree — `.minsky/hooks/framework/` (compiled to

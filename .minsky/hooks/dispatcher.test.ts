@@ -607,7 +607,7 @@ describe("runDispatcher", () => {
       ],
       readInputFn: () => Promise.resolve(baseInput({ tool_name: "Bash" })),
       writeOutputFn: (o) => written.push(o),
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: (s) => stdout.push(s),
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(written).toEqual([]);
@@ -688,7 +688,7 @@ describe("runDispatcher", () => {
 
   test("override suppresses the guard entirely — run() never invoked, audit line emitted", async () => {
     const written: HookOutput[] = [];
-    const stdout: string[] = [];
+    const stderrLines: string[] = [];
     let guardInvoked = false;
     const registrations: GuardRegistration[] = [
       {
@@ -711,7 +711,7 @@ describe("runDispatcher", () => {
       registrations,
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: (o) => written.push(o),
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: (s) => stderrLines.push(s),
       resolveDispatchContextFn: () => stubContext(),
     });
     // Simulate the override by setting env for a second run — checkOverride
@@ -721,19 +721,21 @@ describe("runDispatcher", () => {
     try {
       guardInvoked = false;
       written.length = 0;
-      stdout.length = 0;
+      stderrLines.length = 0;
       await runDispatcher("PreToolUse", {
         hookFilename: DISPATCH_HOOK_FILENAME,
         registrations,
         readInputFn: () => Promise.resolve(baseInput()),
         writeOutputFn: (o) => written.push(o),
-        stdoutWrite: (s) => stdout.push(s),
+        stderrWrite: (s) => stderrLines.push(s),
         resolveDispatchContextFn: () => stubContext(),
       });
       expect(guardInvoked).toBe(false);
       expect(written).toEqual([]);
-      expect(stdout.length).toBe(1);
-      expect(stdout[0]).toContain("OVERRIDE: guard=pilot");
+      // mt#3625: the override audit line goes to STDERR. On stdout it sat ahead
+      // of the dispatch's JSON and made Claude Code discard the whole output.
+      expect(stderrLines.length).toBe(1);
+      expect(stderrLines[0]).toContain("OVERRIDE: guard=pilot");
     } finally {
       delete process.env[HOOK_OVERRIDE_ENV_VAR];
     }
@@ -964,8 +966,9 @@ describe("runDispatcher", () => {
     expect(called).toBe(false);
   });
 
-  test("guard-emitted auditLines are written to stdout verbatim", async () => {
+  test("guard-emitted auditLines are written to stderr verbatim, never stdout", async () => {
     const stdout: string[] = [];
+    const stderr = makeStderrSpy();
     const registrations: GuardRegistration[] = [
       {
         name: "g",
@@ -982,10 +985,13 @@ describe("runDispatcher", () => {
       registrations,
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: () => {},
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: stderr.write,
       resolveDispatchContextFn: () => stubContext(),
     });
-    expect(stdout).toEqual(["[g] legacy override active\n"]);
+    expect(stderr.writes).toEqual(["[g] legacy override active\n"]);
+    // The real `process.stdout` is untouched by this dispatch: the only stdout
+    // writer left in the dispatcher is `writeOutputFn`, stubbed to a no-op here.
+    expect(stdout).toEqual([]);
   });
 });
 
@@ -1135,7 +1141,6 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         registrations,
         readInputFn: () => Promise.resolve(baseInput()),
         writeOutputFn: () => {},
-        stdoutWrite: () => {},
         resolveDispatchContextFn: () => stubContext(),
         recordFireLogFn: spy.fn,
       });

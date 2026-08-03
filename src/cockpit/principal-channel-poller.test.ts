@@ -486,8 +486,8 @@ describe("runPollCycle — media", () => {
     let seenImages: unknown;
     const h = harness(mediaBody({ ...PHOTO, caption: "why is this blank?" }), {
       actuator: {
-        converse: async (text, _replyToText, images) => {
-          seenImages = images;
+        converse: async (text, opts) => {
+          seenImages = opts?.images;
           return `saw: ${text}`;
         },
       },
@@ -505,8 +505,8 @@ describe("runPollCycle — media", () => {
     let seenImages: unknown;
     const h = harness(mediaBody(PHOTO), {
       actuator: {
-        converse: async (_text, _replyToText, images) => {
-          seenImages = images;
+        converse: async (_text, opts) => {
+          seenImages = opts?.images;
           return "looked at it";
         },
       },
@@ -1198,6 +1198,138 @@ describe("runPollCycle — receipt acks", () => {
  * stopping worked — the can't-fail shape mem#704 warns about. Driving the loop
  * itself is what makes these discriminating.
  */
+/**
+ * Streaming wiring at the poll-cycle level (mt#3542).
+ *
+ * The stream's own mechanics are covered in
+ * `principal-channel-reply-stream.test.ts`; these pin that the poller actually
+ * HANDS it to the actuator and settles it — the production-wiring direction,
+ * which a stream unit test cannot see.
+ */
+describe("runPollCycle — streamed replies (mt#3542)", () => {
+  const EDIT = "editMessageText";
+
+  function streamHarness(opts: { threadId?: number } = {}): {
+    h: Harness;
+    edits: Array<Record<string, unknown>>;
+    sends: Array<Record<string, unknown>>;
+    sawOnPartial: () => boolean;
+  } {
+    const edits: Array<Record<string, unknown>> = [];
+    const sends: Array<Record<string, unknown>> = [];
+    let onPartialSeen = false;
+
+    const body = {
+      ok: true,
+      result: [
+        {
+          update_id: 70,
+          message: {
+            message_id: 70,
+            date: 1700000000,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "explain it",
+            ...(opts.threadId === undefined
+              ? {}
+              : { message_thread_id: opts.threadId, is_topic_message: true }),
+          },
+        },
+      ],
+    };
+
+    const h = harness(body, {
+      actuator: {
+        converse: async (_text, converseOpts) => {
+          // Drive the seam the way a real turn does: emit progress, then
+          // resolve with the authoritative answer.
+          if (converseOpts?.onPartial) {
+            onPartialSeen = true;
+            converseOpts.onPartial("partial ");
+            converseOpts.onPartial("partial answer");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return "the final answer";
+        },
+      },
+    });
+
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      const target = String(url);
+      const parsed = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (target.includes(EDIT)) {
+        edits.push(parsed);
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      }
+      if (target.includes(SEND_MESSAGE)) sends.push(parsed);
+      return inner(url, init);
+    };
+
+    return { h, edits, sends, sawOnPartial: () => onPartialSeen };
+  }
+
+  test("hands the actuator an onPartial and settles on the resolved text", async () => {
+    const { h, edits, sawOnPartial } = streamHarness();
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(sawOnPartial()).toBe(true);
+    // The placeholder carries the streamed progress...
+    expect(h.sentTexts[0]).toContain("partial");
+    // ...and the message settles on the turn's authoritative answer, which is
+    // NOT simply the last streamed value.
+    expect(String(edits.at(-1)?.["text"])).toContain("the final answer");
+  });
+
+  test("AT5 — the placeholder lands in the topic the message came from", async () => {
+    const { h, edits, sends } = streamHarness({ threadId: 42 });
+
+    await runPollCycle(h.deps);
+
+    // Without the thread id the progress would appear in General while the
+    // conversation it belongs to sits in the topic.
+    const placeholder = sends.find((p) => String(p["text"]).includes("partial"));
+    expect(placeholder).toBeDefined();
+    expect(placeholder?.[THREAD_FIELD]).toBe(42);
+
+    // `editMessageText` has no thread parameter — the message is already in the
+    // topic it was sent to, so the edit addresses chat + message id only.
+    expect(edits.length).toBeGreaterThan(0);
+    expect(THREAD_FIELD in (edits[0] ?? {})).toBe(false);
+    expect(edits[0]?.["chat_id"]).toBe(CHAT);
+  });
+
+  test("a turn that streams nothing still delivers, with no placeholder", async () => {
+    // The non-streaming path must be untouched: SC6 says streaming is an
+    // enhancement, never a new way to lose a reply.
+    const h = harness(
+      {
+        ok: true,
+        result: [
+          {
+            update_id: 71,
+            message: {
+              message_id: 71,
+              date: 1700000000,
+              chat: { id: CHAT, type: "private" },
+              from: { id: 777 },
+              text: "quick one",
+            },
+          },
+        ],
+      },
+      { actuator: { converse: async () => "answered without streaming" } }
+    );
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(h.sentTexts).toEqual(["answered without streaming"]);
+  });
+});
+
 describe("startTypingLoop", () => {
   function collector(): { calls: number[]; fetchFn: FetchFn } {
     const calls: number[] = [];

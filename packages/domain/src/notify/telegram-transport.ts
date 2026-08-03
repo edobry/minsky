@@ -341,6 +341,150 @@ async function postSendMessage(opts: {
 }
 
 /**
+ * Outcome of an {@link editTelegramMessage} call.
+ *
+ * `notModified` is a SUCCESS, not a failure: Telegram answers a no-op edit with
+ * a 400, and a streaming caller that re-sends identical text has not done
+ * anything wrong. Collapsing it into `ok: false` would make a harmless race look
+ * like a delivery fault.
+ */
+export type TelegramEditResult =
+  | { ok: true; fellBackToPlain: boolean; notModified: boolean }
+  | { ok: false; status?: number; detail: string };
+
+/**
+ * Replace the text of a message already in the chat (mt#3542).
+ *
+ * This is what makes streaming possible without spamming: Telegram does NOT
+ * push a notification for an edit, so a reply can be revised many times while
+ * the principal's phone stays quiet — the objection that argues against
+ * streaming as separate MESSAGES is exactly what edit-in-place answers.
+ *
+ * **No thread parameter, deliberately.** `editMessageText` takes `chat_id` +
+ * `message_id` and has no `message_thread_id` (verified against the Bot API
+ * reference). A message is already in whatever topic it was sent to, so only
+ * the initial send carries the thread id.
+ *
+ * `plainFallback` mirrors {@link sendTelegramMessage}: if the formatted text is
+ * rejected, the unstyled text is tried once rather than losing the update.
+ *
+ * @see core.telegram.org/bots/api#editmessagetext
+ */
+export async function editTelegramMessage(opts: {
+  token: string;
+  chatId: string;
+  messageId: number;
+  text: string;
+  parseMode?: "HTML";
+  /** Unstyled text to retry with when the formatted attempt is rejected. */
+  plainFallback?: string;
+  fetchFn?: FetchFn;
+}): Promise<TelegramEditResult> {
+  const { token, chatId, messageId, text, parseMode, plainFallback, fetchFn = fetch } = opts;
+
+  const first = await postEditMessageText({
+    token,
+    chatId,
+    messageId,
+    text,
+    parseMode,
+    fetchFn,
+  });
+  if (first.ok) return first;
+
+  const canRetryPlain =
+    parseMode !== undefined && plainFallback !== undefined && first.status === 400;
+  if (!canRetryPlain) return first;
+
+  const retry = await postEditMessageText({
+    token,
+    chatId,
+    messageId,
+    text: plainFallback,
+    parseMode: undefined,
+    fetchFn,
+  });
+  return retry.ok ? { ...retry, fellBackToPlain: true } : retry;
+}
+
+/** One `editMessageText` round-trip. Shared by the formatted attempt and its retry. */
+async function postEditMessageText(opts: {
+  token: string;
+  chatId: string;
+  messageId: number;
+  text: string;
+  parseMode: "HTML" | undefined;
+  fetchFn: FetchFn;
+}): Promise<TelegramEditResult> {
+  const { token, chatId, messageId, text, parseMode, fetchFn } = opts;
+  const url = `${TELEGRAM_API_BASE}/bot${token}/editMessageText`;
+
+  let response: Response;
+  try {
+    response = await fetchFn(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        // `editMessageText` documents `link_preview_options`, not the legacy
+        // `disable_web_page_preview` the send path still uses.
+        link_preview_options: { is_disabled: true },
+        ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
+      }),
+    });
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
+  }
+
+  // Read the body ONCE, then interpret it — a Response body cannot be consumed
+  // twice, and both the success check and the failure detail need it.
+  let raw = "";
+  try {
+    raw = await response.text();
+  } catch {
+    // intentional-swallow: an unreadable body is reported via the status below.
+  }
+  let envelope: Record<string, unknown> | null = null;
+  try {
+    envelope = asRecord(JSON.parse(raw));
+  } catch {
+    // intentional-swallow: a non-JSON body is handled as an un-parsed failure.
+  }
+
+  const description =
+    typeof envelope?.["description"] === "string" ? (envelope["description"] as string) : "";
+
+  // A no-op edit reports "message is not modified". Streaming re-sends
+  // identical text whenever a turn pauses, so this is an expected steady-state
+  // answer, not a fault. Checked BEFORE the ok-flag branch, and without keying
+  // on a status code, because it is a success either way Telegram reports it.
+  if (/message is not modified/i.test(description)) {
+    return { ok: true, fellBackToPlain: false, notModified: true };
+  }
+
+  // HTTP 2xx is NOT sufficient (PR #2538 R1). The Bot API carries its own
+  // `ok` flag and can answer 200 with `{ ok: false, description }`; trusting
+  // the status alone would report a failed edit as applied, and the stream
+  // would then advance its state and skip the fallback that guarantees
+  // delivery. `sendMessage` already validates its envelope — this matches it.
+  //
+  // `result` is deliberately not shape-checked: `editMessageText` returns the
+  // edited Message for a normal message but bare `true` for an inline one, so
+  // there is no single shape to require.
+  if (response.ok && envelope?.["ok"] === true) {
+    return { ok: true, fellBackToPlain: false, notModified: false };
+  }
+
+  const detail =
+    description.length > 0
+      ? `HTTP ${response.status}: ${description}`
+      : `HTTP ${response.status}${raw.length > 0 ? `: ${raw.slice(0, 200)}` : ""}`;
+  return { ok: false, status: response.status, detail: redactSecret(token, detail) };
+}
+
+/**
  * Show the "typing…" indicator in the chat.
  *
  * Purely a latency-legibility affordance: an inbound message that takes an

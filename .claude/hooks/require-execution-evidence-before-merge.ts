@@ -1100,8 +1100,10 @@ if (import.meta.main) {
     context.prNumber,
     prFiles,
     prTitle,
+    // Full body, not the extracted evidence block (mt#3584): this surface matches
+    // the negative-control label anywhere in the PR. Its AT/SC siblings above still
+    // pass the block, which is correct for them.
     prBody,
-    extractExecutionEvidenceText(prBody),
     specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
   );
   if (testFirst.calibrationRecord) {

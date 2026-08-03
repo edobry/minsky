@@ -423,6 +423,27 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   `StandaloneGuardCanary.calibrationLog` (standalone guards); `check-coverage-receipts.ts`
   builds the map from those declarations and NAMES any calibration log that resolves to no
   guard, rather than letting it silently read as a dead entry point.
+- **The join is many-to-many in BOTH directions (mt#3519).** One log can be written by
+  several guards (`operator-deferral`, `retrospective-trigger`), and one guard can write
+  several logs — the execution-evidence merge gate writes `execution-evidence-at-coverage`
+  itself and `execution-evidence-test-first` through `test-first-evidence.ts`, which it calls
+  in-process. Either declaration field therefore accepts a string OR a list. When a
+  REGISTRY guard declares a list, the FIRST entry is its primary log: the dispatcher writes
+  that guard's one `outcome.calibration` record there and nowhere else, since writing one
+  record to N logs would inflate every downstream fire count. The remaining entries exist
+  purely so this join can find the guard's invocations.
+- **A log written by something that is NOT a guard is its own category (mt#3519).**
+  `ask-form-lint` is written by `src/adapters/shared/commands/ask-form-lint-calibration.ts`
+  on the `asks_create` command path — it has no guard name, no dispatcher invocation, and no
+  canary, so no declaration can reach it and it is NOT the "no guard declares this" defect
+  the `Unmapped` line reports. `check-coverage-receipts.ts` carries a
+  `NON_GUARD_CALIBRATION_PRODUCERS` map naming the producer, reports those logs on a
+  `[NON-GUARD]` line, and EXCLUDES them from the coverage results entirely — `FLAGGED`
+  asserts "no evidence the entry point ran", which for a log with no entry point to
+  instrument is a false claim rather than a weak one. Recording fire-log entries from the
+  command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
+  identity field), and `src/` is bundled into the deployed MCP server, which must not import
+  `.minsky/hooks/`.
 - **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
   `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
   non-zero when any detector is flagged. It runs at calibration-review cadence
@@ -532,3 +553,14 @@ tunes; calibration review never routes to a customer):
   per-project calibration-signal aggregation for vendor-side tuning — without touching the
   emit path. Cold-start is the registry defaults: a project with zero fires gets shipped
   behavior; no local auto-adaptation ships yet.
+
+**What consumes these streams for tuning (ADR-032, mt#3577).**
+`docs/architecture/adr-032-guard-threshold-tuning-loop.md` decides how a threshold actually
+moves, and separates three streams this document had treated as one: decision INPUTS (the
+measured value a threshold was compared against — per-guard `.minsky/*-calibration.jsonl`),
+decision OUTCOMES (this file's `allow`/`warn`/`deny` plus override consultation), and operator
+RESPONSE (whether a fire changed behavior — recorded NOWHERE as of that ADR, and the reason its
+first child task is an emitter rather than a tuner). The decider itself ships pure and inert at
+`src/domain/calibration/threshold-tuning.ts`; it discards records written before 2026-07-29
+(mt#3280's turn-attribution fix, commit `4b88d928c`) as a provenance boundary, which does not
+affect the count-based reads the rationalization panel above performs.

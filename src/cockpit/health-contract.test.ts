@@ -25,6 +25,11 @@ import { createCockpitServer } from "./server";
 // custom/no-real-fs-in-tests rule stays satisfied without an exception).
 import healthShapeFixtureJson from "../../contract/cockpit-health-shape.json";
 import { refreshProdStateCache, type UnsafeSql } from "./prod-state-cache";
+import {
+  refreshDbReachability,
+  getDbStatus,
+  __resetSharedPersistenceForTests,
+} from "./shared-persistence";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
 /* eslint-disable custom/no-real-fs-in-tests -- the acceptance-test-2 case below writes to an
    explicit tmp path (never the real default cache path) to prove refreshProdStateCache's
@@ -150,5 +155,47 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
         /* ignore */
       }
     }
+  });
+});
+
+describe("/api/health while the database is wedged (mt#3563)", () => {
+  const closeList: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    for (const close of closeList.splice(0)) {
+      await close();
+    }
+    __resetSharedPersistenceForTests();
+  });
+
+  // Scope note (mem#704 — a probe must be able to fail): the elapsed-time
+  // assertion below does NOT discriminate awaiting-vs-not, because with a probe
+  // already outstanding refreshDbReachability returns early either way. What
+  // this test pins is the wedged-state RESPONSE CONTRACT: still 200, and `db`
+  // no longer "ok". The non-blocking property is evidenced separately by the
+  // live run recorded in the task spec, where the probe measured 223–353 ms
+  // while /api/health answered in ~2 ms — an awaiting handler could not.
+  test("still answers 200 but reports a non-ok db when a probe is outstanding", async () => {
+    // Put the module into the exact state the incidents produced: a probe was
+    // issued and never came back. This is the state in which the route must
+    // NOT block — awaiting the probe here would make /api/health as slow as
+    // the database it reports on, and ADR-014 makes this endpoint the tray's
+    // liveness/adoption signal.
+    await refreshDbReachability(() => new Promise<never>(() => {}), 20);
+    expect(getDbStatus()).not.toBe("ok");
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const startedAt = Date.now();
+    const res = await fetch(`${url}/api/health`);
+    const elapsedMs = Date.now() - startedAt;
+    const body = (await res.json()) as Record<string, unknown>;
+
+    // HTTP 200 regardless of DB state — the status code is the tray's liveness
+    // signal, so DB truth rides in the body (same split as `schema`).
+    expect(res.status).toBe(200);
+    expect(body.db).not.toBe("ok");
+    expect(elapsedMs).toBeLessThan(1000);
   });
 });

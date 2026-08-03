@@ -223,8 +223,12 @@ CLOSED      → TODO (reopen)
   no code workspace to clone. Work happens in the main agent context.
 - **Any transition to `DONE` requires closeout evidence**: a populated
   `## Closeout evidence`, `## Findings`, or `## Outcome` section in the spec
-  (`hasCloseoutEvidence()` in `status-transitions.ts`, enforced kind-aware in
+  (`checkCloseoutEvidence()` in `status-transitions.ts`, enforced kind-aware in
   `mutation-commands.ts`). The deliverable of a state-ops task IS that section.
+  A trailing qualifier is fine when a delimiter introduces it — `## Findings (2026-07-31)`,
+  `## Outcome — recommendation`, `## Closeout evidence: deployed` — but a bare continuation
+  (`## Findings summary`, `## Outcomes`) is refused, and the refusal says so rather than
+  reporting the section as missing (mt#3443).
 - **The walk**: `tasks_status_set` READY → IN-PROGRESS → do the work → record findings
   via `tasks_spec_patch` → `tasks_status_set` → DONE. `/plan-task` Step 4 encodes this
   (it skips the `/implement-task` chain-walk for this kind), and its gate criteria adapt:

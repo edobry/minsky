@@ -2,10 +2,15 @@
 
 > Extracted from `.minsky/rules/principal-context.mdc` (mt#3085 corpus trim, Phase 2 of the
 > 2026-07-22 context-audit roadmap, mem#682; Phase 1 = mt#3083 / PR #2205). The compiled rule
-> carries the persona statement, the full `§Decisions Eugene reserves` list verbatim, the 4-step
+> carries the persona statement, the full `§Decisions Eugene reserves` list verbatim, the
 > framework-trigger rule, and a one-line framework implication; this file holds the full
 > per-category framework detail, the anti-patterns, and the incident narrative. Nothing here
 > changes agent behavior — the directive text in the rule is the complete behavioral contract.
+>
+> **Updated mt#1878 (2026-08-03):** the framework trigger is no longer a 4-step list in the
+> rule — it is one sentence naming the same four moves (name the framework, check it against
+> this rule, switch if wrong, say what you switched) plus a pointer to **`/declare-framework`**,
+> which carries the protocol. The substance is unchanged; only its shape and location are.
 
 ## Why this rule exists
 

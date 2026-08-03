@@ -257,8 +257,12 @@ export interface StandaloneGuardCanary {
    * calibration log and the guard that writes it — and the coverage-receipt
    * check cannot find the guard's invocation evidence in the fire log. Omit for
    * guards that write no calibration records.
+   *
+   * A LIST when one guard writes more than one log (mt#3519) — see
+   * `GuardRegistration.calibrationLog` for the case that motivated it, and for
+   * why the list type is non-empty by construction.
    */
-  calibrationLog?: string;
+  calibrationLog?: string | [string, ...string[]];
   /** Invokes the guard's real exported decision logic and returns its outcome-equivalent. Injectable for the sabotage test. */
   check: () => boolean | Promise<boolean>;
 }

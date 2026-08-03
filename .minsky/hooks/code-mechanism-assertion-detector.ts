@@ -401,6 +401,23 @@ const SQL_KEYWORDS_UPPER: ReadonlySet<string> = new Set([
   "CONSTRAINT",
 ]);
 
+/**
+ * Is this token plausibly a code symbol? Decided by SHAPE, minus the exclusion
+ * list built up over five calibration rounds (mt#3113, mt#3002 x2, mt#3042,
+ * mt#3540).
+ *
+ * **Before adding a sixth exclusion, read ADR-031.** mt#3549 proposed replacing
+ * this whole predicate with an allowlist of symbols the repo actually defines,
+ * which would retire every exclusion at once. It was REJECTED on measurement:
+ * most claims this detector correctly fires on are about MCP tool names, env
+ * vars, file names, guard names, and DB columns — real repo identifiers that a
+ * TypeScript symbol index does not contain — so gating on one would convert
+ * true positives into silent false negatives. ADR-031 also records the three
+ * conditions that would reopen the question; a sixth round is a good moment to
+ * check them rather than to write another predicate.
+ *
+ * @see docs/architecture/adr-031-symbol-identification-in-code-mechanism-assertion.md
+ */
 function isPlausibleSymbol(tok: string): boolean {
   const t = tok.trim();
   if (t.length < 3) return false;
@@ -547,15 +564,80 @@ function collectStrings(value: unknown, out: string[]): void {
 }
 
 /**
- * Build the same-turn verification corpus: the concatenation of
- *   - read-class tool_use INPUT strings (file paths, grep patterns, queries), and
- *   - ALL tool_result CONTENT in the turn (so a read of a symbol's file backs a
- *     claim about that symbol — the file source lands in the result).
+ * Tool names whose `tool_result` echoes content the AGENT itself just authored
+ * (mt#3489). A write tool's result repeats the payload that was sent to it —
+ * `session_search_replace` echoes `searchText`/`replaceText`, `Write` echoes the
+ * written content — so the symbols in it were WRITTEN, not inspected.
  *
- * A symbol that appears in this corpus was inspected this turn.
+ * Before this split, those echoes landed in the verification corpus alongside
+ * genuine reads, which meant a claim about code the agent had just written was
+ * treated as BACKED and suppressed. That is the inversion mem#736 names: "Self-
+ * authorship is an aggravating factor, not a mitigating one." The detector's
+ * blind spot sat exactly where self-authored claims live.
+ *
+ * Measured before the split (`.minsky/code-mechanism-assertion-calibration.jsonl`,
+ * 298 records): 108 carried `same-turn-read`, 58 of them suppressed by that
+ * reason ALONE — and nothing in the record distinguished a read from a write
+ * echo, so the size of this class was unknown rather than small.
  */
-export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
-  const parts: string[] = [];
+/**
+ * Membership rule, so this list can be extended without guessing: a tool belongs
+ * here when its `tool_result` reflects back CONTENT THE AGENT SUPPLIED, rather
+ * than state the tool went and read. `session_search_replace` qualifies (it
+ * echoes `searchText`/`replaceText`); `session_commit` qualifies (it echoes the
+ * message the agent wrote); `git_status` does not (it reports observed state).
+ *
+ * Erring inclusive is the safe direction WHILE both reasons suppress. A genuine
+ * read misclassified as a write echo stops backing its claim, so the claim is
+ * labeled `write-echo-backed` instead of `same-turn-read` — a mislabel in the
+ * calibration record, with no injection consequence. A write tool MISSING from
+ * this list keeps the original bug alive for that tool. The costs are not
+ * symmetric, so prefer adding.
+ *
+ * That asymmetry ends if the `write-echo-backed` leg is ever removed to let these
+ * claims surface: a false member would then surface claims that were genuinely
+ * read-backed. Re-audit this list as part of that decision, not before.
+ */
+const WRITE_CLASS_TOOL_RE =
+  /(?:^|_)(?:Write|Edit|MultiEdit|NotebookEdit)$|(?:session_write_file|session_search_replace|session_edit_file|session_move_file|session_rename_file|session_delete_file|session_create_directory|session_commit|session_pr_create|session_pr_edit|tasks_create|tasks_edit|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create|asks_respond|asks_edit)$/i;
+
+/**
+ * Map `tool_use.id` -> tool name across a turn.
+ *
+ * A `tool_result` block names only the `tool_use_id` it answers, never the tool
+ * — so attributing a result to the tool that produced it requires this
+ * correlation. Verified against a real transcript (2026-08-01): every
+ * `tool_result.tool_use_id` matches an assistant `tool_use.id` in the turn.
+ */
+function buildToolNameById(turnLines: TranscriptLine[]): Map<string, string> {
+  const byId = new Map<string, string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      const id = block["id"];
+      const name = block["name"];
+      if (typeof id === "string" && typeof name === "string") byId.set(id, name);
+    }
+  }
+  return byId;
+}
+
+/**
+ * Split the turn's tool evidence into the READ corpus (genuine inspection) and
+ * the WRITE-ECHO corpus (the agent's own authored payload, reflected back).
+ *
+ * Single traversal so the two can never drift apart. A `tool_result` whose
+ * originating tool cannot be identified counts as READ — the conservative
+ * default, since it preserves the pre-mt#3489 suppression behavior rather than
+ * surfacing a claim on evidence we cannot attribute.
+ */
+function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: string } {
+  const toolNameById = buildToolNameById(turnLines);
+  const readParts: string[] = [];
+  const writeParts: string[] = [];
 
   for (const line of turnLines) {
     const role = line.message?.role ?? line.type;
@@ -567,14 +649,17 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
         if (role === "assistant" && block["type"] === "tool_use") {
           const name = (block["name"] as string) ?? "";
           if (READ_CLASS_TOOL_RE.test(name)) {
-            collectStrings(block["input"], parts);
+            collectStrings(block["input"], readParts);
           }
         }
         // tool_result CONTENT — authentic tool outputs live on USER-role lines
         // (Claude Code records tool_result as user role). Role-gating prevents an
         // assistant-echoed tool_result block from counting as backing (PR #1697 R1).
         if (role === "user" && block["type"] === "tool_result") {
-          collectStrings(block["content"], parts);
+          const originId = block["tool_use_id"];
+          const originName = typeof originId === "string" ? toolNameById.get(originId) : undefined;
+          const isWriteEcho = originName !== undefined && WRITE_CLASS_TOOL_RE.test(originName);
+          collectStrings(block["content"], isWriteEcho ? writeParts : readParts);
         }
       }
     }
@@ -583,12 +668,266 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
     if (line.type === "tool_use") {
       const name = line.name ?? line.tool_name ?? "";
       if (READ_CLASS_TOOL_RE.test(name)) {
-        collectStrings(line.input, parts);
+        collectStrings(line.input, readParts);
       }
     }
   }
 
-  return parts.join("\n");
+  return { read: readParts.join("\n"), writeEcho: writeParts.join("\n") };
+}
+
+/**
+ * Build the same-turn verification corpus: the concatenation of
+ *   - read-class tool_use INPUT strings (file paths, grep patterns, queries), and
+ *   - tool_result CONTENT in the turn (so a read of a symbol's file backs a
+ *     claim about that symbol — the file source lands in the result),
+ *     EXCLUDING results echoed back by write-class tools (mt#3489).
+ *
+ * A symbol that appears in this corpus was inspected this turn. A symbol that
+ * appears only in the write-echo corpus was AUTHORED this turn, which is not
+ * the same thing and must not back a claim about it.
+ */
+export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
+  return buildCorpora(turnLines).read;
+}
+
+/**
+ * The turn's write-class `tool_result` content — what the agent authored, not
+ * what it inspected. Used to label a claim `write-echo-backed` rather than
+ * silently treating authorship as verification.
+ */
+export function buildWriteEchoCorpus(turnLines: TranscriptLine[]): string {
+  return buildCorpora(turnLines).writeEcho;
+}
+
+/**
+ * Input keys carrying the NEW content of a write, and the keys carrying the text
+ * it replaces. Both spellings exist because `session_search_replace` accepts the
+ * Claude Code aliases (`old_string`/`new_string`) alongside its own
+ * (`search`/`replace`).
+ */
+const WRITE_INPUT_NEW_KEYS = ["replace", "new_string", "content", "contents"];
+const WRITE_INPUT_OLD_KEYS = ["search", "old_string"];
+
+/** Keys carrying a whole-file body — no old text accompanies these. */
+const WHOLE_FILE_INPUT_KEYS = ["content", "contents"];
+
+/**
+ * A single-line comment, a block-comment body line, or a JSDoc continuation.
+ *
+ * `#!` is excluded: a shebang is not a comment about anything, and matching it
+ * would put an interpreter path into the claim corpus (PR #2549 R1).
+ */
+const COMMENT_LINE_RE = /^\s*(?:\/\/+|\/\*+|\*(?!\/)|#(?!!))\s?(.*)$/;
+
+/**
+ * Extract comment text that this turn's writes ADDED (mt#3571).
+ *
+ * Why the ADDED qualifier is load-bearing: a claim is worth surfacing when the
+ * agent WRITES it, not every time a diff happens to carry it. Scanning whole
+ * files — or even whole replacement payloads — would re-flag untouched comments
+ * on every edit to a well-commented file, which is noise that trains readers to
+ * ignore the detector (mem#719: a detector emitting unmatchable output erodes
+ * trust in its correct output).
+ *
+ * So for a search/replace the old text's comment lines are subtracted from the
+ * new text's: a comment that merely moved is not an assertion being made.
+ *
+ * A whole-file write carries no old text, so "added" cannot be computed from the
+ * payload — and treating every line as added would be exactly the whole-file
+ * scan this is supposed to avoid (PR #2549 R1). Such a write is therefore
+ * included ONLY when its `tool_result` reports `created: true`, i.e. the file did
+ * not previously exist, which makes every comment in it genuinely new. An
+ * overwrite of an existing file is skipped, and so is a write whose result
+ * cannot be found or does not carry the flag — absent evidence, exclude.
+ *
+ * Consequence worth knowing: comments added by OVERWRITING an existing file are
+ * not covered. Covering them needs a before-image the payload does not carry.
+ *
+ * Reads the tool INPUT for content rather than the `tool_result` echo (the input
+ * is exactly what the agent authored, with no envelope to strip) and the RESULT
+ * only for the `created` flag.
+ */
+/**
+ * True when a `tool_result` body reports a TOP-LEVEL `created: true`.
+ *
+ * Parsed, not regexed (PR #2549 R1). A regex over the stringified body has a
+ * real false-positive path: writing a JSON file whose own CONTENT contains
+ * `"created": true` would match, and the result envelope echoes that content —
+ * so authoring a fixture could make the detector believe a file was newly
+ * created. Reading the parsed top-level field cannot be fooled by nested or
+ * echoed text.
+ *
+ * Unparseable or unexpected shapes return false: absent evidence, exclude.
+ */
+function resultReportsCreated(raw: unknown): boolean {
+  const fromValue = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    return (value as Record<string, unknown>)["created"] === true;
+  };
+
+  if (typeof raw === "string") {
+    try {
+      return fromValue(JSON.parse(raw));
+    } catch {
+      return false; // not JSON — no claim about creation
+    }
+  }
+  // Claude Code may deliver a result as an array of content blocks.
+  if (Array.isArray(raw)) {
+    return raw.some((block) => {
+      const text = (block as Record<string, unknown> | null)?.["text"];
+      return typeof text === "string" && resultReportsCreated(text);
+    });
+  }
+  return fromValue(raw);
+}
+
+export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
+  const commentLines = (text: string): string[] => {
+    const out: string[] = [];
+    for (const raw of text.split("\n")) {
+      const m = raw.match(COMMENT_LINE_RE);
+      const body = m?.[1]?.trim();
+      if (body) out.push(body);
+    }
+    return out;
+  };
+
+  const pick = (input: Record<string, unknown>, keys: string[]): string =>
+    keys
+      .map((k) => input[k])
+      .filter((v): v is string => typeof v === "string")
+      .join("\n");
+
+  // `created: true` on the correlated result is the only signal distinguishing a
+  // NEW file (every comment genuinely added) from an overwrite (most of them
+  // pre-existing). Absent, the write is skipped.
+  const createdByToolUseId = new Set<string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "user" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_result") continue;
+      const id = block["tool_use_id"];
+      if (typeof id !== "string") continue;
+      if (resultReportsCreated(block["content"])) createdByToolUseId.add(id);
+    }
+  }
+
+  // Deduped: the same comment written by two tools in one turn is one assertion,
+  // and duplicates would inflate the claim corpus (PR #2549 R1).
+  const added = new Set<string>();
+
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      const name = (block["name"] as string) ?? "";
+      if (!WRITE_CLASS_TOOL_RE.test(name)) continue;
+      const input = block["input"];
+      if (!input || typeof input !== "object") continue;
+
+      const asRecord = input as Record<string, unknown>;
+      const oldText = pick(asRecord, WRITE_INPUT_OLD_KEYS);
+      const isWholeFile = oldText.length === 0 && pick(asRecord, WHOLE_FILE_INPUT_KEYS).length > 0;
+      if (isWholeFile) {
+        const id = block["id"];
+        if (typeof id !== "string" || !createdByToolUseId.has(id)) continue;
+      }
+
+      const newComments = commentLines(pick(asRecord, WRITE_INPUT_NEW_KEYS));
+      if (newComments.length === 0) continue;
+
+      const oldComments = new Set(commentLines(oldText));
+      for (const c of newComments) {
+        if (!oldComments.has(c)) added.add(c);
+      }
+    }
+  }
+
+  return [...added].join("\n");
+}
+
+/**
+ * Tools whose payload IS a durable artifact the principal or a future agent
+ * reads as a record (mt#3642). Narrower than {@link WRITE_CLASS_TOOL_RE}, which
+ * also covers ordinary source edits: a claim in a PR body is read as the
+ * justification for merging, and one in a spec or memory is read later as
+ * settled fact.
+ */
+const ARTIFACT_TOOL_RE =
+  /(?:session_pr_create|session_pr_edit|tasks_create|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create)$/i;
+
+/**
+ * Input keys carrying an artifact's PROSE body across those tools: a PR body,
+ * a task spec or spec patch, a memory body, an ask's question text.
+ */
+const ARTIFACT_PROSE_INPUT_KEYS = ["body", "spec", "content", "question", "replace", "new_string"];
+
+/**
+ * Extract the prose an agent wrote INTO a durable artifact this turn (mt#3642).
+ *
+ * Why this surface exists: the chat corpus is `extractAssistantText`, i.e.
+ * assistant `text` blocks. Everything an agent writes for the record — a PR
+ * body, a spec patch, a memory, an ask — reaches the transcript as a `tool_use`
+ * INPUT instead, so the same sentence is watched in chat, where it is ephemeral
+ * and the principal can contradict it, and unwatched in the artifact, where it
+ * is durable and outlives the conversation. mt#3092's false socket-contract
+ * claim was in a PR body and produced no calibration record at all.
+ *
+ * Distinct from {@link buildAddedCommentCorpus}, which takes COMMENT LINES out
+ * of source-edit payloads. This takes the whole prose body of an artifact
+ * payload. The two overlap on a markdown payload — `# Heading` matches the
+ * comment-line pattern — and that is left alone deliberately: the surfaces are
+ * recorded in separate fields and measured separately, so overlap shows up in
+ * the data rather than being silently resolved here.
+ *
+ * No ADDED-only subtraction, unlike the comment corpus. A spec patch or PR body
+ * is authored wholesale rather than edited line-by-line, and its payload is what
+ * the agent is asserting right now. `tasks_spec_patch` carries unchanged regions
+ * as `// ... existing code ...` markers rather than as text, so re-flagging
+ * untouched prose is not the failure mode it is for a source edit.
+ *
+ * Reads the tool INPUT, never the `tool_result` echo — the input is exactly what
+ * the agent authored.
+ */
+export function buildArtifactProseCorpus(turnLines: TranscriptLine[]): string {
+  const parts = new Set<string>();
+
+  const collect = (name: string, input: unknown): void => {
+    if (!ARTIFACT_TOOL_RE.test(name)) return;
+    if (!input || typeof input !== "object") return;
+    const asRecord = input as Record<string, unknown>;
+    for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
+      const value = asRecord[key];
+      if (typeof value === "string" && value.trim().length > 0) parts.add(value);
+    }
+  };
+
+  for (const line of turnLines) {
+    // BOTH shapes, per `TranscriptLine`'s own note ("tool_use lines may carry
+    // name/input at top level OR inside message.content") and the precedent in
+    // `extractToolUseNames` (`transcript.ts:722-738`), which has handled both
+    // since it was written. Handling only the nested shape made a turn recorded
+    // in the top-level shape invisible to this surface — PR #2584 R1.
+    if (line.type === "tool_use") collect(line.name ?? line.tool_name ?? "", line.input);
+
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      collect((block["name"] as string) ?? "", block["input"]);
+    }
+  }
+
+  return [...parts].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -773,6 +1112,20 @@ export interface CodeMechanismDetectionResult {
   hadSameTurnRead: boolean;
   /** Number of (symbol, predicate) pairs excluded from `claims` as backed (mt#2673). */
   backedClaimCount: number;
+  /**
+   * TURN-level aggregate (mt#3489): true when at least one claimed symbol
+   * appears ONLY in the write-echo corpus — the agent WROTE it this turn and
+   * never read it. Deliberately disjoint from `hadSameTurnRead`: a symbol that
+   * was genuinely read sets that flag instead, even if it was also written.
+   *
+   * Before mt#3489 these cases were indistinguishable — a write echo set
+   * `hadSameTurnRead` and the claim was suppressed as though inspected. Both
+   * still suppress injection, so this changes no injection behavior; it makes
+   * the authorship-as-verification class countable in the calibration record
+   * for the first time, which is the precondition for deciding whether it
+   * should surface.
+   */
+  hadWriteEchoBacking: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -785,26 +1138,39 @@ export interface CodeMechanismDetectionResult {
  *
  * @param assistantText - concatenated assistant text from the prior turn
  * @param verificationCorpus - same-turn read-class inputs + tool_result content
+ * @param writeEchoCorpus - same-turn WRITE-class tool_result content (mt#3489).
+ *   Symbols found only here were authored this turn, not inspected: they do NOT
+ *   back a claim, but they are recorded via `hadWriteEchoBacking` so the class
+ *   is countable. Defaults to empty, which reproduces the pre-mt#3489 call
+ *   shape for existing callers and tests.
  */
 export function detectCodeMechanismAssertion(
   assistantText: string,
-  verificationCorpus: string
+  verificationCorpus: string,
+  writeEchoCorpus = ""
 ): CodeMechanismDetectionResult {
   const empty: CodeMechanismDetectionResult = {
     matched: false,
     claims: [],
     hadSameTurnRead: false,
     backedClaimCount: 0,
+    hadWriteEchoBacking: false,
   };
   if (!assistantText) return empty;
 
   const prose = elideBlocksAndQuotes(assistantText);
   const corpusLower = verificationCorpus.toLowerCase();
+  const writeEchoLower = writeEchoCorpus.toLowerCase();
   const symbolBacked = (sym: string): boolean => corpusLower.includes(sym.toLowerCase());
+  // Checked only for symbols that are NOT read-backed, so a symbol both read and
+  // written counts as read — the stronger evidence wins.
+  const symbolWriteEchoed = (sym: string): boolean =>
+    writeEchoLower.length > 0 && writeEchoLower.includes(sym.toLowerCase());
 
   const claims: Array<{ symbol: string; predicate: string }> = [];
   const seen = new Set<string>();
   const backedSeen = new Set<string>();
+  const writeEchoedSeen = new Set<string>();
 
   for (const pattern of PREDICATE_PATTERNS) {
     const globalFlags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
@@ -818,6 +1184,9 @@ export function detectCodeMechanismAssertion(
           backedSeen.add(key);
           continue;
         }
+        // Authored-not-inspected: recorded, but NOT treated as backing, so the
+        // claim still lands in `claims` rather than being silently dropped.
+        if (symbolWriteEchoed(sym)) writeEchoedSeen.add(key);
         if (seen.has(key)) continue;
         seen.add(key);
         claims.push({ symbol: sym, predicate: m[0].slice(0, 40) });
@@ -830,6 +1199,7 @@ export function detectCodeMechanismAssertion(
     claims,
     hadSameTurnRead: backedSeen.size > 0,
     backedClaimCount: backedSeen.size,
+    hadWriteEchoBacking: writeEchoedSeen.size > 0,
   };
 }
 
@@ -937,6 +1307,20 @@ export function computeSuppressionReasons(
   // proposal.
   if (result.hadSameTurnRead) reasons.push("same-turn-read");
 
+  // Leg 1b (mt#3489): the claimed symbol was WRITTEN this turn, not read. Before
+  // this split, a write tool's tool_result echo landed in the verification
+  // corpus and set `hadSameTurnRead` — so authorship suppressed the claim under
+  // the same label as inspection, and the two were indistinguishable in the
+  // record.
+  //
+  // This still SUPPRESSES, deliberately: injection behavior is unchanged by
+  // mt#3489, because widening a live injector (INJECTION_ENABLED = true) before
+  // measuring the class would be the wrong order. What changes is that the class
+  // now has its own reason in the calibration record, so its size and FP rate
+  // become measurable for the first time. Removing this leg — letting these
+  // claims surface — is a separate, evidence-gated decision.
+  if (result.hadWriteEchoBacking) reasons.push("write-echo-backed");
+
   // Leg 3 (mt#3113) NO LONGER SUPPRESSES — reversed by mt#3152.
   //
   // mt#3113 treated "this claim came from a subagent's report" as grounds to
@@ -1024,12 +1408,34 @@ export function run(
 
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
+  let commentResult: CodeMechanismDetectionResult;
+  let artifactResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
-    result = detectCodeMechanismAssertion(assistantText, corpus);
+    result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
+    // mt#3571 — the comment surface. A SEPARATE pass, never fed into
+    // `computeSuppressionReasons` or the injection branch, so it is log-only by
+    // construction rather than by a suppression flag that a one-line edit could
+    // remove. Same verification corpus: a comment about a symbol the agent
+    // actually read this turn is backed, exactly as in chat prose.
+    commentResult = detectCodeMechanismAssertion(
+      buildAddedCommentCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
+    // mt#3642 — the durable-artifact surface, on the same log-only terms as the
+    // comment pass above: its own corpus, its own recorded fields, never fed to
+    // `computeSuppressionReasons` or the injection branch. Same verification
+    // corpus, so a PR-body claim about a symbol the agent genuinely read this
+    // turn is backed exactly as it would be in chat.
+    artifactResult = detectCodeMechanismAssertion(
+      buildArtifactProseCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1037,7 +1443,10 @@ export function run(
     return null;
   }
 
-  if (!result.matched) return null;
+  // Both surfaces gate the record. Returning on `!result.matched` alone would
+  // have made the comment surface silently dead: on a turn whose chat prose
+  // asserts nothing, the guard would exit before writing any calibration record.
+  if (!result.matched && !commentResult.matched && !artifactResult.matched) return null;
 
   const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
   const {
@@ -1045,6 +1454,29 @@ export function run(
     claimSetSignature: signature,
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id, shouldInjectClaimSetFn);
+
+  // mt#3571 / PR #2549 R1. An earlier draft recorded the comment surface with NO
+  // suppression reason, on the reasoning that "suppressed" misdescribes a claim
+  // that never entered the injection path. That reasoning was about what the
+  // LABEL means and ignored what the CONSUMER does with it: `isSuppressedRecord`
+  // (`calibration-sweep.ts`) is `suppressionReasons.length > 0`, and its docblock
+  // states that a record without one "counts as injected here: unknown is treated
+  // as operator-facing so a missing outcome can never hide a real fire."
+  //
+  // So an unlabeled comment-only record would be counted as an operator-facing
+  // fire it never was — inflating the injected count AND driving the review
+  // cadence, which keys off `injectedFiresSinceLastReview`. The measurement this
+  // surface exists to enable would have been corrupted by its own records.
+  //
+  // mt#3642 — with a THIRD surface, `!result.matched` no longer implies the
+  // comment surface is the one that matched, so each non-chat surface labels
+  // itself. Leaving the unconditional push would have mislabeled an
+  // artifact-only record as comment-only; leaving no label at all is the worse
+  // failure the paragraph above describes.
+  if (!result.matched) {
+    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
+    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
+  }
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -1056,10 +1488,24 @@ export function run(
       claimSetSignature: signature,
       suppressionReasons,
       relayReasons,
+      // mt#3571 — recorded, never injected. Present as its own fields rather
+      // than merged into `claims` so calibration review can measure this
+      // surface's FP rate separately from the chat surface's before anyone
+      // proposes wiring it.
+      commentSurfaceClaims: commentResult.claims,
+      commentSurfaceClaimCount: commentResult.claims.length,
+      // mt#3642 — same treatment for the durable-artifact surface: recorded,
+      // never injected, its own fields so its FP rate is measurable on its own
+      // before anyone proposes wiring it.
+      artifactSurfaceClaims: artifactResult.claims,
+      artifactSurfaceClaimCount: artifactResult.claims.length,
     },
   };
 
-  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
+  // `result.matched` is required here, not implied. Since the early return above
+  // now also admits comment-only turns, without it a turn whose ONLY claim is in
+  // a comment would inject a reminder built from an EMPTY chat-claim array.
+  if (INJECTION_ENABLED && result.matched && suppressionReasons.length === 0) {
     outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
   }
 
@@ -1122,12 +1568,30 @@ export async function main(): Promise<void> {
 
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
+  let commentResult: CodeMechanismDetectionResult;
+  let artifactResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
-    result = detectCodeMechanismAssertion(assistantText, corpus);
+    result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
     relay = detectRelayContext(assistantText, result.claims, relayCorpus);
+    // mt#3571 — comment surface, identical composition to run()'s path.
+    commentResult = detectCodeMechanismAssertion(
+      buildAddedCommentCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
+    // mt#3642 — the durable-artifact surface, on the same log-only terms as the
+    // comment pass above: its own corpus, its own recorded fields, never fed to
+    // `computeSuppressionReasons` or the injection branch. Same verification
+    // corpus, so a PR-body claim about a symbol the agent genuinely read this
+    // turn is backed exactly as it would be in chat.
+    artifactResult = detectCodeMechanismAssertion(
+      buildArtifactProseCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -1135,7 +1599,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!result.matched) process.exit(0);
+  if (!result.matched && !commentResult.matched && !artifactResult.matched) process.exit(0);
 
   // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
   // identical composition to run()'s dispatcher path.
@@ -1144,6 +1608,18 @@ export async function main(): Promise<void> {
     claimSetSignature: signature,
     relayReasons,
   } = computeSuppressionReasons(result, relay, input.session_id);
+
+  // See run()'s comment: without this the record classifies as operator-facing.
+  //
+  // mt#3642 — with a THIRD surface, `!result.matched` no longer implies the
+  // comment surface is the one that matched, so each non-chat surface labels
+  // itself. Leaving the unconditional push would have mislabeled an
+  // artifact-only record as comment-only; leaving no label at all is the worse
+  // failure the paragraph above describes.
+  if (!result.matched) {
+    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
+    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
+  }
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
@@ -1155,10 +1631,18 @@ export async function main(): Promise<void> {
       claimSetSignature: signature,
       suppressionReasons,
       relayReasons,
+      commentSurfaceClaims: commentResult.claims,
+      commentSurfaceClaimCount: commentResult.claims.length,
+      // mt#3642 — same treatment for the durable-artifact surface: recorded,
+      // never injected, its own fields so its FP rate is measurable on its own
+      // before anyone proposes wiring it.
+      artifactSurfaceClaims: artifactResult.claims,
+      artifactSurfaceClaimCount: artifactResult.claims.length,
     });
   }
 
-  if (!INJECTION_ENABLED || suppressionReasons.length > 0) process.exit(0);
+  // `!result.matched` is required, not implied — see run()'s matching comment.
+  if (!INJECTION_ENABLED || !result.matched || suppressionReasons.length > 0) process.exit(0);
 
   const output: HookOutput = {
     hookSpecificOutput: {

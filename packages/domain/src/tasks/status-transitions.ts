@@ -70,72 +70,233 @@ export function validateStatusTransition(from: string, to: string, kind?: string
   }
 }
 
-/**
- * The heading pattern for the closeout evidence section (case-insensitive).
- * Exported so tests and callers can reference it without duplicating the regex.
- */
 // `## Findings` and `## Outcome` are accepted as synonyms (mt#455): they read
 // naturally for investigation-shaped (state-ops) tasks whose deliverable IS the
 // findings section, while "Closeout evidence" remains the canonical name.
+/**
+ * The heading pattern for the closeout evidence section (case-insensitive).
+ * Exported so tests and callers can reference it without duplicating the regex.
+ *
+ * A trailing qualifier is accepted only when a DELIMITER introduces it — an opening
+ * parenthesis or bracket, an em/en dash, or a colon (mt#3443):
+ *
+ *   `## Findings (planning investigation, 2026-07-31)`   accepted
+ *   `## Outcome — recommendation`                        accepted
+ *   `## Closeout evidence: deployed 2026-07-31`          accepted
+ *   `## Findings from the reviewer that we rejected`     rejected
+ *   `## Findings summary` / `## Outcomes`                rejected
+ *   `## Findings (unclosed`                              rejected
+ *
+ * A bracketed qualifier must CLOSE on the same line (PR #2541 R1). An unbalanced opener is
+ * a typo, and accepting it would let a malformed heading pass the gate silently.
+ *
+ * A bare prose continuation stays rejected because it is a different noun phrase, not a
+ * qualified one: `## Findings summary` is a plausible heading for a section that is NOT
+ * the closeout evidence. Widening to accept it would trade this false negative for a new
+ * false-positive class (the argument mt#3311 makes for the sibling superseding-AT matcher).
+ * A plain hyphen is likewise not a delimiter here — it is ordinary prose punctuation, the
+ * same call mt#3511 made for the negative-control matcher.
+ */
 export const CLOSEOUT_EVIDENCE_HEADING =
-  /^##\s+(closeout\s+evidence|findings|outcome)\s*[:.]?\s*$/i;
+  /^##\s+(?:closeout\s+evidence|findings|outcome)\s*(?:[:.]\s*(?:\S.*)?|[—–]\s*\S.*|\(\s*\S.*\)|\[\s*\S.*\])?\s*$/i;
 
 /**
- * Error message returned when an evidence-gated transition to DONE is attempted
- * without a valid closeout-evidence section in the spec (READY → DONE for any
- * kind; any → DONE for state-ops, mt#455).
+ * Headings that OPEN with an accepted noun but that {@link CLOSEOUT_EVIDENCE_HEADING}
+ * still rejects — `## Findings summary`, `## Outcomes`, `## Findings from the reviewer`.
  *
- * Exported so callers (mutation-commands.ts) and tests can reference it without
- * duplicating the string.
+ * Deliberately NOT a widening: this only lets the refusal say "your heading is the
+ * problem" instead of "your section has no content," which is the diagnostic that cost a
+ * source read on mt#3431.
+ *
+ * Its noun alternation must stay identical to {@link CLOSEOUT_EVIDENCE_HEADING}'s — the
+ * near-miss pattern is that one with the tail dropped, so every accepted heading must also
+ * match here. `every accepted heading is also a near-miss match` is pinned by a test.
  */
-export const READY_TO_DONE_MISSING_EVIDENCE_MESSAGE =
+export const CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING =
+  /^##\s+(?:closeout\s+evidence|findings|outcome)/i;
+
+/**
+ * Shared opening clause naming the evidence-gated transitions (READY → DONE for any kind;
+ * any → DONE for state-ops, mt#455). Each refusal completes the sentence with what THAT
+ * cause requires.
+ */
+const EVIDENCE_GATED_PATHS =
   "Transitioning to DONE on this path (READY → DONE, or any transition to DONE for " +
-  "state-ops kind) requires a '## Closeout evidence' (or '## Findings' / '## Outcome') " +
-  "section in the spec with non-empty content. " +
+  "state-ops kind) requires";
+
+const CLOSEOUT_EVIDENCE_RULE_POINTER =
   "See the External-deliverable closeout rule in .minsky/rules/task-lifecycle-external-deliverable.mdc " +
   "(or the compiled CLAUDE.md section) for details.";
 
 /**
- * Check whether a task spec contains a populated closeout-evidence section.
+ * Refusal for the case where the spec carries NO closeout-evidence section at all.
+ *
+ * Scoped to the `absent` cause by name and by its leading sentence (PR #2541 R1). It used
+ * to be the single refusal for all three causes under the generic name
+ * `READY_TO_DONE_MISSING_EVIDENCE_MESSAGE`, which is exactly the reuse-in-the-wrong-branch
+ * hazard the rename closes: the content requirement stated here is correct for a spec with
+ * no section, and wrong as generic guidance for one whose heading merely failed to match.
+ */
+export const CLOSEOUT_EVIDENCE_ABSENT_MESSAGE =
+  `No '## Closeout evidence' (or '## Findings' / '## Outcome') section is present in the ` +
+  `spec. ${EVIDENCE_GATED_PATHS} one, with non-empty content. ` +
+  `${CLOSEOUT_EVIDENCE_RULE_POINTER}`;
+
+/**
+ * The heading forms the gate accepts, phrased for the author who just hit a refusal.
+ * Named in the near-miss message only — the absent message has no heading to correct.
+ */
+const CLOSEOUT_EVIDENCE_ACCEPTED_FORMS =
+  "Accepted headings (case-insensitive): '## Closeout evidence', '## Findings', '## Outcome'. " +
+  "A trailing qualifier is accepted when a delimiter introduces it — '## Findings (2026-07-31)', " +
+  "'## Outcome — recommendation', '## Closeout evidence: deployed'. A bare continuation is not: " +
+  "'## Findings summary' and '## Outcomes' read as different sections, so rename the heading or " +
+  "add a separate one.";
+
+/** Renders one heading per line, indented, for a refusal that lists offending headings. */
+function formatHeadingList(headings: string[]): string {
+  return headings.map((heading) => `  ${heading}`).join("\n");
+}
+
+/**
+ * Refusal for the case where an accepted heading IS present but its section is empty.
+ * Split out from {@link CLOSEOUT_EVIDENCE_ABSENT_MESSAGE} so the author is not told to add
+ * a section that already exists (mt#3443), and names WHICH heading is empty — in a spec
+ * with several accepted headings, that is the whole question.
+ */
+export function closeoutEvidenceEmptySectionMessage(emptyHeadings: string[]): string {
+  const subject =
+    emptyHeadings.length === 1
+      ? "An accepted heading is present but its section is EMPTY"
+      : `${emptyHeadings.length} accepted headings are present but all their sections are EMPTY`;
+  return (
+    `${EVIDENCE_GATED_PATHS} a closeout-evidence section with non-empty content. ${subject} — ` +
+    `write the findings, outcome, or evidence beneath it:\n` +
+    `${formatHeadingList(emptyHeadings)}\n${CLOSEOUT_EVIDENCE_RULE_POINTER}`
+  );
+}
+
+/**
+ * Refusal for the case where the spec carries a heading that OPENS with an accepted noun
+ * but that the pattern rejects. Names the offending heading verbatim, because the fix is a
+ * two-word edit to that line and the old message pointed at content instead (mt#3443).
+ */
+export function closeoutEvidenceNearMissMessage(nearMissHeadings: string[]): string {
+  const subject =
+    nearMissHeadings.length === 1
+      ? "The spec carries a section whose heading nearly matches"
+      : `The spec carries ${nearMissHeadings.length} sections whose headings nearly match`;
+  return (
+    `${EVIDENCE_GATED_PATHS} a closeout-evidence section. ${subject}, so this is a HEADING ` +
+    "problem, not missing content:\n" +
+    `${formatHeadingList(nearMissHeadings)}\n` +
+    `${CLOSEOUT_EVIDENCE_ACCEPTED_FORMS} ${CLOSEOUT_EVIDENCE_RULE_POINTER}`
+  );
+}
+
+/**
+ * The refusal text for a given check result, or `null` when the section is present and
+ * populated. Callers select the message through this rather than reaching for a specific
+ * constant, so the three causes cannot drift back into one undifferentiated string.
+ */
+export function closeoutEvidenceFailureMessage(result: CloseoutEvidenceResult): string | null {
+  switch (result.state) {
+    case "present":
+      return null;
+    case "empty-section":
+      return closeoutEvidenceEmptySectionMessage(result.emptyHeadings);
+    case "near-miss":
+      return closeoutEvidenceNearMissMessage(result.nearMissHeadings);
+    case "absent":
+      return CLOSEOUT_EVIDENCE_ABSENT_MESSAGE;
+  }
+}
+
+/**
+ * Why the closeout-evidence check failed — or that it did not.
+ *
+ * The three failure states used to be one boolean, so all three threw the same
+ * content-focused refusal (mt#3443). `near-miss` in particular was reported as if the
+ * section were absent, which sent authors looking for missing content while the actual
+ * problem was two words in a heading.
+ */
+export type CloseoutEvidenceState = "present" | "empty-section" | "near-miss" | "absent";
+
+/** Result of {@link checkCloseoutEvidence}. All headings are verbatim and trimmed. */
+export interface CloseoutEvidenceResult {
+  state: CloseoutEvidenceState;
+  /** Accepted headings whose section had no content. Populated only for `empty-section`. */
+  emptyHeadings: string[];
+  /**
+   * Headings that opened with an accepted noun but that the pattern rejected.
+   * Populated only for `near-miss`; empty for every other state.
+   */
+  nearMissHeadings: string[];
+}
+
+/**
+ * Classify a task spec's closeout-evidence section.
  *
  * Rules:
- *   - The heading must match `## Closeout evidence`, `## Findings`, or
- *     `## Outcome` (case-insensitive, with or without trailing punctuation).
- *   - The section must contain at least one non-blank line of content after the
- *     heading and before the next `##`-level heading or end-of-spec.
+ *   - The heading must match {@link CLOSEOUT_EVIDENCE_HEADING} — `## Closeout evidence`,
+ *     `## Findings`, or `## Outcome`, case-insensitive, optionally with a
+ *     delimiter-introduced trailing qualifier.
+ *   - The section must contain at least one non-blank line of content after the heading
+ *     and before the next `##`-level heading or end-of-spec.
+ *
+ * State precedence: any populated accepted section wins (`present`); otherwise an accepted
+ * but empty heading wins over a near miss (`empty-section`), because the author DID use an
+ * accepted heading and the content is the real gap.
  *
  * @param specContent  Raw spec markdown string.
- * @returns `true` when the section is present and non-empty; `false` otherwise.
  */
-export function hasCloseoutEvidence(specContent: string): boolean {
+export function checkCloseoutEvidence(specContent: string): CloseoutEvidenceResult {
   if (!specContent) {
-    return false;
+    return { state: "absent", emptyHeadings: [], nearMissHeadings: [] };
   }
 
   const lines = specContent.split("\n");
+  const acceptedHeadings: string[] = [];
+  const nearMissHeadings: string[] = [];
   let inSection = false;
 
   for (const line of lines) {
-    if (!inSection) {
-      if (CLOSEOUT_EVIDENCE_HEADING.test(line.trim())) {
-        inSection = true;
+    const trimmed = line.trim();
+
+    // A ##-level heading ends any section it follows, and may itself open a new one —
+    // with multiple accepted headings (mt#455), a later section can still carry the
+    // evidence even when an earlier one was empty.
+    if (/^##\s/.test(trimmed)) {
+      inSection = CLOSEOUT_EVIDENCE_HEADING.test(trimmed);
+      if (inSection) {
+        acceptedHeadings.push(trimmed);
+      } else if (CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test(trimmed)) {
+        nearMissHeadings.push(trimmed);
       }
-    } else {
-      // We are inside an evidence section. Another ##-level heading ends it,
-      // but keep scanning — with multiple accepted headings (mt#455), a later
-      // section may still carry the evidence. The ending heading may itself
-      // open a new evidence section.
-      if (/^##\s/.test(line)) {
-        inSection = CLOSEOUT_EVIDENCE_HEADING.test(line.trim());
-        continue;
-      }
-      // If we find a non-blank line, the section is non-empty — success.
-      if (line.trim().length > 0) {
-        return true;
-      }
+      continue;
+    }
+
+    if (inSection && trimmed.length > 0) {
+      return { state: "present", emptyHeadings: [], nearMissHeadings: [] };
     }
   }
 
-  // Reached end-of-spec without finding a non-blank content line.
-  return false;
+  // Reaching here means no accepted section held content, so every one collected is empty.
+  if (acceptedHeadings.length > 0) {
+    return { state: "empty-section", emptyHeadings: acceptedHeadings, nearMissHeadings: [] };
+  }
+  if (nearMissHeadings.length > 0) {
+    return { state: "near-miss", emptyHeadings: [], nearMissHeadings };
+  }
+  return { state: "absent", emptyHeadings: [], nearMissHeadings: [] };
+}
+
+/**
+ * Whether a task spec contains a populated closeout-evidence section.
+ *
+ * Kept as the boolean predicate for callers that only need the verdict;
+ * {@link checkCloseoutEvidence} is what a caller selecting a refusal message wants.
+ */
+export function hasCloseoutEvidence(specContent: string): boolean {
+  return checkCloseoutEvidence(specContent).state === "present";
 }
