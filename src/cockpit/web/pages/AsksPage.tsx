@@ -219,7 +219,12 @@ function optionTitle(ask: AskItem, a: InlineAction): string {
  *
  * `Prose` keeps the band's muted tone via `className`: the expansion is
  * secondary to the row header, and the fix is about Markdown structure, not
- * about restyling the row.
+ * about restyling the row. This is an override, not a conflict — `Prose`
+ * composes its own `text-foreground/90` with the incoming class through
+ * `cn()` (clsx + tailwind-merge), which resolves the pair to the caller's:
+ * `cn("break-words text-sm text-foreground/90", "text-muted-foreground")`
+ * returns `"break-words text-sm text-muted-foreground"`, so the outcome does
+ * not depend on stylesheet order.
  *
  * Split out of `AskRow` so `useEntityIndex()` mounts only with an EXPANDED
  * row. The hook's TanStack queries dedupe across mounts, but its `useMemo`

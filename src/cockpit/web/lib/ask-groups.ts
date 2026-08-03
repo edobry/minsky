@@ -162,8 +162,13 @@ function stripInlineMarkdown(line: string): string {
       // Leading block markers: heading, blockquote, bullet, ordered item.
       .replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, "")
       // Links and images collapse to their label. Before emphasis, so that a
-      // bolded link label is unwrapped by the passes below.
+      // bolded link label is unwrapped by the passes below. Both link forms
+      // are handled: inline `[label](url)` and reference `[label][ref]` /
+      // `[label][]`. The SHORTCUT form (`[label]` with no second bracket) is
+      // deliberately left alone — it is indistinguishable from literal
+      // brackets in prose, which ask bodies do use.
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/!?\[([^\]]*)\]\[[^\]]*\]/g, "$1")
       // Emphasis and code spans. The `\S`-anchored inner group is what keeps
       // arithmetic (`2 * 3 * 4`) from reading as emphasis.
       .replace(/\*\*\*(\S|\S[^*]*?\S)\*\*\*/g, "$1")

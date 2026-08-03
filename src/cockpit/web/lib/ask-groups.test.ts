@@ -153,6 +153,23 @@ describe("consequenceSnippet", () => {
     ).toBe("See the spec and --execute before deciding.");
   });
 
+  test("unwraps reference-style links, both named and collapsed", () => {
+    expect(consequenceSnippet("See [the spec][spec] before deciding.")).toBe(
+      "See the spec before deciding."
+    );
+    expect(consequenceSnippet("See [the spec][] before deciding.")).toBe(
+      "See the spec before deciding."
+    );
+  });
+
+  test("leaves the shortcut form alone — bare brackets are literal in prose", () => {
+    // `[unverified-tests]` is a real PR-title tag that shows up in ask bodies;
+    // stripping it would silently rewrite the operator's text.
+    expect(consequenceSnippet("Merge with the [unverified-tests] tag applied.")).toBe(
+      "Merge with the [unverified-tests] tag applied."
+    );
+  });
+
   test("drops a leading list or heading marker", () => {
     expect(consequenceSnippet("- Approve the rollout.")).toBe("Approve the rollout.");
     expect(consequenceSnippet("## Approve the rollout.")).toBe("Approve the rollout.");

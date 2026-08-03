@@ -373,6 +373,9 @@ describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () 
       if (!t) throw new Error("table not rendered");
       return t;
     });
+    // MARKDOWN_QUESTION declares a 3-column header, a delimiter row, and two
+    // data rows: the delimiter must become table structure (not a third data
+    // row, and not literal text), so the body row count is exactly 2.
     expect(Array.from(table.querySelectorAll("th")).map((th) => th.textContent)).toEqual([
       "metric",
       "before",
@@ -380,6 +383,7 @@ describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () 
     ]);
     expect(table.querySelectorAll("tbody tr").length).toBe(2);
     expect(container.textContent).not.toContain("| --- |");
+    expect(container.textContent).not.toContain("| metric |");
   });
 
   test("the bolded lead renders as emphasis, with no literal asterisks left over", async () => {
