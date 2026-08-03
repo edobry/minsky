@@ -853,6 +853,83 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
   return [...added].join("\n");
 }
 
+/**
+ * Tools whose payload IS a durable artifact the principal or a future agent
+ * reads as a record (mt#3642). Narrower than {@link WRITE_CLASS_TOOL_RE}, which
+ * also covers ordinary source edits: a claim in a PR body is read as the
+ * justification for merging, and one in a spec or memory is read later as
+ * settled fact.
+ */
+const ARTIFACT_TOOL_RE =
+  /(?:session_pr_create|session_pr_edit|tasks_create|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create)$/i;
+
+/**
+ * Input keys carrying an artifact's PROSE body across those tools: a PR body,
+ * a task spec or spec patch, a memory body, an ask's question text.
+ */
+const ARTIFACT_PROSE_INPUT_KEYS = ["body", "spec", "content", "question", "replace", "new_string"];
+
+/**
+ * Extract the prose an agent wrote INTO a durable artifact this turn (mt#3642).
+ *
+ * Why this surface exists: the chat corpus is `extractAssistantText`, i.e.
+ * assistant `text` blocks. Everything an agent writes for the record — a PR
+ * body, a spec patch, a memory, an ask — reaches the transcript as a `tool_use`
+ * INPUT instead, so the same sentence is watched in chat, where it is ephemeral
+ * and the principal can contradict it, and unwatched in the artifact, where it
+ * is durable and outlives the conversation. mt#3092's false socket-contract
+ * claim was in a PR body and produced no calibration record at all.
+ *
+ * Distinct from {@link buildAddedCommentCorpus}, which takes COMMENT LINES out
+ * of source-edit payloads. This takes the whole prose body of an artifact
+ * payload. The two overlap on a markdown payload — `# Heading` matches the
+ * comment-line pattern — and that is left alone deliberately: the surfaces are
+ * recorded in separate fields and measured separately, so overlap shows up in
+ * the data rather than being silently resolved here.
+ *
+ * No ADDED-only subtraction, unlike the comment corpus. A spec patch or PR body
+ * is authored wholesale rather than edited line-by-line, and its payload is what
+ * the agent is asserting right now. `tasks_spec_patch` carries unchanged regions
+ * as `// ... existing code ...` markers rather than as text, so re-flagging
+ * untouched prose is not the failure mode it is for a source edit.
+ *
+ * Reads the tool INPUT, never the `tool_result` echo — the input is exactly what
+ * the agent authored.
+ */
+export function buildArtifactProseCorpus(turnLines: TranscriptLine[]): string {
+  const parts = new Set<string>();
+
+  const collect = (name: string, input: unknown): void => {
+    if (!ARTIFACT_TOOL_RE.test(name)) return;
+    if (!input || typeof input !== "object") return;
+    const asRecord = input as Record<string, unknown>;
+    for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
+      const value = asRecord[key];
+      if (typeof value === "string" && value.trim().length > 0) parts.add(value);
+    }
+  };
+
+  for (const line of turnLines) {
+    // BOTH shapes, per `TranscriptLine`'s own note ("tool_use lines may carry
+    // name/input at top level OR inside message.content") and the precedent in
+    // `extractToolUseNames` (`transcript.ts:722-738`), which has handled both
+    // since it was written. Handling only the nested shape made a turn recorded
+    // in the top-level shape invisible to this surface — PR #2584 R1.
+    if (line.type === "tool_use") collect(line.name ?? line.tool_name ?? "", line.input);
+
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "assistant" || !Array.isArray(content)) continue;
+
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_use") continue;
+      collect((block["name"] as string) ?? "", block["input"]);
+    }
+  }
+
+  return [...parts].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Relay-context detection (mt#3113 leg 3)
 // ---------------------------------------------------------------------------
@@ -1332,6 +1409,7 @@ export function run(
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
+  let artifactResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
@@ -1348,6 +1426,16 @@ export function run(
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+    // mt#3642 — the durable-artifact surface, on the same log-only terms as the
+    // comment pass above: its own corpus, its own recorded fields, never fed to
+    // `computeSuppressionReasons` or the injection branch. Same verification
+    // corpus, so a PR-body claim about a symbol the agent genuinely read this
+    // turn is backed exactly as it would be in chat.
+    artifactResult = detectCodeMechanismAssertion(
+      buildArtifactProseCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1358,7 +1446,7 @@ export function run(
   // Both surfaces gate the record. Returning on `!result.matched` alone would
   // have made the comment surface silently dead: on a turn whose chat prose
   // asserts nothing, the guard would exit before writing any calibration record.
-  if (!result.matched && !commentResult.matched) return null;
+  if (!result.matched && !commentResult.matched && !artifactResult.matched) return null;
 
   const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
   const {
@@ -1379,7 +1467,16 @@ export function run(
   // fire it never was — inflating the injected count AND driving the review
   // cadence, which keys off `injectedFiresSinceLastReview`. The measurement this
   // surface exists to enable would have been corrupted by its own records.
-  if (!result.matched) suppressionReasons.push("comment-surface-only");
+  //
+  // mt#3642 — with a THIRD surface, `!result.matched` no longer implies the
+  // comment surface is the one that matched, so each non-chat surface labels
+  // itself. Leaving the unconditional push would have mislabeled an
+  // artifact-only record as comment-only; leaving no label at all is the worse
+  // failure the paragraph above describes.
+  if (!result.matched) {
+    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
+    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
+  }
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -1397,6 +1494,11 @@ export function run(
       // proposes wiring it.
       commentSurfaceClaims: commentResult.claims,
       commentSurfaceClaimCount: commentResult.claims.length,
+      // mt#3642 — same treatment for the durable-artifact surface: recorded,
+      // never injected, its own fields so its FP rate is measurable on its own
+      // before anyone proposes wiring it.
+      artifactSurfaceClaims: artifactResult.claims,
+      artifactSurfaceClaimCount: artifactResult.claims.length,
     },
   };
 
@@ -1467,6 +1569,7 @@ export async function main(): Promise<void> {
   let result: CodeMechanismDetectionResult;
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
+  let artifactResult: CodeMechanismDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
@@ -1479,6 +1582,16 @@ export async function main(): Promise<void> {
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+    // mt#3642 — the durable-artifact surface, on the same log-only terms as the
+    // comment pass above: its own corpus, its own recorded fields, never fed to
+    // `computeSuppressionReasons` or the injection branch. Same verification
+    // corpus, so a PR-body claim about a symbol the agent genuinely read this
+    // turn is backed exactly as it would be in chat.
+    artifactResult = detectCodeMechanismAssertion(
+      buildArtifactProseCorpus(turnLines),
+      corpus,
+      buildWriteEchoCorpus(turnLines)
+    );
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -1486,7 +1599,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!result.matched && !commentResult.matched) process.exit(0);
+  if (!result.matched && !commentResult.matched && !artifactResult.matched) process.exit(0);
 
   // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
   // identical composition to run()'s dispatcher path.
@@ -1497,7 +1610,16 @@ export async function main(): Promise<void> {
   } = computeSuppressionReasons(result, relay, input.session_id);
 
   // See run()'s comment: without this the record classifies as operator-facing.
-  if (!result.matched) suppressionReasons.push("comment-surface-only");
+  //
+  // mt#3642 — with a THIRD surface, `!result.matched` no longer implies the
+  // comment surface is the one that matched, so each non-chat surface labels
+  // itself. Leaving the unconditional push would have mislabeled an
+  // artifact-only record as comment-only; leaving no label at all is the worse
+  // failure the paragraph above describes.
+  if (!result.matched) {
+    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
+    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
+  }
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
@@ -1511,6 +1633,11 @@ export async function main(): Promise<void> {
       relayReasons,
       commentSurfaceClaims: commentResult.claims,
       commentSurfaceClaimCount: commentResult.claims.length,
+      // mt#3642 — same treatment for the durable-artifact surface: recorded,
+      // never injected, its own fields so its FP rate is measurable on its own
+      // before anyone proposes wiring it.
+      artifactSurfaceClaims: artifactResult.claims,
+      artifactSurfaceClaimCount: artifactResult.claims.length,
     });
   }
 

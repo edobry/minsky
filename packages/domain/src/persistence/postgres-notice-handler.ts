@@ -1,5 +1,41 @@
 import { log } from "@minsky/shared/logger";
 
+/** A single structured debug log entry, described independent of WHERE it's emitted. */
+export interface NoticeLogEntry {
+  message: string;
+  context: Record<string, unknown>;
+}
+
+/**
+ * Pure decision core (mt#3628): build the debug log entry for a Postgres
+ * NOTICE payload — routes a non-object payload through a diagnostic-prefix
+ * message + raw string context, and a well-formed notice through a
+ * `postgres notice: <message>` message + structured severity/code/routine
+ * context. No I/O, no logger — testable entirely by return value.
+ */
+export function describeNotice(notice: unknown): NoticeLogEntry {
+  if (!notice || typeof notice !== "object") {
+    return { message: "postgres notice (non-object payload)", context: { raw: String(notice) } };
+  }
+  const n = notice as Record<string, unknown>;
+  const message = typeof n.message === "string" ? n.message : String(n.message ?? "");
+  return {
+    message: `postgres notice: ${message}`,
+    context: {
+      severity: typeof n.severity === "string" ? n.severity : undefined,
+      code: typeof n.code === "string" ? n.code : undefined,
+      routine: typeof n.routine === "string" ? n.routine : undefined,
+    },
+  };
+}
+
+/** Injectable debug sink for logPostgresNotice (mt#3628). */
+export interface LogPostgresNoticeDeps {
+  debug: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultLogPostgresNoticeDeps: LogPostgresNoticeDeps = { debug: log.debug };
+
 /**
  * Shared `onnotice` handler for postgres-js clients (mt#1828).
  *
@@ -19,19 +55,13 @@ import { log } from "@minsky/shared/logger";
  * inside its own error-handling and a thrown exception would surface as a
  * client-side disconnect rather than the original NOTICE.
  */
-export function logPostgresNotice(notice: unknown): void {
+export function logPostgresNotice(
+  notice: unknown,
+  deps: LogPostgresNoticeDeps = defaultLogPostgresNoticeDeps
+): void {
   try {
-    if (!notice || typeof notice !== "object") {
-      log.debug("postgres notice (non-object payload)", { raw: String(notice) });
-      return;
-    }
-    const n = notice as Record<string, unknown>;
-    const message = typeof n.message === "string" ? n.message : String(n.message ?? "");
-    log.debug(`postgres notice: ${message}`, {
-      severity: typeof n.severity === "string" ? n.severity : undefined,
-      code: typeof n.code === "string" ? n.code : undefined,
-      routine: typeof n.routine === "string" ? n.routine : undefined,
-    });
+    const entry = describeNotice(notice);
+    deps.debug(entry.message, entry.context);
   } catch {
     // Never propagate failures back to the postgres client.
   }

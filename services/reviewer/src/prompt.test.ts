@@ -1319,6 +1319,107 @@ describe("buildCriticConstitution — pattern sweep on structural-defect finding
 });
 
 // ---------------------------------------------------------------------------
+// Test-shape design-feedback checks (mt#3631)
+//
+// Originating gap: the reviewer's test-only calibration reserves BLOCKING for
+// four categories (vacuous assertion / stub-hides-bug / flaky / deletion) and
+// demotes all other test findings to non-blocking — there was no category for
+// "this test's shape reveals a design defect" (Principle 15), no BLOCKING
+// category for production code bent to accommodate a test double (the new
+// failure mode below), and no phrasing constraint on observability requests
+// (Principle 16). mt#1859 — a production logger reshaped from a Proxy to a
+// plain object specifically to stay spy-able — was reviewed and approved
+// without objection under the old prompt.
+// ---------------------------------------------------------------------------
+describe("buildCriticConstitution — test-shape design-feedback checks (mt#3631)", () => {
+  const PATCHED_COLLABORATOR_PHRASE = "Test-shape design feedback: patched-collaborator tests";
+  const OBSERVABILITY_PHRASE =
+    'Observability requests must name a designed observable, not "add a log and assert it."';
+  const PRODUCTION_RESHAPED_PHRASE = "Production code reshaped to accommodate a test double";
+
+  test("Principle 15 (patched-collaborator design feedback) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+    expect(prompt).toContain("testing-standards.mdc §Testable Design");
+    expect(prompt).toContain("deliberately NON-BLOCKING");
+    expect(prompt).toContain("carve-out from Principle 9");
+  });
+
+  test("Principle 15 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+  });
+
+  test("Principle 16 (observability request phrasing) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(OBSERVABILITY_PHRASE);
+    expect(prompt).toContain("a return value, a thrown/structured error, an injected emitter");
+    expect(prompt).toContain("add a log line here and assert on it");
+  });
+
+  test("Principle 16 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(OBSERVABILITY_PHRASE);
+  });
+
+  test("Principles 15 and 16 appear in the Principles section, after Principle 14", () => {
+    const prompt = buildCriticConstitution(true);
+    const principlesStart = prompt.indexOf("## Principles");
+    const failureModesStart = prompt.indexOf(FAILURE_MODES_HEADING);
+    expect(principlesStart).toBeGreaterThan(-1);
+    expect(failureModesStart).toBeGreaterThan(-1);
+    const principlesSection = prompt.slice(principlesStart, failureModesStart);
+    const principle14Index = principlesSection.indexOf("Pattern sweep on structural-defect");
+    const principle15Index = principlesSection.indexOf(PATCHED_COLLABORATOR_PHRASE);
+    const principle16Index = principlesSection.indexOf(OBSERVABILITY_PHRASE);
+    expect(principle14Index).toBeGreaterThan(-1);
+    expect(principle15Index).toBeGreaterThan(principle14Index);
+    expect(principle16Index).toBeGreaterThan(principle15Index);
+  });
+
+  test("new BLOCKING failure mode (production reshaped for a test double) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+    expect(prompt).toContain("Raise a BLOCKING finding and quote the accommodation rationale");
+    expect(prompt).toContain("mt#1859");
+    expect(prompt).toContain("packages/shared/src/logger.ts:354-360");
+  });
+
+  test("new BLOCKING failure mode also appears in the no-tools variant", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+  });
+
+  test("the production-reshaped-for-test-double failure mode is in the Failure modes section, not Principles", () => {
+    const prompt = buildCriticConstitution(true);
+    const failureModesStart = prompt.indexOf(FAILURE_MODES_HEADING);
+    const jsoncStart = prompt.indexOf("## JSONC-family files are not strict JSON");
+    expect(failureModesStart).toBeGreaterThan(-1);
+    expect(jsoncStart).toBeGreaterThan(failureModesStart);
+    const failureModesSection = prompt.slice(failureModesStart, jsoncStart);
+    expect(failureModesSection).toContain(PRODUCTION_RESHAPED_PHRASE);
+  });
+
+  test("test-shape checks appear across all scope calibrations (normal, trivial-or-docs, test-only)", () => {
+    for (const scope of ["normal", "trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+      expect(prompt).toContain(OBSERVABILITY_PHRASE);
+      expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+    }
+  });
+
+  test("the production-reshaped-for-test-double failure mode retains severity in both scope-calibration carve-out lists", () => {
+    for (const scope of ["trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(
+        "or production-reshaped-for-test-double failure modes, retain their specified severity"
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Migration / move PR baseline awareness (mt#2655 SC2)
 //
 // Originating incident: the mt#2304 migration PR (#1812) moved content
@@ -1664,5 +1765,48 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     expect(buildCriticConstitution(true, "normal", true)).toContain(
       "one entry per carve-out entry"
     );
+  });
+});
+
+describe("buildCriticConstitution — tool budget section (mt#3547)", () => {
+  const BUDGET_HEADING = "### Your tool budget";
+
+  test("grants explicit permission to conclude when tools are available", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(BUDGET_HEADING);
+    expect(prompt).toContain("When you have spent the budget you have, conclude.");
+    expect(prompt).toContain("You do not need permission to be done");
+  });
+
+  test("tells the model conclude_review must land before the tool rounds run out", () => {
+    // The final round passes no tools and conclude_review IS a tool call, so a
+    // model that plans to conclude "at the end" loses the ability to do so.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("The final round accepts no tools at all");
+    expect(prompt).toContain("before the budget runs out, not after");
+  });
+
+  test("requires uncovered surface to be DECLARED, not silently skipped", () => {
+    // The escape hatch must not read as permission to skip coverage — that
+    // would weaken Principle 11, which is out of scope for mt#3547 and owned
+    // by the sibling coverage-ledger task.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Name the uncovered surface explicitly");
+    expect(prompt).toContain("not permission to conclude silently");
+  });
+
+  test("does not license a lower evidence standard to finish sooner", () => {
+    // OpenAI's own reduce-eagerness snippet says "even if it might not be fully
+    // correct" — the wrong trade for a reviewer that gates merges. This asserts
+    // we deviated from it deliberately.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Finish earlier by investigating less, never by asserting more.");
+    expect(prompt).not.toContain("even if it might not be fully correct");
+  });
+
+  test("is absent when tools are unavailable — there is no loop to budget", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).not.toContain(BUDGET_HEADING);
+    expect(prompt).not.toContain("[TOOL BUDGET]");
   });
 });

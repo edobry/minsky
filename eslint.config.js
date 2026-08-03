@@ -884,6 +884,11 @@ export default [
       // logger via `log.*` (mt#1255 + mt#1982); this exemption applies
       // only to the operator-script subdirectory.
       "services/reviewer/scripts/**",
+      // Same class as the scripts/ exemption above, one directory over:
+      // live-model eval harnesses under services/reviewer/eval/ (mt#3631's
+      // run-test-shape-eval.ts is the first) — standalone CLI tools whose
+      // pass/fail summary IS the operator-visible result.
+      "services/reviewer/eval/**",
     ],
     rules: {
       "custom/no-raw-console": "off",

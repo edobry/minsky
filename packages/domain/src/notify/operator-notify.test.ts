@@ -9,11 +9,11 @@
  * non-darwin fallback through `cliWarn` which targets stderr unconditionally.
  */
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { CommandExecutor, StdoutSink } from "./operator-notify";
-import { SystemOperatorNotify } from "./operator-notify";
-import { _resetDefaultLoggerForTests, log as programLog } from "@minsky/shared/logger";
+import { SystemOperatorNotify, decideNotifyChannel } from "./operator-notify";
+import { _resetDefaultLoggerForTests } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -244,23 +244,29 @@ describe("SystemOperatorNotify.notify — stdout clean in STRUCTURED log mode", 
     expect(calls).toHaveLength(0);
   });
 
-  it("invokes log.cliWarn exactly once with title and body in STRUCTURED mode", () => {
-    // Guard against future refactors where cliWarn is replaced with a different
-    // logging method. programLog is the same Proxy singleton that notify() resolves
-    // via its lazy require — spying on it here intercepts the call.
-    const cliWarnSpy = spyOn(programLog, "cliWarn");
-
+  it("wiring: routes the STRUCTURED-mode delivery through the injected cliWarnSink, not spyOn(log) (mt#3628)", () => {
+    const cliWarnCalls: string[] = [];
     const { sink } = makeStubStdout();
     const { executor } = makeStubExecutor();
-    const notify = new SystemOperatorNotify(executor, sink, "linux");
+    const notify = new SystemOperatorNotify(executor, sink, "linux", (message) =>
+      cliWarnCalls.push(message)
+    );
 
     notify.notify(NOTIFY_TITLE, NOTIFY_BODY);
 
-    expect(cliWarnSpy).toHaveBeenCalledTimes(1);
-    const [arg] = cliWarnSpy.mock.calls[0] as [string];
-    expect(arg).toContain(NOTIFY_TITLE);
-    expect(arg).toContain(NOTIFY_BODY);
+    expect(cliWarnCalls).toHaveLength(1);
+    expect(cliWarnCalls[0]).toContain(NOTIFY_TITLE);
+    expect(cliWarnCalls[0]).toContain(NOTIFY_BODY);
+  });
+});
 
-    cliWarnSpy.mockRestore();
+describe("decideNotifyChannel (pure core, mt#3628)", () => {
+  it("routes darwin through osascript", () => {
+    expect(decideNotifyChannel("darwin")).toBe("osascript");
+  });
+
+  it("routes every other platform through cliWarn", () => {
+    expect(decideNotifyChannel("linux")).toBe("cliWarn");
+    expect(decideNotifyChannel("win32")).toBe("cliWarn");
   });
 });

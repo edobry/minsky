@@ -20,15 +20,16 @@
  * @see mt#2457
  */
 
-import { describe, test, expect, spyOn } from "bun:test";
+import { describe, test, expect } from "bun:test";
 
 import type { RawTurnLine } from "./transcript-source";
 import {
   writeTurnsForTranscript,
   extractTurnsForAllTranscripts,
+  classifyWriteOutcome,
   type TranscriptPageRow,
+  type TurnWriterLogSink,
 } from "./turn-writer";
-import { log } from "@minsky/shared/logger";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002";
@@ -269,7 +270,6 @@ describe("writeTurnsForTranscript", () => {
     const store = new Map<string, FakeTurnRow>();
     const db = makeDb([], store, undefined, (callIndex) => callIndex === 1);
 
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
     const result = await writeTurnsForTranscript(asPg(db), SESSION_A, lines);
 
     expect(result.erroredChunks).toBe(1);
@@ -277,8 +277,6 @@ describe("writeTurnsForTranscript", () => {
     // chunk (500) did not silently count as written.
     expect(result.written).toBe(700);
     expect(store.size).toBe(700);
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   test("fts_text auto-populates from user + assistant text", async () => {
@@ -403,7 +401,6 @@ describe("writeTurnsForTranscript", () => {
     ] as unknown as RawTurnLine[];
     const store = new Map<string, FakeTurnRow>();
 
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
     const result = await writeTurnsForTranscript(
       asPg(makeDb([], store)),
       SESSION_A,
@@ -413,9 +410,98 @@ describe("writeTurnsForTranscript", () => {
     expect(result.written).toBe(0);
     expect(result.nonEmptyYieldedZero).toBe(true);
     expect(store.size).toBe(0);
-    expect(warnSpy).toHaveBeenCalled();
-    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("yielded");
-    warnSpy.mockRestore();
+  });
+
+  test("wiring: warn events route through the injected log sink, not spyOn(log) (mt#3628)", async () => {
+    // ONE wiring test for this shell's two warn call sites — verifies the
+    // shell actually EMITS what the pure core decided, via an injected
+    // sink rather than patching the shared logger. Behavioral coverage of
+    // the decisions themselves (erroredChunks, nonEmptyYieldedZero) lives in
+    // the return-value assertions above and in the classifyWriteOutcome
+    // unit tests below.
+    const warnCalls: Array<{ message: string }> = [];
+    const logSink: TurnWriterLogSink = {
+      warn: (message) => warnCalls.push({ message }),
+      error: () => {},
+    };
+
+    // Chunk-failure warn path.
+    const TURN_COUNT = 1200;
+    const lines: RawTurnLine[] = [];
+    for (let i = 0; i < TURN_COUNT; i++) {
+      lines.push(userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2));
+    }
+    const chunkFailDb = makeDb([], new Map(), undefined, (callIndex) => callIndex === 1);
+    await writeTurnsForTranscript(asPg(chunkFailDb), SESSION_A, lines, logSink);
+    expect(warnCalls.some((c) => c.message.includes("failed to upsert a chunk"))).toBe(true);
+
+    // Non-empty-yielded-zero warn path.
+    warnCalls.length = 0;
+    const unrecognizedTranscript = [
+      { type: "system", timestamp: TS1, message: { role: "system", content: "boot" } },
+    ] as unknown as RawTurnLine[];
+    await writeTurnsForTranscript(
+      asPg(makeDb([], new Map())),
+      SESSION_A,
+      unrecognizedTranscript,
+      logSink
+    );
+    expect(warnCalls.some((c) => c.message.includes("yielded"))).toBe(true);
+  });
+});
+
+describe("classifyWriteOutcome (pure core, mt#3628)", () => {
+  test("a total write failure (erroredChunks > 0, written === 0) buckets as errored", () => {
+    const result = classifyWriteOutcome({
+      written: 0,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 1,
+    });
+    expect(result).toEqual({ bucket: "errored", turnsWritten: 0, countNonEmptyYieldedZero: false });
+  });
+
+  test("a PARTIAL write (erroredChunks > 0, written > 0) still buckets as errored — never processed", () => {
+    const result = classifyWriteOutcome({
+      written: 700,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 1,
+    });
+    expect(result).toEqual({
+      bucket: "errored",
+      turnsWritten: 700,
+      countNonEmptyYieldedZero: false,
+    });
+  });
+
+  test("a genuinely-empty transcript (written === 0, nonEmptyYieldedZero false) buckets as skipped, uncounted", () => {
+    const result = classifyWriteOutcome({
+      written: 0,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 0,
+    });
+    expect(result).toEqual({ bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: false });
+  });
+
+  test("mt#2457 SC3: a non-empty-yielded-zero transcript buckets as skipped, but IS counted", () => {
+    const result = classifyWriteOutcome({
+      written: 0,
+      nonEmptyYieldedZero: true,
+      erroredChunks: 0,
+    });
+    expect(result).toEqual({ bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: true });
+  });
+
+  test("a clean write (written > 0, no errors) buckets as processed", () => {
+    const result = classifyWriteOutcome({
+      written: 5,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 0,
+    });
+    expect(result).toEqual({
+      bucket: "processed",
+      turnsWritten: 5,
+      countNonEmptyYieldedZero: false,
+    });
   });
 });
 
@@ -460,11 +546,9 @@ describe("extractTurnsForAllTranscripts", () => {
     ];
     const store = new Map<string, FakeTurnRow>();
 
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
     const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
       fetchPage: makeFetchPage(rows).fetchPage,
     });
-    warnSpy.mockRestore();
 
     expect(result.transcriptsScanned).toBe(3);
     expect(result.transcriptsProcessed).toBe(1);
@@ -561,12 +645,10 @@ describe("extractTurnsForAllTranscripts", () => {
       throw new Error("simulated fetch failure");
     };
 
-    const errorSpy = spyOn(log, "error").mockImplementation(() => {});
     const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
       fetchPage: flakyFetchPage,
       batchSize: 2,
     });
-    errorSpy.mockRestore();
 
     expect(result.aborted).toBe(true);
     // The first page's rows were still processed before the abort.
@@ -589,11 +671,9 @@ describe("extractTurnsForAllTranscripts", () => {
     const store = new Map<string, FakeTurnRow>();
     const db = makeDb(rows, store, undefined, (callIndex) => callIndex === 1);
 
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
     const result = await extractTurnsForAllTranscripts(asPg(db), {
       fetchPage: makeFetchPage(rows).fetchPage,
     });
-    warnSpy.mockRestore();
 
     expect(result.transcriptsScanned).toBe(1);
     expect(result.transcriptsErrored).toBe(1);

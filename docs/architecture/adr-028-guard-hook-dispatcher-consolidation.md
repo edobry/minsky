@@ -183,7 +183,13 @@ pure function in sequence within the same process — mirroring `PreCommitHook.r
 step-by-step shape.
 
 **Output aggregation** (a concrete implementation constraint surfaced by researching Claude
-Code's hook contract): a hook's `stdout` must be exactly one JSON object. For deny-capable
+Code's hook contract): a hook's `stdout` must be exactly one JSON object. **This is enforced by
+Claude Code silently, and destructively (mt#3625): on PreToolUse, stdout carrying ANYTHING besides
+that object causes the harness to discard the hook's ENTIRE output — the guard's `deny` never
+takes effect, the tool runs, and nothing is logged. Measured with controls (mt#3612 / PR #2573);
+the dispatcher violated it on its own audit paths for months. Guard diagnostics therefore go to
+STDERR, and the dispatcher deliberately exposes no general-purpose stdout writer beside the JSON
+emitter.** For deny-capable
 events (`PreToolUse`), the dispatcher **short-circuits on the first `deny`** — preserving
 today's implicit "first hook's denial fires first" ordering (documented ad hoc in
 `block-subagent-bypass-merge.ts`'s comments), now made an **explicit, declared property of the
