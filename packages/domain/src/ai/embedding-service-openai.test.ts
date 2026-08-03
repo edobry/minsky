@@ -404,6 +404,12 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
     // Bounded: well under the 1800s hang this replaces, and comfortably above
     // the configured bound. Generous upper bound to stay non-flaky under load.
     expect(elapsed).toBeLessThan(5000);
+    // The `- 50` is the LOWER bound's tolerance, and it is load-bearing (mt#3551):
+    // a real elapsed measurement compared against the exact configured bound can
+    // land a hair under it — the sibling assertion in push-operations.test.ts read
+    // 19 against a 20ms bound in CI and failed the required `build` check. 50ms
+    // against a 150ms bound is ~33% margin, far above the ~1-2ms skew involved.
+    // Do not tighten it to `TIMEOUT_MS`.
     expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_MS - 50);
   });
 
