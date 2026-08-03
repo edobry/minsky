@@ -14,10 +14,16 @@ import { isSensitiveKey } from "../../../../utils/redaction";
  * the standalone isSensitiveKey export in redaction.ts. Both share identical
  * matching semantics including hyphen normalization (mt#1181 Finding 2).
  *
+ * Exported (mt#3634) so `maskCredentialsInEffectiveValues` masks by the SAME
+ * value traversal instead of a second, path-only heuristic. Two independent
+ * maskers over the same data is what let them diverge: this one recursed into
+ * values and the other did not, so a credential nested inside a composite
+ * effective-value was emitted in plaintext.
+ *
  * @param value  Any config value (object, array, or primitive)
  * @returns      A new value with sensitive keys replaced by the masked sentinel
  */
-function maskConfigValue(value: unknown): unknown {
+export function maskConfigValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return value;
   }
@@ -101,7 +107,17 @@ export function maskCredentialsInEffectiveValues(
         value: maskValue(valueInfo.value),
       };
     } else {
-      masked[path] = valueInfo;
+      // mt#3634: a non-sensitive PATH does not mean a non-sensitive VALUE.
+      // `isSensitivePath` only inspects the key path, so a composite value
+      // (object or array) carrying a nested credential used to pass through
+      // verbatim — `knowledgeBases` is one segment, not a sensitive key, and
+      // its `[0].auth.token` was emitted in plaintext while the same token was
+      // correctly masked in the sibling `configuration` tree.
+      //
+      // Traversing the value with the same masker the sibling uses closes that
+      // asymmetry. Scalars are returned unchanged, so non-sensitive scalar
+      // entries keep their real values as before.
+      masked[path] = { ...valueInfo, value: maskConfigValue(valueInfo.value) };
     }
   }
 

@@ -10,6 +10,7 @@ import { maskCredentials, maskCredentialsInEffectiveValues } from "./helpers";
 
 // Shared path constants — reused across tests to satisfy no-magic-string-duplication
 const PATH_AI_OPENAI_APIKEY = "ai.providers.OpenAI.apiKEY";
+const PATH_AI_OPENAI_MODEL = "ai.providers.openai.model";
 
 // ─── maskCredentials (Finding 1) ─────────────────────────────────────────────
 
@@ -119,9 +120,9 @@ describe("maskCredentialsInEffectiveValues — isSensitivePath (case-insensitive
   });
 
   test("non-sensitive paths are not masked", () => {
-    const ev = { "ai.providers.openai.model": entry("gpt-4o") };
+    const ev = { [PATH_AI_OPENAI_MODEL]: entry("gpt-4o") };
     const result = maskCredentialsInEffectiveValues(ev, false);
-    expect(result["ai.providers.openai.model"]?.value).toBe("gpt-4o");
+    expect(result[PATH_AI_OPENAI_MODEL]?.value).toBe("gpt-4o");
   });
 
   test("showSecrets=true bypasses masking entirely", () => {
@@ -158,6 +159,104 @@ describe("maskCredentialsInEffectiveValues — isSensitivePath (case-insensitive
     const ev = { "proxy-authorization": entry("Basic xyz") };
     const result = maskCredentialsInEffectiveValues(ev, false);
     expect(result["proxy-authorization"]?.value).toMatch(/\*{20}/);
+  });
+});
+
+// ─── mt#3634: composite values under a non-sensitive path ────────────────────
+
+describe("maskCredentialsInEffectiveValues — masks credentials NESTED IN VALUES", () => {
+  // Every pre-existing test in the block above passes a scalar string, which is
+  // why the gap survived: `isSensitivePath` inspects the KEY PATH only, so a
+  // composite value under a non-sensitive path was returned verbatim. The
+  // originating leak was `knowledgeBases[0].auth.token` — a live Notion token
+  // emitted in full while the identical value was masked in the `configuration`
+  // tree by the sibling masker.
+  //
+  // These assert the GENERAL form, not the array shape that happened to leak.
+  const SECRET = "ntn_liveTokenValue";
+
+  function compositeEntry(value: unknown) {
+    return { value, source: "user", path: "knowledgeBases" };
+  }
+
+  test("array of objects: a nested token under a non-sensitive path is masked (the originating leak)", () => {
+    const ev = {
+      knowledgeBases: compositeEntry([
+        { name: "minsky-design", auth: { token: SECRET }, sync: { schedule: "on-demand" } },
+      ]),
+    };
+
+    const result = maskCredentialsInEffectiveValues(ev, false);
+
+    const kb = result.knowledgeBases?.value as Array<Record<string, unknown>>;
+    expect((kb[0]?.auth as Record<string, unknown>).token).toMatch(/\*{20} \(configured\)/);
+    // The whole serialized payload must not carry it anywhere.
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test("plain object (no array): the same leak shape without an array", () => {
+    const ev = { integrations: compositeEntry({ notion: { auth: { token: SECRET } } }) };
+
+    const result = maskCredentialsInEffectiveValues(ev, false);
+
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test("deeply nested inside an array, three levels down", () => {
+    const ev = {
+      services: compositeEntry([{ envs: [{ config: { apiKey: SECRET } }] }]),
+    };
+
+    const result = maskCredentialsInEffectiveValues(ev, false);
+
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test("non-sensitive fields inside the composite are preserved", () => {
+    const ev = {
+      knowledgeBases: compositeEntry([
+        { name: "minsky-design", auth: { token: SECRET }, sync: { schedule: "on-demand" } },
+      ]),
+    };
+
+    const result = maskCredentialsInEffectiveValues(ev, false);
+
+    const kb = result.knowledgeBases?.value as Array<Record<string, unknown>>;
+    expect(kb[0]?.name).toBe("minsky-design");
+    expect((kb[0]?.sync as Record<string, unknown>).schedule).toBe("on-demand");
+  });
+
+  test("showSecrets=true still returns the composite unmasked", () => {
+    const ev = { knowledgeBases: compositeEntry([{ auth: { token: SECRET } }]) };
+
+    const result = maskCredentialsInEffectiveValues(ev, true);
+
+    expect(JSON.stringify(result)).toContain(SECRET);
+  });
+
+  test("a non-sensitive scalar under a non-sensitive path is unchanged", () => {
+    // Guards the regression risk of routing every value through the masker:
+    // ordinary values must still come back as themselves, not "[MASKED]".
+    const ev = {
+      [PATH_AI_OPENAI_MODEL]: entry("gpt-4o"),
+      "logger.maxFiles": { value: 5, source: "defaults", path: "" },
+      "embeddings.normalize": { value: false, source: "defaults", path: "" },
+    };
+
+    const result = maskCredentialsInEffectiveValues(ev, false);
+
+    expect(result[PATH_AI_OPENAI_MODEL]?.value).toBe("gpt-4o");
+    expect(result["logger.maxFiles"]?.value).toBe(5);
+    expect(result["embeddings.normalize"]?.value).toBe(false);
+  });
+
+  test("the input object is not mutated", () => {
+    const original = { auth: { token: SECRET } };
+    const ev = { knowledgeBases: compositeEntry([original]) };
+
+    maskCredentialsInEffectiveValues(ev, false);
+
+    expect(original.auth.token).toBe(SECRET);
   });
 });
 
