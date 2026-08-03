@@ -1650,6 +1650,24 @@ const KIND_FIXTURES: Readonly<
     line: () => makeRetroRecord(),
     expectedGuardName: "turn-end-untaken-action-scan",
   },
+  "retrospective-completeness": {
+    // mt#3601 — its OWN record shape (`missing_sections` / `unverified_task_ids`),
+    // not the matched-phrase family: this log measures whether a retrospective
+    // that FIRED is COMPLETE, which is a different graduation question from
+    // retrospective-trigger's "did one fire at all".
+    line: () =>
+      JSON.stringify({
+        source: "live",
+        timestamp: "2026-08-03T20:00:00Z",
+        session_id: "test-session",
+        triggered_by: "skill-invocation",
+        triage: "process",
+        family_count: 0,
+        missing_sections: ["Verification"],
+        unverified_task_ids: ["mt#2052"],
+      }),
+    expectedGuardName: "retrospective-completeness-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {

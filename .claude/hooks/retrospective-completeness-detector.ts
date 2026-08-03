@@ -96,7 +96,20 @@ export const RETRO_SHAPE_PATTERNS: RegExp[] = [
   /^#{2,3}\s+Failure mode\b/im,
 ];
 
-const TRIAGE_SECTION = /^#{3}\s+Triage\b([\s\S]{0,400})/im;
+/**
+ * Heading depth accepted for a section, used by BOTH `hasSection` and
+ * `TRIAGE_SECTION` (PR #2564 R1).
+ *
+ * These two must agree. They did not: `hasSection` accepted `#{2,4}` while the
+ * triage parse required exactly `#{3}`, so a retrospective writing `## Triage`
+ * was simultaneously "has a Triage section" (not reported missing) and
+ * "declared no triage level" (silently escalated to the full required set).
+ * That combination is the worst of both — the agent is told nothing is missing
+ * while being graded against the strictest bar.
+ */
+const HEADING_DEPTH = "#{2,4}";
+
+const TRIAGE_SECTION = new RegExp(`^${HEADING_DEPTH}\\s+Triage\\b([\\s\\S]{0,400})`, "im");
 
 /**
  * A family recurrence count stated in prose, e.g. "Recurrence count: 5" or
@@ -148,7 +161,7 @@ export function statedFamilyCount(text: string): number {
 /** A `### <Name>` heading is present (matched on the heading, not a prose mention). */
 export function hasSection(text: string, name: string): boolean {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^#{2,4}\\s+${escaped}\\b`, "im").test(text);
+  return new RegExp(`^${HEADING_DEPTH}\\s+${escaped}\\b`, "im").test(text);
 }
 
 export function requiredSectionsFor(level: TriageLevel, familyCount: number): string[] {
@@ -181,12 +194,23 @@ export function citedTaskIds(text: string): string[] {
  */
 export function taskIdsWithStatusRead(turnLines: TranscriptLine[]): Set<string> {
   const read = new Set<string>();
-  const LIVENESS_TOOLS = /tasks_status_get|tasks_get$/;
+  const LIVENESS_TOOLS = /(?:tasks_status_get|tasks_get)$/;
+
+  // `taskId` is the declared param on both tools today. `task` is accepted as
+  // well (PR #2564 R1): several sibling session_* tools spell the same argument
+  // that way, and the failure mode of guessing wrong is asymmetric — a missed
+  // field reports "you never checked this task's status" at an agent that did,
+  // which is the false positive most likely to get the whole detector ignored.
+  const ID_FIELDS = ["taskId", "task"] as const;
 
   const consider = (name: unknown, input: unknown): void => {
     if (typeof name !== "string" || !LIVENESS_TOOLS.test(name)) return;
-    const taskId = (input as Record<string, unknown> | undefined)?.["taskId"];
-    if (typeof taskId === "string") read.add(taskId);
+    const record = input as Record<string, unknown> | undefined;
+    if (!record) return;
+    for (const field of ID_FIELDS) {
+      const value = record[field];
+      if (typeof value === "string" && value.length > 0) read.add(value);
+    }
   };
 
   for (const line of turnLines) {
@@ -248,10 +272,16 @@ export async function run(
   }
 
   if (!input.transcript_path) return null;
-  const lines = ctx.transcriptLines;
-  if (lines.length === 0) return null;
 
   try {
+    // Read INSIDE the try (PR #2564 R1). This access used to sit above the
+    // try, so a throwing `transcriptLines` accessor escaped the degraded
+    // branch and propagated out of the guard entirely — the one failure the
+    // fail-to-degraded invariant most needs to cover, and the only one it did
+    // not. Surfaced by the AT7 test, which could not reach the branch at all.
+    const lines = ctx.transcriptLines;
+    if (lines.length === 0) return null;
+
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
 

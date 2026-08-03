@@ -4,8 +4,10 @@ import {
   citedTaskIds,
   hasRetrospectiveShape,
   hasSection,
+  OVERRIDE_ENV_VAR,
   parseTriageLevel,
   requiredSectionsFor,
+  run,
   statedFamilyCount,
   taskIdsWithStatusRead,
 } from "./retrospective-completeness-detector";
@@ -237,6 +239,79 @@ describe("analyze — AT1..AT5", () => {
     const finding = analyze(COMPLETE_PROCESS_RETRO, []);
     expect(finding.missingSections).toEqual([]);
     expect(finding.unverifiedTaskIds).toEqual([]);
+  });
+});
+
+describe("run — AT6, AT7", () => {
+  const input = {
+    transcript_path: "/tmp/does-not-need-to-exist.jsonl",
+    session_id: "test-session",
+  } as unknown as Parameters<typeof run>[0];
+
+  function ctxWith(lines: unknown): Parameters<typeof run>[1] {
+    return { transcriptLines: lines } as unknown as Parameters<typeof run>[1];
+  }
+
+  function assistantTextLine(text: string): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  test("AT6: runs off whatever turn window the dispatcher supplies", async () => {
+    // The Stop-recorded anchor vs `resolveCompletedTurn` fallback is resolved
+    // UPSTREAM, in the dispatcher, and reaches this guard only as
+    // `ctx.transcriptLines`. What is testable here — and what AT6 actually
+    // constrains for this module — is that the guard produces the same verdict
+    // from a supplied window regardless of how that window was derived.
+    const lines = [
+      { type: "user", message: { role: "user", content: "go" } } as unknown as TranscriptLine,
+      assistantTextLine(PROCESS_RETRO_MISSING_VERIFICATION),
+    ];
+    const outcome = await run(input, ctxWith(lines));
+    expect(outcome).not.toBeNull();
+    expect(outcome?.calibration?.["missing_sections"]).toContain("Verification");
+    expect(outcome?.calibration?.["source"]).toBe("live");
+    // Log-only: it must never spend the agent's attention while unmeasured.
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("AT6: a complete retrospective produces no record", async () => {
+    const lines = [assistantTextLine(COMPLETE_PROCESS_RETRO)];
+    expect(await run(input, ctxWith(lines))).toBeNull();
+  });
+
+  test("AT7: a scan that throws records a degraded marker, not a silent pass", async () => {
+    // ADR-024's fail-to-degraded-never-silent-skip invariant. A throwing
+    // iterator stands in for any structural surprise in the transcript.
+    const explodingCtx = {
+      get transcriptLines(): never {
+        throw new Error("synthetic transcript failure");
+      },
+    } as unknown as Parameters<typeof run>[1];
+    const outcome = await run(input, explodingCtx);
+    expect(outcome).not.toBeNull();
+    expect(outcome?.calibration?.["degraded"]).toContain("synthetic transcript failure");
+    // A degraded scan must be distinguishable from a clean turn — the whole
+    // point of the invariant is that "could not check" never reads as "fine".
+    expect(outcome?.calibration?.["missing_sections"]).toBeUndefined();
+  });
+
+  test("AT7: an empty transcript is a no-op, not a degraded record", async () => {
+    expect(await run(input, ctxWith([]))).toBeNull();
+  });
+
+  test("the override env var short-circuits to an audit line", async () => {
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const lines = [assistantTextLine(PROCESS_RETRO_MISSING_VERIFICATION)];
+      const outcome = await run(input, ctxWith(lines));
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+      expect(outcome?.calibration).toBeUndefined();
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });
 
