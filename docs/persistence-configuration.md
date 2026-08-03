@@ -1,8 +1,7 @@
 # Postgres Persistence Configuration
 
 This document covers the runtime behavior of the Postgres persistence backend introduced in
-mt#1193: connection pool sizing, the socket inactivity bound that keeps a half-open connection from
-wedging the pool (mt#3092), connection-exhaustion retry policy, and MCP graceful shutdown.
+mt#1193: connection pool sizing, connection-exhaustion retry policy, and MCP graceful shutdown.
 For migrating between backends, see [SessionDB Migration Guide](./sessiondb-migration-guide.md).
 For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-troubleshooting.md).
 
@@ -66,64 +65,6 @@ The `PostgresStorageConfig.maxConnections` field (used when constructing `Postgr
 directly) is **informational only**. `PostgresStorage` reuses the connection pool opened by
 `PostgresPersistenceProvider` — it does not open its own sockets. The pool size that matters is
 the one set on the provider via the config key or env var described above.
-
-## Socket Inactivity Bound (mt#3092)
-
-Every pooled connection's socket carries an **inactivity timeout**. If no bytes move in either
-direction for that long, the socket is destroyed and postgres-js errors whatever query was in
-flight on it.
-
-### Why this exists
-
-Without it, a **half-open connection** — one dropped at the network level without the client being
-notified — leaves the query promise **permanently unsettled**: no error, no rejection, nothing to
-catch. The connection is never returned to the pool, and after `maxConnections` of them the pool is
-dead and every DB-backed route hangs until the process restarts. That happened three times to the
-cockpit daemon (2026-07-23, 2026-08-01, 2026-08-03), twice within one hour on the last day.
-
-This is documented upstream as
-[porsager/postgres#1089](https://github.com/porsager/postgres/issues/1089), and the socket-level
-timeout is the remedy confirmed there. Note that **`keep_alive` does not detect this** — #1089 says
-so explicitly. It is the obvious-looking fix and it is the wrong one.
-
-Destroying the socket is what repairs the pool: postgres-js already errors an in-flight query when
-its socket closes, so forcing the close converts "never settles" into a `CONNECTION_CLOSED`
-rejection, which releases the slot.
-
-### How the value is chosen
-
-**The bound is derived from `idleTimeout` — there is no separate config key.** Two options that
-could contradict each other would be a worse failure mode than the one being fixed.
-
-`socket.setTimeout` measures INACTIVITY, and a healthy idle pooled connection is inactive by
-definition. So any value below `idleTimeout` would start destroying healthy connections earlier
-than the idle policy already does, adding reconnect churn against the pooler (~200-350 ms per TLS
-handshake) for no benefit. Matching it means the bound costs nothing on healthy connections — they
-were going to be closed at that point anyway — while capping the pathological case.
-
-| `persistence.postgres.idleTimeout`  | Socket inactivity bound           |
-| ----------------------------------- | --------------------------------- |
-| unset                               | 60 s (the `idle_timeout` default) |
-| `0` (postgres-js: "never idle out") | **60 s** — floored, see below     |
-| any positive N                      | N seconds                         |
-
-### The `idleTimeout: 0` floor
-
-postgres-js reads `idle_timeout: 0` as "never idle out"; Node reads `setTimeout(0)` as "no timeout."
-Composing them literally would silently reintroduce the unbounded hang this bound exists to prevent
-— a config value meaning "keep connections alive longer" would instead mean "let a dead connection
-wedge the pool forever." So a non-positive `idleTimeout` floors the socket bound at 60 s rather than
-disabling it.
-
-If you genuinely want long-lived idle connections, set `idleTimeout` to a large positive value
-rather than `0`; the socket bound will track it.
-
-### Operating signal
-
-A connection killed this way surfaces as a `CONNECTION_CLOSED` query error, not as a hang. In the
-cockpit that shows up on `/api/health` as `db: "degraded"` (mt#3563) and clears on its own once the
-pool re-establishes — **no restart should be required**. If a wedge still requires a manual daemon
-restart, this bound is not doing its job; that is the signal to reopen mt#3092.
 
 ## Connection-Exhaustion Retry Policy
 

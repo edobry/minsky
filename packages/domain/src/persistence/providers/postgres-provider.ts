@@ -5,7 +5,6 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -168,107 +167,17 @@ function resolveMaxConnections(configured: number | undefined): number {
  * SELECT-1-validated client to the provider for reuse instead of each opening a
  * separate remote TLS handshake to the pooler.
  */
-/**
- * Fallback socket inactivity bound, in seconds, when `idleTimeout` is unset or
- * disabled (mt#3092). See {@link resolveSocketTimeoutMs}.
- */
-const DEFAULT_SOCKET_TIMEOUT_SECONDS = 60;
-
-/**
- * How long a connection's socket may sit with NO traffic before we destroy it.
- *
- * Derived from `idle_timeout` rather than introducing a config key of its own,
- * so the two can never drift into contradicting each other. `socket.setTimeout`
- * measures INACTIVITY, and a healthy idle pooled connection is inactive by
- * definition — so any value below `idle_timeout` would start destroying healthy
- * connections earlier than the idle policy already does, adding reconnect churn
- * against the pooler (~200-350ms per TLS handshake) for no benefit. Matching it
- * means this bound costs nothing on healthy connections: they were going to be
- * closed at that point anyway.
- *
- * `idle_timeout: 0` means "never idle out" in postgres-js, and `setTimeout(0)`
- * means "no timeout" in Node — so that combination would silently reintroduce
- * the unbounded hang this exists to prevent. Floor it instead.
- */
-export function resolveSocketTimeoutMs(idleTimeoutSeconds: number | undefined): number {
-  const seconds =
-    typeof idleTimeoutSeconds === "number" && idleTimeoutSeconds > 0
-      ? idleTimeoutSeconds
-      : DEFAULT_SOCKET_TIMEOUT_SECONDS;
-  return seconds * 1000;
-}
-
-/**
- * Build a socket that cannot sit half-open forever (mt#3092).
- *
- * THE PROBLEM. When a connection is dropped at the network level without the
- * client being notified — a half-open connection — postgres-js's query promise
- * is never settled: no error, no rejection, nothing to catch. The connection
- * stays checked out of the pool permanently, and after `max` such queries the
- * pool is dead and every route hangs. Observed three times (2026-07-23,
- * 2026-08-01, 2026-08-03); each recovered only by restarting the daemon.
- *
- * This is a known postgres-js behaviour, not a Minsky one:
- * https://github.com/porsager/postgres/issues/1089 ("Indefinitely waiting
- * queries"), reproduced upstream with 100% packet loss on the loopback. Its
- * confirmed remedy is this: a socket-level inactivity timeout via the `socket`
- * option. Note that `keep_alive` does NOT detect this — #1089 says so
- * explicitly, and it is the obvious-looking fix.
- *
- * WHY DESTROYING THE SOCKET IS THE FIX. postgres-js already errors an in-flight
- * query when its socket closes (`connection.js`, the `closed()` handler:
- * `!hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', ...))`).
- * The queries hang precisely because the socket never closes. Forcing a close
- * converts "never settles" into a `CONNECTION_CLOSED` rejection — which releases
- * the pool slot, and gives the layers above an actual error to classify
- * (mt#3398's 503 path) and report (mt#3563's `/api/health` reachability probe).
- */
-export function createBoundedSocket(timeoutMs: number): net.Socket {
-  const socket = new net.Socket();
-  socket.setTimeout(timeoutMs, () => {
-    // resetAndDestroy sends a TCP RST, which is what upstream #1089 recommends:
-    // it tells the peer the connection is gone rather than leaving it to time
-    // out on its own. Guarded for availability — `destroy()` is the fallback and
-    // is sufficient, since what we actually need is the 'close' that makes
-    // postgres-js settle the pending query, and both produce it.
-    //
-    // Neither call throws synchronously, but destroying a socket that never
-    // connected emits an ASYNC 'error' (`ERR_SOCKET_CLOSED`). That is handled in
-    // production: postgres-js attaches `x.on('error', ...)` immediately after
-    // calling this factory (`connection.js`, `createSocket`). A direct caller of
-    // `createBoundedSocket` must attach its own listener — the unit tests do.
-    if (typeof socket.resetAndDestroy === "function") {
-      socket.resetAndDestroy();
-    } else {
-      socket.destroy();
-    }
-  });
-  return socket;
-}
-
 export function buildPostgresClient(
   pgConfig: NonNullable<PersistenceConfig["postgres"]>,
   factory: typeof postgres = postgres
 ): ReturnType<typeof postgres> {
-  const socketTimeoutMs = resolveSocketTimeoutMs(pgConfig.idleTimeout);
-  const options = {
+  return factory(pgConfig.connectionString, {
     max: resolveMaxConnections(pgConfig.maxConnections),
     connect_timeout: pgConfig.connectTimeout || 10,
     idle_timeout: pgConfig.idleTimeout || 60,
     prepare: pgConfig.prepareStatements ?? false,
     onnotice: logPostgresNotice,
-  };
-  // mt#3092. postgres-js calls this factory instead of `new net.Socket()` and
-  // then upgrades the result to TLS itself when ssl is in play, so a plain
-  // socket is the supported shape for a Supabase pooler connection.
-  //
-  // Assigned rather than declared inline because `socket` is missing from the
-  // types shipped with postgres@3.4.8 (`types/index.d.ts` has no such key)
-  // while the runtime honours it (`connection.js`, `createSocket`) and the
-  // README documents it. Keeping the cast to this ONE key preserves full type
-  // checking on every option above it.
-  (options as Record<string, unknown>).socket = () => createBoundedSocket(socketTimeoutMs);
-  return factory(pgConfig.connectionString, options);
+  });
 }
 
 /**

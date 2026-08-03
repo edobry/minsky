@@ -8,9 +8,6 @@ import {
   PostgresVectorPersistenceProvider,
   resolveMigrationsFolder,
   shouldAutoMigrate,
-  resolveSocketTimeoutMs,
-  createBoundedSocket,
-  buildPostgresClient,
 } from "./postgres-provider";
 // mt#1767 — `resolveMigrationsFolder()` operates on real filesystem state by
 // design (it must verify the deployed bundle's migrations folder exists).
@@ -700,59 +697,5 @@ describe("PostgresPersistenceProvider.initialize() auto-migrate (mt#1767)", () =
     // against this stub factory's non-real DB).
     await provider.initialize({ postgresFactory: factory as any });
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
-  });
-});
-
-describe("half-open connection bound (mt#3092)", () => {
-  test("resolveSocketTimeoutMs tracks idle_timeout so the two cannot contradict", () => {
-    expect(resolveSocketTimeoutMs(60)).toBe(60_000);
-    expect(resolveSocketTimeoutMs(30)).toBe(30_000);
-  });
-
-  test("a disabled or absent idle_timeout still yields a real bound", () => {
-    // postgres-js reads idle_timeout: 0 as "never idle out" and Node reads
-    // setTimeout(0) as "no timeout" — composing them would silently restore the
-    // unbounded hang this whole change exists to remove.
-    expect(resolveSocketTimeoutMs(0)).toBeGreaterThan(0);
-    expect(resolveSocketTimeoutMs(undefined)).toBeGreaterThan(0);
-    expect(resolveSocketTimeoutMs(-5)).toBeGreaterThan(0);
-  });
-
-  test("the socket destroys itself when its inactivity timeout fires", () => {
-    const socket = createBoundedSocket(50);
-    // Destroying a never-connected socket emits an async ERR_SOCKET_CLOSED.
-    // postgres-js attaches this listener itself right after calling the factory;
-    // a direct caller has to stand in for it.
-    socket.on("error", () => {});
-    expect(socket.destroyed).toBe(false);
-
-    // Drive the handler the way Node would, rather than waiting out real time.
-    socket.emit("timeout");
-
-    expect(socket.destroyed).toBe(true);
-  });
-
-  test("buildPostgresClient supplies the socket factory to postgres-js", () => {
-    let captured: Record<string, unknown> | undefined;
-    const fakeFactory = ((_conn: string, options: Record<string, unknown>) => {
-      captured = options;
-      return {} as unknown as ReturnType<typeof import("postgres")>;
-    }) as unknown as typeof import("postgres");
-
-    buildPostgresClient(
-      { connectionString: "postgres://u:p@h:6543/db", idleTimeout: 45 } as NonNullable<
-        PersistenceConfig["postgres"]
-      >,
-      fakeFactory
-    );
-
-    // Without this option postgres-js calls `new net.Socket()` itself and no
-    // inactivity bound exists — which is the pre-mt#3092 state.
-    expect(typeof captured?.socket).toBe("function");
-
-    const produced = (captured?.socket as () => import("node:net").Socket)();
-    produced.on("error", () => {});
-    produced.emit("timeout");
-    expect(produced.destroyed).toBe(true);
   });
 });
