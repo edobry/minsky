@@ -572,6 +572,11 @@ describe("parseCalibrationRecord", () => {
     });
     expect(parseCalibrationRecord(line, "wall-of-text")).toBeNull();
   });
+
+  // mt#3576's `excerpt` parse tests live in the sibling
+  // `calibration-sweep-wall-of-text.test.ts` — this file sits at the 1500-line
+  // ESLint ceiling and several tasks append to it concurrently, so a per-record
+  // -kind file is the place to grow.
 });
 
 // ---------------------------------------------------------------------------
