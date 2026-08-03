@@ -89,18 +89,34 @@ const PORT = 34173; // Fixed high port unlikely to collide; CI runs in an isolat
 
 let child: ReturnType<typeof spawn> | undefined;
 
+/**
+ * Poll `url` until it answers HTTP 200, or `timeoutMs` elapses.
+ *
+ * Returns the LAST response observed (200 on success, whatever non-200 the
+ * server last returned on timeout) rather than the first response of any
+ * status — a connection succeeding doesn't mean the app is ready yet (e.g. a
+ * transient 503/404 mid-boot), and stopping on that first response was
+ * exactly the flakiness bug this function existed to avoid (mt#3611 PR
+ * #2581 R1): the poll loop would return early on a warmup response and the
+ * caller's assertions would then fail permanently instead of the loop
+ * retrying until either success or the real timeout.
+ */
 async function waitForServer(url: string, timeoutMs: number): Promise<Response | undefined> {
   const deadline = Date.now() + timeoutMs;
+  let lastResponse: Response | undefined;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url);
-      return res;
+      if (res.status === 200) {
+        return res;
+      }
+      lastResponse = res;
     } catch {
       // Not up yet — retry.
     }
     await new Promise((r) => setTimeout(r, 300));
   }
-  return undefined;
+  return lastResponse;
 }
 
 try {
