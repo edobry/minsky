@@ -12,6 +12,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   labelFires,
+  toGuardEvaluations,
   toThresholdObservations,
   summarizeLabels,
   type GuardEvaluation,
@@ -120,12 +121,87 @@ describe("labelFires — sequencing boundaries", () => {
     expect(labeled).toHaveLength(2);
     for (const fire of labeled) {
       expect(fire.response).toBe("unknown");
-      expect(fire.basis).toBe("no-session-id");
+      expect(fire.basis).toBe("unsequenceable");
     }
   });
 
   test("a non-fire with no session id is discarded entirely", () => {
     expect(labelFires([evaluation({ fired: false, sessionId: null })])).toEqual([]);
+  });
+
+  // PR #2569 R1. An unparseable timestamp used to sort to the END of its group,
+  // which made it the "next evaluation" of the genuinely-last fire — silently
+  // relabeling that fire off a junk record.
+  test("an unparseable timestamp cannot become the next evaluation of a real fire", () => {
+    const labeled = labelFires([
+      evaluation({ timestamp: at(0) }),
+      evaluation({ timestamp: "not-a-timestamp", fired: false }),
+    ]);
+
+    const realFire = labeled.find((f) => f.timestamp === at(0));
+    expect(realFire?.response).toBe("unknown");
+    expect(realFire?.basis).toBe("no-subsequent-evaluation");
+  });
+
+  test("a FIRE with an unparseable timestamp is surfaced as unsequenceable", () => {
+    const labeled = labelFires([evaluation({ timestamp: "not-a-timestamp" })]);
+
+    expect(labeled).toHaveLength(1);
+    expect(labeled[0]?.basis).toBe("unsequenceable");
+    expect(labeled[0]?.response).toBe("unknown");
+  });
+});
+
+/**
+ * PR #2569 R1 — the emit and consume shapes differ, and nothing bridged them
+ * before this adapter, so the two halves of this task did not actually connect.
+ */
+describe("toGuardEvaluations — bridging the emitted record shape", () => {
+  const emitted = {
+    timestamp: at(0),
+    session_id: SESSION_A,
+    guardName: GUARD,
+    turnAnchor: "a::b",
+    gapMinutes: 8.43,
+    toolCallCount: 18,
+    fired: true,
+  };
+
+  test("maps session_id onto sessionId and selects the named measured field", () => {
+    const [byGap] = toGuardEvaluations([emitted], "gapMinutes");
+    expect(byGap?.sessionId).toBe(SESSION_A);
+    expect(byGap?.observedValue).toBe(8.43);
+    expect(byGap?.fired).toBe(true);
+
+    // The SAME record answers a different threshold's question differently —
+    // which is why the record cannot carry a single `observedValue` itself.
+    const [byCalls] = toGuardEvaluations([emitted], "toolCallCount");
+    expect(byCalls?.observedValue).toBe(18);
+  });
+
+  test("a missing or non-finite measured field yields null, never a coerced number", () => {
+    const [missing] = toGuardEvaluations([emitted], "notAField");
+    expect(missing?.observedValue).toBeNull();
+
+    const [nonFinite] = toGuardEvaluations([{ ...emitted, gapMinutes: NaN }], "gapMinutes");
+    expect(nonFinite?.observedValue).toBeNull();
+  });
+
+  test("a record missing fired is not treated as a fire", () => {
+    const [noFired] = toGuardEvaluations([{ ...emitted, fired: undefined }], "gapMinutes");
+    expect(noFired?.fired).toBe(false);
+  });
+
+  test("round-trips an emitted corpus through labeling into the decider's input", () => {
+    const records = [
+      { ...emitted, timestamp: at(0), fired: true },
+      { ...emitted, timestamp: at(5), fired: true },
+      { ...emitted, timestamp: at(10), fired: false, gapMinutes: 2 },
+    ];
+
+    const labeled = labelFires(toGuardEvaluations(records, "gapMinutes"));
+    expect(summarizeLabels(labeled)).toEqual({ heeded: 1, dismissed: 1, unknown: 0 });
+    expect(toThresholdObservations(labeled, GUARD)).toHaveLength(2);
   });
 });
 

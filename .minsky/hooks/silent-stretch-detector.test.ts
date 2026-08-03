@@ -556,6 +556,22 @@ describe("run() (dispatcher-compatible)", () => {
     expect(records).toEqual([]);
   });
 
+  // PR #2569 R1: sessionHasLoggedKey returns false whenever the session id is
+  // falsy — it cannot match a record it cannot key — so emitting here would
+  // append on EVERY evaluation with no upper bound.
+  test("an evaluation with no session id is skipped rather than written undeduped", () => {
+    const { deps, records } = capturingDeps();
+    const input: ClaudeHookInput = { ...HOOK_INPUT, session_id: "" };
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+
+    run(input, makeCtx(transcriptLines), deps);
+    expect(records).toEqual([]);
+  });
+
   test("no transcript_path -> null", () => {
     const input: ClaudeHookInput = {
       session_id: "test",

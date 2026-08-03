@@ -67,6 +67,32 @@ export interface GuardEvaluation {
   fired: boolean;
 }
 
+/**
+ * The on-disk record shape the hook side writes (PR #2569 R1).
+ *
+ * It does NOT match {@link GuardEvaluation}, and that mismatch was previously
+ * undocumented and unbridged — the two halves of this task shipped without a
+ * join, so nothing could actually read the emitted stream. Two differences, both
+ * deliberate rather than accidental:
+ *
+ * - **Field naming.** The hook writes `session_id`, matching the convention of
+ *   every existing `.minsky/*-calibration.jsonl` record (and what
+ *   `sessionHasLoggedKey` keys on). Renaming it there to suit this module would
+ *   break that convention for one consumer's benefit.
+ * - **No `observedValue`.** A record carries the guard's measured values under
+ *   their own names — `gapMinutes`, `toolCallCount` — because
+ *   `silent-stretch-detector` has TWO tunable thresholds and a record cannot
+ *   know which one a later tuning pass is asking about. Selecting one is the
+ *   caller's decision, made at read time by {@link toGuardEvaluations}.
+ */
+export interface EmittedEvaluationRecord {
+  timestamp?: unknown;
+  session_id?: unknown;
+  guardName?: unknown;
+  fired?: unknown;
+  [measuredField: string]: unknown;
+}
+
 export interface LabeledFire {
   timestamp: string;
   guardName: string;
@@ -81,7 +107,34 @@ export type LabelBasis =
   | "next-evaluation-fired"
   | "next-evaluation-did-not-fire"
   | "no-subsequent-evaluation"
-  | "no-session-id";
+  | "unsequenceable";
+
+/**
+ * Bridge the emitted record shape onto {@link GuardEvaluation} (PR #2569 R1).
+ *
+ * `valueField` names which measured field is the observed value for the
+ * threshold being tuned — `"gapMinutes"` or `"toolCallCount"` for
+ * `silent-stretch-detector`. A record missing that field, or carrying a
+ * non-finite value for it, yields `observedValue: null` rather than a coerced
+ * number: the adapter downstream drops those instead of letting a placeholder
+ * drag a percentile.
+ */
+export function toGuardEvaluations(
+  records: EmittedEvaluationRecord[],
+  valueField: string
+): GuardEvaluation[] {
+  return records.map((record) => {
+    const raw = record[valueField];
+    const observedValue = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    return {
+      timestamp: typeof record["timestamp"] === "string" ? record["timestamp"] : "",
+      guardName: typeof record["guardName"] === "string" ? record["guardName"] : "",
+      sessionId: typeof record["session_id"] === "string" ? record["session_id"] : null,
+      observedValue,
+      fired: record["fired"] === true,
+    };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Labeling
@@ -91,24 +144,29 @@ const BASIS_TO_RESPONSE: Record<LabelBasis, ObservationResponse> = {
   "next-evaluation-fired": "dismissed",
   "next-evaluation-did-not-fire": "heeded",
   "no-subsequent-evaluation": "unknown",
-  "no-session-id": "unknown",
+  unsequenceable: "unknown",
 };
 
-/** Stable sort by timestamp; unparseable timestamps sort last and never become an anchor. */
+/** Ascending by timestamp. Only ever called on records already known sequenceable. */
 function byTimestamp(a: { timestamp: string }, b: { timestamp: string }): number {
-  const ta = Date.parse(a.timestamp);
-  const tb = Date.parse(b.timestamp);
-  const va = Number.isFinite(ta);
-  const vb = Number.isFinite(tb);
-  if (!va && !vb) return 0;
-  if (!va) return 1;
-  if (!vb) return -1;
-  return ta - tb;
+  return Date.parse(a.timestamp) - Date.parse(b.timestamp);
 }
 
+/**
+ * The grouping key, or null when this record cannot be ordered at all
+ * (PR #2569 R1).
+ *
+ * Two conditions make a record unsequenceable, and they are one class: a
+ * missing session id (nothing to order it WITHIN) and an unparseable timestamp
+ * (nothing to order it BY). An earlier version handled only the first and sorted
+ * bad timestamps to the END, which is worse than dropping them — a junk record
+ * sorted last becomes the "next evaluation" of the genuinely-last fire and
+ * silently relabels it.
+ */
 function groupKey(evaluation: GuardEvaluation): string | null {
   const sessionId = evaluation.sessionId;
   if (typeof sessionId !== "string" || sessionId.trim() === "") return null;
+  if (!Number.isFinite(Date.parse(evaluation.timestamp))) return null;
   // A printable separator, not a NUL: guard names and session ids never contain
   // a pipe, and the pre-commit NUL check blocks the invisible alternative.
   return `${evaluation.guardName}|${sessionId}`;
@@ -137,12 +195,12 @@ function groupKey(evaluation: GuardEvaluation): string | null {
  */
 export function labelFires(evaluations: GuardEvaluation[]): LabeledFire[] {
   const groups = new Map<string, GuardEvaluation[]>();
-  const orphanedFires: GuardEvaluation[] = [];
+  const unsequenceableFires: GuardEvaluation[] = [];
 
   for (const evaluation of evaluations) {
     const key = groupKey(evaluation);
     if (key === null) {
-      if (evaluation.fired) orphanedFires.push(evaluation);
+      if (evaluation.fired) unsequenceableFires.push(evaluation);
       continue;
     }
     const bucket = groups.get(key);
@@ -178,18 +236,23 @@ export function labelFires(evaluations: GuardEvaluation[]): LabeledFire[] {
     }
   }
 
-  for (const evaluation of orphanedFires) {
+  // Surfaced rather than dropped: a fire that happened is a fact, even when it
+  // cannot be sequenced. It labels `unknown`, so it can never move a threshold.
+  for (const evaluation of unsequenceableFires) {
     labeled.push({
       timestamp: evaluation.timestamp,
       guardName: evaluation.guardName,
-      sessionId: "",
+      sessionId: typeof evaluation.sessionId === "string" ? evaluation.sessionId : "",
       observedValue: evaluation.observedValue,
-      response: BASIS_TO_RESPONSE["no-session-id"],
-      basis: "no-session-id",
+      response: BASIS_TO_RESPONSE.unsequenceable,
+      basis: "unsequenceable",
     });
   }
 
-  return labeled.sort(byTimestamp);
+  // Sequenceable records sort by time; unsequenceable ones have no position to
+  // sort into, so they are appended and left where they are.
+  const sequenceable = labeled.filter((f) => f.basis !== "unsequenceable").sort(byTimestamp);
+  return [...sequenceable, ...labeled.filter((f) => f.basis === "unsequenceable")];
 }
 
 // ---------------------------------------------------------------------------

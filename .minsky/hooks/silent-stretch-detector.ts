@@ -642,8 +642,16 @@ export function run(
   // firing twice — turning one fire into a false `dismissed`.
   const appendEvaluation = deps.appendEvaluationRecordFn ?? appendEvaluationRecord;
   const readEvaluationLogTextFn = deps.readEvaluationLogTextFn ?? readEvaluationLogText;
+  // A record with no session id is skipped entirely rather than written
+  // undeduped (PR #2569 R1). `sessionHasLoggedKey` returns false whenever the
+  // session id is falsy — it cannot match a record it cannot key — so emitting
+  // here would append on EVERY evaluation with no upper bound. Skipping loses
+  // nothing: the labeler sequences within a session, so a record with no
+  // session id could never be ordered against anything anyway.
+  const hasSessionId = typeof input.session_id === "string" && input.session_id.trim() !== "";
   if (
     turnAnchor &&
+    hasSessionId &&
     !sessionHasLoggedKey(
       readEvaluationLogTextFn(input.cwd),
       input.session_id,
