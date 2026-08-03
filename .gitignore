@@ -54,6 +54,11 @@ services/reviewer/eval/results/
 # workspace (hooks running with a subpackage cwd spill logs into e.g.
 # cockpit-tray/.minsky/ and infra/.minsky/).
 **/.minsky/*-calibration.jsonl
+# Same class, different suffix — the `-calibration` pattern above missed it, and
+# `silent-stretch-evaluations.jsonl` got committed by an unrelated PR as a result
+# (mt#3620). Detector telemetry is local runtime data regardless of what the file
+# is called.
+**/.minsky/*-evaluations.jsonl
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 **/.minsky/calibration-review-cadence-last-warned.json
