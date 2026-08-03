@@ -418,8 +418,7 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
         });
       }
 
-      const start = performance.now();
-      const { maximal, suppressed } = collapseToMaximalClusters(clusters);
+      const { maximal, suppressed, comparisons } = collapseToMaximalClusters(clusters);
       let refinedCount = 0;
       let excludedCount = 0;
       for (const c of maximal) {
@@ -427,15 +426,84 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
         if (outcome.kind === "excluded") excludedCount++;
         else refinedCount++;
       }
-      const elapsed = performance.now() - start;
 
       // Every candidate accounted for — collapse never silently drops one.
       expect(maximal.length + suppressed.length).toBe(N);
       expect(refinedCount + excludedCount).toBe(maximal.length);
-      // Generous bound (the measured worst case is ~1.4s): a real O(n^2)
-      // regression would land in tens of seconds to minutes, not here.
-      expect(elapsed).toBeLessThan(10000);
+
+      // The complexity signal, asserted directly (mt#3494).
+      //
+      // This assertion replaces `expect(elapsed).toBeLessThan(10000)`. That
+      // bound measured the HOST as much as the algorithm: this exact fixture
+      // was observed at 1406ms and 5032ms in two runs minutes apart on one
+      // idle machine, and at ~10.3-10.6s inside the full 769-file suite —
+      // tripping the 10s bound and failing the fail-closed pre-push gate on
+      // branches that touch nothing near this code. A count is a function of
+      // the input alone: same clusters, same number, every machine, every
+      // load, standalone or in-suite.
+      //
+      // Shape of THIS fixture: every cluster carries a unique token
+      // vocabulary, so nothing nests, nothing is suppressed, and `maximal`
+      // grows to N. That is the genuine worst case, and it pins the count
+      // exactly — each candidate is compared against every already-kept
+      // cluster and nothing more, so the loop performs precisely N(N-1)/2
+      // comparisons. Any redundant re-scan (a second pass, a lost
+      // short-circuit on a shape where matches DO occur, a nested loop added
+      // above this one) moves the number off this value.
+      expect(suppressed.length).toBe(0);
+      expect(maximal.length).toBe(N);
+      expect(comparisons).toBe((N * (N - 1)) / 2);
     },
     20000
   );
+
+  test("mt#3494: the collapse scan short-circuits on the first match — comparisons stay bounded by N x |maximal| when clusters DO nest", () => {
+    // The companion to the worst-case fixture above. There, nothing nests, so
+    // the short-circuit never fires and its loss would be invisible. Here most
+    // candidates ARE suppressed — the shape the live corpus actually has
+    // (mt#3432 measured ~11,220 suppressions of 12,694 real clusters) — so the
+    // early exit is load-bearing and its removal is observable.
+    const N = 12704;
+    const FAMILIES = 50;
+    const clusters: MinedCluster[] = [];
+    for (let i = 0; i < N; i++) {
+      const fam = i % FAMILIES;
+      // The first FAMILIES entries are long family heads; every later cluster
+      // is a prefix of its family's head, so it nests and is suppressed.
+      const len = i < FAMILIES ? 6 : 2 + (i % 4);
+      const toolSequence = Array.from({ length: len }, (_, j) => `fam${fam}_${j}`);
+      clusters.push({
+        signature: computeClusterSignature(toolSequence),
+        toolSequence,
+        frequency: N - i,
+        sessionCount: N - i,
+        chainLength: len,
+        score: (N - i) * (N - i) * len,
+        sampleRefs: [],
+        fingerprintProfile: {
+          sequence: toolSequence.map((t, j) => `fp:${t}:${j}`),
+          frequency: Math.max(1, Math.floor((N - i) * 0.1)),
+          sessionCount: Math.max(1, Math.floor((N - i) * 0.1)),
+          concentration: 0.1,
+          sampleRefs: [],
+        },
+      });
+    }
+
+    const { maximal, suppressed, comparisons } = collapseToMaximalClusters(clusters);
+
+    // Collapse actually collapsed: one survivor per family.
+    expect(maximal.length).toBe(FAMILIES);
+    expect(suppressed.length).toBe(N - FAMILIES);
+
+    // With the short-circuit, a suppressed candidate stops at its family's
+    // head rather than scanning every survivor. Measured both ways on this
+    // fixture: 323,810 comparisons WITH the early exit, 633,925 with it
+    // removed (each suppressed candidate then scans all 50 survivors) —
+    // against a no-short-circuit ceiling of N x FAMILIES = 635,200. The bound
+    // below sits between the two, so losing the `break` fails this test while
+    // ordinary variation in the fixture does not.
+    const ceiling = N * FAMILIES;
+    expect(comparisons).toBeLessThan(ceiling * 0.75);
+  });
 });
