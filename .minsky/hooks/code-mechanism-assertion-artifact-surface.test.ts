@@ -82,4 +82,53 @@ describe("durable-artifact surface (mt#3642)", () => {
   test("a tool with no prose key contributes nothing", () => {
     expect(buildArtifactProseCorpus(artifactTurn(TASKS_CREATE, { title: "x" }))).toBe("");
   });
+
+  // PR #2584 R1. `TranscriptLine` documents two shapes — "tool_use lines may
+  // carry name/input at top level OR inside message.content" — and
+  // `extractToolUseNames` has handled both since it was written. The first
+  // draft of this corpus handled only the nested one, so a turn recorded in the
+  // top-level shape was invisible to the surface with no test to say otherwise.
+  describe("top-level tool_use lines (not just nested message.content blocks)", () => {
+    function topLevelTurn(name: string, input: Record<string, unknown>): TranscriptLine[] {
+      return [{ type: "tool_use", name, input }] as TranscriptLine[];
+    }
+
+    test("a top-level tool_use line is collected", () => {
+      const turn = topLevelTurn(PR_CREATE, { body: SOCKET_CLAIM });
+      expect(buildArtifactProseCorpus(turn)).toContain("postgres-js upgrades whatever socket");
+    });
+
+    test("the `tool_name` spelling is honored too", () => {
+      // `extractToolUseNames` reads `name ?? tool_name`; both spellings occur.
+      const turn = [{ type: "tool_use", tool_name: SPEC_PATCH, input: { content: "a" } }];
+      expect(buildArtifactProseCorpus(turn as TranscriptLine[])).toBe("a");
+    });
+
+    test("a top-level non-artifact tool is still excluded", () => {
+      expect(buildArtifactProseCorpus(topLevelTurn(WRITE_FILE, { content: SOCKET_CLAIM }))).toBe(
+        ""
+      );
+    });
+
+    test("both shapes in one turn are collected and deduped", () => {
+      const turn = [
+        { type: "tool_use", name: PR_CREATE, input: { body: "shared" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "tool_use", id: "t1", name: SPEC_PATCH, input: { content: "shared" } },
+              { type: "tool_use", id: "t2", name: MEMORY_CREATE, input: { content: "other" } },
+            ],
+          },
+        },
+      ];
+      expect(
+        buildArtifactProseCorpus(turn as TranscriptLine[])
+          .split("\n")
+          .sort()
+      ).toEqual(["other", "shared"]);
+    });
+  });
 });

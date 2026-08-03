@@ -899,23 +899,31 @@ const ARTIFACT_PROSE_INPUT_KEYS = ["body", "spec", "content", "question", "repla
 export function buildArtifactProseCorpus(turnLines: TranscriptLine[]): string {
   const parts = new Set<string>();
 
+  const collect = (name: string, input: unknown): void => {
+    if (!ARTIFACT_TOOL_RE.test(name)) return;
+    if (!input || typeof input !== "object") return;
+    const asRecord = input as Record<string, unknown>;
+    for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
+      const value = asRecord[key];
+      if (typeof value === "string" && value.trim().length > 0) parts.add(value);
+    }
+  };
+
   for (const line of turnLines) {
+    // BOTH shapes, per `TranscriptLine`'s own note ("tool_use lines may carry
+    // name/input at top level OR inside message.content") and the precedent in
+    // `extractToolUseNames` (`transcript.ts:722-738`), which has handled both
+    // since it was written. Handling only the nested shape made a turn recorded
+    // in the top-level shape invisible to this surface — PR #2584 R1.
+    if (line.type === "tool_use") collect(line.name ?? line.tool_name ?? "", line.input);
+
     const role = line.message?.role ?? line.type;
     const content = line.message?.content;
     if (role !== "assistant" || !Array.isArray(content)) continue;
 
     for (const block of content as Array<Record<string, unknown>>) {
       if (block["type"] !== "tool_use") continue;
-      const name = (block["name"] as string) ?? "";
-      if (!ARTIFACT_TOOL_RE.test(name)) continue;
-      const input = block["input"];
-      if (!input || typeof input !== "object") continue;
-
-      const asRecord = input as Record<string, unknown>;
-      for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
-        const value = asRecord[key];
-        if (typeof value === "string" && value.trim().length > 0) parts.add(value);
-      }
+      collect((block["name"] as string) ?? "", block["input"]);
     }
   }
 
