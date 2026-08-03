@@ -51,6 +51,42 @@ export function flagKey(turnKey: string, family: string, phrase: string): string
   return `${turnKey}|${family}|${phrase}`;
 }
 
+/**
+ * Family label for "a Stop-event guard already injected about this closing
+ * sentence" (mt#3620). A prompt-time guard that would say the same thing about
+ * the same text reads this and stays quiet, so one closing sentence still
+ * produces one injection — the mt#3336 intent, with the yield inverted so the
+ * guard that can speak BEFORE the principal reads the message is the one that
+ * speaks.
+ */
+export const STOP_INJECTED_OVERLAP_FAMILY = "stop-injected-overlap";
+
+/**
+ * Number of trailing characters of a message that identify it across the
+ * Stop/prompt boundary. A closing sentence is what both guards match on, and
+ * the tail is the part both can reconstruct identically.
+ */
+const OVERLAP_TAIL_CHARS = 400;
+
+/**
+ * Turn key derived from message TEXT rather than a transcript line, so the two
+ * sides of the handoff can agree without sharing a line reference.
+ *
+ * The Stop guard has `last_assistant_message`; the prompt-time guard has the
+ * assistant text it extracts from the transcript. Those are not byte-identical
+ * — the extracted text may join several assistant blocks — but they end with
+ * the same closing sentence, so the key is the normalized TAIL.
+ *
+ * Fails open by construction: if the tails disagree the key misses, the
+ * prompt-time guard does not suppress, and the result is two injections about
+ * one sentence — the pre-mt#3336 behaviour. That is a noise regression, never a
+ * missed warning, which is the right direction for a best-effort dedup to fail.
+ */
+export function overlapTurnKey(text: string, hash: (input: string) => string): string {
+  const tail = text.replace(/\s+/g, " ").trim().slice(-OVERLAP_TAIL_CHARS);
+  return hash(tail);
+}
+
 function storePath(sessionId: string, dir: string): string {
   // session_id is a UUID in practice; sanitize defensively for path safety.
   const safe = sessionId.replace(/[^A-Za-z0-9_-]/g, "_");

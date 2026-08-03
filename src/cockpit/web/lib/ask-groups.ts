@@ -130,11 +130,57 @@ export function consequenceSnippet(question: string, maxLen = 140): string {
       .split("\n")
       .find((l) => l.trim().length > 0)
       ?.trim() ?? "";
+  // Strip BEFORE measuring (mt#3639). Ask questions are agent-authored
+  // Markdown, and a lead like `**Decide what to do with mt#3547.**` reached
+  // the collapsed row with its asterisks intact. Stripping after truncation
+  // would not help: the sentence-boundary cut lands before the closing marker,
+  // so the opener would survive as a dangling `**`.
+  const plain = stripInlineMarkdown(firstLine);
   // Prefer a sentence boundary when one lands within the cap.
-  const period = firstLine.indexOf(". ");
-  const candidate = period > 20 && period < maxLen ? firstLine.slice(0, period + 1) : firstLine;
+  const period = plain.indexOf(". ");
+  const candidate = period > 20 && period < maxLen ? plain.slice(0, period + 1) : plain;
   if (candidate.length <= maxLen) return candidate;
   return `${candidate.slice(0, maxLen).trimEnd()}…`;
+}
+
+/**
+ * Strip the Markdown syntax a one-line plain-text summary cannot render.
+ *
+ * The collapsed row renders this snippet inside a `truncate`d element, so it
+ * cannot go through `<Prose>` the way the expanded question does — a block
+ * renderer would defeat single-line truncation. Removing the markers is the
+ * plain-string equivalent.
+ *
+ * Deliberately does NOT strip `_underscore_` emphasis. Ask bodies are dense
+ * with snake_case identifiers (`feedback_user_does_not_review`), and at the
+ * level of a single line the two are indistinguishable — stripping would
+ * corrupt far more identifiers than it would tidy emphasis.
+ */
+function stripInlineMarkdown(line: string): string {
+  return (
+    line
+      // Leading block markers: heading, blockquote, bullet, ordered item.
+      .replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, "")
+      // Links and images collapse to their label. Before emphasis, so that a
+      // bolded link label is unwrapped by the passes below. Both link forms
+      // are handled: inline `[label](url)` and reference `[label][ref]` /
+      // `[label][]`. The SHORTCUT form (`[label]` with no second bracket) is
+      // deliberately left alone — it is indistinguishable from literal
+      // brackets in prose, which ask bodies do use.
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/!?\[([^\]]*)\]\[[^\]]*\]/g, "$1")
+      // Emphasis and code spans. The `\S`-anchored inner group is what keeps
+      // arithmetic (`2 * 3 * 4`) from reading as emphasis.
+      .replace(/\*\*\*(\S|\S[^*]*?\S)\*\*\*/g, "$1")
+      .replace(/\*\*(\S|\S[^*]*?\S)\*\*/g, "$1")
+      .replace(/\*(\S|\S[^*]*?\S)\*/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      // An unpaired marker survives the passes above when its span opened on
+      // this line and closed on a later one — the exact shape of a bolded lead
+      // sentence in a multi-line question.
+      .replace(/\*\*|`/g, "")
+      .trim()
+  );
 }
 
 export function inlineActionsFor(ask: Pick<AskItem, "options" | "kind">): InlineAction[] {
