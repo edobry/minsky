@@ -50,6 +50,8 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
+import { createHash } from "node:crypto";
+import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -84,6 +86,18 @@ const CALIBRATION_LOG = ".minsky/ask-routing-deferral-calibration.jsonl";
  * and the suppressed fire is recorded; the injection decision is unchanged.
  */
 export const SUPPRESSION_ASKS_CREATE_THIS_TURN = "asks-create-this-turn";
+
+/**
+ * The Stop-event untaken-action guard already injected about this same closing
+ * sentence (mt#3620), so this guard stays quiet — one sentence, one injection,
+ * spoken by the guard that runs BEFORE the principal reads it.
+ */
+export const SUPPRESSION_STOP_GUARD_ALREADY_INJECTED = "deduped-by-untaken-action-stop";
+
+/** Short sha1, matching the Stop guard's key derivation. */
+function sha1Short(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 16);
+}
 
 // ---------------------------------------------------------------------------
 // Sub-class types
@@ -331,7 +345,68 @@ export function buildReminder(matches: DeferralMatch[]): string {
  * `INJECTION_ENABLED` (`true` since the mt#2694 flip — see its doc for the
  * decision provenance).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+/**
+ * Phrases the Stop-event untaken-action guard already injected about this same
+ * closing sentence (mt#3620). Fails open to an empty set.
+ *
+ * `sessionId` is REQUIRED to be a real id (PR #2574 R1). The dedup store is
+ * keyed per session, and `?? "unknown"` would put every session that arrives
+ * without an id into ONE shared bucket — where a Stop fire in one could silence
+ * a genuine deferral in another. An absent id therefore means no dedup at all,
+ * which fails toward injecting.
+ */
+function readStopInjectedPhrases(
+  sessionId: string | undefined,
+  assistantText: string,
+  storeDir?: string
+): Set<string> {
+  const injected = new Set<string>();
+  if (!sessionId || !assistantText) return injected;
+  try {
+    const flagged = readFlagged(sessionId, storeDir);
+    if (flagged.size === 0) return injected;
+    const key = overlapTurnKey(assistantText, sha1Short);
+    const prefix = `${key}|${STOP_INJECTED_OVERLAP_FAMILY}|`;
+    for (const entry of flagged) {
+      if (entry.startsWith(prefix)) injected.add(entry.slice(prefix.length));
+    }
+  } catch {
+    // intentional-swallow: dedup is best-effort; failing open double-injects
+    // rather than dropping a warning.
+  }
+  return injected;
+}
+
+/**
+ * The mt#3620 stop-overlap decision, shared by BOTH entrypoints (dispatcher
+ * `run()` and CLI `main()`).
+ *
+ * Extracted rather than inlined twice (PR #2574 R1): a reviewer reading either
+ * copy had to trace a later `process.exit` to see whether suppression actually
+ * withheld the injection. One function, one answer, and it is directly testable
+ * without driving a process that exits.
+ *
+ * `remaining` is what to render if anything is rendered; `suppressedAll` means
+ * the Stop guard already covered every matched phrase, so this guard says
+ * nothing.
+ */
+export function resolveStopOverlap(
+  sessionId: string | undefined,
+  assistantText: string,
+  matches: DeferralMatch[],
+  storeDir?: string
+): { remaining: DeferralMatch[]; suppressedAll: boolean } {
+  const stopInjected = readStopInjectedPhrases(sessionId, assistantText, storeDir);
+  const remaining = matches.filter((m) => !stopInjected.has(m.matchedPhrase));
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
+/** `storeDir` is a test seam; the dispatcher never passes it. */
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  storeDir?: string
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -352,6 +427,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let matches: DeferralMatch[] = [];
   let suppressedByAsksCreate = false;
+  // Hoisted out of the try: the mt#3620 stop-overlap key derives from this same
+  // text after detection.
+  let assistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
@@ -361,6 +439,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     suppressedByAsksCreate = turnHasAsksCreate(turnLines);
     const text = extractAssistantText(turnLines);
     if (text) {
+      assistantText = text;
       matches = detectDeferralPhrases(text);
     }
   } catch (err) {
@@ -374,6 +453,26 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
 
+  // mt#3620: the Stop-event untaken-action guard sees this same closing
+  // sentence one event EARLIER — before the principal ever read it. When it has
+  // already injected about a phrase, saying it again here is the second half of
+  // a round-trip that already happened. Stay quiet about those phrases.
+  //
+  // This is the mt#3336 dedup with the yield inverted: same "one closing
+  // sentence, one injection" contract, but the guard that can still prevent the
+  // failure is the one that speaks. Fails open — an unreadable store or a
+  // mismatched key means no suppression, i.e. the pre-mt#3336 double injection,
+  // never a dropped warning.
+  const { remaining, suppressedAll } = resolveStopOverlap(
+    input.session_id,
+    assistantText,
+    matches,
+    storeDir
+  );
+  if (suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
+  }
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
@@ -385,7 +484,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   };
 
   if (INJECTION_ENABLED && suppressionReasons.length === 0) {
-    outcome.additionalContext = buildReminder(matches);
+    outcome.additionalContext = buildReminder(remaining);
   }
 
   return outcome;
@@ -434,6 +533,7 @@ export async function main(): Promise<void> {
 
   let matches: DeferralMatch[] = [];
   let suppressedByAsksCreate = false;
+  let assistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) {
@@ -445,6 +545,7 @@ export async function main(): Promise<void> {
     suppressedByAsksCreate = turnHasAsksCreate(turnLines);
     const text = extractAssistantText(turnLines);
     if (text) {
+      assistantText = text;
       matches = detectDeferralPhrases(text);
     }
   } catch (err) {
@@ -460,6 +561,16 @@ export async function main(): Promise<void> {
   }
 
   const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
+
+  // mt#3620 — the SAME decision function `run()` uses. This CLI path renders the
+  // same surface, and a fix wired into only one of the two entrypoints is the
+  // mt#3270 R1 shape. `suppressedAll` feeds the shared
+  // `suppressionReasons.length > 0` exit below, which is what actually withholds
+  // the injection.
+  const { remaining, suppressedAll } = resolveStopOverlap(input.session_id, assistantText, matches);
+  if (suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
+  }
 
   // Calibration record (always — this is the v1 product). mt#3207: "always"
   // now includes the suppressed fire, which used to exit above this line.
@@ -480,7 +591,7 @@ export async function main(): Promise<void> {
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: buildReminder(matches),
+      additionalContext: buildReminder(remaining),
     },
   };
   process.stdout.write(JSON.stringify(output));
