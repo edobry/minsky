@@ -34,10 +34,15 @@
 //
 // `require-execution-evidence-before-merge.ts` imports THIS module to run the calibration,
 // so an import back would be an ESM cycle and would put that hook's entry point at the mercy
-// of module-evaluation order. The evidence-block text therefore flows IN as a parameter
-// (`evidenceText`) rather than being re-extracted here, and the shared pieces come from
-// dependency-free siblings. This mirrors `success-criteria-coverage.ts`'s section of the same
-// name verbatim — PR #2462 R1 caught this module violating that established pattern.
+// of module-evaluation order. Text this module needs therefore flows IN as a parameter
+// rather than being re-extracted here, and the shared pieces come from dependency-free
+// siblings. This mirrors `success-criteria-coverage.ts`'s section of the same name verbatim —
+// PR #2462 R1 caught this module violating that established pattern.
+//
+// As of mt#3584 the only text it needs is the FULL PR body: the negative-control label is
+// matched anywhere in it, so the extracted `Execution evidence:` block is no longer passed.
+// Sibling surfaces (AT- and SC-coverage) still scope themselves to that block; this one
+// deliberately does not — see `checkTestFirstEvidence`.
 //
 // @see .minsky/hooks/markdown-sections.ts — shared fence-aware primitives
 // @see .minsky/hooks/pr-file-predicates.ts — `isTestFile`, moved there for this reason
@@ -282,7 +287,6 @@ export function checkTestFirstEvidence(
   prFiles: PrFile[],
   prTitle: string,
   prBody: string,
-  evidenceText: string,
   specContent?: string | null
 ): TestFirstEvidenceResult {
   const modifiedTestFiles = findModifiedTestFiles(prFiles);
@@ -305,8 +309,26 @@ export function checkTestFirstEvidence(
     };
   }
 
-  const negativeControlPresent = hasNegativeControlEvidence(evidenceText);
-  const negativeControlUnmatched = !negativeControlPresent && mentionsNegativeControl(evidenceText);
+  // Scanned over the WHOLE body, not the extracted `Execution evidence:` block
+  // (mt#3584). Two reasons, and the second is why the first matters:
+  //
+  //   1. `deferralMarker` on the next line already resolves against `prBody`.
+  //      Nothing about the label justifies a narrower window than its own
+  //      deferral marker, and the split silently made placement load-bearing in
+  //      a way no author could see.
+  //   2. The accepted-forms message below states only the FENCE rule. An author
+  //      who put a well-formed label immediately above the `Execution evidence:`
+  //      heading satisfied every stated constraint and was warned anyway —
+  //      twice, on PR #2531 and PR #2553, with labels the matcher accepts when
+  //      handed them. Those fires wrote calibration records claiming no control
+  //      was present, which is the data this surface's graduate/tune decision
+  //      rests on (mem#719).
+  //
+  // Widening rather than re-documenting is deliberate: mt#3511 already tried the
+  // prose route on this exact paragraph and, in removing an ambiguous block
+  // requirement, left the requirement enforced and unstated.
+  const negativeControlPresent = hasNegativeControlEvidence(prBody);
+  const negativeControlUnmatched = !negativeControlPresent && mentionsNegativeControl(prBody);
   const deferralMarker = extractNegativeControlDeferral(prBody);
   const flagged = !negativeControlPresent && deferralMarker === null;
 
@@ -322,14 +344,24 @@ export function checkTestFirstEvidence(
 
   if (flagged) {
     // The accepted-forms paragraph is the ONLY place most authors ever learn the
-    // convention, so it states the PLACEMENT rule the matcher actually enforces
-    // (mt#3506 / mt#3511 instance 2). The previous wording — "Accepted forms inside
-    // the `Execution evidence:` block" — read as "inside the fence," which is the one
-    // placement that can never match, because a fenced marker is treated as quoted
-    // text. An author who followed the message got warned anyway.
+    // convention, so it must state the PLACEMENT rule the matcher actually enforces —
+    // ALL of it. Two instances of it failing to (mt#3506 / mt#3511, then mt#3584):
+    //
+    //   - "Accepted forms inside the `Execution evidence:` block" read as "inside the
+    //     fence," the one placement that can never match, because a fenced marker is
+    //     treated as quoted text.
+    //   - Dropping the block requirement to fix that left the matcher still enforcing
+    //     it, so a label placed just above the block satisfied every stated rule and
+    //     was warned anyway.
+    //
+    // mt#3584 removed the block requirement from the MATCHER rather than adding it
+    // back here, so there is now exactly one rule to state: not inside a fence.
+    // Keep it that way — if a future change re-narrows the scan window, this
+    // paragraph has to regain the second rule in the same commit.
     const acceptedForms =
       `Accepted forms (case-insensitive), on their own line NOT inside a code fence — ` +
-      `put the label just above or below the fenced run output, not within it:\n` +
+      `anywhere in the PR body; placement relative to the \`Execution evidence:\` block ` +
+      `does not matter, though next to the run output reads best:\n` +
       `  - \`Negative control: <what you reverted and what failed>\`\n` +
       `  - \`Negative control — <subject>\` (em or en dash; use this when a PR has several)\n` +
       `  - \`Failing-first:\` in either form, or a Markdown heading naming either.\n` +
@@ -342,12 +374,12 @@ export function checkTestFirstEvidence(
     // as well as in the calibration record — the whole point of mt#3511.
     const lead = negativeControlUnmatched
       ? `This PR is bugfix-shaped and modifies ${modifiedTestFiles.length} existing test ` +
-        `file(s). Its evidence block MENTIONS a negative control, but no marker matched — ` +
+        `file(s). Its body MENTIONS a negative control, but no marker matched — ` +
         `so this is most likely a FORMATTING mismatch, not a missing control. Check the ` +
         `accepted forms below before treating it as a real gap.`
       : `This PR is bugfix-shaped and modifies ${modifiedTestFiles.length} existing test ` +
-        `file(s), but its execution-evidence block records no negative control — no run ` +
-        `observed FAILING against the un-fixed tree.`;
+        `file(s), but its body records no negative control — no run observed FAILING ` +
+        `against the un-fixed tree.`;
 
     result.reason =
       `${lead}\n\n` +
@@ -420,7 +452,6 @@ export function runTestFirstCalibration(
   prFiles: PrFile[],
   prTitle: string,
   prBody: string,
-  evidenceText: string,
   specContent: string | null,
   env: NodeJS.ProcessEnv = process.env,
   now: () => Date = () => new Date()
@@ -429,7 +460,7 @@ export function runTestFirstCalibration(
     return { ranCheck: false, warning: null, calibrationRecord: null };
   }
 
-  const result = checkTestFirstEvidence(prFiles, prTitle, prBody, evidenceText, specContent);
+  const result = checkTestFirstEvidence(prFiles, prTitle, prBody, specContent);
   if (!result.flagged) {
     return { ranCheck: true, warning: null, calibrationRecord: null };
   }

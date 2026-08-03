@@ -1,10 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  checkExecutionEvidence,
-  extractExecutionEvidenceText,
-  type PrFile,
-} from "./require-execution-evidence-before-merge";
+// `extractExecutionEvidenceText` is no longer imported: as of mt#3584 this surface
+// matches the negative-control label anywhere in the PR body, so these tests pass the
+// full body — the same text production passes — rather than an extracted block.
+import { checkExecutionEvidence, type PrFile } from "./require-execution-evidence-before-merge";
 import {
   checkTestFirstEvidence,
   findModifiedTestFiles,
@@ -66,12 +65,12 @@ const PR_2329_BODY = [
 const NON_BUGFIX_TITLE = "feat(mt#3244): add a test-first evidence surface";
 
 /**
- * Calls the pure core the way the hook does — extracting the evidence block and passing it
- * IN. The module takes `evidenceText` as a parameter rather than importing the extractor,
- * to stay out of an import cycle with the evidence hook (PR #2462 R1).
+ * Calls the pure core the way the hook does — the FULL body, no extracted block (mt#3584).
+ * The negative-control label is matched anywhere in the PR body, so passing the extracted
+ * `Execution evidence:` section would test a narrower window than production uses.
  */
 function check(files: PrFile[], title: string, body: string, spec: string | null = null) {
-  return checkTestFirstEvidence(files, title, body, extractExecutionEvidenceText(body), spec);
+  return checkTestFirstEvidence(files, title, body, spec);
 }
 
 describe("findModifiedTestFiles (hole 2 — the set findNewTestFiles excludes)", () => {
@@ -393,6 +392,82 @@ describe("AT3: negative control — a compliant bugfix is NOT flagged", () => {
 // AT4 — calibration surface is log-only.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// mt#3584 — the label is matched anywhere in the PR body, and the accepted-forms
+// message says so. Before this, the matcher scanned only the extracted
+// `Execution evidence:` block while the message stated only the fence rule, so a
+// well-formed label placed just above the block was warned on anyway (PR #2531,
+// PR #2553).
+// ---------------------------------------------------------------------------
+
+describe("mt#3584: negative-control label placement", () => {
+  const BUGFIX_FILES: PrFile[] = [{ filename: FOO_TEST_TS, status: "modified" }];
+  const BUGFIX_TITLE = "fix(mt#1234): x";
+
+  // AT1 — the regression. Label ABOVE the heading, outside the block entirely.
+  it("accepts a label placed above the Execution evidence heading", () => {
+    const body = [
+      "## Testing",
+      "",
+      "Negative control: reverted the fix and ran the suite — 3 tests failed.",
+      "",
+      "```",
+      " 3 fail (pre-fix)",
+      "```",
+      "",
+      EVIDENCE_MARKER,
+      "",
+      "```",
+      " 12 pass",
+      "```",
+    ].join("\n");
+
+    expect(check(BUGFIX_FILES, BUGFIX_TITLE, body).flagged).toBe(false);
+  });
+
+  // AT2 — no regression to the placement that already worked.
+  it("still accepts a label inside the evidence block", () => {
+    const body = `${EVIDENCE_MARKER}\n\nNegative control: reverted the fix.\n\n 1 fail (pre-fix)\n`;
+    expect(check(BUGFIX_FILES, BUGFIX_TITLE, body).flagged).toBe(false);
+  });
+
+  // AT3 — mt#3506's fence rule is preserved. A fenced marker is quoted text.
+  it("still rejects a label inside a code fence", () => {
+    const body = [
+      EVIDENCE_MARKER,
+      "",
+      "```",
+      "Negative control: reverted the fix and ran the suite.",
+      "```",
+    ].join("\n");
+
+    expect(check(BUGFIX_FILES, BUGFIX_TITLE, body).flagged).toBe(true);
+  });
+
+  // AT4 — message and matcher checked against each other, not read separately.
+  // The paragraph must state the fence rule and must NOT re-impose a block
+  // requirement the matcher no longer enforces.
+  it("emits a message whose stated placement rule the matcher actually accepts", () => {
+    const flagged = check(BUGFIX_FILES, BUGFIX_TITLE, `${EVIDENCE_MARKER}\n\n 12 pass\n`);
+    expect(flagged.flagged).toBe(true);
+
+    const run = runTestFirstCalibration(
+      "mt#1234",
+      1,
+      BUGFIX_FILES,
+      BUGFIX_TITLE,
+      `${EVIDENCE_MARKER}\n\n 12 pass\n`,
+      null
+    );
+    const warning = run.warning ?? "";
+    expect(warning).toContain("NOT inside a code fence");
+    expect(warning).toContain("anywhere in the PR body");
+    // The removed constraint must not creep back into the prose while the
+    // matcher stays wide — that mismatch IS the defect this task fixed.
+    expect(warning).not.toContain("inside the `Execution evidence:` block");
+  });
+});
+
 describe("AT4: calibration surface never denies", () => {
   it("produces a warn-shaped result with a calibration record when flagged", () => {
     const run = runTestFirstCalibration(
@@ -401,7 +476,6 @@ describe("AT4: calibration surface never denies", () => {
       PR_2329_FILES,
       PR_2329_TITLE,
       PR_2329_BODY,
-      extractExecutionEvidenceText(PR_2329_BODY),
       null
     );
     expect(run.ranCheck).toBe(true);
@@ -418,7 +492,6 @@ describe("AT4: calibration surface never denies", () => {
       [{ filename: FOO_TEST_TS, status: "modified" }],
       "fix(mt#1234): x",
       body,
-      extractExecutionEvidenceText(body),
       null
     );
     expect(run.warning).toBeNull();
