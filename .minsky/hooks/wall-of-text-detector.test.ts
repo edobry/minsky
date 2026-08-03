@@ -70,6 +70,8 @@ import {
   MAX_DEDUPE_READ_BYTES,
   WORD_COUNT_THRESHOLD,
   LEAD_WINDOW_WORDS,
+  EXCERPT_MAX_CHARS,
+  EXCERPT_TRUNCATION_MARKER,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   DEPTH_REQUEST_LOOKBACK_TURNS,
@@ -325,6 +327,65 @@ describe("measureWallOfText", () => {
 });
 
 // ---------------------------------------------------------------------------
+// measureWallOfText — excerpt (mt#3576)
+// ---------------------------------------------------------------------------
+
+describe("measureWallOfText — excerpt (mt#3576)", () => {
+  test("a lead-labels fire retains the text its leadLabelHits were computed from", () => {
+    // The gap this closes: `leadLabelHits: ["gate-letter"]` names the pattern
+    // but never the text, so a reviewer could not tell an audit-vocabulary
+    // lead from an incidental token without rebuilding the transcript.
+    const m = measureWallOfText(`Gate (l) blocked promotion. ${words(150)}`);
+    expect(m.trigger).toBe("lead-labels");
+    expect(m.leadLabelHits).toEqual(["gate-letter"]);
+    expect(m.excerpt).toContain("Gate (l) blocked promotion.");
+  });
+
+  test("the excerpt IS the scanned lead, so every label hit is visible in it", () => {
+    // Identity, not approximation: whatever slice the patterns are tested
+    // against is exactly what the record retains. Asserted by re-running the
+    // detector on the excerpt alone and getting the same hits back.
+    const m = measureWallOfText(labelHeavyReport());
+    expect(m.leadLabelHits.length).toBeGreaterThan(0);
+    expect(measureWallOfText(m.excerpt).leadLabelHits).toEqual(m.leadLabelHits);
+  });
+
+  test("an over-budget report is recognizable from its excerpt (mt#3028 contamination class)", () => {
+    // wordCount alone cannot separate a genuine long report from one measured
+    // against a subagent's transcript; the opening text can.
+    const m = measureWallOfText(pointerFreeOverBudgetReport());
+    expect(m.trigger).toBe("over-budget");
+    expect(m.excerpt.startsWith("Status update, no pointers at all.")).toBe(true);
+  });
+
+  test("the excerpt never exceeds EXCERPT_MAX_CHARS, and marks that it was cut", () => {
+    // A pathological single token: under the word bound (1 word), far past the
+    // char bound — the case the cap exists for.
+    const m = measureWallOfText(`${"x".repeat(EXCERPT_MAX_CHARS * 3)} ${words(400)}`);
+    expect(m.excerpt.length).toBe(EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length);
+    expect(m.excerpt.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
+  });
+
+  test("a label at the END of the lead window survives into the excerpt", () => {
+    // The class this covers that the fixtures above do not: a label sitting
+    // LATE in the scanned window. Any excerpt shorter than the full lead —
+    // an opening line, a fixed char prefix — drops it, and the record would
+    // then name a pattern whose text it does not carry. The label is placed
+    // at word ~145 of a 150-word window, still inside the scan, so it must
+    // appear in the retained text.
+    const m = measureWallOfText(`${words(LEAD_WINDOW_WORDS - 5)} gate (l) verdict ${words(400)}`);
+    expect(m.leadLabelHits).toEqual(["gate-letter"]);
+    expect(m.excerpt).toContain("gate (l)");
+  });
+
+  test("a lead shorter than the cap is retained whole, with no truncation marker", () => {
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD));
+    expect(m.excerpt.length).toBeLessThanOrEqual(EXCERPT_MAX_CHARS);
+    expect(m.excerpt.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // extractFinalAssistantText
 // ---------------------------------------------------------------------------
 
@@ -372,6 +433,20 @@ describe("run", () => {
   test("contract-conforming report -> null", () => {
     const lines = transcriptWithFinalReport(conformingReport());
     expect(run(makeInput(), makeCtx(lines), noDedupeDeps())).toBeNull();
+  });
+
+  // mt#3576: the written record — not just the measurement — carries the
+  // excerpt, and it is the same string the label patterns matched against.
+  test("mt#3576: the logged record carries the excerpt, matching the measurement", () => {
+    const lines = transcriptWithFinalReport(labelHeavyReport());
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(typeof cal.excerpt).toBe("string");
+    expect(cal.excerpt).toBe(measureWallOfText(labelHeavyReport()).excerpt);
+    expect(cal.excerpt as string).toContain("Gate (l)");
+    expect((cal.excerpt as string).length).toBeLessThanOrEqual(
+      EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length
+    );
   });
 
   test("override env var -> audit line, no measurement", () => {

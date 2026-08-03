@@ -558,6 +558,16 @@ export interface WallOfTextRecord {
   leadLabelHits?: string[];
   deeplinkCount?: number;
   namedRefCount?: number;
+  /**
+   * The measured report's lead, capped by the detector (mt#3576).
+   *
+   * Optional because the 186 records written before mt#3576 have no such
+   * field — absent means "written before the excerpt shipped," not "the report
+   * was empty." Read it as the evidence for classifying a `lead-labels` fire:
+   * `leadLabelHits` names which pattern matched, and only this carries the text
+   * it matched.
+   */
+  excerpt?: string;
 }
 
 /**
@@ -800,6 +810,19 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
  * Returns `undefined` rather than `{}` when nothing was dropped, so a record
  * that carries no detector-specific fields is byte-identical to what it parsed
  * to before this change.
+ *
+ * **A lifted field cannot ALSO appear in the passthrough, and the reason is
+ * this function alone** (mt#3576, PR #2568 R1). The raw JSONL line is FLAT —
+ * `detectorFields` is DERIVED here from the line's unconsumed keys, never read
+ * from it — so a field cannot arrive nested and be surfaced twice. Nor does the
+ * guarantee depend on how a branch spells the assignment: a key is dropped only
+ * when the raw line HAS it and the branch did NOT set it, and a branch that
+ * reads `raw[k]` at all sets `k` under either spelling (`k: v ?? undefined` or a
+ * conditional spread). Both forms were run against the wall-of-text branch;
+ * neither duplicates. What WOULD break it is changing the `consumed` set below
+ * to anything narrower than the record's own keys — verified by making that
+ * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
+ * together. Those are the tests that pin this; a per-field strip would not.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -976,6 +999,13 @@ function parseCalibrationRecordCore(
           : undefined,
         deeplinkCount: typeof raw["deeplinkCount"] === "number" ? raw["deeplinkCount"] : undefined,
         namedRefCount: typeof raw["namedRefCount"] === "number" ? raw["namedRefCount"] : undefined,
+        // mt#3576: read explicitly rather than leaving it to the
+        // `detectorFields` passthrough, for the reason PR #2420 R1 gave for
+        // `transcript_excerpt` — a field declared on the record type that the
+        // parser never populates makes the type promise something the parser
+        // does not deliver, and every consumer keying on `excerpt` would find
+        // it nested a level down instead.
+        excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
