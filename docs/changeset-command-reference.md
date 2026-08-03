@@ -56,6 +56,23 @@ functionality were retired (mt#2611) — migrate any remaining usages to
 
 The session-domain prepared-merge-commit workflow (pr/ branches for local git) exists in the session layer and is not a changeset adapter. Adding another platform (GitLab, Bitbucket, etc.) means implementing a new `ChangesetAdapter` and registering its factory; the `ChangesetPlatform` union deliberately retains the other platform identifiers as stable public API for that future.
 
+## Authentication
+
+Changeset commands (`repo changeset list|search|get|info`, and the underlying `changeset_*` MCP tools) need a GitHub token to call the GitHub API. The GitHub adapter resolves a token in this order:
+
+1. An explicitly injected `TokenProvider` (test/programmatic callers only).
+2. `config.token` passed to the adapter factory.
+3. A configured `github.serviceAccount` (GitHub App) — the recommended path. See [GitHub App Bot Identity Setup](./github-app-bot-setup.md) for the full walkthrough; this is the same authenticated channel `session pr *` commands already use.
+4. The `GITHUB_TOKEN` / `GH_TOKEN` environment variables.
+
+**If none of the above resolve a token, changeset commands refuse rather than run unauthenticated.** Before mt#3606, an unresolved token silently fell back to an empty string, which produced unauthenticated GitHub API requests — capped at 60 requests/hour per IP address (vs 5,000/hour authenticated), a limit shared across every unauthenticated caller on that IP, so it could trip with no warning at an unpredictable time. Since mt#3606, an unresolved token raises a clear error at the first API call, naming every credential path that was checked (injected `TokenProvider`, `config.token`, `github.serviceAccount`, `GITHUB_TOKEN`/`GH_TOKEN`).
+
+**To fix a refusal**, do one of:
+
+- Set `GITHUB_TOKEN` (or `GH_TOKEN`) in your shell environment.
+- Add `github.token` to your Minsky config (`~/.config/minsky/config.yaml`).
+- Configure a GitHub App service account — see [GitHub App Bot Identity Setup](./github-app-bot-setup.md). Recommended for multi-user or hosted deployments, since it doesn't depend on any one operator's personal token.
+
 ## Usage Examples
 
 ### Cross-Session Analysis
