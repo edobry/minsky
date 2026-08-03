@@ -106,7 +106,8 @@ export interface CalibrationLogEntry {
     | "knowledge-acquisition"
     | "constructed-identifier-batch"
     | "operator-deferral"
-    | "untaken-action";
+    | "untaken-action"
+    | "retrospective-completeness";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -348,6 +349,20 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // fallback branch with no dedicated parser case. It still gets its OWN kind:
     // the registry invariant (PR #2263 R1) requires unique kinds per entry.
     kind: "untaken-action",
+  },
+  {
+    path: ".minsky/retrospective-completeness-calibration.jsonl",
+    name: "retrospective-completeness",
+    // mt#3601 — the OTHER axis from retrospective-trigger: that log measures
+    // whether a retrospective FIRES, this one whether a retrospective that
+    // fired is COMPLETE. Deliberately a separate log rather than a second
+    // writer on "retrospective-trigger": the two answer different graduation
+    // questions, and merging them would make each one's FP rate unreadable.
+    //
+    // Record shape is its own (`missing_sections` / `unverified_task_ids`
+    // rather than `matches: {family, phrase}[]`), so it does not parse through
+    // the shared matched-phrase fallback branch.
+    kind: "retrospective-completeness",
   },
 ];
 
@@ -1587,6 +1602,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   // surface actually fired, and `/calibration-review` reads that.
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
+  "retrospective-completeness": "retrospective-completeness-detector",
 };
 
 /**
