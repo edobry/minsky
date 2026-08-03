@@ -49,6 +49,17 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // before action" records what the channel was asked to do, and without this
   // the log never says whether it worked.
   "principal.message_failed",
+  // mt#3595 — a severity ask could not page the principal. Actionable, and
+  // deliberately NOT folded into `principal.message_failed`: that type is the
+  // INBOUND channel's record (its documented payload carries updateId /
+  // messageId from a Telegram update), whereas this is an OUTBOUND delivery
+  // failure with an ask id. Sharing the type would make "the channel is broken
+  // in the direction that pages me" unqueryable.
+  //
+  // Actionable is the whole point: this fires exactly when the mechanism that
+  // exists to get the operator's attention has failed to get it, so its own
+  // failure must not be informational — nobody would be reading.
+  "ask.page_failed",
   // --- informational / trajectory (mt#2340) — discoverable on the operator's
   //     own schedule; primary consumer is the Phase 2 noticer ---
   "task.status_changed",
@@ -253,6 +264,7 @@ export const eventCategory = {
   "guard.overridden": "actionable",
   "principal.message_rejected": "actionable",
   "principal.message_failed": "actionable",
+  "ask.page_failed": "actionable",
   "principal.message_received": "informational",
   "principal.poll_advanced": "informational",
 } satisfies Record<SystemEventType, EventCategory>;

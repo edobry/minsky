@@ -12,6 +12,7 @@ import {
 } from "./turn-end-untaken-action-scan";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import type { DispatchContext } from "./registry";
+import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
 // if the detector stops matching them, the guard has lost the class it exists
@@ -175,37 +176,42 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
     } as StopHookInput;
   }
 
-  // "say the word" sits in BOTH detectors' pattern sets; without the dedup
-  // this turn gets an untaken-action reminder at Stop AND an
-  // ask-routing-deferral reminder at the next UserPromptSubmit.
-  test("a message also matching the deferral patterns logs but does NOT inject", () => {
-    const both = "Everything is staged and green. Say the word and it ships.";
-    const outcome = run(inputFor(both), ctx, storeDir);
+  // "say the word" sits in BOTH detectors' pattern sets. mt#3336 made THIS
+  // guard yield; mt#3620 inverted that, because the sibling only runs at the
+  // NEXT UserPromptSubmit — after the principal has already read the closing
+  // sentence and replied. The dedup still holds at one injection per sentence;
+  // the Stop guard is now the one that speaks.
+  /** Matches BOTH pattern sets — the overlap case the direction change is about. */
+  const OVERLAPPING_MESSAGE = "Everything is staged and green. Say the word and it ships.";
+
+  test("mt#3620: a message also matching the deferral patterns INJECTS at Stop", () => {
+    const outcome = run(inputFor(OVERLAPPING_MESSAGE), ctx, storeDir);
     expect(outcome?.calibration).toBeDefined();
-    expect((outcome?.calibration as Record<string, unknown>).suppressedByAskRoutingDeferral).toBe(
-      true
-    );
-    expect(outcome?.additionalContext).toBeUndefined();
+    expect((outcome?.calibration as Record<string, unknown>).deferralOverlap).toBe(true);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  test("mt#3620: the overlap is recorded in the store for the prompt-time sibling to read", () => {
+    run(inputFor(OVERLAPPING_MESSAGE), ctx, storeDir);
+    const flagged = readFlagged("mt3336-dedup-session", storeDir);
+    const overlapKeys = [...flagged].filter((k) => k.includes(`|${STOP_INJECTED_OVERLAP_FAMILY}|`));
+    expect(overlapKeys.length).toBeGreaterThan(0);
   });
 
   test("a commitment-only message (no deferral shape) still injects", () => {
     const outcome = run(inputFor(R3_FINAL_MESSAGE), ctx, storeDir);
     expect(outcome?.calibration).toBeDefined();
-    expect((outcome?.calibration as Record<string, unknown>).suppressedByAskRoutingDeferral).toBe(
-      false
-    );
+    expect((outcome?.calibration as Record<string, unknown>).deferralOverlap).toBe(false);
     expect(outcome?.additionalContext).toBeDefined();
   });
 
-  // mt#3207: the boolean above is detector-specific detail that
-  // `isSuppressedRecord` cannot see — which is why the 2026-08-01 sweep read
-  // 18 dedup-suppressed fires as injected. These pin the SHARED field.
-  test("mt#3207: a suppressed fire names the gate in suppressionReasons", () => {
-    const both = "Everything is staged and green. Say the word and it ships.";
-    const outcome = run(inputFor(both), ctx, storeDir);
-    expect((outcome?.calibration as Record<string, unknown>).suppressionReasons).toEqual([
-      SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
-    ]);
+  // mt#3620: this guard no longer suppresses at all, so the shared field the
+  // cadence reads is always empty. The retired reason string stays exported for
+  // the ~18 pre-mt#3620 records that still carry it.
+  test("mt#3620: an overlapping fire records NO suppression reason — it injected", () => {
+    const outcome = run(inputFor(OVERLAPPING_MESSAGE), ctx, storeDir);
+    expect((outcome?.calibration as Record<string, unknown>).suppressionReasons).toEqual([]);
+    expect(SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL).toBe("deduped-by-ask-routing-deferral");
   });
 
   test("mt#3207: an injected fire records an EMPTY suppressionReasons, not an absent one", () => {
