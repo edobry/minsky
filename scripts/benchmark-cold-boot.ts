@@ -247,10 +247,15 @@ function buildBinInvocation(
   useSource: boolean,
   trailing: string[]
 ): { cmd: string; args: string[] } {
-  // Source: `bun run src/cli.ts <args>`; bundle: `bun <bundle> <args>`.
+  // Source: `bun run src/cli.ts <args>`; bundle: `bun run --preload reflect-metadata <bundle> <args>`.
+  //
+  // The bundle path mirrors `Dockerfile`'s CMD (mt#3561). Without the preload the bundle dies at
+  // startup with "tsyringe requires a reflect polyfill" on Bun 1.3.x, which no longer evaluates
+  // reflect-metadata's CommonJS body before tsyringe's ESM body. Measuring WITH the preload is also
+  // the more honest benchmark: it is what production actually pays on every cold boot.
   return useSource
     ? { cmd: "bun", args: ["run", SOURCE_PATH, ...trailing] }
-    : { cmd: "bun", args: [bin, ...trailing] };
+    : { cmd: "bun", args: ["run", "--preload", "reflect-metadata", bin, ...trailing] };
 }
 
 const TIERS: TierSpec[] = [
