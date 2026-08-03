@@ -207,6 +207,23 @@ async function fetchPr(
   };
 }
 
+/**
+ * One `submit_finding` emission, kept in full rather than counted (mt#3547).
+ *
+ * Counts cannot answer the question a quality regression actually poses: are
+ * the findings the changed arm stopped producing REAL defects it now misses, or
+ * false positives it stopped inventing? Two arms can agree on a count and
+ * disagree on every finding. The text is also what makes within-arm stability
+ * checkable — three attempts on one PR returning three different finding sets
+ * is a very different problem from three returning the same set.
+ */
+export interface CapturedFinding {
+  severity: string;
+  file: string;
+  line: number;
+  summary: string;
+}
+
 export interface RoundBudgetObservation {
   attempt: number;
   /** Main-loop rounds used, excluding the post-loop forced passes. */
@@ -220,10 +237,14 @@ export interface RoundBudgetObservation {
    * puts a conclude_review in toolCalls either way.
    */
   concludedInLoop: boolean;
+  /** 1-based round the model concluded on; null when it never did in-loop. */
+  concludedAtRound: number | null;
   forcedConcludeGateBranch: string | null;
   /** Quality side of the ledger — a cheaper review that finds less is not a win. */
   findingCount: number;
   blockingFindingCount: number;
+  /** Every finding in full, so the arms can be diffed rather than compared by count. */
+  findings: CapturedFinding[];
   readFileCallCount: number;
   inputTokens: number;
   cachedTokens: number;
@@ -278,12 +299,23 @@ export function summarize(results: PrRoundBudgetResult[]): RunSummary {
 function countFindings(toolCalls: ReadonlyArray<ReviewToolCall>): {
   findingCount: number;
   blockingFindingCount: number;
+  findings: CapturedFinding[];
 } {
-  const findings = toolCalls.filter((tc) => tc.name === TOOL_SUBMIT_FINDING);
-  const blocking = findings.filter(
-    (tc) => tc.name === TOOL_SUBMIT_FINDING && tc.args.severity === SEVERITY_BLOCKING
-  );
-  return { findingCount: findings.length, blockingFindingCount: blocking.length };
+  const captured: CapturedFinding[] = [];
+  for (const tc of toolCalls) {
+    if (tc.name !== TOOL_SUBMIT_FINDING) continue;
+    captured.push({
+      severity: tc.args.severity,
+      file: tc.args.file,
+      line: tc.args.line,
+      summary: tc.args.summary,
+    });
+  }
+  return {
+    findingCount: captured.length,
+    blockingFindingCount: captured.filter((f) => f.severity === SEVERITY_BLOCKING).length,
+    findings: captured,
+  };
 }
 
 async function replayPr(
@@ -337,7 +369,7 @@ async function replayPr(
     });
 
     const loop = output.toolLoop;
-    const { findingCount, blockingFindingCount } = countFindings(output.toolCalls);
+    const { findingCount, blockingFindingCount, findings } = countFindings(output.toolCalls);
 
     // A missing toolLoop means a non-tool-loop provider path ran; recording it
     // as 0 rounds would silently drag the median down, so fail loudly instead.
@@ -354,9 +386,11 @@ async function replayPr(
       maxRounds: loop.maxRounds,
       exhaustedCap: loop.roundsUsed >= loop.maxRounds,
       concludedInLoop: loop.concludedInLoop,
+      concludedAtRound: loop.concludedAtRound,
       forcedConcludeGateBranch: loop.forcedConcludeGateBranch,
       findingCount,
       blockingFindingCount,
+      findings,
       readFileCallCount,
       inputTokens: output.usage?.promptTokens ?? 0,
       cachedTokens: output.usage?.cachedTokens ?? 0,
@@ -364,7 +398,7 @@ async function replayPr(
 
     console.log(
       `  attempt ${attempt}/${attempts}: rounds=${loop.roundsUsed}/${loop.maxRounds} ` +
-        `concludedInLoop=${loop.concludedInLoop} findings=${findingCount} ` +
+        `concludedAt=${loop.concludedAtRound ?? "never"} findings=${findingCount} ` +
         `(${blockingFindingCount} blocking) reads=${readFileCallCount} in=${output.usage?.promptTokens ?? 0}`
     );
   }

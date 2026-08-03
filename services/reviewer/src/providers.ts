@@ -201,6 +201,17 @@ export interface ToolLoopDiagnostics {
    */
   concludedInLoop: boolean;
   /**
+   * 1-based round on which the model first emitted `conclude_review`, or null
+   * if it never did in-loop.
+   *
+   * Distinguishes two behaviors that `concludedInLoop` alone conflates when the
+   * loop also runs to the cap: concluding on the LAST tool-capable round (the
+   * model paced itself to the deadline) versus concluding EARLY and continuing
+   * to call tools afterward (conclude_review is not acting as a stop signal at
+   * all). They imply different fixes, so measure rather than infer.
+   */
+  concludedAtRound: number | null;
+  /**
    * Which forced-pass branch fired, or null when none did (`concludedInLoop`
    * true). Mirrors the `gate_branch` discriminator on the
    * `reviewer.conclude_review_reminder` audit log.
@@ -1077,6 +1088,12 @@ export async function callOpenAIWithClient(
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
 
+  /**
+   * 1-based round on which the model first emitted `conclude_review` itself,
+   * or null if it never did in-loop (mt#3547).
+   */
+  let concludedAtRound: number | null = null;
+
   const roundLatenciesMs: number[] = [];
   let timeoutCount = 0;
   const retryOutcomes: string[] = [];
@@ -1307,6 +1324,14 @@ export async function callOpenAIWithClient(
           }
 
           accumulatedToolCalls.push(parsed);
+          // mt#3547: record WHICH round the model concluded on, not just that it
+          // did. Without this, `roundsUsed === maxRounds && concludedInLoop` is
+          // ambiguous between "concluded on the last tool-capable round" and
+          // "concluded early and kept calling tools anyway" — two different
+          // behaviors that call for different fixes.
+          if (parsed.name === "conclude_review" && concludedAtRound === null) {
+            concludedAtRound = round + 1;
+          }
           const count = accumulatedToolCalls.length;
           log.info("reviewer.output_tool_call", {
             event: "reviewer.output_tool_call",
@@ -1574,6 +1599,7 @@ export async function callOpenAIWithClient(
       roundsUsed: totalRoundsUsed,
       maxRounds: MAX_TOOL_ROUNDS,
       concludedInLoop,
+      concludedAtRound,
       forcedConcludeGateBranch,
     },
   };

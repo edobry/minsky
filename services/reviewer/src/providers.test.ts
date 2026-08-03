@@ -2499,7 +2499,11 @@ describe("callOpenAIWithClient per-round budget counter (mt#3547)", () => {
   }
 
   const defaultTools: ReviewerToolContext = {
-    readFile: mock(async () => "file contents"),
+    readFile: mock(async () => ({
+      kind: "text" as const,
+      content: "file contents",
+      truncated: false,
+    })),
     listDirectory: mock(async () => null),
   };
 
