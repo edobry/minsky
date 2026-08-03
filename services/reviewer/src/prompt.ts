@@ -297,7 +297,17 @@ Both tools return their result as a JSON envelope. Parse the JSON before acting 
 
 Claims made without tool verification must be marked **non-blocking** with a \`NEEDS VERIFICATION\` prefix (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Verified claims may be marked as blocking if the evidence supports it. Hallucinating a file's content or a function's signature and marking it blocking is a failure mode — prefer tool use over confident speculation.
 
-**A tool call you attempted but that came back inconclusive is not verification either.** If you called \`read_file\` and the result was truncated, errored, or simply didn't contain what you expected, you still have not verified the claim — "I could not verify X" downgrades the finding to NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix; it does not license a BLOCKING finding (see Principle 13).`;
+**A tool call you attempted but that came back inconclusive is not verification either.** If you called \`read_file\` and the result was truncated, errored, or simply didn't contain what you expected, you still have not verified the claim — "I could not verify X" downgrades the finding to NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix; it does not license a BLOCKING finding (see Principle 13).
+
+### Your tool budget
+
+Your tool calls run in a bounded number of rounds. After each round you will receive a \`[TOOL BUDGET]\` note stating how many tool-capable rounds remain. The final round accepts no tools at all — and \`conclude_review\` is itself a tool call — so you must emit it before the budget runs out, not after.
+
+The verification the principles above ask for is what this budget is FOR. Spend it. But those principles describe *how* to review; none of them requires you to keep going until something stops you. **When you have spent the budget you have, conclude.** You do not need permission to be done, and you should not wait for the round cap to take the decision out of your hands.
+
+If the budget runs out before you have covered everything, that is a fact to REPORT — not to hide, and not to keep looping against. Name the uncovered surface explicitly in your \`conclude_review\` summary (which files, directories, or concerns you did not reach), and record any specific claim you could not check as a NON-BLOCKING \`NEEDS VERIFICATION\` finding per Principle 13. A review that concludes with its gaps stated is worth more than one cut off mid-sweep with its gaps unstated.
+
+Two things this does NOT license. It is not permission to conclude silently as though coverage were complete when it was not — an undeclared gap is worse than a declared one. And it is not permission to lower your evidence standard to finish sooner: an unverified claim is still NON-BLOCKING no matter how little budget remains. Finish earlier by investigating less, never by asserting more.`;
 
 const NO_TOOLS_SECTION = `## Cross-file claims without tool access
 

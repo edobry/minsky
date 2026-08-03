@@ -81,11 +81,35 @@ export interface TaskServiceOptions {
 
 // ---- Factory Functions ----
 
+/** Injectable warn/error sink for createConfiguredTaskService (mt#3628). */
+export interface TaskServiceLogSink {
+  error: (message: string, meta?: Record<string, unknown>) => void;
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultTaskServiceLogSink: TaskServiceLogSink = { error: log.error, warn: log.warn };
+
+/**
+ * Pure decision core for the mt#2949 severity split (mt#3628 extraction): a
+ * Postgres connection that was configured but failed to initialize is a
+ * genuine outage ("error"); one that was never configured at all is the
+ * expected local/dev degraded mode ("warn"). No I/O, no logger — testable
+ * entirely by return value.
+ */
+export function classifyBackendUnavailableSeverity(
+  configuredButUnavailable: boolean
+): "error" | "warn" {
+  return configuredButUnavailable ? "error" : "warn";
+}
+
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
   persistenceProvider: import("../persistence/types").BasePersistenceProvider;
+  /** Injectable warn/error sink (mt#3628); defaults to the real shared logger. */
+  logSink?: TaskServiceLogSink;
 }): Promise<TaskServiceInterface> {
+  const logSink = options.logSink ?? defaultTaskServiceLogSink;
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
 
@@ -242,18 +266,19 @@ export async function createConfiguredTaskService(options: {
           // multi-backend-service.ts when something finally tried to use
           // the task service. Surface it loudly instead so a
           // configured-but-down backend doesn't degrade silently.
-          if (
+          const configuredButUnavailable =
             persistenceProvider instanceof UnconfiguredPersistenceProvider &&
-            persistenceProvider.configuredButUnavailable
-          ) {
-            log.error(
+            persistenceProvider.configuredButUnavailable;
+          const severity = classifyBackendUnavailableSeverity(configuredButUnavailable);
+          if (severity === "error") {
+            logSink.error(
               "Minsky task backend unavailable: Postgres is configured but persistence " +
                 "failed to initialize — the 'mt' task backend will NOT be registered. " +
                 "This is a genuine outage, not the expected local/dev degraded mode.",
               { error: getErrorMessage(error) }
             );
           } else {
-            log.warn("Minsky backend database connection failed", {
+            logSink.warn("Minsky backend database connection failed", {
               error: getErrorMessage(error),
             });
           }
