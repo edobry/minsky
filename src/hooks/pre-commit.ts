@@ -7,6 +7,15 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
+/* eslint-disable max-lines -- mt#3613's ADR-numbering-collision check tipped this file from
+ * 1492 to 1502 ESLint-counted (comments/blanks excluded) lines, past the 1500 error threshold.
+ * The codebase's established convention requires one dedicated `instrumented()` call per guard
+ * (combining two checks under one guard call was tried and rejected as BLOCKING — mt#3299 PR
+ * #2392 R1 #5, "each check now gets its own instrumented() call, same as every sibling
+ * pre-commit step") so the ~10-line-per-check wiring cost (import + call + early-return) isn't
+ * avoidable without restructuring the file, which is out of mt#3613's scope. Tracked at
+ * mt#3645 — remove this disable once that task gives the file headroom again. */
+
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
@@ -51,6 +60,10 @@ import {
   runDuplicateGeneratedContentCheck as runDuplicateGeneratedContentCheckImpl,
   DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV,
 } from "./duplicate-generated-content-detector";
+import {
+  runAdrNumberingCollisionCheck as runAdrNumberingCollisionCheckImpl,
+  ADR_NUMBERING_COLLISION_CHECK_OVERRIDE_ENV,
+} from "./adr-numbering-collision-detector";
 import { runRelatedTestsCheck } from "./related-tests-check";
 import {
   recordPreCommitFireLogEntry,
@@ -438,6 +451,19 @@ export class PreCommitHook {
         DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV
       );
       if (!dupContentResult.success) return dupContentResult;
+
+      // Step 3h (mt#3613): ADR-numbering-collision — a new/renamed
+      // `docs/architecture/adr-NNN-*.md` file reusing a number an existing
+      // ADR already holds. Nothing in pre-commit inspected `docs/architecture/`
+      // before this check; the sibling "immutable+collision" step
+      // (runMigrationCollisionCheck) is exclusively about the SQL-migration
+      // journal. Fires only when the staged diff touches an ADR path.
+      const adrNumberingCollisionResult = await this.instrumented(
+        "adr-numbering-collision-check",
+        () => runAdrNumberingCollisionCheckImpl(this.projectRoot),
+        ADR_NUMBERING_COLLISION_CHECK_OVERRIDE_ENV
+      );
+      if (!adrNumberingCollisionResult.success) return adrNumberingCollisionResult;
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
       // mt#2193). Verify every domain ASSERTED as a deployment target in
