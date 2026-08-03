@@ -500,12 +500,63 @@ function readCalibrationLogText(cwd: string): string | undefined {
   return readLogTailText(logPath);
 }
 
+// ---------------------------------------------------------------------------
+// Evaluation logging (mt#3583) — a SEPARATE stream from calibration
+// ---------------------------------------------------------------------------
+
+/**
+ * Every evaluation this detector performs, fired or not (mt#3583, ADR-032 §D2).
+ *
+ * **Deliberately not the `*-calibration.jsonl` log.** `coverage-receipt.ts`
+ * treats the existence of a calibration record as evidence the detector FIRED —
+ * that is the whole live-vs-dormant signal it computes. Writing non-fire records
+ * into that log would report a detector as covered on turns where it stayed
+ * silent, breaking a shipped gate to feed a new consumer. The filename also
+ * deliberately avoids the `-calibration` suffix, because
+ * `scripts/check-coverage-receipts.ts` discovers its inputs by globbing
+ * `.minsky/*-calibration.jsonl`.
+ *
+ * What this stream is for: the tuning loop needs to know whether guidance
+ * CHANGED anything, and that is unanswerable from fires alone — a corpus of
+ * fires can say "it happened again" but never "it stopped happening."
+ */
+const EVALUATION_LOG = ".minsky/silent-stretch-evaluations.jsonl";
+
+/**
+ * Append one evaluation record. Fail-open and never throws, matching
+ * `appendCalibrationRecord` above: a measurement stream must never be able to
+ * break the guard whose behavior it measures.
+ */
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  try {
+    const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[silent-stretch-detector] Failed to write evaluation log: ${msg}\n`);
+  }
+}
+
+/** Bounded-tail read of the evaluation log, for the same-turn dedupe below. */
+function readEvaluationLogText(cwd: string): string | undefined {
+  const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
+  return readLogTailText(logPath);
+}
+
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
 export interface RunDeps {
   /** Defaults to the real `parseTranscript`. Used by `resolveParentTranscriptLines`'s multi-candidate branch. */
   parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
   readCalibrationLogTextFn?: (cwd: string) => string | undefined;
+  /** Defaults to the real `readEvaluationLogText`. Used by the evaluation-stream dedupe. */
+  readEvaluationLogTextFn?: (cwd: string) => string | undefined;
+  /** Defaults to the real `appendEvaluationRecord`. */
+  appendEvaluationRecordFn?: (cwd: string, record: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,9 +634,46 @@ export function run(
     return null;
   }
 
-  if (!measurement.matched) return null;
-
   const turnAnchor = buildTurnAnchor(boundaries);
+
+  // mt#3583: record the measurement whether or not it matched. A fire-only
+  // stream can express "it happened again" but never "it stopped happening,"
+  // and the tuning loop needs both — see EVALUATION_LOG's doc comment. Deduped
+  // on the same turn anchor as the calibration record below, for the same
+  // reason: an unchanged turn re-measured on a later prompt would otherwise
+  // append a duplicate, and a duplicate of a FIRE reads downstream as the guard
+  // firing twice — turning one fire into a false `dismissed`.
+  const appendEvaluation = deps.appendEvaluationRecordFn ?? appendEvaluationRecord;
+  const readEvaluationLogTextFn = deps.readEvaluationLogTextFn ?? readEvaluationLogText;
+  // A record with no session id is skipped entirely rather than written
+  // undeduped (PR #2569 R1). `sessionHasLoggedKey` returns false whenever the
+  // session id is falsy — it cannot match a record it cannot key — so emitting
+  // here would append on EVERY evaluation with no upper bound. Skipping loses
+  // nothing: the labeler sequences within a session, so a record with no
+  // session id could never be ordered against anything anyway.
+  const hasSessionId = typeof input.session_id === "string" && input.session_id.trim() !== "";
+  if (
+    turnAnchor &&
+    hasSessionId &&
+    !sessionHasLoggedKey(
+      readEvaluationLogTextFn(input.cwd),
+      input.session_id,
+      "turnAnchor",
+      turnAnchor
+    )
+  ) {
+    appendEvaluation(input.cwd, {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      guardName: "silent-stretch-detector",
+      turnAnchor,
+      gapMinutes: measurement.gapMinutes,
+      toolCallCount: measurement.toolCallCount,
+      fired: measurement.matched,
+    });
+  }
+
+  if (!measurement.matched) return null;
   if (
     turnAnchor &&
     sessionHasLoggedKey(
