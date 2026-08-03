@@ -543,6 +543,16 @@ export interface WallOfTextRecord {
   leadLabelHits?: string[];
   deeplinkCount?: number;
   namedRefCount?: number;
+  /**
+   * The measured report's lead, capped by the detector (mt#3576).
+   *
+   * Optional because the 186 records written before mt#3576 have no such
+   * field — absent means "written before the excerpt shipped," not "the report
+   * was empty." Read it as the evidence for classifying a `lead-labels` fire:
+   * `leadLabelHits` names which pattern matched, and only this carries the text
+   * it matched.
+   */
+  excerpt?: string;
 }
 
 /**
@@ -955,6 +965,13 @@ function parseCalibrationRecordCore(
           : undefined,
         deeplinkCount: typeof raw["deeplinkCount"] === "number" ? raw["deeplinkCount"] : undefined,
         namedRefCount: typeof raw["namedRefCount"] === "number" ? raw["namedRefCount"] : undefined,
+        // mt#3576: read explicitly rather than leaving it to the
+        // `detectorFields` passthrough, for the reason PR #2420 R1 gave for
+        // `transcript_excerpt` — a field declared on the record type that the
+        // parser never populates makes the type promise something the parser
+        // does not deliver, and every consumer keying on `excerpt` would find
+        // it nested a level down instead.
+        excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
       } satisfies WallOfTextRecord;
     }
 

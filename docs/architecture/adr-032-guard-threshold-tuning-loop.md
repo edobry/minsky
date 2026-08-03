@@ -211,9 +211,27 @@ Three properties this surface must hold, and the reason each is here:
   and on the hosted-vs-self-host fork.
 
 - mt#3577 (this decision) · mt#3525 (umbrella) · mt#3518 (the ownership labels) · mt#3334 (ingest,
-  the aggregation half's prerequisite) · mt#3576 (wall-of-text calibration records retain no
-  measured length — prerequisite for that guard's half) · mt#3280 (turn attribution, the epoch
+  the aggregation half's prerequisite) · mt#3576 (wall-of-text calibration records retain no text
+  excerpt — NOT a prerequisite; see the correction below) · mt#3280 (turn attribution, the epoch
   above) · mt#2901 (the rationalization review this extends)
+
+### Correction (2026-08-03, ask#6800)
+
+This ADR was accepted citing mt#3576 as "wall-of-text calibration records retain no measured
+length — prerequisite for that guard's half." **That is false**, and the error was inherited from
+mt#3576's own spec rather than introduced here. Every record in
+`.minsky/wall-of-text-calibration.jsonl` — all 186, back to the first on 2026-07-18 — carries
+`wordCount`, `lineCount`, and `trigger`; the JSON mt#3576 quoted as a whole record was the nested
+`detectorFields` sub-object (mt#3289). `wall-of-text` supplies `observedValue` today, so §D1's
+"90th percentile of dismissed values" has its input already and mt#3583 is not blocked on that
+guard.
+
+mt#3576 is rescoped to retaining a text EXCERPT. That is not a prerequisite for tuning, but it does
+protect §D1's percentile: a measurement taken against the wrong transcript (the mt#3028
+contamination class) is indistinguishable from a genuine one on `wordCount` alone, and §D1's own
+nearest-rank note makes a single such record decisive at cold start. Excluding one before it
+reaches the tuner requires seeing the text. See mem#827 for the misread itself.
+
 - mem#802 (the ownership principle) · mem#816 (the handoff that corrected the "shipped" claim)
 - `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` §D2, §D4
 - `docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md` (the ladder this
