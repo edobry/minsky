@@ -16,10 +16,27 @@
 // from the prior real prompt through ALL interleaved assistant + tool_result
 // lines — a full logical turn.
 //
-// This module is the single definition of the turn-boundary logic. The three
-// detector hooks (substrate-bypass-detector, retrospective-trigger-scanner,
-// pre-narration-detector) and their tests import from here.
+// This module is the single definition of the turn-boundary logic. Eleven
+// detector hooks and their tests import from here — see ADR-031's
+// classification table for the full caller list (the original comment here
+// named three, which was accurate at mt#2255 and has not been true for a while).
 //
+// WHY THIS READS A FILE THE VENDOR WARNS MAY LAG. Claude Code's hooks
+// reference says hooks needing the final assistant text of the current turn
+// should use `last_assistant_message` on Stop rather than reading
+// `transcript_path`, which "is written asynchronously and may lag the
+// in-memory conversation". That guidance is FOLLOWED for what it covers and
+// deviated from for what it does not: ten of the eleven callers need the
+// turn's TOOL CALLS, which `last_assistant_message` does not carry at all, so
+// the transcript is the only source that exists. Given it must be read, it is
+// read at `UserPromptSubmit` — where the file has had the MOST time to flush —
+// rather than at `Stop`, where it has had the least. Do not "fix" this by
+// moving the transcript read to Stop; that makes the lag exposure worse, and
+// the reasoning (plus the four options considered and the three rejected) is
+// recorded so it does not have to be re-derived a seventh time.
+//
+// @see docs/architecture/adr-031-guidance-detector-lifecycle-event.md — the
+//      event-architecture decision governing this module (task mt#3292)
 // @see mt#2255 — this task
 // @see .claude/hooks/types.ts — sibling cross-hook util home (readInput, readHostCap, deriveBudgets)
 
