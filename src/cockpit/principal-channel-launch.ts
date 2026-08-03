@@ -28,6 +28,7 @@ import type { PrincipalChannelConfig } from "@minsky/domain/configuration/schema
 import {
   markTelegramChannelTopicDead,
   resolvePrincipalChannel,
+  type PrincipalChannelResolution,
 } from "@minsky/domain/notify/principal-channel";
 import {
   inboundEventToken,
@@ -455,6 +456,86 @@ export async function logTopicModeCapability(
 }
 
 /**
+ * What the channel is actually doing, for the `/api/health` surface (mt#3608).
+ *
+ * Mirrors {@link getDbStatus}'s shape deliberately: a module-level last-known
+ * state a health endpoint can read on every request without probing anything.
+ *
+ * The states an operator needs to tell apart:
+ * - `unconfigured` — the credentials are genuinely absent. Operator action.
+ * - `failed` — they exist (probably) but could not be READ, and retries are
+ *   exhausted. NOT the same as unconfigured, which is the conflation that let
+ *   five occurrences of this go unexamined in a day.
+ */
+export type PrincipalChannelStatus =
+  | { state: "disabled" }
+  | { state: "starting" }
+  | { state: "running"; chatId: string }
+  | { state: "unconfigured"; reason: string }
+  | { state: "retrying"; reason: string; attempts: number }
+  | { state: "failed"; reason: string; attempts: number };
+
+let channelStatus: PrincipalChannelStatus = { state: "disabled" };
+
+/**
+ * Last-known channel status. Read-only; never triggers work. Safe to call from
+ * a health endpoint on every request.
+ */
+export function getPrincipalChannelStatus(): PrincipalChannelStatus {
+  return channelStatus;
+}
+
+/** Reset to the pre-start state. For tests. */
+export function resetPrincipalChannelStatus(): void {
+  channelStatus = { state: "disabled" };
+}
+
+/**
+ * How long to keep retrying a FAILED credential read, and how far apart.
+ *
+ * Grounded in the observed fault rather than a round number: every occurrence
+ * on 2026-08-03 was a transient resolver failure that cleared within seconds —
+ * verified by hand minutes later, when the same read succeeded. Six attempts on
+ * a doubling backoff from 2s spans ~2 minutes, which covers that class without
+ * hammering the Pulumi backend. Exhausting them means the fault is not the
+ * transient class this exists for, so it stops and says so.
+ */
+export const CREDENTIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
+
+/**
+ * Resolve credentials, retrying only while the failure is one a retry can fix.
+ *
+ * A genuinely-unconfigured channel returns immediately: retrying an absent
+ * credential just delays a message the operator needs to see.
+ */
+export async function resolveWithRetry(deps: {
+  resolve: typeof resolvePrincipalChannel;
+  sleep: (ms: number) => Promise<void>;
+  delaysMs: readonly number[];
+}): Promise<PrincipalChannelResolution> {
+  let attempt = 0;
+  for (;;) {
+    const resolution = await deps.resolve();
+    if (resolution.configured || !resolution.transient) return resolution;
+
+    if (attempt >= deps.delaysMs.length) {
+      channelStatus = { state: "failed", reason: resolution.reason, attempts: attempt + 1 };
+      return resolution;
+    }
+
+    const delayMs = deps.delaysMs[attempt] ?? 0;
+    channelStatus = { state: "retrying", reason: resolution.reason, attempts: attempt + 1 };
+    log.warn("[principal-channel] credential read failed; retrying", {
+      reason: resolution.reason,
+      attempt: attempt + 1,
+      nextRetryMs: delayMs,
+    });
+    await deps.sleep(delayMs);
+    attempt += 1;
+  }
+}
+
+/**
  * Start the channel, or explain why it did not start.
  *
  * Returns null rather than throwing on every not-running path: this is called
@@ -467,15 +548,40 @@ export async function startPrincipalChannel(opts: {
   recordEvent: InboundEventRecorder;
   readHighestUpdateId: () => Promise<number | undefined>;
   onStarted?: (chatId: string) => void;
+  /** Injected for tests so a retry sequence does not actually wait. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injected for tests; production uses {@link CREDENTIAL_RETRY_DELAYS_MS}. */
+  retryDelaysMs?: readonly number[];
 }): Promise<PollerHandle | null> {
   const config = opts.config ?? loadPrincipalChannelLaunchConfig();
-  if (!config.enabled) return null;
+  if (!config.enabled) {
+    channelStatus = { state: "disabled" };
+    return null;
+  }
 
-  const resolution = await resolvePrincipalChannel();
+  channelStatus = { state: "starting" };
+  const resolution = await resolveWithRetry({
+    resolve: resolvePrincipalChannel,
+    sleep: opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    delaysMs: opts.retryDelaysMs ?? CREDENTIAL_RETRY_DELAYS_MS,
+  });
+
   if (!resolution.configured) {
-    log.warn("[principal-channel] enabled but not configured; not starting", {
-      reason: resolution.reason,
-    });
+    // Two different situations, deliberately logged differently (mt#3608). The
+    // old single warn said "enabled but not configured" for both, which reads
+    // as an operator oversight and is why a repeating fault looked like a
+    // settled config state.
+    if (resolution.transient) {
+      log.error(
+        "[principal-channel] credentials could not be read after retries; channel NOT running",
+        { reason: resolution.reason }
+      );
+    } else {
+      channelStatus = { state: "unconfigured", reason: resolution.reason };
+      log.warn("[principal-channel] enabled but not configured; not starting", {
+        reason: resolution.reason,
+      });
+    }
     return null;
   }
 
@@ -520,6 +626,7 @@ export async function startPrincipalChannel(opts: {
     permissionMode: config.permissionMode,
     senderAllowlistSize: allowedUserIds.length,
   });
+  channelStatus = { state: "running", chatId };
   opts.onStarted?.(chatId);
 
   return startPrincipalChannelPoller({

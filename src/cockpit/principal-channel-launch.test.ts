@@ -11,9 +11,12 @@ import {
   createEventLogCursor,
   createTopicActuatorResolver,
   ensureTelegramChannelTopic,
+  getPrincipalChannelStatus,
   loadPrincipalChannelLaunchConfig,
   logTopicModeCapability,
+  resetPrincipalChannelStatus,
   resolveAllowedUserIds,
+  resolveWithRetry,
   startPrincipalChannel,
   telegramTopicLocalId,
   type DbLike,
@@ -428,6 +431,119 @@ describe("createTopicActuatorResolver (mt#3505)", () => {
 
     await resolve(SAMPLE_THREAD_ID);
     expect(seenLocalIds).toEqual([SAMPLE_LOCAL_ID]);
+  });
+});
+
+/**
+ * Credential-read retry and channel-status surfacing (mt#3608).
+ *
+ * The defect these pin: a transient failure reading the bot token — a DNS blip
+ * against the Pulumi backend — used to be reported as "not configured", and the
+ * launch path gives up permanently on that verdict. The channel then stayed off
+ * for the life of the daemon with one `warn` as its only trace. Five times on
+ * 2026-08-03.
+ */
+describe("resolveWithRetry (mt#3608)", () => {
+  const CONFIGURED = {
+    configured: true as const,
+    config: { token: "t", chatId: "c", source: "pulumi" as const },
+  };
+  const TRANSIENT = {
+    configured: false as const,
+    transient: true,
+    reason: "credentials could not be READ: getaddrinfo ENOTFOUND",
+  };
+  const UNCONFIGURED = {
+    configured: false as const,
+    transient: false,
+    reason: "not configured: no token, no chat id",
+  };
+
+  /** Delays are injected as zeros so a retry sequence costs no wall-clock. */
+  const NO_WAIT = [0, 0, 0];
+  const sleep = async (): Promise<void> => {};
+
+  test("AT1 — a read that fails once and then succeeds ends up CONFIGURED", async () => {
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return calls === 1 ? TRANSIENT : CONFIGURED;
+    };
+
+    const result = await resolveWithRetry({ resolve, sleep, delaysMs: NO_WAIT });
+
+    expect(result.configured).toBe(true);
+    expect(calls).toBe(2);
+    // The status surface reflects the recovery, not the transient blip.
+    expect(getPrincipalChannelStatus().state).toBe("retrying");
+  });
+
+  test("AT2 — a permanently failing read gives up as `failed`, NOT as `unconfigured`", async () => {
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return TRANSIENT;
+    };
+
+    const result = await resolveWithRetry({ resolve, sleep, delaysMs: NO_WAIT });
+
+    expect(result.configured).toBe(false);
+    // Every delay is consumed, then one final attempt — the loop must not give
+    // up before it has actually used its budget.
+    expect(calls).toBe(NO_WAIT.length + 1);
+
+    const status = getPrincipalChannelStatus();
+    expect(status.state).toBe("failed");
+    // `failed` carries the reason so the health surface can say WHY, and is a
+    // different state from `unconfigured` — that is the whole point.
+    expect(status.state === "failed" && status.reason).toContain("ENOTFOUND");
+  });
+
+  test("AT3 — a genuinely-unconfigured channel does NOT retry", async () => {
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return UNCONFIGURED;
+    };
+
+    const result = await resolveWithRetry({ resolve, sleep, delaysMs: NO_WAIT });
+
+    expect(result.configured).toBe(false);
+    // Exactly one attempt: retrying an absent credential only delays a message
+    // the operator needs to see, and burns the Pulumi backend for nothing.
+    expect(calls).toBe(1);
+  });
+
+  test("a success on the first attempt never sleeps", async () => {
+    let slept = 0;
+    const result = await resolveWithRetry({
+      resolve: async () => CONFIGURED,
+      sleep: async () => {
+        slept += 1;
+      },
+      delaysMs: NO_WAIT,
+    });
+
+    expect(result.configured).toBe(true);
+    expect(slept).toBe(0);
+  });
+});
+
+describe("getPrincipalChannelStatus (mt#3608)", () => {
+  test("a disabled channel reports disabled rather than looking broken", async () => {
+    resetPrincipalChannelStatus();
+
+    const handle = await startPrincipalChannel({
+      config: { enabled: false, cwd: "/tmp", permissionMode: "default", allowedUserIds: [] },
+      respondToAsk: async () => "unused",
+      recordEvent: async () => "recorded" as const,
+      readHighestUpdateId: async () => undefined,
+    });
+
+    expect(handle).toBeNull();
+    // "off because you turned it off" must be distinguishable from "off because
+    // something failed" — otherwise the health field cannot be alarmed on.
+    expect(getPrincipalChannelStatus()).toEqual({ state: "disabled" });
   });
 });
 
