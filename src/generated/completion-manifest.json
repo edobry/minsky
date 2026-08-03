@@ -5388,6 +5388,11 @@
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
                 },
                 {
+                  "flags": ["--severity"],
+                  "description": "Set to 'incident' when a severity trigger fired AND remediation is operator-only (production incident, outage, security finding, blocked-past-threshold). On an operator-routed ask this sends the principal ONE notification on their phone pointing at this ask — you do not need to send a separate notification yourself. Both halves are required: an incident you can fix yourself does not warrant it, and an operator-only chore that is not a severity event belongs in the normal inbox.",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--acknowledge-form-warnings"],
                   "description": "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A deliberate, per-call override for a genuinely long/complex ask — never a default. Recorded on the form-lint calibration log so override frequency stays reviewable via /calibration-review. Without it, a create whose question/options fail any form-lint check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, letter-prefixed-option-label) is rejected with the violations listed."
                 }
@@ -6871,7 +6876,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6881,6 +6886,7 @@
                 "embeddings.provider_degraded",
                 "principal.message_rejected",
                 "principal.message_failed",
+                "ask.page_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -6961,7 +6967,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
             }
           ]
         }
