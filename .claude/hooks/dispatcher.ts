@@ -276,6 +276,30 @@ export function buildOverrideAuditLine(
   return `[dispatcher:${event}] OVERRIDE: guard=${guardName} session=${sessionId ?? "unknown"}${reasonPart} ts=${now()}\n`;
 }
 
+/**
+ * Audit line for an `updatedInput` rewrite the dispatcher DROPPED because an
+ * earlier guard in registry order already supplied one (mt#3612).
+ *
+ * `updatedInput` is a replacement value, so two guards rewriting the same tool
+ * call cannot both be honored — and the loser is invisible without this line.
+ * Discarding it silently is the failure class the whole surrounding tree keeps
+ * hitting, so the drop is recorded rather than inferred.
+ *
+ * Written to STDERR by the caller. Claude Code discards a PreToolUse hook's
+ * entire output when stdout carries anything besides the single JSON object, so
+ * an audit line on stdout would silently void the rewrite that won — turning a
+ * visibility mechanism into the very failure it was added to prevent.
+ */
+export function buildDiscardedRewriteAuditLine(
+  event: LifecycleEvent,
+  discardedGuard: string,
+  keptGuard: string,
+  sessionId: string | undefined,
+  now: () => string = () => new Date().toISOString()
+): string {
+  return `[dispatcher:${event}] REWRITE-DISCARDED: guard=${discardedGuard} kept=${keptGuard} session=${sessionId ?? "unknown"} ts=${now()}\n`;
+}
+
 // ---------------------------------------------------------------------------
 // D4 — calibration logging as a framework service
 // ---------------------------------------------------------------------------
@@ -658,6 +682,10 @@ export async function runDispatcher(
   const knownGuardNames = registrations.map((r) => r.name);
   const contextFragments: ContextFragment[] = [];
   let sessionTitle: string | undefined;
+  // mt#3612: first-in-registry-order wins for `updatedInput`. `keptBy` records
+  // WHICH guard won so a later guard's discarded rewrite can name it.
+  let updatedInput: Record<string, unknown> | undefined;
+  let updatedInputKeptBy: string | undefined;
   for (const reg of matched) {
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
@@ -774,15 +802,42 @@ export async function runDispatcher(
       });
     }
     if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
+    // mt#3612: first-in-registry-order wins. A second rewrite cannot be merged
+    // with the first (each guard builds its object from the ORIGINAL input, so
+    // a merge would resurrect fields the first guard deliberately changed), so
+    // it is dropped — but named, never silently.
+    if (outcome.updatedInput !== undefined) {
+      if (updatedInput === undefined) {
+        updatedInput = outcome.updatedInput;
+        updatedInputKeptBy = reg.name;
+      } else {
+        // STDERR, not stdout. Claude Code discards a PreToolUse hook's ENTIRE
+        // output when stdout carries anything besides the one JSON object
+        // (ADR-028 D1's "exactly one JSON object", confirmed live in PR #2573:
+        // an identical run with one junk stdout line ahead of the JSON executed
+        // the ORIGINAL command instead of the rewrite). Writing this line to
+        // stdout would therefore void the winning guard's rewrite in precisely
+        // the multi-guard case the line exists to make visible.
+        stderrWrite(
+          buildDiscardedRewriteAuditLine(
+            event,
+            reg.name,
+            updatedInputKeptBy ?? "unknown",
+            input.session_id
+          )
+        );
+      }
+    }
   }
 
   const additionalContext = composeAdditionalContext(contextFragments);
-  if (additionalContext !== undefined || sessionTitle !== undefined) {
+  if (additionalContext !== undefined || sessionTitle !== undefined || updatedInput !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
         ...(additionalContext !== undefined ? { additionalContext } : {}),
         ...(sessionTitle !== undefined ? { sessionTitle } : {}),
+        ...(updatedInput !== undefined ? { updatedInput } : {}),
       },
     });
   }

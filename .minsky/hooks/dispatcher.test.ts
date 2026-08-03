@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   checkOverride,
   buildOverrideAuditLine,
+  buildDiscardedRewriteAuditLine,
   buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
@@ -684,6 +685,200 @@ describe("runDispatcher", () => {
     expect(written.length).toBe(1);
     expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("fragment A\n\nfragment B");
     expect(written[0]?.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // updatedInput forwarding (mt#3612)
+  //
+  // The acceptance tests assert against the SERIALIZED stdout JSON rather than
+  // the `writeOutputFn` seam wherever the claim is about what a downstream JSON
+  // consumer sees — a value present on the seam object proves nothing about the
+  // bytes Claude Code actually parses.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Runs the dispatcher through its REAL `writeOutput` path (no `writeOutputFn`
+   * injected) with `process.stdout.write` captured, and returns the parsed JSON
+   * object plus the non-JSON audit lines written alongside it.
+   */
+  async function runCapturingRealStdout(
+    registrations: GuardRegistration[]
+  ): Promise<{ json: Record<string, unknown> | undefined; auditLines: string[] }> {
+    const chunks: string[] = [];
+    const realWrite = process.stdout.write.bind(process.stdout);
+    // Narrow stub for the capture window only; restored in `finally`.
+    (process.stdout as any).write = (s: any) => {
+      chunks.push(String(s));
+      return true;
+    };
+    try {
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        resolveDispatchContextFn: () => stubContext(),
+      });
+    } finally {
+      (process.stdout as any).write = realWrite;
+    }
+    const jsonChunk = chunks.find((c) => c.trimStart().startsWith("{"));
+    return {
+      json: jsonChunk ? (JSON.parse(jsonChunk) as Record<string, unknown>) : undefined,
+      auditLines: chunks.filter((c) => !c.trimStart().startsWith("{")),
+    };
+  }
+
+  function updatedInputGuard(
+    name: string,
+    updatedInput: Record<string, unknown>,
+    extra: Record<string, unknown> = {}
+  ): GuardRegistration {
+    return {
+      name,
+      event: "PreToolUse",
+      matcher: "Bash",
+      module: () => Promise.resolve({ run: () => ({ updatedInput, ...extra }) }),
+      timeoutMs: 1000,
+      denyCapable: false,
+    };
+  }
+
+  test("AT1: a guard's updatedInput reaches the serialized stdout JSON verbatim", async () => {
+    const rewrite = { command: "echo rewritten", nested: { keep: true } };
+    const { json } = await runCapturingRealStdout([
+      // Paired with additionalContext so this test isolates FORWARDING —
+      // whether a rewrite-only guard emits at all is AT3's job.
+      updatedInputGuard("rewriter", rewrite, { additionalContext: "ctx" }),
+    ]);
+    const hso = json?.hookSpecificOutput as Record<string, unknown> | undefined;
+    expect(hso?.updatedInput).toEqual(rewrite);
+    expect(hso?.hookEventName).toBe("PreToolUse");
+  });
+
+  test("AT2: no guard returns updatedInput -> the key is ABSENT from the JSON, not null", async () => {
+    const { json } = await runCapturingRealStdout([
+      {
+        name: "ctx-only",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "ctx" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ]);
+    const hso = (json?.hookSpecificOutput ?? {}) as Record<string, unknown>;
+    // `in`, not `=== undefined`: the claim is that a JSON consumer sees no key.
+    expect("updatedInput" in hso).toBe(false);
+    expect(hso.additionalContext).toBe("ctx");
+  });
+
+  test("AT3: a rewrite-only guard still produces output (emission-gate negative control)", async () => {
+    // The pre-mt#3612 gate emitted only when additionalContext or sessionTitle
+    // was present, so a rewrite-only guard produced NO output at all. Measured
+    // negative control (gate reverted, suite re-run): 3 fail / 71 pass — this
+    // test, AT4, and the non-denyCapable test, i.e. exactly the three whose
+    // guards return `updatedInput` with no context fragment. AT1/AT2/AT5 stay
+    // green because each carries an additionalContext or a deny that satisfies
+    // the old gate on its own — which is why a rewrite-ONLY case had to be
+    // written down separately rather than assumed covered.
+    const rewrite = { command: "echo only-rewrite" };
+    const { json } = await runCapturingRealStdout([updatedInputGuard("solo", rewrite)]);
+    expect(json).toBeDefined();
+    const hso = json?.hookSpecificOutput as Record<string, unknown> | undefined;
+    expect(hso?.updatedInput).toEqual(rewrite);
+    expect("additionalContext" in (hso ?? {})).toBe(false);
+  });
+
+  test("AT4: two guards return updatedInput -> FIRST in registry order wins, discard is audited", async () => {
+    const written: HookOutput[] = [];
+    const stdout: string[] = [];
+    const stderr = makeStderrSpy();
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations: [
+        updatedInputGuard("first", { command: "from-first" }),
+        updatedInputGuard("second", { command: "from-second" }),
+      ],
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: stderr.write,
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written.length).toBe(1);
+    expect(written[0]?.hookSpecificOutput?.updatedInput).toEqual({ command: "from-first" });
+    const discardLine = stderr.writes.find((s) => s.includes("REWRITE-DISCARDED"));
+    expect(discardLine).toBeDefined();
+    // Both guards named: which one lost, and which one won instead.
+    expect(discardLine).toContain("guard=second");
+    expect(discardLine).toContain("kept=first");
+    // STDOUT must stay free of it: Claude Code discards a PreToolUse hook's
+    // whole output when stdout carries anything but the one JSON object, so
+    // auditing the discard on stdout would void the rewrite that WON. Verified
+    // live in PR #2573 — see the doc comment at the dispatcher's write site.
+    expect(stdout.some((s) => s.includes("REWRITE-DISCARDED"))).toBe(false);
+  });
+
+  test("AT5: deny plus updatedInput from one guard -> deny wins, no updatedInput key emitted", async () => {
+    const { json } = await runCapturingRealStdout([
+      {
+        name: "deny-and-rewrite",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({
+              deny: { reason: "blocked" },
+              updatedInput: { command: "never-applied" },
+            }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ]);
+    const hso = (json?.hookSpecificOutput ?? {}) as Record<string, unknown>;
+    expect(hso.permissionDecision).toBe("deny");
+    expect(hso.permissionDecisionReason).toBe("blocked");
+    expect("updatedInput" in hso).toBe(false);
+  });
+
+  test("a non-denyCapable guard's deny does not suppress its updatedInput", async () => {
+    // The deny branch is gated on `reg.denyCapable`, so a guard that is not
+    // deny-capable falls through to aggregation. Pinning this keeps AT5's
+    // "deny wins" from being read as "any deny field wins".
+    const { json } = await runCapturingRealStdout([
+      {
+        name: "not-deny-capable",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({
+              deny: { reason: "ignored — guard is not deny-capable" },
+              updatedInput: { command: "applied" },
+            }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ]);
+    const hso = (json?.hookSpecificOutput ?? {}) as Record<string, unknown>;
+    expect(hso.updatedInput).toEqual({ command: "applied" });
+    expect("permissionDecision" in hso).toBe(false);
+  });
+
+  test("buildDiscardedRewriteAuditLine formats the discard record", () => {
+    const line = buildDiscardedRewriteAuditLine(
+      "PreToolUse",
+      "loser",
+      "winner",
+      "sess-9",
+      () => "TS"
+    );
+    expect(line).toBe(
+      "[dispatcher:PreToolUse] REWRITE-DISCARDED: guard=loser kept=winner session=sess-9 ts=TS\n"
+    );
+    expect(line.endsWith("\n")).toBe(true);
   });
 
   test("override suppresses the guard entirely — run() never invoked, audit line emitted", async () => {
