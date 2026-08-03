@@ -619,14 +619,20 @@ export interface SharedCalibrationFields {
    * | --- | --- |
    * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
    * | `wall-of-text` | `depth-request-override` |
-   * | `untaken-action` | `deduped-by-ask-routing-deferral` |
-   * | `ask-routing-deferral` | `asks-create-this-turn` |
+   * | `untaken-action` | (none — see below) |
+   * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
    * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
    * | `knowledge-acquisition` | `propagation-in-window` |
    *
    * Records written by those detectors BEFORE mt#3207 carry no field and are
    * therefore `absent`, not `[]` — they count as injected, which is the
    * deliberate conservative default (unknown must never hide a real fire).
+   *
+   * mt#3620: `untaken-action` no longer emits any reason. It used to emit
+   * `deduped-by-ask-routing-deferral` when it yielded to the prompt-time
+   * detector; that yield is inverted — the Stop guard now injects and the
+   * prompt-time one goes quiet under `deduped-by-untaken-action-stop`. Records
+   * carrying the old string are pre-mt#3620 and still classify correctly.
    */
   suppressionReasons?: string[];
 

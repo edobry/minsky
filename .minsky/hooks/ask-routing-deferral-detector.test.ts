@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- the mt#3620 handoff tests exercise the real turn-end-scan-store roundtrip (Stop writes -> prompt-time reads) in an isolated mkdtemp dir, mirroring turn-end-untaken-action-scan.test.ts's precedent */
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFERRAL_MENU_PATTERNS,
   MENU_SHAPE_REQUIRED_PATTERNS,
@@ -12,9 +16,11 @@ import {
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   SUPPRESSION_ASKS_CREATE_THIS_TURN,
+  SUPPRESSION_STOP_GUARD_ALREADY_INJECTED,
   run,
   type DeferralMatch,
 } from "./ask-routing-deferral-detector";
+import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -207,6 +213,91 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
     transcriptLines,
   };
 }
+
+/**
+ * mt#3620 — the Stop→prompt handoff, end to end.
+ *
+ * The originating incident (2026-08-03): a turn closed with "Say the word and
+ * I'll do it", offering to restart a daemon rather than probing whether it
+ * needed restarting at all. The Stop guard detected it and then suppressed its
+ * own injection under mt#3336's dedup, yielding to THIS detector — which runs
+ * on `UserPromptSubmit` and therefore could not speak until the principal had
+ * already read the deferral and replied. These tests pin the inverted contract:
+ * the Stop guard speaks, and this one goes quiet about that same sentence.
+ */
+describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
+  const INCIDENT_CLOSING_SENTENCE =
+    "The running cockpit needs a main pull plus a daemon restart. Say the word and I'll do it.";
+  const SESSION = "mt3620-handoff";
+
+  let storeDir: string;
+  beforeEach(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "mt3620-handoff-"));
+  });
+  afterEach(() => {
+    rmSync(storeDir, { recursive: true, force: true });
+  });
+
+  function promptInput(): ClaudeHookInput {
+    return { ...RUN_HOOK_INPUT, session_id: SESSION };
+  }
+
+  test("the Stop guard injects about the incident's closing sentence", () => {
+    const outcome = runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  test("this guard then stays quiet about the same sentence — one injection, not two", () => {
+    runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+
+    // Still RECORDED — the overlap has to stay measurable — but not injected.
+    expect(outcome?.calibration).toBeDefined();
+    expect((outcome?.calibration as { suppressionReasons: string[] }).suppressionReasons).toContain(
+      SUPPRESSION_STOP_GUARD_ALREADY_INJECTED
+    );
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("without a prior Stop fire, this guard injects as before", () => {
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  test("a DIFFERENT turn's deferral is unaffected by the flag", () => {
+    runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("The rail-axis question needs your call before anything gets encoded."),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+});
 
 describe("run() (dispatcher-compatible)", () => {
   test("deferral match -> calibration record AND additionalContext (live injection, mt#2694)", () => {
