@@ -180,6 +180,32 @@ export interface UnmergedMigrationCheckResult {
 }
 
 /**
+ * Injectable `execFile`-as-promise seam (mt#3622). `promisify(execFile)`
+ * resolves to `{ stdout, stderr }` in normal runtime (`execFile` carries the
+ * custom-promisify symbol) — the real default below preserves that shape, and
+ * an injected fake is expected to match it too.
+ */
+export type ExecFileAsync = (
+  command: string,
+  args: string[],
+  options: { cwd: string }
+) => Promise<{ stdout: string; stderr: string }>;
+
+export interface CheckUnmergedMigrationsDeps {
+  execFileAsync: ExecFileAsync;
+}
+
+async function getDefaultExecFileAsync(): Promise<ExecFileAsync> {
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  // `promisify(execFile)`'s inferred type comes from Node's `execFile` overload
+  // set (keyed on the presence/shape of an `options` argument), which doesn't
+  // structurally collapse to this file's narrower `ExecFileAsync` signature —
+  // hence the cast rather than a type mismatch TS can otherwise narrow away.
+  return promisify(execFile) as ExecFileAsync;
+}
+
+/**
  * For each pending migration file (journal entries beyond `appliedCount`),
  * verify that the file is present on `origin/main` via
  * `git cat-file -e origin/main:<path>`. Returns `blocked: true` if any
@@ -189,16 +215,18 @@ export interface UnmergedMigrationCheckResult {
  * @param journalEntries    All journal entries (in order)
  * @param appliedCount      Number already applied in the DB (may be 0 on fresh DB)
  * @param cwd               Working directory for git commands (default: process.cwd())
+ * @param deps              Injectable `execFileAsync` (default: real `child_process.execFile`,
+ *   promisified). Tests inject a fake directly instead of `spyOn`-patching the
+ *   `child_process` module namespace object.
  */
 export async function checkUnmergedMigrations(
   migrationsFolder: string,
   journalEntries: JournalEntry[],
   appliedCount: number,
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
+  deps?: Partial<CheckUnmergedMigrationsDeps>
 ): Promise<UnmergedMigrationCheckResult> {
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const execFileAsync = promisify(execFile);
+  const execFileAsync = deps?.execFileAsync ?? (await getDefaultExecFileAsync());
 
   const pendingEntries = journalEntries.slice(appliedCount);
   if (pendingEntries.length === 0) {
@@ -230,13 +258,8 @@ export async function checkUnmergedMigrations(
   const { resolve, relative, sep } = await import("path");
   let repoRoot: string;
   try {
-    // `promisify(execFile)` resolves to `{ stdout, stderr }` in normal runtime
-    // (execFile carries the custom-promisify symbol); under a plain test mock it
-    // resolves to the stdout string. Read robustly so both shapes work.
-    const top = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd })) as
-      | string
-      | { stdout: string };
-    repoRoot = String(typeof top === "string" ? top : top.stdout).trim();
+    const top = await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd });
+    repoRoot = top.stdout.trim();
   } catch {
     return {
       blocked: false,
