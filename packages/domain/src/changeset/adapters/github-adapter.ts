@@ -40,6 +40,15 @@ import { createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, createTokenProvider, type TokenProvider } from "../../auth";
 import { getConfiguration, isConfigurationInitialized } from "../../configuration/index";
 
+/**
+ * Thrown by `getOctokit()` when every credential path resolved to an empty
+ * token (mt#3606). A dedicated subclass — rather than matching on
+ * `MinskyError`'s message text — lets `isAvailable()`'s failure logging
+ * attach a stable structured `reason` without depending on error-message
+ * wording (PR #2588 R1).
+ */
+export class GitHubTokenUnavailableError extends MinskyError {}
+
 /** Union of simplified and full PR types from Octokit responses */
 type OctokitPR =
   | RestEndpointMethodTypes["pulls"]["list"]["response"]["data"][number]
@@ -127,7 +136,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         // empty — silently proceeding makes unauthenticated GitHub API calls,
         // which trip GitHub's 60/hr IP-scoped rate limit (vs 5,000/hr
         // authenticated) with no indication of which credential was missing.
-        throw new MinskyError(
+        throw new GitHubTokenUnavailableError(
           "GitHubChangesetAdapter has no GitHub authentication token available. " +
             "Checked, in order: an injected TokenProvider, constructor config.token, " +
             "a configured github.serviceAccount (GitHub App), and the GITHUB_TOKEN/GH_TOKEN " +
@@ -253,7 +262,13 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 
       return true;
     } catch (error) {
+      // Structured `reason` (mt#3606 PR #2588 R1) so a log consumer can
+      // distinguish "no credential configured" from any other reachability
+      // failure (network error, 404, revoked token, etc.) without parsing
+      // the error message.
+      const reason = error instanceof GitHubTokenUnavailableError ? "no-token" : "unreachable";
       log.debug("GitHub adapter not available", {
+        reason,
         error: getErrorMessage(error),
         owner: this.owner,
         repo: this.repo,

@@ -9,10 +9,13 @@
  * observed live 2026-08-03T20:33Z via `changeset_list`.
  *
  * The fix (packages/domain/src/changeset/adapters/github-adapter.ts):
- *   1. `getOctokit()` now refuses loudly — throws a `MinskyError` naming the
- *      missing credential paths — instead of constructing an Octokit from an
- *      empty token, regardless of how the empty token was arrived at
- *      (injected provider, or the default env/config resolution).
+ *   1. `getOctokit()` now refuses loudly — throws a `GitHubTokenUnavailableError`
+ *      (a `MinskyError` subclass) naming the missing credential paths —
+ *      instead of constructing an Octokit from an empty token, regardless of
+ *      how the empty token was arrived at (injected provider, or the default
+ *      env/config resolution). The dedicated subclass also lets
+ *      `isAvailable()`'s failure logging attach a structured `reason`
+ *      without depending on the error's message wording (PR #2588 R1).
  *   2. The default (non-injected) resolution path now mirrors
  *      `createRepositoryBackend`'s token resolution (`createTokenProvider`),
  *      so a configured `github.serviceAccount` (GitHub App) is picked up —
@@ -34,7 +37,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { GitHubChangesetAdapter } from "./github-adapter";
+import { GitHubChangesetAdapter, GitHubTokenUnavailableError } from "./github-adapter";
 import { MinskyError } from "../../errors/index";
 import type { Octokit } from "@octokit/rest";
 import type { TokenProvider } from "../../auth";
@@ -78,11 +81,13 @@ describe("GitHubChangesetAdapter empty-token refusal (mt#3606)", () => {
       { tokenProvider: EMPTY_TOKEN_PROVIDER }
     );
 
-    await expect(callGetOctokit(adapter)).rejects.toThrow(MinskyError);
-    await expect(callGetOctokit(adapter)).rejects.toThrow(
-      /no GitHub authentication token available/i
-    );
+    // Assert on the stable, code-level marker (the dedicated error class) —
+    // not on the full prose sentence, which is free to be reworded (PR #2588
+    // R1: loosen assertions pinned to exact error-message wording).
+    await expect(callGetOctokit(adapter)).rejects.toBeInstanceOf(GitHubTokenUnavailableError);
     // The message names every credential path that was checked, per SC2.
+    // These substrings are the stable parts — the literal config key /
+    // env var names — not full sentences.
     await expect(callGetOctokit(adapter)).rejects.toThrow(/TokenProvider/);
     await expect(callGetOctokit(adapter)).rejects.toThrow(/config\.token/);
     await expect(callGetOctokit(adapter)).rejects.toThrow(/serviceAccount/);
