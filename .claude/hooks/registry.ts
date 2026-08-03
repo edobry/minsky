@@ -1532,6 +1532,72 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3536 — state-keyed sibling of the guard above. That one keys on the
+    // final message's PHRASING; this one keys on what the turn DID: minted a
+    // task id, made no call that moves it forward. The R4 incident ended
+    // naming no next action at all, so the phrase-keyed guard correctly stayed
+    // silent — the silent stop is the gap this closes. Full rationale: the
+    // guard module's header.
+    name: "turn-end-unwalked-task-scan",
+    tuningOwnership: "preference",
+    event: "Stop",
+    module: () => import("./turn-end-unwalked-task-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "unwalked-task",
+    denyCapable: false,
+    // TRUE, unlike the phrase-keyed sibling: the whole signal is the turn's
+    // tool calls, which live only in the transcript.
+    needsTranscript: true,
+    // Measured, not estimated: 470 chars for the one-task canary below; the
+    // MAX_LISTED_IDS cap bounds the multi-task case at ~600. See that
+    // constant's docblock for why the cap exists.
+    attentionCost: { denialMessageSizeChars: 620, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3536-unwalked-task-canary",
+        transcript_path: "/nonexistent/mt3536-canary.jsonl",
+        // Deliberately names NO next action — the R4 shape, and the case the
+        // phrase-keyed sibling cannot see.
+        last_assistant_message: "Filed as mt#9999. The daemon is crash-looping.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "the cockpit isn't loading" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_mt3536_canary",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "Cockpit daemon crash-loops" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_mt3536_canary",
+                content: JSON.stringify({ success: true, taskId: "mt#9999" }),
+              },
+            ],
+          },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3536-unwalked-task-canary");
+      },
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
