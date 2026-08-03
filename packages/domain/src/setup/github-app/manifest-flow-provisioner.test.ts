@@ -5,8 +5,15 @@
  * Bun.spawn (browser-open), and injects an InstallationLookup that skips the
  * WebCrypto JWT path (which requires a real PEM). The local callback server
  * runs for real, on an OS-assigned port probed fresh per test (see
- * `getFreePort` below) — never a hardcoded literal, so two concurrent suite
- * runs (routine in this repo — see mt#3124) cannot collide on the same port.
+ * `getFreePort` below) — never a hardcoded literal.
+ *
+ * That probe NARROWS the collision window; it does not close it (mt#3605).
+ * `getFreePort` releases the port before the provisioner re-binds it, so a
+ * concurrent process can still take it in between — this comment previously
+ * claimed concurrent runs "cannot collide", and then two tests here failed
+ * with EADDRINUSE on port 52595 in a single gated run (2026-08-03). Tests that
+ * need a working server therefore go through `startProvisionerOnFreePort`,
+ * which retries the probe-and-bind on a fresh port when it loses that race.
  *
  * @see mt#1087
  * @see mt#3124 — hardcoded 1989x literals replaced with a free-port probe,
@@ -20,9 +27,13 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import net from "net";
 import { setupTestMocks } from "../../../../../src/utils/test-utils/mocking";
-import { ManifestFlowProvisioner, type InstallationLookup } from "./manifest-flow-provisioner";
+import {
+  ManifestFlowProvisioner,
+  type InstallationLookup,
+  type ManifestFlowProvisionerOptions,
+} from "./manifest-flow-provisioner";
 import { BrowserCancelledError } from "./provisioner";
-import type { AppManifestSpec } from "./types";
+import type { AppCredentials, AppManifestSpec } from "./types";
 
 setupTestMocks();
 
@@ -116,6 +127,93 @@ async function getFreePort(): Promise<number> {
   return port;
 }
 
+/** Attempts to win the probe-then-bind race before giving up (mt#3605). */
+const MAX_BIND_ATTEMPTS = 3;
+
+/** How long to wait for an immediate bind failure to surface (mt#3605). */
+const BIND_SETTLE_MS = 25;
+
+/**
+ * True iff `err` is the shape a lost port race takes — `Bun.serve()` failing to
+ * bind. Deliberately NARROW: every other rejection `provision()` can produce
+ * (BrowserCancelledError, the not-installed-in-time timeout, a GitHub API
+ * error) must fall through so the retry cannot mask a real failure. This
+ * mirrors mt#2764's rule for the sibling helper in
+ * `src/commands/mcp/start-command.test.ts` — retry the bind-race SHAPE only,
+ * never a genuine timeout.
+ */
+function isPortBindRace(err: unknown): boolean {
+  if (err && typeof err === "object" && (err as { code?: unknown }).code === "EADDRINUSE") {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /EADDRINUSE|is port \d+ in use/i.test(message);
+}
+
+/**
+ * Mint a free port and start a provisioner on it, retrying the whole
+ * probe-construct-bind sequence when the bind loses the race.
+ *
+ * `getFreePort()` above releases the port before `ManifestFlowProvisioner`
+ * re-binds it, leaving a TOCTOU window: under the parallel suite another
+ * process can take the port in between. That is not hypothetical — it fired
+ * twice in one `run-tests-gated.ts` run on 2026-08-03 (port 52595), failing
+ * the fail-closed pre-push gate on an unrelated branch. The probe cannot hold
+ * the port instead, because the constructor needs a concrete port number
+ * before it binds (the manifest's `redirect_url` embeds it — see mt#3124).
+ *
+ * Retrying is therefore the mitigation, matching the reviewed design mt#2764
+ * landed for the same race in `start-command.test.ts`.
+ *
+ * NOTE for callers: the `construction-failure path (mt#3124)` test below must
+ * NOT use this helper — it holds the port on purpose to assert the collision
+ * surfaces correctly, and a retry would defeat exactly what it verifies.
+ */
+async function startProvisionerOnFreePort(
+  options: Omit<ManifestFlowProvisionerOptions, "port">,
+  spec: AppManifestSpec = SAMPLE_SPEC,
+  // Seam so the retry path itself is testable: the race is a real-world timing
+  // window that cannot be produced on demand, so the regression test below
+  // injects a probe that hands back a port it is deliberately holding.
+  probePort: () => Promise<number> = getFreePort
+): Promise<{ port: number; result: Promise<AppCredentials>; attempts: number }> {
+  let lastBindError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_BIND_ATTEMPTS; attempt++) {
+    const port = await probePort();
+    const started = new ManifestFlowProvisioner({ port, ...options }).provision(spec);
+
+    // Record an early rejection. Attached SYNCHRONOUSLY, before any await:
+    // `provision()` rejects on a failed bind within a microtask, and Bun
+    // reports an unhandled rejection at queue drain — so deferring this
+    // handler until after the settle wait fails the run on the very rejection
+    // we are trying to absorb. Observed while building this test.
+    //
+    // `.catch()` returns a NEW promise; `started` stays rejected and is simply
+    // marked handled, so callers can still attach their own
+    // `expect(...).rejects` assertion to it.
+    let rejection: unknown;
+    let rejected = false;
+    void started.catch((err: unknown) => {
+      rejected = true;
+      rejection = err;
+    });
+
+    await new Promise((r) => setTimeout(r, BIND_SETTLE_MS));
+
+    if (rejected && isPortBindRace(rejection)) {
+      lastBindError = rejection;
+      continue;
+    }
+
+    return { port, result: started, attempts: attempt };
+  }
+
+  throw new Error(
+    `Could not bind a free port after ${MAX_BIND_ATTEMPTS} attempts: ${String(lastBindError)}`
+  );
+}
+
 beforeEach(() => {
   manifestConversionResponse = { ok: true, body: FAKE_APP_RESPONSE };
   lookupQueue = [];
@@ -135,13 +233,10 @@ describe("ManifestFlowProvisioner", () => {
     // First lookup hits with an installation.
     lookupQueue = [99999];
 
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { port, result: promise } = await startProvisionerOnFreePort({
       timeoutMs: 30_000,
       installationLookup: makeLookup(),
     });
-    const promise = provisioner.provision(SAMPLE_SPEC);
 
     await new Promise((r) => setTimeout(r, 50));
     await fetch(`http://localhost:${port}/callback?code=abc123`);
@@ -155,13 +250,10 @@ describe("ManifestFlowProvisioner", () => {
     // First lookup (during /callback) returns undefined; second (during /check-install) hits.
     lookupQueue = [undefined, 88888];
 
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { port, result: promise } = await startProvisionerOnFreePort({
       timeoutMs: 30_000,
       installationLookup: makeLookup(),
     });
-    const promise = provisioner.provision(SAMPLE_SPEC);
 
     await new Promise((r) => setTimeout(r, 50));
 
@@ -184,13 +276,10 @@ describe("ManifestFlowProvisioner", () => {
     // Both lookups (during /callback + /check-install) return undefined.
     lookupQueue = [undefined, undefined];
 
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { port, result: promise } = await startProvisionerOnFreePort({
       timeoutMs: 200,
       installationLookup: makeLookup(),
     });
-    const promise = provisioner.provision(SAMPLE_SPEC);
 
     await new Promise((r) => setTimeout(r, 50));
     await fetch(`http://localhost:${port}/callback?code=abc123`);
@@ -203,25 +292,19 @@ describe("ManifestFlowProvisioner", () => {
   });
 
   test("browser-cancel timeout fires BrowserCancelledError and shuts down server", async () => {
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { result } = await startProvisionerOnFreePort({
       timeoutMs: 100,
       installationLookup: makeLookup(),
     });
-    await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toBeInstanceOf(BrowserCancelledError);
+    await expect(result).rejects.toBeInstanceOf(BrowserCancelledError);
   });
 
   test("BrowserCancelledError message describes the failure clearly when no callback arrives", async () => {
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { result } = await startProvisionerOnFreePort({
       timeoutMs: 80,
       installationLookup: makeLookup(),
     });
-    await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toThrow(
-      "App creation not approved in browser"
-    );
+    await expect(result).rejects.toThrow("App creation not approved in browser");
   });
 
   test("GitHub API error from manifest conversion surfaces as a typed error", async () => {
@@ -231,13 +314,10 @@ describe("ManifestFlowProvisioner", () => {
       body: "internal error",
     };
 
-    const port = await getFreePort();
-    const provisioner = new ManifestFlowProvisioner({
-      port,
+    const { port, result: promise } = await startProvisionerOnFreePort({
       timeoutMs: 30_000,
       installationLookup: makeLookup(),
     });
-    const promise = provisioner.provision(SAMPLE_SPEC);
 
     await new Promise((r) => setTimeout(r, 50));
     fetch(`http://localhost:${port}/callback?code=baddata`).catch(() => {
@@ -245,6 +325,54 @@ describe("ManifestFlowProvisioner", () => {
     });
 
     await expect(promise).rejects.toThrow(/GitHub API error during manifest conversion/);
+  });
+
+  test("mt#3605: a lost probe-to-bind race retries on a fresh port instead of failing the suite", async () => {
+    lookupQueue = [99999];
+
+    // Hold a port and hand it to the FIRST probe, so attempt 1's bind is
+    // guaranteed to lose exactly the way the real TOCTOU race loses. This is
+    // the failure that fired twice on port 52595 in one gated run (2026-08-03).
+    const contested = await getFreePort();
+    const squatter = Bun.serve({ port: contested, fetch: () => new Response("held") });
+
+    try {
+      let probes = 0;
+      const { port, result, attempts } = await startProvisionerOnFreePort(
+        { timeoutMs: 30_000, installationLookup: makeLookup() },
+        SAMPLE_SPEC,
+        async () => {
+          probes += 1;
+          return probes === 1 ? contested : getFreePort();
+        }
+      );
+
+      // The race was lost and retried — not merely "it happened to work".
+      expect(probes).toBeGreaterThan(1);
+      expect(attempts).toBeGreaterThan(1);
+      expect(port).not.toBe(contested);
+
+      // And the provisioner is genuinely serving on the replacement port.
+      await new Promise((r) => setTimeout(r, 50));
+      await fetch(`http://localhost:${port}/callback?code=abc123`);
+      const creds = await result;
+      expect(creds.installationId).toBe(99999);
+    } finally {
+      squatter.stop(true);
+    }
+  });
+
+  test("mt#3605: a non-bind rejection is NOT retried — the retry cannot mask a real failure", async () => {
+    // BrowserCancelledError is the shape a genuine timeout takes. If the retry
+    // discriminator were loose, this would burn all 3 attempts and change the
+    // error the caller sees; it must pass through on the first attempt.
+    const { result, attempts } = await startProvisionerOnFreePort({
+      timeoutMs: 60,
+      installationLookup: makeLookup(),
+    });
+
+    await expect(result).rejects.toBeInstanceOf(BrowserCancelledError);
+    expect(attempts).toBe(1);
   });
 
   describe("construction-failure path (mt#3124)", () => {
