@@ -72,10 +72,15 @@ Bounds, each a stated constraint rather than a tuning knob:
 - **A move may never silence a fire the operator acted on.** A heeded observation clamps the
   proposal below itself (above, for a floor guard); when that clamp leaves no room, the answer is
   `no-change`, not a smaller move.
-- **The target is the 90th percentile of dismissed values, not their maximum.** One anomalous
-  fire must not set the threshold for every subsequent turn, and a guard tuned into permanent
-  silence is indistinguishable from a dead one — the failure class `coverage-receipt.ts` exists
-  to catch.
+- **The target is the 90th percentile of dismissed values, intended to sit below their maximum.**
+  One anomalous fire should not set the threshold for every subsequent turn, and a guard tuned
+  into permanent silence is indistinguishable from a dead one — the failure class
+  `coverage-receipt.ts` exists to catch. **Honest limit:** the percentile is nearest-rank, so for
+  a dismissed corpus of 10 or fewer the p90 IS the maximum. With the cold-start floor at 5, the
+  early case gets max behavior and this outlier-resistance is a property of the mature corpus,
+  not a cold-start guarantee. At that sample size no percentile method can exclude the extreme
+  without discarding most of the sample; the 10x ceiling and the heeded clamp are what actually
+  contain a bad early proposal.
 - **Cold start is a floor of 5 labeled observations**, the evaluation-loop RFC's own Phase-1 GATE
   bar for "enough fires to say anything about a guard." A percentile over fewer is a single
   observation wearing a statistic's clothes.

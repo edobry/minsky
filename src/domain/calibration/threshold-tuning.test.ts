@@ -20,10 +20,13 @@ import {
   type ThresholdTuningInput,
   type ThresholdTuningDecision,
   type ThresholdProposal,
+  type TuningDirection,
 } from "./threshold-tuning";
 
 const AFTER_EPOCH = "2026-07-30T12:00:00.000Z";
 const BEFORE_EPOCH = "2026-07-20T12:00:00.000Z";
+const RAISE: TuningDirection = "raise-to-silence";
+const HEEDED_BLOCKS = "heeded-observations-block-the-move";
 
 function dismissed(observedValue: number, timestamp = AFTER_EPOCH): ThresholdObservation {
   return { timestamp, observedValue, response: "dismissed" };
@@ -44,7 +47,7 @@ function wallOfTextInput(overrides: Partial<ThresholdTuningInput> = {}): Thresho
     thresholdKey: "MINSKY_WALL_OF_TEXT_WORD_BUDGET",
     tuningOwnership: "preference",
     shippedDefault: 200,
-    direction: "raise-to-silence",
+    direction: RAISE,
     observations: [],
     ...overrides,
   };
@@ -261,7 +264,7 @@ describe("proposeThresholdAdjustment — bounds", () => {
 
     expect(decision.kind).toBe("no-change");
     if (decision.kind !== "no-change") return;
-    expect(decision.reasons).toContain("heeded-observations-block-the-move");
+    expect(decision.reasons).toContain(HEEDED_BLOCKS);
   });
 
   test("a corpus already below the current threshold implies no move", () => {
@@ -320,5 +323,148 @@ describe("proposeThresholdAdjustment — floor guards", () => {
 
     expect(proposal.proposedValue).toBe(63);
     expect(proposal.basis.clampedByHeeded).toBe(true);
+  });
+
+  test("a fractional lower bound is rounded up to a positive integer", () => {
+    // shippedDefault 5 -> bound 5/10 = 0.5, which is both non-integer and < 1.
+    const proposal = requireProposal(
+      proposeThresholdAdjustment(
+        floorInput({
+          shippedDefault: 5,
+          observations: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6].map((v) => dismissed(v)),
+        })
+      )
+    );
+
+    expect(proposal.proposedValue).toBe(1);
+    expect(Number.isInteger(proposal.proposedValue)).toBe(true);
+    expect(proposal.proposedValue).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * PR #2554 R1. `readPositiveIntEnv` (`.minsky/hooks/types.ts`) returns the
+ * SHIPPED DEFAULT for any value that is not an integer or is not positive, so a
+ * proposal outside that contract is a silent no-op wearing the costume of a
+ * successful tune. Production observations are genuinely fractional —
+ * `silent-stretch` records `gapMinutes` values like `8.43` — so this is a
+ * reachable defect, not a theoretical one.
+ */
+describe("proposeThresholdAdjustment — positive-integer contract", () => {
+  test("fractional observations still produce an integer proposal", () => {
+    const proposal = requireProposal(
+      proposeThresholdAdjustment({
+        guardName: "silent-stretch-detector",
+        thresholdKey: "MINSKY_SILENT_STRETCH_GAP_MINUTES",
+        tuningOwnership: "preference",
+        shippedDefault: 10,
+        direction: RAISE,
+        observations: [11.4, 12.75, 13.2, 14.9, 16.33, 18.07].map((v) => dismissed(v)),
+      })
+    );
+
+    expect(Number.isInteger(proposal.proposedValue)).toBe(true);
+    // Rounds toward LESS silencing: floor(18.07), not ceil.
+    expect(proposal.proposedValue).toBe(18);
+  });
+
+  test("a heeded fire at 1 leaves no room and blocks the move rather than proposing 0", () => {
+    const decision = proposeThresholdAdjustment(
+      wallOfTextInput({
+        currentValue: 1,
+        shippedDefault: 1,
+        observations: [
+          dismissed(240),
+          dismissed(255),
+          dismissed(260),
+          dismissed(275),
+          dismissed(310),
+          dismissed(330),
+          heeded(1),
+        ],
+      })
+    );
+
+    expect(decision.kind).toBe("no-change");
+    if (decision.kind !== "no-change") return;
+    expect(decision.reasons).toContain(HEEDED_BLOCKS);
+  });
+
+  test("a degenerate currentValue cannot let a zero proposal through", () => {
+    // `currentValue: 0` violates the positive-int contract on the way IN. This
+    // pins the OUTCOME — a degenerate current value still cannot produce a
+    // sub-1 proposal — not which condition enforces it. Verified by control:
+    // with the `< 1` guard removed this still passes, because `0 <= 0` catches
+    // it; the guard is redundant for any non-negative caller input and is
+    // documented as such at its site.
+    const decision = proposeThresholdAdjustment(
+      wallOfTextInput({
+        currentValue: 0,
+        shippedDefault: 1,
+        observations: [
+          dismissed(240),
+          dismissed(255),
+          dismissed(260),
+          dismissed(275),
+          dismissed(310),
+          dismissed(330),
+          heeded(1),
+        ],
+      })
+    );
+
+    expect(decision.kind).toBe("no-change");
+    if (decision.kind !== "no-change") return;
+    expect(decision.reasons).toContain(HEEDED_BLOCKS);
+  });
+
+  test("rounding never lands on or past a fractional heeded value", () => {
+    const proposal = requireProposal(
+      proposeThresholdAdjustment({
+        guardName: "silent-stretch-detector",
+        thresholdKey: "MINSKY_SILENT_STRETCH_GAP_MINUTES",
+        tuningOwnership: "preference",
+        shippedDefault: 5,
+        direction: RAISE,
+        observations: [
+          dismissed(11.4),
+          dismissed(12.75),
+          dismissed(13.2),
+          dismissed(14.9),
+          dismissed(16.33),
+          dismissed(18.07),
+          heeded(8.43),
+        ],
+      })
+    );
+
+    expect(proposal.proposedValue).toBe(8);
+    expect(proposal.proposedValue).toBeLessThan(8.43);
+    expect(Number.isInteger(proposal.proposedValue)).toBe(true);
+  });
+});
+
+describe("proposeThresholdAdjustment — percentile behavior across corpus sizes", () => {
+  test("at the cold-start floor the p90 IS the max (documented limit, not a bug)", () => {
+    const values = [300, 310, 320, 330, 9000];
+    const proposal = requireProposal(
+      proposeThresholdAdjustment(wallOfTextInput({ observations: values.map((v) => dismissed(v)) }))
+    );
+
+    // N=5: ceil(0.9 * 5) - 1 = 4, the last index. The outlier sets the target,
+    // and only the 10x ceiling contains it.
+    expect(proposal.proposedValue).toBe(2000);
+    expect(proposal.basis.clampedToBound).toBe(true);
+  });
+
+  test("at N=11 the p90 separates from the max, excluding the extreme", () => {
+    const values = [300, 305, 310, 315, 320, 325, 330, 335, 340, 345, 9000];
+    const proposal = requireProposal(
+      proposeThresholdAdjustment(wallOfTextInput({ observations: values.map((v) => dismissed(v)) }))
+    );
+
+    // ceil(0.9 * 11) - 1 = 9 -> 345, not the 9000 outlier.
+    expect(proposal.proposedValue).toBe(345);
+    expect(proposal.basis.clampedToBound).toBe(false);
   });
 });
