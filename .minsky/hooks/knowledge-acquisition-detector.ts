@@ -340,6 +340,87 @@ function findKeywordOverlap(texts: string[], keywords: string[]): string | undef
   return undefined;
 }
 
+/** Width of the candidate-text window recorded alongside a match. */
+const MATCH_EXCERPT_CHARS = 400;
+
+/**
+ * Where a matched keyword came from. `"name"` means the token is one of the
+ * skill NAME's `[-_]`-split segments; anything else came from the frontmatter
+ * description. A token present in BOTH is labeled `"name"`: the name is the
+ * more distinctive provenance, and knowing the description repeats it does not
+ * change what a reader would conclude.
+ */
+export type KeywordSource = "name" | "description";
+
+export interface KeywordHit {
+  skill: string;
+  keyword: string;
+  source: KeywordSource;
+}
+
+/** True when `keyword` is one of `skillName`'s hyphen/underscore-split tokens. */
+export function isNameDerivedKeyword(skillName: string, keyword: string): boolean {
+  const target = keyword.toLowerCase();
+  return skillName.split(/[-_]/).some((part) => {
+    const clean = part.toLowerCase();
+    return clean.length >= 4 && clean === target;
+  });
+}
+
+/**
+ * EVERY keyword of `keywords` present in `texts`, with its provenance — not
+ * just the first.
+ *
+ * Deliberately separate from {@link findKeywordOverlap}, which returns the
+ * FIRST hit and is what selects `matchedSkill` / `matchedKeyword`. Keeping the
+ * two apart is the point: this function is instrumentation, and nomination
+ * behavior must not drift when it changes (mt#3617).
+ *
+ * Why it exists: the record used to carry only the first hit, so no
+ * alternative nomination mechanism — multi-hit agreement, name-vs-description
+ * provenance, per-token specificity — could be evaluated against the logged
+ * corpus at all. A measured corpus-document-frequency filter was falsified
+ * during mt#3617's planning precisely because the log could not distinguish
+ * these cases.
+ */
+export function findAllKeywordOverlaps(
+  skill: string,
+  texts: string[],
+  keywords: string[]
+): KeywordHit[] {
+  const haystack = texts.join(" \n ").toLowerCase();
+  const hits: KeywordHit[] = [];
+  for (const kw of keywords) {
+    const re = new RegExp(`\\b${escapeRegex(kw)}\\b`, "i");
+    if (re.test(haystack)) {
+      hits.push({
+        skill,
+        keyword: kw,
+        source: isNameDerivedKeyword(skill, kw) ? "name" : "description",
+      });
+    }
+  }
+  return hits;
+}
+
+/**
+ * A bounded window of candidate text centered on `keyword`'s first occurrence,
+ * so a reviewer can judge whether the research was topically related to the
+ * skill instead of inferring it from the bare token. Bounded like
+ * `turn-end-untaken-action-scan`'s `final_message_tail`, for the same reason.
+ */
+export function buildMatchExcerpt(
+  texts: string[],
+  keyword: string | undefined
+): string | undefined {
+  if (!keyword) return undefined;
+  const haystack = texts.join(" \n ");
+  const at = haystack.toLowerCase().indexOf(keyword.toLowerCase());
+  if (at === -1) return undefined;
+  const start = Math.max(0, at - Math.floor(MATCH_EXCERPT_CHARS / 2));
+  return haystack.slice(start, start + MATCH_EXCERPT_CHARS);
+}
+
 /**
  * Read a loaded skill's compiled SKILL.md frontmatter description from disk.
  * Impure (fs read) — never throws; returns "" on any error (missing skill
@@ -455,6 +536,15 @@ export interface KnowledgeAcquisitionResult {
   loadedSkills: string[];
   matchedSkill?: string;
   matchedKeyword?: string;
+  /**
+   * EVERY keyword hit across EVERY loaded skill (mt#3617). `matchedSkill` /
+   * `matchedKeyword` remain the nomination — the first hit — and this is the
+   * full evidence set behind it, so a candidate nomination mechanism can be
+   * measured against the logged corpus rather than guessed at.
+   */
+  keywordHits: KeywordHit[];
+  /** Bounded candidate-text window around the matched keyword (mt#3617). */
+  matchedTextExcerpt?: string;
   hadPropagation: boolean;
 }
 
@@ -526,6 +616,15 @@ export function detectKnowledgeAcquisition(
     // suppressed (not yet a candidate; re-evaluated on future invocations).
     if (!matchedSkill) continue;
 
+    // mt#3617 instrumentation. Collected AFTER the nomination loop and AFTER
+    // the gate, so it cannot influence which skill is nominated and does no
+    // work on occurrences that never become records. The nomination loop above
+    // is untouched for that reason — a shared scan would couple the two.
+    const keywordHits = loadedSkills.flatMap((skill) =>
+      findAllKeywordOverlaps(skill, candidateTexts, skillKeywordsByName.get(skill) ?? [])
+    );
+    const matchedTextExcerpt = buildMatchExcerpt(candidateTexts, matchedKeyword);
+
     // Trailing-window grace period: not yet due for evaluation.
     const elapsedTurns = countPromptBoundariesAfter(lines, occ.idx);
     if (elapsedTurns < windowTurns) continue;
@@ -546,6 +645,8 @@ export function detectKnowledgeAcquisition(
           loadedSkills,
           matchedSkill,
           matchedKeyword,
+          keywordHits,
+          matchedTextExcerpt,
           hadPropagation: true,
         },
         dedupeKey,
@@ -562,6 +663,8 @@ export function detectKnowledgeAcquisition(
         loadedSkills,
         matchedSkill,
         matchedKeyword,
+        keywordHits,
+        matchedTextExcerpt,
         hadPropagation: false,
       },
       dedupeKey,
@@ -662,6 +765,8 @@ export function buildCalibrationRecord(
     hadPropagation: detection.result.hadPropagation,
     matchedSkill: detection.result.matchedSkill,
     matchedKeyword: detection.result.matchedKeyword,
+    keywordHits: detection.result.keywordHits,
+    matchedTextExcerpt: detection.result.matchedTextExcerpt,
     dedupeKey: detection.dedupeKey,
     suppressionReasons: detection.suppressionReasons,
   };
