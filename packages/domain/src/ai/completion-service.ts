@@ -32,6 +32,26 @@ import { transformUsage, mapFinishReason, transformError } from "./completion-tr
 import { log } from "@minsky/shared/logger";
 
 /**
+ * Injectable seam over the Vercel AI SDK's top-level functions (mt#3622).
+ *
+ * Defaults to the real "ai" package exports; tests supply fakes here instead
+ * of `spyOn`-patching the "ai" module's namespace object, so interception no
+ * longer depends on Bun's ESM live-binding semantics keeping a named import
+ * and its namespace-object property aliased to the same export slot.
+ */
+export interface AICompletionServiceDeps {
+  generateText: typeof generateText;
+  streamText: typeof streamText;
+  generateObject: typeof generateObject;
+}
+
+const defaultAICompletionServiceDeps: AICompletionServiceDeps = {
+  generateText,
+  streamText,
+  generateObject,
+};
+
+/**
  * Default AI completion service implementation
  */
 @injectable()
@@ -39,8 +59,9 @@ export class DefaultAICompletionService implements AICompletionService {
   private configService: DefaultAIConfigurationService;
   private providerModels: Map<string, LanguageModel> = new Map();
   private modelCacheService: DefaultModelCacheService;
+  private readonly deps: AICompletionServiceDeps;
 
-  constructor(configurationService: AnyConfigService) {
+  constructor(configurationService: AnyConfigService, deps: Partial<AICompletionServiceDeps> = {}) {
     this.configService = new DefaultAIConfigurationService(configurationService);
 
     // Register every fetcher the registry declares, rather than a hardcoded
@@ -49,6 +70,7 @@ export class DefaultAICompletionService implements AICompletionService {
     // sources of truth: a fetcher added to the registry was silently absent
     // here (mt#3337).
     this.modelCacheService = createModelCacheServiceWithFetchers();
+    this.deps = { ...defaultAICompletionServiceDeps, ...deps };
   }
 
   /**
@@ -106,7 +128,7 @@ export class DefaultAICompletionService implements AICompletionService {
           )
         : undefined;
 
-      const result = await generateText({
+      const result = await this.deps.generateText({
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
@@ -186,7 +208,7 @@ export class DefaultAICompletionService implements AICompletionService {
           )
         : undefined;
 
-      const streamResult = streamText({
+      const streamResult = this.deps.streamText({
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
@@ -252,7 +274,7 @@ export class DefaultAICompletionService implements AICompletionService {
       // (draft-04 compat) while AI SDK's `JSONSchema7Definition` restricts it to
       // `number`. The runtime shape is fine either way.
       const schemaJson = z.toJSONSchema(request.schema, { target: "draft-07" });
-      const result = await generateObject({
+      const result = await this.deps.generateObject({
         model,
         messages: request.messages as import("ai").CoreMessage[],
         schema: jsonSchema(schemaJson as Record<string, unknown>),
