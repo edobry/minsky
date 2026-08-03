@@ -43,6 +43,22 @@ if (!DATABASE_URL) {
 const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
 const bundlePath = join(repoRoot, "dist", "minsky.js");
 
+// Mirror the production invocation. `Dockerfile`'s CMD is
+// `bun run --preload reflect-metadata dist/minsky.js ...`; without the preload the bundle dies at
+// startup with "tsyringe requires a reflect polyfill" on Bun 1.3.x, which no longer evaluates
+// reflect-metadata's CommonJS body before tsyringe's ESM body (mt#3561).
+//
+// An ABSOLUTE path, not the bare module name: this smoke deliberately runs the bundle from a temp
+// dir simulating an external project, which has no `node_modules` for a bare specifier to resolve
+// against. The container can use the bare name because its cwd is `/app`.
+const reflectPolyfill = join(repoRoot, "node_modules", "reflect-metadata", "Reflect.js");
+if (!existsSync(reflectPolyfill)) {
+  console.error(`ERROR: reflect-metadata polyfill not found at ${reflectPolyfill}`);
+  console.error("Run 'bun install' first — the bundle cannot boot without it.");
+  process.exit(1);
+}
+const bundleArgs = ["run", "--preload", reflectPolyfill, bundlePath];
+
 if (!existsSync(bundlePath)) {
   console.error(`ERROR: dist/minsky.js not found at ${bundlePath}`);
   console.error("Run 'bun run build' first to produce the bundle.");
@@ -103,7 +119,7 @@ let failed = false;
 // ── step 1: minsky persistence migrate --execute from temp dir ───────────────
 
 console.log("\n--- Step 1: run 'minsky persistence migrate --execute' from temp dir ---");
-const migrateResult = run("bun", [bundlePath, "persistence", "migrate", "--execute"], tempDir);
+const migrateResult = run("bun", [...bundleArgs, "persistence", "migrate", "--execute"], tempDir);
 console.log(migrateResult.output);
 
 if (!migrateResult.ok) {
@@ -162,7 +178,7 @@ if (!failed) {
 
 if (!failed) {
   console.log("\n--- Step 3: dry-run migrate — MUST confirm 0 pending migrations ---");
-  const dryResult = run("bun", [bundlePath, "persistence", "migrate"], tempDir);
+  const dryResult = run("bun", [...bundleArgs, "persistence", "migrate"], tempDir);
   console.log(dryResult.output);
 
   if (!dryResult.ok) {
