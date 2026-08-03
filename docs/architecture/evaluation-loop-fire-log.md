@@ -553,3 +553,14 @@ tunes; calibration review never routes to a customer):
   per-project calibration-signal aggregation for vendor-side tuning — without touching the
   emit path. Cold-start is the registry defaults: a project with zero fires gets shipped
   behavior; no local auto-adaptation ships yet.
+
+**What consumes these streams for tuning (ADR-032, mt#3577).**
+`docs/architecture/adr-032-guard-threshold-tuning-loop.md` decides how a threshold actually
+moves, and separates three streams this document had treated as one: decision INPUTS (the
+measured value a threshold was compared against — per-guard `.minsky/*-calibration.jsonl`),
+decision OUTCOMES (this file's `allow`/`warn`/`deny` plus override consultation), and operator
+RESPONSE (whether a fire changed behavior — recorded NOWHERE as of that ADR, and the reason its
+first child task is an emitter rather than a tuner). The decider itself ships pure and inert at
+`src/domain/calibration/threshold-tuning.ts`; it discards records written before 2026-07-29
+(mt#3280's turn-attribution fix, commit `4b88d928c`) as a provenance boundary, which does not
+affect the count-based reads the rationalization panel above performs.

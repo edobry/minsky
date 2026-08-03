@@ -472,28 +472,9 @@ Operational corollaries already in force below are instances of this one princip
 
 ## Escalation packaging
 
-Identifying a decision as principal-level is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to decide from the message alone, without round-tripping for context.
+An escalation must be **self-contained**: the principal should be able to decide from the message alone, without round-tripping for context. Identifying a decision as principal-level is necessary but not sufficient — completeness and *form* are both required, and a message can be complete and still unusable.
 
-Mechanical checklist before posting an escalation:
-
-1. **State the question in plain language**, not by referent. "Should I do A or B?" with A and B identified by label-only forces the user to look up what those labels mean. Restate the options inline.
-2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link.
-3. **List the decision drivers** — the factors that distinguish the options. The user should see what *would* tilt the choice, not infer it.
-4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
-5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
-
-Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.
-
-**Form (how it reads — completeness is not enough):**
-
-1. **Lead with the action.** The first line states what the principal must do, imperatively. Justification comes after, and gets at most one line; deep context goes in `contextRefs`, not the question body.
-2. **Name concrete objects.** Real names ("the **minsky-ai** GitHub App"), never roles ("the implementer App"). If you don't know the object's name, look it up before writing the ask — a 15-second grep beats a round-trip.
-3. **Link the destination.** If the action happens in a portal/UI, include the direct URL to the exact page, plus numbered click-steps.
-4. **No agent jargon.** Internal tool ids (`mcp__*`), harness terms, and inline-code permission strings don't belong in principal-facing text. Describe capabilities in plain words ("I'll file the request for you").
-5. **Body budget ~120 words.** If it doesn't fit, you're including justification that belongs in contextRefs.
-6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
-
-Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.
+The two checklists that enforce this — content (does it carry what a decision needs?) and form (can it be read and acted on?) — live in the **`/escalation-packaging`** skill. Invoke it before `asks_create`, before `AskUserQuestion`, and before any turn-ending question that hands the principal a choice.
 
 # Key Architecture
 
@@ -682,12 +663,7 @@ execution`, principal-level decisions stay with Eugene:
 
 ### Trigger rule — before applying any framework
 
-1. **Name the framework** explicitly.
-2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
-3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
-4. **Name what you switched and why.**
-
-`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
+Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.
 
 # Sequence Dependent Tool Calls
 
