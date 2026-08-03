@@ -14,7 +14,10 @@
  * Failure-reset: if initialize() rejects, the promise is cleared so retries work.
  */
 import type { PersistenceService } from "@minsky/domain/persistence/service";
-import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -110,6 +113,155 @@ export function markDbDegraded(): void {
 
 let _instance: PersistenceService | null = null;
 let _initPromise: Promise<PersistenceService> | null = null;
+
+/**
+ * Hard deadline for one reachability probe (mt#3563).
+ *
+ * This bounds the PROBE, not the database. A healthy round-trip through the
+ * pooler is single-digit milliseconds (mt#3092 measured the wedged widget's
+ * query at 0.369 ms at the server), so the deadline only has to be long enough
+ * that ordinary latency plus a moment of queueing is not misread as a wedge.
+ * Five seconds is generous against that baseline while still marking a wedged
+ * pool degraded well inside one tray poll.
+ */
+export const DB_REACHABILITY_PROBE_TIMEOUT_MS = 5_000;
+
+/** Outcome of the last completed reachability probe, for `/api/health`. */
+export interface DbCheck {
+  /** ISO timestamp of the last probe that finished (either way), or null. */
+  checkedAt: string | null;
+  /** Round-trip of the last SUCCESSFUL probe in ms, or null if none has succeeded. */
+  latencyMs: number | null;
+}
+
+let _dbCheck: DbCheck = { checkedAt: null, latencyMs: null };
+
+/**
+ * A probe query we issued that has NOT come back yet.
+ *
+ * This is the wedge DETECTOR, not merely a concurrency guard. The failure mode
+ * this task exists to report is a query promise that never settles: the
+ * connection stays checked out of the pool forever and no error is ever thrown
+ * (mt#2773 documents the postgres-js defect — 86 of 120 promises permanently
+ * unsettled in its repro matrix; mt#3092 owns fixing it). So an outstanding
+ * probe IS the evidence of a wedge.
+ *
+ * It also bounds the damage this module can do. Each abandoned probe holds one
+ * pool slot for the life of the process, so while one is still in flight we
+ * report degraded and deliberately do NOT issue another. At most one probe is
+ * ever outstanding, no matter how often the health endpoint is polled.
+ */
+let _outstandingProbe: Promise<unknown> | null = null;
+
+/**
+ * Last-known reachability detail. Read-only; pairs with {@link getDbStatus}.
+ */
+export function getDbCheck(): DbCheck {
+  return { ..._dbCheck };
+}
+
+/** The query the probe runs. Injectable so tests need no database. */
+export type DbReachabilityProbe = () => Promise<unknown>;
+
+const defaultReachabilityProbe: DbReachabilityProbe = async () => {
+  const provider = (await getSharedProvider()) as SqlCapablePersistenceProvider;
+  if (!provider.getRawSqlConnection) {
+    throw new Error("persistence provider exposes no raw SQL connection");
+  }
+  const raw = await provider.getRawSqlConnection();
+  if (!raw) {
+    throw new Error("getRawSqlConnection returned null");
+  }
+  // Same assertion pattern as the pg_notify path in
+  // packages/domain/src/ask/attention-windows/notify.ts — at runtime this is
+  // the pooler-guarded instance; the declared union is not narrow enough to
+  // call through directly.
+  const sql = raw as import("postgres").Sql;
+  // Two deliberate choices here, both from mt#2773:
+  //
+  // 1. The query is PARAMETERIZED. Zero-bind queries are the shape that wedges
+  //    this transaction-mode pooler under concurrency — with a bind,
+  //    postgres-js sends Parse+Describe+Flush first and self-paces. A probe for
+  //    pool health must not be able to cause the condition it reports.
+  // 2. It goes through `.unsafe()` rather than a tagged template, so it is
+  //    subject to the pooler guard's in-flight cap like every other raw query
+  //    instead of reaching the unguarded underlying instance.
+  return sql.unsafe("select $1::int as reachable", [1]);
+};
+
+/**
+ * Probe whether a query can currently get through, and update the reported
+ * status (mt#3563).
+ *
+ * Runs through the SHARED pool on purpose — the same path every route uses.
+ * A probe on a dedicated side-connection would have reported healthy through
+ * both the 2026-08-01 and 2026-08-03 incidents, because the pooler was
+ * accepting new connections fine in each; what was dead was this process's own
+ * pool. Failure to get a slot within the deadline IS the degraded signal.
+ *
+ * Never throws and never blocks a caller beyond `timeoutMs`, so the health
+ * route can fire it without being able to hang.
+ */
+export async function refreshDbReachability(
+  probe: DbReachabilityProbe = defaultReachabilityProbe,
+  timeoutMs: number = DB_REACHABILITY_PROBE_TIMEOUT_MS
+): Promise<DbStatus> {
+  if (_outstandingProbe) {
+    // A probe we already issued has still not come back. Don't issue another.
+    _dbStatus = _instance ? "degraded" : "unreachable";
+    _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    return _dbStatus;
+  }
+
+  const startedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let issued: Promise<unknown>;
+  try {
+    issued = probe();
+  } catch (err) {
+    // A probe that threw synchronously never got as far as a connection.
+    _dbStatus = _instance ? "degraded" : "unreachable";
+    _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    log.warn("[shared-persistence] DB reachability probe failed to start", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return _dbStatus;
+  }
+
+  _outstandingProbe = issued;
+  // Release the slot whenever it eventually settles — even long after the
+  // deadline — so a pool that recovers becomes probeable again with no
+  // restart. Both arms are attached here so a late rejection can never
+  // surface as an unhandled rejection (which markDbDegraded would then act on).
+  const release = (): void => {
+    if (_outstandingProbe === issued) _outstandingProbe = null;
+  };
+  void issued.then(release, release);
+
+  try {
+    await Promise.race([
+      issued,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`DB reachability probe exceeded ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      }),
+    ]);
+    _dbStatus = "ok";
+    _dbCheck = { checkedAt: new Date().toISOString(), latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    _dbStatus = _instance ? "degraded" : "unreachable";
+    _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    log.warn("[shared-persistence] DB unreachable from this daemon", {
+      message: err instanceof Error ? err.message : String(err),
+      status: _dbStatus,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  return _dbStatus;
+}
 
 /**
  * Default retry interval for `startDbRetryBackoff()` (gh#1761).
@@ -285,4 +437,8 @@ export function __resetSharedPersistenceForTests(): void {
   _instance = null;
   _initPromise = null;
   _dbStatus = "unreachable"; // gh#1761: reset status so degraded-path tests start clean
+  // mt#3563: the reachability probe's state is module-level too, so a test that
+  // left a probe outstanding would otherwise make the next test report degraded.
+  _dbCheck = { checkedAt: null, latencyMs: null };
+  _outstandingProbe = null;
 }

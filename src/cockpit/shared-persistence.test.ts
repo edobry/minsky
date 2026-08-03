@@ -21,6 +21,9 @@ import {
   markDbDegraded,
   startDbRetryBackoff,
   DEFAULT_DB_RETRY_INTERVAL_MS,
+  refreshDbReachability,
+  getDbCheck,
+  DB_REACHABILITY_PROBE_TIMEOUT_MS,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
 
@@ -357,5 +360,97 @@ describe("getSharedPersistenceService orphan teardown on timeout (mt#2248)", () 
     rejectInit(new Error("late init failure"));
     await flush();
     expect(closeCalls).toBe(0);
+  });
+});
+
+describe("refreshDbReachability (mt#3563)", () => {
+  beforeEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
+  afterEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
+  test("a query that completes reports ok, dated, with a latency", async () => {
+    const status = await refreshDbReachability(async () => [{ reachable: 1 }], 1000);
+
+    expect(status).toBe("ok");
+    expect(getDbStatus()).toBe("ok");
+    const check = getDbCheck();
+    expect(typeof check.checkedAt).toBe("string");
+    expect(typeof check.latencyMs).toBe("number");
+  });
+
+  test("a query that NEVER settles reports degraded instead of hanging", async () => {
+    // The defect this task exists to report: no rejection is ever produced, so
+    // nothing downstream can classify an error. Only a deadline catches it.
+    const neverSettles = () => new Promise<never>(() => {});
+
+    // _instance is set so the degraded/unreachable branch resolves to degraded.
+    await getSharedPersistenceService(1000, async () => makeService(async () => {}));
+    expect(getDbStatus()).toBe("ok");
+
+    const status = await refreshDbReachability(neverSettles, 20);
+
+    expect(status).toBe("degraded");
+    expect(getDbStatus()).toBe("degraded");
+  });
+
+  test("does not issue a second probe while one is still outstanding", async () => {
+    let issued = 0;
+    const neverSettles = () => {
+      issued++;
+      return new Promise<never>(() => {});
+    };
+
+    await refreshDbReachability(neverSettles, 20);
+    expect(issued).toBe(1);
+
+    // Every subsequent poll must reuse the outstanding-probe signal rather than
+    // issuing another query — each abandoned probe would hold a pool slot for
+    // the life of the process, so an unbounded number would be self-inflicted
+    // pool exhaustion by the very thing meant to detect it.
+    await refreshDbReachability(neverSettles, 20);
+    await refreshDbReachability(neverSettles, 20);
+
+    expect(issued).toBe(1);
+    expect(getDbStatus()).not.toBe("ok");
+  });
+
+  test("recovers to ok once the outstanding probe settles — no restart needed", async () => {
+    let release: (() => void) | undefined;
+    const blocked = () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+    await refreshDbReachability(blocked, 20);
+    expect(getDbStatus()).not.toBe("ok");
+
+    // The stuck query finally comes back; the slot must be released so the pool
+    // becomes probeable again.
+    release?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const status = await refreshDbReachability(async () => [{ reachable: 1 }], 1000);
+    expect(status).toBe("ok");
+  });
+
+  test("a rejecting probe is reported, not swallowed", async () => {
+    await getSharedPersistenceService(1000, async () => makeService(async () => {}));
+
+    const status = await refreshDbReachability(async () => {
+      throw new Error("CONNECTION_CLOSED");
+    }, 1000);
+
+    expect(status).toBe("degraded");
+    expect(getDbCheck().checkedAt).not.toBeNull();
+  });
+
+  test("the default deadline is a real bound, not disabled", () => {
+    expect(DB_REACHABILITY_PROBE_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(DB_REACHABILITY_PROBE_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
   });
 });

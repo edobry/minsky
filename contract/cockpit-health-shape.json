@@ -14,6 +14,7 @@
     "commit": "string",
     "uptimeSec": "number",
     "db": "string",
+    "dbCheck": "object",
     "processStartedAtMs": "number",
     "consecutiveDegraded": "number",
     "transcriptWatcher": "object",
@@ -30,6 +31,7 @@
     "commit": "abc1234",
     "uptimeSec": 42,
     "db": "ok",
+    "dbCheck": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 7 },
     "processStartedAtMs": 1735689600000,
     "consecutiveDegraded": 0,
     "transcriptWatcher": { "activeSessionCount": 0 },
@@ -48,6 +50,7 @@
       "checkedAt": "2026-07-29T06:22:40.780Z"
     }
   },
+  "$dbFieldNote": "mt#3563: `db` reports LIVE reachability as of the last probe, not a boot-time constant. \"ok\" = a query completed through the SHARED pool inside the probe deadline; \"degraded\" = one did not (timed out, errored, or a previously issued probe has still not returned — the never-settling-query wedge of mt#3092/mt#2773); \"unreachable\" = no init has ever succeeded. Before mt#3563 this was set once at init and only left \"ok\" on a circuit-breaker rejection, so a daemon whose every DB route hung reported \"ok\" indefinitely (incidents 2026-08-01 and 2026-08-03) and the tray's DB-degraded watchdog never fired. Two properties consumers depend on and must not 'optimize' away: (1) the HTTP status stays 200 regardless of `db` — ADR-014 makes the status code the tray's liveness/adoption signal, so DB truth belongs in the body, exactly as `schema` does; (2) the probe runs OUT-OF-BAND and the handler never awaits it, so this route cannot be made slow by the database it reports on. Consequence: `db` lags reality by at most one poll, which is why `dbCheck.checkedAt` exists — an `ok` you cannot date is the same false confidence this field was fixed to remove.",
   "$schemaFieldNote": "mt#3297: `schema.current` is TRI-STATE — true (every shipped migration applied), false (the DB is behind this build, `pending` names which), or null (readiness could not be determined; `unknownReason` says why). A consumer that treats null as true reintroduces the bug this field exists to surface: the daemon boots fine and answers 200 while every schema-dependent write fails, so the status code cannot carry this and the body has to. Handle all three explicitly — true: proceed; false: the DB needs `minsky persistence migrate --execute`, and schema-dependent sweeps are paused; null: state unknown, treat as 'cannot vouch for it' rather than as either healthy or broken.",
   "$schemaFieldVariants": {
     "current": { "current": true, "pending": [], "checkedAt": "2026-07-29T06:22:40.780Z" },
