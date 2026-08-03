@@ -137,11 +137,16 @@ export interface GuardOutcome {
    */
   additionalContext?: string;
   /**
-   * Raw non-JSON line(s) the guard wants written to stdout verbatim — e.g.
+   * Raw non-JSON line(s) the guard wants written verbatim to STDERR — e.g.
    * its own legacy per-guard override audit line (the "legacy vars remain
    * honored by the guards themselves" carve-out; deprecation-shim removal is
    * Phase 7, not this task). Each string should include its own trailing
    * newline.
+   *
+   * STDERR, not stdout (mt#3625). These went to stdout until the dispatch's
+   * JSON was found to be discarded wholesale by Claude Code whenever stdout
+   * carried anything else — so an audit line could silently void a later
+   * guard's deny on the same call.
    */
   auditLines?: string[];
   /**

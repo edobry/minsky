@@ -207,6 +207,16 @@ Before writing any code:
 ### 6. Develop
 
 - Make code changes following project coding standards
+- **Testable-design checkpoint (mt#3632), before writing each test.** If observing a behavior
+  will require patching a collaborator the code reaches itself — a `spyOn` on an
+  object/module import rather than a value the function returns or a dependency it was handed —
+  STOP. That is design feedback, not a test-writing problem: extract the decision into a
+  function that returns the observable (functional core, imperative shell), inject the
+  collaborator instead of reaching for it, per `testing-standards.mdc §Testable Design`. This
+  is a judgment call, not a mechanical gate — its backstops are the reviewer's test-shape checks
+  (mt#3631) and the `no-jest-patterns` lint rule's `jestSpyOn` message (mt#3565/mt#3632). If
+  you proceed with a patch anyway, record in the PR body which collaborator and why extraction
+  wasn't the right call for this case.
 - Add tests for new functionality
 - Commit regularly with `mcp__minsky__session_commit`:
   - Use meaningful messages referencing the task ID

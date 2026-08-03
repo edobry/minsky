@@ -43,6 +43,24 @@
  * See `docs/rules-rationale/communication-contract.md §Severity transport
  * binding` for the originating incident (mt#3433 / mem#779).
  *
+ * **Graduation re-evaluated and DECLINED at mt#3595 — the argument for it
+ * does not survive the design that shipped.** mt#3595's spec anticipated
+ * graduating this check to blocking on the reasoning that `forceImmediate`
+ * would come to control TRANSPORT rather than merely windowing, which would
+ * raise the stakes of missing it. That premise is false as built: mt#3595
+ * introduced a SEPARATE `severity` field to drive the notification precisely
+ * so paging would not be a side effect of a scheduling flag the
+ * service-window reaper sets autonomously (mem#268). `forceImmediate` still
+ * means only "do not hold this for the next window", so the stakes of this
+ * check are unchanged and the original calibration-first rationale stands.
+ *
+ * The check that WOULD carry transport stakes is a severity-aware successor —
+ * incident vocabulary present, `severity` absent. It is deliberately not
+ * added here: it would have zero calibration history on day one, and the
+ * ladder that governs this family (ADR-024, and the five mt#3326 checks'
+ * own history) says a new check earns a blocking leg from measured fires,
+ * not from an author's confidence at authoring time.
+ *
  * **A seventh check, blocking from the start (mt#3477).**
  * `missing-decision-options` fires when a decision-shaped ask
  * (`direction.decide`) is created with no options — absent array or empty
@@ -355,10 +373,11 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
       check: "missing-force-immediate",
       message:
         "question reads like an operator-only incident but forceImmediate is not set — " +
-        "severity events should page the principal (communication-contract.mdc §Severity " +
-        "pierces the register); pass forceImmediate: true and send a principal_notify " +
-        "pointing at this ask, unless the principal is already actively responding " +
-        "in-conversation",
+        "pass forceImmediate: true so it is not held for the next service window, and " +
+        'severity: "incident" so the substrate notifies the principal once (mt#3595). ' +
+        "Do NOT also send a separate principal_notify — the ask carries its own " +
+        "notification now. Skip both only when the principal is already actively " +
+        "responding in-conversation (communication-contract.mdc §Severity transport binding)",
     });
   }
 
