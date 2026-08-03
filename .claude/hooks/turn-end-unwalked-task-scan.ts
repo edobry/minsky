@@ -85,6 +85,25 @@ export interface UnwalkedTask {
   taskId: string;
 }
 
+/**
+ * Dedup identity for this guard, which is the minted TASK ID — not the turn
+ * (PR #2553 R1).
+ *
+ * `flagKey`'s first slot is named `turnKey` because its other callers dedup
+ * per-turn: their signal is text, which only identifies the turn that produced
+ * it. This guard's signal is an id that is minted once and stays stable across
+ * the advisory continuation, so the id itself is the stronger identity — it
+ * goes in the identity slot, and the guard's own name goes in the `family`
+ * slot where a family name belongs.
+ *
+ * Consequence, and it is the intended one: re-entering Stop for the same turn
+ * stays quiet, and a LATER turn that mints a DIFFERENT task fires again — while
+ * the same task is never re-flagged twice in one session.
+ */
+function dedupKeyFor(taskId: string): string {
+  return flagKey(taskId, "unwalked-task", "");
+}
+
 /** Read every task id this turn's walk-forward calls referenced. */
 function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): Set<string> {
   const walked = new Set<string>();
@@ -192,17 +211,13 @@ export function run(
   const unwalked = detectUnwalkedTasks(turnLines);
   if (unwalked.length === 0) return null;
 
-  // Dedup on the task id itself rather than on a turn hash. The id is minted
-  // once and is stable across the advisory continuation, so re-entering Stop
-  // for the same turn correctly stays quiet — while a LATER turn that mints a
-  // different task correctly fires again.
   const sessionId = input.session_id ?? "unknown";
   const flagged = readFlagged(sessionId, storeDir);
-  const fresh = unwalked.filter((u) => !flagged.has(flagKey("unwalked-task", u.taskId, "")));
+  const fresh = unwalked.filter((u) => !flagged.has(dedupKeyFor(u.taskId)));
   if (fresh.length === 0) return null;
 
   for (const u of fresh) {
-    flagged.add(flagKey("unwalked-task", u.taskId, ""));
+    flagged.add(dedupKeyFor(u.taskId));
   }
   writeFlagged(sessionId, flagged, storeDir);
 
