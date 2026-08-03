@@ -21,7 +21,12 @@ export default {
       jestImport: "Use Bun test imports instead of Jest imports. Import from 'bun:test' instead.",
       jestFn: "Use Bun test patterns: import { mock } from 'bun:test'; const mockFn = mock();",
       jestMock: "Use centralized mockModule() from test-utils/mocking.ts instead of jest.mock()",
-      jestSpyOn: "Use Bun test patterns: import { spyOn } from 'bun:test'; spyOn(obj, 'method');",
+      jestSpyOn:
+        "jest.spyOn() rewritten to spyOn() — a mechanical conversion, not an endorsement. " +
+        "Default to injection: extract the decision into a function that returns the " +
+        "observable and pass the collaborator in, per testing-standards.mdc §Testable Design. " +
+        "Reach for spyOn(obj, 'method') only when patching a real collaborator is genuinely " +
+        "the right call for this case.",
       mockImplementation:
         "Use Bun mock patterns: mock(() => returnValue) or mock().mockImplementation(() => returnValue)",
       mockReturnValue:

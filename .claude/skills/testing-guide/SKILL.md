@@ -18,14 +18,15 @@ Optional: description of what you need to test (e.g., `/testing-guide how to tes
 
 ## Quick decision guide
 
-| Question                      | Answer                                                                                             |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| Where should I put this test? | Co-locate: `src/domain/[module].test.ts`, `src/adapters/cli/[module].adapter.test.ts`              |
-| What should I test?           | Domain logic, error handling, integration points — NOT framework internals, CLI output, filesystem |
-| How do I mock?                | `createMock()`, `mockModule()`, `setupTestMocks()` from `src/utils/test-utils/mocking.ts`          |
-| Tests failing?                | Use `/debug-tests` skill                                                                           |
-| Fixing a bug?                 | Use `/test-driven-bugfix` skill                                                                    |
-| Skipped tests?                | Use `/fix-skipped-tests` skill                                                                     |
+| Question                        | Answer                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where should I put this test?   | Co-locate: `src/domain/[module].test.ts`, `src/adapters/cli/[module].adapter.test.ts`                                                                                                                                                                                                                                                       |
+| What should I test?             | Domain logic, error handling, integration points — NOT framework internals, CLI output, filesystem                                                                                                                                                                                                                                          |
+| Should this need a mock at all? | Not by default. If observing the behavior requires patching a collaborator the code reaches itself (`spyOn` on a module/object import), that's design feedback — extract the decision into a function that returns the observable and inject the collaborator instead. See `testing-standards` §Testable Design before reaching for a mock. |
+| How do I mock?                  | `createMock()`, `mockModule()`, `setupTestMocks()` from `src/utils/test-utils/mocking.ts`                                                                                                                                                                                                                                                   |
+| Tests failing?                  | Use `/debug-tests` skill                                                                                                                                                                                                                                                                                                                    |
+| Fixing a bug?                   | Use `/test-driven-bugfix` skill                                                                                                                                                                                                                                                                                                             |
+| Skipped tests?                  | Use `/fix-skipped-tests` skill                                                                                                                                                                                                                                                                                                              |
 
 ## Test architecture
 
