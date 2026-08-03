@@ -226,10 +226,20 @@ export interface SocketConnectOptions {
  * Postgres. **This factory therefore connects the socket itself.** That matches
  * upstream #1089's own snippet, which calls `s.connect(...)` inline.
  *
- * Note it does NOT await the connection: Node buffers writes issued on a
- * connecting socket until the handshake completes, so returning mid-connect is
- * both correct and what upstream does. postgres-js attaches its own
- * `error`/`close` handlers immediately after this returns.
+ * IT MUST NOT AWAIT THE CONNECTION, and that is load-bearing rather than
+ * stylistic. `connection.js`:
+ *
+ *     socket || (socket = await createSocket())   // the factory is awaited HERE
+ *     if (!socket) return
+ *     connectTimer.start()                        // the connect timer starts AFTER
+ *
+ * A factory that awaited its own `socket.connect()` would perform the whole TCP
+ * connect before postgres-js arms `connect_timeout` — leaving a hanging connect
+ * bounded by nothing, which is the same unbounded-wait class this exists to
+ * remove. Returning mid-connect is also what upstream #1089 does, and both Node
+ * and Bun buffer writes issued on a connecting socket, so the `StartupMessage`
+ * postgres-js writes immediately after this returns is safe. It attaches its own
+ * `error`/`close` handlers at the same point.
  *
  * WHY DESTROYING THE SOCKET REPAIRS THE POOL. postgres-js already errors an
  * in-flight query when its socket closes (the `closed()` handler:
