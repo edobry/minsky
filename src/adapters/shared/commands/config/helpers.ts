@@ -14,10 +14,16 @@ import { isSensitiveKey } from "../../../../utils/redaction";
  * the standalone isSensitiveKey export in redaction.ts. Both share identical
  * matching semantics including hyphen normalization (mt#1181 Finding 2).
  *
+ * Exported (mt#3634) so `maskCredentialsInEffectiveValues` masks by the SAME
+ * value traversal instead of a second, path-only heuristic. Two independent
+ * maskers over the same data is what let them diverge: this one recursed into
+ * values and the other did not, so a credential nested inside a composite
+ * effective-value was emitted in plaintext.
+ *
  * @param value  Any config value (object, array, or primitive)
  * @returns      A new value with sensitive keys replaced by the masked sentinel
  */
-function maskConfigValue(value: unknown): unknown {
+export function maskConfigValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return value;
   }
@@ -60,6 +66,48 @@ export function maskCredentials(
   return maskConfigValue(config) as Record<string, unknown>;
 }
 
+/** The sentinel a masked string value is replaced with. */
+const MASKED_STRING_SENTINEL = `${"*".repeat(20)} (configured)`;
+
+/**
+ * True when any dot-separated segment of `path` names a credential.
+ *
+ * Tests each segment so only the actual key part matches — "providers" in
+ * "ai.providers.openai.apiKey" is not flagged, but "apiKey" is. Delegates to
+ * `isSensitiveKey` so path- and value-based masking share one predicate,
+ * including its hyphen normalization (mt#1181 Finding 2).
+ */
+export function isSensitiveConfigPath(path: string): boolean {
+  return path.split(".").some((segment) => isSensitiveKey(segment));
+}
+
+/**
+ * Mask a single configuration value addressed by `path` (mt#3634).
+ *
+ * Both rules are needed and neither subsumes the other:
+ *  - a SENSITIVE PATH holding a scalar has no key to match during traversal,
+ *    so it is masked wholesale;
+ *  - a NON-SENSITIVE path holding a composite can still carry a credential
+ *    nested inside it, so the value is traversed.
+ *
+ * Shared by `maskCredentialsInEffectiveValues` and `config.get` so a caller
+ * cannot get one rule without the other — the split that caused the original
+ * leak.
+ */
+export function maskValueForPath(path: string, value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (isSensitiveConfigPath(path)) {
+    // Already-masked values are left alone rather than double-masked.
+    if (typeof value === "string") {
+      return value.includes("*") && value.includes("(configured)") ? value : MASKED_STRING_SENTINEL;
+    }
+    return "[MASKED]";
+  }
+  return maskConfigValue(value);
+}
+
 export function maskCredentialsInEffectiveValues(
   effectiveValues: Record<string, { value: unknown; source: string; path: string }>,
   showSecrets: boolean
@@ -70,39 +118,14 @@ export function maskCredentialsInEffectiveValues(
 
   const masked: Record<string, { value: unknown; source: string; path: string }> = {};
 
-  // Helper to check if a path contains sensitive information.
-  // Delegates to isSensitiveKey (redaction.ts) so that both share identical
-  // matching semantics — same regex, same hyphen normalization — for paths like
-  // "github.Token", "ai.providers.OpenAI.apiKEY", "SESSIONDB.ConnectionString",
-  // and hyphenated segments like "headers.x-api-key" (mt#1181 Finding 2).
-  const isSensitivePath = (path: string): boolean => {
-    // Test each dot-separated segment so that only the actual key part is
-    // matched (e.g. "providers" in "ai.providers.openai.apiKey" is not
-    // flagged, but "apiKey" is).
-    return path.split(".").some((segment) => isSensitiveKey(segment));
-  };
-
-  // Helper to mask value (but don't re-mask already masked values)
-  const maskValue = (value: unknown): unknown => {
-    if (typeof value === "string") {
-      // If it's already masked, don't re-mask it
-      if (value.includes("*") && value.includes("(configured)")) {
-        return value;
-      }
-      return `${"*".repeat(20)} (configured)`;
-    }
-    return "[MASKED]";
-  };
-
+  // mt#3634: both rules come from `maskValueForPath` — a sensitive PATH masks
+  // the value wholesale, and a non-sensitive path still has its VALUE
+  // traversed. Previously only the first rule was applied here, so a composite
+  // under a non-sensitive path (`knowledgeBases`, one non-sensitive segment)
+  // was emitted verbatim including its nested `[0].auth.token`, while the
+  // sibling `configuration` tree masked the very same token correctly.
   for (const [path, valueInfo] of Object.entries(effectiveValues)) {
-    if (isSensitivePath(path) && valueInfo.value !== null && valueInfo.value !== undefined) {
-      masked[path] = {
-        ...valueInfo,
-        value: maskValue(valueInfo.value),
-      };
-    } else {
-      masked[path] = valueInfo;
-    }
+    masked[path] = { ...valueInfo, value: maskValueForPath(path, valueInfo.value) };
   }
 
   return masked;

@@ -30,6 +30,7 @@ import {
   getDbStatus,
   refreshDbReachability,
 } from "../shared-persistence";
+import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
 import type { WidgetModule } from "../types";
 
@@ -178,6 +179,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#3608: whether the Telegram principal channel is actually RUNNING.
+      // It launches once at boot and, before this, a failed credential read
+      // left it permanently off with nothing but a single startup `warn` to
+      // say so — five times on 2026-08-03, each discovered only when the
+      // principal noticed a message going unanswered. The channel's own acks
+      // cannot report this, because the poller that sets them is the thing
+      // that did not start. `state` distinguishes "the operator never
+      // configured it" from "it is configured and the read FAILED".
+      principalChannel: getPrincipalChannelStatus(),
       // mt#2578 watchdog fields — consumed by the tray's self-health watchdog.
       // processStartedAtMs: monotonic epoch-ms of when THIS process started.
       // A change between successive polls means the daemon restarted.
