@@ -732,6 +732,20 @@ export const asksCreateParams = {
       "Use only for critical-path unblocking.",
     required: false,
   },
+  severity: {
+    schema: z.enum(["incident"] as const).optional(),
+    description:
+      "Set to 'incident' when a severity trigger fired AND remediation is operator-only " +
+      "(production incident, outage, security finding, blocked-past-threshold). On an " +
+      "operator-routed ask this sends the principal ONE notification on their phone " +
+      "pointing at this ask — you do not need to send a separate notification yourself. " +
+      "Both halves are required: an incident you can fix yourself does not warrant it, " +
+      "and an operator-only chore that is not a severity event belongs in the normal inbox.",
+    required: false,
+  },
+  // NOTE: `principalPagedAt` is deliberately absent from this schema. It is
+  // substrate-owned (mt#3595) — written only after a page actually goes out, so
+  // a caller cannot claim a notification it never sent.
   // NOTE: `windowMissedCount` is intentionally omitted from this MCP parameter schema.
   // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
   // window opens and the Ask is still pending. Callers must not set it directly via
@@ -1948,6 +1962,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               | undefined,
             windowKey: params.windowKey as string | undefined,
             forceImmediate: params.forceImmediate as boolean | undefined,
+            // mt#3595 — drives the substrate-sent page; see the param's schema
+            // description for when it applies.
+            severity: params.severity as AskSeverity | undefined,
             // ADR-021 / mt#2563: stamp the resolved project on the new Ask.
             projectId: resolvedProjectId,
           },

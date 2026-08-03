@@ -610,6 +610,13 @@
       "when": 1785789269504,
       "tag": "0086_lyrical_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1785789775678,
+      "tag": "0087_fine_wither",
+      "breakpoints": true
     }
   ]
 }
