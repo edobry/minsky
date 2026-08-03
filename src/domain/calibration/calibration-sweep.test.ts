@@ -573,63 +573,10 @@ describe("parseCalibrationRecord", () => {
     expect(parseCalibrationRecord(line, "wall-of-text")).toBeNull();
   });
 
-  // mt#3576: the excerpt reaches a reviewer as a TOP-LEVEL typed field, not
-  // nested under detectorFields. That placement is the point — the incident
-  // that filed mt#3576 was a reviewer quoting the nested passthrough object as
-  // if it were the whole record.
-  test("mt#3576: a wall-of-text excerpt parses as a top-level field, not detectorFields", () => {
-    const line = JSON.stringify({
-      timestamp: "2026-07-17T12:00:00Z",
-      session_id: "wall-session",
-      wordCount: 912,
-      lineCount: 41,
-      trigger: "lead-labels",
-      leadLabelHits: ["gate-letter"],
-      deeplinkCount: 0,
-      namedRefCount: 7,
-      excerpt: "Gate (l) blocked promotion. w0 w1 w2",
-      textHash: "abc123",
-    });
-    const record = parseCalibrationRecord(line, "wall-of-text");
-    expect(record).not.toBeNull();
-    if (record && "wordCount" in record) {
-      expect(record.excerpt).toBe("Gate (l) blocked promotion. w0 w1 w2");
-      // textHash is still unconsumed and still rides the passthrough; excerpt
-      // must NOT be there too.
-      expect(record.detectorFields?.["textHash"]).toBe("abc123");
-      expect(record.detectorFields?.["excerpt"]).toBeUndefined();
-    } else {
-      throw new Error("expected a WallOfTextRecord");
-    }
-  });
-
-  // mt#3576 SC: the 186 records written before the excerpt shipped must keep
-  // parsing — absent means "predates the field", never an error. Together with
-  // the test above this covers the passthrough contract in both directions:
-  // excerpt present (lifted, not duplicated) and excerpt absent (undefined, not
-  // fabricated).
-  test("mt#3576: a pre-excerpt wall-of-text record still parses, with excerpt undefined", () => {
-    const line = JSON.stringify({
-      timestamp: "2026-07-18T00:20:09.120Z",
-      session_id: "wall-session",
-      wordCount: 444,
-      lineCount: 30,
-      trigger: "over-budget",
-      leadLabelHits: [],
-      deeplinkCount: 1,
-      namedRefCount: 23,
-      textHash: "e59380be7d11bc36",
-      suppressedByDepthRequest: false,
-    });
-    const record = parseCalibrationRecord(line, "wall-of-text");
-    expect(record).not.toBeNull();
-    if (record && "wordCount" in record) {
-      expect(record.wordCount).toBe(444);
-      expect(record.excerpt).toBeUndefined();
-    } else {
-      throw new Error("expected a WallOfTextRecord");
-    }
-  });
+  // mt#3576's `excerpt` parse tests live in the sibling
+  // `calibration-sweep-wall-of-text.test.ts` — this file sits at the 1500-line
+  // ESLint ceiling and several tasks append to it concurrently, so a per-record
+  // -kind file is the place to grow.
 });
 
 // ---------------------------------------------------------------------------
