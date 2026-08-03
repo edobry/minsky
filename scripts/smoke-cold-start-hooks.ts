@@ -41,13 +41,14 @@ import { spawnSync } from "child_process";
 import { accessSync, constants, cpSync, existsSync, mkdtempSync, mkdirSync, rmSync } from "fs";
 import { readFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import {
   BASELINE_INSTALL_FILES,
   OBSERVABILITY_BASELINE_HOOKS,
 } from "../packages/domain/src/setup/hook-provisioning";
 
-const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
+// Separator-agnostic repo-root derivation (PR #2572 R1 — no POSIX-only replace).
+const repoRoot = resolve(import.meta.dir, "..");
 const distDir = join(repoRoot, "dist");
 const bundlePath = join(distDir, "minsky.js");
 

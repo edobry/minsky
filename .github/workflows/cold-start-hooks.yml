@@ -39,6 +39,11 @@ jobs:
         with:
           bun-version: "1.2.21"
 
+      # DELIBERATE cache scope (PR #2572 R1): only Bun's download cache is
+      # cached, matching cold-start-migrate.yml. The repo's node_modules is
+      # intentionally NOT cached — every run performs a true cold
+      # `bun install --frozen-lockfile`, which is part of what a cold-start
+      # workflow exists to exercise. Do not "optimize" this into a deps cache.
       - name: Cache Bun install
         uses: actions/cache@v4
         with:
@@ -55,10 +60,14 @@ jobs:
 
       - name: Verify hook sources copied into dist/
         run: |
+          # Assert every baseline install file, not just the first — the set
+          # must stay in step with BASELINE_INSTALL_FILES (PR #2572 R1).
           test -d dist/hooks \
             || { echo "::error::dist/hooks missing (build:copy-hooks regression)"; exit 1; }
-          test -f dist/hooks/record-conversation-run-state.ts \
-            || { echo "::error::dist/hooks/record-conversation-run-state.ts missing"; exit 1; }
+          for f in record-conversation-run-state.ts transcript-ingest-on-session-end.ts types.ts; do
+            test -f "dist/hooks/$f" \
+              || { echo "::error::dist/hooks/$f missing"; exit 1; }
+          done
           echo "Hook sources present:"
           ls dist/hooks/
 

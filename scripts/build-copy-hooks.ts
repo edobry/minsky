@@ -22,10 +22,12 @@
  */
 
 import { copyFileSync, existsSync, mkdirSync, chmodSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { BASELINE_INSTALL_FILES } from "../packages/domain/src/setup/hook-provisioning";
 
-const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
+// resolve() rather than a string replace on the path: separator-agnostic, so
+// the script works on Windows runners too (PR #2572 R1).
+const repoRoot = resolve(import.meta.dir, "..");
 const sourceDir = join(repoRoot, ".claude", "hooks");
 const outDir = join(repoRoot, "dist", "hooks");
 
@@ -43,7 +45,9 @@ for (const fileName of BASELINE_INSTALL_FILES) {
   copyFileSync(from, to);
   // Hooks carry a `#!/usr/bin/env bun` shebang and are invoked by path — the
   // executable bit is load-bearing (mirrors provisionObservabilityHooks).
-  chmodSync(to, 0o755);
+  // Windows has no executable bit; skip rather than rely on chmod semantics
+  // there (PR #2572 R1 non-blocking).
+  if (process.platform !== "win32") chmodSync(to, 0o755);
   console.log(`copied ${fileName} -> dist/hooks/`);
 }
 
