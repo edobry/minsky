@@ -34,6 +34,39 @@ Read the user's description and identify:
 
 If the intent is vague, ask one clarifying question before proceeding.
 
+### 1a. Check whether the task already exists (mt#3585)
+
+**Before writing the spec**, call `mcp__minsky__tasks_search` with the intent and read the top
+hits — including terminal-status ones (a DONE task may have already shipped the fix; a CLOSED one
+may record why it was abandoned).
+
+Then record the outcome in the spec's `## Context`, in one of two forms:
+
+- **Candidates found** — name each (`mt#NNNN`, title, status) plus a one-line reconciliation:
+  **subsume** (this is the same work — stop and add to that task instead of creating a new one),
+  **supersede** (that task is stale; say why this replaces it), or **confirm-orthogonal** (state
+  explicitly why the scopes do not actually overlap).
+- **None found** — the literal line `Duplicate check: no candidates found.`
+
+Checkable from the spec text alone: one of those two shapes is present, or the step did not run.
+This mirrors `/plan-task` gate (g)'s hard-reconciliation requirement, moved to the moment where a
+duplicate costs nothing to avoid.
+
+**The standalone-duplicate guard's silence is NOT evidence of novelty.** A parentless
+`tasks_create` is routed through `runStandaloneDuplicateGuard`, which warns only when a hit is
+closer than a distance threshold of 0.65. Measured on two real duplicates (mt#3568 → mt#2632,
+mt#3566 → mt#3339): the true duplicate scored ~1.03–1.05 and, in one case, ranked BELOW an
+unrelated task. The guard ran on both creates and correctly stayed silent by its own calibration.
+It cannot surface this class, so a clean `tasks_create` tells you nothing — you have to look.
+(Why the metric fails is mt#450's; do not re-derive it here.)
+
+**Two shapes where this step earns its keep**, both from the originating incident:
+
+- A **follow-up you are filing mid-session** off something you just learned. Momentum makes it
+  feel novel; that is precisely when you have not looked.
+- A task whose framing is **yours rather than the codebase's** ("the generalizable half of X",
+  "the other side of Y"). A differently-framed duplicate is exactly what similarity search misses.
+
 ### 2. Research the codebase
 
 Before writing the spec, search the codebase to ground the spec in reality:
@@ -130,10 +163,15 @@ Call `mcp__minsky__tasks_create` with:
 
 If `--parent`, `--tags`, or `--backend` were specified, include those parameters.
 
-**Gate:** before calling `tasks_create`, confirm every load-bearing dependency
-claim in the drafted spec passes Step 2a — cited (file + symbol) or marked
-`UNVERIFIED`. Do not call `tasks_create` while an uncited, unmarked dependency
-claim remains in the spec.
+**Gate:** before calling `tasks_create`, confirm BOTH:
+
+1. Every load-bearing dependency claim in the drafted spec passes Step 2a — cited
+   (file + symbol) or marked `UNVERIFIED`. Do not call `tasks_create` while an
+   uncited, unmarked dependency claim remains in the spec.
+2. The spec's `## Context` carries Step 1a's duplicate-check record — either named
+   candidates with a reconciliation, or the literal line
+   `Duplicate check: no candidates found.` Both are mechanical presence checks on
+   the spec text; neither is satisfied by having _thought about_ it.
 
 ### 5. Confirm
 
