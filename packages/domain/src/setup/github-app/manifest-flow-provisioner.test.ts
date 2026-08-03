@@ -130,8 +130,19 @@ async function getFreePort(): Promise<number> {
 /** Attempts to win the probe-then-bind race before giving up (mt#3605). */
 const MAX_BIND_ATTEMPTS = 3;
 
-/** How long to wait for an immediate bind failure to surface (mt#3605). */
-const BIND_SETTLE_MS = 25;
+/**
+ * Upper bound on how long to wait for a bind failure to surface (mt#3605).
+ *
+ * This is a CEILING, not a fixed delay: the wait below races the provision
+ * promise against this timer, so a rejection returns immediately and only the
+ * success path pays the full window. That keeps a loaded runner from silently
+ * skipping the retry because the rejection took longer than a tight fixed
+ * sleep to arrive (PR #2570 R1).
+ */
+const BIND_SETTLE_MAX_MS = 100;
+
+/** Base delay between bind attempts; jittered to avoid a thundering herd. */
+const BIND_RETRY_BASE_MS = 10;
 
 /**
  * True iff `err` is the shape a lost port race takes — `Bun.serve()` failing to
@@ -147,7 +158,12 @@ function isPortBindRace(err: unknown): boolean {
     return true;
   }
   const message = err instanceof Error ? err.message : String(err);
-  return /EADDRINUSE|is port \d+ in use/i.test(message);
+  // Three phrasings, because the `code` property is not guaranteed to be present
+  // on every runtime/version (PR #2570 R1):
+  //   - `EADDRINUSE`               — the symbolic code, when it reaches the text
+  //   - `Is port 52595 in use?`    — Bun's `Bun.serve()` wording
+  //   - `address already in use`   — Node's libuv wording, and most POSIX strerror
+  return /EADDRINUSE|is port \d+ in use|address (already )?in use/i.test(message);
 }
 
 /**
@@ -168,6 +184,13 @@ function isPortBindRace(err: unknown): boolean {
  * NOTE for callers: the `construction-failure path (mt#3124)` test below must
  * NOT use this helper — it holds the port on purpose to assert the collision
  * surfaces correctly, and a retry would defeat exactly what it verifies.
+ *
+ * Contract of the returned `result` (PR #2570 R1): it is the provisioner's OWN
+ * promise, unwrapped and unmodified. This helper attaches an internal observer
+ * to it, which only marks it handled — it neither swallows the rejection nor
+ * substitutes a different one, so callers still `await` it for the credentials
+ * or assert on it with `expect(result).rejects...` exactly as they would on a
+ * direct `provision()` call. `attempts` reports how many binds it took.
  */
 async function startProvisionerOnFreePort(
   options: Omit<ManifestFlowProvisionerOptions, "port">,
@@ -194,15 +217,26 @@ async function startProvisionerOnFreePort(
     // `expect(...).rejects` assertion to it.
     let rejection: unknown;
     let rejected = false;
-    void started.catch((err: unknown) => {
+    const observed = started.catch((err: unknown) => {
       rejected = true;
       rejection = err;
     });
 
-    await new Promise((r) => setTimeout(r, BIND_SETTLE_MS));
+    // Race the rejection against the ceiling rather than sleeping a fixed
+    // interval: a bind failure is acted on the moment it arrives, and a slow
+    // runner still gets the full window before we conclude the bind held.
+    await Promise.race([observed, new Promise((r) => setTimeout(r, BIND_SETTLE_MAX_MS))]);
 
     if (rejected && isPortBindRace(rejection)) {
       lastBindError = rejection;
+      // Jittered backoff so racing suites do not re-probe in lockstep. The
+      // jitter is derived from the PID rather than `Math.random()`: the herd
+      // being spread is across concurrent test PROCESSES, so a per-process
+      // constant de-correlates them exactly as well while staying
+      // deterministic within a run (and `custom/no-real-fs-in-tests` flags
+      // `Math.random()` in tests, which CI treats as an error).
+      const jitter = process.pid % BIND_RETRY_BASE_MS;
+      await new Promise((r) => setTimeout(r, BIND_RETRY_BASE_MS * attempt + jitter));
       continue;
     }
 
@@ -343,7 +377,7 @@ describe("ManifestFlowProvisioner", () => {
         SAMPLE_SPEC,
         async () => {
           probes += 1;
-          return probes === 1 ? contested : getFreePort();
+          return probes === 1 ? contested : await getFreePort();
         }
       );
 
