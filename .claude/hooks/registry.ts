@@ -894,6 +894,25 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
+    // mt#3601 — LOG-ONLY. Checks that a retrospective produced the sections its
+    // declared triage level requires, and that every cited structural-fix task
+    // had its status read in-turn. No `additionalContext`, so no canary: this
+    // guard never warns by design until the FP rate is measured.
+    //
+    // `UserPromptSubmit`, not `Stop`, per ADR-031: this detector is
+    // tool-inspecting (it reads the turn's `tool_use` blocks for the Skill
+    // invocation and for `tasks_status_get` calls), and tool calls are read at
+    // the moment of MAXIMUM transcript flush.
+    name: "retrospective-completeness-detector",
+    tuningOwnership: "preference",
+    event: "UserPromptSubmit",
+    module: () => import("./retrospective-completeness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-completeness",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
     name: "retrospective-trigger-scanner",
     tuningOwnership: "preference",
     event: "UserPromptSubmit",

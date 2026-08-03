@@ -7,21 +7,32 @@
  * this file's `beforeEach` re-registration can never collide with another
  * test file's registration of the same command id.
  *
- * The command's `execute()` has no `fetchFn`/env-reader injection seam of
- * its own (unlike `notifyPrincipal`, whose own test file injects both) — it
- * resolves credentials from real env/Pulumi and sends over the real global
- * `fetch`. The one test here that needs a "credentials configured" path
- * therefore sets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` directly and stubs
- * `globalThis.fetch` for its duration, restoring both in `afterEach` — the
- * only lever available at this layer without touching production code to
- * add a seam this task's scope does not call for.
+ * Credential injection (mt#3557). `registerPrincipalCommands` takes a
+ * `channelDeps` seam. It exists because a test asserting the "not configured"
+ * branch must be able to GUARANTEE that branch, and previously could not:
+ * `resolvePrincipalChannel` reads the real environment, and when that is empty
+ * it falls through to spawning the `pulumi` CLI. On any machine with Pulumi
+ * config the resolution therefore SUCCEEDED and the command sent over the real
+ * global `fetch` — three tests in the outer describe below were delivering
+ * live Telegram messages to the principal on every full-suite run, and the two
+ * that assert `delivered: false` failed with `delivered: true`. In CI, with no
+ * route to Telegram, the same tests instead hung to the 15s timeout, which is
+ * why they were first misfiled as a load-dependent flake (mt#3557).
+ *
+ * The outer describe registers with `FORCE_NOT_CONFIGURED` so that branch is
+ * reachable deterministically and no test can reach the network. The inner
+ * "credentials resolvable" describe re-registers WITHOUT it, because that block
+ * supplies its own credentials via env and stubs `globalThis.fetch`.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createSharedCommandRegistry, type SharedCommandRegistry } from "../command-registry";
 import type { CommandExecutionContext } from "../command-registry";
 import { registerPrincipalCommands } from "./principal";
-import { clearPrincipalChannelCache } from "@minsky/domain/notify/principal-channel";
+import {
+  clearPrincipalChannelCache,
+  type PrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 
 const NOTIFY_ID = "principal.notify";
 const TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN";
@@ -48,12 +59,39 @@ function containerWithDb(
 // container available" looks like at the type level.
 const NO_CONTAINER = {} as CommandExecutionContext;
 
+/**
+ * Deps that make the "not configured" branch REACHABLE (mt#3557).
+ *
+ * Both credential sources are stubbed to empty — the env reader AND the two
+ * Pulumi readers. Stubbing only the env is not enough: an empty env is exactly
+ * what falls through to the `pulumi` CLI, which is how these tests were
+ * resolving real credentials.
+ *
+ * `fetchFn` is a TRIPWIRE, not a stub. Nothing should reach it, because the
+ * resolution above should never report configured. If a future change makes
+ * resolution succeed anyway, this throws and the test fails loudly — rather
+ * than silently sending a live Telegram message, which is the exact failure
+ * being fixed here.
+ */
+const FORCE_NOT_CONFIGURED: PrincipalChannelDeps = {
+  readEnv: () => undefined,
+  readPulumiToken: async () => null,
+  readPulumiPlain: async () => null,
+  fetchFn: (() => {
+    throw new Error(
+      "principal.test.ts: fetch reached under FORCE_NOT_CONFIGURED — credential resolution " +
+        "succeeded when it should not have. Do NOT relax this into a no-op stub; it is the " +
+        "guard against re-introducing live Telegram sends from the test suite (mt#3557)."
+    );
+  }) as unknown as typeof fetch,
+};
+
 describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
   let registry: SharedCommandRegistry;
 
   beforeEach(() => {
     registry = createSharedCommandRegistry();
-    registerPrincipalCommands(registry);
+    registerPrincipalCommands(registry, FORCE_NOT_CONFIGURED);
     clearPrincipalChannelCache();
   });
 
@@ -116,6 +154,13 @@ describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
     const ORIGINAL_FETCH = globalThis.fetch;
 
     beforeEach(() => {
+      // Re-register WITHOUT FORCE_NOT_CONFIGURED: this block needs the real
+      // resolution path so the env credentials it sets below are the ones used.
+      // Safe because it supplies its own credentials (so the `pulumi` fallback
+      // is never reached) and stubs `globalThis.fetch` per test.
+      registry = createSharedCommandRegistry();
+      registerPrincipalCommands(registry);
+      clearPrincipalChannelCache();
       process.env[TOKEN_ENV_KEY] = "test-token";
       process.env[CHAT_ENV_KEY] = "999";
     });
