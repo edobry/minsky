@@ -22,13 +22,12 @@ tags:
   its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
-- **Still unsafe, tracked at mt#3572**: `test:all`, `test:debug`, `test:integration`, and
-  `test:debug:integration` pass NO path argument, and bare discovery also walks `src/mcp` —
-  `bunfig.toml`'s `pathIgnorePatterns` lists only `services/**` and `src/cockpit/web/**`, because
-  the mechanism does not reliably prune a subdirectory (its own comment records why). Confirmed
-  truncating. They were not migrated with the rest because `run-tests-main.ts`'s `ROOTS` omits
-  `./tests/integration`, so routing them through it would silently DROP integration coverage —
-  a worse bug than the one being fixed. Treat a green result from these four as unverified.
+- **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
+  the gated runner; `test:integration` and `test:debug:integration` pass an explicit
+  `tests/integration` path, which cannot reach `src/mcp` and so cannot trigger the defect. If you
+  add a script, give it either the gated runner or a path argument that is not `./src` — a bare
+  `bun test` walks `src/mcp`, because `bunfig.toml`'s `pathIgnorePatterns` deliberately omits
+  `src/mcp/**` (its own comment records that the mechanism cannot reliably prune a subdirectory).
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
