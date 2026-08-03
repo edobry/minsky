@@ -85,6 +85,24 @@ Bounds, each a stated constraint rather than a tuning knob:
   fire on. This is a provenance boundary, not retention: older records stay on disk and remain
   readable by the review panel, which reads counts rather than measured values.
 
+**Read cadence: the existing calibration-review sweep, never mid-session.** The tuner reads the
+corpus when the corpus is already being read — at `/calibration-review` cadence — rather than on a
+timer of its own or per fire. Two reasons. A threshold that moves mid-conversation makes a guard's
+behavior non-reproducible within a single session, so the same turn could be flagged and not
+flagged depending on when it landed; and the sweep is where the corpus's read cost is already paid
+(`decision-defaults §Thresholds` — ground a cadence in the observed one rather than inventing a
+round number). A proposal therefore takes effect at the next session boundary at the earliest.
+
+**A guard with ZERO signal behaves exactly like one with too little.** Both return `no-change` with
+`insufficient-labeled-observations`, and that collapse is deliberate: "never fired" and "fired but
+not enough to move on" call for the same response — leave the shipped default in force. This is the
+opposite of the `coverage-receipt.ts` split, where an empty log has two causes demanding OPPOSITE
+responses (`dormant` vs `no-liveness-evidence`, mt#3502) and reporting both as one made the signal
+unactionable. The distinction matters there because the question is "is this guard alive?"; here the
+question is "should this number move?", and the answer to both cases is no. `silent-stretch-detector`
+recorded 0 `warn` decisions across 2230 invocations over 18 days — the zero case is the common one,
+not the edge.
+
 ### D2 — The response signal is emitted per fire, and its absence is representable
 
 `ObservationResponse` is `"heeded" | "dismissed" | "unknown"`, with `"unknown"` the only value any
