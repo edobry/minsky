@@ -350,6 +350,96 @@ export async function resolveCallsiteChecker(
 }
 
 // ---------------------------------------------------------------------------
+// Structured-event classification (mt#3629 / mt#3565 §Reframe) — pure cores
+// ---------------------------------------------------------------------------
+//
+// `adoptionSweeperTick` used to build these event payloads inline and hand
+// them straight to `log.error`/`log.info`, which meant the only way to test
+// the payload SHAPE was to spy on the logger. These two payload builders are
+// pure functions of their inputs — asserted directly by return value — and
+// `adoptionSweeperTick` forwards the result to an injectable `emitEvent` sink
+// (defaulting to the real logger) instead of calling `log` inline, so a test
+// can verify the wiring without patching the logger module.
+
+/** Injectable structured-event sink; defaults to routing through the shared logger. */
+export type EmitEventFn = (
+  level: "info" | "error",
+  event: string,
+  payload: Record<string, unknown>
+) => void;
+
+const defaultEmitEvent: EmitEventFn = (level, event, payload) => log[level](event, payload);
+
+/** Payload shape for the `adoption_sweeper.callsite_check_unavailable` event. */
+export interface CallsiteCheckUnavailableEvent {
+  event: "adoption_sweeper.callsite_check_unavailable";
+  source: "positive_control" | "per_task_signal";
+  result: CallsiteCheckResult;
+  message?: string;
+  taskId?: string;
+  signalKind?: string;
+  signalName?: string;
+  // Index signature so this shape structurally satisfies EmitEventFn's
+  // `Record<string, unknown>` payload parameter.
+  [key: string]: unknown;
+}
+
+/**
+ * Pure core: classify the `adoption_sweeper.callsite_check_unavailable` event
+ * payload for either the once-per-tick positive control or a per-task-signal
+ * check. Only the positive-control source carries the mechanism-broken
+ * explanatory message — the per-task-signal source is one of many checks
+ * this tick, not a run-aborting condition by itself.
+ */
+export function classifyCallsiteCheckUnavailable(
+  source: "positive_control" | "per_task_signal",
+  result: CallsiteCheckResult,
+  context?: { taskId: string; signalKind: string; signalName: string }
+): CallsiteCheckUnavailableEvent {
+  return {
+    event: "adoption_sweeper.callsite_check_unavailable",
+    source,
+    result,
+    ...(source === "positive_control"
+      ? {
+          message:
+            "Positive control failed: the callsite-check mechanism did not find its " +
+            "own canary signal. Hard-skipping this entire run to avoid mass bogus " +
+            "task filing (mt#3328).",
+        }
+      : {}),
+    ...(context ?? {}),
+  };
+}
+
+/** Payload shape for the `adoption_sweeper.dry_run_proposed_filing` event. */
+export interface DryRunProposedFilingEvent {
+  event: "adoption_sweeper.dry_run_proposed_filing";
+  parentTaskId: string;
+  signalKind: string;
+  signalName: string;
+  proposedTitle: string;
+  // Index signature so this shape structurally satisfies EmitEventFn's
+  // `Record<string, unknown>` payload parameter.
+  [key: string]: unknown;
+}
+
+/** Pure core: build the dry-run proposed-filing event payload. */
+export function classifyDryRunProposedFiling(
+  parentTaskId: string,
+  signal: { kind: string; name: string },
+  proposedTitle: string
+): DryRunProposedFilingEvent {
+  return {
+    event: "adoption_sweeper.dry_run_proposed_filing",
+    parentTaskId,
+    signalKind: signal.kind,
+    signalName: signal.name,
+    proposedTitle,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Positive control (canary) for the callsite check
 // ---------------------------------------------------------------------------
 
@@ -462,8 +552,14 @@ export async function adoptionSweeperTick(
     hasLocalRepoOverride?: boolean;
     /** Test seam: override the GitHub-API tarball-fetch step entirely (mt#3351). */
     fetchRepoSourceSnapshotFn?: () => Promise<SnapshotFetchResult>;
+    /**
+     * Injectable structured-event sink, defaulting to the shared logger
+     * (mt#3629). Tests inject a collector here instead of spying on `log`.
+     */
+    emitEvent?: EmitEventFn;
   }
 ): Promise<void> {
+  const emitEvent = deps?.emitEvent ?? defaultEmitEvent;
   const lookbackDays = parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14);
   const taskService = container.get("taskService");
 
@@ -520,15 +616,11 @@ export async function adoptionSweeperTick(
 
   if (!positiveControlHealthy) {
     callsiteCheckUnavailableCount++;
-    log.error("adoption_sweeper.callsite_check_unavailable", {
-      event: "adoption_sweeper.callsite_check_unavailable",
-      source: "positive_control",
-      result: positiveControlResult,
-      message:
-        "Positive control failed: the callsite-check mechanism did not find its " +
-        "own canary signal. Hard-skipping this entire run to avoid mass bogus " +
-        "task filing (mt#3328).",
-    });
+    const unavailableEvent = classifyCallsiteCheckUnavailable(
+      "positive_control",
+      positiveControlResult
+    );
+    emitEvent("error", unavailableEvent.event, unavailableEvent);
     // Distinct from "run_completed" (mt#3328 review R1): this run did NOT
     // complete — it aborted before touching any task — and the tick is
     // about to throw. Logging it as "completed" would misleadingly read as
@@ -626,14 +718,12 @@ export async function adoptionSweeperTick(
 
               if (checkResult.status === "unavailable") {
                 callsiteCheckUnavailableCount++;
-                log.error("adoption_sweeper.callsite_check_unavailable", {
-                  event: "adoption_sweeper.callsite_check_unavailable",
-                  source: "per_task_signal",
-                  taskId,
-                  signalKind: signal.kind,
-                  signalName: signal.name,
-                  reason: checkResult.reason,
-                });
+                const unavailableEvent = classifyCallsiteCheckUnavailable(
+                  "per_task_signal",
+                  checkResult,
+                  { taskId, signalKind: signal.kind, signalName: signal.name }
+                );
+                emitEvent("error", unavailableEvent.event, unavailableEvent);
                 continue; // Hard-skip: never file a task on an unavailable check.
               }
 
@@ -674,13 +764,8 @@ export async function adoptionSweeperTick(
 
               if (dryRun) {
                 totalGapsProposed++;
-                log.info("adoption_sweeper.dry_run_proposed_filing", {
-                  event: "adoption_sweeper.dry_run_proposed_filing",
-                  parentTaskId: taskId,
-                  signalKind: signal.kind,
-                  signalName: signal.name,
-                  proposedTitle: targetTitle,
-                });
+                const proposedEvent = classifyDryRunProposedFiling(taskId, signal, targetTitle);
+                emitEvent("info", proposedEvent.event, proposedEvent);
                 continue;
               }
 
