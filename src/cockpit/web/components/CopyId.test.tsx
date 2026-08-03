@@ -22,6 +22,27 @@ import { entityToMinskyUri } from "../lib/entity-codec";
 
 afterEach(cleanup);
 
+// mt#3622 (mt#3565 audit): every test below spies on the global
+// navigator.clipboard.writeText without restoring it, so a later test's
+// assertion could silently observe a prior test's stale mock instance.
+// Route every clipboard spy through this helper and restore them all after
+// each test — the spy mechanism itself is tier-4 sanctioned (mt#3565); only
+// the missing restore was the defect.
+let clipboardSpies: Array<{ mockRestore: () => void }> = [];
+
+function spyOnClipboardWrite() {
+  const spy = spyOn(navigator.clipboard, "writeText");
+  clipboardSpies.push(spy);
+  return spy;
+}
+
+afterEach(() => {
+  for (const spy of clipboardSpies) {
+    spy.mockRestore();
+  }
+  clipboardSpies = [];
+});
+
 const ASK_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("CopyId", () => {
@@ -47,7 +68,7 @@ describe("CopyId", () => {
   });
 
   test("Copy ID writes the bare full id to the clipboard and shows Copied feedback", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="ask" id={ASK_ID} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
@@ -62,7 +83,7 @@ describe("CopyId", () => {
   });
 
   test("Copy link writes the ask's minsky:// deeplink (percent-encoded uuid) to the clipboard", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="ask" id={ASK_ID} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
@@ -75,7 +96,7 @@ describe("CopyId", () => {
   });
 
   test("Copy link for a task percent-encodes the '#' in the minsky:// deeplink", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="task" id="mt#2410" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy task id" }));
@@ -92,7 +113,7 @@ describe("CopyId", () => {
   });
 
   test("displayId (mt#2965): Copy ID copies the short id, not the uuid", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
@@ -101,7 +122,7 @@ describe("CopyId", () => {
   });
 
   test("displayId (mt#2965): Copy link still targets the canonical uuid, never the short id", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
@@ -119,7 +140,7 @@ describe("CopyId", () => {
 
   test("keyboard: Enter on the focused trigger opens the menu, Enter on the focused item activates it", async () => {
     const user = userEvent.setup();
-    const writeText = spyOn(navigator.clipboard, "writeText");
+    const writeText = spyOnClipboardWrite();
     render(<CopyId type="ask" id={ASK_ID} />);
 
     const trigger = screen.getByRole("button", { name: "Copy ask id" });
@@ -164,7 +185,7 @@ describe("CopyId", () => {
     });
 
     test("Copy -> Check feedback reverts once the ~2s timer is advanced (not before)", async () => {
-      const writeText = spyOn(navigator.clipboard, "writeText");
+      const writeText = spyOnClipboardWrite();
       render(<CopyId type="ask" id={ASK_ID} />);
 
       fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));

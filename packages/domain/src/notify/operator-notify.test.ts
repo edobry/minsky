@@ -246,8 +246,10 @@ describe("SystemOperatorNotify.notify — stdout clean in STRUCTURED log mode", 
 
   it("invokes log.cliWarn exactly once with title and body in STRUCTURED mode", () => {
     // Guard against future refactors where cliWarn is replaced with a different
-    // logging method. programLog is the same Proxy singleton that notify() resolves
-    // via its lazy require — spying on it here intercepts the call.
+    // logging method. programLog is the same plain-object forwarding singleton
+    // (a Proxy pre-mt#1859; see logger.ts's own comment for why it's a plain
+    // object now — bun's spyOn bypasses Proxy traps) that notify() resolves via
+    // its lazy require — spying on it here intercepts the call.
     const cliWarnSpy = spyOn(programLog, "cliWarn");
 
     const { sink } = makeStubStdout();
