@@ -134,9 +134,9 @@ async function runStep(script: string): Promise<{ exitCode: number; combined: st
   const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.GATED_STEP);
   const result = await spawnWithWatchdog(["bun", script], {
     budgetMs,
-    // This object is MERGED OVER `process.env`, not a replacement — see
-    // spawn-with-watchdog.ts:144 (`{ ...process.env, ...options.env }`) and its
-    // `env?` docstring. So a caller's env reaches the child: `test:debug`'s
+    // This object is MERGED OVER `process.env`, not a replacement — spawnWithWatchdog
+    // spreads it (`{ ...process.env, ...options.env }`), as its own `env?` option
+    // docstring states. So a caller's env reaches the child: `test:debug`'s
     // DEBUG_TESTS=1 arrives alongside AGENT=1. Noted here because the literal
     // `{ AGENT: "1" }` reads like a replacement at this call site and has
     // already been misread once (PR #2552 R1).
