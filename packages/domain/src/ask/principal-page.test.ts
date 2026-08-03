@@ -135,6 +135,18 @@ describe("decidePrincipalPage", () => {
     expect(d.send).toBe(true);
   });
 
+  it("pages on severity alone, with no forceImmediate (the fields are independent)", () => {
+    // The rule tells authors to set both, so it must be unambiguous that
+    // neither gates the other: `severity` decides whether the principal is
+    // NOTIFIED, `forceImmediate` only decides whether the ask waits for a
+    // service window. A reader who assumed forceImmediate was a precondition
+    // would under-notify; this pins the direction the docs claim.
+    const d = decidePrincipalPage(makeAsk({ severity: "incident", forceImmediate: false }), {
+      recentPageCount: 0,
+    });
+    expect(d.send).toBe(true);
+  });
+
   it("does NOT page a reaper-escalated ask (forceImmediate without severity)", () => {
     // The decision this test pins: the service-window reaper sets
     // forceImmediate autonomously on window-miss. If paging were bound to that

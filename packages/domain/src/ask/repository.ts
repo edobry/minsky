@@ -159,9 +159,10 @@ function toInsert(input: CreateAskInput): AskInsert {
     forceImmediate: input.forceImmediate ?? false,
     severity: input.severity ?? null,
     // principalPagedAt is deliberately NOT settable on insert — it is the
-    // substrate's record that a page went out, written by markPrincipalPaged
-    // after delivery. Accepting it from a caller would let a producer claim a
-    // page it never sent, which is exactly the idempotency marker's job to
+    // substrate's record, written by `claimPrincipalPage` immediately BEFORE
+    // delivery is attempted (see that method's docblock for why that direction
+    // is the safer failure). Accepting it from a caller would let a producer
+    // claim a page it never sent, which is exactly what the marker exists to
     // prevent (mt#3595).
     principalPagedAt: null,
     metadata: input.metadata ?? {},
@@ -206,8 +207,7 @@ export interface CreateAskInput {
    * operator-routed ask causes the substrate to page the principal once.
    *
    * `principalPagedAt` is intentionally absent from this input — it is written
-   * by `markPrincipalPaged` after a delivery actually succeeds, never supplied
-   * by a producer.
+   * by `claimPrincipalPage` at page time, never supplied by a producer.
    */
   severity?: Ask["severity"];
 }
@@ -1030,7 +1030,13 @@ export class DrizzleAskRepository implements AskRepository {
       .from(asksTable)
       .where(gte(asksTable.principalPagedAt, since));
 
-    return rows[0]?.value ?? 0;
+    // Coerce explicitly. Postgres COUNT is bigint, and whether the driver hands
+    // it back as a number or a string is a driver/version detail this method's
+    // `Promise<number>` signature should not be quietly relying on. The
+    // consumer compares it against a numeric ceiling; a string would compare
+    // correctly today by JS coercion and break the moment anyone does
+    // arithmetic on it. Number() makes the boundary honest either way.
+    return Number(rows[0]?.value ?? 0);
   }
 
   async updateRoutingTarget(id: string, target: string): Promise<Ask> {

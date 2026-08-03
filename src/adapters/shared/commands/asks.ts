@@ -1222,6 +1222,26 @@ export async function createAsk(
 function makeProductionPageDeps(): PrincipalPageDeps {
   return {
     async send(message) {
+      // Never reach the live channel from a test run (mt#3557 / mt#3538 class).
+      // `notifyPrincipal` resolves credentials from the Pulumi stack when env
+      // vars are absent, so an un-injected call here would spawn `pulumi` and
+      // message the principal for real. That hazard is NEW with this dispatch:
+      // it fires from `createAsk`, which is on far more test paths than the
+      // `principal.notify` command those two tasks were about — no current test
+      // creates a severity ask, but nothing stops the next one.
+      //
+      // Reported as a LOUD non-delivery rather than a silent success: the
+      // caller records it, so a test that genuinely expects delivery fails
+      // visibly instead of passing against a no-op. A test that wants the real
+      // decision path injects `pageDeps` at the `createAsk` seam.
+      if (process.env.NODE_ENV === "test") {
+        return {
+          delivered: false,
+          error:
+            "suppressed-in-test: production page deps were used without injection — " +
+            "pass pageDeps to createAsk to exercise this path",
+        };
+      }
       try {
         const result = await notifyPrincipal({
           message: message.message,

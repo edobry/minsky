@@ -1050,12 +1050,18 @@ do — merge gates, asks, and authorization boundaries are unaffected.
 reporting-altitude concern. When a fired trigger's remediation is **operator-only** — the agent
 cannot resolve it; only the principal can act — the trigger ALSO escalates the ask's TRANSPORT.
 
-**What you do: one thing.** Create the ask with **`severity: "incident"`** (add
-`forceImmediate: true` as well, so it is not held for the next service window). The substrate
-then sends the principal one notification on their phone pointing at that ask. **You do NOT send
-a separate `principal_notify` call for it** — that second remembered call is exactly the step
-that was dropped in both recorded occurrences, once three days after this rule shipped as
+**What you do: one thing.** Create the ask with **`severity: "incident"`**. The substrate then
+sends the principal one notification on their phone pointing at that ask. **You do NOT send a
+separate `principal_notify` call for it** — that second remembered call is exactly the step that
+was dropped in both recorded occurrences, once three days after this rule shipped as
 always-loaded text with the text verbatim in context.
+
+Also pass `forceImmediate: true`, but understand it as a **separate, independent** setting: the
+two fields do different jobs and neither gates the other. `severity` controls whether the
+principal is NOTIFIED; `forceImmediate` controls whether the ask waits for the next service
+window before landing in the inbox. A severity ask without `forceImmediate` still notifies
+immediately — you just get an inbox entry that is queued when the principal goes looking for it.
+Set both: the notification should not lead to an ask that is not there yet.
 
 **What the substrate guarantees**, so you neither repeat nor second-guess it: exactly one
 notification per ask (the claim is a conditional write, so a repeat create or a later edit cannot
