@@ -140,30 +140,58 @@ describe("interpretPreference — the customer's own words", () => {
       "fewer length reminders please",
     ]) {
       expect(interpretPreference(phrase)).toEqual({
-        thresholdKey: WALL_OF_TEXT_KEY,
-        direction: "loosen",
+        kind: "nudge",
+        nudge: { thresholdKey: WALL_OF_TEXT_KEY, direction: "loosen" },
       });
     }
   });
 
   test("maps a request for earlier check-ins to tightening the quiet threshold", () => {
     expect(interpretPreference("tell me sooner when you go quiet")).toEqual({
-      thresholdKey: "MINSKY_SILENT_STRETCH_GAP_MINUTES",
-      direction: "tighten",
+      kind: "nudge",
+      nudge: { thresholdKey: "MINSKY_SILENT_STRETCH_GAP_MINUTES", direction: "tighten" },
     });
   });
 
   test("AT: reversal uses the same vocabulary and is read as the opposite nudge", () => {
     expect(interpretPreference("actually, keep flagging those long updates")).toEqual({
-      thresholdKey: WALL_OF_TEXT_KEY,
-      direction: "tighten",
+      kind: "nudge",
+      nudge: { thresholdKey: WALL_OF_TEXT_KEY, direction: "tighten" },
     });
   });
 
   test("an unmatched phrase returns null rather than guessing a guard", () => {
-    expect(interpretPreference("hello")).toBeNull();
-    expect(interpretPreference("stop")).toBeNull(); // direction without a subject
-    expect(interpretPreference("my updates")).toBeNull(); // subject without a direction
+    expect(interpretPreference("hello").kind).toBe("no-match");
+    expect(interpretPreference("").kind).toBe("no-match");
+    expect(interpretPreference("stop").kind).toBe("no-match"); // direction without a subject
+    expect(interpretPreference("my updates").kind).toBe("no-match"); // subject without a direction
+  });
+});
+
+/**
+ * PR #2577 R1. Both ties used to be broken silently, so a phrase naming two
+ * subjects moved a threshold the customer never mentioned — and the surface
+ * deliberately shows them no numbers to notice it by.
+ */
+describe("interpretPreference — ambiguity is reported, not resolved", () => {
+  test("a phrase naming both subjects is ambiguous rather than length-wins", () => {
+    const result = interpretPreference("stop nagging me about long updates and going quiet");
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind !== "ambiguous") return;
+    expect(result.reason).toBe("two-subjects");
+    expect(result.candidates).toHaveLength(2);
+  });
+
+  test("a phrase pulling both directions is ambiguous rather than loosen-wins", () => {
+    const result = interpretPreference("fewer length reminders but be stricter about my reports");
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind !== "ambiguous") return;
+    expect(result.reason).toBe("two-directions");
+    expect(result.candidates).toEqual(["loosen", "tighten"]);
+  });
+
+  test("an unambiguous phrase still resolves — the check does not over-fire", () => {
+    expect(interpretPreference("stop telling me my updates are too long").kind).toBe("nudge");
   });
 });
 

@@ -215,7 +215,14 @@ export interface Nudge {
  * Returns null when nothing matches. Guessing which guard a customer meant is
  * worse than asking.
  */
-export function interpretPreference(phrase: string): Nudge | null {
+export type InterpretationResult =
+  | { kind: "nudge"; nudge: Nudge }
+  | { kind: "no-match" }
+  | { kind: "ambiguous"; reason: AmbiguityReason; candidates: string[] };
+
+export type AmbiguityReason = "two-subjects" | "two-directions";
+
+export function interpretPreference(phrase: string): InterpretationResult {
   const text = phrase.toLowerCase();
 
   const wantsLess =
@@ -225,15 +232,35 @@ export function interpretPreference(phrase: string): Nudge | null {
   const aboutLength = /\b(long|length|verbose|wordy|updates?|reports?|summar)/.test(text);
   const aboutQuiet = /\b(quiet|silent|going dark|check in|checking in|heartbeat)/.test(text);
 
-  if (!wantsLess && !wantsMore) return null;
-  if (!aboutLength && !aboutQuiet) return null;
+  if (!wantsLess && !wantsMore) return { kind: "no-match" };
+  if (!aboutLength && !aboutQuiet) return { kind: "no-match" };
 
-  const direction: NudgeDirection = wantsMore && !wantsLess ? "tighten" : "loosen";
-  const thresholdKey = aboutLength
-    ? "MINSKY_WALL_OF_TEXT_WORD_BUDGET"
-    : "MINSKY_SILENT_STRETCH_GAP_MINUTES";
+  // Ambiguity is REPORTED, not resolved (PR #2577 R1). An earlier version broke
+  // both ties silently — "tighten only if wantsMore and not wantsLess", and
+  // length-wins-over-quiet — so a phrase naming both subjects moved a threshold
+  // the customer never mentioned. Silently picking is worse than asking: the
+  // customer cannot see which one moved, and the surface deliberately shows them
+  // no numbers to notice it by.
+  if (aboutLength && aboutQuiet) {
+    return {
+      kind: "ambiguous",
+      reason: "two-subjects",
+      candidates: ["MINSKY_WALL_OF_TEXT_WORD_BUDGET", "MINSKY_SILENT_STRETCH_GAP_MINUTES"],
+    };
+  }
+  if (wantsLess && wantsMore) {
+    return { kind: "ambiguous", reason: "two-directions", candidates: ["loosen", "tighten"] };
+  }
 
-  return { thresholdKey, direction };
+  return {
+    kind: "nudge",
+    nudge: {
+      thresholdKey: aboutLength
+        ? "MINSKY_WALL_OF_TEXT_WORD_BUDGET"
+        : "MINSKY_SILENT_STRETCH_GAP_MINUTES",
+      direction: wantsMore ? "tighten" : "loosen",
+    },
+  };
 }
 
 /**

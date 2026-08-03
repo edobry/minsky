@@ -38,6 +38,10 @@ interface Case {
   /** Named export on the guard module carrying the resolved threshold. */
   constantName: string;
   modulePath: string;
+  /** When set, the env var is ALSO exported — exercising the precedence chain. */
+  envOverride?: string;
+  /** Expected resolved value; defaults to `tunedValue`. */
+  expected?: number;
 }
 
 const CASES: Case[] = [
@@ -56,6 +60,30 @@ const CASES: Case[] = [
     tunedValue: 18,
     constantName: "GAP_MINUTES_THRESHOLD",
     modulePath: "../.minsky/hooks/silent-stretch-detector.ts",
+  },
+  {
+    // The second threshold on the SAME module. Wiring one constant and not the
+    // other is a live failure mode — they are separate call sites (PR #2577 R1).
+    name: "silent-stretch tool calls",
+    thresholdKey: "MINSKY_SILENT_STRETCH_TOOL_CALLS",
+    shippedDefault: 15,
+    tunedValue: 22,
+    constantName: "TOOL_CALL_THRESHOLD",
+    modulePath: "../.minsky/hooks/silent-stretch-detector.ts",
+  },
+  {
+    // Precedence, exercised against the real modules rather than only in unit
+    // tests: with the env var ALSO set, the env value must win over the tune.
+    // Without this the script would pass just as happily if the store silently
+    // outranked an operator's explicit setting.
+    name: "env var outranks the tuned value",
+    thresholdKey: "MINSKY_WALL_OF_TEXT_WORD_BUDGET",
+    shippedDefault: 200,
+    tunedValue: 330,
+    envOverride: "450",
+    expected: 450,
+    constantName: "LEAD_WORD_BUDGET",
+    modulePath: "../.minsky/hooks/wall-of-text-detector.ts",
   },
 ];
 
@@ -79,7 +107,13 @@ async function runCase(testCase: Case): Promise<{ ok: boolean; detail: string }>
         `const m = await import(${JSON.stringify(join(import.meta.dir, testCase.modulePath))});` +
         `console.log(String(m[${JSON.stringify(testCase.constantName)}]));`,
     ],
-    env: { ...process.env, MINSKY_STATE_DIR: scratch },
+    env: {
+      ...process.env,
+      MINSKY_STATE_DIR: scratch,
+      ...(testCase.envOverride === undefined
+        ? {}
+        : { [testCase.thresholdKey]: testCase.envOverride }),
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -90,9 +124,14 @@ async function runCase(testCase: Case): Promise<{ ok: boolean; detail: string }>
     return { ok: false, detail: `child exited ${child.exitCode}: ${stderr || "(no stderr)"}` };
   }
 
+  const expected = testCase.expected ?? testCase.tunedValue;
   const observed = Number(stdout.split("\n").pop());
-  if (observed === testCase.tunedValue) {
-    return { ok: true, detail: `${testCase.shippedDefault} -> ${observed} (tuned value in force)` };
+  if (observed === expected) {
+    const what =
+      testCase.envOverride === undefined
+        ? "tuned value in force"
+        : "env var outranked the tuned value";
+    return { ok: true, detail: `${testCase.shippedDefault} -> ${observed} (${what})` };
   }
   if (observed === testCase.shippedDefault) {
     return {
@@ -100,7 +139,16 @@ async function runCase(testCase: Case): Promise<{ ok: boolean; detail: string }>
       detail: `still the shipped default (${observed}) — the store is NOT bound to the guard`,
     };
   }
-  return { ok: false, detail: `unexpected value ${observed} (stdout: ${JSON.stringify(stdout)})` };
+  if (testCase.envOverride !== undefined && observed === testCase.tunedValue) {
+    return {
+      ok: false,
+      detail: `resolved the TUNED value (${observed}) with an env var set — precedence is inverted`,
+    };
+  }
+  return {
+    ok: false,
+    detail: `unexpected value ${observed}, expected ${expected} (stdout: ${JSON.stringify(stdout)})`,
+  };
 }
 
 async function main(): Promise<void> {

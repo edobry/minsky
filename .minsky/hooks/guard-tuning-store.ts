@@ -98,6 +98,93 @@ const realFs: GuardTuningStoreFsDeps = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Locking (PR #2577 R1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Both mutating paths below are read-modify-write over a whole-file JSON blob,
+ * and hooks run as concurrent short-lived processes — so two writers racing lose
+ * one update entirely, silently. The store is small and writes are rare, which
+ * makes the race unlikely rather than impossible; "unlikely" is not a property
+ * a threshold's audit trail should rest on.
+ *
+ * Same exclusive-create lock shape as `ask-grant-store.ts` and
+ * `dispatch-intent-store.ts` — `wx` create as the mutex, bounded retries, and a
+ * staleness escape so a process killed mid-write cannot wedge the store forever.
+ *
+ * This is now the THIRD copy of that shape in this tree. Extracting it into one
+ * shared module is tracked at mt#3651 rather than done here: refactoring two
+ * modules that are not otherwise part of this change would put unrelated blast
+ * radius into a PR under review.
+ */
+const LOCK_SUFFIX = ".lock";
+const LOCK_RETRIES = 20;
+const LOCK_RETRY_DELAY_MS = 25;
+const LOCK_STALE_MS = 10_000;
+
+export interface GuardTuningLockDeps {
+  /** Create the lock file exclusively; false when it already exists. */
+  tryExclusiveCreate: (path: string, contents: string) => boolean;
+  unlinkSync: (path: string) => void;
+  /** Age of an existing lock in ms, or null when it cannot be read. */
+  lockAgeMs: (path: string) => number | null;
+  sleepMs: (ms: number) => void;
+}
+
+const defaultLockDeps: GuardTuningLockDeps = {
+  tryExclusiveCreate: (p, contents) => {
+    try {
+      fs.writeFileSync(p, contents, { flag: "wx" });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  unlinkSync: (p) => {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      // intentional-swallow: releasing a lock that is already gone is success.
+    }
+  },
+  lockAgeMs: (p) => {
+    try {
+      return Date.now() - fs.statSync(p).mtimeMs;
+    } catch {
+      return null;
+    }
+  },
+  sleepMs: (ms) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  },
+};
+
+/** Run `fn` holding the store's lock. Throws if the lock cannot be acquired. */
+export function withGuardTuningStoreLock<T>(
+  storePath: string,
+  fn: () => T,
+  lockDeps: GuardTuningLockDeps = defaultLockDeps
+): T {
+  const lockPath = `${storePath}${LOCK_SUFFIX}`;
+  for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
+    if (lockDeps.tryExclusiveCreate(lockPath, `${process.pid} ${new Date().toISOString()}`)) {
+      try {
+        return fn();
+      } finally {
+        lockDeps.unlinkSync(lockPath);
+      }
+    }
+    const age = lockDeps.lockAgeMs(lockPath);
+    if (age !== null && age > LOCK_STALE_MS) {
+      lockDeps.unlinkSync(lockPath);
+      continue;
+    }
+    lockDeps.sleepMs(LOCK_RETRY_DELAY_MS);
+  }
+  throw new Error(`could not acquire guard-tuning store lock at ${lockPath}`);
+}
+
 /**
  * A store entry is usable only if it carries a positive integer.
  *
@@ -171,24 +258,35 @@ export function writeTunedValue(
     basis?: Record<string, unknown>;
     storePath?: string;
     fsDeps?: GuardTuningStoreFsDeps;
+    lockDeps?: GuardTuningLockDeps;
   }
 ): TunedThreshold {
   const storePath = options.storePath ?? getGuardTuningStorePath();
   const fsDeps = options.fsDeps ?? realFs;
-  const store = readGuardTuningStore(storePath, fsDeps);
-  const previousValue = store[thresholdKey]?.value;
 
-  const entry: TunedThreshold = {
-    value,
-    appliedAt: options.appliedAt,
-    ...(previousValue === undefined ? {} : { previousValue }),
-    ...(options.basis === undefined ? {} : { basis: options.basis }),
-  };
+  // The read and the write are one critical section: reading the store, deriving
+  // `previousValue` from it, and writing back is a read-modify-write, and two
+  // concurrent hook processes doing it unlocked lose one update silently.
+  return withGuardTuningStoreLock(
+    storePath,
+    () => {
+      const store = readGuardTuningStore(storePath, fsDeps);
+      const previousValue = store[thresholdKey]?.value;
 
-  store[thresholdKey] = entry;
-  fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
-  fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
-  return entry;
+      const entry: TunedThreshold = {
+        value,
+        appliedAt: options.appliedAt,
+        ...(previousValue === undefined ? {} : { previousValue }),
+        ...(options.basis === undefined ? {} : { basis: options.basis }),
+      };
+
+      store[thresholdKey] = entry;
+      fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
+      fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
+      return entry;
+    },
+    options.lockDeps
+  );
 }
 
 /**
@@ -201,21 +299,35 @@ export function writeTunedValue(
  */
 export function revertTunedValue(
   thresholdKey: string,
-  options: { appliedAt: string; storePath?: string; fsDeps?: GuardTuningStoreFsDeps }
+  options: {
+    appliedAt: string;
+    storePath?: string;
+    fsDeps?: GuardTuningStoreFsDeps;
+    lockDeps?: GuardTuningLockDeps;
+  }
 ): number | undefined {
   const storePath = options.storePath ?? getGuardTuningStorePath();
   const fsDeps = options.fsDeps ?? realFs;
-  const store = readGuardTuningStore(storePath, fsDeps);
-  const existing = store[thresholdKey];
-  if (!existing) return undefined;
 
-  if (existing.previousValue === undefined) {
-    delete store[thresholdKey];
-  } else {
-    store[thresholdKey] = { value: existing.previousValue, appliedAt: options.appliedAt };
-  }
+  // Same critical section as the write path: this reads the entry to learn what
+  // to restore, then writes back.
+  return withGuardTuningStoreLock(
+    storePath,
+    () => {
+      const store = readGuardTuningStore(storePath, fsDeps);
+      const existing = store[thresholdKey];
+      if (!existing) return undefined;
 
-  fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
-  fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
-  return store[thresholdKey]?.value;
+      if (existing.previousValue === undefined) {
+        delete store[thresholdKey];
+      } else {
+        store[thresholdKey] = { value: existing.previousValue, appliedAt: options.appliedAt };
+      }
+
+      fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
+      fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
+      return store[thresholdKey]?.value;
+    },
+    options.lockDeps
+  );
 }
