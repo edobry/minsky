@@ -800,13 +800,12 @@ discipline-tier. Recipes + leak-containment runbook:
   its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
-- **Still unsafe, tracked at mt#3572**: `test:all`, `test:debug`, `test:integration`, and
-  `test:debug:integration` pass NO path argument, and bare discovery also walks `src/mcp` —
-  `bunfig.toml`'s `pathIgnorePatterns` lists only `services/**` and `src/cockpit/web/**`, because
-  the mechanism does not reliably prune a subdirectory (its own comment records why). Confirmed
-  truncating. They were not migrated with the rest because `run-tests-main.ts`'s `ROOTS` omits
-  `./tests/integration`, so routing them through it would silently DROP integration coverage —
-  a worse bug than the one being fixed. Treat a green result from these four as unverified.
+- **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
+  the gated runner; `test:integration` and `test:debug:integration` pass an explicit
+  `tests/integration` path, which cannot reach `src/mcp` and so cannot trigger the defect. If you
+  add a script, give it either the gated runner or a path argument that is not `./src` — a bare
+  `bun test` walks `src/mcp`, because `bunfig.toml`'s `pathIgnorePatterns` deliberately omits
+  `src/mcp/**` (its own comment records that the mechanism cannot reliably prune a subdirectory).
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
@@ -1229,6 +1228,7 @@ so measurement is unaffected. Separate events still mean separate blocks: a `Sto
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Turn-end-untaken-action** — Stop-event scan (mt#3179): the turn's final message names a next action ("I'll implement it", "say the word") without taking it. Keys on the SURFACE phrase, not the reason, and dedups per phrase per turn. Suppressed when the same message also matches ask-routing-deferral, whose guidance is the more specific (mt#3336). `MINSKY_ACK_UNTAKEN_ACTION`.
+- **Turn-end-unwalked-task** — Stop-event scan (mt#3536): the turn minted a task id (a `tasks_create` whose result confirms `success` + `taskId`) and ended with no `tasks_status_set`/`session_start`/`tasks_dispatch`/`asks_create` naming it. Keys on tool-call STATE, not on wording — the R4 stop named no next action at all, so the phrase-keyed sibling above correctly stayed silent; the SILENT stop is the gap this closes. R4 of `family:stop-at-handoff`, after two prose fixes (mt#1478, mt#2689) both went DONE and both failed to contain it — mt#2689's lived in `/create-task`'s exit step and was bypassed by calling the tool directly. Dedups per task id. `MINSKY_ACK_UNWALKED_TASK`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read (measured: 108 of 298 records carried that reason, 58 by it alone). Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is UNCHANGED — both still suppress; the split makes the authorship-as-verification class countable, which is the precondition for deciding whether it should surface. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted as an operator-facing fire it never was and would drive the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
@@ -1253,28 +1253,9 @@ Operational corollaries already in force below are instances of this one princip
 
 ## Escalation packaging
 
-Identifying a decision as principal-level is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to decide from the message alone, without round-tripping for context.
+An escalation must be **self-contained**: the principal should be able to decide from the message alone, without round-tripping for context. Identifying a decision as principal-level is necessary but not sufficient — completeness and *form* are both required, and a message can be complete and still unusable.
 
-Mechanical checklist before posting an escalation:
-
-1. **State the question in plain language**, not by referent. "Should I do A or B?" with A and B identified by label-only forces the user to look up what those labels mean. Restate the options inline.
-2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link.
-3. **List the decision drivers** — the factors that distinguish the options. The user should see what *would* tilt the choice, not infer it.
-4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
-5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
-
-Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.
-
-**Form (how it reads — completeness is not enough):**
-
-1. **Lead with the action.** The first line states what the principal must do, imperatively. Justification comes after, and gets at most one line; deep context goes in `contextRefs`, not the question body.
-2. **Name concrete objects.** Real names ("the **minsky-ai** GitHub App"), never roles ("the implementer App"). If you don't know the object's name, look it up before writing the ask — a 15-second grep beats a round-trip.
-3. **Link the destination.** If the action happens in a portal/UI, include the direct URL to the exact page, plus numbered click-steps.
-4. **No agent jargon.** Internal tool ids (`mcp__*`), harness terms, and inline-code permission strings don't belong in principal-facing text. Describe capabilities in plain words ("I'll file the request for you").
-5. **Body budget ~120 words.** If it doesn't fit, you're including justification that belongs in contextRefs.
-6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
-
-Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.
+The two checklists that enforce this — content (does it carry what a decision needs?) and form (can it be read and acted on?) — live in the **`/escalation-packaging`** skill. Invoke it before `asks_create`, before `AskUserQuestion`, and before any turn-ending question that hands the principal a choice.
 
 # Key Architecture
 
@@ -1402,12 +1383,7 @@ execution`, principal-level decisions stay with Eugene:
 
 ### Trigger rule — before applying any framework
 
-1. **Name the framework** explicitly.
-2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
-3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
-4. **Name what you switched and why.**
-
-`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
+Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.
 
 # Sequence Dependent Tool Calls
 

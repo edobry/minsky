@@ -6,9 +6,22 @@ import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
+  buildPostgresClient,
+  createBoundedSocket,
   resolveMigrationsFolder,
+  resolveSocketTimeoutMs,
   shouldAutoMigrate,
 } from "./postgres-provider";
+import net from "node:net";
+import { once } from "node:events";
+// The unix-socket test below binds a REAL listener, and a socket can only be
+// bound at a real filesystem path — '/mock/tmp' cannot be listened on. The
+// cross-run race the rule guards against is avoided by naming the socket after
+// the pid.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { log } from "@minsky/shared/logger";
 // mt#1767 — `resolveMigrationsFolder()` operates on real filesystem state by
 // design (it must verify the deployed bundle's migrations folder exists).
 // The tests below assert real-fs resolution, so the in-test fs prohibition
@@ -697,5 +710,289 @@ describe("PostgresPersistenceProvider.initialize() auto-migrate (mt#1767)", () =
     // against this stub factory's non-real DB).
     await provider.initialize({ postgresFactory: factory as any });
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+});
+
+/**
+ * mt#3592 — the socket inactivity bound that keeps a half-open connection from
+ * wedging the pool forever.
+ *
+ * WHY THESE TESTS ARE SHAPED THIS WAY. The previous attempt (mt#3092) shipped
+ * this mechanism behind four unit tests, a negative control, sixteen green CI
+ * checks and a clean review — and took production down, because its factory
+ * returned an UNCONNECTED socket and not one test in the repo ever opened a
+ * connection through it. So every test here that asserts on connection
+ * behaviour opens a real socket against a real listener. A test that only
+ * inspects the returned object cannot catch that class of defect.
+ */
+
+/** A no-op 'error' handler. Destroying a socket surfaces an async error the
+ *  test is not asserting on; postgres-js attaches its own handler immediately
+ *  after the factory returns (connection.js:139), so production never sees it
+ *  unhandled either. */
+function ignoreSocketError(): void {
+  // intentional-swallow: the destroy path under test is asserted via 'close'.
+}
+
+/** A TCP listener that accepts connections and then says nothing — a peer that
+ *  has stopped responding without closing, which is the condition being bounded. */
+async function startSilentServer(): Promise<{
+  port: number;
+  accepted: Promise<net.Socket>;
+  close: () => Promise<void>;
+}> {
+  const sockets: net.Socket[] = [];
+  let resolveAccepted!: (socket: net.Socket) => void;
+  const accepted = new Promise<net.Socket>((resolve) => {
+    resolveAccepted = resolve;
+  });
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    resolveAccepted(socket);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("expected a TCP address from a TCP listener");
+  }
+  return {
+    port: address.port,
+    accepted,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+describe("resolveSocketTimeoutMs (mt#3592)", () => {
+  test("derives the bound from idleTimeout, converted to milliseconds", () => {
+    expect(resolveSocketTimeoutMs(30)).toBe(30_000);
+  });
+
+  test("falls back to 60s when idleTimeout is unset", () => {
+    expect(resolveSocketTimeoutMs(undefined)).toBe(60_000);
+  });
+
+  test("floors idleTimeout: 0 instead of composing two different 'disabled' meanings", () => {
+    // postgres-js reads idle_timeout: 0 as "never idle out" and Node reads
+    // setTimeout(0) as "no timeout" — composing them would silently restore the
+    // unbounded hang this whole mechanism exists to prevent.
+    expect(resolveSocketTimeoutMs(0)).toBe(60_000);
+  });
+
+  test("floors a negative idleTimeout", () => {
+    expect(resolveSocketTimeoutMs(-30)).toBe(60_000);
+  });
+});
+
+describe("createBoundedSocket (mt#3592)", () => {
+  test("returns a CONNECTED socket, reading host/port as the arrays postgres-js passes", async () => {
+    const server = await startSilentServer();
+    try {
+      // `host` and `port` are arrays on postgres-js's options object
+      // (index.js:466-467, multi-host support). Reading them as scalars yields
+      // undefined and connects nowhere.
+      const socket = createBoundedSocket(60_000, {
+        host: ["127.0.0.1"],
+        port: [server.port],
+      });
+      socket.on("error", ignoreSocketError);
+
+      await once(socket, "connect");
+      // postgres-js writes its StartupMessage immediately after this factory
+      // returns — connection.js:345 skips its own connect() for a custom socket
+      // — so an unconnected socket fails every write with "Socket is closed".
+      expect(socket.destroyed).toBe(false);
+      expect(socket.writable).toBe(true);
+
+      // The server actually accepted it: proof the address resolved, not just
+      // that a socket object came back.
+      await server.accepted;
+      socket.destroy();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("also accepts scalar host/port (the defensive branch)", async () => {
+    const server = await startSilentServer();
+    try {
+      const socket = createBoundedSocket(60_000, {
+        host: "127.0.0.1",
+        port: server.port,
+      });
+      socket.on("error", ignoreSocketError);
+      await once(socket, "connect");
+      await server.accepted;
+      socket.destroy();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("connects over TCP when path is false, the value postgres-js sets for a TCP host", async () => {
+    const server = await startSilentServer();
+    try {
+      // index.js:468 — `path: o.path || host.indexOf('/') > -1 && ...`, so a TCP
+      // host yields `false`, not undefined. A truthiness check on `path` alone
+      // would be fine here but a `path in options` check would not; this pins it.
+      const socket = createBoundedSocket(60_000, {
+        host: ["127.0.0.1"],
+        port: [server.port],
+        path: false,
+      });
+      socket.on("error", ignoreSocketError);
+      await once(socket, "connect");
+      await server.accepted;
+      socket.destroy();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("connects over a unix socket when options.path is a real path", async () => {
+    // postgres-js returns at connection.js:345 BEFORE its own `if (options.path)`
+    // branch, so the unix-socket case has to be handled inside the factory.
+    const socketPath = join(tmpdir(), `minsky-bounded-socket-${process.pid}.sock`);
+    const server = net.createServer(() => {});
+    await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()));
+    try {
+      const socket = createBoundedSocket(60_000, {
+        path: socketPath,
+        host: ["ignored-when-path-is-set"],
+        port: [1],
+      });
+      socket.on("error", ignoreSocketError);
+      await once(socket, "connect");
+      expect(socket.destroyed).toBe(false);
+      socket.destroy();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("destroys the socket once the bound elapses with no traffic", async () => {
+    const server = await startSilentServer();
+    try {
+      const boundMs = 150;
+      const socket = createBoundedSocket(boundMs, {
+        host: ["127.0.0.1"],
+        port: [server.port],
+      });
+      socket.on("error", ignoreSocketError);
+      await once(socket, "connect");
+
+      const startedAt = performance.now();
+      // 'close' is the whole point: postgres-js settles a pending query on it
+      // (connection.js:453 — `!hadError && (query || sent.length) && error(
+      // CONNECTION_CLOSED)`). Without it the query promise never settles and the
+      // pool slot is never returned.
+      await once(socket, "close");
+
+      expect(socket.destroyed).toBe(true);
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(boundMs * 0.8);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("does NOT destroy a socket that keeps seeing traffic — the bound is inactivity, not age", async () => {
+    // The regression this guards: if the timer measured connection AGE rather
+    // than inactivity, every healthy pooled connection would be torn down every
+    // idle_timeout seconds mid-use.
+    const chatter: net.Socket[] = [];
+    const server = net.createServer((socket) => {
+      chatter.push(socket);
+      const beat = setInterval(() => socket.write("."), 40);
+      socket.on("close", () => clearInterval(beat));
+      socket.on("error", ignoreSocketError);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("expected a TCP address from a TCP listener");
+    }
+    try {
+      const socket = createBoundedSocket(200, { host: ["127.0.0.1"], port: [address.port] });
+      socket.on("error", ignoreSocketError);
+      socket.resume();
+      await once(socket, "connect");
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 700));
+      expect(socket.destroyed).toBe(false);
+      socket.destroy();
+    } finally {
+      for (const socket of chatter) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+describe("buildPostgresClient socket wiring (mt#3592)", () => {
+  test("passes a socket factory that produces a connected socket", async () => {
+    const server = await startSilentServer();
+    const { factory, getCapturedArgs } = makeMockPostgresFactory();
+    try {
+      buildPostgresClient(
+        { connectionString: TEST_CONNECTION_STRING, idleTimeout: 30 },
+        factory as any
+      );
+
+      const capturedArgs = getCapturedArgs();
+      expect(capturedArgs).not.toBeNull();
+      const socketFactory = capturedArgs?.[1].socket;
+      expect(typeof socketFactory).toBe("function");
+
+      // Exercised end-to-end rather than asserted as present: "an option named
+      // socket exists" is exactly the assertion that held while production could
+      // not open a connection at all.
+      const socket = (socketFactory as (opts: unknown) => net.Socket)({
+        host: ["127.0.0.1"],
+        port: [server.port],
+        path: false,
+      });
+      socket.on("error", ignoreSocketError);
+      await once(socket, "connect");
+      await server.accepted;
+      socket.destroy();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("does not install the bound under TLS, and says so (mt#3603)", () => {
+    // Skipped rather than installed-but-inert: under TLS postgres-js wraps this
+    // socket, and whether the wrapped socket's byte counters keep moving is
+    // unverified — a check that read a busy connection as idle would sever it.
+    const warn = spyOn(log, "warn").mockImplementation(() => {});
+    const { factory, getCapturedArgs } = makeMockPostgresFactory();
+    try {
+      buildPostgresClient(
+        { connectionString: "postgresql://user:pass@host/db?sslmode=require" },
+        factory as any
+      );
+      expect(getCapturedArgs()?.[1].socket).toBeUndefined();
+      const warned = warn.mock.calls.some((call) => String(call[0]).includes("mt#3603"));
+      expect(warned).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("installs the bound for sslmode=disable, which leaves TLS off", () => {
+    const warn = spyOn(log, "warn").mockImplementation(() => {});
+    const { factory, getCapturedArgs } = makeMockPostgresFactory();
+    try {
+      buildPostgresClient(
+        { connectionString: "postgresql://user:pass@host/db?sslmode=disable" },
+        factory as any
+      );
+      expect(typeof getCapturedArgs()?.[1].socket).toBe("function");
+      const warned = warn.mock.calls.some((call) => String(call[0]).includes("mt#3603"));
+      expect(warned).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

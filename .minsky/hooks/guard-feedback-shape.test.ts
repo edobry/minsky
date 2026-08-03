@@ -146,6 +146,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "substrate-bypass-detector",
         "turn-end-retro-scan",
         "turn-end-untaken-action-scan",
+        "turn-end-unwalked-task-scan",
         "wall-of-text-detector",
       ].sort()
     );
