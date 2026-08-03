@@ -433,10 +433,16 @@ export interface RunDispatcherOptions {
   registrations?: GuardRegistration[];
   /** Injectable for tests — defaults to `readInput<ToolHookInput>()` from `./types`. */
   readInputFn?: () => Promise<ToolHookInput>;
-  /** Injectable for tests — defaults to `writeOutput` from `./types`. */
+  /**
+   * Injectable for tests — defaults to `writeOutput` from `./types`.
+   *
+   * The ONLY writer of stdout in the dispatcher (mt#3625). There is deliberately
+   * no general-purpose `stdoutWrite` seam beside it: Claude Code discards a
+   * PreToolUse hook's entire output when stdout carries anything besides the one
+   * JSON object, so any second stdout writer is a latent way to void a guard's
+   * decision. Diagnostics go to `stderrWrite`.
+   */
   writeOutputFn?: (output: HookOutput) => void;
-  /** Injectable for tests — defaults to `process.stdout.write`. */
-  stdoutWrite?: (s: string) => void;
   /** Injectable for tests — defaults to `process.stderr.write`. */
   stderrWrite?: (s: string) => void;
   /** Injectable for tests — defaults to the real `logCalibrationRecord`. */
@@ -663,7 +669,6 @@ export async function runDispatcher(
   const registrations = options.registrations ?? GUARD_REGISTRY;
   const readInputFn = options.readInputFn ?? (() => readInput<ToolHookInput>());
   const writeOutputFn = options.writeOutputFn ?? writeOutput;
-  const stdoutWrite = options.stdoutWrite ?? ((s: string) => process.stdout.write(s));
   const stderrWrite = options.stderrWrite ?? ((s: string) => process.stderr.write(s));
   const logCalibration = options.logCalibrationRecordFn ?? logCalibrationRecord;
   const resolveContext =
@@ -690,7 +695,13 @@ export async function runDispatcher(
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
-      stdoutWrite(
+      // STDERR (mt#3625). This used to go to stdout, ahead of the dispatch's
+      // JSON — which meant overriding THIS guard silently voided a LATER
+      // guard's deny, because Claude Code drops a PreToolUse hook's whole
+      // output when stdout holds anything but the one JSON object. Live on the
+      // shared `Bash|mcp__minsky__session_exec` matcher, where an override of
+      // check-guessed-session-path disabled block-secret-file-read's deny.
+      stderrWrite(
         buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
       );
       // mt#2597 R1 fix: attribute the fire-log record to whichever channel
@@ -765,7 +776,9 @@ export async function runDispatcher(
 
     if (!outcome) continue;
 
-    for (const line of outcome.auditLines ?? []) stdoutWrite(line);
+    // STDERR (mt#3625) — same reason as the override line above. A guard's
+    // audit line is a diagnostic; stdout belongs to the single JSON object.
+    for (const line of outcome.auditLines ?? []) stderrWrite(line);
     // mt#3519: a registration may declare several logs. The dispatcher writes
     // the one record it has to the PRIMARY log — the first declared — never to
     // all of them, which would duplicate the record across logs and inflate
