@@ -357,9 +357,22 @@ export function createBoundedSocket(timeoutMs: number, options: SocketConnectOpt
  * SELECT-1-validated client to the provider for reuse instead of each opening a
  * separate remote TLS handshake to the pooler.
  */
+/** Injectable warn sink for buildPostgresClient (mt#3628). */
+export interface BuildPostgresClientLogSink {
+  warn: (message: string) => void;
+}
+
+const defaultBuildPostgresClientLogSink: BuildPostgresClientLogSink = { warn: log.warn };
+
 export function buildPostgresClient(
   pgConfig: NonNullable<PersistenceConfig["postgres"]>,
-  factory: typeof postgres = postgres
+  factory: typeof postgres = postgres,
+  /**
+   * Injectable warn sink (mt#3628); defaults to the real shared logger.
+   * Lets the mt#3603 TLS-bound-limitation wiring test observe the emission
+   * via a plain injected function instead of `spyOn(log, "warn")`.
+   */
+  logSink: BuildPostgresClientLogSink = defaultBuildPostgresClientLogSink
 ): ReturnType<typeof postgres> {
   const options = {
     max: resolveMaxConnections(pgConfig.maxConnections),
@@ -373,7 +386,7 @@ export function buildPostgresClient(
     // createBoundedSocket has the reasoning. Warn rather than fail: an
     // unbounded connection is how this worked before mt#3592, so TLS is not a
     // regression, but it must not look protected when it is not (mt#3603).
-    log.warn(
+    logSink.warn(
       "postgres connection string enables sslmode; the socket inactivity bound is NOT installed on the TLS path (mt#3603) — half-open connections can still wedge the pool"
     );
   } else {

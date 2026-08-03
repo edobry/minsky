@@ -9,6 +9,12 @@
  * user PAT. See services/reviewer/HARNESS.md for provisioning instructions.
  *
  * @see mt#1502 — rate-limit isolation for harness scripts
+ *
+ * OpenAI key resolution deliberately lives in `harness-openai-auth.ts`, not
+ * here: it reads Minsky's configuration system, which pulls in tsyringe and
+ * therefore needs a `reflect-metadata` polyfill. Importing that from this
+ * module would impose the polyfill on every harness script that wants a GitHub
+ * token, several of which need no OpenAI key at all.
  */
 
 export function resolveGitHubToken(): string | undefined {

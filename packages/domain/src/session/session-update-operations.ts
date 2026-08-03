@@ -50,13 +50,34 @@ export interface DependencyInstallDeps {
    * actually ran).
    */
   detectPackageManager: typeof defaultDetectPackageManager;
+  /**
+   * Injectable CLI-output sink (mt#3628), defaulting to the real shared
+   * logger's `cli`. Lets the install-message wiring test observe the
+   * emission via a plain injected function instead of `spyOn(log, "cli")`.
+   */
+  cli: (message: string) => void;
 }
 
 const defaultDependencyInstallDeps: DependencyInstallDeps = {
   installDependencies: defaultInstallDependencies,
   installNestedDependencies: defaultInstallNestedDependencies,
   detectPackageManager: defaultDetectPackageManager,
+  cli: log.cli,
 };
+
+/**
+ * Pure decision core (mt#3628): the install-command label used across all
+ * of this function's user-facing messages — never a hardcoded `bun install`
+ * (mt#2821 PR #1976 R1). No I/O, no logger — testable entirely by return
+ * value.
+ */
+export function buildInstallCommandLabel(
+  detectedManager: ReturnType<typeof defaultDetectPackageManager>
+): string {
+  return detectedManager
+    ? `\`${getInstallCommand(detectedManager)}\``
+    : "the project's dependency-install command";
+}
 
 export interface DependencyRefreshResult {
   /** Whether the pre/post-update HEAD comparison could be performed at all. */
@@ -160,11 +181,9 @@ export async function refreshDependenciesIfLockfileChanged(
   // project actually uses npm/yarn/pnpm) and what the install call itself
   // uses, so logged and executed commands can never diverge.
   const detectedManager = installDeps.detectPackageManager(workdir);
-  const installCommandLabel = detectedManager
-    ? `\`${getInstallCommand(detectedManager)}\``
-    : "the project's dependency-install command";
+  const installCommandLabel = buildInstallCommandLabel(detectedManager);
 
-  log.cli(
+  installDeps.cli(
     `📦 Dependency lockfile/manifest changed in the pulled range — running ${installCommandLabel} ` +
       "to keep node_modules in sync..."
   );
@@ -174,7 +193,7 @@ export async function refreshDependenciesIfLockfileChanged(
     packageManager: detectedManager,
   });
   if (!success) {
-    log.cli(
+    installDeps.cli(
       `⚠️  ${installCommandLabel} failed after a dependency-lockfile change was pulled in. ` +
         "node_modules may be stale — module resolution can fail on the next session_exec " +
         `call. Run ${installCommandLabel} manually in the session workspace before continuing.\n` +
@@ -183,12 +202,12 @@ export async function refreshDependenciesIfLockfileChanged(
     return { checked: true, changed: true, installed: false, installError: error };
   }
 
-  log.cli(`✅ Dependencies refreshed (${installCommandLabel} completed).`);
+  installDeps.cli(`✅ Dependencies refreshed (${installCommandLabel} completed).`);
 
   const nestedSummary = await installDeps.installNestedDependencies(workdir, { quiet: false });
   const nestedFailedPaths = nestedSummary.results.filter((r) => !r.success).map((r) => r.path);
   if (nestedFailedPaths.length > 0) {
-    log.cli(
+    installDeps.cli(
       `⚠️  ${nestedFailedPaths.length} nested package install(s) failed after the dependency ` +
         `refresh. Run install manually in: ${nestedFailedPaths.join(", ")}`
     );
