@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted** (2026-08-03)
+**ACCEPTED** — 2026-08-03
 
 Task mt#3646, recording the finding of audit **mt#3637**. **Extends [ADR-002](adr-002-persistence-provider-architecture.md)**
 by fixing the layer its graceful-degradation constraint belongs to, and generalizing that constraint
