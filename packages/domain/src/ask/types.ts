@@ -44,6 +44,23 @@ export type AskKind =
   | "stuck.unblock";
 
 /**
+ * Severity classification driving TRANSPORT escalation (mt#3595).
+ *
+ * A single value at v1, deliberately. The enumerated severity triggers in
+ * `communication-contract.mdc §Severity pierces the register` are one class for
+ * transport purposes — they either warrant reaching the principal wherever they
+ * are, or they do not — so a graded scale would encode a distinction nothing
+ * currently consumes. Widening this union later is additive; collapsing an
+ * unused scale is not.
+ *
+ * `"incident"` means: a severity trigger fired AND remediation is operator-only.
+ * Both halves are required. A production incident the agent can fix itself does
+ * not warrant a page, and an operator-only chore that is not a severity event
+ * belongs in the ordinary inbox.
+ */
+export type AskSeverity = "incident";
+
+/**
  * Eight-stage lifecycle state machine for an Ask.
  *
  * Lifecycle stages (in order):
@@ -391,6 +408,35 @@ export interface Ask {
    * Defaults to `false` when absent.
    */
   forceImmediate?: boolean;
+
+  /**
+   * Severity marker driving TRANSPORT escalation (mt#3595).
+   *
+   * `"incident"` marks an operator-only severity event per
+   * `communication-contract.mdc §Severity transport binding`: the ask carries
+   * the decision, and the substrate sends the principal a page pointing at it
+   * so the escalation does not depend on the agent remembering a second tool
+   * call. Absent on the overwhelming majority of asks.
+   *
+   * Distinct from {@link forceImmediate} on purpose. That field is a
+   * SCHEDULING decision (bypass the service window) and the service-window
+   * reaper sets it autonomously on window-miss escalation, so binding paging to
+   * it would page on reaper escalations as an undecided side effect. Extends
+   * ADR-008's routing dimensions (`kind` × `routingTarget`) with a severity
+   * axis it does not currently model — see mem#268 on matching ADR-008
+   * primitives by semantics rather than by nearest-available slot.
+   */
+  severity?: AskSeverity;
+
+  /**
+   * ISO-8601 timestamp of when the principal was paged about this Ask
+   * (mt#3595). Absent when no page has been sent.
+   *
+   * Substrate-owned: set by the page dispatch, never by a caller. It is both
+   * the idempotency record (a repeated create or a later edit must not re-page)
+   * and the source the rate limiter counts pages from.
+   */
+  principalPagedAt?: string;
 
   // -------------------------------------------------------------------------
   // Extensibility

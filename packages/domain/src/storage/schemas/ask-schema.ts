@@ -208,6 +208,32 @@ export const asksTable = pgTable(
      */
     forceImmediate: boolean("force_immediate").default(false),
 
+    /**
+     * Severity marker driving TRANSPORT escalation (mt#3595). NULL for the
+     * overwhelming majority of asks; `'incident'` marks an operator-only
+     * severity event per `communication-contract.mdc §Severity transport
+     * binding`.
+     *
+     * Deliberately a NEW column rather than a reuse of `force_immediate`:
+     * that field means "bypass the service window" (a SCHEDULING decision) and
+     * is set autonomously by the service-window reaper on window-miss
+     * escalation. Binding paging to it would page on reaper escalations as a
+     * side effect nobody decided on. See mem#268 — match ADR-008 primitives by
+     * semantics, not by nearest-available slot.
+     */
+    severity: text("severity"),
+
+    /**
+     * When the principal was paged about this ask (mt#3595). NULL means no page
+     * has been sent.
+     *
+     * Load-bearing for two behaviors, which is why it is a column and not a
+     * metadata key: it is the IDEMPOTENCY record (a second create/edit for the
+     * same ask must not re-page) and the RATE-LIMIT source (pages in the
+     * trailing window are counted off this column).
+     */
+    principalPagedAt: timestamp("principal_paged_at", { withTimezone: true }),
+
     // -------------------------------------------------------------------------
     // Extensibility
     // -------------------------------------------------------------------------
