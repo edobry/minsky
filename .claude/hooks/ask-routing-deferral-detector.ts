@@ -348,14 +348,20 @@ export function buildReminder(matches: DeferralMatch[]): string {
 /**
  * Phrases the Stop-event untaken-action guard already injected about this same
  * closing sentence (mt#3620). Fails open to an empty set.
+ *
+ * `sessionId` is REQUIRED to be a real id (PR #2574 R1). The dedup store is
+ * keyed per session, and `?? "unknown"` would put every session that arrives
+ * without an id into ONE shared bucket — where a Stop fire in one could silence
+ * a genuine deferral in another. An absent id therefore means no dedup at all,
+ * which fails toward injecting.
  */
 function readStopInjectedPhrases(
-  sessionId: string,
+  sessionId: string | undefined,
   assistantText: string,
   storeDir?: string
 ): Set<string> {
   const injected = new Set<string>();
-  if (!assistantText) return injected;
+  if (!sessionId || !assistantText) return injected;
   try {
     const flagged = readFlagged(sessionId, storeDir);
     if (flagged.size === 0) return injected;
@@ -369,6 +375,30 @@ function readStopInjectedPhrases(
     // rather than dropping a warning.
   }
   return injected;
+}
+
+/**
+ * The mt#3620 stop-overlap decision, shared by BOTH entrypoints (dispatcher
+ * `run()` and CLI `main()`).
+ *
+ * Extracted rather than inlined twice (PR #2574 R1): a reviewer reading either
+ * copy had to trace a later `process.exit` to see whether suppression actually
+ * withheld the injection. One function, one answer, and it is directly testable
+ * without driving a process that exits.
+ *
+ * `remaining` is what to render if anything is rendered; `suppressedAll` means
+ * the Stop guard already covered every matched phrase, so this guard says
+ * nothing.
+ */
+export function resolveStopOverlap(
+  sessionId: string | undefined,
+  assistantText: string,
+  matches: DeferralMatch[],
+  storeDir?: string
+): { remaining: DeferralMatch[]; suppressedAll: boolean } {
+  const stopInjected = readStopInjectedPhrases(sessionId, assistantText, storeDir);
+  const remaining = matches.filter((m) => !stopInjected.has(m.matchedPhrase));
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
 /** `storeDir` is a test seam; the dispatcher never passes it. */
@@ -433,13 +463,13 @@ export function run(
   // failure is the one that speaks. Fails open — an unreadable store or a
   // mismatched key means no suppression, i.e. the pre-mt#3336 double injection,
   // never a dropped warning.
-  const stopInjectedPhrases = readStopInjectedPhrases(
-    input.session_id ?? "unknown",
+  const { remaining, suppressedAll } = resolveStopOverlap(
+    input.session_id,
     assistantText,
+    matches,
     storeDir
   );
-  const remaining = matches.filter((m) => !stopInjectedPhrases.has(m.matchedPhrase));
-  if (remaining.length === 0) {
+  if (suppressedAll) {
     suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
   }
 
@@ -532,11 +562,13 @@ export async function main(): Promise<void> {
 
   const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
 
-  // mt#3620 — mirrors `run()`. This CLI path renders the same surface, and a
-  // fix wired into only one of the two entrypoints is the mt#3270 R1 shape.
-  const stopInjectedPhrases = readStopInjectedPhrases(input.session_id ?? "unknown", assistantText);
-  const remaining = matches.filter((m) => !stopInjectedPhrases.has(m.matchedPhrase));
-  if (remaining.length === 0) {
+  // mt#3620 — the SAME decision function `run()` uses. This CLI path renders the
+  // same surface, and a fix wired into only one of the two entrypoints is the
+  // mt#3270 R1 shape. `suppressedAll` feeds the shared
+  // `suppressionReasons.length > 0` exit below, which is what actually withholds
+  // the injection.
+  const { remaining, suppressedAll } = resolveStopOverlap(input.session_id, assistantText, matches);
+  if (suppressedAll) {
     suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
   }
 

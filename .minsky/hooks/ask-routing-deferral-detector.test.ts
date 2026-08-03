@@ -17,6 +17,7 @@ import {
   OVERRIDE_ENV_VAR,
   SUPPRESSION_ASKS_CREATE_THIS_TURN,
   SUPPRESSION_STOP_GUARD_ALREADY_INJECTED,
+  resolveStopOverlap,
   run,
   type DeferralMatch,
 } from "./ask-routing-deferral-detector";
@@ -281,6 +282,64 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
     ];
     const outcome = run(promptInput(), makeCtx(lines), storeDir);
     expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  // PR #2574 R1 — the decision both entrypoints share, tested directly. `main()`
+  // ends in `process.exit`, so driving it in-process is not practical; testing
+  // the function it delegates to covers the CLI path's behaviour without it.
+  describe("resolveStopOverlap (shared by run() and main())", () => {
+    function matchesFor(text: string): DeferralMatch[] {
+      return detectDeferralPhrases(text);
+    }
+
+    test("suppressedAll when the Stop guard covered every matched phrase", () => {
+      runUntakenAction(
+        { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+        { event: "Stop" } as never,
+        storeDir
+      );
+      const result = resolveStopOverlap(
+        SESSION,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(true);
+      expect(result.remaining).toEqual([]);
+    });
+
+    // R1 BLOCKING: `?? "unknown"` put every id-less session in one shared bucket,
+    // where one session's Stop fire could silence another's real deferral.
+    test("an ABSENT session_id disables the dedup rather than sharing an 'unknown' bucket", () => {
+      runUntakenAction(
+        { session_id: "unknown", last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+        { event: "Stop" } as never,
+        storeDir
+      );
+      const result = resolveStopOverlap(
+        undefined,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(false);
+      expect(result.remaining.length).toBeGreaterThan(0);
+    });
+
+    test("no Stop fire -> nothing suppressed", () => {
+      const result = resolveStopOverlap(
+        SESSION,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(false);
+    });
+
+    test("zero matches is not 'suppressed' — there was nothing to say", () => {
+      const result = resolveStopOverlap(SESSION, INCIDENT_CLOSING_SENTENCE, [], storeDir);
+      expect(result.suppressedAll).toBe(false);
+    });
   });
 
   test("a DIFFERENT turn's deferral is unaffected by the flag", () => {
