@@ -79,6 +79,17 @@ import {
   type AskWaitForResponseResult,
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+// Severity transport binding (mt#3595)
+import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
+import {
+  PAGE_RATE_LIMIT_MAX,
+  PAGE_RATE_LIMIT_WINDOW_MS,
+  pagePrincipalForAsk,
+  type PrincipalPageDeps,
+} from "@minsky/domain/ask/principal-page";
+import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
@@ -989,6 +1000,12 @@ export interface CreateAskParams {
   /** Bypass window check and route immediately (default false). */
   forceImmediate?: boolean;
   /**
+   * Severity marker (mt#3595). `"incident"` on an operator-routed ask makes the
+   * substrate page the principal once, so the escalation does not depend on the
+   * producer remembering a separate notify call.
+   */
+  severity?: AskSeverity;
+  /**
    * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). The
    * `asks.create` execute path resolves this via `resolveCurrentProjectScope`;
    * direct callers (tests, programmatic emitters) may pass it explicitly or omit
@@ -1033,7 +1050,13 @@ export interface CreateAskParams {
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
-  routerOptions: PolicyFirstRouteOptions = {}
+  routerOptions: PolicyFirstRouteOptions = {},
+  /**
+   * Delivery seam for the severity page (mt#3595). Omitted in production, where
+   * the real Telegram-backed deps are built on demand; a test passes a stub to
+   * assert the page decision without a network call.
+   */
+  pageDeps?: PrincipalPageDeps
 ): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> {
   // Apply per-kind service-window defaults when the requestor has not supplied
   // explicit values. Explicit params always win over defaults (mt#1488 SC4).
@@ -1072,6 +1095,10 @@ export async function createAsk(
     // The router (mt#1490) observes this field to bypass the window check and route
     // immediately. createAsk does not act on it directly — that logic lives in the router.
     forceImmediate: params.forceImmediate ?? false,
+    // Severity marker (mt#3595) — read AFTER routing by the page dispatch below,
+    // since the page requires an operator routingTarget that does not exist yet
+    // at insert time.
+    severity: params.severity,
   };
 
   const ask = await repo.create(input);
@@ -1108,6 +1135,20 @@ export async function createAsk(
   // circuit-breaker emitter is the live case).
   const { write } = routeResultToOutcomeWrite(routed, ask.routingTarget);
   const persisted = await repo.persistRouteOutcome(ask.id, write);
+
+  // Severity transport binding (mt#3595). Fires AFTER the route outcome is on
+  // disk, because the decision needs the resolved routingTarget — an ask that
+  // has not routed yet reads as not-operator-bound and would never page.
+  //
+  // This is a SECONDARY transport: it runs alongside the ask's ADR-008 primary
+  // routing and changes no ask state, matching the shape the transport matrix
+  // already uses for `authorization.approve` ("Mesh notify on resolve").
+  // Deleting this block would leave every ask routed exactly as it is today.
+  //
+  // Never allowed to fail creation — see pagePrincipalForAsk's contract. The
+  // ask IS the decision record; losing it to a notification failure would be
+  // strictly worse than losing the notification.
+  await dispatchPrincipalPage(repo, persisted, pageDeps);
 
   if (write.state === "suspended") {
     if (!persisted.routingTarget) {
@@ -1152,6 +1193,100 @@ export async function createAsk(
     routedAt: persisted.routedAt ?? routed.routedAt,
     closedAt: persisted.closedAt ?? routed.closedAt,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Severity → principal page (mt#3595)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the production delivery seam for the severity page.
+ *
+ * A factory rather than a constant so each dispatch gets a fresh closure and
+ * tests can substitute the whole object at the `createAsk` seam.
+ */
+function makeProductionPageDeps(): PrincipalPageDeps {
+  return {
+    async send(message) {
+      try {
+        const result = await notifyPrincipal({
+          message: message.message,
+          title: message.title,
+          ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
+        });
+        return result.delivered
+          ? { delivered: true }
+          : // notifyPrincipal reports a structured failure (`reason` +
+            // `detail`) rather than an `error` string — flatten both so the
+            // recorded failure says WHICH failure it was, not just that one
+            // happened. "not-configured" and "send-failed" want very different
+            // operator responses.
+            { delivered: false, error: `${result.reason}: ${result.detail}` };
+      } catch (err: unknown) {
+        return { delivered: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+
+    async recordFailure(ask, error) {
+      // Log FIRST and unconditionally. The event row is best-effort by nature
+      // (it needs a live DB, which may be the very thing that is broken), so it
+      // cannot be the only record — a page failure that leaves no trace at all
+      // is indistinguishable from an incident nobody reported.
+      log.error("ask.page_failed: could not page the principal about a severity ask", {
+        askId: ask.id,
+        shortId: ask.shortId,
+        error,
+      });
+      try {
+        const provider = await resolvePersistenceProvider();
+        await emitSystemEventFromProvider(provider ?? undefined, {
+          eventType: "ask.page_failed",
+          payload: { askId: ask.id, shortId: ask.shortId, error },
+          ...(ask.parentTaskId === undefined ? {} : { relatedTaskId: ask.parentTaskId }),
+        });
+      } catch (err: unknown) {
+        log.warn("ask.page_failed: event emission also failed (already logged above)", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    now: () => new Date(),
+  };
+}
+
+/**
+ * Run the severity-page dispatch for a just-routed Ask.
+ *
+ * Swallow-by-design at this boundary, and the ONE place in this flow where that
+ * is correct: `pagePrincipalForAsk` already records its own failures durably,
+ * so anything escaping here is a defect in the page path itself — and failing
+ * ask creation because a notification broke would destroy the decision record
+ * to protect the reminder about it.
+ */
+async function dispatchPrincipalPage(
+  repo: AskRepository,
+  ask: Ask,
+  deps?: PrincipalPageDeps
+): Promise<void> {
+  try {
+    const outcome = await pagePrincipalForAsk(ask, repo, deps ?? makeProductionPageDeps());
+    if (outcome.reason === "rate-limited") {
+      // Never a silent cap (`work-completion.mdc`): a suppressed page must say
+      // so, with the count, or the ceiling reads as "nothing needed sending".
+      log.warn("ask page suppressed by rate limit", {
+        askId: ask.id,
+        recentPageCount: outcome.recentPageCount,
+        windowHours: PAGE_RATE_LIMIT_WINDOW_MS / (60 * 60 * 1000),
+        max: PAGE_RATE_LIMIT_MAX,
+      });
+    }
+  } catch (err: unknown) {
+    log.error("ask page dispatch threw; ask creation is unaffected", {
+      askId: ask.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

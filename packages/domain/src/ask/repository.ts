@@ -20,7 +20,18 @@
  */
 
 import { injectable } from "tsyringe";
-import { and, desc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
@@ -105,6 +116,11 @@ export function toAsk(row: AskRecord): Ask {
     // because PostgreSQL ADD COLUMN DEFAULT does not backfill existing rows.
     windowMissedCount: row.windowMissedCount ?? 0,
     forceImmediate: row.forceImmediate ?? false,
+    // Severity transport binding (mt#3595). NULL stays undefined rather than
+    // coalescing to a default: absence is the common case and means "no
+    // severity", which is not the same as a value.
+    severity: (row.severity as Ask["severity"]) ?? undefined,
+    principalPagedAt: row.principalPagedAt ? row.principalPagedAt.toISOString() : undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
@@ -141,6 +157,13 @@ function toInsert(input: CreateAskInput): AskInsert {
     windowKey: input.windowKey ?? null,
     windowMissedCount: input.windowMissedCount ?? 0,
     forceImmediate: input.forceImmediate ?? false,
+    severity: input.severity ?? null,
+    // principalPagedAt is deliberately NOT settable on insert — it is the
+    // substrate's record that a page went out, written by markPrincipalPaged
+    // after delivery. Accepting it from a caller would let a producer claim a
+    // page it never sent, which is exactly the idempotency marker's job to
+    // prevent (mt#3595).
+    principalPagedAt: null,
     metadata: input.metadata ?? {},
   };
 }
@@ -178,6 +201,15 @@ export interface CreateAskInput {
   windowMissedCount?: number;
   /** Bypass window check and route immediately. */
   forceImmediate?: boolean;
+  /**
+   * Severity marker driving transport escalation (mt#3595). `"incident"` on an
+   * operator-routed ask causes the substrate to page the principal once.
+   *
+   * `principalPagedAt` is intentionally absent from this input — it is written
+   * by `markPrincipalPaged` after a delivery actually succeeds, never supplied
+   * by a producer.
+   */
+  severity?: Ask["severity"];
 }
 
 /** Input for closing an Ask (state → "closed"). */
@@ -360,6 +392,36 @@ export interface AskRepository {
    * @returns     The updated Ask.
    */
   updateForceImmediate(id: string, value: boolean): Promise<Ask>;
+
+  /**
+   * Claim the right to page the principal about this Ask (mt#3595).
+   *
+   * Sets `principal_paged_at` ONLY when it is currently NULL, and reports
+   * whether this call is the one that set it. The conditional write is the
+   * idempotency mechanism: a read-then-write would let two concurrent
+   * producers both observe NULL and both page, which is precisely the
+   * double-notification this exists to prevent.
+   *
+   * Claim BEFORE delivering, not after. A page delivered but unrecorded (crash
+   * between send and write) would re-page on the next attempt; a page claimed
+   * but undelivered is recoverable and visible, and the caller records the
+   * delivery failure rather than silently dropping it.
+   *
+   * @param id Primary key of the Ask to claim.
+   * @param at Timestamp to record.
+   * @returns  `claimed: true` when this call set the column; `false` when a
+   *           page had already been recorded, in which case the caller must
+   *           NOT send.
+   */
+  claimPrincipalPage(id: string, at: Date): Promise<{ claimed: boolean; ask: Ask }>;
+
+  /**
+   * Count Asks paged since `since` — the rate limiter's input (mt#3595).
+   *
+   * Counts across ALL asks, not per-task or per-project: the resource being
+   * rationed is the principal's attention, which is global.
+   */
+  countPrincipalPagesSince(since: Date): Promise<number>;
 
   /**
    * Persist an updated `routingTarget` on an Ask row.
@@ -937,6 +999,40 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async claimPrincipalPage(id: string, at: Date): Promise<{ claimed: boolean; ask: Ask }> {
+    // Conditional on principal_paged_at IS NULL so the claim is atomic — two
+    // concurrent callers cannot both win, and the loser learns it lost from the
+    // empty returning() rather than from a racy pre-read.
+    const rows = await this.db
+      .update(asksTable)
+      .set({ principalPagedAt: at })
+      .where(and(eq(asksTable.id, id), isNull(asksTable.principalPagedAt)))
+      .returning();
+
+    const row = rows[0];
+    if (row) {
+      return { claimed: true, ask: toAsk(row) };
+    }
+
+    // No row updated: either the Ask does not exist, or it was already paged.
+    // Distinguish them — "already paged" is a normal suppression the caller
+    // logs, while a missing Ask is a programming error worth throwing on.
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    return { claimed: false, ask: existing };
+  }
+
+  async countPrincipalPagesSince(since: Date): Promise<number> {
+    const rows = await this.db
+      .select({ value: count() })
+      .from(asksTable)
+      .where(gte(asksTable.principalPagedAt, since));
+
+    return rows[0]?.value ?? 0;
+  }
+
   async updateRoutingTarget(id: string, target: string): Promise<Ask> {
     const existing = await this.getById(id);
     if (!existing) {
@@ -1122,6 +1218,10 @@ export class FakeAskRepository implements AskRepository {
       windowKey: input.windowKey,
       windowMissedCount: input.windowMissedCount ?? 0,
       forceImmediate: input.forceImmediate ?? false,
+      // Severity transport binding (mt#3595). principalPagedAt is deliberately
+      // NOT initialized from input — same rule as the Drizzle backend: only
+      // claimPrincipalPage writes it.
+      severity: input.severity,
       metadata: input.metadata ?? {},
     };
     this.store.set(id, ask);
@@ -1131,6 +1231,28 @@ export class FakeAskRepository implements AskRepository {
   async getById(id: string): Promise<Ask | null> {
     const ask = this.store.get(id);
     return ask ? { ...ask } : null;
+  }
+
+  async claimPrincipalPage(id: string, at: Date): Promise<{ claimed: boolean; ask: Ask }> {
+    const ask = this.store.get(id);
+    if (!ask) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Mirror the Drizzle backend's conditional write: only the first caller
+    // wins. A fake that always claimed would make the idempotency test pass
+    // against a repository that cannot actually enforce it.
+    if (ask.principalPagedAt) {
+      return { claimed: false, ask: { ...ask } };
+    }
+    const updated: Ask = { ...ask, principalPagedAt: at.toISOString() };
+    this.store.set(id, updated);
+    return { claimed: true, ask: { ...updated } };
+  }
+
+  async countPrincipalPagesSince(since: Date): Promise<number> {
+    return this.all.filter(
+      (a) => a.principalPagedAt !== undefined && new Date(a.principalPagedAt) >= since
+    ).length;
   }
 
   async listByParentTask(taskId: string): Promise<Ask[]> {
