@@ -1,11 +1,14 @@
 # Design Principle: Humility — extended rationale
 
-> Extracted from `.minsky/rules/humility.mdc` (mt#3087 corpus trim, Phase 4). The compiled rule
-> corpus carries the core principle statement and BOTH escalation-packaging checklists
-> (Mechanical checklist + Form) verbatim — those are the reviewer-scrutinized
-> verbatim-preservation constraint for this file and were not shortened. This file holds
-> connecting narrative that was trimmed around them. Nothing here changes agent behavior — the
-> directive text in the rule is the complete behavioral contract.
+> Extracted from `.minsky/rules/humility.mdc` (mt#3087 corpus trim, Phase 4). This file holds
+> connecting narrative trimmed around the directive text.
+>
+> **Updated mt#1878 (2026-08-03):** both escalation-packaging checklists (content + form) have
+> MOVED out of the compiled rule into the **`/escalation-packaging`** skill, which carries them
+> verbatim. `humility.mdc §Escalation packaging` now carries the policy statement and an
+> invoke-pointer. The verbatim-preservation constraint is unchanged in force — it now binds the
+> SKILL rather than the rule, because that is where the checklists live. Nothing here changes
+> agent behavior; the rule plus the skill it points to are the complete behavioral contract.
 
 ## Escalation packaging
 
