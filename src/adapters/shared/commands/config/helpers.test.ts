@@ -6,11 +6,12 @@
  * and case-insensitive path matching.
  */
 import { describe, test, expect } from "bun:test";
-import { maskCredentials, maskCredentialsInEffectiveValues } from "./helpers";
+import { maskCredentials, maskCredentialsInEffectiveValues, maskValueForPath } from "./helpers";
 
 // Shared path constants — reused across tests to satisfy no-magic-string-duplication
 const PATH_AI_OPENAI_APIKEY = "ai.providers.OpenAI.apiKEY";
 const PATH_AI_OPENAI_MODEL = "ai.providers.openai.model";
+const PATH_HEADERS_X_API_KEY = "headers.x-api-key";
 
 // ─── maskCredentials (Finding 1) ─────────────────────────────────────────────
 
@@ -144,9 +145,9 @@ describe("maskCredentialsInEffectiveValues — isSensitivePath (case-insensitive
 
   // mt#1181 Finding 2: hyphenated HTTP-header style path segments must match
   test("x-api-key path segment is masked (hyphen normalization)", () => {
-    const ev = { "headers.x-api-key": entry("my-key-value") };
+    const ev = { [PATH_HEADERS_X_API_KEY]: entry("my-key-value") };
     const result = maskCredentialsInEffectiveValues(ev, false);
-    expect(result["headers.x-api-key"]?.value).toMatch(/\*{20}/);
+    expect(result[PATH_HEADERS_X_API_KEY]?.value).toMatch(/\*{20}/);
   });
 
   test("x-auth-token path segment is masked (hyphen normalization)", () => {
@@ -257,6 +258,52 @@ describe("maskCredentialsInEffectiveValues — masks credentials NESTED IN VALUE
     maskCredentialsInEffectiveValues(ev, false);
 
     expect(original.auth.token).toBe(SECRET);
+  });
+});
+
+// ─── mt#3634: maskValueForPath — the shared rule behind config.get ───────────
+
+describe("maskValueForPath — both masking rules, used by config.get", () => {
+  // config.get returned `provider.get(key)` VERBATIM: no masking, no
+  // showSecrets flag. `config get github.token` printed the raw credential.
+  // This is the second, independent leak found while auditing the sibling
+  // surfaces end-to-end rather than by reading the code.
+  const SECRET = "ghs_liveAppTokenValue";
+
+  test("a sensitive path masks a scalar value", () => {
+    expect(maskValueForPath("github.token", SECRET)).toMatch(/\*{20} \(configured\)/);
+  });
+
+  test("a sensitive path masks a non-string value wholesale", () => {
+    expect(maskValueForPath("github.token", { nested: SECRET })).toBe("[MASKED]");
+  });
+
+  test("case-insensitive and hyphenated sensitive segments still match", () => {
+    expect(maskValueForPath("ai.providers.OpenAI.apiKEY", SECRET)).toMatch(/\*{20}/);
+    expect(maskValueForPath(PATH_HEADERS_X_API_KEY, SECRET)).toMatch(/\*{20}/);
+  });
+
+  test("a NON-sensitive path still has its composite value traversed", () => {
+    const value = [{ auth: { token: SECRET } }];
+
+    const result = maskValueForPath("knowledgeBases", value);
+
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test("a non-sensitive path with a non-sensitive scalar is returned unchanged", () => {
+    expect(maskValueForPath(PATH_AI_OPENAI_MODEL, "gpt-4o")).toBe("gpt-4o");
+    expect(maskValueForPath("logger.maxFiles", 5)).toBe(5);
+  });
+
+  test("null and undefined are preserved, not masked", () => {
+    expect(maskValueForPath("github.token", null)).toBeNull();
+    expect(maskValueForPath("github.token", undefined)).toBeUndefined();
+  });
+
+  test("an already-masked value is not double-masked", () => {
+    const already = `${"*".repeat(20)} (configured)`;
+    expect(maskValueForPath("github.token", already)).toBe(already);
   });
 });
 

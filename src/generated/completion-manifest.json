@@ -4584,6 +4584,10 @@
             {
               "flags": ["--sources"],
               "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--show-secrets"],
+              "description": "Show actual credential values (SECURITY RISK: use with caution)"
             }
           ],
           "arguments": [
