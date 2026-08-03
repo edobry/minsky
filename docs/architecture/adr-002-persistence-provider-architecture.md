@@ -12,6 +12,15 @@
 > [ADR-018](adr-018-domain-persistence-pattern.md) §"SQLite consequence (explicit)" and
 > [ADR-027](adr-027-postgres-only-persistence-confirmed.md).
 
+> **Addendum (2026-08-03, ADR-035):** the "graceful degradation" constraint below, and
+> §Architecture Invariants item 5 ("Commands own fallback strategies"), assign degradation to the
+> **command** layer. A composition root that catches an initialization failure and substitutes one
+> placeholder provider for every consumer at once is a layer transposition of that constraint, not
+> an application of it — and it also defeats §Architecture Invariants item 3 ("Database commands
+> always receive initialized provider"). See
+> [ADR-035](adr-035-failed-initializer-must-not-be-memoized-as-a-value.md) for the rule that a
+> failed initializer must not be memoized as a value, and for why it generalizes past persistence.
+
 ## Context
 
 ### System Characteristics
