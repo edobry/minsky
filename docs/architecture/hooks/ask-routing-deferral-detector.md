@@ -40,15 +40,22 @@ then flip the flag. Same rollout pattern as the causal-premise detector
   FIRST (Class A → run the lookup now; Class B → apply the standing default;
   only Class C → asks_create). NOT unconditionally an ask.
 
-**Suppression:** fires only when the same assistant turn contains **no**
+**Suppression:** INJECTS only when the same assistant turn contains **no**
 `mcp__minsky__asks_create` tool_use (the agent already routed the decision).
 Quoted/code/blockquote contexts are elided before scanning (offset-preserving),
 so a phrase the agent is DESCRIBING — e.g. documenting this detector — does not
 fire.
 
+Since mt#3207 the suppressed case still RECORDS. Detection runs first and the
+gate is applied second; before that, the gate returned before detection ran, so
+a deferral phrase in a turn that also routed an ask produced no record at all —
+indistinguishable from a clean turn, and the gate looked costless to the
+calibration sweep.
+
 **Calibration JSONL:** `.minsky/ask-routing-deferral-calibration.jsonl` — each
-record carries `timestamp`, `session_id`, `injection_enabled`, and `matches[]`
-(`{class, phrase}`).
+record carries `timestamp`, `session_id`, `injection_enabled`, `matches[]`
+(`{class, phrase}`), and `suppressionReasons[]` — empty when the reminder was
+injected, `["asks-create-this-turn"]` when the gate withheld it.
 
 **Originating incidents (escalation-packaging family, memory `3e3f29d8`):**
 R1 2026-04-26 (mt#1316 A/B/C labels), R2 2026-06-02 (mt#2249 buried decision +

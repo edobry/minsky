@@ -23,6 +23,12 @@
  *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+ *   GET /api/engprod/proposals — EngProd toil-miner proposal digest: filed
+ *                               proposal tasks + recent miner runs (mt#3331)
+ *   POST /api/engprod/proposals/:taskId/accept — accept a proposal (unblock +
+ *                               ledger verdict=accepted, atomically, mt#3331)
+ *   POST /api/engprod/proposals/:taskId/reject — reject a proposal (close +
+ *                               ledger verdict=rejected+reason, atomically, mt#3331)
  *   POST /api/driven-session  — spawn a driven session (genuine `claude`
  *                               child, local daemon only, mt#2750)
  *   POST /api/driven-session/:id/stop — graceful stop of a driven session
@@ -72,6 +78,7 @@ import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
+import { mountEngprodProposalRoutes } from "./routes/engprod-proposals";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountSessionFilmRoutes } from "./routes/session-film";
@@ -101,6 +108,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Path to the built SPA assets — bundle-aware (cwd + module-dir walk, mt#2283). */
 const WEB_DIST_DIR = cockpitWebDistDir(__dirname);
 const INDEX_HTML = cockpitIndexHtml(__dirname);
+
+/**
+ * Accepted JSON request-body ceiling (mt#3539). Sits above the run-state
+ * writer hook's own 64kb body bound (`MAX_BODY_CHARS` in
+ * `.minsky/hooks/record-conversation-run-state.ts`) with headroom for the
+ * other POST routes, and is stated here rather than inherited from
+ * body-parser's 100kb default. See the `express.json` callsite below.
+ */
+export const JSON_BODY_LIMIT = "256kb";
 
 /** Options accepted by createCockpitServer */
 export interface CockpitServerOptions {
@@ -267,7 +283,18 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use(hostAllowlistMiddleware(allowedHosts));
   }
 
-  app.use(express.json());
+  /**
+   * Body limit stated DELIBERATELY rather than inherited (mt#3539).
+   *
+   * body-parser's default is 100kb. Nothing chose it, and nothing surfaced
+   * what it rejected: the run-state writer hook forwarded harness payloads
+   * whole, so every `PostToolUse` carrying a large `tool_response` was
+   * rejected 413 and dropped by a hook that treats any failure as
+   * "daemon down". The hook now bounds its body (MAX_BODY_CHARS, 64kb);
+   * this ceiling sits comfortably above that so a bounded body always fits,
+   * while still refusing a genuinely unbounded one rather than buffering it.
+   */
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   // Content-Security-Policy on every GET/HEAD response (harmless on JSON API
   // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
@@ -333,6 +360,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
+  mountEngprodProposalRoutes(app); // mt#3331 — EngProd toil-miner proposal digest
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
   mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}

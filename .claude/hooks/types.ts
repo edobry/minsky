@@ -6,7 +6,6 @@
 // Utility: spawnSync wrapper that returns { exitCode, stdout, stderr } without throwing
 
 import { existsSync } from "node:fs";
-import { TERMINAL_TASK_STATUS_VALUES } from "../../packages/domain/src/tasks/workflows";
 
 export interface ClaudeHookInput {
   session_id: string;
@@ -49,21 +48,6 @@ export interface ToolHookInput extends ClaudeHookInput {
    */
   tool_response?: unknown;
 }
-
-/**
- * Task statuses that cannot represent live/in-flight duplicate work (mt#2683
- * discipline, generalized mt#2813 R1: hoisted here so parallel-work-guard.ts
- * and parallel-work-guard-standalone.ts share ONE definition instead of two
- * independently-maintained copies — the sibling duplicate-CHILD matcher and
- * the standalone-duplicate probe both exclude these statuses from their
- * respective candidate pools before thresholding).
- *
- * Values sourced from the domain registry's `TERMINAL_TASK_STATUS_VALUES`
- * (mt#3010 — single-authority consolidation) rather than a hand-typed
- * literal, so this hook-layer Set can never drift from the domain's terminal
- * set.
- */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(TERMINAL_TASK_STATUS_VALUES);
 
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
@@ -465,6 +449,47 @@ export function normalizeToolResult(payload: Record<string, unknown>): void {
 export function writeOutput(output: HookOutput): void {
   process.stdout.write(JSON.stringify(output));
   emitHookFiredOnDeny(output);
+}
+
+/**
+ * Ceiling multiplier for a preference-class override, relative to the guard's
+ * shipped default (PR #2526 R1). An override is a TUNE, not an off switch: a
+ * value far above the default silently disables the guard, which is the same
+ * outcome as the dedicated `MINSKY_SKIP_*` var but without the audit trail
+ * that makes a disabled guard visible. 10x is wide enough for any legitimate
+ * re-tune (a 200-word budget → 2000 words is already well past any real
+ * report) while keeping a typo'd extra zero from reading as intent.
+ *
+ * Deliberately NOT a per-var absolute bound: the ceiling scales with whatever
+ * default the guard ships, so a future preference threshold gets a sane bound
+ * for free rather than needing its own constant.
+ */
+export const PREFERENCE_OVERRIDE_MAX_MULTIPLE = 10;
+
+/**
+ * Read a positive-integer tuning value from the environment, falling back to
+ * the shipped default on absence, non-numeric input, a non-positive value, or
+ * a value above {@link PREFERENCE_OVERRIDE_MAX_MULTIPLE}x the default
+ * (mt#3518). This is the config channel for PREFERENCE-class guard thresholds
+ * (`tuningOwnership: "preference"` in the registry): the shipped constant is
+ * the vendor default every project inherits; the env var is the local
+ * override. Fail-open to the default — a malformed or out-of-range override
+ * must never break a guard, and must never silently disable one.
+ *
+ * To turn a guard OFF, use its `MINSKY_SKIP_*` / `MINSKY_HOOK_OVERRIDE`
+ * channel, which is what the audit trail reads.
+ */
+export function readPositiveIntEnv(
+  envVarName: string,
+  defaultValue: number,
+  env: Record<string, string | undefined> = process.env
+): number {
+  const raw = env[envVarName];
+  if (raw === undefined || raw.trim() === "") return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return defaultValue;
+  if (parsed > defaultValue * PREFERENCE_OVERRIDE_MAX_MULTIPLE) return defaultValue;
+  return parsed;
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,4 +1066,45 @@ export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): 
     }
     dir = parent;
   }
+}
+
+/**
+ * Resolve the repo root the HOOK INSTALLATION itself lives in, by walking up
+ * from this module's own directory rather than from `input.cwd`.
+ *
+ * `findRepoRoot(input.cwd)` above answers "which repo is the invoking process
+ * standing in" — right for a target path the caller supplied, wrong for state
+ * and corpus paths that must be the same file on every invocation. `input.cwd`
+ * is the harness SHELL's directory, which for a dispatched subagent points at
+ * a session workspace, and for a session whose workspace was later cleaned up
+ * points at a path with no `.git` anywhere above it. In that second case
+ * `findRepoRoot`'s missing-repo fallback returns the start directory itself,
+ * so the caller ends up treating an empty leftover directory as a repo root.
+ *
+ * mt#3393: the policy-coverage detector resolved both its calibration log and
+ * its policy corpus that way. 22 calibration logs accumulated outside the main
+ * repo (11 under session clones, 11 under cleaned-up session paths the hook
+ * recreated a `.minsky/` in), invisible to the coverage-receipt check. Worse,
+ * the empty-root case fed an empty corpus to the coverage decision, so every
+ * action there recorded `uncovered` — 13 of 13 such records, against `covered`
+ * in the real-clone logs — silently biasing the calibration data that decides
+ * whether the detector graduates to blocking mode.
+ *
+ * `import.meta.dir` is stable across all of that: `.minsky/hooks/` and its
+ * generated `.claude/hooks/` mirror are both checked into the main workspace,
+ * and `.claude/settings.json` invokes the hook through `$CLAUDE_PROJECT_DIR`,
+ * so the executing copy always sits inside the repo whose corpus and
+ * calibration state the hook is supposed to be reading and writing. Same
+ * derivation as `require-session-for-main-workspace-edits.ts`'s
+ * `deriveMainWorkspace` (mt#2928); kept here so state-path callers need not
+ * import a guard module.
+ *
+ * `startDir`/`fs` are injectable so tests can verify the resolution without
+ * depending on where the test process happens to run.
+ */
+export function deriveHookRepoRoot(
+  startDir: string = import.meta.dir,
+  fs: MergeDetectFs = DEFAULT_FS
+): string {
+  return findRepoRoot(startDir, fs);
 }

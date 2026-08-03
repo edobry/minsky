@@ -6,6 +6,10 @@
  * mixed-turn split and multi-skill-concatenation cases.
  */
 import { describe, expect, test } from "bun:test";
+import {
+  INTERRUPTION_NOTICE_PREFIX,
+  INTERRUPTION_NOTICE_TEXT,
+} from "@minsky/shared/minsky-notices";
 import { splitInjectedContent } from "./injected-content";
 
 // Reused across several fixtures below (the "error-handling" command-wrapper
@@ -315,6 +319,129 @@ describe("splitInjectedContent — conservative matching preserved (mt#3322)", (
     const segments = splitInjectedContent(MODEL_COMMAND_WRAPPER + prose);
     expect(segments).toHaveLength(2);
     expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "command" } });
+    expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+});
+
+/**
+ * mt#3396 — two more harness-origin turn shapes.
+ *
+ * Both had been rendering under the operator's `user` label: nothing detected
+ * them as injected, so `classifyTurnOrigin` saw a non-empty `text` element and
+ * correctly (given its inputs) called it operator prose.
+ */
+describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
+  // The real on-disk shape, from the local transcript corpus: 48 turns carry
+  // this tag and all 48 are role `user`.
+  const TASK_NOTIFICATION_TURN = [
+    "<task-notification>",
+    "<task-id>bhlkh6oiq</task-id>",
+    "<tool-use-id>toolu_01Qbhg9FEjEW6VENjy6hGRmH</tool-use-id>",
+    "<status>completed</status>",
+    "<summary>Background shell command finished.</summary>",
+    "</task-notification>",
+  ].join("\n");
+
+  test("a turn-start <task-notification> block is ONE injected segment of the new kind", () => {
+    const segments = splitInjectedContent(TASK_NOTIFICATION_TURN);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "injected",
+      span: { kind: "task-notification", label: "task notification" },
+    });
+  });
+
+  test("the block's body is preserved for the expand view", () => {
+    const segments = splitInjectedContent(TASK_NOTIFICATION_TURN);
+    const span = (segments[0] as { span: { content: string } }).span;
+    expect(span.content).toContain("bhlkh6oiq");
+    expect(span.content).toContain("Background shell command finished.");
+  });
+
+  test("AT3 anchoring: prose mentioning the tag mid-sentence is NOT split", () => {
+    // The conservatism the module's design depends on — an agent discussing the
+    // tag must not have its own message reattributed to the harness.
+    const input = "The <task-notification> block is what the harness emits on completion.";
+    expect(splitInjectedContent(input)).toEqual([{ type: "prose", text: input }]);
+  });
+});
+
+describe("splitInjectedContent — the resume notice (mt#3396 AT2)", () => {
+  test("a turn carrying the notice is ONE injected segment labeled as a session notice", () => {
+    const segments = splitInjectedContent(INTERRUPTION_NOTICE_TEXT);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "injected",
+      span: { kind: "session-notice", label: "session notice" },
+    });
+  });
+
+  test("it is labeled a SESSION notice, not a harness one", () => {
+    // Minsky wrote this text. Calling it "harness" would layer a second
+    // misattribution on the one this task removes.
+    const span = (splitInjectedContent(INTERRUPTION_NOTICE_TEXT)[0] as { span: { label: string } })
+      .span;
+    expect(span.label).not.toContain("harness");
+  });
+
+  test("AT3 anchoring: prose quoting the notice mid-sentence is NOT split", () => {
+    const input = `I saw the banner — it said "${INTERRUPTION_NOTICE_PREFIX}" — so I re-checked.`;
+    expect(splitInjectedContent(input)).toEqual([{ type: "prose", text: input }]);
+  });
+
+  test("the detector's anchor tracks the notice text, so a reword cannot silently disable it", () => {
+    // The drift guard. `matchSessionNotice` anchors on the PREFIX; if the
+    // notice's opening is reworded without updating the prefix, detection
+    // breaks silently. This makes that a test failure instead.
+    expect(INTERRUPTION_NOTICE_TEXT.startsWith(INTERRUPTION_NOTICE_PREFIX)).toBe(true);
+  });
+});
+
+describe("splitInjectedContent — the notice never swallows operator prose (mt#3396, PR #2515 R1)", () => {
+  test("a notice followed by operator prose splits into injected + prose", () => {
+    // The first cut consumed the whole turn on the reasoning that the notice is
+    // always sent alone. That made correctness depend on the SENDER rather than
+    // on the text, and would have relabeled the operator's own words as
+    // harness-origin — the worst direction for this particular span, since it
+    // is Minsky's label the prose would disappear under.
+    const prose = "\nok, but check the merge queue first";
+    const segments = splitInjectedContent(INTERRUPTION_NOTICE_TEXT + prose);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "session-notice" } });
+    expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+
+  test("the span content stops at the notice, carrying none of the prose", () => {
+    const segments = splitInjectedContent(`${INTERRUPTION_NOTICE_TEXT}\nunrelated operator text`);
+    const span = (segments[0] as { span: { content: string } }).span;
+    expect(span.content).not.toContain("unrelated operator text");
+    expect(span.content).toBe(INTERRUPTION_NOTICE_TEXT);
+  });
+});
+
+describe("splitInjectedContent — notice with leading whitespace (PR #2515 R2)", () => {
+  test("a leading newline does not produce a zero-length span", () => {
+    // The guard tests `trimStart()`, so this matched; scanning the RAW text for
+    // the first newline then found the LEADING one and consumed nothing,
+    // silently disabling detection for the turn.
+    const segments = splitInjectedContent(`\n${INTERRUPTION_NOTICE_TEXT}`);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "injected",
+      span: { kind: "session-notice", content: INTERRUPTION_NOTICE_TEXT },
+    });
+  });
+
+  test("leading whitespace AND trailing prose still split correctly", () => {
+    const prose = "\nand then merge it";
+    const segments = splitInjectedContent(`\n  ${INTERRUPTION_NOTICE_TEXT}${prose}`);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "session-notice" } });
     expect(segments[1]).toEqual({ type: "prose", text: prose });
   });
 });

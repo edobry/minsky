@@ -36,27 +36,45 @@
  * Deployments wanting the tighter posture set `permissionMode: "default"` and
  * accept that the channel can answer questions but not act.
  *
- * ## Concurrency contract: one caller at a time
+ * ## Concurrency contract: one caller at a time PER ACTUATOR INSTANCE
  *
- * `converse` is NOT safe to call concurrently, and deliberately so (PR #2330
- * R1). A standing conversation is a single sequential turn-taker: every caller
- * subscribes to the same event stream, so two overlapping calls both resolve on
- * whichever `result` arrives first, and the second caller receives the first
- * one's answer.
+ * `converse` is NOT safe to call concurrently on the SAME actuator instance,
+ * and deliberately so (PR #2330 R1). A standing conversation is a single
+ * sequential turn-taker: every caller subscribes to the same event stream, so
+ * two overlapping calls both resolve on whichever `result` arrives first, and
+ * the second caller receives the first one's answer.
  *
  * That is not a bug to guard against here — it is what "one conversation"
  * means. Per-caller correlation would require the child to tag results with the
  * input that produced them, which the stream-json protocol does not do. The
- * poller enforces the contract by handling messages strictly sequentially,
- * which is also what the principal means: two messages in a row are two turns
- * in one conversation, in order.
+ * poller enforces the contract by handling messages for the SAME conversation
+ * strictly sequentially, which is also what the principal means: two messages
+ * in a row in the same topic are two turns in one conversation, in order.
  *
- * A future caller that needs parallelism needs its OWN conversation, not a
- * lock around this one.
+ * ## Generalizing to one conversation per topic (mt#3505, parent mt#3500)
+ *
+ * Phase 1 of threaded mode needs many conversations, not one — a topic per
+ * principal-initiated thought — while preserving the invariant above for EACH
+ * one. This factory already parametrizes over `{@link
+ * DrivenSessionActuatorOptions.localId}` (originally added so a live probe
+ * would not collide with the running channel's own row), so no change to
+ * `ensureRecord`/`converse` was needed to support this: the launch-time
+ * composition root (`./principal-channel-launch.ts`) calls this factory once
+ * per Telegram topic, caches each returned actuator in a
+ * {@link createTopicActuatorRegistry} keyed by that topic's `localId`, and the
+ * poller resolves the right cached instance per inbound message. Each
+ * instance's `standingLocalId`/in-flight guard is independent, so the
+ * "one caller at a time" contract above holds PER TOPIC while different
+ * topics run fully concurrently — serialize per-conversation, not globally.
+ *
+ * A future caller that needs parallelism WITHIN one conversation still needs
+ * its own conversation, not a lock around this one — that has not changed.
  *
  * @see mt#3228 — the bidirectional principal channel
+ * @see mt#3505 — Phase 1 (principal-initiated topics), the generalization above
  * @see ./driven-session-host.ts — spawn / input / registry mechanics
- * @see ./principal-channel-poller.ts — what calls this, sequentially
+ * @see ./principal-channel-poller.ts — what calls this, serialized per topic
+ * @see ./principal-channel-launch.ts — builds and caches one actuator per topic
  */
 
 import { log } from "@minsky/shared/logger";
@@ -78,7 +96,7 @@ import {
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionResume,
 } from "./driven-session-launch";
-import type { ChannelActuator, ChannelImage } from "./principal-channel-poller";
+import type { ChannelActuator, ConverseOptions } from "./principal-channel-poller";
 
 /**
  * The channel's standing conversation always occupies THIS row (mt#3243).
@@ -240,11 +258,16 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     const resumed = await orchestrateResume(channelLocalId, { registry });
     if (resumed.outcome === "resumed") {
       standingLocalId = resumed.record.localId;
-      log.info("[principal-channel] resumed the standing channel conversation", {
-        localId: resumed.record.localId,
-        harnessSessionId: resumed.record.harnessSessionId,
-        actuatorGeneration: resumed.record.actuatorGeneration,
-      });
+      log.info(
+        channelLocalId === PRINCIPAL_CHANNEL_LOCAL_ID
+          ? "[principal-channel] resumed the standing channel conversation"
+          : "[principal-channel] resumed a per-topic channel conversation",
+        {
+          localId: resumed.record.localId,
+          harnessSessionId: resumed.record.harnessSessionId,
+          actuatorGeneration: resumed.record.actuatorGeneration,
+        }
+      );
       return resumed.record;
     }
     if (resumed.outcome === "locked") {
@@ -278,10 +301,20 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       ...(opts.command === undefined ? {} : { command: opts.command }),
     });
     standingLocalId = record.localId;
-    log.info("[principal-channel] starting the standing channel conversation", {
-      localId: record.localId,
-      cwd: opts.cwd,
-    });
+    // The message this replaced asserted "standing" unconditionally, which
+    // became false the moment this factory started being called per topic
+    // (mt#3505) — every per-topic conversation logged the exact opposite of
+    // what happened. Keyed on the SAME localId already in the payload, so the
+    // distinction costs nothing extra to compute (mt#3507).
+    log.info(
+      channelLocalId === PRINCIPAL_CHANNEL_LOCAL_ID
+        ? "[principal-channel] starting the standing channel conversation"
+        : "[principal-channel] starting a per-topic channel conversation",
+      {
+        localId: record.localId,
+        cwd: opts.cwd,
+      }
+    );
     return record;
   };
 
@@ -360,11 +393,12 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   return {
-    async converse(text: string, replyToText?: string, images?: ChannelImage[]): Promise<string> {
+    async converse(text: string, opts: ConverseOptions = {}): Promise<string> {
+      const { replyToText, images, onPartial } = opts;
       const record = await ensureRecordOnce();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
-      const turn = awaitTurnResult(record, turnTimeoutMs);
+      const turn = awaitTurnResult(record, turnTimeoutMs, onPartial);
       const sent = sendDrivenSessionInput(record, composeTurnInput(text, replyToText), {
         // Shapes match structurally; the seam type is deliberately the host's
         // (mt#3235), so no mapping is needed here.
@@ -407,6 +441,37 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
 }
 
 /**
+ * Cache of per-topic actuators, keyed by the topic's `localId` (mt#3505).
+ *
+ * See this module's "Generalizing to one conversation per topic" docblock
+ * section for why a cache is the right shape here rather than constructing a
+ * fresh actuator per message: each instance closes over its own
+ * `standingLocalId`/in-flight-spawn guard, so a fresh instance per call would
+ * lose the "concurrent callers share one conversation" guarantee for any
+ * topic that receives more than one message.
+ */
+export interface TopicActuatorRegistry {
+  /** The cached actuator for `localId`, or undefined if never created. */
+  get(localId: string): ChannelActuator | undefined;
+  /** The cached actuator for `localId`, creating and caching one via `factory` on first use. */
+  getOrCreate(localId: string, factory: () => ChannelActuator): ChannelActuator;
+}
+
+export function createTopicActuatorRegistry(): TopicActuatorRegistry {
+  const cache = new Map<string, ChannelActuator>();
+  return {
+    get: (localId) => cache.get(localId),
+    getOrCreate: (localId, factory) => {
+      const existing = cache.get(localId);
+      if (existing) return existing;
+      const created = factory();
+      cache.set(localId, created);
+      return created;
+    },
+  };
+}
+
+/**
  * Wait until a spawned conversation can actually act on input.
  *
  * Readiness is `harnessSessionId` being populated — the driven-session host
@@ -444,20 +509,88 @@ interface PendingTurn {
 }
 
 /**
+ * Pull assistant TEXT out of one `stream_event` payload, if it carries any.
+ *
+ * The host spawns `claude` with `--include-partial-messages`, so token-level
+ * deltas arrive as `stream_event` frames wrapping the Anthropic streaming
+ * sub-events. Only `text_delta` is read here: thinking and tool-call deltas are
+ * explicitly out of scope for streamed replies (mt#3542 §Out of scope), and
+ * keying on the delta's own shape is what excludes them — a `thinking` delta
+ * carries `delta.thinking`, a tool-call delta carries `delta.partial_json`, and
+ * neither has `delta.text`.
+ *
+ * `src/cockpit/web/lib/driven-session-accumulator.ts` is the full parser for
+ * this event family (every block kind, index tracking, block lifecycle). This
+ * is deliberately NOT that: a chat reply needs the running text and nothing
+ * else, and the accumulator's output is a render-shaped block list.
+ *
+ * **On `index` (PR #2538 R1).** The block index is deliberately not tracked.
+ * The caller concatenates in arrival order, which for a text-only view is
+ * exactly what a reader sees — the ordering the transport already guarantees.
+ * Index tracking earns its keep when blocks INTERLEAVE, and reconstructing that
+ * correctly is what the accumulator above exists for; if streaming ever grows
+ * past assistant text, use it rather than growing index handling here.
+ */
+export function partialAssistantText(payload: Record<string, unknown>): string | null {
+  if (payload["type"] !== "stream_event") return null;
+  const evt = payload["event"];
+  if (typeof evt !== "object" || evt === null) return null;
+  const frame = evt as Record<string, unknown>;
+  if (frame["type"] !== "content_block_delta") return null;
+  const delta = frame["delta"];
+  if (typeof delta !== "object" || delta === null) return null;
+  const record = delta as Record<string, unknown>;
+  // Gate on the delta's OWN type, not just on the presence of a `text` field
+  // (PR #2538 R1). Keying on the field alone happens to exclude thinking and
+  // tool-call deltas today only because neither carries `text` — a coincidence
+  // of the current shapes, not a rule the Bot's event schema promises.
+  if (record["type"] !== "text_delta") return null;
+  const text = record["text"];
+  return typeof text === "string" && text.length > 0 ? text : null;
+}
+
+/**
  * Resolve with the assistant's text for the next completed turn.
  *
  * The stream-json `result` event is the turn's terminal marker and carries the
- * final text; intermediate `assistant` events are partial and would produce a
- * flood of phone notifications if forwarded. One message per turn is the right
- * granularity for a chat channel.
+ * final text. Intermediate events are partial — forwarding them as separate
+ * MESSAGES would produce a flood of phone notifications, which is why this
+ * originally discarded them outright. `onPartial` (mt#3542) does not reopen
+ * that: the caller edits ONE message in place, and Telegram does not notify on
+ * an edit.
+ *
+ * The `result` text remains authoritative. Streamed deltas are a progress view
+ * and can differ from it — a turn with tool-use rounds emits text before and
+ * after each round, while `result` carries the final answer — so the caller is
+ * expected to SETTLE on the resolved value rather than keep the accumulation.
  */
-function awaitTurnResult(record: DrivenSessionRecord, timeoutMs: number): PendingTurn {
+function awaitTurnResult(
+  record: DrivenSessionRecord,
+  timeoutMs: number,
+  onPartial?: (accumulated: string) => void
+): PendingTurn {
   let settle: ((value: string) => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let accumulated = "";
 
   const subscriber = {
     onEvent(event: DrivenSessionEvent): void {
-      if (event.payload["type"] !== "result") return;
+      if (event.payload["type"] !== "result") {
+        if (onPartial === undefined || settle === null) return;
+        const chunk = partialAssistantText(event.payload);
+        if (chunk === null) return;
+        accumulated += chunk;
+        // Best-effort by contract, exactly like the reaction acks: a streaming
+        // consumer that throws must not be able to kill the turn whose progress
+        // it is reporting. The host also guards its own dispatch loop, but this
+        // subscriber owns the turn's resolution — so it guards here too.
+        try {
+          onPartial(accumulated);
+        } catch {
+          // intentional-swallow: progress reporting is never worth a failed turn.
+        }
+        return;
+      }
       finish(resultText(event.payload));
     },
     onSwap(): void {

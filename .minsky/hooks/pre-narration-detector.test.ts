@@ -4,11 +4,15 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildPreNarrationRecord,
   detectPreNarration,
+  detectPreNarrationWithSuppression,
   elideMarkdownContexts,
   extractWindowToolUseNames,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  SUPPRESSION_SAME_TURN_TOOL_CALL,
+  SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
   run,
 } from "./pre-narration-detector";
@@ -260,6 +264,101 @@ describe("cross-turn suppression — trailing window (mt#2671)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suppression outcome (mt#3207)
+// ---------------------------------------------------------------------------
+
+describe("suppression outcome (mt#3207)", () => {
+  const WAIT_TOOL = "mcp__minsky__session_pr_wait-for-review";
+
+  test("a claim backed by a SAME-TURN tool call is recorded as suppressed, not dropped", () => {
+    const turn = [makeAssistantToolUseLine(PR_CREATE_TOOL), makeAssistantLine(CREATED_PR_CLAIM)];
+    const detection = detectPreNarrationWithSuppression(turn as never);
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
+    expect(detection.suppressed[0]?.category).toBe("pr-created");
+  });
+
+  test("a claim backed only by a TRAILING-WINDOW tool call names the window reason", () => {
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine(WAIT_TOOL),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_WINDOW_TOOL_CALL]);
+  });
+
+  test("an UNBACKED claim still fires and records an empty suppressionReasons", () => {
+    const turn = [makeAssistantLine(APPROVED_CLAIM)];
+    const detection = detectPreNarrationWithSuppression(turn as never);
+    expect(detection.suppressed).toEqual([]);
+    const record = buildPreNarrationRecord("s1", detection);
+    expect(record.suppressionReasons).toEqual([]);
+  });
+
+  test("the record names the gate, and marks the suppressed claim hadMatchingTool", () => {
+    const turn = [makeAssistantToolUseLine(PR_CREATE_TOOL), makeAssistantLine(CREATED_PR_CLAIM)];
+    const record = buildPreNarrationRecord("s1", detectPreNarrationWithSuppression(turn as never));
+    expect(record.suppressionReasons).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
+    const matches = record.matches as Array<Record<string, unknown>>;
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.hadMatchingTool).toBe(true);
+    expect(matches[0]?.phrase).toBeTruthy();
+  });
+
+  test("a MIXED pass counts as INJECTED — one live claim reached the operator", () => {
+    // `session_pr_create` backs the pr-created claim; nothing backs the
+    // review-approved one, so the reminder fires and the record must not be
+    // read as suppressed by `isSuppressedRecord`.
+    const turn = [
+      makeAssistantToolUseLine(PR_CREATE_TOOL),
+      makeAssistantLine(`${CREATED_PR_CLAIM} ${APPROVED_CLAIM}`),
+    ];
+    const detection = detectPreNarrationWithSuppression(turn as never);
+    expect(detection.matches).toHaveLength(1);
+    expect(detection.suppressed).toHaveLength(1);
+    expect(buildPreNarrationRecord("s1", detection).suppressionReasons).toEqual([]);
+  });
+
+  test("run(): a suppressed-only turn records and injects nothing", () => {
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine(PR_CREATE_TOOL),
+      makeToolResultLine(),
+      makeAssistantLine(CREATED_PR_CLAIM),
+      makeUserLine(),
+    ];
+    const outcome = run(
+      { transcript_path: "/x", session_id: "s1" } as ClaudeHookInput,
+      {
+        transcriptLines: lines,
+      } as unknown as DispatchContext
+    );
+    expect(outcome?.additionalContext).toBeUndefined();
+    expect((outcome?.calibration as Record<string, unknown>).suppressionReasons).toEqual([
+      SUPPRESSION_SAME_TURN_TOOL_CALL,
+    ]);
+  });
+
+  test("run(): a turn with no claim at all still records nothing", () => {
+    const lines = [makeUserLine(), makeAssistantLine("Reading the auth module."), makeUserLine()];
+    const outcome = run(
+      { transcript_path: "/x", session_id: "s1" } as ClaudeHookInput,
+      {
+        transcriptLines: lines,
+      } as unknown as DispatchContext
+    );
+    expect(outcome).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // elideMarkdownContexts
 // ---------------------------------------------------------------------------
 
@@ -343,7 +442,13 @@ describe("pre-narration-detector E2E", () => {
     );
     const { exitCode, stdout } = await invokeHook(makeHookInput(p));
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("pre-narrated");
+    // Updated expectation (mt#3485): the reminder's first line is now the
+    // standard's guard-id header, `[pre-narration-detector] ...`, replacing the
+    // old "**Possible pre-narrated / fabricated tool outcome (mt#2197 ...)**"
+    // banner whose provenance moved to buildReminder's doc comment. Asserting
+    // the guard-id header keeps this test's intent — "the guard emitted its
+    // reminder" — pinned to the part of the shape that is now mandated.
+    expect(stdout).toContain("[pre-narration-detector]");
   });
 
   test("multi-round turn: 'PR created' claim + minting tool split by a tool_result → not flagged", async () => {
@@ -414,7 +519,8 @@ describe("run() (dispatcher-compatible)", () => {
       "utf8"
     );
     const outcome = run(makeHookInput(p), makeCtx(p));
-    expect(outcome?.additionalContext).toContain("pre-narrated");
+    // mt#3485: guard-id header replaces the old "pre-narrated" banner phrase.
+    expect(outcome?.additionalContext).toContain("[pre-narration-detector]");
     expect(outcome?.calibration).toBeDefined();
   });
 

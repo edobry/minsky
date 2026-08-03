@@ -1,12 +1,10 @@
 ---
 name: calibration-review
 description: >-
-  Review hook-calibration JSONL logs and, for any log past its review threshold,
-  false-positive-classify the matched records and emit ONE operator-routed Ask
-  with the FP rate plus a flip/tune/keep recommendation — then advance the
-  watermark. Use when running the periodic calibration sweep (scheduled or
-  manual), or when asked to "review the calibration data" for the
-  causal-premise / retrospective-trigger detector hooks.
+  Review hook-calibration logs past their review threshold: false-positive-classify the
+  matched records, emit ONE operator-routed Ask with the FP rate and a flip/tune/keep
+  recommendation, then advance the watermark. Use for the periodic calibration sweep, or
+  when asked to review the calibration data for a detector hook.
 user-invocable: true
 ---
 
@@ -77,14 +75,42 @@ found nothing to classify:
 
 - CLI: `bun scripts/check-coverage-receipts.ts`
 
-It reports `[OK]`/`[FLAGGED]` per detector and exits non-zero when any detector has had
-zero `source:"live"` fires in the last 7 days. For each `[FLAGGED]` detector, distinguish
-broken from dormant by cross-checking its canary (`bun scripts/run-guard-canaries.ts`):
+It reports one of three states per detector and exits non-zero only on the third
+(mt#3502):
 
-- **canary PASS + zero live fires** → dormant: the trigger condition simply hasn't
-  occurred. No action beyond noting it.
-- **canary FAIL + zero live fires** → broken (the mt#2057 9-day-dead-hook shape). Fold it
-  into the Ask you emit in Step 4, or file a fix task — do not silently pass over it.
+- **`[OK]`** — live receipts in the window. Nothing to do.
+- **`[DORMANT]`** — no records, but the fire log shows the entry point RAN in the window.
+  Healthy: it had nothing exceptional to report. Note it and move on.
+- **`[FLAGGED]`** — no records AND no invocations. This is the mt#2057 9-day-dead-hook
+  shape. Fold it into the Ask you emit in Step 4, or file a fix task — do not silently pass
+  over it.
+
+Two lines below the per-detector report name logs that no coverage verdict applies to
+(mt#3519). They are different problems and must not be conflated:
+
+- **`Unmapped: <names>`** — no guard DECLARES these logs, so the check has no invocation
+  evidence and can only ever flag them. A DEFECT: add the missing `calibrationLog`
+  declaration (or the `recordFireLogEntry` wiring, if the guard records no invocations at
+  all) rather than reading the eventual flag as a dead detector.
+- **`[NON-GUARD] <name>: written by <producer>`** — the log has a declared producer that is
+  not a guard at all (today: `ask-form-lint`, written on the `asks_create` command path).
+  Not a defect and not fixable by a declaration — there is no entry point to instrument, so
+  the check EXCLUDES these from `Checked:` rather than reporting a verdict about something
+  that does not exist. Their records still feed the sweep in Step 1 exactly as before; only
+  the liveness question is inapplicable.
+
+The tool now makes the dormant-vs-dead call itself, from fire-log invocation evidence.
+**Do not substitute the canary for that judgment.** An earlier version of this step said
+"canary PASS + zero live fires → dormant"; that inference does not hold. A canary calls the
+guard's exported PURE decision function, so it proves the LOGIC works while saying nothing
+about whether anything still invokes it — which is precisely the dead-entry-point class
+(mt#3019 / mt#3046 / mt#3308) the flag exists to catch. Run
+`bun scripts/run-guard-canaries.ts` for the complementary question (**does it still decide
+correctly?**), not as evidence of liveness.
+
+Also read the `Unmapped (...)` line if present: those calibration logs have no guard
+declaring them, so the check has no invocation evidence for them and can only ever flag
+them. That is a wiring gap to file, not a dead detector.
 
 This is the LIVE-input complement to the canary's synthetic-input check; see
 `docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.

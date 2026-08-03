@@ -79,6 +79,7 @@ import {
   findOpeningPromptIndex,
   resolveDepthCheck,
   sessionHasLoggedTextAndSuppression,
+  SUPPRESSION_DEPTH_REQUEST,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
@@ -428,6 +429,22 @@ describe("run — mt#3112 depth-request override", () => {
     const cal = outcome?.calibration as Record<string, unknown>;
     expect(cal).toBeDefined();
     expect(cal.suppressedByDepthRequest).toBe(true);
+    // mt#3207: the SHARED field is what `isSuppressedRecord` reads — the
+    // boolean above has always been invisible to the sweep, so the override's
+    // real-world fire rate (ask#5425's stated payoff) never reached it.
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+
+  test("(mt#3207) an INJECTED report records an empty suppressionReasons, not an absent one", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "what happened with the deploy?",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressionReasons).toEqual([]);
+    expect(Object.keys(cal)).toContain("suppressionReasons");
   });
 
   test("a depth request several turns back (within lookback) still suppresses", () => {

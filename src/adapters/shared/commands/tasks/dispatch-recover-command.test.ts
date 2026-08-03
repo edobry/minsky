@@ -48,6 +48,8 @@ import {
 
 const NOW = new Date("2026-07-17T12:00:00.000Z");
 const CRASHED_NO_OUTPUT: SubagentInvocationOutcome = "crashed-no-output";
+/** mt#1770: the dispatch-time placeholder a newly-inserted (resumed) row carries. */
+const PENDING: SubagentInvocationOutcome = "pending";
 const PARTIAL_UNCOMMITTED_NO_HANDOFF: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
 /** mt#3017: the dispatch-recover command's degraded-response status when the tracker is unavailable. */
 const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
@@ -433,14 +435,19 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedAttempts).toHaveLength(1);
     expect(tracker.recordedAttempts[0]?.resumedFromInvocationId).toBe(original.id);
     expect(tracker.recordedAttempts[0]?.attemptNumber).toBe(2);
-    // The NEW (resumed) row always gets the pessimistic dispatch-time-convention
-    // default outcome, never the classification — the classification describes the
-    // ORIGINAL attempt's final state, recorded on the ORIGINAL row instead (see the
-    // "closes out the ORIGINAL row" test below). In this fixture the two happen to
-    // be the same VALUE (crashed-no-output) by coincidence of the scenario (no
-    // commits, no dirty files) — the assertion below on recordedInvocationCalls is
-    // what actually distinguishes "pessimistic default" from "classification".
-    expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
+    // The NEW (resumed) row always gets the dispatch-time placeholder, never the
+    // classification — the classification describes the ORIGINAL attempt's final
+    // state and is recorded on the ORIGINAL row instead (see the "closes out the
+    // ORIGINAL row" test below).
+    //
+    // mt#1770 made this assertion meaningful. It used to expect CRASHED_NO_OUTPUT
+    // here, and the comment noted the placeholder and the classification "happen to
+    // be the same VALUE by coincidence of the scenario" — so the assertion could not
+    // actually tell them apart. Now the placeholder is `pending` and the
+    // classification is `crashed-no-output`, so this line distinguishes them
+    // directly rather than relying on the recordedInvocationCalls assertion below.
+    expect(tracker.recordedAttempts[0]?.outcome).toBe(PENDING);
+    expect(tracker.recordedAttempts[0]?.outcome).not.toBe(result.classification);
   });
 
   test("continuationPrompt carries the session.generate_prompt watermark (mt#2947 — dispatch-guard compatibility)", async () => {
@@ -502,10 +509,10 @@ describe("tasks.dispatch-recover", () => {
     expect(closeoutCall?.outcome).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
     expect(closeoutCall?.endedAt).toBeInstanceOf(Date);
 
-    // The NEW row is untouched by the classification — it keeps the pessimistic
-    // default, not PARTIAL_UNCOMMITTED_NO_HANDOFF.
+    // The NEW row is untouched by the classification — it keeps the mt#1770
+    // dispatch-time placeholder, not PARTIAL_UNCOMMITTED_NO_HANDOFF.
     expect(tracker.recordedAttempts).toHaveLength(1);
-    expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
+    expect(tracker.recordedAttempts[0]?.outcome).toBe(PENDING);
   });
 
   test("stale, dirty tree, no handoff -> partial-uncommitted-no-handoff", async () => {

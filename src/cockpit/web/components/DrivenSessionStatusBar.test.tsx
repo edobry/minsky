@@ -26,13 +26,13 @@ describe("DrivenSessionStatusBar", () => {
         resultSummary={{ isError: false, durationMs: 4200, totalCostUsd: 0.0123, numTurns: 3 }}
       />
     );
-    expect(screen.getByText("Exited")).toBeDefined();
+    expect(screen.getByText("Completed")).toBeDefined();
     expect(screen.getByText("4.2s · $0.0123 · 3 turns")).toBeDefined();
   });
 
   test("exited with no result summary shows no extra text", () => {
     render(<DrivenSessionStatusBar status="exited" />);
-    expect(screen.getByText("Exited")).toBeDefined();
+    expect(screen.getByText("Completed")).toBeDefined();
   });
 
   test("crashed shows the readable error message", () => {

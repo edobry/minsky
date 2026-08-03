@@ -144,15 +144,49 @@ operator's own credentials + the operator's own machine.
 ### Reading the run list
 
 Driven sessions appear in the unified `/agents` run list alongside observe-only
-rows. The distinction (driven = you can type; observed = read-only) is carried
-by the amber **Driven** marker:
+rows. What the marker carries is **controllability** — whether the cockpit can
+send this conversation a turn — and it is labeled **Drivable** (amber):
 
-- A standalone **Driven**-badged row is an app-started session; opening it goes
-  to the drive view (`/driven/:id`).
-- A workspace (**Agent**) row with a small **Driven** chip has an app-started
+- A standalone **Drivable**-badged row is an app-started session; opening it
+  goes to the drive view (`/driven/:id`).
+- A workspace (**Agent**) row with a small **Drive** chip has an app-started
   session bound to it — the chip links to the drive view; the row itself still
   opens the workspace detail page.
-- iTerm/externally-started sessions never get the marker and stay observe-only.
+- iTerm/externally-started sessions never get the marker; they are readable but
+  not yet controllable.
+
+**Vocabulary (mt#3132).** The words "driven" and "observed" no longer appear in
+user-facing copy anywhere in the cockpit. They named an implementation
+distinction, not one the operator has any use for: the same conversation moves
+between those states over its life. The surfaced vocabulary is "drive view" (the
+input-capable surface) and "drivable" (a conversation the cockpit can currently
+send a turn to). Route strings, identifiers and code comments keep the old
+names — only the copy changed.
+
+### The conversation route accepts both id spaces (mt#3132)
+
+`/conversation/:id` is the read surface for every conversation, whichever
+pipeline delivered it, and it accepts **either** id:
+
+- a harness **conversation uuid**, or
+- an actuator's spawn-time **local id** — a permanently valid alias, resolved
+  internally rather than redirected, so stored links keep working.
+
+Resolution is a lookup against the registry snapshot (`GET /api/driven-session`),
+never a guess from the id's shape: a default local id is minted as
+`randomUUID()`, so it is uuid-shaped and indistinguishable from a conversation
+id by inspection, while an entity-thread local id is not uuid-shaped at all.
+
+Before the harness `init` frame an actuator has **no** conversation id — there
+is nothing to resolve the local id INTO — so the route renders a first-class
+"starting" state rather than a 404, and advances on its own when the frame
+arrives. An actuator that reached a terminal status without ever linking says so
+instead of starting forever.
+
+**The route is read-only.** No composer, send path, or actuator channel is
+reachable on it — it never opens the driven WebSocket at all. Controllability
+lives on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325
+can mount a composer here safely.
 
 ### Identity registration and deeplinks
 
@@ -183,7 +217,66 @@ subscription at $0 marginal cost. These numbers are the API-RATE EQUIVALENT
 the stream's own `result` events report — consumption/rate observability and
 re-application readiness, not a live dollar bill. See memory `2d6cdbaf`.
 
+## Proposals (`/proposals`, mt#3331)
+
+The operator-facing half of the EngProd toil-miner's curation gate (RFC Notion
+`3ac937f0-3cb4-816e-8af7-e5380f10a24b`, Phase 1). The miner mines recurring
+tool-call patterns from agent transcripts and files a BLOCKED
+`engprod-proposal` task per surviving cluster; this surface is where an
+operator reviews and disposes of those proposals.
+
+Proposals are grouped by the mining run that produced them, each with its
+evidence block (tool sequence, occurrence frequency, distinct sessions,
+chain length) and rank within the run (by mined score, descending). Every
+run — even one that filed zero proposals — shows its own counters (turns
+scanned, clusters found, clusters sent to the LLM stage, suppressed
+breakdown, LLM errors), so an operator can tell a healthy quiet run ("nothing
+found this run") apart from one that errored.
+
+- **Accept** unblocks the task (`BLOCKED -> TODO`) into the normal task
+  lifecycle and records `accepted` in the ledger.
+- **Reject** requires a free-text reason, closes the task (`BLOCKED ->
+CLOSED`), and records `rejected` + the reason in the ledger — the ledger's
+  re-surface threshold reads this verdict to decide whether the same
+  recurring pattern is allowed to be re-proposed later (only once its
+  observed frequency at least doubles).
+
+Both actions write the task's status and the ledger's verdict in a single
+database transaction — the ledger is the miner's only persistent memory of
+past decisions, so a task update that lands without its matching ledger
+write would let a rejected cluster silently reappear on the next mining run.
+
+A proposal whose evidence predates every recorded mining run (an
+interrupted/untracked tick — no `engprod_miner_runs` row survived) renders
+under a distinct "No matching run record" heading rather than being
+attributed to the wrong run.
+
 ## Operator endpoints
+
+### `GET /api/engprod/proposals`
+
+Read-only (no auth beyond the standard loopback/token gate — see
+`docs/architecture/cockpit.md`'s auth posture). Returns
+`{ runs: EngprodRunSummary[], proposals: EngprodProposalRow[] }`: every
+`engprod-proposal`-tagged task (any status — an already-actioned proposal
+still renders, showing its final disposition) plus the most recent mining
+runs. Grouping-by-run and ranking are derived client-side
+(`src/cockpit/web/lib/engprod-proposals.ts`).
+
+### `POST /api/engprod/proposals/:taskId/accept`
+
+Mutation (bearer/cookie auth, same as every other cockpit mutation
+endpoint). No body. `404` if the task doesn't exist, `400` if it isn't
+tagged `engprod-proposal`, `409` if it isn't currently `BLOCKED` (already
+actioned), `500` if no matching ledger row exists (a hard failure — the task
+write is rolled back rather than left to diverge from the ledger). On
+success: `{ ok: true, taskId, status: "TODO" }`.
+
+### `POST /api/engprod/proposals/:taskId/reject`
+
+Mutation, same auth and guard sequence as accept. Body: `{ "reason":
+"<non-empty free text>" }` — `400` if `reason` is missing, non-string, or
+empty/whitespace-only. On success: `{ ok: true, taskId, status: "CLOSED" }`.
 
 ### `POST /api/driven-session`
 
@@ -253,9 +346,9 @@ the reason code. `reason` is one of `live-writer`, `awaiting-human`,
 `possibly-wedged`, `no-telemetry`. A presence store that is unreachable refuses
 as `no-telemetry` rather than admitting.
 
-**Known gap:** an attached conversation's pane opens EMPTY and fills from its
-next turn — its prior history is on disk but the drive channel does not replay
-it yet (mt#3453).
+**Closed (mt#3453, merged 2026-07-31):** an attached conversation's pane used to
+open EMPTY and fill from its next turn. The drive channel now replays the
+conversation's on-disk history, so the pane opens with its prior turns.
 
 ### `GET /api/health`
 

@@ -1,7 +1,10 @@
 ---
 name: learn
 description: >-
-  Route a chunk of task-acquired reusable knowledge to the durable artifact that owns it — memory, skill, rule, or doc — via a cited classification rubric, then land it through the right channel (memory in-band; skill/rule/doc edits via a session-backed task, or a direct edit when already inside a suitable session). Invoke explicitly as `/learn <what you learned>`, OR self-trigger when you notice you just acquired reusable knowledge that outlives the current task — after researching a convention, discovering a cross-cutting pattern, resolving an ambiguity that will recur, or receiving a correction that generalizes beyond the immediate fix — and no capture has happened yet this turn. Bounded to fit inside the current turn: classify, dedup-check, land or file, one output line. Never blocks or interrupts the task in progress.
+  Route task-acquired reusable knowledge to the durable artifact that owns it — memory,
+  skill, rule, or doc — then land it through the right channel. Invoke as `/learn <what
+  you learned>`, or self-trigger on noticing knowledge that outlives the current task.
+  Bounded to the current turn; never blocks work in progress.
 user-invocable: true
 ---
 

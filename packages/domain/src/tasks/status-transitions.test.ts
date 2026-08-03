@@ -4,8 +4,12 @@ import { getWorkflow } from "./workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
+  checkCloseoutEvidence,
+  closeoutEvidenceFailureMessage,
   CLOSEOUT_EVIDENCE_HEADING,
-  READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
+  CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING,
+  closeoutEvidenceEmptySectionMessage,
+  CLOSEOUT_EVIDENCE_ABSENT_MESSAGE,
 } from "./status-transitions";
 
 describe("status-transitions", () => {
@@ -465,15 +469,15 @@ describe("status-transitions", () => {
       expect(hasCloseoutEvidence("")).toBe(false);
     });
 
-    // --- READY_TO_DONE_MISSING_EVIDENCE_MESSAGE presence check ---
+    // --- CLOSEOUT_EVIDENCE_ABSENT_MESSAGE presence check ---
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions Closeout evidence", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Closeout evidence");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE mentions Closeout evidence", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Closeout evidence");
     });
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions READY and DONE", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("READY");
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("DONE");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE mentions READY and DONE", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("READY");
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("DONE");
     });
 
     // --- CLOSEOUT_EVIDENCE_HEADING regex ---
@@ -490,9 +494,149 @@ describe("status-transitions", () => {
       expect(CLOSEOUT_EVIDENCE_HEADING.test("## Summary")).toBe(false);
     });
 
-    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE names the synonym headings (mt#455)", () => {
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Findings");
-      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Outcome");
+    test("CLOSEOUT_EVIDENCE_ABSENT_MESSAGE names the synonym headings (mt#455)", () => {
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Findings");
+      expect(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE).toContain("Outcome");
+    });
+  });
+
+  // --- Qualified headings + cause-specific refusals (mt#3443) ---
+
+  /** A bare prose continuation — the shape the widening deliberately still rejects. */
+  const NEAR_MISS_HEADING = "## Findings summary";
+
+  describe("qualified closeout-evidence headings", () => {
+    const QUALIFIED_HEADING = "## Findings (planning investigation, 2026-07-31)";
+
+    const ACCEPTED_HEADINGS = [
+      "## Closeout evidence",
+      "## Findings",
+      "## Outcome",
+      "## Findings:",
+      QUALIFIED_HEADING,
+      "## Outcome — recommendation",
+    ];
+
+    test("accepts a parenthetical qualifier (AT1)", () => {
+      const spec = `${QUALIFIED_HEADING}\nThe root cause is X.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+      expect(checkCloseoutEvidence(spec).state).toBe("present");
+    });
+
+    test("accepts an em-dash and an en-dash qualifier", () => {
+      expect(hasCloseoutEvidence("## Outcome — recommendation\nShip option (b).\n")).toBe(true);
+      expect(hasCloseoutEvidence("## Outcome – recommendation\nShip option (b).\n")).toBe(true);
+    });
+
+    test("accepts a colon-introduced qualifier, and a bare trailing colon (regression)", () => {
+      expect(hasCloseoutEvidence("## Closeout evidence: deployed\nhttps://example.com\n")).toBe(
+        true
+      );
+      expect(hasCloseoutEvidence("## Closeout evidence:\nhttps://example.com\n")).toBe(true);
+    });
+
+    test("a bare heading with content still passes (AT2 regression)", () => {
+      const spec = `## Summary\n...\n\n## Findings\nThe root cause is X.\n`;
+      expect(checkCloseoutEvidence(spec).state).toBe("present");
+    });
+
+    test("rejects a bare prose continuation and a plural — the deliberate non-widening", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings from the reviewer we rejected")).toBe(
+        false
+      );
+      expect(CLOSEOUT_EVIDENCE_HEADING.test(NEAR_MISS_HEADING)).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Outcomes")).toBe(false);
+      // A plain hyphen is ordinary prose punctuation, not a qualifier delimiter (mt#3511).
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings - summary")).toBe(false);
+    });
+
+    test("a bracketed qualifier must close on the same line (PR #2541 R1)", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings [2026-08-01]")).toBe(true);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings (unclosed")).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings [unclosed")).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Findings (")).toBe(false);
+    });
+
+    test("near-miss pattern matches rejected keyword headings but not unrelated ones", () => {
+      expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test(NEAR_MISS_HEADING)).toBe(true);
+      expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test("## Outcomes")).toBe(true);
+      expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test("## Summary")).toBe(false);
+      expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test("## Scope")).toBe(false);
+    });
+
+    // The two patterns duplicate their noun alternation; this pins the superset property
+    // so a widening of one without the other cannot ship silently.
+    test("every accepted heading also matches the near-miss pattern", () => {
+      for (const heading of ACCEPTED_HEADINGS) {
+        expect(CLOSEOUT_EVIDENCE_HEADING.test(heading)).toBe(true);
+        expect(CLOSEOUT_EVIDENCE_NEAR_MISS_HEADING.test(heading)).toBe(true);
+      }
+    });
+  });
+
+  describe("closeout-evidence refusal names its actual cause (mt#3443)", () => {
+    const NEAR_MISS_SPEC = `## Summary\nA task.\n\n${NEAR_MISS_HEADING}\nRichly populated.\n`;
+    const EMPTY_SPEC = `## Summary\n\n## Findings\n`;
+    const ABSENT_SPEC = `## Summary\nSome summary.\n\n## Scope\nIn scope: foo\n`;
+
+    test("a populated section yields no refusal", () => {
+      expect(closeoutEvidenceFailureMessage(checkCloseoutEvidence("## Findings\nX.\n"))).toBe(null);
+    });
+
+    test("a near-miss heading is reported as a heading problem, naming the heading (AT1 fallback)", () => {
+      const result = checkCloseoutEvidence(NEAR_MISS_SPEC);
+      expect(result.state).toBe("near-miss");
+      expect(result.nearMissHeadings).toEqual([NEAR_MISS_HEADING]);
+
+      const message = closeoutEvidenceFailureMessage(result);
+      expect(message).toContain(NEAR_MISS_HEADING);
+      expect(message).toContain("HEADING problem, not missing content");
+    });
+
+    test("an empty accepted section is reported as a content problem, naming it (AT3)", () => {
+      const result = checkCloseoutEvidence(EMPTY_SPEC);
+      expect(result.state).toBe("empty-section");
+      expect(result.emptyHeadings).toEqual(["## Findings"]);
+      expect(closeoutEvidenceFailureMessage(result)).toBe(
+        closeoutEvidenceEmptySectionMessage(["## Findings"])
+      );
+      expect(closeoutEvidenceFailureMessage(result)).toContain("its section is EMPTY");
+    });
+
+    test("a spec with no evidence heading gets the no-section message (AT4)", () => {
+      const result = checkCloseoutEvidence(ABSENT_SPEC);
+      expect(result.state).toBe("absent");
+      expect(closeoutEvidenceFailureMessage(result)).toBe(CLOSEOUT_EVIDENCE_ABSENT_MESSAGE);
+    });
+
+    test("the three refusals are distinct texts", () => {
+      const messages = [NEAR_MISS_SPEC, EMPTY_SPEC, ABSENT_SPEC].map((spec) =>
+        closeoutEvidenceFailureMessage(checkCloseoutEvidence(spec))
+      );
+      expect(new Set(messages).size).toBe(3);
+    });
+
+    test("both refusals are plural-safe when several headings are listed (PR #2541 R1)", () => {
+      const twoNearMisses = `${NEAR_MISS_HEADING}\nProse.\n\n## Outcomes\nMore prose.\n`;
+      const nearMiss = checkCloseoutEvidence(twoNearMisses);
+      expect(nearMiss.nearMissHeadings).toEqual([NEAR_MISS_HEADING, "## Outcomes"]);
+      expect(closeoutEvidenceFailureMessage(nearMiss)).toContain(
+        "2 sections whose headings nearly match"
+      );
+
+      const twoEmpty = checkCloseoutEvidence(`## Findings\n\n## Outcome\n`);
+      expect(twoEmpty.emptyHeadings).toEqual(["## Findings", "## Outcome"]);
+      expect(closeoutEvidenceFailureMessage(twoEmpty)).toContain("2 accepted headings are present");
+    });
+
+    test("an accepted-but-empty heading outranks a near miss elsewhere in the spec", () => {
+      const spec = `${NEAR_MISS_HEADING}\nProse.\n\n## Outcome\n`;
+      expect(checkCloseoutEvidence(spec).state).toBe("empty-section");
+    });
+
+    test("a populated later section still wins over an earlier empty one (mt#455 regression)", () => {
+      const spec = `## Outcome\n\n## Notes\nfiller\n\n## Findings (2026-08-01)\nActual findings.\n`;
+      expect(checkCloseoutEvidence(spec).state).toBe("present");
     });
   });
 });

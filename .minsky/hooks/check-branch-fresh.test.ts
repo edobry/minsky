@@ -134,17 +134,25 @@ describe("formatBlockMessage", () => {
 
     // Round-2 BLOCKING fix: guidance must use the detected default branch name,
     // not hardcoded "main". For origin/master the message should say "master".
+    //
+    // mt#3484 note: the asserted verb changed from "rebase" to "merge". That is a
+    // correctness fix, not a cosmetic one — `session_update` performs a real
+    // `git merge`, never a rebase, which mt#2815's own investigation established
+    // ("smartSessionUpdate performs a real git merge (not a rebase, despite the
+    // tool's naming)"). These tests were pinning inaccurate prose; the PROPERTY
+    // they exist to protect — the default-branch name is derived, not hardcoded —
+    // is unchanged and still asserted both positively and negatively.
     expect(msg).toContain("Review the new commits on master before continuing");
-    expect(msg).toContain("rebase this branch on current master");
+    expect(msg).toContain("merge current master into this branch");
     expect(msg).not.toContain("Review the new commits on main");
-    expect(msg).not.toContain("rebase this branch on current main.");
+    expect(msg).not.toContain("merge current main into this branch");
   });
 
   test("derives branch name from mainRef in guidance (origin/main → main)", () => {
     const msg = formatBlockMessage("task/mt-1483", "origin/main", 1, [FIXTURE_COMMIT_SINGLE]);
 
     expect(msg).toContain("Review the new commits on main before continuing");
-    expect(msg).toContain("rebase this branch on current main.");
+    expect(msg).toContain("merge current main into this branch");
   });
 });
 
@@ -1768,7 +1776,7 @@ describe.skipIf(!GIT_BINARY_AVAILABLE)(
       }
     });
 
-    test("clean-behind-by-3-commits: auto-merge applies with zero conflicts, no manual round-trip needed", async () => {
+    test("clean-behind-by-3-commits on DISJOINT files: allowed outright, no block and no branch mutation (mt#3484 AT1)", async () => {
       const scenarioDir = join(tmpBase, "clean-scenario");
       const originPath = join(scenarioDir, "origin.git");
       const seedPath = join(scenarioDir, "seed");
@@ -1820,27 +1828,28 @@ describe.skipIf(!GIT_BINARY_AVAILABLE)(
 
       const hookStart = Date.now();
       const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
-      expect(freshness.blocked).toBe(true);
+
+      // mt#3484 (AT1 — liveness): this fixture is behind by 3 commits on
+      // DISJOINT files, which is the empirical shape of the sibling-PR evidence
+      // in BOTH mt#2815's and mt#3484's investigations. It no longer blocks at
+      // all — a strictly better outcome than mt#2815's auto-merge, which
+      // resolved the same case by mutating the branch. The 2026-07-31 incident's
+      // seven consecutive denials were all of this shape.
+      expect(freshness.blocked).toBe(false);
       expect(freshness.aheadCount).toBe(3);
       expect(freshness.mainRef).toBe("origin/main");
       expect(freshness.branchRef).toBe("origin/task/mt-9999");
+      expect(freshness.overlap).toEqual({ overlaps: false, sharedFiles: [] });
+      expect(freshness.reason).toContain("none of those commits touch files this branch changes");
 
-      const mergeOutcome = attemptCleanTreeAutoMerge(
-        sessionPath,
-        freshness.branchRef,
-        freshness.mainRef,
-        freshness.aheadCount,
-        hookStart
-        // default (real) deps — this is the point of the integration test
-      );
+      // The allow is NOT silent — the operator still learns the branch is behind.
+      expect(freshness.silent).toBeUndefined();
 
-      expect(mergeOutcome).toEqual({ attempted: true, merged: true, mergedCommitCount: 3 });
-
-      // Verify the merge actually landed: sibling files present, working tree
-      // clean, no dangling merge state.
+      // And because it never blocked, the branch was not mutated: no auto-merge
+      // ran, so main's files are absent and the tree is untouched.
+      const files = await gitReal(sessionPath, "ls-files");
       for (const n of [1, 2, 3]) {
-        const files = await gitReal(sessionPath, "ls-files");
-        expect(files).toContain(`sibling-${n}.txt`);
+        expect(files).not.toContain(`sibling-${n}.txt`);
       }
       const status = await gitReal(sessionPath, "status", "--porcelain");
       expect(status).toBe("");

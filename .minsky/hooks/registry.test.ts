@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test";
 import {
   getGuardsForEvent,
   findDuplicateRegistrations,
+  isIntentionalPair,
+  INTENTIONAL_MATCHER_PAIRS,
   GUARD_REGISTRY,
   NON_TOOL_SCOPED_EVENTS,
   type GuardRegistration,
@@ -70,6 +72,10 @@ describe("getGuardsForEvent", () => {
 // ---------------------------------------------------------------------------
 // findDuplicateRegistrations
 // ---------------------------------------------------------------------------
+
+/** The two guards declared as an intentional same-matcher pair (mt#3282). */
+const PAIR_GUARD_A = "check-guessed-session-path";
+const PAIR_GUARD_B = "block-secret-file-read";
 
 describe("findDuplicateRegistrations", () => {
   test("two guards, same event, overlapping matcher token -> flagged", () => {
@@ -160,6 +166,43 @@ describe("findDuplicateRegistrations", () => {
   test("current GUARD_REGISTRY has no duplicate registrations (regression guard)", () => {
     expect(findDuplicateRegistrations(GUARD_REGISTRY)).toEqual([]);
   });
+
+  // mt#3282: two tool-scoped guards may intentionally share a matcher — the
+  // dispatcher runs every match, first-deny-wins. The exemption is a declared
+  // list, so it must NOT degrade into "tool-scoped overlaps are always fine."
+  test("a DECLARED intentional pair is exempt", () => {
+    const regs = [
+      makeReg({ name: PAIR_GUARD_A, event: "PreToolUse", matcher: "Bash" }),
+      makeReg({ name: PAIR_GUARD_B, event: "PreToolUse", matcher: "Bash" }),
+    ];
+    expect(findDuplicateRegistrations(regs)).toEqual([]);
+  });
+
+  test("an UNDECLARED overlap on the same event+matcher is still flagged", () => {
+    const regs = [
+      makeReg({ name: "some-guard", event: "PreToolUse", matcher: "Bash" }),
+      makeReg({ name: "another-guard", event: "PreToolUse", matcher: "Bash" }),
+    ];
+    const dupes = findDuplicateRegistrations(regs);
+    expect(dupes.length).toBe(1);
+    expect(dupes[0]?.sharedTokens).toContain("Bash");
+  });
+
+  test("isIntentionalPair is order-insensitive", () => {
+    expect(isIntentionalPair(PAIR_GUARD_A, PAIR_GUARD_B)).toBe(true);
+    expect(isIntentionalPair(PAIR_GUARD_B, PAIR_GUARD_A)).toBe(true);
+    expect(isIntentionalPair(PAIR_GUARD_B, "unrelated-guard")).toBe(false);
+  });
+
+  test("every declared pair names guards that actually exist in the registry", () => {
+    // A stale entry would silently exempt a name that no longer registers,
+    // re-opening the hole the declaration was meant to bound.
+    const names = new Set(GUARD_REGISTRY.map((r) => r.name));
+    for (const [a, b] of INTENTIONAL_MATCHER_PAIRS) {
+      expect(names.has(a)).toBe(true);
+      expect(names.has(b)).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,7 +233,7 @@ describe("NON_TOOL_SCOPED_EVENTS", () => {
 
 describe("GUARD_REGISTRY", () => {
   test("pilot guard (check-guessed-session-path) is registered on PreToolUse", () => {
-    const pilot = GUARD_REGISTRY.find((r) => r.name === "check-guessed-session-path");
+    const pilot = GUARD_REGISTRY.find((r) => r.name === PAIR_GUARD_A);
     expect(pilot).toBeDefined();
     expect(pilot?.event).toBe("PreToolUse");
     expect(pilot?.denyCapable).toBe(true);
@@ -205,7 +248,11 @@ describe("GUARD_REGISTRY", () => {
 
   test("Phase 2a UserPromptSubmit family (mt#2652) is registered, no duplicates, correct calibration wiring", () => {
     const expectedCalibrationLogs: Record<string, string | undefined> = {
-      "substrate-bypass-detector": undefined,
+      // mt#3519: this used to expect `undefined` — and that undeclared join is
+      // exactly why `operator-instruction-trigger` could only ever be reported
+      // as unmapped by the coverage-receipt check. The guard's log name matches
+      // neither the guard nor the file, so nothing but a declaration can find it.
+      "substrate-bypass-detector": "operator-instruction-trigger",
       "retrospective-trigger-scanner": "retrospective-trigger",
       "pre-narration-detector": "pre-narration",
       "causal-premise-detector": "causal-premise",
@@ -225,5 +272,43 @@ describe("GUARD_REGISTRY", () => {
     // on PreToolUse in .claude/settings.json (ground truth), not
     // UserPromptSubmit. See the mt#2652 spec's recorded discrepancy.
     expect(GUARD_REGISTRY.find((r) => r.name === "policy-coverage-detector")).toBeUndefined();
+  });
+
+  test("no registration declares an EMPTY calibrationLog list (PR #2543 R1)", () => {
+    // The type is `string | [string, ...string[]]`, so `[]` should be
+    // unrepresentable — but registrations are hand-authored and a cast or a
+    // widened local can get past it. An empty list is truthy, so it would sail
+    // through every `if (reg.calibrationLog)` and then write nothing: a guard
+    // silently recording no calibration data, the failure class mt#3519 exists
+    // to make visible. This is the runtime backstop for the type.
+    for (const reg of GUARD_REGISTRY) {
+      const decl = reg.calibrationLog as string | string[] | undefined;
+      if (Array.isArray(decl)) {
+        expect(decl.length, `${reg.name} declares an empty calibrationLog list`).toBeGreaterThan(0);
+        for (const name of decl) expect(name.length).toBeGreaterThan(0);
+      } else if (decl !== undefined) {
+        expect(decl.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test("every registration carries a tuningOwnership class (mt#3518 — stamp at birth)", () => {
+    // The field is TYPED optional so an unrated guard fails soft at runtime,
+    // but authoring-time coverage is mandatory: a new guard must be classified
+    // (invariant / preference / advisory) when it is registered, per mem#802
+    // and the beyond-Minsky RFC's 2026-08-01 amendment. An entry failing here
+    // means the author skipped the classification, not that the value is
+    // optional.
+    const unstamped = GUARD_REGISTRY.filter((r) => r.tuningOwnership === undefined).map(
+      (r) => r.name
+    );
+    expect(unstamped).toEqual([]);
+  });
+
+  test("deny-capable guards are never preference-class (dismissal must not relax a deny gate)", () => {
+    const denyButTunable = GUARD_REGISTRY.filter(
+      (r) => r.denyCapable && r.tuningOwnership === "preference"
+    ).map((r) => r.name);
+    expect(denyButTunable).toEqual([]);
   });
 });

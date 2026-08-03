@@ -15,6 +15,7 @@ import {
   resolveCalibrationLogPath,
   summarizeCoverage,
   formatCoverageResult,
+  countInvocationsPerLog,
   DEFAULT_COVERAGE_WINDOW_DAYS,
   type CoverageCalibrationEntry,
   type CoverageFsDeps,
@@ -274,5 +275,147 @@ describe("resolveCalibrationLogPath / summarizeCoverage / formatCoverageResult",
     const ok = checkCoverageReceipt([liveEntry(1)], { detectorName: DETECTOR, now: fixedNow });
     expect(formatCoverageResult(flagged).startsWith("[FLAGGED]")).toBe(true);
     expect(formatCoverageResult(ok).startsWith("[OK]")).toBe(true);
+  });
+});
+
+describe("three-state coverage: dormant vs dead (mt#3502)", () => {
+  const IN_WINDOW = "2026-01-14T00:00:00.000Z";
+
+  test("no records but invocations in the window reports dormant, not flagged", () => {
+    const r = checkCoverageReceipt([], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 854, lastAt: IN_WINDOW },
+    });
+    expect(r.state).toBe("dormant");
+    expect(r.flagged).toBe(false);
+    expect(r.hasCoverage).toBe(false);
+    expect(r.invocationCount).toBe(854);
+    expect(r.lastInvocation).toBe(IN_WINDOW);
+    expect(formatCoverageResult(r).startsWith("[DORMANT]")).toBe(true);
+  });
+
+  test("no records and zero invocations still flags — the mt#2057 signal survives", () => {
+    // The negative control for the whole change: if this passes as dormant,
+    // the gate has been disabled rather than taught to distinguish.
+    const r = checkCoverageReceipt([], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 0, lastAt: null },
+    });
+    expect(r.state).toBe("no-liveness-evidence");
+    expect(r.flagged).toBe(true);
+    expect(formatCoverageResult(r).startsWith("[FLAGGED]")).toBe(true);
+  });
+
+  test("omitting invocations preserves the pre-mt#3502 behavior", () => {
+    // A caller that has not been taught the join must not silently gain a
+    // pass. Absent evidence is "did not look", not "there were none".
+    const r = checkCoverageReceipt([], { detectorName: DETECTOR, now: fixedNow });
+    expect(r.state).toBe("no-liveness-evidence");
+    expect(r.flagged).toBe(true);
+    expect(r.invocationCount).toBeNull();
+  });
+
+  test("records in the window win over invocation evidence", () => {
+    const r = checkCoverageReceipt([liveEntry(1)], {
+      detectorName: DETECTOR,
+      now: fixedNow,
+      invocations: { count: 5, lastAt: IN_WINDOW },
+    });
+    expect(r.state).toBe("covered");
+    expect(r.flagged).toBe(false);
+  });
+
+  test("summarizeCoverage counts dormant separately and does not fail the run", () => {
+    const dormant = checkCoverageReceipt([], {
+      detectorName: "dormant-one",
+      now: fixedNow,
+      invocations: { count: 3, lastAt: IN_WINDOW },
+    });
+    const covered = checkCoverageReceipt([liveEntry(1)], {
+      detectorName: "covered-one",
+      now: fixedNow,
+    });
+    const report = summarizeCoverage([dormant, covered]);
+    expect(report.dormantCount).toBe(1);
+    expect(report.flaggedCount).toBe(0);
+    expect(report.allCovered).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// countInvocationsPerLog — the many-to-many join (mt#3519)
+// ---------------------------------------------------------------------------
+
+describe("countInvocationsPerLog (mt#3519)", () => {
+  const WINDOW_START = NOW_MS - 7 * MS_PER_DAY;
+  const inWindow = "2026-07-19T12:00:00.000Z";
+  const older = "2026-07-19T06:00:00.000Z";
+  const outOfWindow = "2026-07-01T12:00:00.000Z";
+  /** The real two-log guard this join was widened for. */
+  const TWO_LOG_GUARD = "require-execution-evidence-before-merge";
+
+  test("one guard writing TWO logs credits its invocations to BOTH", () => {
+    // The regression: the guard->log inversion held one log per guard, so the
+    // second declaration overwrote the first and that log counted zero — it
+    // reported "no evidence the entry point ran" while its sibling, backed by
+    // the same invocations, read as dormant.
+    const logToGuards = new Map([
+      ["execution-evidence-at-coverage", [TWO_LOG_GUARD]],
+      ["execution-evidence-test-first", [TWO_LOG_GUARD]],
+    ]);
+    const evidence = countInvocationsPerLog(
+      [
+        { guardName: TWO_LOG_GUARD, timestamp: older },
+        { guardName: TWO_LOG_GUARD, timestamp: inWindow },
+      ],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+
+    expect(evidence.get("execution-evidence-at-coverage")).toEqual({ count: 2, lastAt: inWindow });
+    expect(evidence.get("execution-evidence-test-first")).toEqual({ count: 2, lastAt: inWindow });
+  });
+
+  test("one log written by TWO guards sums both (the pre-existing direction still holds)", () => {
+    const logToGuards = new Map([["operator-deferral", ["guard-a", "guard-b"]]]);
+    const evidence = countInvocationsPerLog(
+      [
+        { guardName: "guard-a", timestamp: older },
+        { guardName: "guard-b", timestamp: inWindow },
+      ],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("operator-deferral")).toEqual({ count: 2, lastAt: inWindow });
+  });
+
+  test("a log with a declared guard but no in-window invocations reports zero, not absent", () => {
+    // Zero-with-evidence and absent-evidence are different states downstream:
+    // one is "the entry point ran and had nothing to say", the other is "no
+    // guard declares this log at all".
+    const logToGuards = new Map([["quiet-log", ["quiet-guard"]]]);
+    const evidence = countInvocationsPerLog(
+      [{ guardName: "quiet-guard", timestamp: outOfWindow }],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("quiet-log")).toEqual({ count: 0, lastAt: null });
+  });
+
+  test("invocations by an undeclared guard are ignored", () => {
+    const logToGuards = new Map([["declared-log", ["declared-guard"]]]);
+    const evidence = countInvocationsPerLog(
+      [{ guardName: "some-other-guard", timestamp: inWindow }],
+      logToGuards,
+      WINDOW_START,
+      NOW_MS
+    );
+    expect(evidence.get("declared-log")).toEqual({ count: 0, lastAt: null });
+    expect(evidence.has("some-other-guard")).toBe(false);
   });
 });

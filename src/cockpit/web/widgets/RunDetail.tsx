@@ -48,6 +48,7 @@ import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
+import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
   Select,
   SelectContent,
@@ -104,6 +105,13 @@ export interface WorkspaceOverviewFields {
 export interface ConversationCandidate {
   agentSessionId: string;
   startedAt: string | null;
+  /**
+   * How the link was resolved (mt#3529) — the union is imported, not restated,
+   * so a third provenance cannot land server-side while this copy goes stale.
+   * Optional: conversation-keyed arrivals construct their single candidate
+   * client-side, with no server round-trip to carry provenance.
+   */
+  source?: ConversationLinkSource;
 }
 
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {
@@ -438,6 +446,19 @@ export interface RunDetailProps {
   /** WorkspaceId (keySpace="workspace") or ConversationId (keySpace="conversation"). */
   id: string;
   keySpace: RunKeySpace;
+  /**
+   * The conversation to FETCH, when it differs from the addressable `id`
+   * (mt#3132). The unified conversation route accepts a driven actuator's
+   * spawn-time local id as a permanently-valid alias, so `id` stays whatever
+   * the URL said — tab links must keep resolving to the address the operator
+   * actually used — while data is read under the harness conversation id the
+   * alias resolves to.
+   *
+   * Defaults to `id`, which is every caller's case except that alias. Ignored
+   * in the workspace keyspace, where `id` is a WorkspaceId and the
+   * conversation is reached through the join instead.
+   */
+  resolvedConversationId?: string;
   /** Forwarded to the Conversation tab's ConversationView (mt#2769 tab hygiene). */
   onConversationNotFound?: () => void;
   /**
@@ -447,24 +468,44 @@ export interface RunDetailProps {
    */
   chrome?: ReactNode;
   /**
-   * Rendered at the tail of the Conversation tab, after the transcript
-   * (mt#3344) — where the live-activity readout belongs. Only
-   * `/conversation/:id` supplies one; `/agents/:id` mounts no presence readout.
+   * Chrome keyed on the ACTIVE conversation, rendered inside the pinned region
+   * below `chrome` (mt#3554). Separate from `chrome` because the host cannot
+   * build it alone: which conversation is active is resolved HERE — from the
+   * workspace->conversation join, then the switcher's selection — so the id has
+   * to come back out. Not called when no conversation resolves, so a host
+   * cannot accidentally render an empty presence chip for an unlinked
+   * workspace.
    */
-  conversationTail?: ReactNode;
+  renderActiveConversationChrome?: (conversationId: string) => ReactNode;
+  /**
+   * Content for the tail of the Conversation tab, after the transcript
+   * (mt#3344) — where the live-activity readout belongs.
+   *
+   * A render prop rather than a plain node (mt#3554): `/agents/:id` needs the
+   * same readout, and its host does NOT know the conversation id — it is
+   * resolved here. Both hosts now go through this one slot; a static-node
+   * variant kept alongside it would be a second mechanism for the same job,
+   * and the copy the next change forgets.
+   */
+  renderActiveConversationTail?: (conversationId: string) => ReactNode;
 }
 
 export function RunDetail({
   id,
   keySpace,
+  resolvedConversationId,
   onConversationNotFound,
   chrome,
-  conversationTail,
+  renderActiveConversationChrome,
+  renderActiveConversationTail,
 }: RunDetailProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const base = basePathFor(keySpace, id);
   const tab = tabFromPathname(pathname, base, keySpace);
+  // The addressable id builds paths; this one reads data. They coincide for
+  // every caller except the unified route's local-id alias (mt#3132).
+  const dataId = resolvedConversationId ?? id;
 
   const workspaceQuery = useQuery<WorkspaceDetailPayload, Error>({
     queryKey: ["workspace-detail", id],
@@ -475,8 +516,8 @@ export function RunDetail({
   });
 
   const conversationOverviewQuery = useQuery<ConversationOverviewPayload, Error>({
-    queryKey: ["conversation-overview", id],
-    queryFn: () => fetchConversationOverview(id as ConversationId),
+    queryKey: ["conversation-overview", dataId],
+    queryFn: () => fetchConversationOverview(dataId as ConversationId),
     staleTime: 30_000,
     retry: 1,
     enabled: keySpace === "conversation",
@@ -490,7 +531,7 @@ export function RunDetail({
       ? (workspaceQuery.data?.conversations ?? [])
       : [
           {
-            agentSessionId: id,
+            agentSessionId: dataId,
             startedAt: conversationOverviewQuery.data?.conversationMeta.startedAt ?? null,
           },
         ];
@@ -498,7 +539,7 @@ export function RunDetail({
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const activeConversationId: string | null =
     keySpace === "conversation"
-      ? id
+      ? dataId
       : (selectedConversationId ?? conversationCandidates[0]?.agentSessionId ?? null);
 
   function handleTabChange(value: string) {
@@ -535,6 +576,10 @@ export function RunDetail({
         data-testid="run-detail-chrome"
       >
         {chrome}
+        {/* mt#3554 — conversation-keyed chrome (the presence value). Gated on a
+            resolved conversation so an unlinked workspace renders nothing here
+            rather than an empty or "unknown" chip. */}
+        {activeConversationId && renderActiveConversationChrome?.(activeConversationId)}
         <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
             {runTabsFor(keySpace).map((t) => (
@@ -567,14 +612,14 @@ export function RunDetail({
                 ? "border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
                 : "border-border bg-muted/40 text-muted-foreground hover:bg-accent/40"
             }`}
-            aria-label={`Open driven session (${driven.status})`}
+            aria-label={`Open the drive view (${driven.status})`}
           >
             {drivenActive && (
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
             )}
             {drivenActive
-              ? "Driven session live — open the drive view to interact"
-              : `Driven session ${driven.status} — open the drive view`}
+              ? "This conversation is live — open the drive view to interact"
+              : `This conversation is ${driven.status} — open the drive view`}
           </Link>
         )}
       </div>
@@ -582,7 +627,7 @@ export function RunDetail({
       {tab === "overview" && (
         <OverviewTab
           keySpace={keySpace}
-          id={id}
+          id={dataId}
           workspaceData={workspaceQuery.data}
           workspaceQuery={workspaceQuery}
           conversationData={conversationOverviewQuery.data}
@@ -633,7 +678,7 @@ export function RunDetail({
               No conversation linked to this workspace yet.
             </p>
           )}
-          {conversationTail}
+          {activeConversationId && renderActiveConversationTail?.(activeConversationId)}
         </div>
       )}
 

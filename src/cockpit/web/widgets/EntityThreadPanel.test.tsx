@@ -15,8 +15,11 @@ import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import {
   EntityThreadPanel,
   deriveComposerState,
+  deriveOriginNotice,
   derivePollInterval,
+  fetchEntityThread,
   isThreadStranded,
+  ThreadStoreUnavailableError,
   type EntityThreadPanelProps,
 } from "./EntityThreadPanel";
 import { RESOLVE_PROPOSAL_FENCE } from "../lib/resolve-proposal";
@@ -313,6 +316,65 @@ describe("EntityThreadPanel", () => {
       expect(screen.getByLabelText(/Ask a question about this ask/i)).toBeDefined();
     });
     expect(screen.queryByLabelText(/driven session/i)).toBeNull();
+  });
+});
+
+describe("EntityThreadPanel — database unavailable (mt#3398)", () => {
+  test("a 503 renders a DATABASE notice, not a thread failure", async () => {
+    // The incident copy said "Failed to load discussion", which reads as "your
+    // thread is broken" — while the turns were intact and the agent was still
+    // running. The message must name the database and promise a retry.
+    stubFetch({}, { threadOk: false, status: 503 });
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByText(/can't reach its database/i)).toBeDefined();
+    });
+    expect(screen.queryByText(/Failed to load discussion/i)).toBeNull();
+  });
+
+  test("a NON-503 error still renders the ordinary thread failure", async () => {
+    // The two must stay distinguishable; collapsing them would hide real bugs
+    // behind a reassuring "we'll retry" that never comes true.
+    stubFetch({}, { threadOk: false, status: 500 });
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load discussion/i)).toBeDefined();
+    });
+    expect(screen.queryByText(/can't reach its database/i)).toBeNull();
+  });
+
+  test("fetchEntityThread throws the typed error on 503 so callers can branch", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = mock(async () =>
+      ({ ok: false, status: 503, json: async () => ({}), text: async () => "" }) as Response
+    ) as unknown as typeof fetch;
+    try {
+      await expect(fetchEntityThread("ask", ENTITY_ID)).rejects.toBeInstanceOf(
+        ThreadStoreUnavailableError
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe("deriveOriginNotice (mt#3367)", () => {
+  test("says the answer is grounded in the originating conversation", () => {
+    expect(deriveOriginNotice(true)).toMatch(/conversation that filed this/i);
+  });
+
+  test("says plainly when the originating conversation is unreachable", () => {
+    // The majority case (~46% reachability). The principal should know which
+    // grounding an answer has rather than assuming the richer one.
+    expect(deriveOriginNotice(false)).toMatch(/isn't reachable/i);
+  });
+
+  test("UNKNOWN says NOTHING rather than claiming the origin is missing", () => {
+    // Same discipline as `live` (mt#3402): a daemon that doesn't report the
+    // field must not be read as a negative answer.
+    expect(deriveOriginNotice(undefined)).toBeNull();
   });
 });
 

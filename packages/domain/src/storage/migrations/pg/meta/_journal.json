@@ -582,6 +582,27 @@
       "when": 1785467713544,
       "tag": "0082_superb_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1785531758245,
+      "tag": "0083_red_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1785550858547,
+      "tag": "0084_optimal_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1785607155735,
+      "tag": "0085_lucky_human_robot",
+      "breakpoints": true
     }
   ]
 }

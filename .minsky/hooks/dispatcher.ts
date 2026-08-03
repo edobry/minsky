@@ -465,45 +465,57 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *
  * Measured across the 22 `UserPromptSubmit` registrations (all 22 annotated):
  *
- *   - Always-on injectors, which fire EVERY turn and whose absence would make
- *     the agent assert stale facts: inject-current-time 90 + inject-git-state
- *     300 + inject-prod-state 250 + inject-dispatch-watchdog 1800 +
- *     memory-search 550 = **2990**.
- *   - The five largest conditional detectors: substrate-bypass 1600 +
- *     pre-narration 1100 + code-mechanism-assertion 600 +
- *     ask-routing-deferral 600 + constructed-identifier-batch 600 = **4500**.
+ *   - Always-on injectors, which both fire AND emit on essentially every turn,
+ *     and whose absence would make the agent assert stale facts:
+ *     inject-current-time 90 + inject-git-state 300 + inject-prod-state 250 +
+ *     memory-search 550 = **1190**.
+ *   - The five largest conditional detectors: inject-dispatch-watchdog 1550 +
+ *     substrate-bypass 650 + pre-narration 650 + code-mechanism-assertion 600 +
+ *     ask-routing-deferral 600 = **4050**.
  *
- * 2990 + 4500 = 7490 chars of fragment TEXT. The budget bounds the emitted
- * BLOCK, which also carries the `\n\n` separators between fragments: 10
- * fragments means 9 separators at 2 chars = 18. So 7490 + 18 = **7508**.
+ * 1190 + 4050 = 5240 chars of fragment TEXT. The budget bounds the emitted
+ * BLOCK, which also carries the `\n\n` separators between fragments: 9
+ * fragments means 8 separators at 2 chars = 16. So 5240 + 16 = **5256**.
  *
  * (That separator term is not pedantry — the first draft of this constant
  * omitted it and the "measured turn is not truncated" test below failed by
  * exactly one dropped fragment. The test is what caught it.)
  *
- * **Why this grew from 4538 (mt#3479).** The original derivation used the same
- * method against `attentionCost` annotations that had never been checked
- * against any guard's real output. 14 of 26 understated it — dispatch-watchdog
- * declared 450 against a measured 1668 — so the budget was ~40% too small and
- * bound on ORDINARY turns, silently dropping reminders: the exact opposite of
- * the intent stated below. mt#3479 measured every guard via its canary,
- * corrected the annotations, and re-derived from the corrected set;
- * `guard-feedback-shape.test.ts` now fails if any guard's output exceeds its
- * annotation, so this input cannot silently drift again.
+ * **Why this fell from 7508 (mt#3485), and why the buckets changed.** Two
+ * corrections, both grounded in rendered output rather than estimate:
+ *
+ *   1. The three heaviest guards were trimmed to the authoring standard
+ *      (`.minsky/rules/guard-feedback-authoring.mdc`): dispatch-watchdog
+ *      1668 -> 866 measured (and now CAPPED, so 1488 bounds any flag count at
+ *      any field width), substrate-bypass 1518 -> 563, pre-narration
+ *      1029 -> 581. Their annotations came down 1800/1600/1100 -> 1550/650/650.
+ *   2. `inject-dispatch-watchdog` moved OUT of the always-on bucket, where the
+ *      mt#3479 derivation had placed it. It is registered always-on and does
+ *      run every turn, but `formatDispatchWatchdogState` returns null for both
+ *      a missing cache and an empty flag set — the overwhelmingly common
+ *      healthy case — so it CONTRIBUTES no chars on an ordinary turn. Counting
+ *      its full annotation in the per-turn floor inflated that floor by its
+ *      entire size. It is now counted where it belongs: as the largest
+ *      conditional detector.
+ *
+ * The prior grow-from-4538 correction still stands as the reason this
+ * derivation is trustworthy at all: before mt#3479 nothing compared an
+ * annotation to real output and 14 of 26 understated it, so the budget bound on
+ * ORDINARY turns and silently dropped reminders — the exact opposite of the
+ * intent stated below. `guard-feedback-shape.test.ts` now fails if any guard's
+ * output exceeds its annotation, so this input cannot silently drift again.
  *
  * A turn where everything always-on fires AND the five heaviest detectors all
  * fire at once therefore still fits. The budget does not bind on any realistic
  * turn; it binds on the pathological tail, where the annotated all-22 total is
- * 12890. That is the intent: bound unbounded growth as detectors graduate,
+ * 11240. That is the intent: bound unbounded growth as detectors graduate,
  * without truncating ordinary turns.
  *
- * This number should come DOWN as guard text is trimmed to the authoring
- * standard (`.minsky/rules/guard-feedback-authoring.mdc`) — it is sized by what
- * the corpus currently emits, not by what it ought to emit. The three heaviest
- * (dispatch-watchdog 1800, substrate-bypass 1600, pre-narration 1100) are
- * tracked at mt#3485, which lowers this constant as it trims them.
+ * This number should keep coming DOWN as more guard text is trimmed to the
+ * authoring standard — it is sized by what the corpus currently emits, not by
+ * what it ought to emit.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 7508;
+export const MERGED_CONTEXT_BUDGET_CHARS = 5256;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
@@ -722,8 +734,23 @@ export async function runDispatcher(
     if (!outcome) continue;
 
     for (const line of outcome.auditLines ?? []) stdoutWrite(line);
-    if (outcome.calibration && reg.calibrationLog) {
-      logCalibration(reg.calibrationLog, outcome.calibration);
+    // mt#3519: a registration may declare several logs. The dispatcher writes
+    // the one record it has to the PRIMARY log — the first declared — never to
+    // all of them, which would duplicate the record across logs and inflate
+    // every fire count downstream. Additional entries name logs the guard
+    // writes ITSELF (e.g. through a module it calls in-process); they exist so
+    // the coverage-receipt join can find the guard's invocations, not so the
+    // dispatcher can write to them.
+    //
+    // Gated on the RESOLVED primary rather than on `reg.calibrationLog` (PR
+    // #2543 R1): the declaration is truthy for `[]` too, so gating on it would
+    // enter this branch and then write nothing. The type forbids `[]`, and
+    // this gate means a hand-authored one still cannot produce a silent skip.
+    const primaryLog = Array.isArray(reg.calibrationLog)
+      ? reg.calibrationLog[0]
+      : reg.calibrationLog;
+    if (outcome.calibration && primaryLog) {
+      logCalibration(primaryLog, outcome.calibration);
     }
     if (outcome.deny && reg.denyCapable) {
       writeOutputFn({

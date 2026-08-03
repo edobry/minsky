@@ -82,7 +82,7 @@ const pushCommandParams = composeParams(
     pushTimeoutMs: {
       schema: z.number().int().positive(),
       description:
-        "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "Override the push wall-clock bound in milliseconds. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). " +
         "On timeout, the remote branch head is verified directly before reporting an outcome.",
       required: false,
     },

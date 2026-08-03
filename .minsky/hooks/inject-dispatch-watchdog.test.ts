@@ -15,6 +15,7 @@ import {
   type DispatchWatchdogCacheRecord,
 } from "./inject-dispatch-watchdog";
 import { DISPATCH_WATCHDOG_ACTIVITY_SOURCES } from "../../src/cockpit/dispatch-watchdog";
+import { GUARD_REGISTRY } from "./registry";
 
 const NOW = "2026-07-07T12:00:00.000Z";
 
@@ -201,6 +202,72 @@ describe("formatDispatchWatchdogState", () => {
     expect(out).toMatch(/mt#1/);
     expect(out).toMatch(/mt#2/);
     expect(out).toMatch(/2 in-flight subagent dispatch/);
+  });
+
+  // mt#3485: the per-dispatch block was the only part of this banner that
+  // scaled with input, which made its declared attentionCost a sample rather
+  // than a bound. Capping the enumeration makes a real bound computable.
+  describe("mt#3485: the per-dispatch enumeration is capped", () => {
+    const manyFlags = (n: number) =>
+      Array.from({ length: n }, (_, i) => flag({ taskId: `mt#${3000 + i}` }));
+
+    test("at or below the cap, every flag is enumerated and nothing is elided", () => {
+      const out = formatDispatchWatchdogState(cacheAt(manyFlags(5)));
+      for (let i = 0; i < 5; i++) expect(out).toMatch(new RegExp(`mt#${3000 + i}\\b`));
+      expect(out).not.toMatch(/more \(/);
+    });
+
+    test("above the cap, the excess is elided and NAMED — never silently dropped", () => {
+      const out = formatDispatchWatchdogState(cacheAt(manyFlags(12)));
+      // The count in the header still reports the TRUE total, so a reader is
+      // never misled about how many dispatches are flagged.
+      expect(out).toMatch(/12 in-flight subagent dispatch/);
+      expect(out).toMatch(/\+7 more \(5 of 12 shown\)/);
+      expect(out).toMatch(/mt#3004\b/);
+      expect(out).not.toMatch(/mt#3005\b/);
+    });
+
+    test("the capped render stays within the guard's declared attentionCost ceiling", () => {
+      // The whole point of the cap: this assertion could not hold for ANY flag
+      // count before mt#3485, because the banner grew without limit. Asserted
+      // against the registry's real annotation, not a copy of the number, so
+      // lowering the annotation without re-checking the bound fails here.
+      const registration = GUARD_REGISTRY.find((r) => r.name === "inject-dispatch-watchdog");
+      if (!registration) throw new Error("inject-dispatch-watchdog is missing from the registry");
+      const declared = registration.attentionCost?.denialMessageSizeChars;
+      expect(typeof declared).toBe("number");
+
+      // PR #2499 R1: probe the STRUCTURAL maximum, not just a big flag count.
+      // Past the cap the flag count stops mattering, so the only remaining
+      // variation is per-field WIDTH — a run of 200 default-width flags would
+      // pass while a 6-flag run of wide ones exceeded the ceiling. Saturating
+      // every field makes this a real upper-bound check: the longest agentType
+      // in `.claude/agents`, a full-UUID sessionId, the `unknown` age string
+      // (staleForMs < 0), the longest activitySource, and the widest task id.
+      const widest = (i: number) =>
+        flag({
+          taskId: "md#123456",
+          agentType: "claude-code-guide",
+          subagentSessionId: `9f8e7d6c-1a2b-4c3d-8e9f-${String(i).padStart(12, "0")}`,
+          taskStatus: "IN-PROGRESS",
+          activitySource: "workspace-mtime",
+          staleForMs: -1,
+        });
+
+      // Flat past the cap: 6 and 1000 must render the same length, which is
+      // what "the size no longer scales with fleet activity" actually means.
+      const atSix = formatDispatchWatchdogState(
+        cacheAt(Array.from({ length: 6 }, (_, i) => widest(i)))
+      );
+      const atThousand = formatDispatchWatchdogState(
+        cacheAt(Array.from({ length: 1000 }, (_, i) => widest(i)))
+      );
+      expect(atSix).not.toBeNull();
+      expect(atThousand).not.toBeNull();
+      // Only the "+N more" count digits differ between the two.
+      expect((atThousand as string).length - (atSix as string).length).toBeLessThan(20);
+      expect((atThousand as string).length).toBeLessThanOrEqual(declared as number);
+    });
   });
 });
 

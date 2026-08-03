@@ -60,6 +60,7 @@
 
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
 import {
   analyzeNegativeConstraints,
   buildBareProhibitionMessage,
@@ -214,12 +215,49 @@ export function buildCalibrationRecord(
 }
 
 if (import.meta.main) {
+  const startedAt = Date.now();
+
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
     process.exit(0);
   }
+
+  /**
+   * mt#3519: record every INVOCATION in the fire log, not just every fire.
+   *
+   * This guard is standalone (wired directly in `.claude/settings.json`), so it
+   * never got the dispatcher's automatic recording — it appeared zero times in
+   * the fire log. Without invocation evidence the coverage-receipt check cannot
+   * tell "running with nothing to say" from "not running at all" (mt#3502's
+   * three-state model), so `bare-prohibition` could only ever be reported as
+   * unmapped, and would flag the moment its records aged out of the window.
+   *
+   * Mirrors `policy-coverage-detector.ts`'s `finishRun` — recorded on EVERY
+   * exit path including the fail-open ones, since an invocation that bailed
+   * early is still an invocation. `recordFireLogEntry` swallows its own errors,
+   * so this can never break a dispatch.
+   */
+  const overrideActive = isOverrideActive();
+  const finishRun: (decision: "allow" | "deny") => never = (decision) => {
+    recordFireLogEntry({
+      guardName: "bare-prohibition",
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startedAt,
+      toolName: input.tool_name,
+      ...(input.session_id ? { sessionId: input.session_id } : {}),
+      ...(overrideActive
+        ? {
+            overrideEnvVar: OVERRIDE_ENV_VAR,
+            overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+            overrideSource: "env" as const,
+          }
+        : {}),
+    });
+    process.exit(0);
+  };
 
   let decision: BareProhibitionDecision;
   try {
@@ -229,7 +267,7 @@ if (import.meta.main) {
     process.stderr.write(
       `[warn-bare-prohibition-dispatch] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    process.exit(0);
+    finishRun("allow");
   }
 
   if (decision.report && decision.report.bare.length > 0) {
@@ -240,7 +278,7 @@ if (import.meta.main) {
   }
 
   if (decision.decision === "allow") {
-    process.exit(0);
+    finishRun("allow");
   }
 
   writeOutput({
@@ -250,5 +288,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  finishRun("deny");
 }

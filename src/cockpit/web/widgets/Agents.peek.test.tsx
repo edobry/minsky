@@ -170,8 +170,8 @@ describe("Agents row expansion (mt#2912)", () => {
     stubNetwork([DRIVEN_WORKSPACE_ROW]);
     renderAgents();
 
-    await waitFor(() => expect(screen.getByLabelText("Expand driven session")).toBeDefined());
-    fireEvent.click(screen.getByLabelText("Expand driven session"));
+    await waitFor(() => expect(screen.getByLabelText("Expand drive view")).toBeDefined());
+    fireEvent.click(screen.getByLabelText("Expand drive view"));
 
     // The peek mounts AgentDrivenPeek, which calls useDrivenSession exactly
     // once — the SAME hook/channel `/driven/:id` uses, no new transport.
@@ -179,7 +179,7 @@ describe("Agents row expansion (mt#2912)", () => {
     expect(firstStubWs().url).toBe("/api/driven-session/drv-workspace-1/ws");
     firstStubWs().simulateOpen();
 
-    const textarea = await screen.findByLabelText("Message to the driven session");
+    const textarea = await screen.findByLabelText("Message to this session");
     fireEvent.change(textarea, { target: { value: "answering from the peek" } });
     fireEvent.click(screen.getByText("Send"));
 
@@ -188,9 +188,9 @@ describe("Agents row expansion (mt#2912)", () => {
 
     // Collapsing the row tears the peek (and its WS connection) down again —
     // expanding it back open doesn't leak a second stale connection.
-    fireEvent.click(screen.getByLabelText("Collapse driven session"));
+    fireEvent.click(screen.getByLabelText("Collapse drive view"));
     await waitFor(() =>
-      expect(screen.queryByLabelText("Message to the driven session")).toBeNull()
+      expect(screen.queryByLabelText("Message to this session")).toBeNull()
     );
   });
 
@@ -207,12 +207,12 @@ describe("Agents row expansion (mt#2912)", () => {
     renderAgents();
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Expand subagents and driven session")).toBeDefined()
+      expect(screen.getByLabelText("Expand subagents and drive view")).toBeDefined()
     );
-    fireEvent.click(screen.getByLabelText("Expand subagents and driven session"));
+    fireEvent.click(screen.getByLabelText("Expand subagents and drive view"));
 
     await waitFor(() => expect(screen.getByText("another child task")).toBeDefined());
-    expect(await screen.findByLabelText("Message to the driven session")).toBeDefined();
-    expect(screen.getByLabelText("Collapse subagents and driven session")).toBeDefined();
+    expect(await screen.findByLabelText("Message to this session")).toBeDefined();
+    expect(screen.getByLabelText("Collapse subagents and drive view")).toBeDefined();
   });
 });

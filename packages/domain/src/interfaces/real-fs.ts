@@ -27,5 +27,6 @@ export function createRealFs(): FsLike {
       }
     },
     rm: (path, options) => fsPromises.rm(path, options),
+    chmod: (path, mode) => fsPromises.chmod(path, mode),
   };
 }

@@ -3,13 +3,27 @@
  *
  * A narrow, deliberately non-general slice of mt#2960's finder->verifier architecture.
  * mt#2960 is the general confidence-scored verification pipeline (thresholds, per-finding
- * scoring, metrics persistence); this module does NOT build that. It implements exactly one
- * claim class — "identifier X is duplicate-declared in file Y" — with a single deterministic
- * check, following the same pure-function + async-fetcher-wrapper shape as the sibling
- * recovery/verification passes (severity-recovery.ts, refutation-recovery.ts,
- * doc-impact-verifier.ts). If a future mt#2960 pass needs a second claim class, the seam is
- * `applyStructuralClaimVerification`'s per-finding dispatch — add a new claim extractor +
- * checker pair there rather than a new top-level pipeline stage.
+ * scoring, metrics persistence); this module does NOT build that. It implements a small, fixed
+ * set of claim classes, each with a single deterministic check, following the same pure-function
+ * + async-fetcher-wrapper shape as the sibling recovery/verification passes (severity-recovery.ts,
+ * refutation-recovery.ts, doc-impact-verifier.ts):
+ *
+ *   1. "identifier X is duplicate-declared in file Y"  (mt#3245, origin below)
+ *   2. "section/heading H appears more than once in file Y"  (mt#3520, origin below)
+ *
+ * A future class plugs in at `extractStructuralClaim`'s dispatch — add a claim extractor +
+ * counter pair there rather than a new top-level pipeline stage. Both classes share the same
+ * skeleton: extract the claim's subject(s) from the finding's own evidence, count each subject in
+ * the file's CURRENT content at the review ref, and demote only when the counts disprove the
+ * claim.
+ *
+ * The classes differ in extraction CARDINALITY, deliberately. The declaration class takes exactly
+ * ONE identifier — more than one candidate means genuine ambiguity about which the claim is about
+ * (its extraction can pick up an unrelated anchor identifier), so it declines. The section class
+ * takes the whole quoted SET (capped at `MAX_SECTION_CANDIDATES`), because naming a neighbouring
+ * landmark heading alongside the claimed one is ordinary prose — the real originating finding does
+ * exactly that. Demotion then requires ALL of the set to be non-duplicated, so the wider
+ * extraction is strictly more conservative, never less. See `extractDuplicateSectionClaim`.
  *
  * ## Origin (mt#2575 instance 5, mt#3245 spec)
  *
@@ -29,6 +43,25 @@
  * not consult it before asserting a BLOCKING compile-defect claim (the exact case Principle 13
  * forbids) — evidence that a prompt-only fix does not hold for this class; see the mt#3245 spec's
  * "Why a prompt instruction will not fix this" section.
+ *
+ * ## Origin of class 2 (mt#2575 instance 6, mt#3520 spec)
+ *
+ * PR #2498 (2026-08-01) added a gate criterion to `.minsky/skills/plan-task/skill.ts` and, as every
+ * skill change must, to its compile output `.claude/skills/plan-task/SKILL.md` (ADR-015:
+ * `.claude/skills/<name>/SKILL.md` is ALWAYS a compile output, never the canonical source). The
+ * reviewer posted a BLOCKING finding that the new `#### Gate criterion (p) ...` section "appears
+ * twice" in the SOURCE file and that `### Step 4: Act on gate results` was repeated. Both appear
+ * exactly once per file; the manifest test the finding predicted would fail passed 3/3. It
+ * restated the claim on a retrigger of the same HEAD even after the PR body carried the per-file
+ * counts, and its own spec-verification table simultaneously recorded "a single (p) section" as
+ * Met — so in-context prose does not correct this class either.
+ *
+ * A second, independently-documented mechanism produces the identical claim shape with no
+ * source/generated pair involved: mem#648 (PR #2106, 2026-07-20/21) records a false "Duplicate
+ * '# Claim Confidence' section appears twice in AGENTS.md" on a LONG single section whose start
+ * and end were read as two sections, with inconsistent phantom line numbers across rounds. This
+ * check is therefore deliberately mechanism-INDEPENDENT: it counts the heading in the file and
+ * does not care why the model believed otherwise.
  *
  * ## Design: reuse the SAME declaration-form definition on both sides of the check
  *
@@ -227,6 +260,85 @@ export function extractDeclaredIdentifiers(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Section-heading definitions (shared between claim-extraction and counting)
+// ---------------------------------------------------------------------------
+
+/**
+ * ATX markdown heading form: 1-6 `#` followed by whitespace and non-empty text. Used on BOTH
+ * sides of the duplicate-section check — to recognize a heading inside a finding's own quoted
+ * evidence, and to recognize a heading line in the file's content — so "what counts as a heading"
+ * cannot drift between interpreting the claim and verifying it (the same discipline the
+ * declaration-form set above applies to its own class).
+ */
+const HEADING_FORM_RE = /^#{1,6}[ \t]+\S.*$/;
+
+/** Quoted spans a model uses to embed a heading in prose: `backtick`, 'single', "double". */
+const QUOTED_SPAN_RE = /`([^`\n]+)`|'([^'\n]+)'|"([^"\n]+)"/g;
+
+/**
+ * Normalize a heading for comparison: collapse internal whitespace runs to one space, trim, and
+ * fold every Unicode dash (`\p{Pd}` — ASCII hyphen, en/em dash, the non-breaking hyphen U+2011
+ * GPT-5 has been observed to emit) to a plain hyphen.
+ *
+ * Applied to BOTH the claimed heading and each candidate line in the file, so the comparison is
+ * symmetric. Dash folding is recall-only: without it, a model that re-typed an em dash as a
+ * hyphen would simply fail to match and the finding would be left untouched (fail-safe), never
+ * wrongly demoted.
+ */
+function normalizeHeading(raw: string): string {
+  return raw
+    .replace(/\p{Pd}/gu, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Count lines in `content` whose normalized form equals the normalized `heading`.
+ *
+ * Deliberately runs against RAW content — NOT the `stripCommentsAndStrings` view the
+ * declaration-form counter uses. That difference is load-bearing, not an oversight: a canonical
+ * skill/rule source in this repo carries its entire markdown body inside a TypeScript template
+ * literal (`.minsky/skills/<name>/skill.ts`'s `content:` field), so stripping string bodies would
+ * blank out every real heading and return 0 for a file that genuinely contains the heading twice
+ * — silently demoting a TRUE finding. The stripper exists for the declaration class because a
+ * comment QUOTING `const X =` is not a declaration; a heading inside a skill source's template
+ * literal, by contrast, IS the real heading.
+ *
+ * Exported for unit testing.
+ */
+export function countHeadingOccurrences(content: string, heading: string): number {
+  const target = normalizeHeading(heading);
+  if (target === "") return 0;
+  let count = 0;
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!HEADING_FORM_RE.test(trimmed)) continue;
+    if (normalizeHeading(trimmed) === target) count++;
+  }
+  return count;
+}
+
+/**
+ * Extract every heading that appears inside a quoted span in `text` (e.g. a finding's own
+ * "The heading `#### Foo` appears twice" evidence). Returns the distinct set in first-seen order,
+ * normalized. Only quoted spans are considered — an unquoted `#` in prose is far more often a PR
+ * or issue reference than a heading.
+ *
+ * Exported for unit testing.
+ */
+export function extractQuotedHeadings(text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(QUOTED_SPAN_RE)) {
+    const span = match[1] ?? match[2] ?? match[3];
+    if (!span) continue;
+    const trimmed = span.trim();
+    if (!HEADING_FORM_RE.test(trimmed)) continue;
+    found.add(normalizeHeading(trimmed));
+  }
+  return [...found];
+}
+
+// ---------------------------------------------------------------------------
 // Claim detection
 // ---------------------------------------------------------------------------
 
@@ -257,22 +369,97 @@ export function extractDuplicateDeclarationClaim(summary: string, details: strin
   return candidates[0] ?? null;
 }
 
+/**
+ * Trigger phrases for a duplicate-SECTION / duplicate-heading claim — the second claim class
+ * (mt#3520). Kept separate from the declaration trigger above because the two classes have
+ * disjoint evidence shapes (an identifier in a declaration form vs. a heading in a quoted span),
+ * and because dispatch tries declaration first.
+ *
+ * `appears twice` is deliberately included even though it is generic on its own: it only ever
+ * reaches a demotion when the same finding ALSO yields at least one quoted heading AND every one
+ * of those headings is non-duplicated in the file. That conjunction, not the trigger phrase, is
+ * the real precision guard.
+ */
+const DUPLICATE_SECTION_TRIGGER_RE =
+  /duplicate[\s\p{Pd}]*(section|heading|block)|(section|heading|block)[^.\n]{0,60}duplicat|repeated\s+(section|heading|block)|appears\s+twice|appears\s+(more\s+than\s+once|again\s+later)|(section|heading|block)[^.\n]{0,60}(twice|more than once)/imu;
+
+/**
+ * Upper bound on quoted headings considered for one finding. A finding naming more headings than
+ * this is prose about document structure generally, not a specific duplication claim — leave it
+ * alone rather than fan out fetches and counts.
+ */
+const MAX_SECTION_CANDIDATES = 4;
+
+/**
+ * If `summary`+`details` makes a duplicate-section / duplicate-heading claim, return EVERY
+ * heading quoted in its evidence (normalized, distinct, first-seen order). Returns `null` when
+ * there is no trigger phrase, no quoted heading, or implausibly many.
+ *
+ * ## Why this returns a SET, unlike the declaration class's single candidate
+ *
+ * The declaration class demands exactly one candidate because its extraction can pick up an
+ * unrelated ANCHOR identifier ("...after `const OTHER_CONST`"), leaving genuine ambiguity about
+ * which identifier the claim is about. Section findings have the opposite shape: naming a
+ * neighbouring landmark heading alongside the claimed one is ordinary prose. The real
+ * originating finding (PR #2498) reads "the heading `#### Gate criterion (p) ...` appears twice
+ * ... and again later before the `### Step 4: Act on gate results` section repeats" — TWO quoted
+ * headings, one claim. An exactly-one rule would have silently skipped the very finding this
+ * class exists to catch.
+ *
+ * Verifying ALL of them is strictly MORE conservative than picking one, because the caller
+ * demotes only when EVERY quoted heading is non-duplicated: a single genuinely-duplicated
+ * heading anywhere in the set preserves BLOCKING. So the widened extraction cannot demote a
+ * true finding that the narrow rule would have preserved.
+ *
+ * Exported for unit testing.
+ */
+export function extractDuplicateSectionClaim(summary: string, details: string): string[] | null {
+  const text = `${summary}\n${details}`;
+  if (!DUPLICATE_SECTION_TRIGGER_RE.test(text)) return null;
+
+  const candidates = extractQuotedHeadings(text);
+  if (candidates.length === 0 || candidates.length > MAX_SECTION_CANDIDATES) return null;
+  return candidates;
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Audit-log entry produced for each finding this pass demotes. */
-export interface StructuralClaimDowngradeAuditEntry {
+/** Fields common to every claim class's audit entry. */
+interface StructuralClaimDowngradeAuditBase {
   file: string;
-  /** The single claim class this module implements (mt#2960 plugs in more later). */
-  claimClass: "duplicate-declaration";
-  identifier: string;
-  /** Actual declaration-form count found in the file's current content (always <= 1 here). */
-  declarationCount: number;
   fromSeverity: "BLOCKING";
   toSeverity: "NON-BLOCKING";
   reason: string;
 }
+
+/** Audit entry for the duplicate-declaration class (mt#3245). */
+export interface DuplicateDeclarationDowngradeAuditEntry extends StructuralClaimDowngradeAuditBase {
+  claimClass: "duplicate-declaration";
+  identifier: string;
+  /** Actual declaration-form count found in the file's current content (always <= 1 here). */
+  declarationCount: number;
+}
+
+/** Audit entry for the duplicate-section class (mt#3520). */
+export interface DuplicateSectionDowngradeAuditEntry extends StructuralClaimDowngradeAuditBase {
+  claimClass: "duplicate-section";
+  /**
+   * Every heading quoted by the finding, with its actual count in the file's current content.
+   * All counts are <= 1 here — a single count > 1 preserves BLOCKING and produces no entry.
+   */
+  headings: Array<{ heading: string; occurrenceCount: number }>;
+}
+
+/**
+ * Audit-log entry produced for each finding this pass demotes. Discriminated on `claimClass`
+ * (mt#2960 plugs in more classes later). The only consumer today is `review-worker.ts`, which
+ * logs the array wholesale under `reviewer.structural_claim_verification`.
+ */
+export type StructuralClaimDowngradeAuditEntry =
+  | DuplicateDeclarationDowngradeAuditEntry
+  | DuplicateSectionDowngradeAuditEntry;
 
 export interface StructuralClaimVerificationResult {
   /** Same length/order as input; only demoted `submit_finding` severities differ. */
@@ -285,7 +472,39 @@ export interface StructuralClaimVerificationResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Apply duplicate-declaration verification to a list of model tool calls.
+ * A recognized structural claim: which class fired, and the subject(s) it named. The declaration
+ * class always yields exactly one subject; the section class may yield several (see
+ * `extractDuplicateSectionClaim`), and ALL of them must be disproven to demote.
+ */
+interface ExtractedStructuralClaim {
+  claimClass: "duplicate-declaration" | "duplicate-section";
+  /** The identifier (declaration class) or normalized heading(s) (section class). */
+  subjects: string[];
+}
+
+/**
+ * Per-finding claim dispatch — the seam this module's header designates for new claim classes.
+ * Declaration is tried FIRST: its evidence shape (an identifier inside a declaration form) is the
+ * narrower of the two, so a finding that yields a declaration candidate is a declaration claim
+ * even if its prose also happens to say "appears twice".
+ *
+ * Exported for unit testing.
+ */
+export function extractStructuralClaim(
+  summary: string,
+  details: string
+): ExtractedStructuralClaim | null {
+  const identifier = extractDuplicateDeclarationClaim(summary, details);
+  if (identifier) return { claimClass: "duplicate-declaration", subjects: [identifier] };
+
+  const headings = extractDuplicateSectionClaim(summary, details);
+  if (headings) return { claimClass: "duplicate-section", subjects: headings };
+
+  return null;
+}
+
+/**
+ * Apply structural-claim verification to a list of model tool calls.
  *
  * `fileContents` maps the file path a finding cites to its CURRENT content at the review ref
  * (`undefined` or `null` means "could not fetch" — the finding is left untouched, fail-safe).
@@ -306,8 +525,8 @@ export function applyStructuralClaimVerification(
       continue;
     }
 
-    const identifier = extractDuplicateDeclarationClaim(tc.args.summary, tc.args.details);
-    if (!identifier) {
+    const claim = extractStructuralClaim(tc.args.summary, tc.args.details);
+    if (!claim) {
       corrected.push(tc);
       continue;
     }
@@ -321,37 +540,63 @@ export function applyStructuralClaimVerification(
       continue;
     }
 
-    const declarationCount = countDeclarationForms(content, identifier);
-    if (declarationCount > 1) {
+    const counted = claim.subjects.map((subject) => ({
+      subject,
+      count:
+        claim.claimClass === "duplicate-declaration"
+          ? countDeclarationForms(content, subject)
+          : countHeadingOccurrences(content, subject),
+    }));
+
+    if (counted.some((c) => c.count > 1)) {
       // Genuinely duplicated — the recall-side guard: a seeded finding naming a truly
-      // duplicated identifier must still post as BLOCKING. Preserve unchanged.
+      // duplicated identifier or heading must still post as BLOCKING. For a multi-heading
+      // section claim, ONE duplicated heading is enough to preserve the whole finding.
       corrected.push(tc);
       continue;
     }
 
+    const firstCount = counted[0]?.count ?? 0;
     const reason =
-      `structural-claim-verification: finding claims "${identifier}" is duplicate-declared in ` +
-      `"${tc.args.file}", but a declaration-form count (const/let/var/function/class/type/` +
-      `interface) against the file's current content at the review ref found ` +
-      `${declarationCount} declaration(s) — occurrences elsewhere in the file (e.g. a usage ` +
-      `site) are not declarations. Downgraded.`;
+      claim.claimClass === "duplicate-declaration"
+        ? `structural-claim-verification: finding claims "${counted[0]?.subject}" is ` +
+          `duplicate-declared in "${tc.args.file}", but a declaration-form count (const/let/var/` +
+          `function/class/type/interface) against the file's current content at the review ref ` +
+          `found ${firstCount} declaration(s) — occurrences elsewhere in the file (e.g. a usage ` +
+          `site) are not declarations. Downgraded.`
+        : `structural-claim-verification: finding claims a duplicated section in "${tc.args.file}", ` +
+          `but counting each quoted heading against the file's current content at the review ref ` +
+          `found ${counted.map((c) => `"${c.subject}" x${c.count}`).join(", ")}. A heading ` +
+          `repeated across a canonical source and its generated copy, or one long section whose ` +
+          `start and end are read as two, is not a duplicate within this file. Downgraded.`;
 
     const downgradedArgs: SubmitFindingArgs = {
       ...tc.args,
       severity: "NON-BLOCKING",
-      summary: `${tc.args.summary} [duplicate-declaration-unverified]`,
+      summary: `${tc.args.summary} [${claim.claimClass}-unverified]`,
       details: `${tc.args.details}\n\n_${reason}_`,
     };
     corrected.push({ name: "submit_finding", args: downgradedArgs });
-    downgrades.push({
-      file: tc.args.file,
-      claimClass: "duplicate-declaration",
-      identifier,
-      declarationCount,
-      fromSeverity: "BLOCKING",
-      toSeverity: "NON-BLOCKING",
-      reason,
-    });
+    downgrades.push(
+      claim.claimClass === "duplicate-declaration"
+        ? {
+            file: tc.args.file,
+            claimClass: "duplicate-declaration",
+            identifier: counted[0]?.subject ?? "",
+            declarationCount: firstCount,
+            fromSeverity: "BLOCKING",
+            toSeverity: "NON-BLOCKING",
+            reason,
+          }
+        : {
+            file: tc.args.file,
+            claimClass: "duplicate-section",
+            headings: counted.map((c) => ({ heading: c.subject, occurrenceCount: c.count })),
+            fromSeverity: "BLOCKING",
+            toSeverity: "NON-BLOCKING",
+            reason,
+          }
+    );
   }
 
   return { toolCalls: corrected, downgrades };
@@ -379,7 +624,7 @@ export async function fetchAndApplyStructuralClaimVerification(
   const filesToFetch = new Set<string>();
   for (const tc of toolCalls) {
     if (tc.name !== "submit_finding" || tc.args.severity !== "BLOCKING") continue;
-    if (extractDuplicateDeclarationClaim(tc.args.summary, tc.args.details)) {
+    if (extractStructuralClaim(tc.args.summary, tc.args.details)) {
       filesToFetch.add(tc.args.file);
     }
   }

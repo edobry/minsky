@@ -377,6 +377,22 @@ The service is deliberately stateless. Any deployment target that supports Node.
 
 ## Troubleshooting
 
+### Review-scope feature flags
+
+- `REVIEWER_INCREMENTAL_DIFF_ENABLED` (mt#3471, **on** in production) — on a re-review round
+  (R>=2), show the model only the commits pushed since the last posted review instead of the whole
+  PR diff again. The prior review's findings stay in the prompt and the file-reading tools still
+  resolve at HEAD, so the round can still verify its own earlier BLOCKING findings. The base is the
+  prior review's `commit_id`, so a force-push that orphans it produces a 404 rather than a
+  silently-wrong range; that and any truncated or 5xx comparison fall back to the full diff
+  (`reviewer.incremental_diff_fallback_full`). Turning it off restores full-diff-every-round at the
+  original cost.
+- `REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED` (mt#1875, **off**) — separate and quality-affecting:
+  additionally DOWNGRADES a BLOCKING finding to NON-BLOCKING when its file:line falls outside the
+  reviewed scope. Independent of the flag above by design, so the cost lever can run without
+  changing what the reviewer blocks on. When both are on, the downgrade pass bounds itself to the
+  same narrowed diff the model was shown.
+
 ### Network-call timeouts (mt#1086)
 
 Outbound model and GitHub API calls are wrapped with `AbortController` timeouts. Without timeouts, a hung outbound call holds the worker open until the platform kills it (~30-60s on Railway, longer elsewhere); with them, you see the failure in service logs immediately and the sweeper (mt#1260) re-triggers the review on its next pass.

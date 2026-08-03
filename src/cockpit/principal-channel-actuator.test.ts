@@ -22,10 +22,13 @@ import {
 } from "./driven-session-host";
 import {
   createDrivenSessionActuator,
+  createTopicActuatorRegistry,
+  partialAssistantText,
   resultText,
   PRINCIPAL_CHANNEL_LOCAL_ID,
   type DrivenSessionActuatorOptions,
 } from "./principal-channel-actuator";
+import type { ChannelActuator } from "./principal-channel-poller";
 
 // mt#3397 — the host preflights the spawn cwd, so this has to be a REAL
 // directory or every spawn below would take the missing-cwd branch instead.
@@ -372,7 +375,7 @@ describe("createDrivenSessionActuator — reply context", () => {
   test("puts the quoted text in front of the agent, alongside the new message", async () => {
     const { actuator, calls } = makeActuator();
 
-    void actuator.converse(FOLLOW_UP, QUOTED);
+    void actuator.converse(FOLLOW_UP, { replyToText: QUOTED });
     await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), FOLLOW_UP);
 
@@ -387,7 +390,7 @@ describe("createDrivenSessionActuator — reply context", () => {
     // that has never seen the quoted message can still resolve it.
     const { actuator, calls } = makeActuator();
 
-    void actuator.converse("what did you mean?", "the guard goes at the resolver");
+    void actuator.converse("what did you mean?", { replyToText: "the guard goes at the resolver" });
     await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), "what did you mean?");
 
@@ -612,6 +615,126 @@ describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
   test("a child that stays silent is reported as a timeout", async () => {
     const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
     await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting within/);
+  });
+});
+
+/**
+ * Per-topic actuator registry (mt#3505, parent mt#3500).
+ *
+ * Phase 1 generalizes the channel from one standing conversation to one
+ * conversation PER TOPIC while preserving the module's own "one caller at a
+ * time" contract per conversation. `createDrivenSessionActuator` already
+ * parametrizes over `localId` (originally added so a live probe would not
+ * collide with the running channel's own row); this registry is what lets
+ * the launch-time composition root reuse ONE actuator instance per topic
+ * across calls, rather than constructing a fresh closure (and therefore a
+ * fresh `standingLocalId`/in-flight guard) on every message — which would
+ * silently break the "concurrent callers share one conversation" guarantee
+ * for a topic that receives two messages back to back.
+ */
+describe("createTopicActuatorRegistry (mt#3505)", () => {
+  test("returns the SAME instance for the same localId across calls", () => {
+    const registry = createTopicActuatorRegistry();
+    let factoryCalls = 0;
+    const factory = (): ChannelActuator => {
+      factoryCalls += 1;
+      return {
+        converse: async (text) => text,
+        interrupt: async () => "stopped",
+        reset: async () => "fresh",
+        answerAsk: async () => "answered",
+      };
+    };
+
+    const first = registry.getOrCreate("entity-thread:telegram-topic:1:100", factory);
+    const second = registry.getOrCreate("entity-thread:telegram-topic:1:100", factory);
+
+    expect(second).toBe(first);
+    expect(factoryCalls).toBe(1);
+  });
+
+  test("returns DIFFERENT instances for different localIds", () => {
+    const registry = createTopicActuatorRegistry();
+    const makeStub = (): ChannelActuator => ({
+      converse: async (text) => text,
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    });
+
+    const a = registry.getOrCreate("telegram-topic:1:100", makeStub);
+    const b = registry.getOrCreate("telegram-topic:1:200", makeStub);
+
+    expect(a).not.toBe(b);
+  });
+
+  test("get() returns undefined for a localId never created", () => {
+    const registry = createTopicActuatorRegistry();
+    expect(registry.get("telegram-topic:1:999")).toBeUndefined();
+  });
+
+  test("get() returns the cached instance after getOrCreate", () => {
+    const registry = createTopicActuatorRegistry();
+    const localId = ["telegram-topic", "1", "100"].join(":");
+    const created = registry.getOrCreate(localId, () => ({
+      converse: async (text) => text,
+      interrupt: async () => "stopped",
+      reset: async () => "fresh",
+      answerAsk: async () => "answered",
+    }));
+    expect(registry.get(localId)).toBe(created);
+  });
+});
+
+/**
+ * The streamed-partials extractor (mt#3542).
+ *
+ * The whole streaming feature rests on reading ONE event shape correctly, so
+ * these pin the shape rather than the plumbing: a wrong `type` check here means
+ * the placeholder silently never updates, with nothing failing anywhere.
+ */
+describe("partialAssistantText", () => {
+  const BLOCK_DELTA = "content_block_delta";
+
+  function delta(kind: string, body: Record<string, unknown>): Record<string, unknown> {
+    return { type: "stream_event", event: { type: kind, index: 0, delta: body } };
+  }
+
+  test("reads the text out of a content_block_delta", () => {
+    expect(partialAssistantText(delta(BLOCK_DELTA, { type: "text_delta", text: "Hel" }))).toBe(
+      "Hel"
+    );
+  });
+
+  test("ignores thinking and tool-call deltas", () => {
+    // Out of scope for v1 (mt#3542 §Out of scope) — and streaming a tool call's
+    // half-built JSON into a chat reply would be noise, not progress.
+    expect(
+      partialAssistantText(delta(BLOCK_DELTA, { type: "thinking_delta", thinking: "hm" }))
+    ).toBeNull();
+    expect(
+      partialAssistantText(delta(BLOCK_DELTA, { type: "input_json_delta", partial_json: '{"a' }))
+    ).toBeNull();
+  });
+
+  test("ignores non-stream_event payloads and other sub-events", () => {
+    expect(partialAssistantText({ type: "result", result: "done" })).toBeNull();
+    expect(partialAssistantText({ type: "assistant", message: {} })).toBeNull();
+    expect(partialAssistantText(delta("content_block_start", {}))).toBeNull();
+  });
+
+  test("tolerates malformed frames rather than throwing", () => {
+    // These come off a subprocess's stdout — the parser must not be the thing
+    // that kills a turn.
+    expect(partialAssistantText({ type: "stream_event" })).toBeNull();
+    expect(partialAssistantText({ type: "stream_event", event: null })).toBeNull();
+    expect(partialAssistantText({ type: "stream_event", event: { type: BLOCK_DELTA } })).toBeNull();
+    expect(partialAssistantText(delta(BLOCK_DELTA, { type: "text_delta" }))).toBeNull();
+    expect(partialAssistantText(delta(BLOCK_DELTA, { type: "text_delta", text: 42 }))).toBeNull();
+  });
+
+  test("treats an empty text delta as nothing to report", () => {
+    expect(partialAssistantText(delta(BLOCK_DELTA, { type: "text_delta", text: "" }))).toBeNull();
   });
 });
 

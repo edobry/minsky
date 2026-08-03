@@ -35,6 +35,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { sql } from "drizzle-orm";
 import { RESOLVE_PROPOSAL_FENCE } from "@minsky/shared/resolve-proposal";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
@@ -81,6 +82,18 @@ export interface EntitySeedContext {
   body: string;
   /** Optional labelled references the entity already carries (contextRefs, parent task). */
   refs?: { label: string; value: string }[];
+  /**
+   * The conversation that originally filed this entity, when reachable (mt#3367).
+   *
+   * Carried as a POINTER, never as copied transcript text. The agent holds the
+   * transcript tools and can read it selectively on demand — which is both far
+   * cheaper than assembling context up front and better behaved, since an agent
+   * that judges the origin irrelevant simply does not read it.
+   *
+   * Absent for the MAJORITY of asks (measured reachability: 46.2%). Absence is
+   * a first-class state the prompt states explicitly, not a silent omission.
+   */
+  originConversationId?: string;
 }
 
 /**
@@ -118,13 +131,52 @@ export function buildEntityThreadSeedPrompt(seed: EntitySeedContext): string {
     }
   }
 
+  if (seed.originConversationId) {
+    lines.push(
+      "",
+      `The conversation that originally filed this ${seed.entityType} is reachable:`,
+      `  conversation id: ${seed.originConversationId}`,
+      "Read it with the `transcripts_get` tool when the principal's question is about WHY this",
+      "exists or what the agent was thinking — that reasoning is there and is not in the text",
+      "above. Read it SELECTIVELY: the tool takes a `turnRange` and a `role` filter, and",
+      '`projection: "text"` returns lean turn text. Do not pull the whole transcript by reflex.'
+    );
+  } else {
+    // Stated, not omitted (mt#3367). Silence would read to the agent as "no
+    // originating conversation exists", and it would then answer the "why did
+    // you ask me this?" question from the entity text alone WITHOUT telling the
+    // principal its grounding was thinner than it could have been.
+    lines.push(
+      "",
+      `The conversation that originally filed this ${seed.entityType} could NOT be resolved, so`,
+      "you cannot read the reasoning behind it. If the principal asks WHY it exists, say that",
+      "the originating conversation is unavailable rather than inferring a motive from the text."
+    );
+  }
+
   lines.push(
     "",
     "The principal is looking at this in the cockpit and wants to understand it.",
-    "Investigate before answering — you have Minsky MCP tools; read the parent task,",
-    "the originating conversation, and related memories rather than restating the text",
-    "above, which the principal has already read and found unclear.",
+    "Investigate before answering — you have Minsky MCP tools. Follow the references listed",
+    "above, read related memories, and pull in whatever else bears on it, rather than",
+    "restating the text above, which the principal has already read and found unclear.",
     "",
+    // ⚠️ THIS SENTENCE IS THE ONLY BARRIER (mt#3435). It is a prompt-level
+    // constraint on a STRUCTURALLY CAPABLE agent, not a guarantee.
+    //
+    // A thread child spawns with `DEFAULT_PERMISSION_MODE` →
+    // `--dangerously-skip-permissions` and, via mt#3377, the COMPLETE Minsky MCP
+    // server with no `--allowedTools`/`--disallowedTools`. So the agent asked to
+    // EXPLAIN an ask can also call `asks_respond` on it, `session_pr_merge`,
+    // `tasks_status_set` — anything. Nothing below the prompt stops it.
+    //
+    // Do not read mt#3368's confirm step as containment either: that guards the
+    // PANEL's resolve path, and the agent never needs the panel.
+    //
+    // The principal reviewed four containment options on 2026-07-30 and chose to
+    // ACCEPT this risk and document it. mt#3435 holds the decision, the verified
+    // capability surface, the revisit triggers, and the option set — read it
+    // before weakening this line or concluding something else already guards it.
     "Do NOT take action on this entity. Do not resolve, close, edit, or respond to it.",
     "Explain it. Any action is the principal's own, taken through the cockpit's own",
     "controls.",
@@ -166,6 +218,8 @@ export interface AskSeedInput {
   kind?: string | null;
   parentTaskId?: string | null;
   contextRefs?: { kind: string; ref: string }[] | null;
+  /** Resolved by `resolveOriginConversationId`; absent when unreachable (mt#3367). */
+  originConversationId?: string | null;
 }
 
 /**
@@ -189,7 +243,78 @@ export function askToEntitySeed(ask: AskSeedInput): EntitySeedContext {
     title: ask.title?.trim() || ask.shortId || ask.id,
     body: ask.question,
     ...(refs.length > 0 ? { refs } : {}),
+    // NOT added to `refs`: the origin is a tool TARGET the prompt gives explicit
+    // reading instructions for, not another labelled fact to skim. Keeping it a
+    // distinct field is also what lets the route report `originSeeded` to the
+    // panel without pattern-matching a ref label.
+    //
+    // A blank id is treated as ABSENT, deliberately (PR #2493 R1 non-blocking
+    // asked whether this is a false negative — it is not). An empty or
+    // whitespace-only conversation id cannot be read by any tool; carrying it
+    // would tell the agent to go read "" and tell the principal the thread is
+    // origin-grounded. Both claims would be false. `.trim()` so a whitespace id
+    // is caught too, not just `""`.
+    ...(ask.originConversationId?.trim()
+      ? { originConversationId: ask.originConversationId.trim() }
+      : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Origin conversation (mt#3367)
+// ---------------------------------------------------------------------------
+
+/**
+ * The confidence a link must carry to be used for origin-seeding.
+ *
+ * Gated at an EXACT 1.0 rather than a threshold. Measured against prod
+ * 2026-07-31: 531 of 536 links are 1.0, and — decisively — the set of asks
+ * reachable via ANY link and via a confidence-1.0 link are IDENTICAL (1382 of
+ * 2990 over 30 days). So this gate costs zero coverage today while removing the
+ * failure it exists to prevent: answering "why did you ask me this?" confidently
+ * from the WRONG conversation. `confidence` is nullable, and `= 1` excludes NULL
+ * too, which is the intended reading — an unscored link is not a trusted one.
+ */
+const ORIGIN_LINK_MIN_CONFIDENCE = 1;
+
+interface RawOriginLinkRow {
+  agent_session_id: string;
+}
+
+/**
+ * Resolve the conversation that originally filed an entity, or `null`.
+ *
+ * `null` is the MAJORITY outcome, not an error path: measured reachability is
+ * 46.2% of asks. The unseeded path is the common case and must stay first-class
+ * (see `buildEntityThreadSeedPrompt`, which SAYS the origin is unavailable
+ * rather than silently omitting it).
+ *
+ * Failures are logged and degrade to `null`: a thread that works without origin
+ * context is strictly better than a thread that 500s because a lookup failed.
+ */
+export async function resolveOriginConversationId(
+  db: PostgresJsDatabase,
+  parentSessionId: string | null | undefined
+): Promise<string | null> {
+  if (!parentSessionId) return null;
+
+  try {
+    const result = await db.execute(sql`
+      SELECT agent_session_id
+      FROM minsky_session_links
+      WHERE minsky_session_id = ${parentSessionId}
+        AND confidence = ${ORIGIN_LINK_MIN_CONFIDENCE}
+      ORDER BY detected_at DESC NULLS LAST
+      LIMIT 1
+    `);
+    const rows = Array.from(result as Iterable<RawOriginLinkRow>);
+    return rows[0]?.agent_session_id ?? null;
+  } catch (err) {
+    log.warn(`entity-thread: origin-conversation lookup failed for ${parentSessionId}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 /** The narrow slice of a task this module needs — see `EntitySeedContext`. */

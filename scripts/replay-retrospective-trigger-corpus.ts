@@ -44,6 +44,16 @@ import { detectTriggerPhrases as detectFromSource } from "../.minsky/hooks/retro
 import { detectTriggerPhrases as detectFromGenerated } from "../.claude/hooks/retrospective-trigger-scanner";
 
 const DEFAULT_FILE_COUNT = 60;
+
+/**
+ * Turns actually embedded in `--rung2` mode (mt#3408).
+ *
+ * Rung 2 costs one provider round-trip PER TURN (~450ms measured), so replaying
+ * the whole corpus the way Rung 1 does would be thousands of calls. This bounds
+ * the sample; the bound is reported in the output so a measurement is never
+ * mistaken for full-corpus coverage.
+ */
+const DEFAULT_RUNG2_TURN_LIMIT = 150;
 const EXCERPT_RADIUS = 100;
 
 /**
@@ -98,12 +108,16 @@ interface Fire {
 function parseArgs(argv: string[]): {
   files: number;
   probe: boolean;
+  rung2: boolean;
+  limit: number;
   json: boolean;
   projectsDir: string;
   corpusDir: string | null;
 } {
   let files = DEFAULT_FILE_COUNT;
   let probe = false;
+  let rung2 = false;
+  let limit = DEFAULT_RUNG2_TURN_LIMIT;
   let json = false;
   let projectsDir = join(homedir(), ".claude", "projects");
   let corpusDir: string | null = null;
@@ -111,12 +125,14 @@ function parseArgs(argv: string[]): {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--probe") probe = true;
+    else if (arg === "--rung2") rung2 = true;
+    else if (arg === "--limit") limit = Number(argv[++i] ?? DEFAULT_RUNG2_TURN_LIMIT);
     else if (arg === "--json") json = true;
     else if (arg === "--files") files = Number(argv[++i] ?? DEFAULT_FILE_COUNT);
     else if (arg === "--projects-dir") projectsDir = String(argv[++i] ?? projectsDir);
     else if (arg === "--corpus-dir") corpusDir = String(argv[++i] ?? "");
   }
-  return { files, probe, json, projectsDir, corpusDir };
+  return { files, probe, rung2, limit, json, projectsDir, corpusDir };
 }
 
 /**
@@ -259,5 +275,110 @@ function runReplay(
   return 0;
 }
 
-const { files, probe, json, projectsDir, corpusDir } = parseArgs(process.argv.slice(2));
-process.exit(probe ? runProbe(json) : runReplay(files, projectsDir, json, corpusDir));
+/**
+ * Rung-2 fire delta over real turns (mt#3408).
+ *
+ * Runs Rung 1 and Rung 1+2 over the SAME sampled turns and reports only the
+ * turns where Rung 2 added a family Rung 1 missed. Those NEW-ONLY fires are the
+ * precision question: each one is either a genuine admission the regex corpus
+ * was blind to, or a false positive. This prints them for hand-classification —
+ * it deliberately does not guess.
+ */
+async function runRung2Delta(
+  files: number,
+  limit: number,
+  projectsDir: string,
+  json: boolean,
+  corpusDirOverride: string | null
+): Promise<number> {
+  const repoRoot = resolve(import.meta.dir, "..");
+  const corpusDir = corpusDirOverride ?? corpusDirFor(projectsDir, repoRoot);
+  if (!existsSync(corpusDir)) {
+    console.log(`SKIP: no transcript corpus at ${corpusDir} — nothing to replay.`);
+    return 0;
+  }
+
+  const { detectTriggerPhrasesWithNomination } = await import(
+    "../.minsky/hooks/retrospective-trigger-scanner"
+  );
+
+  const allTurns = readAssistantTurns(corpusDir, files);
+  const turns = allTurns.slice(0, limit);
+
+  const newOnly: Array<{ families: string[]; excerpt: string }> = [];
+  let rung1FireCount = 0;
+  let degradedCount = 0;
+
+  for (const turn of turns) {
+    const rung1 = detectFromSource(turn);
+    if (rung1.length > 0) rung1FireCount++;
+
+    const detected = await detectTriggerPhrasesWithNomination(turn);
+    if (detected.degradedReason !== undefined) {
+      degradedCount++;
+      continue;
+    }
+    if (detected.nominatedFamilies.length === 0) continue;
+
+    const added = detected.matches.find((m) =>
+      detected.nominatedFamilies.includes(m.family as string)
+    );
+    newOnly.push({
+      families: detected.nominatedFamilies,
+      excerpt: (added?.matchedPhrase ?? turn).slice(0, 2 * EXCERPT_RADIUS).replace(/\n/g, " "),
+    });
+  }
+
+  const summary = {
+    mode: "rung2-delta",
+    corpusDir,
+    turnsAvailable: allTurns.length,
+    turnsSampled: turns.length,
+    limit,
+    rung1Fires: rung1FireCount,
+    rung2NewOnlyFires: newOnly.length,
+    degradedTurns: degradedCount,
+    newOnly,
+  };
+
+  if (json) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.log(`corpus dir:        ${corpusDir}`);
+    console.log(`turns available:   ${allTurns.length}`);
+    console.log(`turns sampled:     ${turns.length} (bounded by --limit ${limit})`);
+    console.log(`Rung-1 fires:      ${rung1FireCount}`);
+    console.log(`Rung-2 NEW-only:   ${newOnly.length}`);
+    console.log(`degraded turns:    ${degradedCount}\n`);
+    for (const f of newOnly) {
+      console.log(`[+${f.families.join(",")}] …${f.excerpt}…\n`);
+    }
+    console.log(
+      "Hand-classify every NEW-only fire above as a genuine admission or a false positive,\n" +
+        "and record the resulting precision delta in the task's ## Outcome."
+    );
+  }
+  return 0;
+}
+
+async function main(): Promise<number> {
+  const { files, probe, rung2, limit, json, projectsDir, corpusDir } = parseArgs(
+    process.argv.slice(2)
+  );
+  if (probe) return runProbe(json);
+  if (rung2) return runRung2Delta(files, limit, projectsDir, json, corpusDir);
+  return runReplay(files, projectsDir, json, corpusDir);
+}
+
+// Deliberately NOT a top-level await. `--rung2` is the only async path; the
+// long-standing `--probe` and default replay paths are synchronous, and a
+// top-level await would make the entire module async for every invocation
+// style regardless of which path runs. Keeping the entry point a `.then` leaves
+// those two paths' execution shape exactly as it was before --rung2 existed.
+main().then(
+  (code) => process.exit(code),
+  (error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+);

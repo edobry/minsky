@@ -68,6 +68,18 @@ export type InboundRoute =
   /** Abandon the current channel conversation and start a fresh one. */
   | { kind: "reset" }
   /**
+   * Bind the current topic to a task (mt#3507).
+   *
+   * Syntactic recognition only — this router does no I/O, so it cannot check
+   * whether `taskRef` is well-formed or names a task that exists, and it does
+   * not know whether the message arrived in a topic at all (that is on
+   * `InboundTelegramMessage.messageThreadId`, already available to whatever
+   * carries this route out). Both checks, and the actual mapping write, are
+   * the poller/actuator's job — they have the I/O this router deliberately
+   * lacks.
+   */
+  | { kind: "bind"; taskRef: string }
+  /**
    * The message carried only media this channel cannot read (mt#3235).
    *
    * A distinct branch rather than a rejection or a channel-agent turn: it is
@@ -101,6 +113,8 @@ export type InboundRoute =
 const ANSWER_COMMAND_RE = /^\/answer\s+(\S+)\s+([\s\S]+)$/i;
 const INTERRUPT_COMMAND_RE = /^\/(stop|halt)\s*$/i;
 const RESET_COMMAND_RE = /^\/(new|reset)\s*$/i;
+/** `/bind <task-ref>` — the ref is whatever the principal typed (mt#3507). */
+const BIND_COMMAND_RE = /^\/bind\s+(\S+)\s*$/i;
 
 /**
  * Decide what to do with one inbound message.
@@ -143,6 +157,10 @@ export function routeInboundMessage(
   }
   if (RESET_COMMAND_RE.test(text)) {
     return { kind: "reset" };
+  }
+  const bind = text.match(BIND_COMMAND_RE);
+  if (bind?.[1]) {
+    return { kind: "bind", taskRef: bind[1] };
   }
 
   return {
@@ -203,6 +221,14 @@ export interface PrincipalMessageEventPayload {
   attachmentCount?: number;
   /** The label for media that arrived but was not read (mt#3235). */
   unsupportedMedia?: string;
+  /**
+   * Which Telegram DM forum topic this message arrived in, when it arrived in
+   * one (mt#3505, parent mt#3500). Absent for a message in the standing
+   * (non-topic) conversation — the audit record's own thread dimension,
+   * needed to answer "did this land in the right topic's conversation?"
+   * without cross-referencing the `telegram_channel_topics` mapping table.
+   */
+  messageThreadId?: number;
 }
 
 /** Build the idempotency token for an update id. */
@@ -244,5 +270,6 @@ export function buildInboundEventPayload(
     ...(message.unsupportedMedia === undefined
       ? {}
       : { unsupportedMedia: message.unsupportedMedia }),
+    ...(message.messageThreadId === undefined ? {} : { messageThreadId: message.messageThreadId }),
   };
 }

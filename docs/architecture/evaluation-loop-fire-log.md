@@ -220,22 +220,40 @@ calibration-sweep.ts` gained `calibrationRecordToFireLogEntry` /
 fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
   (mt#2815), and a CAS-marker write on allow). Five guards remain
   uninstrumented, each with a documented reason:
+
   - `parallel-work-guard.ts` — its `tasks_create` duplicate-child path
     (`runTasksCreateGuardInner`) resolves its decision via an internal
     `switch` with no return value bubbled to the call site; attributing a
     fire-log decision would need restructuring that function's void return
     into a decision-returning one — a larger structural change than the
     additive instrumentation this task's scope allows.
-  - `policy-coverage-detector.ts` — already has its own purpose-built
-    calibration log (now surfaced via the adapter above); a canary would be
-    structurally brittle (depends on live corpus content) and the guard has
-    8 early-exit branches.
+  - `policy-coverage-detector.ts` — NO LONGER A GAP as of mt#3393; a
+    `policy-coverage` canary now ships in `STANDALONE_GUARD_CANARIES`. The
+    original exclusion reasoned that a canary "would be structurally brittle
+    (depends on live corpus content)"; that holds only if the canary loads the
+    live corpus. Injecting a synthetic two-entry `PolicyCorpus` straight into
+    `decideCoverage` — one entry that speaks to the action, one that does not,
+    asserting both directions — exercises the real decision function with no
+    dependence on what `CLAUDE.md` happens to say today. The 8 early-exit
+    branches are in the hook ENTRYPOINT, which the canary deliberately does
+    not cover; the entrypoint's own wiring is pinned by a spawn-based test in
+    `policy-coverage-detector.test.ts` instead.
+
+    Why it mattered: with no canary AND (per mt#3393) no live receipt either —
+    its records were resolving to a cwd-derived root and landing outside the
+    repo — this detector had NEITHER half of the two-part coverage story. When
+    the coverage-receipt gate below flagged it, nothing on either axis could
+    distinguish a broken detector from a dormant one, and the resulting
+    investigation opened on the wrong hypothesis (assumed-dead) for a
+    mechanism that had in fact fired that morning.
+
   - `block-github-mcp-pr-writes.ts` — near-identical in shape/signal to the
     already-instrumented `block-git-gh-cli`; low marginal value.
   - `loop-preflight-pr-merge-check.ts` — narrow trigger (`Skill:"loop"`
     only); no injectable seam without a refactor.
   - `check-prompt-watermark.ts` — narrow trigger (`Agent` dispatches only);
     low fire frequency.
+
 - **Phase-1 GATE verification** — see the next section; formally re-run
   against the real log post-landing.
 
@@ -368,12 +386,64 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   backward-compatibility — every calibration entry written before the field existed was a
   real runtime fire, and legacy records age out of the rolling window regardless.
 - **The gate** (`.minsky/hooks/coverage-receipt.ts` — `checkCoverageReceipt` /
-  `checkDetectorCoverage`) reads a detector's calibration log and PASSES only when ≥1 live
-  receipt falls inside a rolling window (default 7 days); a detector with zero live fires in
-  the window is FLAGGED and surfaced for review. An entry explicitly labelled
+  `checkDetectorCoverage`) reads a detector's calibration log and PASSES when ≥1 live
+  receipt falls inside a rolling window (default 7 days). An entry explicitly labelled
   `truePositive:false` (a known false positive) does not count, so a detector firing only on
   FPs is still flagged. TP/FP labelling is not mechanized at write time in Phase 1 (RFC "no
   early labelling"), so an unlabelled live fire is treated as a receipt.
+- **Three states, not two (mt#3502).** An EMPTY calibration log has two causes that demand
+  opposite responses, and reporting both as FLAGGED — which is what this gate did until
+  mt#3502 — makes the signal unactionable:
+
+  | State                  | Records in window | Invocations in window | Reported    | Exits |
+  | ---------------------- | ----------------- | --------------------- | ----------- | ----- |
+  | `covered`              | ≥1                | (not consulted)       | `[OK]`      | 0     |
+  | `dormant`              | 0                 | ≥1                    | `[DORMANT]` | 0     |
+  | `no-liveness-evidence` | 0                 | 0 or unknown          | `[FLAGGED]` | 1     |
+
+  Invocation evidence comes from the **fire log** (`recordFireLogEntry`, above), which
+  records every guard invocation regardless of whether the guard fired — so it answers "does
+  it still run" where the calibration log only answers "did it have anything to say". The
+  canary is NOT a substitute: it calls the guard's exported pure decision function, so it
+  proves the LOGIC works while saying nothing about whether anything invokes it (the
+  mt#3019 / mt#3046 / mt#3308 dead-entry-point class). The three instruments are
+  complementary — canary: does it decide correctly; fire log: does it run; calibration log:
+  did it have anything to report.
+
+  Both failure modes were live simultaneously when this shipped: `causal-premise` was
+  FLAGGED with 3 lifetime records while the fire log showed it invoked minutes earlier, and
+  `policy-coverage` read `[OK]` on borrowed records while appearing ZERO times in a 39 MB
+  fire log (it is standalone, so it never got the dispatcher's automatic recording; mt#3502
+  added an explicit `recordFireLogEntry` call).
+
+- **The join is declared, never string-matched (mt#3502).** A calibration-log name and its
+  guard name differ for real detectors — log `untaken-action` is guard
+  `turn-end-untaken-action-scan`, `retrospective-trigger` is `turn-end-retro-scan` — and a
+  name-matching first pass reported both as having zero invocations when they had 874 and 1531. The join key is `GuardRegistration.calibrationLog` (registry guards) and
+  `StandaloneGuardCanary.calibrationLog` (standalone guards); `check-coverage-receipts.ts`
+  builds the map from those declarations and NAMES any calibration log that resolves to no
+  guard, rather than letting it silently read as a dead entry point.
+- **The join is many-to-many in BOTH directions (mt#3519).** One log can be written by
+  several guards (`operator-deferral`, `retrospective-trigger`), and one guard can write
+  several logs — the execution-evidence merge gate writes `execution-evidence-at-coverage`
+  itself and `execution-evidence-test-first` through `test-first-evidence.ts`, which it calls
+  in-process. Either declaration field therefore accepts a string OR a list. When a
+  REGISTRY guard declares a list, the FIRST entry is its primary log: the dispatcher writes
+  that guard's one `outcome.calibration` record there and nowhere else, since writing one
+  record to N logs would inflate every downstream fire count. The remaining entries exist
+  purely so this join can find the guard's invocations.
+- **A log written by something that is NOT a guard is its own category (mt#3519).**
+  `ask-form-lint` is written by `src/adapters/shared/commands/ask-form-lint-calibration.ts`
+  on the `asks_create` command path — it has no guard name, no dispatcher invocation, and no
+  canary, so no declaration can reach it and it is NOT the "no guard declares this" defect
+  the `Unmapped` line reports. `check-coverage-receipts.ts` carries a
+  `NON_GUARD_CALIBRATION_PRODUCERS` map naming the producer, reports those logs on a
+  `[NON-GUARD]` line, and EXCLUDES them from the coverage results entirely — `FLAGGED`
+  asserts "no evidence the entry point ran", which for a log with no entry point to
+  instrument is a false claim rather than a weak one. Recording fire-log entries from the
+  command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
+  identity field), and `src/` is bundled into the deployed MCP server, which must not import
+  `.minsky/hooks/`.
 - **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
   `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
   non-zero when any detector is flagged. It runs at calibration-review cadence
@@ -454,3 +524,43 @@ fire-log JSONL record itself).
 - mt#3078 — invocation-path audit that classified the merge-gate fire-log absence as by-design
   (not a wiring bug) and named the alternative evidence sources (see the dedicated section
   above); mt#3084 — the Phase-3 build-out task this classification filed.
+
+## Tuning ownership and project scoping (mt#3518, 2026-08-01)
+
+Two amendments to this document's original single-operator framing, both governed by the
+beyond-Minsky RFC's 2026-08-01 amendment (Notion `37a937f0-3cb4-81ed-9a08-fbdeebd8845d`, §3
+"Tuning-loop ownership") and the mem#802 principle (customers emit signal; the system/vendor
+tunes; calibration review never routes to a customer):
+
+- **Tuning ownership is now a registry field.** Every `GUARD_REGISTRY` entry carries
+  `tuningOwnership: "invariant" | "preference" | "advisory"` (see the field's doc comment in
+  `.minsky/hooks/registry.ts` for the class definitions and per-class decision surfaces), and
+  `registry.test.ts` requires the stamp on every entry — new guards are classified at birth.
+  Preference-class thresholds read their values via `readPositiveIntEnv` (`types.ts`): the
+  shipped constant is the vendor default, a registered `MINSKY_*` env var is the local
+  override. First instances: `MINSKY_WALL_OF_TEXT_WORD_BUDGET`,
+  `MINSKY_SILENT_STRETCH_GAP_MINUTES`, `MINSKY_SILENT_STRETCH_TOOL_CALLS`.
+  Guards NOT yet migrated into the registry (the merge-gate stack and other
+  settings.json-direct hooks, ADR-028 Phases 4–6) are uniformly **invariant**-class; they
+  inherit a structural stamp when their phase migrates them.
+
+- **Scoping decision for ingest (constrains mt#3334).** The storage decision above (one
+  machine-local file) stands for the ON-DISK format — no JSONL schema change. Project scoping
+  happens AT INGEST into the DB: stamped on write from the record's `cwd` (or the session's
+  project), following the `resolveRunStateProjectId` precedent in
+  `packages/domain/src/conversation-run-state/repository.ts` (nullable on resolution failure;
+  ingest never blocks on it). This gives the ingested streams their second consumer —
+  per-project calibration-signal aggregation for vendor-side tuning — without touching the
+  emit path. Cold-start is the registry defaults: a project with zero fires gets shipped
+  behavior; no local auto-adaptation ships yet.
+
+**What consumes these streams for tuning (ADR-032, mt#3577).**
+`docs/architecture/adr-032-guard-threshold-tuning-loop.md` decides how a threshold actually
+moves, and separates three streams this document had treated as one: decision INPUTS (the
+measured value a threshold was compared against — per-guard `.minsky/*-calibration.jsonl`),
+decision OUTCOMES (this file's `allow`/`warn`/`deny` plus override consultation), and operator
+RESPONSE (whether a fire changed behavior — recorded NOWHERE as of that ADR, and the reason its
+first child task is an emitter rather than a tuner). The decider itself ships pure and inert at
+`src/domain/calibration/threshold-tuning.ts`; it discards records written before 2026-07-29
+(mt#3280's turn-attribution fix, commit `4b88d928c`) as a provenance boundary, which does not
+affect the count-based reads the rationalization panel above performs.

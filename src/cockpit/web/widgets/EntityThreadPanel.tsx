@@ -76,6 +76,12 @@ export interface EntityThreadResponse {
    * must branch on `live === false`, never on falsiness (PR #2460 R1 BLOCKING).
    */
   live?: boolean;
+  /**
+   * Whether the agent can reach the conversation that originally filed this
+   * entity (mt#3367). Optional, and `undefined` means UNKNOWN — same discipline
+   * as `live`: a daemon that does not report it must not be read as "not seeded".
+   */
+  originSeeded?: boolean;
 }
 
 export interface EntityThreadSendResponse {
@@ -88,11 +94,37 @@ function threadPath(entityType: string, entityId: string): string {
   return `/api/entity-thread/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`;
 }
 
+/**
+ * Thrown when the daemon cannot reach its database (HTTP 503, mt#3398).
+ *
+ * A distinct class rather than a status check at each callsite: this condition
+ * is TRANSIENT and says nothing about the thread, so the panel must render it
+ * differently and — critically — keep polling through it. During the 2026-07-30
+ * incident the panel showed "Failed to load discussion", which read as "your
+ * thread is broken" while the turns were intact and the agent was still running.
+ */
+export class ThreadStoreUnavailableError extends Error {
+  constructor() {
+    super("The cockpit can't reach its database right now. Retrying…");
+    this.name = "ThreadStoreUnavailableError";
+  }
+}
+
 export async function fetchEntityThread(
   entityType: string,
   entityId: string
 ): Promise<EntityThreadResponse> {
   const res = await fetch(threadPath(entityType, entityId));
+  // 503 is the daemon saying "my database is unreachable", not "this thread
+  // failed" — distinguished before the generic error so the two cannot be
+  // conflated in the UI.
+  //
+  // 503 ONLY, deliberately (PR #2514 R1 non-blocking asked about 502/504). Those
+  // come from a proxy in front of the daemon, not from the daemon, so rendering
+  // "the cockpit can't reach its database" for one would assert a cause we have
+  // no evidence for — the precise habit this whole task exists to remove. 503 is
+  // our own contract with our own route; the rest stay a generic error.
+  if (res.status === 503) throw new ThreadStoreUnavailableError();
   if (!res.ok) throw new Error(`Failed to load thread (${res.status})`);
   return res.json() as Promise<EntityThreadResponse>;
 }
@@ -107,6 +139,11 @@ export async function postEntityThreadMessage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+  // mt#3398: same distinction on the send path. The composer's error copy
+  // already tells the operator their message is preserved and to press Send
+  // again; pairing that with "the database is unreachable" is actionable,
+  // whereas a raw 503 body is not.
+  if (res.status === 503) throw new ThreadStoreUnavailableError();
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to send message (${res.status}): ${body}`);
@@ -180,6 +217,24 @@ export function derivePollInterval(sendPending: boolean): number | false {
   return sendPending ? false : POLL_INTERVAL_MS;
 }
 
+/**
+ * What to tell the principal about the agent's grounding (mt#3367), or `null`
+ * to say nothing.
+ *
+ * Three states, not two. `undefined` is UNKNOWN — a daemon predating the field
+ * — and says nothing rather than claiming the origin is missing, the same
+ * discipline `live` follows. Only a definite answer produces a line.
+ *
+ * Worth surfacing at all because reachability is only ~46%: a principal reading
+ * "why was this filed?" deserves to know whether the answer came from the
+ * originating conversation or from the entity text alone.
+ */
+export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
+  if (originSeeded === true) return "Grounded in the conversation that filed this.";
+  if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
+  return null;
+}
+
 export interface EntityThreadPanelProps {
   entityType: EntityThreadPanelEntityType;
   entityId: string;
@@ -220,6 +275,17 @@ export function EntityThreadPanel({
     queryFn: () => fetchEntityThread(entityType, entityId),
     // See `derivePollInterval` for why this pauses mid-send.
     refetchInterval: derivePollInterval(sendMutation.isPending),
+    // mt#3398: self-healing comes from `refetchInterval`, which keeps polling
+    // while the query sits in an ERROR state — so when the wedged daemon DB
+    // (mt#3092) recovers, the thread reappears with no manual reload. That was
+    // the operator's complaint during the 2026-07-30 incident.
+    //
+    // Deliberately NO `retry`. An earlier draft retried the unavailable case
+    // three times; that only DELAYED the notice (the operator stared at a
+    // spinner while retries backed off) without improving recovery, because the
+    // poll above already re-attempts on a fixed cadence. Failing fast and
+    // showing an honest "can't reach the database, retrying" is strictly better.
+    retry: false,
   });
 
   const blocks = query.data?.blocks;
@@ -250,6 +316,19 @@ export function EntityThreadPanel({
 
   if (query.isPending) return <LoadingState message="Loading discussion…" className={className} />;
   if (query.isError) {
+    // mt#3398: a database outage is NOT a thread failure. Rendered as a plain
+    // notice rather than an ErrorState, and without the "Failed to load
+    // discussion" prefix, because the thread's turns are intact and its agent
+    // may still be running — the polling above keeps going and this clears
+    // itself when the daemon recovers.
+    if (query.error instanceof ThreadStoreUnavailableError) {
+      return (
+        <section className={className} aria-label="Discussion">
+          <h2 className="text-sm font-medium text-foreground mb-2">Discussion</h2>
+          <p className="text-sm text-muted-foreground py-3">{query.error.message}</p>
+        </section>
+      );
+    }
     return <ErrorState prefix="Failed to load discussion" error={query.error} className={className} />;
   }
 
@@ -262,10 +341,15 @@ export function EntityThreadPanel({
   // Only looked up when a consumer supplied a slot — an entity kind with no
   // resolve semantics should not pay to scan its blocks for proposals.
   const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
+  const originNotice = deriveOriginNotice(query.data?.originSeeded);
 
   return (
     <section className={className} aria-label="Discussion">
       <h2 className="text-sm font-medium text-foreground mb-2">Discussion</h2>
+
+      {originNotice ? (
+        <p className="text-xs text-muted-foreground mb-2">{originNotice}</p>
+      ) : null}
 
       {hasTurns && snapshot ? (
         <ConversationView snapshot={snapshot} />

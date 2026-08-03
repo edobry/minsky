@@ -18,6 +18,13 @@ import { skillDefinitionSchema } from "../../definitions/schemas";
 import type { SkillDefinition } from "../../definitions/types";
 import { log } from "../../utils/logger";
 import { COMPILE_GENERATED_BANNER } from "../../rules/compile/banner-constants";
+import {
+  SKILL_SOURCE_FILENAMES,
+  descriptionCharsFromSkillMd,
+  evaluateSkillListingBudget,
+  formatSkillListingBudget,
+  type SkillListingEntry,
+} from "../skill-listing-budget";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -39,6 +46,16 @@ const realDynamicImport: DynamicImportFn = (path: string) => import(path);
 export type SkipLogFn = (message: string) => void;
 
 const defaultSkipLog: SkipLogFn = (message: string) => log.warn(message);
+
+/**
+ * Injectable report sink for the skill-listing description budget (mt#3476) —
+ * overridden in tests. Separate from {@link SkipLogFn}: a budget line is a routine
+ * per-compile report, not a skipped definition, and conflating them would make a
+ * normal compile look like it dropped work.
+ */
+export type ReportLogFn = (message: string) => void;
+
+const defaultReportLog: ReportLogFn = (message: string) => log.cli(message);
 
 /**
  * Normalize a markdown frontmatter value that may be authored as a scalar string
@@ -246,10 +263,71 @@ function extractSkillDefinitionFromMd(
   return { skill: parsed.data as SkillDefinition };
 }
 
+/**
+ * Collect the skill-listing description budget from the EMITTED output directory
+ * (mt#3476).
+ *
+ * Reads `.claude/skills/<name>/SKILL.md` rather than this compile run's
+ * `definitionsIncluded`, because the two sets are not the same: this target compiles
+ * only skills that have a `.minsky/skills/` source, while the harness's listing is
+ * charged for EVERY skill in the output directory — including vendored and
+ * hand-authored ones the target never sees. Measuring the compiled set would
+ * structurally under-count the budget this check exists to police.
+ *
+ * A skill dir with no readable `SKILL.md` contributes nothing. A frontmatter parse
+ * failure is reported through `onSkip` rather than swallowed, then contributes 0 —
+ * an unreadable description reaches the listing as nothing, which is the truthful
+ * charge, but the operator still needs to know the file is broken.
+ */
+async function collectSkillListingEntries(
+  workspacePath: string,
+  fs: MinskyCompileFsDeps,
+  onSkip: SkipLogFn
+): Promise<SkillListingEntry[]> {
+  const outputDir = skillOutputDir(workspacePath);
+  let dirNames: string[];
+  try {
+    dirNames = await fs.readdir(outputDir);
+  } catch {
+    return [];
+  }
+
+  const entries: SkillListingEntry[] = [];
+  for (const dirName of dirNames) {
+    let raw: string;
+    try {
+      raw = await fs.readFile(join(outputDir, dirName, SKILL_MD_SOURCE), "utf-8");
+    } catch {
+      continue; // not a skill dir (or no SKILL.md) — charges nothing to the listing
+    }
+    // Ownership rule shared with the `skills:budget` CLI via SKILL_SOURCE_FILENAMES —
+    // presence of a source FILE, never directory existence. Keeping one constant is
+    // what makes the two call sites unable to disagree about which skills the cap
+    // applies to.
+    const sourceDir = skillSourceDir(workspacePath);
+    const sourceChecks = await Promise.all(
+      SKILL_SOURCE_FILENAMES.map((filename) => fileExists(fs, join(sourceDir, dirName, filename)))
+    );
+    const owned = sourceChecks.some(Boolean);
+
+    const result = descriptionCharsFromSkillMd(raw);
+    if ("error" in result) {
+      onSkip(
+        `[compile:claude-skills] skill-listing budget: cannot read description for "${dirName}": ${result.error}`
+      );
+      entries.push({ name: dirName, descriptionChars: 0, owned });
+      continue;
+    }
+    entries.push({ name: dirName, descriptionChars: result.chars, owned });
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** Build the claude-skills target, injecting a dynamic-import function for tests. */
 function makeClaudeSkillsTarget(
   dynamicImport: DynamicImportFn = realDynamicImport,
-  onSkip: SkipLogFn = defaultSkipLog
+  onSkip: SkipLogFn = defaultSkipLog,
+  onReport: ReportLogFn = defaultReportLog
 ): MinskyCompileTarget {
   return {
     id: "claude-skills",
@@ -366,6 +444,29 @@ function makeClaudeSkillsTarget(
 
         filesWritten.push(outputPath);
         definitionsIncluded.push(skill.name);
+      }
+
+      // Skill-listing description budget (mt#3476). Reads the emitted output
+      // directory, not `definitionsIncluded` — see collectSkillListingEntries for why
+      // those two sets differ and why measuring the compiled set under-counts.
+      // Skipped in dry-run: nothing was written, so the output dir still holds the
+      // PREVIOUS compile's descriptions and any figure from it would be stale.
+      if (!options.dryRun) {
+        const listingEntries = await collectSkillListingEntries(workspacePath, fs, onSkip);
+        if (listingEntries.length > 0) {
+          const evaluation = evaluateSkillListingBudget(listingEntries);
+          for (const line of formatSkillListingBudget(evaluation)) {
+            onReport(`[compile] ${line}`);
+          }
+          if (evaluation.status === "fail") {
+            onReport(
+              `[compile] Target "claude-skills" EXCEEDS SKILL LISTING BUDGET — ` +
+                `an over-budget listing silently drops descriptions, and a skill listed ` +
+                `name-only cannot be routed to. Trim an OWNED description (see ` +
+                `\`bun run skills:budget\`).`
+            );
+          }
+        }
       }
 
       return {

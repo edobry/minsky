@@ -160,7 +160,7 @@ const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> =
   "subagent-group": { label: "Subagent", className: "bg-muted text-muted-foreground" },
   // mt#2752 — app-started driven sessions: the amber tint marks "you can type
   // here" (input affordance), vs the read-only observe rows above (SC4).
-  "driven-session": { label: "Driven", className: "bg-warn-amber/15 text-warn-amber" },
+  "driven-session": { label: "Drivable", className: "bg-warn-amber/15 text-warn-amber" },
 };
 
 /**
@@ -180,9 +180,9 @@ function DrivenChip({ driven }: { driven: NonNullable<AgentRow["driven"]> }) {
           ? "bg-warn-amber/15 text-warn-amber hover:bg-warn-amber/25"
           : "bg-muted text-muted-foreground hover:bg-accent"
       }`}
-      aria-label={`Open driven session (${driven.status})`}
+      aria-label={`Open the drive view (${driven.status})`}
     >
-      Driven{active ? "" : ` (${driven.status})`}
+      Drive{active ? "" : ` (${driven.status})`}
     </Link>
   );
 }
@@ -493,7 +493,7 @@ function AgentsControlBar({
           <SelectItem value="dispatched-agent">Agent</SelectItem>
           <SelectItem value="principal-conversation">Conversation</SelectItem>
           <SelectItem value="subagent-group">Subagent</SelectItem>
-          <SelectItem value="driven-session">Driven</SelectItem>
+          <SelectItem value="driven-session">Drivable</SelectItem>
         </SelectContent>
       </Select>
 
@@ -962,7 +962,7 @@ function expandToggleLabel(
 ): string {
   const parts: string[] = [];
   if (hasSubagents) parts.push("subagents");
-  if (hasDrivenBinding) parts.push("driven session");
+  if (hasDrivenBinding) parts.push("drive view");
   return `${expanded ? "Collapse" : "Expand"} ${parts.join(" and ")}`;
 }
 
@@ -1082,7 +1082,7 @@ function AgentRowItem({
               agent.kind === "dispatched-agent"
                 ? "session"
                 : agent.kind === "driven-session"
-                  ? "driven session"
+                  ? "the drive view for"
                   : "conversation"
             } ${agent.sessionId}`}
           >

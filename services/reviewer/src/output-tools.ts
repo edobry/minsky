@@ -172,6 +172,39 @@ export const SubmitSpecVerificationArgsSchema = z.object({
 export type SubmitSpecVerificationArgs = z.infer<typeof SubmitSpecVerificationArgsSchema>;
 
 /**
+ * Upper bound on criteria carried in one batched call (mt#3545).
+ *
+ * A spec with more entries than this is pathological, and an unbounded array is
+ * a denial-of-context vector: the model could emit one call whose args dwarf the
+ * diff. Specs in this repo run well under 20 combined criteria + carve-outs.
+ */
+export const MAX_BATCHED_SPEC_VERIFICATIONS = 50;
+
+/**
+ * Args for the batched `submit_spec_verifications` tool (mt#3545).
+ *
+ * The singular tool requires one call per criterion. A spec with 4 success
+ * criteria plus 3 carve-outs therefore costs 7 serial emissions inside a
+ * 10-round tool budget whose last round is already text-only — which is a large
+ * part of why the model never reaches `conclude_review` in-loop (mt#3526).
+ *
+ * This tool carries all of them in ONE call. It is deliberately a separate tool
+ * rather than a widened `submit_spec_verification` schema: `parseToolCallExpanded`
+ * expands a batch into N singular `ReviewToolCall` entries, so `compose-review`,
+ * `review-provenance`, and `severity-recovery` keep matching on exactly the shape
+ * they already handle. The round saving is real; the blast radius is nil.
+ */
+export const SubmitSpecVerificationsArgsSchema = z.object({
+  /** One entry per success criterion (or carve-out entry), in spec order. */
+  verifications: z
+    .array(SubmitSpecVerificationArgsSchema)
+    .min(1)
+    .max(MAX_BATCHED_SPEC_VERIFICATIONS),
+});
+
+export type SubmitSpecVerificationsArgs = z.infer<typeof SubmitSpecVerificationsArgsSchema>;
+
+/**
  * Args for the `submit_documentation_impact` tool.
  *
  * Records whether the PR's changes affect any project documentation. Submit
@@ -526,6 +559,56 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "submit_spec_verifications",
+      description:
+        "PREFERRED over submit_spec_verification: record ALL success-criteria verdicts in a " +
+        "SINGLE call. Pass one entry per criterion in the spec's 'Success Criteria' section " +
+        "(plus one per '### Does NOT cover' carve-out entry, if present), in spec order. " +
+        "Each entry takes the same criterion/status/evidence fields as the singular tool and " +
+        "is validated identically. Use this instead of emitting the singular tool repeatedly — " +
+        "it leaves you more of your tool budget for verification and for concluding the review.",
+      parameters: {
+        type: "object",
+        properties: {
+          verifications: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_BATCHED_SPEC_VERIFICATIONS,
+            description: "One entry per success criterion or carve-out entry, in spec order.",
+            items: {
+              type: "object",
+              properties: {
+                criterion: {
+                  type: "string",
+                  minLength: 1,
+                  description: "The exact text of the success criterion being evaluated.",
+                },
+                status: {
+                  type: "string",
+                  enum: ["Met", "Not Met", "N/A"],
+                  description:
+                    "Verification result: Met, Not Met, or N/A (criterion does not apply to this PR).",
+                },
+                evidence: {
+                  type: "string",
+                  minLength: 1,
+                  description:
+                    "Evidence supporting the verdict. Reference file paths, line numbers, or code snippets.",
+                },
+              },
+              required: ["criterion", "status", "evidence"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["verifications"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "submit_documentation_impact",
       description:
         "Record whether the PR's changes affect any project documentation. " +
@@ -535,7 +618,15 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "updates alongside the code; 'blocking-needs-update' when the PR affects " +
         "documented behavior but does NOT update the docs (the reviewer should also " +
         "emit a submit_finding with severity BLOCKING for the same issue). " +
-        "evidence must justify the verdict and reference specific docs when applicable. " +
+        "'affects documented behavior' covers TWO cases, not one: the PR ADDS surface the " +
+        "docs omit, AND the PR CHANGES or REMOVES behavior that existing doc prose still " +
+        "asserts. The second leaves a doc that is not silent but WRONG, and is the case " +
+        "reviews habitually miss — check it by reading the doc that covers the changed " +
+        "behavior, not by searching the docs for identifiers the diff adds. " +
+        "evidence must justify the verdict and reference specific docs when applicable; when " +
+        "the verdict rests on invalidated prose, quote the specific sentence the diff " +
+        "falsifies. Do not claim existing docs 'remain accurate' unless you read them — say " +
+        "which you checked and which you did not. " +
         "affectedDocs is optional but recommended for 'updated-in-pr' and " +
         "'blocking-needs-update' — list the affected documentation file paths.",
       parameters: {
@@ -557,7 +648,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "array",
             items: { type: "string", minLength: 1 },
             description:
-              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — do not speculatively list docs based on topic area alone.",
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — which INCLUDES a doc whose existing prose describes the OLD behavior this PR changes, even if it never mentions a single identifier the diff adds; its prose being false is the reason it needs updating. What remains forbidden is topic-area speculation: a doc is not affected merely because it covers the same general area.",
           },
         },
         required: ["kind", "evidence"],
@@ -757,4 +848,52 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
     case "submit_thread_resolve":
       return { name, args: result.data as SubmitThreadResolveArgs };
   }
+}
+
+/** Tool name for the batched spec-verification form (mt#3545). */
+export const BATCHED_SPEC_VERIFICATION_TOOL = "submit_spec_verifications";
+
+/**
+ * Parse a raw model tool call into ONE OR MORE typed `ReviewToolCall`s (mt#3545).
+ *
+ * Identical to `parseToolCall` for every tool except the batched
+ * `submit_spec_verifications`, which is EXPANDED here into N singular
+ * `submit_spec_verification` calls. The batched form deliberately never appears
+ * in the `ReviewToolCall` union: every downstream consumer — `compose-review`'s
+ * gate parsing, `review-provenance`, `severity-recovery` — keeps matching the
+ * singular shape it already handles, so batching costs the model one round
+ * instead of N without touching the guard stack.
+ *
+ * Validation is per-entry by construction: the array element schema IS
+ * `SubmitSpecVerificationArgsSchema`, so a malformed entry fails the whole call
+ * with a path-qualified zod issue rather than being silently accepted.
+ *
+ * @throws on unknown tool name, unparseable JSON, or failed validation — same
+ *   contract as `parseToolCall`, so the caller's error handling is unchanged.
+ */
+export function parseToolCallExpanded(name: string, argsJson: string): ReviewToolCall[] {
+  if (name !== BATCHED_SPEC_VERIFICATION_TOOL) {
+    return [parseToolCall(name, argsJson)];
+  }
+
+  let rawArgs: unknown;
+  try {
+    rawArgs = JSON.parse(argsJson);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to parse argsJson for tool "${name}" as JSON: ${message}`);
+  }
+
+  const result = SubmitSpecVerificationsArgsSchema.safeParse(rawArgs);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("\n");
+    throw new Error(`Invalid args for tool "${name}":\n${issues}`);
+  }
+
+  return result.data.verifications.map((args) => ({
+    name: "submit_spec_verification" as const,
+    args,
+  }));
 }

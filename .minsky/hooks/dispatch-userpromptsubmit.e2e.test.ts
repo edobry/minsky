@@ -53,6 +53,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { HookOutput } from "./types";
+import { hookChildEnv } from "./hook-child-env";
 
 const SOURCE_DISPATCHER_PATH = new URL("./dispatch-userpromptsubmit.ts", import.meta.url).pathname;
 
@@ -103,7 +104,7 @@ async function invokeDispatcher(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, MINSKY_STATE_DIR: projectDir },
+    env: hookChildEnv({ CLAUDE_PROJECT_DIR: projectDir, MINSKY_STATE_DIR: projectDir }),
   });
   proc.stdin.write(JSON.stringify(payload));
   proc.stdin.end();
@@ -116,6 +117,31 @@ async function invokeDispatcher(
 }
 
 describe("dispatch-userpromptsubmit.ts e2e canary (mt#2835)", () => {
+  // mt#3528: the canary was red for ~a day because the spawned child inherited
+  // the harness's `MINSKY_LOG_MODE=STRUCTURED`, which routes the logger's
+  // Console transport to stdout and corrupts the hook's JSON payload. Asserting
+  // on the ENV the spawn receives — rather than only on the parse downstream —
+  // is what makes a future `env: { ...process.env }` regression fail loudly here
+  // instead of re-reddening the canary for an unrelated-looking reason.
+  test("mt#3528: the spawned child does not inherit harness-only logging env", () => {
+    const probeDir = "/tmp/mt3528-env-probe";
+    const env = hookChildEnv({ CLAUDE_PROJECT_DIR: probeDir, MINSKY_STATE_DIR: probeDir });
+
+    // The two vars that add a stdout Console transport (packages/shared/src/logger.ts:
+    // STRUCTURED mode, or ENABLE_AGENT_LOGS=true) must not reach a hook child.
+    expect(env["MINSKY_LOG_MODE"]).toBeUndefined();
+    expect(env["ENABLE_AGENT_LOGS"]).toBeUndefined();
+
+    // …while the vars the guards genuinely need still arrive.
+    expect(env["CLAUDE_PROJECT_DIR"]).toBe(probeDir);
+    expect(env["MINSKY_STATE_DIR"]).toBe(probeDir);
+
+    // Negative control for the assertion itself: the harness really does set
+    // MINSKY_LOG_MODE in THIS process, so the deletion above is doing work
+    // rather than asserting a var that was never present.
+    expect(process.env["MINSKY_LOG_MODE"]).toBe("STRUCTURED");
+  });
+
   test("sanity: both dispatcher paths under test actually exist on disk", () => {
     // Guards against a silent no-op if either path resolution is wrong (the
     // compiled path in particular is derived via relative directory walking,

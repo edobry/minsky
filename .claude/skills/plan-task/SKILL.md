@@ -61,6 +61,7 @@ a status transition; everything else is investigation and gate-check.
   - (m) Factual-claim citation verification
   - (n) External-system integration provisioning enumeration
   - (o) Problem-statement verification (reproduce a spec's asserted runtime/causal failure before accepting it)
+  - (p) First-party decision-record check (search the in-repo ADR corpus before proposing a mechanism)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -884,6 +885,88 @@ letter-(l) reuse that clobbered it); mt#2958 (the recurrence that surfaced the l
 restore + the append-only convention above); memories `d77d2bd4` (problem-statement verification),
 `dc9f7ad8` (the mt#2958 retro), `7c83fed0` ("reproduce error before theorizing"), `8814a2e1`
 (verify diagnostic tools before building theories).
+
+#### Gate criterion (p) — First-party decision-record check
+
+When the spec proposes or changes a **mechanism, architecture, substrate, policy, or detection
+approach** — anything where "how should this work?" is the question — the agent must search the
+in-repo accepted decision records (`docs/architecture/adr-*.md`) for one that governs the choice,
+cite it, and state match / extend / deviate BEFORE the mechanism is encoded and the task passes to
+READY. The accepted record is the DEFAULT; the spec justifies DEPARTING from it, not following it.
+
+Rationale: every other outward-facing gate in this battery points at a THIRD PARTY. Gate (k)
+verifies a NEW third-party dependency at adoption time; gate (l)'s three trigger sub-cases are all
+third-party (a CI/CD security surface, a mechanism on a third-party's internals, how-to-use a named
+third-party tool); gate (m) verifies a cited claim against its source, but only fires when a
+citation already exists. So on a purely in-repo mechanism change, an agent walking the battery
+HONESTLY records "(l) No third-party-system decision designed — criterion passes" and moves on.
+**That PASS is correct per the gate's text, and the outcome can still be wrong** — the signature of
+a coverage gap rather than a discipline failure, which is why "try harder" does not fix it. The
+asymmetry is historical, not principled: every incident that produced gates (k) and (l) happened to
+involve a third-party system. Minsky now carries 30+ accepted ADRs, and a spec can contradict one
+exactly the way it can contradict a vendor doc.
+
+**Originating incident — mt#3341 (2026-07-30).** The spec proposed fixing a detector recall miss by
+widening a regex corpus. ADR-024 (`docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md`,
+Accepted 2026-06-25) governs precisely that decision: a three-rung ladder for that detector family
+assigning recall/paraphrase misses to Rung 2 (embedding). ADR-024 §Context names the proposed fix as
+the anti-pattern it exists to end — "each miss has historically been answered by adding another
+regex family (R1 → R5) — an arms race" — and its §(d) requires divergent detector tasks to
+"coordinate with the phases, not proceed independently." The spec cited neither ADR-024, nor mt#2263
+(its RFC), nor mt#2366. It passed the full battery, including a correct "(l) passes," and the
+planning agent then presented a mechanism decision menu whose option set omitted the rung the ADR
+assigns. The principal caught it by asking "why are we still using regex?"
+
+**Trigger condition.** Fires when the spec proposes or changes a mechanism, architecture, substrate,
+policy, or detection approach — including a new module/abstraction, a change to how an existing
+mechanism decides something, or a menu of mechanism options presented for a decision. If the spec
+proposes no such decision — a pure bugfix, a refactor that preserves the mechanism, a docs edit, a
+findings-shaped `state-ops` audit — the criterion passes automatically. State that explicitly:
+"(p) No mechanism/architecture/policy decision proposed — criterion passes."
+
+**Required when triggered:**
+
+1. **Search** — two cheap passes, either of which is usually enough: (a) grep the ADR corpus for the
+   file paths named in the spec's `## Scope`; (b) grep the in-scope source files for `ADR-`
+   references — and **traverse what you find**.
+2. **Cite** — name the governing ADR in the spec, or state explicitly that the search was run and no
+   accepted record governs the decision. "No ADR governs this" is a PASSING answer only when the
+   search is recorded; an unrecorded absence is not a search.
+3. **Match / extend / deviate** — state which, with justification for any deviation.
+4. **Phase placement** — if the ADR names a phase or task structure, state which phase this task
+   belongs to, and whether it coordinates with the other phases or proceeds independently.
+
+**A reference already in context still has to be traversed.** In mt#3341 the pointer was not merely
+findable — `.minsky/hooks/retrospective-trigger-scanner.ts` cites ADR-024 by name, in a file the
+planning agent had read end to end. Better retrieval would not have helped; the missing step was
+FOLLOWING an ADR reference once seen. Step (1)(b) exists for exactly that failure: seeing `ADR-` in
+an in-scope file obliges you to open it, not to note that it exists.
+
+**Disambiguation from adjacent gates.** Gate (l) checks an authoritative THIRD-PARTY source (vendor
+docs, community practice) and auto-passes on a purely in-repo change — this gate covers the
+first-party half that auto-pass leaves open. Gate (m) verifies a citation that is ALREADY present
+against its source; gate (p) fires when NO citation exists and asks whether one should. The closest
+sibling is premise-audit sub-check (iv)'s architecture-consistency question ("which existing pattern
+does this extend?"), but that asks about code-level patterns and interfaces — a spec can correctly
+name the pattern it extends and still contradict the accepted record that governs the mechanism.
+
+**Counter-case (no over-fire).** A change with no mechanism decision passes automatically with the
+explicit sentence above. An ADR found but genuinely out of scope is also a pass — record which ADR
+was considered and why it does not govern (e.g. ADR-024's ladder scopes itself to `UserPromptSubmit`
+guidance hooks matching trigger phrases in the agent's own output, so it does not govern a static
+cross-reference check over task specs). The judgment half — "does this ADR actually govern this
+decision?" — is not statically decidable, which is why this criterion is prose and its deterministic
+slice (nominating candidate ADRs) is enqueued separately.
+
+Cross-references: mt#3409 (this gate); mt#3341 (originating incident, CLOSED — subsumed into
+mt#3408); `docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md`; memory
+`aa11b423` (mem#776), the bridge memory this gate formalizes — once this gate ships, that memory's
+job becomes historical record + pointer here; mem#268 (the INVERSE failure: an ADR found and mapped
+wrong by surface rather than semantics); `decision-defaults.mdc §Strategic frame` (closest existing
+guidance — but it targets named concepts and frames, not accepted decision records, and it is not a
+gate). Mechanization: mt#2755 carries this criterion's deterministic slice — for each file path in a
+spec's `## Scope`, grep `docs/architecture/*.md`; if an ADR references that path and the spec cites
+no ADR, flag it. That grep only NOMINATES candidates; the governance judgment stays here.
 
 ### Step 4: Act on gate results
 

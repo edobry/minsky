@@ -27,6 +27,8 @@ function ledgerRow(overrides: Partial<ProposalLedgerRow> = {}): ProposalLedgerRo
     evidenceSnapshot: {},
     filedTaskId: null,
     everProposed: true,
+    lastSuppressedAt: null,
+    suppressionCount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,

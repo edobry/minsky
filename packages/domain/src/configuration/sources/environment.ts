@@ -261,8 +261,11 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
   "MINSKY_ACK_SUBSTRATE_BYPASS", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
   "MINSKY_ACK_RETROSPECTIVE_TRIGGER", // .claude/hooks/retrospective-trigger-scanner.ts (mt#2057) — override for retrospective-trigger warning injection
+  "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
+  "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
+  "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
@@ -329,6 +332,9 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
   "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
   "MINSKY_SKIP_WALL_OF_TEXT", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
+  "MINSKY_SILENT_STRETCH_GAP_MINUTES", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
+  "MINSKY_SILENT_STRETCH_TOOL_CALLS", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
+  "MINSKY_WALL_OF_TEXT_WORD_BUDGET", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
   "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface
   "MINSKY_SKIP_OPERATOR_DEFERRAL", // .claude/hooks/operator-deferral-detector.ts (mt#2459) — skip BOTH log-only operator-deferral surfaces (capability-deferral prose + AskUserQuestion option labels)
   "MINSKY_SKIP_SIZE_JUSTIFICATION", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
@@ -341,6 +347,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
   "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
   "MINSKY_ACK_UNTAKEN_ACTION", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
+  "MINSKY_ACK_UNWALKED_TASK", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
   "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 

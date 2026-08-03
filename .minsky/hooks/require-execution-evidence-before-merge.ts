@@ -236,9 +236,24 @@ export function hasExecutionEvidence(prBody: string): boolean {
     /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
 
   const lines = strippedBody.split("\n");
+  // Fence-aware (mt#3530). A marker whose only occurrence is inside a code fence is
+  // QUOTED TEXT — a PR showing reviewers the expected shape — not a record. Before
+  // this, such a body SATISFIED this blocking gate: `hasExecutionEvidence` imported
+  // `computeFenceInternalLines` for its heading-collection helper below but never
+  // applied it here, so a quoted example counted as real evidence.
+  //
+  // This aligns the gate with the two scanners that already do it
+  // (`test-first-evidence.ts`, `success-criteria-coverage.ts`) and with the accepted-
+  // forms class its siblings' doc comments claim to mirror.
+  //
+  // Blast radius measured before flipping, per the mt#3530 spec: replayed over the 100
+  // most recently merged PRs — 0 verdict changes. The fenced CONTENT beneath a real
+  // marker still counts, so the normal shape (label outside, output fenced under it) is
+  // unaffected; only a marker with NO unfenced occurrence changes verdict.
+  const fenceInternal = computeFenceInternalLines(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(headingPattern);
     if (!match) continue;
 
@@ -261,7 +276,13 @@ export function hasExecutionEvidence(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
+      // Only a REAL heading ends the section (PR #2533 R1). An evidence block IS a
+      // pasted shell transcript, so a `# revert the fix first` comment inside the
+      // fence looks like a heading and would truncate the scan — a false NEGATIVE,
+      // and one that contradicts this function's own claim that fenced content
+      // beneath a real marker still counts. Matches `collectHeadingSections` below
+      // (:662) and `test-first-evidence.ts`, which both already gate on the fence.
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       if (nextLine.trim().length > 0) return true; // found content
     }
     // Heading found but no content — keep looking in case there's another
@@ -1076,8 +1097,10 @@ if (import.meta.main) {
     context.prNumber,
     prFiles,
     prTitle,
+    // Full body, not the extracted evidence block (mt#3584): this surface matches
+    // the negative-control label anywhere in the PR. Its AT/SC siblings above still
+    // pass the block, which is correct for them.
     prBody,
-    extractExecutionEvidenceText(prBody),
     specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
   );
   if (testFirst.calibrationRecord) {
