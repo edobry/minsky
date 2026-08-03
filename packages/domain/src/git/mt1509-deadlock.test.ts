@@ -107,7 +107,21 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("mt#1509 deadlock — stash → pull → stash-pop via pullImpl + stashImpl", () => {
-  test("pullImpl blocks when local lock-file change would be overwritten", async () => {
+  /**
+   * ONE test, not four, because this is one scenario: each phase consumes the
+   * repo state the previous phase produced (the drift is stashed, the stash is
+   * what the pull needs gone, the pop restores that same stash). Split across
+   * four `test()` calls it only passed in declaration order — and `bunfig.toml`
+   * sets `randomize = true`, so that order was never guaranteed. Separate tests
+   * bought no isolation here; none of them can run alone.
+   *
+   * Surfaced by the Bun 1.3.14 upgrade (mt#3561): 1.2.21 passed 12/12, 1.3.14
+   * failed on a reordered run with `git stash pop` reporting "No stash entries
+   * found" — the pop phase running before the phase that creates the stash.
+   * Every assertion below is carried over unchanged; only the grouping changed.
+   */
+  test("the full deadlock scenario: drift blocks the pull, stash unblocks it, pop restores", async () => {
+    // ---- Phase 1: pullImpl blocks when the local lock-file would be overwritten ----
     // Simulate lock-file drift: edit the local lock-file without committing
     await writeFile(join(workPath, LOCK_FILE), LOCK_FILE_DRIFTED_CONTENT);
 
@@ -143,10 +157,8 @@ describe("mt#1509 deadlock — stash → pull → stash-pop via pullImpl + stash
       .conflictingFiles;
     expect(conflictingFiles).toBeDefined();
     expect(conflictingFiles).toContain(LOCK_FILE);
-  });
 
-  test("stashImpl saves the drifted lock-file so pull can proceed", async () => {
-    // Lock-file is still drifted from the previous test
+    // ---- Phase 2: stashImpl saves the drifted lock-file so the pull can proceed ----
     const stashResult = await stashImpl(
       { repoPath: workPath, message: "pre-pull: lock-file drift" },
       realDeps
@@ -155,9 +167,8 @@ describe("mt#1509 deadlock — stash → pull → stash-pop via pullImpl + stash
     expect(stashResult.stashed).toBe(true);
     expect(stashResult.stashRef).not.toBeNull();
     expect(stashResult.workdir).toBe(workPath);
-  });
 
-  test("pullImpl succeeds after the lock-file is stashed", async () => {
+    // ---- Phase 3: pullImpl succeeds now that the lock-file is out of the way ----
     const pullResult = await pullImpl(
       { repoPath: workPath, remote: "origin", branch: "main" },
       realDeps
@@ -166,9 +177,8 @@ describe("mt#1509 deadlock — stash → pull → stash-pop via pullImpl + stash
     expect(pullResult.workdir).toBe(workPath);
     // alreadyUpToDate may be false if origin advanced; either value is valid here
     expect(typeof pullResult.alreadyUpToDate).toBe("boolean");
-  });
 
-  test("stashPopImpl runs after the pull without throwing — deadlock is broken", async () => {
+    // ---- Phase 4: stashPopImpl runs after the pull without throwing — deadlock broken ----
     // The stash contained LOCK_FILE_DRIFTED_CONTENT (based on INITIAL).
     // HEAD is now at LOCK_FILE_REMOTE_CONTENT (a different version of the same file).
     // git stash pop will attempt a 3-way merge; if the same lines changed in both

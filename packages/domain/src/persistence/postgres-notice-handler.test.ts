@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
 
@@ -67,7 +67,20 @@ describe("logPostgresNotice", () => {
     // postgres-js invokes the handler inside its own error path. A thrown
     // exception would surface as a client-side disconnect. Guarantee the
     // handler swallows internal failures.
-    debugSpy = mock(() => {
+    //
+    // Restore the beforeEach spy BEFORE installing the throwing one, and keep
+    // `debugSpy` pointing at a handle that actually owns the original.
+    //
+    // The bug this replaces: `debugSpy = mock(() => { throw ... })` left
+    // `log.debug` spied after this test, because `afterEach` then called
+    // `mockRestore()` on the replacement — a bare `mock`, which restores nothing
+    // — instead of on the `spyOn` handle. The leak survived into the next test,
+    // whose `beforeEach` re-spied an already-spied `log.debug` and inherited its
+    // call history, surfacing as an off-by-one in `toHaveBeenCalledTimes`.
+    // Invisible on Bun 1.2.21 (0/12 runs failed) and near-certain on 1.3.14
+    // (9/12), because only the latter actually randomizes test order.
+    debugSpy.mockRestore();
+    debugSpy = spyOn(log, "debug").mockImplementation(() => {
       throw new Error("logger blew up");
     });
 

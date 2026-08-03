@@ -11,7 +11,7 @@
  * so the status text survives into the message.
  */
 
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   handleOctokitError,
   classifyOctokitError,
@@ -224,6 +224,16 @@ describe("handleOctokitError — recorded 503-HTML fixture (mt#2888)", () => {
 });
 
 describe("handleOctokitError — rate-limit reset time (mt#2888)", () => {
+  // Reset on BOTH sides. The rate-limit snapshot is module-global, and
+  // `bun test` shares one process across files, so `github-rate-limit-state.test.ts`
+  // writes the same state this describe reads. Cleaning up only afterwards makes
+  // the "no snapshot has been captured" case depend on every predecessor having
+  // tidied up — and `bunfig.toml` sets `randomize = true`, so which predecessors
+  // ran is not fixed. Establishing the precondition here makes it independent.
+  beforeEach(() => {
+    resetGithubRateLimitStateForTests();
+  });
+
   afterEach(() => {
     resetGithubRateLimitStateForTests();
   });
