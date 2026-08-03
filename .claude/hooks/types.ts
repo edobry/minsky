@@ -502,6 +502,58 @@ export function readPositiveIntEnv(
   return parsed;
 }
 
+/**
+ * Resolve a preference-class threshold across all three sources (mt#3581).
+ *
+ * Precedence, highest first:
+ *
+ *   1. **An explicit `MINSKY_*` env var.** A human typed a number; an
+ *      automatic tune must never silently overrule that. This is the one
+ *      ordering choice in the chain that is a real decision rather than a
+ *      consequence — the alternative (tuned value wins) would make an
+ *      operator's explicit setting quietly stop working, with no surface
+ *      that says so.
+ *   2. **A locally-tuned value** from `guard-tuning-store.ts` — applied
+ *      either by consent or by the customer's own preference expression.
+ *   3. **The shipped default** compiled into the guard.
+ *
+ * The tuned value is bounds-checked on the way OUT as well as on the way in:
+ * the store only accepts positive integers, and this re-applies the same
+ * {@link PREFERENCE_OVERRIDE_MAX_MULTIPLE} ceiling the env path enforces, so
+ * a store hand-edited past the bound degrades to the default rather than
+ * taking effect. Trusting the writer would make the ceiling advisory.
+ *
+ * Reads are fail-open by way of the store's own posture: an unreadable or
+ * malformed store yields no tuned value, and the guard runs on its default.
+ */
+export function readTunedThreshold(
+  envVarName: string,
+  defaultValue: number,
+  deps: {
+    env?: Record<string, string | undefined>;
+    readTunedValueFn?: (thresholdKey: string) => number | undefined;
+  } = {}
+): number {
+  const env = deps.env ?? process.env;
+
+  const raw = env[envVarName];
+  if (raw !== undefined && raw.trim() !== "") {
+    return readPositiveIntEnv(envVarName, defaultValue, env);
+  }
+
+  const tuned = deps.readTunedValueFn?.(envVarName);
+  if (
+    tuned !== undefined &&
+    Number.isInteger(tuned) &&
+    tuned > 0 &&
+    tuned <= defaultValue * PREFERENCE_OVERRIDE_MAX_MULTIPLE
+  ) {
+    return tuned;
+  }
+
+  return defaultValue;
+}
+
 // ---------------------------------------------------------------------------
 // hook.fired system-event bridge (mt#2537)
 // ---------------------------------------------------------------------------
