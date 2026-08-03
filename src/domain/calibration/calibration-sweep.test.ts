@@ -604,7 +604,10 @@ describe("parseCalibrationRecord", () => {
   });
 
   // mt#3576 SC: the 186 records written before the excerpt shipped must keep
-  // parsing — absent means "predates the field", never an error.
+  // parsing — absent means "predates the field", never an error. Together with
+  // the test above this covers the passthrough contract in both directions:
+  // excerpt present (lifted, not duplicated) and excerpt absent (undefined, not
+  // fabricated).
   test("mt#3576: a pre-excerpt wall-of-text record still parses, with excerpt undefined", () => {
     const line = JSON.stringify({
       timestamp: "2026-07-18T00:20:09.120Z",

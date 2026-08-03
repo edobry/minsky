@@ -232,6 +232,18 @@ contamination class) is indistinguishable from a genuine one on `wordCount` alon
 nearest-rank note makes a single such record decisive at cold start. Excluding one before it
 reaches the tuner requires seeing the text. See mem#827 for the misread itself.
 
+Re-runnable, since the whole incident was an unverified claim about this corpus (PR #2568 R1):
+
+```
+$ jq -c 'select(.wordCount != null and .trigger != null)' \
+    .minsky/wall-of-text-calibration.jsonl | wc -l   # equals the total line count
+$ jq -r '.trigger' .minsky/wall-of-text-calibration.jsonl | sort | uniq -c
+```
+
+As of 2026-08-03 that is 186 of 186 records, split 166 `over-budget` / 19 `lead-labels` / 1 `both`.
+The counts move as the detector fires; the invariant to check is that the first number equals the
+file's line count.
+
 - mem#802 (the ownership principle) · mem#816 (the handoff that corrected the "shipped" claim)
 - `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` §D2, §D4
 - `docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md` (the ladder this

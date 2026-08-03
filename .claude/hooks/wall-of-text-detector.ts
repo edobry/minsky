@@ -218,6 +218,12 @@ export const LEAD_WINDOW_WORDS = 150;
  * truncation policy: 150 words of ordinary prose runs ~900-1000 chars, so it
  * binds only on unusually long tokens (a pasted URL, a base64 blob) and the
  * record stays bounded regardless of what the report contains.
+ *
+ * **The cap bounds the retained TEXT, before the marker.** When truncation
+ * fires the stored string is `EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length`
+ * — the marker is a visible signal that text was cut, deliberately outside the
+ * budget it reports on rather than eating into it. A consumer needing a hard
+ * ceiling on the stored value should use that sum (PR #2568 R1).
  */
 export const EXCERPT_MAX_CHARS = 1200;
 
@@ -284,7 +290,9 @@ export interface WallOfTextMeasurement {
   /** Count of named-artifact refs (mt#N / PR #N) anywhere in the report. */
   namedRefCount: number;
   /**
-   * The report's lead, capped at {@link EXCERPT_MAX_CHARS} (mt#3576).
+   * The report's lead, with its TEXT capped at {@link EXCERPT_MAX_CHARS}
+   * (mt#3576) — see that constant's note: a truncated value carries the marker
+   * beyond the cap, so the stored maximum is cap + marker length.
    *
    * Byte-for-byte the string `leadLabelHits` was computed from, so a reviewer
    * classifying a `lead-labels` fire sees the text that matched rather than

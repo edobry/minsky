@@ -789,6 +789,19 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
  * Returns `undefined` rather than `{}` when nothing was dropped, so a record
  * that carries no detector-specific fields is byte-identical to what it parsed
  * to before this change.
+ *
+ * **A lifted field cannot ALSO appear in the passthrough, and the reason is
+ * this function alone** (mt#3576, PR #2568 R1). The raw JSONL line is FLAT —
+ * `detectorFields` is DERIVED here from the line's unconsumed keys, never read
+ * from it — so a field cannot arrive nested and be surfaced twice. Nor does the
+ * guarantee depend on how a branch spells the assignment: a key is dropped only
+ * when the raw line HAS it and the branch did NOT set it, and a branch that
+ * reads `raw[k]` at all sets `k` under either spelling (`k: v ?? undefined` or a
+ * conditional spread). Both forms were run against the wall-of-text branch;
+ * neither duplicates. What WOULD break it is changing the `consumed` set below
+ * to anything narrower than the record's own keys — verified by making that
+ * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
+ * together. Those are the tests that pin this; a per-field strip would not.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
