@@ -160,6 +160,24 @@ const defaultLockDeps: GuardTuningLockDeps = {
   },
 };
 
+/**
+ * Ensure the store's directory exists (PR #2577 R2).
+ *
+ * Must run BEFORE the lock is acquired, not inside the critical section: the
+ * lock file lives at `${storePath}.lock`, in that same directory, so on a fresh
+ * machine the exclusive create fails with ENOENT, `tryExclusiveCreate` reports
+ * "already held", and the loop burns every retry before throwing "could not
+ * acquire". The error names the lock, so the symptom points nowhere near the
+ * cause — and it fires on the FIRST tune on any new install.
+ *
+ * The in-memory fs fake in the tests does not model directories, which is
+ * exactly why this survived a green suite; the reviewer caught it and a real
+ * fresh-dir run reproduced it.
+ */
+function ensureStoreDir(storePath: string, fsDeps: GuardTuningStoreFsDeps): void {
+  fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
+}
+
 /** Run `fn` holding the store's lock. Throws if the lock cannot be acquired. */
 export function withGuardTuningStoreLock<T>(
   storePath: string,
@@ -263,6 +281,7 @@ export function writeTunedValue(
 ): TunedThreshold {
   const storePath = options.storePath ?? getGuardTuningStorePath();
   const fsDeps = options.fsDeps ?? realFs;
+  ensureStoreDir(storePath, fsDeps);
 
   // The read and the write are one critical section: reading the store, deriving
   // `previousValue` from it, and writing back is a read-modify-write, and two
@@ -281,7 +300,6 @@ export function writeTunedValue(
       };
 
       store[thresholdKey] = entry;
-      fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
       fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
       return entry;
     },
@@ -308,6 +326,7 @@ export function revertTunedValue(
 ): number | undefined {
   const storePath = options.storePath ?? getGuardTuningStorePath();
   const fsDeps = options.fsDeps ?? realFs;
+  ensureStoreDir(storePath, fsDeps);
 
   // Same critical section as the write path: this reads the entry to learn what
   // to restore, then writes back.
@@ -324,7 +343,6 @@ export function revertTunedValue(
         store[thresholdKey] = { value: existing.previousValue, appliedAt: options.appliedAt };
       }
 
-      fsDeps.mkdirSync(path.dirname(storePath), { recursive: true });
       fsDeps.writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
       return store[thresholdKey]?.value;
     },

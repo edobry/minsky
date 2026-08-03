@@ -151,10 +151,48 @@ async function runCase(testCase: Case): Promise<{ ok: boolean; detail: string }>
   };
 }
 
+/**
+ * First-run check (PR #2577 R2): a state dir that does not exist yet.
+ *
+ * This is the one case the unit suite structurally cannot cover — its fs fake
+ * does not model directories, so a lock file created before its parent directory
+ * exists looks fine there and throws "could not acquire" on a real fresh install.
+ */
+async function runFreshDirCase(): Promise<{ ok: boolean; detail: string }> {
+  const { writeTunedValue, readTunedValue, getGuardTuningStorePath } = await import(
+    "../.minsky/hooks/guard-tuning-store"
+  );
+
+  const neverCreated = join(mkdtempSync(join(tmpdir(), "minsky-fresh-")), "never-created");
+  const previous = process.env["MINSKY_STATE_DIR"];
+  process.env["MINSKY_STATE_DIR"] = neverCreated;
+
+  try {
+    writeTunedValue("MINSKY_WALL_OF_TEXT_WORD_BUDGET", 330, {
+      appliedAt: new Date().toISOString(),
+    });
+    const readBack = readTunedValue("MINSKY_WALL_OF_TEXT_WORD_BUDGET");
+    if (readBack !== 330) {
+      return { ok: false, detail: `wrote to a fresh dir but read back ${String(readBack)}` };
+    }
+    return { ok: true, detail: `wrote and read 330 at a state dir that did not exist` };
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `first tune on a fresh state dir FAILED: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    if (previous === undefined) delete process.env["MINSKY_STATE_DIR"];
+    else process.env["MINSKY_STATE_DIR"] = previous;
+    rmSync(getGuardTuningStorePath(), { force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const results: { name: string; ok: boolean; detail: string }[] = [];
 
   try {
+    results.push({ name: "fresh state dir (first run)", ...(await runFreshDirCase()) });
     for (const testCase of CASES) {
       const result = await runCase(testCase);
       results.push({ name: testCase.name, ...result });

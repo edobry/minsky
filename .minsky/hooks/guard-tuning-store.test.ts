@@ -323,6 +323,68 @@ describe("withGuardTuningStoreLock", () => {
     expect(slept).toBeGreaterThan(0);
   });
 
+  // PR #2577 R2. The lock file lives in the store's directory, so acquiring it
+  // before that directory exists fails with ENOENT — which tryExclusiveCreate
+  // reports as "already held", burning every retry and throwing "could not
+  // acquire" on the FIRST tune of any fresh install. The in-memory fs fake does
+  // not model directories, so this asserts the ORDER the fix depends on rather
+  // than the ENOENT the fake cannot produce. A real fresh-dir run is in the PR body.
+  test("the store directory is created BEFORE the lock is acquired", () => {
+    const { deps } = makeFs();
+    const lock = makeLock();
+    const order: string[] = [];
+
+    writeTunedValue(KEY, 330, {
+      appliedAt: NOW,
+      storePath: STORE_PATH,
+      fsDeps: {
+        ...deps,
+        mkdirSync: (p, o) => {
+          order.push("mkdir");
+          deps.mkdirSync(p, o);
+        },
+      },
+      lockDeps: {
+        ...lock,
+        tryExclusiveCreate: (p, c) => {
+          order.push("lock");
+          return lock.tryExclusiveCreate(p, c);
+        },
+      },
+    });
+
+    expect(order[0]).toBe("mkdir");
+    expect(order).toContain("lock");
+    expect(order.indexOf("mkdir")).toBeLessThan(order.indexOf("lock"));
+  });
+
+  test("the reverting path creates the directory before locking too", () => {
+    const { deps } = makeFs();
+    const lock = makeLock();
+    const order: string[] = [];
+
+    revertTunedValue(KEY, {
+      appliedAt: NOW,
+      storePath: STORE_PATH,
+      fsDeps: {
+        ...deps,
+        mkdirSync: (p, o) => {
+          order.push("mkdir");
+          deps.mkdirSync(p, o);
+        },
+      },
+      lockDeps: {
+        ...lock,
+        tryExclusiveCreate: (p, c) => {
+          order.push("lock");
+          return lock.tryExclusiveCreate(p, c);
+        },
+      },
+    });
+
+    expect(order.indexOf("mkdir")).toBeLessThan(order.indexOf("lock"));
+  });
+
   test("a write goes through the lock, not around it", () => {
     const { deps } = makeFs();
     const lock = makeLock();
