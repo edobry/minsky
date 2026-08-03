@@ -160,6 +160,31 @@ export interface GuardOutcome {
    * it, so ordering is moot.
    */
   sessionTitle?: string;
+  /**
+   * PreToolUse-only: replaces the tool's ARGUMENTS before it runs, forwarded
+   * verbatim as `hookSpecificOutput.updatedInput` (mt#3612). A third output
+   * shape alongside `deny` (short-circuit) and `additionalContext`
+   * (concatenate) — it is a REPLACEMENT value, so neither of those rules
+   * applies to it.
+   *
+   * Aggregation: **first guard in registry order wins.** A later guard's
+   * rewrite is DISCARDED and the discard is written as an audit line naming
+   * both guards. Registry order is ADR-028 D1's explicit declared ordering
+   * property (the same one first-deny-wins rests on) — deliberately NOT the
+   * last-write-wins that `sessionTitle` above uses, because that rule is
+   * documented as moot for a single-writer field and a silently dropped
+   * argument rewrite is a correctness failure rather than a cosmetic one.
+   *
+   * A guard returning both `deny` and `updatedInput` gets the deny: the tool
+   * never runs, so its arguments are irrelevant.
+   *
+   * Claude Code honors the field on PreToolUse only. The dispatcher forwards
+   * it on whatever event the guard is registered for — same as `sessionTitle`
+   * above, which is documented UserPromptSubmit-only and likewise forwarded
+   * unconditionally. Scoping is the harness's; the dispatcher does not silently
+   * drop a value a guard deliberately returned.
+   */
+  updatedInput?: Record<string, unknown>;
 }
 
 export type GuardRunResult = GuardOutcome | null | undefined | void;

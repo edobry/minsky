@@ -192,6 +192,37 @@ injection-capable events (`UserPromptSubmit`, `PostToolUse`), the dispatcher **c
 every matched guard's `additionalContext` fragment (registry order, one guard's output per
 paragraph) into a single consolidated `HookOutput`.
 
+**Amendment (2026-08-03, mt#3612) — `updatedInput`, a third output shape.** The two rules above
+cover the only two shapes that existed when this ADR was accepted. Claude Code's PreToolUse
+contract carries a third: `hookSpecificOutput.updatedInput`, which REPLACES the tool's arguments
+before it runs. Neither existing rule applies — "concatenate" is meaningless for a replacement
+value, and "first `deny` wins" is about short-circuiting, not about choosing among values. The
+rule, now explicit rather than implied:
+
+- **First guard in registry order wins.** A later guard's `updatedInput` is DISCARDED, and the
+  discard is written as a `REWRITE-DISCARDED` audit line naming both the losing and the winning
+  guard. Rewrites cannot be merged: each guard builds its object from the ORIGINAL tool input, so
+  merging would resurrect fields the first guard deliberately changed.
+- **Registry order, not last-write-wins.** This deliberately does NOT follow `sessionTitle`
+  (Phase 2b), which is last-write-wins. That rule is documented in `GuardOutcome` as moot — only
+  one guard in any family sets it — so it was never a considered choice for a value that carries
+  correctness. Argument rewrites do, and registry order is the ordering property D1 already
+  declares.
+- **A `deny` beats a rewrite.** A guard returning both gets the deny; the tool never runs, so its
+  arguments are irrelevant. This follows from the short-circuit above rather than adding to it —
+  it is stated here because it was previously only an accident of statement order in the loop.
+- **Absent when unset.** When no guard returns the field, the key is omitted from the emitted JSON
+  entirely — not emitted as `null` or `{}`.
+- **Not silently dropped off-event.** Claude Code honors `updatedInput` on PreToolUse only. The
+  dispatcher still forwards whatever a guard returns, on whatever event it is registered for —
+  matching how `sessionTitle` is handled. Scoping belongs to the harness; the dispatcher does not
+  discard a value a guard deliberately set.
+
+Evidential note: the vendor contract for this field is documented, and the installed Claude Code
+2.1.220 bundle's own embedded hook documentation lists it under `hookSpecificOutput` as "Modified
+tool input (PreToolUse only)". mt#3612 additionally verifies the end-to-end behaviour live rather
+than resting on either document.
+
 **Self-contained constraint preserved.** The dispatcher and its shared framework services
 (D2–D6) live inside the hooks tree — `.minsky/hooks/framework/` (compiled to
 `.claude/hooks/framework/` per mt#2304) — never imported from `packages/domain/`. This
