@@ -30,7 +30,7 @@ const ADR_GLOB = "docs/architecture/adr-*.md";
 const ADR_FILENAME_RE = /^adr-(\d+)-/;
 
 export interface AdrNumberCollision {
-  /** The shared numeric prefix (as it appears in the filename, e.g. "031"). */
+  /** The shared number, CANONICALIZED via `normalizeAdrNumber` (3-digit zero-padded, e.g. "031") — not necessarily the raw digit string any individual colliding filename used. */
   number: string;
   /** Every path sharing that number, sorted for deterministic output. */
   paths: string[];
@@ -50,15 +50,29 @@ export function extractAdrNumber(filePath: string): string | null {
 }
 
 /**
+ * Canonicalize a captured ADR number for identity comparison. `adr-1-*.md`
+ * and `adr-001-*.md` name the SAME number — comparing the raw captured
+ * digit strings would miss that collision entirely, since `"1"` and `"001"`
+ * are different strings. Zero-padded to 3 digits, matching the repo's
+ * existing filename convention (adr-002 .. adr-034), so the canonical form
+ * doubles as a reasonable display value; a number needing more than 3 digits
+ * pads to its own natural width instead of truncating.
+ */
+export function normalizeAdrNumber(raw: string): string {
+  return String(parseInt(raw, 10)).padStart(3, "0");
+}
+
+/**
  * Pure function: given the full set of `docs/architecture/adr-*.md` paths
- * that WILL exist after the commit, group by numeric prefix and flag any
- * number held by 2+ files.
+ * that WILL exist after the commit, group by CANONICALIZED numeric prefix
+ * (see `normalizeAdrNumber`) and flag any number held by 2+ files.
  */
 export function detectAdrNumberCollisions(adrPaths: readonly string[]): AdrNumberCollision[] {
   const byNumber = new Map<string, string[]>();
   for (const path of adrPaths) {
-    const number = extractAdrNumber(path);
-    if (number === null) continue; // not `adr-NNN-*.md` — not this check's concern
+    const rawNumber = extractAdrNumber(path);
+    if (rawNumber === null) continue; // not `adr-NNN-*.md` — not this check's concern
+    const number = normalizeAdrNumber(rawNumber);
     const existing = byNumber.get(number);
     if (existing) {
       existing.push(path);

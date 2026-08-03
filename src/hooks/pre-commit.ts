@@ -458,6 +458,10 @@ export class PreCommitHook {
       // before this check; the sibling "immutable+collision" step
       // (runMigrationCollisionCheck) is exclusively about the SQL-migration
       // journal. Fires only when the staged diff touches an ADR path.
+      // (Label reflects when this step was ADDED, not run order — it already
+      // sits after Step 3g and before Step 3e below, matching the pre-existing
+      // pattern where these letters aren't temporal. Actual execution order is
+      // simply top-to-bottom in this method.)
       const adrNumberingCollisionResult = await this.instrumented(
         "adr-numbering-collision-check",
         () => runAdrNumberingCollisionCheckImpl(this.projectRoot),

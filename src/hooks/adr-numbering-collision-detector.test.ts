@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   extractAdrNumber,
+  normalizeAdrNumber,
   detectAdrNumberCollisions,
   isAdrNumberingCollisionOverrideTruthy,
   ADR_NUMBERING_COLLISION_CHECK_OVERRIDE_ENV,
@@ -12,9 +13,11 @@ describe("extractAdrNumber", () => {
   });
 
   test("parses the leading NNN prefix from a full repo-relative path", () => {
-    expect(extractAdrNumber("docs/architecture/adr-034-symbol-identification-in-code.md")).toBe(
-      "034"
-    );
+    expect(
+      extractAdrNumber(
+        "docs/architecture/adr-034-symbol-identification-in-code-mechanism-assertion.md"
+      )
+    ).toBe("034");
   });
 
   test("returns null for a non-ADR filename", () => {
@@ -24,6 +27,26 @@ describe("extractAdrNumber", () => {
   test("returns null when the number is missing or malformed", () => {
     expect(extractAdrNumber("adr-guidance-detector.md")).toBeNull();
     expect(extractAdrNumber("adr.md")).toBeNull();
+  });
+});
+
+describe("normalizeAdrNumber", () => {
+  test("pads a short number to 3 digits", () => {
+    expect(normalizeAdrNumber("1")).toBe("001");
+    expect(normalizeAdrNumber("31")).toBe("031");
+  });
+
+  test("is a no-op on an already-3-digit number", () => {
+    expect(normalizeAdrNumber("031")).toBe("031");
+  });
+
+  test("collapses different paddings of the same number to the same canonical form", () => {
+    expect(normalizeAdrNumber("1")).toBe(normalizeAdrNumber("001"));
+    expect(normalizeAdrNumber("031")).toBe(normalizeAdrNumber("31"));
+  });
+
+  test("does not truncate a number wider than 3 digits", () => {
+    expect(normalizeAdrNumber("1234")).toBe("1234");
   });
 });
 
@@ -50,6 +73,16 @@ describe("detectAdrNumberCollisions", () => {
     expect(collisions[0]).toMatchObject({
       number: "031",
       paths: [lifecycleEventAdr, symbolIdentificationAdr],
+    });
+  });
+
+  test("mixed padding: adr-1-*.md and adr-001-*.md are the SAME number and collide", () => {
+    const paths = ["docs/architecture/adr-1-old-style.md", "docs/architecture/adr-001-new.md"];
+    const collisions = detectAdrNumberCollisions(paths);
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0]).toMatchObject({
+      number: "001",
+      paths: ["docs/architecture/adr-001-new.md", "docs/architecture/adr-1-old-style.md"],
     });
   });
 
