@@ -8,7 +8,7 @@
  * mode so MCP clients never receive a bare confirmation string in place of
  * the payload they asked for.
  */
-import { describe, test, expect, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { z } from "zod";
 import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
@@ -16,7 +16,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
 } from "../shared/command-registry";
-import { log } from "@minsky/shared/logger";
+import { redact } from "../../utils/redaction";
 
 type CapturedCall = {
   params: Record<string, unknown>;
@@ -865,65 +865,32 @@ describe("MCP shared-command bridge", () => {
       expect(context?.debug).toBe(true);
     });
 
-    test("sensitive keys in args are redacted across all debug logs", async () => {
-      const id = "tasks.__mcp_bridge_redact_sensitive__";
-      registerTestCommand({
-        id,
-        name: id,
-        category: CommandCategory.TASKS,
-        description: "mt#1181 redaction test",
-        requiresSetup: false,
-        parameters: {},
-        execute: async () => ({ success: true }),
+    // mt#1181's redaction contract is now tested directly on redact()'s
+    // return value (mt#3629 / mt#3565 §Reframe) — the bridge's debug calls
+    // are a thin shell around it (see `buildSafeDebugContext` in
+    // shared-command-integration.ts), so no logger spy is needed to pin the
+    // contract itself.
+    describe("redact() (pure core — mt#1181 redaction contract)", () => {
+      test("sensitive keys are redacted", () => {
+        const sanitized = redact({ token: "secret-xyz", apiKey: "key-abc", normal: "visible" });
+        expect(sanitized).toEqual({
+          token: "[REDACTED]",
+          apiKey: "[REDACTED]",
+          normal: "visible",
+        });
       });
-      const { mapper, captured } = makeMockMapper(id);
-      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
-      const handler = captured.handler;
-      expect(handler).toBeDefined();
-      if (!handler) return;
 
-      const spy = spyOn(log, "debug");
-      try {
-        await handler({ token: "secret-xyz", apiKey: "key-abc", normal: "visible" });
-        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
-        expect(allCallsJson).not.toContain("secret-xyz");
-        expect(allCallsJson).not.toContain("key-abc");
-        expect(allCallsJson).toContain("visible");
-      } finally {
-        spy.mockRestore();
-      }
+      test("non-sensitive values pass through unchanged (regression guard)", () => {
+        const sanitized = redact({ foo: "bar", count: 42 });
+        expect(sanitized).toEqual({ foo: "bar", count: 42 });
+      });
     });
 
-    test("non-sensitive values are still logged (regression guard)", async () => {
-      const id = "tasks.__mcp_bridge_redact_regression__";
-      registerTestCommand({
-        id,
-        name: id,
-        category: CommandCategory.TASKS,
-        description: "mt#1181 redaction regression test",
-        requiresSetup: false,
-        parameters: {},
-        execute: async () => ({ success: true }),
-      });
-      const { mapper, captured } = makeMockMapper(id);
-      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
-      const handler = captured.handler;
-      expect(handler).toBeDefined();
-      if (!handler) return;
-
-      const spy = spyOn(log, "debug");
-      try {
-        await handler({ foo: "bar", count: 42 });
-        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
-        expect(allCallsJson).toContain("bar");
-        expect(allCallsJson).toContain("42");
-      } finally {
-        spy.mockRestore();
-      }
-    });
-
-    // mt#1181 Finding 3: DI container must not appear in debug logs
-    test("DI container is not included in debug log context", async () => {
+    // mt#1181 Finding 3: DI container must not appear in debug logs. This is
+    // the ONE wiring test for this shell (mt#3629): it verifies the bridge
+    // actually forwards buildSafeDebugContext's output to the log sink,
+    // using an injected collector instead of a logger spy.
+    test("wiring: DI container is stripped and sensitive keys redacted in the logged context", async () => {
       const id = "tasks.__mcp_bridge_no_container_log__";
       registerTestCommand({
         id,
@@ -936,28 +903,30 @@ describe("MCP shared-command bridge", () => {
       });
 
       // Simulate a config with a container (the sentinel value lets us verify
-      // the container field does not bleed into the serialised log output).
+      // the container field does not bleed into the logged context).
       const fakeContainer = { _containerSentinel: "SHOULD_NOT_APPEAR_IN_LOGS" };
 
+      const debugContextCalls: Array<{ message: string; context: Record<string, unknown> }> = [];
       const { mapper, captured } = makeMockMapper(id);
       registerSharedCommandsWithMcp(mapper as never, {
         categories: [CommandCategory.TASKS],
         container: fakeContainer as never,
+        debugContextLog: (message, meta) => {
+          debugContextCalls.push({ message, context: meta.context });
+        },
       });
       const handler = captured.handler;
       expect(handler).toBeDefined();
       if (!handler) return;
 
-      const spy = spyOn(log, "debug");
-      try {
-        await handler({});
-        const allCallsJson = spy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
-        // The sentinel inside fakeContainer must never appear in logs
-        expect(allCallsJson).not.toContain("SHOULD_NOT_APPEAR_IN_LOGS");
-        // The "container" key itself must not appear in the logged context
-        expect(allCallsJson).not.toContain('"container"');
-      } finally {
-        spy.mockRestore();
+      await handler({});
+
+      expect(debugContextCalls.length).toBeGreaterThan(0);
+      for (const call of debugContextCalls) {
+        // The "container" key itself must not appear in the logged context.
+        expect(call.context).not.toHaveProperty("container");
+        // The sentinel inside fakeContainer must never appear anywhere in it.
+        expect(JSON.stringify(call.context)).not.toContain("SHOULD_NOT_APPEAR_IN_LOGS");
       }
     });
   });
