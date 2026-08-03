@@ -792,6 +792,7 @@ describe("runDispatcher", () => {
   test("AT4: two guards return updatedInput -> FIRST in registry order wins, discard is audited", async () => {
     const written: HookOutput[] = [];
     const stdout: string[] = [];
+    const stderr = makeStderrSpy();
     await runDispatcher("PreToolUse", {
       hookFilename: DISPATCH_HOOK_FILENAME,
       registrations: [
@@ -801,15 +802,21 @@ describe("runDispatcher", () => {
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: (o) => written.push(o),
       stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: stderr.write,
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(written.length).toBe(1);
     expect(written[0]?.hookSpecificOutput?.updatedInput).toEqual({ command: "from-first" });
-    const discardLine = stdout.find((s) => s.includes("REWRITE-DISCARDED"));
+    const discardLine = stderr.writes.find((s) => s.includes("REWRITE-DISCARDED"));
     expect(discardLine).toBeDefined();
     // Both guards named: which one lost, and which one won instead.
     expect(discardLine).toContain("guard=second");
     expect(discardLine).toContain("kept=first");
+    // STDOUT must stay free of it: Claude Code discards a PreToolUse hook's
+    // whole output when stdout carries anything but the one JSON object, so
+    // auditing the discard on stdout would void the rewrite that WON. Verified
+    // live in PR #2573 — see the doc comment at the dispatcher's write site.
+    expect(stdout.some((s) => s.includes("REWRITE-DISCARDED"))).toBe(false);
   });
 
   test("AT5: deny plus updatedInput from one guard -> deny wins, no updatedInput key emitted", async () => {

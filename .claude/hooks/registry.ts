@@ -168,8 +168,9 @@ export interface GuardOutcome {
    * applies to it.
    *
    * Aggregation: **first guard in registry order wins.** A later guard's
-   * rewrite is DISCARDED and the discard is written as an audit line naming
-   * both guards. Registry order is ADR-028 D1's explicit declared ordering
+   * rewrite is DISCARDED and the discard is written as a stderr audit line
+   * naming both guards (stderr because Claude Code drops a PreToolUse hook's
+   * whole output if stdout holds anything but the one JSON object). Registry order is ADR-028 D1's explicit declared ordering
    * property (the same one first-deny-wins rests on) — deliberately NOT the
    * last-write-wins that `sessionTitle` above uses, because that rule is
    * documented as moot for a single-writer field and a silently dropped

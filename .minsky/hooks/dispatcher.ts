@@ -280,6 +280,11 @@ export function buildOverrideAuditLine(
  * call cannot both be honored — and the loser is invisible without this line.
  * Discarding it silently is the failure class the whole surrounding tree keeps
  * hitting, so the drop is recorded rather than inferred.
+ *
+ * Written to STDERR by the caller. Claude Code discards a PreToolUse hook's
+ * entire output when stdout carries anything besides the single JSON object, so
+ * an audit line on stdout would silently void the rewrite that won — turning a
+ * visibility mechanism into the very failure it was added to prevent.
  */
 export function buildDiscardedRewriteAuditLine(
   event: LifecycleEvent,
@@ -802,7 +807,14 @@ export async function runDispatcher(
         updatedInput = outcome.updatedInput;
         updatedInputKeptBy = reg.name;
       } else {
-        stdoutWrite(
+        // STDERR, not stdout. Claude Code discards a PreToolUse hook's ENTIRE
+        // output when stdout carries anything besides the one JSON object
+        // (ADR-028 D1's "exactly one JSON object", confirmed live in PR #2573:
+        // an identical run with one junk stdout line ahead of the JSON executed
+        // the ORIGINAL command instead of the rewrite). Writing this line to
+        // stdout would therefore void the winning guard's rewrite in precisely
+        // the multi-guard case the line exists to make visible.
+        stderrWrite(
           buildDiscardedRewriteAuditLine(
             event,
             reg.name,

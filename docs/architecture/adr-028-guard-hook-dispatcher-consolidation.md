@@ -201,8 +201,25 @@ rule, now explicit rather than implied:
 
 - **First guard in registry order wins.** A later guard's `updatedInput` is DISCARDED, and the
   discard is written as a `REWRITE-DISCARDED` audit line naming both the losing and the winning
-  guard. Rewrites cannot be merged: each guard builds its object from the ORIGINAL tool input, so
-  merging would resurrect fields the first guard deliberately changed.
+  guard — **on stderr**. Rewrites cannot be merged: each guard builds its object from the ORIGINAL
+  tool input, so merging would resurrect fields the first guard deliberately changed.
+
+  The stderr choice is load-bearing, and it sharpens the "exactly one JSON object" constraint this
+  section already states. Measured live (mt#3612 / PR #2573): a PreToolUse hook emitting ONE
+  non-JSON line ahead of a well-formed JSON object had its **entire output discarded** — the tool
+  ran with its original arguments. Controls: the identical hook with JSON-only stdout applied the
+  rewrite; adding a single junk line, with everything else held constant, reverted it. So the
+  constraint is not merely a convention for readability — violating it silently voids the hook's
+  decision, with no error surfaced anywhere.
+
+  **Consequence for the paths that predate this amendment (mt#3625):** the dispatcher's override
+  audit line (`buildOverrideAuditLine`) and its `outcome.auditLines` pass-through both write to
+  STDOUT before any JSON is emitted. By the finding above, any dispatch in which one of those
+  fires AND a later guard emits a `deny` or `additionalContext` has that JSON discarded by Claude
+  Code — a silently dropped deny. That is a pre-existing defect surfaced by this amendment's
+  verification, not introduced by it; it is filed as mt#3625 rather than fixed here, since it
+  touches guard paths outside this task's scope.
+
 - **Registry order, not last-write-wins.** This deliberately does NOT follow `sessionTitle`
   (Phase 2b), which is last-write-wins. That rule is documented in `GuardOutcome` as moot — only
   one guard in any family sets it — so it was never a considered choice for a value that carries
