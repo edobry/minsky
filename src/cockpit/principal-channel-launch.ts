@@ -516,7 +516,15 @@ export async function resolveWithRetry(deps: {
   let attempt = 0;
   for (;;) {
     const resolution = await deps.resolve();
-    if (resolution.configured || !resolution.transient) return resolution;
+    if (resolution.configured || !resolution.transient) {
+      // Clear a stale `retrying` before returning (PR #2582 R1). Without this,
+      // a resolution that SUCCEEDED on attempt 2 left the status reading
+      // "retrying" — a health field describing a retry that already finished.
+      // `starting` is the honest neutral: the caller sets `running` (or the
+      // unconfigured verdict) immediately after this returns.
+      if (channelStatus.state === "retrying") channelStatus = { state: "starting" };
+      return resolution;
+    }
 
     if (attempt >= deps.delaysMs.length) {
       channelStatus = { state: "failed", reason: resolution.reason, attempts: attempt + 1 };
@@ -586,6 +594,34 @@ export async function startPrincipalChannel(opts: {
   }
 
   const { token, chatId } = resolution.config;
+
+  // Same class as the stale-`retrying` fix above (PR #2582 R1): every path out
+  // of here must leave a status that is TRUE. Credentials resolved, but the
+  // steps below can still throw — and an escaping exception would leave the
+  // health field reading `starting` forever, which is the same "reports a
+  // state it is not in" defect one step later.
+  try {
+    return await startResolvedChannel({ opts, config, token, chatId });
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    channelStatus = { state: "failed", reason, attempts: 1 };
+    throw err;
+  }
+}
+
+/** The post-credential half of {@link startPrincipalChannel}. */
+async function startResolvedChannel(args: {
+  opts: {
+    respondToAsk: (askRef: string, text: string) => Promise<string>;
+    recordEvent: InboundEventRecorder;
+    readHighestUpdateId: () => Promise<number | undefined>;
+    onStarted?: (chatId: string) => void;
+  };
+  config: PrincipalChannelLaunchConfig;
+  token: string;
+  chatId: string;
+}): Promise<PollerHandle | null> {
+  const { opts, config, token, chatId } = args;
 
   // Diagnostic only (mt#3505) — never gates startup either way. See
   // logTopicModeCapability's own docblock for why: when topic mode is off,

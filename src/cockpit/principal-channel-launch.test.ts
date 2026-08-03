@@ -474,8 +474,12 @@ describe("resolveWithRetry (mt#3608)", () => {
 
     expect(result.configured).toBe(true);
     expect(calls).toBe(2);
-    // The status surface reflects the recovery, not the transient blip.
-    expect(getPrincipalChannelStatus().state).toBe("retrying");
+    // The retry is OVER, so the status must not still say "retrying" (PR #2582
+    // R1). The first version of this test asserted `"retrying"` here — encoding
+    // a stale status as the expected outcome, which is exactly the shape
+    // mem#729 warns about: a test that pins the defect as an invariant.
+    expect(getPrincipalChannelStatus().state).not.toBe("retrying");
+    expect(getPrincipalChannelStatus().state).toBe("starting");
   });
 
   test("AT2 — a permanently failing read gives up as `failed`, NOT as `unconfigured`", async () => {
@@ -512,6 +516,34 @@ describe("resolveWithRetry (mt#3608)", () => {
     // Exactly one attempt: retrying an absent credential only delays a message
     // the operator needs to see, and burns the Pulumi backend for nothing.
     expect(calls).toBe(1);
+  });
+
+  test("a resolution that fails permanently leaves `failed`, not a stale `retrying`", async () => {
+    // The sibling of AT1's fix: whichever way the loop exits, the status it
+    // leaves behind must describe the state the channel is ACTUALLY in.
+    await resolveWithRetry({
+      resolve: async () => TRANSIENT,
+      sleep,
+      delaysMs: NO_WAIT,
+    });
+
+    expect(getPrincipalChannelStatus().state).toBe("failed");
+  });
+
+  test("an unconfigured verdict mid-retry clears the stale `retrying`", async () => {
+    // Transient first, then a definite absence — the status must follow the
+    // LATEST verdict rather than stick on the retry that preceded it.
+    let calls = 0;
+    await resolveWithRetry({
+      resolve: async () => {
+        calls += 1;
+        return calls === 1 ? TRANSIENT : UNCONFIGURED;
+      },
+      sleep,
+      delaysMs: NO_WAIT,
+    });
+
+    expect(getPrincipalChannelStatus().state).not.toBe("retrying");
   });
 
   test("a success on the first attempt never sleeps", async () => {
