@@ -1,0 +1,221 @@
+#!/usr/bin/env bun
+// Stop-event guard: catch a turn that MINTS a task id and ends without walking
+// it forward (mt#3536).
+//
+// WHY THIS IS NOT THE UNTAKEN-ACTION GUARD'S JOB:
+//   `turn-end-untaken-action-scan` keys on the SURFACE PHRASE in
+//   `last_assistant_message` — a turn that NAMES a next action and doesn't take
+//   it. That is the loud shape. The R4 incident (2026-08-01) was the quiet one:
+//   the agent diagnosed a live operator-reported problem, filed mt#3534 with a
+//   full spec, and ended the turn naming no next action at all. No phrase, so
+//   nothing for a phrase-keyed guard to match, and it correctly stayed silent.
+//
+//   So this guard keys on STATE, not on wording: did the turn mint a task id,
+//   and did it make any call that moves that id forward? A turn that stops
+//   silently and a turn that stops verbosely produce the same verdict, which is
+//   the entire point. mem#799 records the announced-but-untaken shape; this is
+//   its unspoken twin.
+//
+// WHY A NEW GUARD RATHER THAN WIDENING THE SIBLING:
+//   The two key on different things — one on message text, one on tool-call
+//   state. Folding them together would reintroduce the phrase-dependence this
+//   guard exists to escape. They are siblings, not duplicates.
+//
+// FAMILY:
+//   Fourth recurrence of stop-at-handoff (`family:stop-at-handoff`). R1
+//   mt#1478 and R2/R3 mt#2689 both shipped PROSE fixes and both went DONE; the
+//   pattern recurred anyway. mt#2689's enforcement lives inside `/create-task`'s
+//   exit step, so it only fires when the agent routes through the skill — R4
+//   called `tasks_create` directly and routed around it. A fix scoped to an
+//   optional wrapper is only as strong as the wrapper's invocation rate; when
+//   the wrapped tool is directly callable, the enforcement belongs on the tool
+//   boundary. That is what this is.
+//
+// ADVISORY-ONLY, never `deny`: the Stop-hook continuation gives the agent one
+// beat to actually walk the task, which is the whole remedy. Filing a
+// background task by design is legitimate and stays a one-line answer.
+//
+// @see .minsky/hooks/turn-end-untaken-action-scan.ts — phrase-keyed sibling
+// @see .minsky/hooks/turn-end-retro-scan.ts — the other Stop guard; same shape
+// @see mt#3536 — this guard; mem#610 — the family record (R1-R4)
+
+import type { DispatchContext, GuardOutcome } from "./registry";
+import type { StopHookInput } from "./turn-end-retro-scan";
+import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
+import { extractFinalTurn, findCreatedResourceIds, findToolUseInputs } from "./transcript";
+
+export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNWALKED_TASK";
+
+/** The id-minting call this guard watches. */
+export const MINTING_TOOL = "mcp__minsky__tasks_create";
+
+/**
+ * Calls that move a just-filed task forward. Any ONE of these, naming the
+ * minted id, satisfies the guard.
+ *
+ * `asks_create` counts because routing a principal-owned decision through the
+ * Ask substrate IS the legitimate halt — the task is blocked on someone else,
+ * and the agent did the right thing by filing the ask rather than stalling in
+ * chat prose (`/plan-task` Step 4's ask-or-cite-ask closeout).
+ */
+export const WALK_FORWARD_TOOLS: readonly string[] = [
+  "mcp__minsky__tasks_status_set",
+  "mcp__minsky__session_start",
+  "mcp__minsky__tasks_dispatch",
+  "mcp__minsky__asks_create",
+];
+
+/**
+ * Param keys that can carry a task id across the walk-forward tools.
+ *
+ * Deliberately a SET rather than a per-tool mapping: the tools spell it
+ * differently (`tasks_status_set` takes `taskId`, `session_start` takes
+ * `task`, an ask links via `parentTaskId`), and a per-tool table would be a
+ * second place to drift out of sync with those schemas. Reading any of the
+ * keys is both simpler and fails in the safe direction — a walk call this
+ * guard cannot parse reads as "no walk", which produces a redundant reminder
+ * rather than silence.
+ */
+const TASK_ID_PARAM_KEYS: readonly string[] = ["taskId", "task", "parentTaskId"];
+
+export interface UnwalkedTask {
+  taskId: string;
+}
+
+/** Read every task id this turn's walk-forward calls referenced. */
+function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): Set<string> {
+  const walked = new Set<string>();
+  for (const tool of WALK_FORWARD_TOOLS) {
+    for (const input of findToolUseInputs(turnLines, tool)) {
+      for (const key of TASK_ID_PARAM_KEYS) {
+        const value = input[key];
+        if (typeof value === "string" && value.length > 0) walked.add(value);
+      }
+    }
+  }
+  return walked;
+}
+
+/**
+ * Pure detector — exported for tests. Returns the task ids this turn minted and
+ * then left unwalked.
+ *
+ * Only CONFIRMED creations count: `findCreatedResourceIds` correlates each
+ * `tool_use` with its `tool_result`, and this additionally requires
+ * `result.success === true`. A `tasks_create` that ERRORED minted nothing, so
+ * there is nothing to walk and reminding about it would be pure noise.
+ */
+export function detectUnwalkedTasks(
+  turnLines: Parameters<typeof findToolUseInputs>[0]
+): UnwalkedTask[] {
+  const created = findCreatedResourceIds(turnLines, MINTING_TOOL, "taskId").filter(
+    (c) => c.createdId !== undefined && c.result?.["success"] === true
+  );
+  if (created.length === 0) return [];
+
+  const walked = collectWalkedIds(turnLines);
+  const unwalked: UnwalkedTask[] = [];
+  for (const c of created) {
+    const taskId = c.createdId as string;
+    if (!walked.has(taskId)) unwalked.push({ taskId });
+  }
+  return unwalked;
+}
+
+/**
+ * Most ids to name in the reminder before collapsing the rest to a count.
+ *
+ * The point is that `attentionCost.denialMessageSizeChars` below is a REAL
+ * bound rather than a canary-shaped guess: without a cap the message grows
+ * ~55 chars per task, so a multi-task turn would silently blow past a ceiling
+ * measured on a one-task canary — the understatement mt#3479 found in 14 of 26
+ * guards, which the merged-context budget then inherits. Three ids is enough to
+ * act on; the count carries the rest.
+ */
+export const MAX_LISTED_IDS = 3;
+
+function buildReminder(unwalked: UnwalkedTask[]): string {
+  const lines: string[] = [
+    "[turn-end-unwalked-task] You filed a task and ended the turn without walking it forward.",
+    "",
+  ];
+  for (const u of unwalked.slice(0, MAX_LISTED_IDS)) {
+    lines.push(`  - minted, no status/session/dispatch/ask call: ${u.taskId}`);
+  }
+  if (unwalked.length > MAX_LISTED_IDS) {
+    lines.push(`  - …and ${unwalked.length - MAX_LISTED_IDS} more`);
+  }
+  lines.push(
+    "",
+    "If this was incident response — a problem reported in this conversation, or found " +
+      "during its work — filing is not the deliverable; continue to /plan-task now. If it " +
+      "was a background task filed for later by design, the principal deferred it, it needs " +
+      "decomposition, or another actor holds it, say which in one line and end."
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Guard-dispatcher entry point (GuardModule contract). `storeDir` is a test
+ * seam for the dedup store location; the dispatcher never passes it.
+ */
+export function run(
+  input: StopHookInput,
+  ctx: DispatchContext,
+  storeDir?: string
+): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+  if (isOverride) {
+    return {
+      auditLines: [
+        `[turn-end-unwalked-task] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  // `extractFinalTurn` is the STOP-side resolver: at Stop time no subsequent
+  // prompt exists, so the completed turn is the transcript's tail. Its bounds
+  // are REAL user prompts, not every user-role line, so the interleaved
+  // user-role `tool_result` lines this guard depends on fall INSIDE the span
+  // rather than splitting it (the mt#2255 hazard `findToolUseInputs`'s own
+  // docblock warns about applies to naive user-role slicing, not to this).
+  const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
+  if (turnLines.length === 0) return null;
+
+  const unwalked = detectUnwalkedTasks(turnLines);
+  if (unwalked.length === 0) return null;
+
+  // Dedup on the task id itself rather than on a turn hash. The id is minted
+  // once and is stable across the advisory continuation, so re-entering Stop
+  // for the same turn correctly stays quiet — while a LATER turn that mints a
+  // different task correctly fires again.
+  const sessionId = input.session_id ?? "unknown";
+  const flagged = readFlagged(sessionId, storeDir);
+  const fresh = unwalked.filter((u) => !flagged.has(flagKey("unwalked-task", u.taskId, "")));
+  if (fresh.length === 0) return null;
+
+  for (const u of fresh) {
+    flagged.add(flagKey("unwalked-task", u.taskId, ""));
+  }
+  writeFlagged(sessionId, flagged, storeDir);
+
+  return {
+    calibration: {
+      source: "live",
+      channel: "stop",
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      stop_hook_active: input.stop_hook_active === true,
+      unwalkedTaskIds: fresh.map((u) => u.taskId),
+      // Recorded so a reviewer classifying a false positive can see whether the
+      // turn said anything about its own stop, without this guard keying on it.
+      final_message_tail: (input.last_assistant_message ?? "").slice(-600),
+      suppressionReasons: [],
+    },
+    additionalContext: buildReminder(fresh),
+  };
+}
