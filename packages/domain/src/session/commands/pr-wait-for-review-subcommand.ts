@@ -57,6 +57,23 @@ export interface SessionPrWaitForReviewDependencies {
   /** Test seam: override the delay between polls. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
   /**
+   * Test seam: override the TOTAL budget for the mt#2777 SC#1 final
+   * authoritative check. Defaults to `FINAL_CHECK_DEADLINE_MS` (10s).
+   *
+   * Exists for tests that must run the final check against REAL timers
+   * (`now`/`sleep` left un-stubbed, because the point is to prove a real
+   * `setTimeout`-based deadline bounds a stalled call). Such a test otherwise
+   * has to spend the full production budget in wall-clock time: the mt#3551
+   * instance sat at ~11s against bun's 15s per-test ceiling, and already
+   * failed outright under bun's 5s DEFAULT — which is what any invocation
+   * that omits `--timeout` gets. Shrinking the budget keeps the real timer
+   * and drops the cost.
+   *
+   * Not a production knob: no CLI/MCP parameter maps to it, which is why it
+   * lives here rather than on `SessionPrWaitForReviewParams`.
+   */
+  finalCheckDeadlineMs?: number;
+  /**
    * Test seam: override the TokenProvider used for role resolution
    * (`reviewer: "reviewer" | "implementer"`). Defaults to a provider
    * constructed from runtime config the same way `pr-review-context-subcommand`
@@ -879,8 +896,9 @@ export async function sessionPrWaitForReview(
      * diagnostic read must never turn an otherwise-legitimate timeout into
      * a thrown error.
      *
-     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` is a TOTAL budget
-     * for the whole sequence below, not a per-call cap — a single
+     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` — or the
+     * `deps.finalCheckDeadlineMs` test-seam override (mt#3551) — is a TOTAL
+     * budget for the whole sequence below, not a per-call cap — a single
      * `finalCheckDeadline` timestamp is computed once, and each of the
      * three sequential calls (`getHeadSha`, `listReviews`,
      * `fetchReviewerCheckRunState`) is bounded to whatever remains of it
@@ -891,7 +909,7 @@ export async function sessionPrWaitForReview(
      */
     const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
       let finalCheckPerformed = false;
-      const finalCheckDeadline = now() + FINAL_CHECK_DEADLINE_MS;
+      const finalCheckDeadline = now() + (deps.finalCheckDeadlineMs ?? FINAL_CHECK_DEADLINE_MS);
       try {
         if (getHeadSha) {
           headSha = await withDeadline(

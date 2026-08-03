@@ -8,11 +8,20 @@
  */
 import { describe, expect, test } from "bun:test";
 import { sessionPrDrive, type SessionPrDriveDependencies } from "./pr-drive-subcommand";
-import { FINAL_CHECK_DEADLINE_MS } from "./pr-wait-for-review-subcommand";
 import type { ChecksResult, RepositoryBackend, ReviewListEntry } from "../../repository/index";
 import type { SessionProviderInterface, SessionRecord } from "../types";
 
 const SESSION_ID = "test-session";
+/**
+ * mt#3551: the final-check budget the one real-timer test below runs on,
+ * injected via the `finalCheckDeadlineMs` deps seam in place of production's
+ * 10s `FINAL_CHECK_DEADLINE_MS`. That test spends this budget in REAL wall
+ * clock; at 10s it cost ~11s and failed outright under bun's 5s default
+ * per-test timeout. 300ms is comfortably above scheduler noise and ~33x
+ * cheaper. Raising this back toward the production constant re-creates the
+ * failure — the value is the point, not an incidental fixture number.
+ */
+const FINAL_CHECK_BUDGET_MS = 300;
 const PR_NUMBER = 123;
 const REVIEWER_BOT = "minsky-reviewer[bot]";
 const CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED" as const;
@@ -426,6 +435,16 @@ describe("sessionPrDrive", () => {
         createBackend: async () => backend,
         // Real clock/sleep — the whole point is to prove the REAL deadline
         // (not a fake-clock-simulated one) bounds the stalled call.
+        //
+        // mt#3551: the final check's budget IS shrunk, though. Left at the
+        // production `FINAL_CHECK_DEADLINE_MS` (10s), this test spent ~11s of
+        // real wall clock — 4s under bun's 15s per-test ceiling, and already
+        // OVER bun's 5s default, so any `bun test <file>` invocation that
+        // omitted `--timeout` failed here deterministically (13 pass / 1 fail)
+        // and read as "main is red". Shrinking the budget does not weaken what
+        // the test proves: the deadline is still a REAL `setTimeout`, still
+        // hit by the same never-resolving mock, just sooner.
+        finalCheckDeadlineMs: FINAL_CHECK_BUDGET_MS,
       };
 
       const start = performance.now();
@@ -452,7 +471,12 @@ describe("sessionPrDrive", () => {
       // test proves (real setTimeout-based deadlines, not the fake
       // now/sleep seams elsewhere in this suite, genuinely bound both the
       // main poll loop AND the final check).
-      expect(elapsedMs).toBeLessThan(1000 + FINAL_CHECK_DEADLINE_MS + 2000);
+      //
+      // mt#3551: the budget term is the shrunk `FINAL_CHECK_BUDGET_MS`, not
+      // the production 10s constant — see the deps comment above. The margin
+      // stays at 2s: it absorbs scheduler jitter, which does not shrink with
+      // the budget.
+      expect(elapsedMs).toBeLessThan(1000 + FINAL_CHECK_BUDGET_MS + 2000);
     });
   });
 });
