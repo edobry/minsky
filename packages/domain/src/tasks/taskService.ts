@@ -230,6 +230,11 @@ export async function createConfiguredTaskService(options: {
             log.debug("Minsky backend registered successfully");
           } else {
             log.debug("Minsky backend database connection returned null");
+            service.setBackendUnavailable({
+              reason: "the persistence provider returned no database connection",
+              configured: true,
+              backend: "postgres",
+            });
           }
         } catch (error) {
           // mt#2949: distinguish "deliberately unconfigured" (local/dev, no
@@ -257,7 +262,32 @@ export async function createConfiguredTaskService(options: {
               error: getErrorMessage(error),
             });
           }
+
+          // mt#3636: the log.error above goes to stderr, which an MCP client
+          // never sees — so the failure was invisible at the tool surface and a
+          // later read answered `{tasks: [], total: 0}`. Record the cause on the
+          // service so the zero-backend guard can name it in the error it
+          // raises instead.
+          service.setBackendUnavailable(
+            persistenceProvider instanceof UnconfiguredPersistenceProvider
+              ? {
+                  reason: persistenceProvider.reason,
+                  configured: persistenceProvider.configuredButUnavailable,
+                  backend: "postgres",
+                }
+              : { reason: getErrorMessage(error), configured: true, backend: "postgres" }
+          );
         }
+      } else {
+        // No `getDatabaseConnection` at all — the provider cannot back a task
+        // backend, so nothing will be registered from this path either. NOT
+        // `configured: true`: this provider never claimed SQL capability, so
+        // describing it as "configured but failed to initialize at boot" would
+        // fabricate a boot failure that did not happen.
+        service.setBackendUnavailable({
+          reason: "the active persistence provider does not expose a database connection",
+          configured: false,
+        });
       }
 
       // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')
