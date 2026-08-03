@@ -129,7 +129,17 @@ export function registerPrincipalCommands(
         const getDb = getDbFromContainer(ctx);
         if (getDb) {
           deps = {
-            ...channelDeps,
+            // `?? {}` is a readability no-op, not a bug fix. Object spread of
+            // `undefined` yields no properties and does not throw — only
+            // ARRAY spread (`[...undefined]`) is a TypeError. PR #2566 R1
+            // flagged this as a "possible runtime TypeError"; that was a false
+            // positive, disproved by execution (`{...undefined, a:1}` -> `{a:1}`)
+            // and by the pre-existing passing test "a taskId with persistence
+            // available queries the topic store before sending", which already
+            // takes this exact branch with `channelDeps === undefined`. Written
+            // explicitly to converge the review rather than spend an operator
+            // authorization on a one-line non-issue.
+            ...(channelDeps ?? {}),
             lookupTaskTopic: (taskId, chatId) =>
               findTelegramTopicForTask(taskId, chatId, { getDb }),
             markTopicDead: (chatId, messageThreadId) =>
