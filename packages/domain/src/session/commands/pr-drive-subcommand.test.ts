@@ -5,14 +5,29 @@
  * (no real network, no real waiting): APPROVE -> READY_TO_MERGE,
  * CHANGES_REQUESTED stop, COMMENT stop, checks-fail stop, checks-timeout
  * stop, and review-timeout.
+ *
+ * ONE test is deliberately exempt from "no real waiting": the mt#2677
+ * regression for a stalled review fetch leaves `now`/`sleep` un-stubbed,
+ * because its whole point is that a REAL `setTimeout`-based deadline bounds a
+ * never-resolving call. It is bounded instead by an injected
+ * `finalCheckDeadlineMs` (mt#3551) so the real wait stays sub-second.
  */
 import { describe, expect, test } from "bun:test";
 import { sessionPrDrive, type SessionPrDriveDependencies } from "./pr-drive-subcommand";
-import { FINAL_CHECK_DEADLINE_MS } from "./pr-wait-for-review-subcommand";
 import type { ChecksResult, RepositoryBackend, ReviewListEntry } from "../../repository/index";
 import type { SessionProviderInterface, SessionRecord } from "../types";
 
 const SESSION_ID = "test-session";
+/**
+ * mt#3551: the final-check budget the one real-timer test below runs on,
+ * injected via the `finalCheckDeadlineMs` deps seam in place of production's
+ * 10s `FINAL_CHECK_DEADLINE_MS`. That test spends this budget in REAL wall
+ * clock; at 10s it cost ~11s and failed outright under bun's 5s default
+ * per-test timeout. 300ms is comfortably above scheduler noise and ~33x
+ * cheaper. Raising this back toward the production constant re-creates the
+ * failure — the value is the point, not an incidental fixture number.
+ */
+const FINAL_CHECK_BUDGET_MS = 300;
 const PR_NUMBER = 123;
 const REVIEWER_BOT = "minsky-reviewer[bot]";
 const CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED" as const;
@@ -426,6 +441,16 @@ describe("sessionPrDrive", () => {
         createBackend: async () => backend,
         // Real clock/sleep — the whole point is to prove the REAL deadline
         // (not a fake-clock-simulated one) bounds the stalled call.
+        //
+        // mt#3551: the final check's budget IS shrunk, though. Left at the
+        // production `FINAL_CHECK_DEADLINE_MS` (10s), this test spent ~11s of
+        // real wall clock — 4s under bun's 15s per-test ceiling, and already
+        // OVER bun's 5s default, so any `bun test <file>` invocation that
+        // omitted `--timeout` failed here deterministically (13 pass / 1 fail)
+        // and read as "main is red". Shrinking the budget does not weaken what
+        // the test proves: the deadline is still a REAL `setTimeout`, still
+        // hit by the same never-resolving mock, just sooner.
+        finalCheckDeadlineMs: FINAL_CHECK_BUDGET_MS,
       };
 
       const start = performance.now();
@@ -442,17 +467,40 @@ describe("sessionPrDrive", () => {
 
       expect(result.state).toBe("REVIEW_TIMEOUT");
       // Bounded by the configured 1s deadline PLUS the mt#2777 SC#1 final
-      // authoritative check's own budget (FINAL_CHECK_DEADLINE_MS) — the
-      // final check deliberately re-reads via the SAME stalled `listReviews`
-      // mock immediately before reporting timeout, so it too hits its bound
-      // rather than resolving. This is NOT the caller's real 1800s MCP
-      // idle-timeout (the actual failure mode in all three live hangs) —
-      // the total is still a small, fixed cap, just larger than pre-SC#1.
-      // 2s margin absorbs CI scheduling jitter without weakening what the
-      // test proves (real setTimeout-based deadlines, not the fake
-      // now/sleep seams elsewhere in this suite, genuinely bound both the
-      // main poll loop AND the final check).
-      expect(elapsedMs).toBeLessThan(1000 + FINAL_CHECK_DEADLINE_MS + 2000);
+      // authoritative check's own budget — which here is the injected
+      // `FINAL_CHECK_BUDGET_MS` (300ms), NOT production's 10s
+      // `FINAL_CHECK_DEADLINE_MS`; see the `finalCheckDeadlineMs` note on the
+      // deps above for why it is shrunk. The final check deliberately re-reads
+      // via the SAME stalled `listReviews` mock immediately before reporting
+      // timeout, so it too hits its bound rather than resolving. This is NOT
+      // the caller's real 1800s MCP idle-timeout (the actual failure mode in
+      // all three live hangs) — the total is a small, fixed cap.
+      //
+      // The 2s margin absorbs CI scheduling jitter without weakening what the
+      // test proves (real setTimeout-based deadlines, not the fake now/sleep
+      // seams elsewhere in this suite, genuinely bound both the main poll loop
+      // AND the final check). It deliberately does NOT shrink along with the
+      // budget: jitter is a property of the scheduler, not of the bound.
+      expect(elapsedMs).toBeLessThan(1000 + FINAL_CHECK_BUDGET_MS + 2000);
+    });
+
+    test("PR #2571 R1: a non-positive finalCheckDeadlineMs seam value throws instead of silently disabling the final check", async () => {
+      // The seam is test-only, so the realistic failure is a typo (0, a negative,
+      // NaN from an arithmetic slip). Left unvalidated, every final-check call
+      // would exceed its deadline instantly and degrade to
+      // `finalCheckPerformed: false` — a result indistinguishable from a
+      // legitimately-unavailable check, i.e. a test that passes while verifying
+      // nothing. It must fail loudly at setup instead.
+      const deps = makeDeps({ reviewsQueue: [[]] });
+
+      for (const bad of [0, -1, Number.NaN]) {
+        await expect(
+          sessionPrDrive(
+            { sessionId: SESSION_ID, reviewTimeoutSeconds: 30 },
+            { ...deps, finalCheckDeadlineMs: bad }
+          )
+        ).rejects.toThrow(/finalCheckDeadlineMs/);
+      }
     });
   });
 });
