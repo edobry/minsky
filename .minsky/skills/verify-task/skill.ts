@@ -3,7 +3,7 @@ import { defineSkill } from "../../../packages/domain/src/definitions/factories"
 export default defineSkill({
   name: "verify-task",
   description:
-    'Set DONE on the bypass-merge fallback path: confirm the PR is merged AND the merge-commit body contains the canonical bypass-merge audit-trail signature, then transition IN-REVIEW → DONE. The reviewer bot (`minsky-reviewer[bot]`) does the verification work at review time; this skill only confirms the closeout signal. Use when: "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".',
+    'Set DONE on the bypass-merge fallback path: confirm the PR merged AND the merge commit carries the canonical bypass audit signature, then transition IN-REVIEW → DONE. The reviewer bot does the verification at review time; this only confirms the closeout signal. Use for "verify mt#X" / "close out mt#X".',
   userInvocable: true,
   content: `
 # Verify Task
