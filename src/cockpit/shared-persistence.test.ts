@@ -24,6 +24,13 @@ import {
   refreshDbReachability,
   getDbCheck,
   DB_REACHABILITY_PROBE_TIMEOUT_MS,
+  getPersistenceEpoch,
+  recycleSharedPersistence,
+  getDbRecycle,
+  shouldRecycleNow,
+  __setRecycleThresholdsForTests,
+  RECYCLE_AFTER_DEGRADED_MS,
+  RECYCLE_MIN_INTERVAL_MS,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
 
@@ -524,5 +531,180 @@ describe("refreshDbReachability review fixes (PR #2558 R1)", () => {
 
     expect(issued).toBe(1);
     expect(status).toBe("ok");
+  });
+});
+
+describe("shouldRecycleNow (mt#3638)", () => {
+  const base = {
+    nowMs: 100_000,
+    degradedSinceMs: 80_000,
+    lastRecycleAtMs: null,
+    hasService: true,
+    afterDegradedMs: 15_000,
+    minIntervalMs: 60_000,
+  };
+
+  test("exported thresholds carry their derivation", () => {
+    // 3 probe deadlines of continuous degradation = the evidence 3 failed
+    // probes would have been (the wedge's probe never COMPLETES, so a
+    // completed-probe count cannot work — see the constant's doc).
+    expect(RECYCLE_AFTER_DEGRADED_MS).toBe(3 * DB_REACHABILITY_PROBE_TIMEOUT_MS);
+    expect(RECYCLE_MIN_INTERVAL_MS).toBe(60_000);
+  });
+
+  test("fires after sustained degradation with no prior recycle", () => {
+    expect(shouldRecycleNow(base)).toBe(true);
+  });
+
+  test("does not fire while the degraded run is younger than the threshold", () => {
+    expect(shouldRecycleNow({ ...base, degradedSinceMs: 90_000 })).toBe(false);
+  });
+
+  test("does not fire when nothing is degraded", () => {
+    expect(shouldRecycleNow({ ...base, degradedSinceMs: null })).toBe(false);
+  });
+
+  test("rate limit: does not fire within minIntervalMs of the last recycle", () => {
+    expect(shouldRecycleNow({ ...base, lastRecycleAtMs: 50_000 })).toBe(false);
+  });
+
+  test("fires again once the rate-limit window has passed", () => {
+    expect(shouldRecycleNow({ ...base, lastRecycleAtMs: 30_000 })).toBe(true);
+  });
+
+  test("does not fire when there is no service to tear down", () => {
+    expect(shouldRecycleNow({ ...base, hasService: false })).toBe(false);
+  });
+});
+
+describe("recycleSharedPersistence (mt#3638)", () => {
+  function makeCloseTrackingFactory(close: () => Promise<void>) {
+    let factoryCalls = 0;
+    const factory: PersistenceServiceFactory = async () => {
+      factoryCalls++;
+      return {
+        initialize: async () => {},
+        close,
+        getProvider: () => ({}),
+      } as unknown as PersistenceService;
+    };
+    return { factory, calls: () => factoryCalls };
+  }
+
+  test("resets the singleton, bumps the epoch, and closes the old service", async () => {
+    let closeCalls = 0;
+    const { factory, calls } = makeCloseTrackingFactory(async () => {
+      closeCalls++;
+    });
+    const first = await getSharedPersistenceService(1_000, factory);
+    expect(calls()).toBe(1);
+    const epochBefore = getPersistenceEpoch();
+
+    recycleSharedPersistence("test recycle");
+
+    expect(getPersistenceEpoch()).toBe(epochBefore + 1);
+    expect(getDbStatus()).toBe("degraded");
+    const second = await getSharedPersistenceService(1_000, factory);
+    expect(calls()).toBe(2);
+    expect(second).not.toBe(first);
+    // close() is fire-and-forget; give its microtask a beat to run.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closeCalls).toBe(1);
+  });
+
+  test("a close() that never settles does not delay the recycle or the next init", async () => {
+    const { factory } = makeCloseTrackingFactory(() => new Promise<void>(() => {}));
+    await getSharedPersistenceService(1_000, factory);
+
+    const beforeMs = performance.now();
+    recycleSharedPersistence("wedged close");
+    // Synchronous state reset — no await on the hung close.
+    expect(performance.now() - beforeMs).toBeLessThan(100);
+
+    const fresh = await getSharedPersistenceService(1_000, factory);
+    expect(fresh).toBeDefined();
+    expect(getDbStatus()).toBe("ok");
+  });
+
+  test("updates recycle telemetry", async () => {
+    const { factory } = makeCloseTrackingFactory(async () => {});
+    await getSharedPersistenceService(1_000, factory);
+    expect(getDbRecycle()).toEqual({ lastRecycleAt: null, recycleCount: 0 });
+
+    recycleSharedPersistence("telemetry test");
+
+    const telemetry = getDbRecycle();
+    expect(telemetry.recycleCount).toBe(1);
+    expect(telemetry.lastRecycleAt).not.toBeNull();
+  });
+
+  test("markDbDegraded also bumps the epoch (cache-staleness parity)", async () => {
+    const { factory } = makeCloseTrackingFactory(async () => {});
+    await getSharedPersistenceService(1_000, factory);
+    const epochBefore = getPersistenceEpoch();
+    markDbDegraded();
+    expect(getPersistenceEpoch()).toBe(epochBefore + 1);
+  });
+});
+
+describe("refreshDbReachability recycle trigger (mt#3638)", () => {
+  test("sustained degraded observations recycle the pool in place — including the never-settle wedge shape", async () => {
+    __setRecycleThresholdsForTests(20, 0);
+    let closeCalls = 0;
+    let factoryCalls = 0;
+    const factory: PersistenceServiceFactory = async () => {
+      factoryCalls++;
+      return {
+        initialize: async () => {},
+        close: async () => {
+          closeCalls++;
+        },
+      } as unknown as PersistenceService;
+    };
+    await getSharedPersistenceService(1_000, factory);
+
+    // The wedge: a probe that NEVER settles (mt#3092 / postgres#1089 shape).
+    const hungProbe = () => new Promise<unknown>(() => {});
+
+    // First call issues the probe; the 5ms deadline expires -> degraded run starts.
+    await refreshDbReachability(hungProbe, 5);
+    expect(getDbStatus()).toBe("degraded");
+    expect(getDbRecycle().recycleCount).toBe(0);
+
+    // Let the degraded run exceed the (shrunk) threshold, then poll again.
+    // This poll takes the outstanding-probe branch — the probe never settled —
+    // which is exactly the branch that had to count toward the trigger.
+    await new Promise((r) => setTimeout(r, 30));
+    await refreshDbReachability(hungProbe, 5);
+
+    expect(getDbRecycle().recycleCount).toBe(1);
+    // The next caller rebuilds a fresh service (the in-place recovery).
+    await getSharedPersistenceService(1_000, factory);
+    expect(factoryCalls).toBe(2);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closeCalls).toBe(1);
+  });
+
+  test("a recovering probe resets the degraded run (no recycle on transient blips)", async () => {
+    __setRecycleThresholdsForTests(20, 0);
+    const factory: PersistenceServiceFactory = async () =>
+      ({
+        initialize: async () => {},
+        close: async () => {},
+      }) as unknown as PersistenceService;
+    await getSharedPersistenceService(1_000, factory);
+
+    // One failing probe (rejects immediately -> degraded run starts)...
+    await refreshDbReachability(() => Promise.reject(new Error("blip")), 5);
+    expect(getDbStatus()).toBe("degraded");
+    // ...then recovery before the threshold elapses.
+    await refreshDbReachability(() => Promise.resolve("ok"), 5);
+    expect(getDbStatus()).toBe("ok");
+
+    // Degradation resumes but its clock started FRESH — older-than-threshold
+    // history from the first blip must not count.
+    await new Promise((r) => setTimeout(r, 30));
+    await refreshDbReachability(() => Promise.reject(new Error("blip 2")), 5);
+    expect(getDbRecycle().recycleCount).toBe(0);
   });
 });

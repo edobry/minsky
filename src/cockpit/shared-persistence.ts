@@ -102,12 +102,18 @@ export function getDbStatus(): DbStatus {
  * reaches the process-level handler. Resets `_instance` so the next
  * `getSharedPersistenceService()` call starts a fresh init sequence.
  *
+ * Bumps the persistence epoch (mt#3638): a singleton reset is invisible to the
+ * module-level caches in db-providers.ts / widgets/agents.ts unless the epoch
+ * moves — without the bump they keep serving the torn-down provider forever,
+ * which is the mt#2362 staleness this closes.
+ *
  * @internal Not for use from application code other than the error handler.
  */
 export function markDbDegraded(): void {
   _dbStatus = "degraded";
   _instance = null;
   _initPromise = null;
+  _epoch++;
   log.warn("[shared-persistence] DB marked degraded; singleton reset for retry");
 }
 
@@ -238,6 +244,10 @@ export async function refreshDbReachability(
     // a fresh measurement would misreport (PR #2558 R1). The value going stale
     // while the status reads degraded is the signal, not a gap.
     _dbStatus = _instance ? "degraded" : "unreachable";
+    // mt#3638: this branch IS the never-settle wedge signature — count it
+    // toward the recycle trigger, or the wedge whose probe never completes
+    // could never accumulate evidence against itself.
+    noteDegradedObservation();
     return _dbStatus;
   }
 
@@ -263,6 +273,7 @@ export async function refreshDbReachability(
     _dbStatus = _instance ? "degraded" : "unreachable";
     _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
     _lastProbeFinishedAtMs = Date.now();
+    noteDegradedObservation();
     log.warn("[shared-persistence] DB reachability probe failed to start", {
       message: err instanceof Error ? err.message : String(err),
     });
@@ -305,9 +316,11 @@ export async function refreshDbReachability(
     ]);
     _dbStatus = "ok";
     _dbCheck = { checkedAt: new Date().toISOString(), latencyMs: Date.now() - startedAt };
+    noteProbeSuccess();
   } catch (err) {
     _dbStatus = _instance ? "degraded" : "unreachable";
     _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    noteDegradedObservation();
     log.warn("[shared-persistence] DB unreachable from this daemon", {
       message: err instanceof Error ? err.message : String(err),
       status: _dbStatus,
@@ -320,6 +333,223 @@ export async function refreshDbReachability(
     _lastProbeFinishedAtMs = Date.now();
   }
   return _dbStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Wedge-triggered pool recycle (mt#3638)
+//
+// The probe above DETECTS a wedged pool; nothing acted on the detection — the
+// 2026-08-03 21:12Z occurrence ran 40+ minutes at `db: "degraded"` (501
+// consecutive degraded health polls, every DB route hung) until a process
+// restart, WITH the mt#3592 socket inactivity bound live in the daemon. This
+// section is the recovery half: sustained degradation tears down the shared
+// service, resets the singleton, and bumps the epoch so every cached consumer
+// re-resolves against the fresh pool. Deliberately mechanism-agnostic — it is
+// the in-process equivalent of the restart that has fixed all four observed
+// occurrences, so it recovers wedges whose mechanism is not yet diagnosed.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long the probe must report degraded, continuously, before a recycle.
+ *
+ * A DURATION rather than a completed-probe count, deliberately: in the
+ * never-settle wedge (mt#3092 / porsager-postgres#1089) the first hung probe
+ * stays outstanding forever, so no further probes COMPLETE — a count of
+ * completed failures would never advance while the wedge it exists to catch is
+ * in progress. Three probe deadlines' worth of continuous degradation is the
+ * same evidence three failed probes would have been.
+ */
+export const RECYCLE_AFTER_DEGRADED_MS = 3 * DB_REACHABILITY_PROBE_TIMEOUT_MS;
+
+/**
+ * Floor between recycles. Grounded in the pool's own idle_timeout scale (60 s,
+ * postgres-provider.ts): a recycle's reconnect cost is the same class as the
+ * idle policy's natural churn, so recycling no faster than idle turnover adds
+ * no new pressure against the pooler when the DB is genuinely down.
+ */
+export const RECYCLE_MIN_INTERVAL_MS = 60_000;
+
+/**
+ * How long to WAIT on the torn-down service's close() before abandoning it.
+ * The pool being closed is wedged by definition, so close() frequently hangs;
+ * the recycle itself never waits on it (teardown is fire-and-forget) — this
+ * only bounds how long the abandoned close is tracked before being logged as
+ * abandoned. Mirrors the mt#2248 orphan-close pattern in
+ * getSharedPersistenceService.
+ */
+export const RECYCLE_CLOSE_TIMEOUT_MS = 5_000;
+
+/**
+ * Monotonic generation counter for the shared PersistenceService (mt#3638).
+ *
+ * Every consumer that caches anything derived from the shared provider — the
+ * db-providers.ts getters, widgets/agents.ts factories — records the epoch it
+ * cached at and re-resolves when it moves. Bumped by every singleton reset:
+ * recycleSharedPersistence() and markDbDegraded().
+ */
+let _epoch = 0;
+
+/** Current persistence generation. Cheap; safe to call on every cache read. */
+export function getPersistenceEpoch(): number {
+  return _epoch;
+}
+
+/** Recycle telemetry for /api/health (`dbRecycle`), sibling of getDbCheck. */
+export interface DbRecycle {
+  /** ISO timestamp of the most recent recycle, or null if none this process. */
+  lastRecycleAt: string | null;
+  /** Recycles since process start. A rising count is the recurrence signal. */
+  recycleCount: number;
+}
+
+let _recycleLastAtMs: number | null = null;
+let _recycleCount = 0;
+
+/** Read-only recycle telemetry; pairs with {@link getDbStatus}. */
+export function getDbRecycle(): DbRecycle {
+  return {
+    lastRecycleAt: _recycleLastAtMs === null ? null : new Date(_recycleLastAtMs).toISOString(),
+    recycleCount: _recycleCount,
+  };
+}
+
+/** Monotonic ms of the first degraded observation in the CURRENT degraded run. */
+let _degradedRunSinceMs: number | null = null;
+
+// Live thresholds; only tests may lower them (via __setRecycleThresholdsForTests).
+let _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
+let _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
+
+/**
+ * @internal Test-only: shrink the recycle thresholds so the trigger path can be
+ * exercised in milliseconds. Restored by __resetSharedPersistenceForTests.
+ */
+export function __setRecycleThresholdsForTests(
+  afterDegradedMs: number,
+  minIntervalMs: number
+): void {
+  _recycleAfterDegradedMs = afterDegradedMs;
+  _recycleMinIntervalMs = minIntervalMs;
+}
+
+/**
+ * Pure recycle-trigger decision, extracted so the threshold logic is
+ * unit-testable without timers or a live pool.
+ */
+export function shouldRecycleNow(input: {
+  nowMs: number;
+  degradedSinceMs: number | null;
+  lastRecycleAtMs: number | null;
+  /** Is there anything to tear down (an instance or an in-flight init)? */
+  hasService: boolean;
+  afterDegradedMs?: number;
+  minIntervalMs?: number;
+}): boolean {
+  const after = input.afterDegradedMs ?? RECYCLE_AFTER_DEGRADED_MS;
+  const minInterval = input.minIntervalMs ?? RECYCLE_MIN_INTERVAL_MS;
+  if (!input.hasService) return false;
+  if (input.degradedSinceMs === null) return false;
+  if (input.nowMs - input.degradedSinceMs < after) return false;
+  if (input.lastRecycleAtMs !== null && input.nowMs - input.lastRecycleAtMs < minInterval) {
+    return false;
+  }
+  return true;
+}
+
+/** Probe success: close the degraded run so the duration clock starts fresh. */
+function noteProbeSuccess(): void {
+  _degradedRunSinceMs = null;
+}
+
+/**
+ * Degraded observation from the reachability path. Starts/continues the
+ * degraded-duration clock and fires the recycle when the trigger holds.
+ */
+function noteDegradedObservation(): void {
+  const nowMs = Date.now();
+  if (_degradedRunSinceMs === null) _degradedRunSinceMs = nowMs;
+  const eligible = shouldRecycleNow({
+    nowMs,
+    degradedSinceMs: _degradedRunSinceMs,
+    lastRecycleAtMs: _recycleLastAtMs,
+    // When both are null there is no pool to recycle — init itself is failing
+    // (DB genuinely down) and the next caller already retries from scratch, so
+    // a recycle would be a no-op that still burned the rate-limit window.
+    hasService: _instance !== null || _initPromise !== null,
+    afterDegradedMs: _recycleAfterDegradedMs,
+    minIntervalMs: _recycleMinIntervalMs,
+  });
+  if (!eligible) return;
+  recycleSharedPersistence(
+    `db degraded continuously for ${Math.round((nowMs - _degradedRunSinceMs) / 1000)}s`
+  );
+}
+
+/**
+ * Tear down the shared PersistenceService and reset the singleton so the next
+ * caller builds a fresh pool (mt#3638).
+ *
+ * Synchronous by design: the state reset (epoch bump, singleton clear,
+ * outstanding-probe release) must not be delayed by a close() that — on a
+ * wedged pool — may never settle. The old service's close runs fire-and-forget
+ * with a logged deadline.
+ *
+ * Exported for tests and for deliberate operator-driven invocation; routine
+ * triggering goes through the reachability path above.
+ */
+export function recycleSharedPersistence(cause: string): void {
+  const oldInstance = _instance;
+  const oldInit = _initPromise;
+  _epoch++;
+  _instance = null;
+  _initPromise = null;
+  _dbStatus = "degraded";
+  // The outstanding probe (if any) is a query against the pool being torn
+  // down; holding the slot would block all future probes forever, since the
+  // wedged query never settles. Releasing it lets the NEXT health poll probe
+  // the fresh pool. The old probe's own release closure compares identity
+  // (`_outstandingProbe === issued`) so its late settle cannot clobber this.
+  _outstandingProbe = null;
+  _recycleLastAtMs = Date.now();
+  _recycleCount++;
+  log.warn("[shared-persistence] recycling shared persistence pool", {
+    cause,
+    epoch: _epoch,
+    recycleCount: _recycleCount,
+  });
+  if (oldInstance) {
+    closeAbandonedService(oldInstance);
+  } else if (oldInit) {
+    // An in-flight init at recycle time: close whatever it eventually
+    // produces, exactly like the mt#2248 orphan path. A rejection means the
+    // provider self-cleaned; nothing to close.
+    void oldInit.then(
+      (svc) => closeAbandonedService(svc),
+      () => {}
+    );
+  }
+}
+
+/** Fire-and-forget close of a recycled service, bounded by a logging deadline. */
+function closeAbandonedService(svc: PersistenceService): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`)),
+      RECYCLE_CLOSE_TIMEOUT_MS
+    );
+    timer.unref?.();
+  });
+  void Promise.race([Promise.resolve(svc.close?.()), deadline])
+    .then(() => log.debug("[shared-persistence] recycled pool closed cleanly"))
+    .catch((err: unknown) =>
+      log.warn("[shared-persistence] abandoned close of recycled pool", {
+        message: err instanceof Error ? err.message : String(err),
+      })
+    )
+    .finally(() => {
+      if (timer) clearTimeout(timer);
+    });
 }
 
 /**
@@ -501,4 +731,12 @@ export function __resetSharedPersistenceForTests(): void {
   _dbCheck = { checkedAt: null, latencyMs: null };
   _outstandingProbe = null;
   _lastProbeFinishedAtMs = null;
+  // mt#3638: recycle state is module-level too — a test that triggered a
+  // recycle would otherwise leave the next test rate-limited or a bumped epoch.
+  _epoch = 0;
+  _degradedRunSinceMs = null;
+  _recycleLastAtMs = null;
+  _recycleCount = 0;
+  _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
+  _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
 }

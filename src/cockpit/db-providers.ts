@@ -38,6 +38,10 @@ import type { ChangesetService } from "@minsky/domain/changeset/changeset-servic
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
 import { log } from "@minsky/shared/logger";
+// Static import is safe here (shared-persistence pulls in only types + the
+// logger); the heavyweight PersistenceService itself stays behind the dynamic
+// import in getCachedPersistenceProvider below.
+import { getPersistenceEpoch } from "./shared-persistence";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -154,17 +158,25 @@ export function shouldRefuseTestEnvironmentDb(input: {
  *   Defaults to {@link getCachedPersistenceProvider}. Production callers never
  *   set this — it exists so unit tests can exercise the caching behavior
  *   above against a fake/failing provider without a real DB.
+ * @param options.getEpoch Test seam: override the persistence-epoch read
+ *   (mt#3638). Defaults to {@link getPersistenceEpoch}. A cache entry is only
+ *   served while the epoch it was created under is still current; a recycle
+ *   or degraded-reset bumps the epoch and forces a re-resolve, so no getter
+ *   can pin a torn-down pool.
  */
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
+  getEpoch?: () => number;
 }): CachedSqlDbGetter {
   // A getter built without `getProvider` resolves the REAL configured
   // database; that is what the mt#3254 guard keys on.
   const isProductionResolution = options.getProvider === undefined;
   const getProvider = options.getProvider ?? getCachedPersistenceProvider;
+  const getEpoch = options.getEpoch ?? getPersistenceEpoch;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
+  let cachedAtEpoch = -1;
 
   const getCachedSqlDb = async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
     // FIRST statement, before the caches and before any provider work (PR #2342
@@ -192,6 +204,18 @@ export function createCachedSqlDbGetter(options: {
           "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
       );
     }
+    // mt#3638: a recycle/degraded-reset bumps the epoch; anything cached under
+    // an older epoch is derived from a torn-down pool and must be dropped —
+    // INCLUDING a cached negative, since the recycle may have fixed exactly
+    // what made the probe fail.
+    if (cachedAtEpoch !== getEpoch()) {
+      cachedDb = null;
+      probedAndFailed = false;
+    }
+    // Stamp BEFORE resolving: if the epoch moves while this call is in flight,
+    // the stale stamp forces the NEXT call to re-resolve — conservative in the
+    // right direction.
+    cachedAtEpoch = getEpoch();
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
@@ -232,6 +256,7 @@ export function createCachedSqlDbGetter(options: {
     assertTestEnvironment("__resetForTests");
     cachedDb = null;
     probedAndFailed = false;
+    cachedAtEpoch = -1;
   };
 
   _allCachedSqlDbGetters.push(getCachedSqlDb);
@@ -258,7 +283,31 @@ export const getContextInspectorDb = createCachedSqlDbGetter({ cacheNegative: tr
 const getAskDb = createCachedSqlDbGetter({ cacheNegative: false });
 let _cachedServerAskRepo: AskRepository | null = null;
 
+/**
+ * Epoch the module-level SERVICE caches below were built under (mt#3638).
+ *
+ * The `createCachedSqlDbGetter` instances handle their own epoch checks, but
+ * the service singletons (`_cachedServerAskRepo`, `_cachedTaskService`, …)
+ * wrap a db handle captured at construction — a bumped epoch means that
+ * handle belongs to a torn-down pool, so every service cache drops together.
+ * (`_cachedChangesetReadDeps` is deliberately exempt: it caches GitHub
+ * repo/token resolution, which does not touch the DB pool.)
+ */
+let _serviceCachesEpoch = -1;
+
+function dropServiceCachesOnEpochChange(): void {
+  const epoch = getPersistenceEpoch();
+  if (epoch === _serviceCachesEpoch) return;
+  _serviceCachesEpoch = epoch;
+  _cachedServerAskRepo = null;
+  _cachedFollowUpService = null;
+  _cachedTaskService = null;
+  _cachedTaskDetailDeps = null;
+  _cachedServerSessionProvider = null;
+}
+
 export async function getServerAskRepository(): Promise<AskRepository | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedServerAskRepo) return _cachedServerAskRepo;
   try {
     const db = await getAskDb();
@@ -301,6 +350,7 @@ export const getServerEngprodDb = createCachedSqlDbGetter({ cacheNegative: false
 export async function getServerFollowUpService(): Promise<
   import("@minsky/domain/scheduler/follow-up-service").FollowUpService | null
 > {
+  dropServiceCachesOnEpochChange();
   if (_cachedFollowUpService) return _cachedFollowUpService;
   try {
     const db = await getFollowUpDb();
@@ -326,6 +376,7 @@ let _cachedTaskService: TaskServiceInterface | null = null;
 let _cachedTaskDetailDeps: TaskDetailDeps | null = null;
 
 export async function getServerTaskService(): Promise<TaskServiceInterface | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedTaskService) return _cachedTaskService;
   try {
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
@@ -349,6 +400,7 @@ export async function getServerTaskService(): Promise<TaskServiceInterface | nul
  * SUCCESSFUL result.
  */
 export async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedTaskDetailDeps) return _cachedTaskDetailDeps;
   try {
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
@@ -386,6 +438,7 @@ export async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> 
 let _cachedServerSessionProvider: SessionProviderInterface | null = null;
 
 export async function getServerSessionProvider(): Promise<SessionProviderInterface | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedServerSessionProvider) return _cachedServerSessionProvider;
   try {
     const { createSessionProvider } = await import(
@@ -591,4 +644,5 @@ export function __resetDbProvidersForTests(): void {
   _cachedTaskDetailDeps = null;
   _cachedServerSessionProvider = null;
   _cachedChangesetReadDeps = null;
+  _serviceCachesEpoch = -1;
 }

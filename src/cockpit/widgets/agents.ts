@@ -688,17 +688,24 @@ export function createAgentsWidget(
 // fetch(); subsequent calls reuse the cached instance.
 // ---------------------------------------------------------------------------
 
-import { getSharedPersistenceService } from "../shared-persistence";
+import { getSharedPersistenceService, getPersistenceEpoch } from "../shared-persistence";
 
 let _cachedProvider: SessionProviderInterface | null = null;
+// mt#3638: epoch the cached provider was built under. A pool recycle bumps the
+// epoch; serving the old provider past that point pins a torn-down pool (the
+// mt#2362 staleness this closes).
+let _cachedProviderEpoch = -1;
 
 async function defaultProviderFactory(): Promise<SessionProviderInterface> {
-  if (_cachedProvider) return _cachedProvider;
+  if (_cachedProvider && _cachedProviderEpoch === getPersistenceEpoch()) {
+    return _cachedProvider;
+  }
 
   const { createSessionProvider } = await import(
     "@minsky/domain/session/drizzle-session-repository"
   );
 
+  const epochAtBuild = getPersistenceEpoch();
   const svc = await getSharedPersistenceService();
   const provider = await createSessionProvider(undefined, {
     persistenceService: {
@@ -707,6 +714,7 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
     },
   });
   _cachedProvider = provider;
+  _cachedProviderEpoch = epochAtBuild;
   return provider;
 }
 
@@ -719,12 +727,17 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 // ---------------------------------------------------------------------------
 
 let _cachedTaskProvider: TaskProviderLike | null = null;
+// mt#3638: same epoch discipline as _cachedProvider above.
+let _cachedTaskProviderEpoch = -1;
 
 async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
-  if (_cachedTaskProvider) return _cachedTaskProvider;
+  if (_cachedTaskProvider && _cachedTaskProviderEpoch === getPersistenceEpoch()) {
+    return _cachedTaskProvider;
+  }
 
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
+  const epochAtBuild = getPersistenceEpoch();
   const svc = await getSharedPersistenceService();
   const persistenceProvider = svc.getProvider();
 
@@ -736,6 +749,7 @@ async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   });
 
   _cachedTaskProvider = taskService;
+  _cachedTaskProviderEpoch = epochAtBuild;
   return _cachedTaskProvider;
 }
 
