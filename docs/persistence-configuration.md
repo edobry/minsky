@@ -126,6 +126,85 @@ To investigate persistent pool saturation:
 2. Check the Supabase/Supavisor pooler's global connection limit.
 3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
 
+## Socket Inactivity Bound (mt#3592)
+
+Every pooled connection carries a bound on how long its socket may sit with **no bytes moving in
+either direction** before it is destroyed. Without it, a single half-open connection removes a pool
+slot permanently, and after `maxConnections` of them the pool is dead: every DB-backed route hangs
+indefinitely while the process itself stays healthy.
+
+### The failure this prevents
+
+A connection dropped at the network level without the client being notified leaves postgres-js's
+query promise **never settled** — no error, no rejection, nothing to catch or retry
+([porsager/postgres#1089](https://github.com/porsager/postgres/issues/1089)). `keep_alive` does not
+detect this; #1089 says so explicitly, and it is the obvious-looking wrong fix. Observed on the
+cockpit daemon three times on 2026-08-03 alone, each cleared only by a manual restart.
+
+Destroying the socket converts "never settles" into a rejection: postgres-js errors the in-flight
+query on close (`connection.js:453`), which releases the pool slot and gives the layers above a real
+error to classify.
+
+### How it is configured
+
+The bound derives from `idleTimeout` (`idle_timeout` in postgres-js terms) rather than taking its
+own config key, so the two cannot drift into contradicting each other. A healthy idle pooled
+connection is inactive by definition, so any shorter bound would tear down healthy connections
+earlier than the idle policy already does. A non-positive `idleTimeout` floors to **60 seconds** —
+postgres-js reads `idle_timeout: 0` as "never idle out", and composing that with a disabled socket
+bound would restore the unbounded hang.
+
+### How inactivity is measured, and why not `socket.setTimeout`
+
+By **sampling the socket's byte counters** on an interval — not with `socket.setTimeout`, whose
+meaning is runtime-specific. Node refreshes that timer on socket activity; **Bun 1.2.21 does not.**
+Measured 2026-08-03: a socket receiving data every 40 ms with `setTimeout(200, …)` armed fired its
+timeout at 202 ms. Building on it would have severed every healthy pooled connection one
+`idle_timeout` after it opened, mid-query. Detection therefore lands in
+`[bound, bound + bound/4]`, with the sampling interval floored at 250 ms.
+
+### Consequence worth knowing
+
+At the socket layer a legitimately slow query is indistinguishable from a hung one — both sit with
+no bytes moving — so **a query that runs longer than the bound will be severed.** At the 60 s
+default this is far above anything this codebase issues on the pooled client, but migrations run on
+this same client, so a long DDL statement is the case to watch. Raise `idleTimeout` if you need a
+longer ceiling.
+
+### Not covered
+
+**TLS.** When the connection string enables `sslmode`, the bound is **not installed at all**, and a
+`WARN` is logged saying so. postgres-js's `secure()` calls `socket.removeAllListeners()` before
+wrapping the socket in `tls.connect()` (`connection.js:290`), and it is unverified whether the byte
+counters this check samples still move once traffic runs through the wrapping TLS socket — a check
+that read a busy connection as idle would sever it, which is worse than having no bound. Minsky does
+not take this path today: no `ssl` option is passed and no `sslmode` appears in the connection
+string, so `ssl` is postgres-js's `false` default. **mt#3603** owns bounding the TLS path.
+
+**Multi-host failover.** Supplying a custom socket factory means postgres-js skips the branch that
+rotates `hostIndex` across `options.host`, so the first host/port pair is used. Minsky points at a
+single Supabase pooler host; this would matter only if a multi-host connection string were
+introduced.
+
+### Why the factory connects the socket itself
+
+`connection.js`, in `connect()`:
+
+```js
+if (options.socket) return ssl ? secure() : connected();
+```
+
+Supplying a `socket` factory makes postgres-js **skip its own `socket.connect()` entirely** — it
+assumes the returned socket is already connecting or connected. The first attempt at this fix
+(mt#3092) returned an unconnected `new net.Socket()`; every write then failed with `Socket is
+closed`, in every Minsky process that talks to Postgres, and it had to be reverted. The factory does
+not await the connection — Node and Bun both buffer writes issued on a connecting socket — which
+matches upstream #1089's own snippet.
+
+`tests/integration/postgres-client-bounded-socket.integration.test.ts` opens a real connection
+through `buildPostgresClient` for exactly this reason: no unit test that declines to connect can
+catch that class of defect.
+
 ## MCP Graceful Shutdown
 
 When the MCP server process receives **SIGTERM** (the normal shutdown signal on Linux/Docker, sent

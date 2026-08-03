@@ -5,6 +5,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -158,6 +159,185 @@ function resolveMaxConnections(configured: number | undefined): number {
   return DEFAULT_POSTGRES_MAX_CONNECTIONS;
 }
 
+/** Fallback socket inactivity bound (seconds) when `idleTimeout` is unset or disabled. */
+const DEFAULT_SOCKET_TIMEOUT_SECONDS = 60;
+
+/** Floor on how often the inactivity check samples a socket's byte counters. */
+const MIN_ACTIVITY_CHECK_MS = 250;
+
+/**
+ * A connection string that turns TLS on. postgres-js maps a `sslmode` query
+ * parameter onto its `ssl` option (`index.js:443`), treating the literal
+ * `disable` as off — this mirrors that reading, and only that one.
+ */
+const SSLMODE_ENABLED_PATTERN = /[?&]sslmode=(?!disable(?:&|$))/i;
+
+/**
+ * How long a connection's socket may sit with NO traffic before it is destroyed.
+ *
+ * Derived from `idle_timeout` rather than getting its own config key, so the two
+ * cannot drift into contradicting each other. `socket.setTimeout` measures
+ * INACTIVITY, and a healthy idle pooled connection is inactive by definition —
+ * so any value below `idle_timeout` would destroy healthy connections earlier
+ * than the idle policy already does, adding reconnect churn against the pooler
+ * (~200-350ms per TLS handshake) for no benefit. Matching it costs nothing on
+ * healthy connections and bounds the pathological case.
+ *
+ * `idle_timeout: 0` means "never idle out" in postgres-js and `setTimeout(0)`
+ * means "no timeout" in Node — composing them would silently restore the
+ * unbounded hang this exists to prevent, so a non-positive value is floored.
+ */
+export function resolveSocketTimeoutMs(idleTimeoutSeconds: number | undefined): number {
+  const seconds =
+    typeof idleTimeoutSeconds === "number" && idleTimeoutSeconds > 0
+      ? idleTimeoutSeconds
+      : DEFAULT_SOCKET_TIMEOUT_SECONDS;
+  return seconds * 1000;
+}
+
+/** The subset of postgres-js's options object this factory reads. */
+export interface SocketConnectOptions {
+  host?: unknown;
+  port?: unknown;
+  path?: unknown;
+}
+
+/**
+ * Build a CONNECTED socket that cannot sit half-open forever (mt#3592, after the
+ * mt#3092 attempt that returned an unconnected one and took production down).
+ *
+ * THE PROBLEM. A connection dropped at the network level without the client
+ * being notified — a half-open connection — leaves postgres-js's query promise
+ * never settled: no error, no rejection, nothing to catch. The connection stays
+ * checked out of the pool permanently, and after `max` of them the pool is dead
+ * and every route hangs. Known upstream behaviour:
+ * https://github.com/porsager/postgres/issues/1089. `keep_alive` does NOT detect
+ * it — #1089 says so explicitly, and it is the obvious-looking fix.
+ *
+ * THE CONTRACT THIS MUST HONOUR. postgres-js `connection.js`, in `connect()`:
+ *
+ *     if (options.socket)
+ *       return ssl ? secure() : connected()
+ *
+ * Supplying a `socket` factory makes postgres-js SKIP its own `socket.connect()`
+ * entirely — it assumes what it gets back is already connecting/connected. The
+ * first mt#3092 attempt returned `new net.Socket()` and every write hit a closed
+ * socket (`Socket is closed`), across every Minsky process that talks to
+ * Postgres. **This factory therefore connects the socket itself.** That matches
+ * upstream #1089's own snippet, which calls `s.connect(...)` inline.
+ *
+ * Note it does NOT await the connection: Node buffers writes issued on a
+ * connecting socket until the handshake completes, so returning mid-connect is
+ * both correct and what upstream does. postgres-js attaches its own
+ * `error`/`close` handlers immediately after this returns.
+ *
+ * WHY DESTROYING THE SOCKET REPAIRS THE POOL. postgres-js already errors an
+ * in-flight query when its socket closes (the `closed()` handler:
+ * `!hadError && (query || sent.length) && error(...CONNECTION_CLOSED...)`). The
+ * queries hang precisely because the socket never closes; forcing a close turns
+ * "never settles" into a rejection, which releases the pool slot and gives the
+ * layers above a real error to classify and report.
+ *
+ * KNOWN LIMITATION 1 — multi-host. postgres-js rotates `hostIndex` across
+ * `options.host` for multi-host failover, but that rotation lives in the branch
+ * this factory replaces — so the first host/port pair is used. Minsky points at
+ * a single Supabase pooler host, so this is not currently a behaviour change; it
+ * would matter if a multi-host connection string were ever introduced.
+ *
+ * HOW INACTIVITY IS MEASURED, AND WHY NOT `socket.setTimeout`. By sampling the
+ * socket's byte counters on an interval. `socket.setTimeout` looks like the
+ * obvious mechanism — it is what upstream #1089 uses — but its meaning is
+ * runtime-specific: Node refreshes that timer on socket activity, and Bun
+ * 1.2.21 does not. Measured 2026-08-03 on this runtime: a socket receiving data
+ * every 40ms, armed with `setTimeout(200, …)`, fired its timeout at 202ms.
+ * Building on it here would sever every healthy pooled connection one
+ * `idle_timeout` after it opened — and mid-query, since a query in flight moves
+ * no bytes while it waits for its result. Counters are checked instead because
+ * they mean the same thing in both runtimes.
+ *
+ * CONSEQUENCE WORTH KNOWING. At the socket layer a legitimate slow query is
+ * indistinguishable from a hung one — both sit with no bytes moving — so a query
+ * that runs longer than the bound WILL be severed. The bound derives from
+ * `idle_timeout` (60s by default), well above anything this codebase issues on
+ * the pooled client; a long DDL migration is the case to watch, since migrations
+ * run on this same client.
+ *
+ * KNOWN LIMITATION 2 — there is no bound under TLS (mt#3603). When `sslmode` is
+ * enabled, `buildPostgresClient` does not install this factory at all, and warns
+ * that it did not. Two reasons. First, postgres-js's `secure()` calls
+ * `socket.removeAllListeners()` before wrapping the socket in `tls.connect()`
+ * (`connection.js:290`). Second — and this is why the path is skipped rather
+ * than merely documented — it is UNVERIFIED whether the byte counters sampled
+ * below still move once traffic runs through the wrapping TLS socket; if they do
+ * not, the check would read a busy connection as idle and sever it, which is
+ * worse than having no bound. Minsky does not take this path: no `ssl` option is
+ * passed and no `sslmode` appears in the connection string, so `ssl` is
+ * postgres-js's `false` default (`index.js:450`). mt#3603 owns bounding TLS.
+ */
+export function createBoundedSocket(timeoutMs: number, options: SocketConnectOptions): net.Socket {
+  const socket = new net.Socket();
+
+  let lastBytesRead = 0;
+  let lastBytesWritten = 0;
+  let lastActivityAt = performance.now();
+  // The connect phase is postgres-js's `connect_timeout` to bound, not this
+  // one's — start the inactivity clock when the connection is actually up.
+  socket.once("connect", () => {
+    lastActivityAt = performance.now();
+  });
+
+  // Detection lands in [timeoutMs, timeoutMs + checkMs]. A quarter of the bound
+  // keeps that overshoot proportional without polling hot on a small bound.
+  const checkMs = Math.max(MIN_ACTIVITY_CHECK_MS, Math.floor(timeoutMs / 4));
+  const activityCheck = setInterval(() => {
+    if (socket.destroyed) {
+      clearInterval(activityCheck);
+      return;
+    }
+    const { bytesRead, bytesWritten } = socket;
+    if (bytesRead !== lastBytesRead || bytesWritten !== lastBytesWritten) {
+      lastBytesRead = bytesRead;
+      lastBytesWritten = bytesWritten;
+      lastActivityAt = performance.now();
+      return;
+    }
+    if (performance.now() - lastActivityAt < timeoutMs) return;
+
+    clearInterval(activityCheck);
+    // resetAndDestroy sends a TCP RST, which is what #1089 recommends — it tells
+    // the peer the connection is gone rather than leaving it to time out. Guarded
+    // for availability; `destroy()` is sufficient, since what the pool needs is
+    // the 'close' that makes postgres-js settle the pending query, and both
+    // produce it.
+    if (typeof socket.resetAndDestroy === "function") {
+      socket.resetAndDestroy();
+    } else {
+      socket.destroy();
+    }
+  }, checkMs);
+  // A pooled socket outlives most CLI invocations; the check must never be the
+  // reason a process cannot exit.
+  activityCheck.unref();
+  socket.on("close", () => clearInterval(activityCheck));
+
+  // postgres-js skips its own connect for a custom socket — see the contract
+  // above. It also skips its own `options.path` branch, so the unix-socket case
+  // has to be handled here too.
+  const path = options.path;
+  if (typeof path === "string" && path.length > 0) {
+    socket.connect(path);
+    return socket;
+  }
+
+  // `host` and `port` are ARRAYS on the options object postgres-js builds
+  // (`index.js`: `Array.isArray(host) ? host : host.split(',')...`), because of
+  // multi-host support — reading them as scalars yields undefined.
+  const host = Array.isArray(options.host) ? options.host[0] : options.host;
+  const port = Array.isArray(options.port) ? options.port[0] : options.port;
+  socket.connect(Number(port), String(host));
+  return socket;
+}
+
 /**
  * Build the production postgres-js client for a config's `postgres` block.
  *
@@ -171,13 +351,30 @@ export function buildPostgresClient(
   pgConfig: NonNullable<PersistenceConfig["postgres"]>,
   factory: typeof postgres = postgres
 ): ReturnType<typeof postgres> {
-  return factory(pgConfig.connectionString, {
+  const options = {
     max: resolveMaxConnections(pgConfig.maxConnections),
     connect_timeout: pgConfig.connectTimeout || 10,
     idle_timeout: pgConfig.idleTimeout || 60,
     prepare: pgConfig.prepareStatements ?? false,
     onnotice: logPostgresNotice,
-  });
+  };
+  if (SSLMODE_ENABLED_PATTERN.test(pgConfig.connectionString)) {
+    // The bound is not installed on the TLS path — KNOWN LIMITATION 2 on
+    // createBoundedSocket has the reasoning. Warn rather than fail: an
+    // unbounded connection is how this worked before mt#3592, so TLS is not a
+    // regression, but it must not look protected when it is not (mt#3603).
+    log.warn(
+      "postgres connection string enables sslmode; the socket inactivity bound is NOT installed on the TLS path (mt#3603) — half-open connections can still wedge the pool"
+    );
+  } else {
+    const socketTimeoutMs = resolveSocketTimeoutMs(pgConfig.idleTimeout);
+    // Assigned rather than declared inline: `socket` is honoured at runtime and
+    // documented in the README, but is absent from postgres@3.4.8's shipped types.
+    // Scoping the cast to this one key keeps full checking on every option above.
+    (options as Record<string, unknown>).socket = (opts: SocketConnectOptions) =>
+      createBoundedSocket(socketTimeoutMs, opts);
+  }
+  return factory(pgConfig.connectionString, options);
 }
 
 /**
