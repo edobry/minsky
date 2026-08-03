@@ -1,3 +1,10 @@
+/* eslint-disable max-lines -- this file is the dispatcher's whole behavioural
+   surface (override handling, fire-log, calibration, context composition, and
+   the mt#3612/mt#3625 output-contract tests) and crossed 1500 lines when the
+   stdout-contract coverage landed. Splitting it means extracting the shared
+   `baseInput`/`stubContext`/`makeStderrSpy` harness into a sibling module —
+   worth doing, but a refactor with no defect behind it and outside mt#3625's
+   scope. Tracked at mt#3640. */
 /* eslint-disable custom/no-real-fs-in-tests -- this file's real fs use is
    (a) the isolated MINSKY_STATE_DIR temp directory required by the *default*
    recordFireLogEntry wiring under test (see beforeAll below; mirrors the
@@ -608,7 +615,7 @@ describe("runDispatcher", () => {
       ],
       readInputFn: () => Promise.resolve(baseInput({ tool_name: "Bash" })),
       writeOutputFn: (o) => written.push(o),
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: (s) => stdout.push(s),
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(written).toEqual([]);
@@ -791,7 +798,6 @@ describe("runDispatcher", () => {
 
   test("AT4: two guards return updatedInput -> FIRST in registry order wins, discard is audited", async () => {
     const written: HookOutput[] = [];
-    const stdout: string[] = [];
     const stderr = makeStderrSpy();
     await runDispatcher("PreToolUse", {
       hookFilename: DISPATCH_HOOK_FILENAME,
@@ -801,7 +807,6 @@ describe("runDispatcher", () => {
       ],
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: (o) => written.push(o),
-      stdoutWrite: (s) => stdout.push(s),
       stderrWrite: stderr.write,
       resolveDispatchContextFn: () => stubContext(),
     });
@@ -812,11 +817,10 @@ describe("runDispatcher", () => {
     // Both guards named: which one lost, and which one won instead.
     expect(discardLine).toContain("guard=second");
     expect(discardLine).toContain("kept=first");
-    // STDOUT must stay free of it: Claude Code discards a PreToolUse hook's
-    // whole output when stdout carries anything but the one JSON object, so
-    // auditing the discard on stdout would void the rewrite that WON. Verified
-    // live in PR #2573 — see the doc comment at the dispatcher's write site.
-    expect(stdout.some((s) => s.includes("REWRITE-DISCARDED"))).toBe(false);
+    // Stdout can no longer carry it at all: mt#3625 removed the dispatcher's
+    // general-purpose stdout seam, leaving `writeOutputFn` as the only writer.
+    // The invariant is pinned directly by "stdout is exactly one JSON object"
+    // below rather than re-asserted per-test here.
   });
 
   test("AT5: deny plus updatedInput from one guard -> deny wins, no updatedInput key emitted", async () => {
@@ -881,9 +885,62 @@ describe("runDispatcher", () => {
     expect(line.endsWith("\n")).toBe(true);
   });
 
+  test("mt#3625 invariant: a JSON-emitting dispatch writes EXACTLY one JSON object to stdout", async () => {
+    // The regression this pins: guard diagnostics used to share stdout with the
+    // dispatch's JSON, and Claude Code discards a PreToolUse hook's ENTIRE
+    // output when stdout holds anything else — so an audit line silently voided
+    // a later guard's deny. Asserting on the WHOLE captured buffer (not a
+    // substring, not the writeOutputFn seam) is the point: a leading diagnostic
+    // line is exactly what a substring assertion would miss.
+    const chunks: string[] = [];
+    const realWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout as any).write = (s: any) => {
+      chunks.push(String(s));
+      return true;
+    };
+    try {
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations: [
+          {
+            // Emits BOTH a diagnostic and JSON-bound output — the exact
+            // combination that produced the defect.
+            name: "noisy",
+            event: "PreToolUse",
+            matcher: "Bash",
+            module: () =>
+              Promise.resolve({
+                run: () => ({
+                  auditLines: ["[noisy] a diagnostic line\n"],
+                  additionalContext: "context that must survive",
+                }),
+              }),
+            timeoutMs: 1000,
+            denyCapable: false,
+          },
+        ],
+        readInputFn: () => Promise.resolve(baseInput()),
+        stderrWrite: () => {},
+        resolveDispatchContextFn: () => stubContext(),
+      });
+    } finally {
+      (process.stdout as any).write = realWrite;
+    }
+
+    const buffer = chunks.join("");
+    expect(buffer.length).toBeGreaterThan(0);
+    // Parses whole — no leading diagnostic, no trailing anything.
+    const parsed = JSON.parse(buffer) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.additionalContext).toBe("context that must survive");
+    expect(buffer.trimStart().startsWith("{")).toBe(true);
+    expect(buffer.trimEnd().endsWith("}")).toBe(true);
+  });
+
   test("override suppresses the guard entirely — run() never invoked, audit line emitted", async () => {
     const written: HookOutput[] = [];
-    const stdout: string[] = [];
+    const stderrLines: string[] = [];
     let guardInvoked = false;
     const registrations: GuardRegistration[] = [
       {
@@ -906,7 +963,7 @@ describe("runDispatcher", () => {
       registrations,
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: (o) => written.push(o),
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: (s) => stderrLines.push(s),
       resolveDispatchContextFn: () => stubContext(),
     });
     // Simulate the override by setting env for a second run — checkOverride
@@ -916,19 +973,21 @@ describe("runDispatcher", () => {
     try {
       guardInvoked = false;
       written.length = 0;
-      stdout.length = 0;
+      stderrLines.length = 0;
       await runDispatcher("PreToolUse", {
         hookFilename: DISPATCH_HOOK_FILENAME,
         registrations,
         readInputFn: () => Promise.resolve(baseInput()),
         writeOutputFn: (o) => written.push(o),
-        stdoutWrite: (s) => stdout.push(s),
+        stderrWrite: (s) => stderrLines.push(s),
         resolveDispatchContextFn: () => stubContext(),
       });
       expect(guardInvoked).toBe(false);
       expect(written).toEqual([]);
-      expect(stdout.length).toBe(1);
-      expect(stdout[0]).toContain("OVERRIDE: guard=pilot");
+      // mt#3625: the override audit line goes to STDERR. On stdout it sat ahead
+      // of the dispatch's JSON and made Claude Code discard the whole output.
+      expect(stderrLines.length).toBe(1);
+      expect(stderrLines[0]).toContain("OVERRIDE: guard=pilot");
     } finally {
       delete process.env[HOOK_OVERRIDE_ENV_VAR];
     }
@@ -1159,8 +1218,9 @@ describe("runDispatcher", () => {
     expect(called).toBe(false);
   });
 
-  test("guard-emitted auditLines are written to stdout verbatim", async () => {
+  test("guard-emitted auditLines are written to stderr verbatim, never stdout", async () => {
     const stdout: string[] = [];
+    const stderr = makeStderrSpy();
     const registrations: GuardRegistration[] = [
       {
         name: "g",
@@ -1177,10 +1237,13 @@ describe("runDispatcher", () => {
       registrations,
       readInputFn: () => Promise.resolve(baseInput()),
       writeOutputFn: () => {},
-      stdoutWrite: (s) => stdout.push(s),
+      stderrWrite: stderr.write,
       resolveDispatchContextFn: () => stubContext(),
     });
-    expect(stdout).toEqual(["[g] legacy override active\n"]);
+    expect(stderr.writes).toEqual(["[g] legacy override active\n"]);
+    // The real `process.stdout` is untouched by this dispatch: the only stdout
+    // writer left in the dispatcher is `writeOutputFn`, stubbed to a no-op here.
+    expect(stdout).toEqual([]);
   });
 });
 
@@ -1330,7 +1393,6 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         registrations,
         readInputFn: () => Promise.resolve(baseInput()),
         writeOutputFn: () => {},
-        stdoutWrite: () => {},
         resolveDispatchContextFn: () => stubContext(),
         recordFireLogFn: spy.fn,
       });
