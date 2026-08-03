@@ -1,0 +1,66 @@
+name: Cold-Start Hooks Smoke
+
+# mt#3578 — install-channel portability: cold-start hook-provisioning smoke.
+#
+# Builds the bundle, copies dist/ to a temp "install" directory SEPARATED
+# from the source checkout, git-inits a fresh project, runs `minsky init`
+# from the installed layout, and asserts the observability-baseline hooks
+# (mt#3499) are installed, registered, and executable.
+#
+# This is the regression gate for the resolveHookSourceDir() bundled-layout
+# candidate (`./hooks` beside the module) + the build:copy-hooks emission:
+# it proves a packaged install — not just the dev checkout — can provision
+# working hooks. The hooks sibling of cold-start-migrate.yml (mt#2369),
+# completing the mt#1767 Phase 0 triad (bundler-emits-assets + ordered
+# resolver + cold-start CI test) for the second asset class.
+#
+# No database service: hook provisioning is pure file I/O and the baseline
+# hooks are fail-open (exit 0 with no cockpit daemon running).
+#
+# Job name (`cold-start-hooks`) is the contract for the Checks API.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cold-start-hooks:
+    name: cold-start-hooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --no-progress
+
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Verify hook sources copied into dist/
+        run: |
+          test -d dist/hooks \
+            || { echo "::error::dist/hooks missing (build:copy-hooks regression)"; exit 1; }
+          test -f dist/hooks/record-conversation-run-state.ts \
+            || { echo "::error::dist/hooks/record-conversation-run-state.ts missing"; exit 1; }
+          echo "Hook sources present:"
+          ls dist/hooks/
+
+      - name: Run cold-start hooks smoke (installed layout)
+        run: bun scripts/smoke-cold-start-hooks.ts
