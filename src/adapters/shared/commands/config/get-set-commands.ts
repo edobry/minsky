@@ -9,7 +9,7 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { createConfigWriter } from "@minsky/domain/configuration/config-writer";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
-import { parseConfigValue } from "./helpers";
+import { parseConfigValue, maskValueForPath } from "./helpers";
 
 /**
  * Shared parameters for config commands (eliminates duplication)
@@ -40,6 +40,16 @@ export const configGetRegistration = defineCommand({
       description: "Configuration key path",
       required: true as const,
     },
+    // mt#3634: mirrors config.list / config.show. Without this, `config get
+    // github.token` returned the credential VERBATIM — no masking, no flag
+    // required. Found by extending the sibling-surface audit from a static
+    // read to an actual end-to-end run.
+    showSecrets: {
+      schema: z.boolean(),
+      description: "Show actual credential values (SECURITY RISK: use with caution)",
+      required: false as const,
+      defaultValue: false,
+    },
   }),
   execute: async (params, _ctx) => {
     try {
@@ -63,8 +73,13 @@ export const configGetRegistration = defineCommand({
         success: true,
         json: params.json || false,
         key: params.key,
-        value,
+        // mt#3634: masked by default, on the SAME rules the other config
+        // surfaces use — a sensitive key path masks the value, and a composite
+        // value under a non-sensitive path still gets traversed for nested
+        // credentials.
+        value: params.showSecrets ? value : maskValueForPath(params.key, value),
         exists: true,
+        credentialsMasked: !params.showSecrets,
       };
     } catch (error) {
       return {
