@@ -209,6 +209,28 @@ export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
 export const LEAD_WINDOW_WORDS = 150;
 
 /**
+ * Hard character cap on the retained excerpt (mt#3576).
+ *
+ * The excerpt IS the lead — the same `LEAD_WINDOW_WORDS` slice the label
+ * patterns are scanned against — so a `lead-labels` fire always retains the
+ * text that produced its `leadLabelHits`, rather than only the pattern's name.
+ * This cap is a size backstop on top of that word bound, not a second
+ * truncation policy: 150 words of ordinary prose runs ~900-1000 chars, so it
+ * binds only on unusually long tokens (a pasted URL, a base64 blob) and the
+ * record stays bounded regardless of what the report contains.
+ *
+ * **The cap bounds the retained TEXT, before the marker.** When truncation
+ * fires the stored string is `EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length`
+ * — the marker is a visible signal that text was cut, deliberately outside the
+ * budget it reports on rather than eating into it. A consumer needing a hard
+ * ceiling on the stored value should use that sum (PR #2568 R1).
+ */
+export const EXCERPT_MAX_CHARS = 1200;
+
+/** Appended when the lead exceeds `EXCERPT_MAX_CHARS`, so truncation is visible in the record. */
+export const EXCERPT_TRUNCATION_MARKER = "...";
+
+/**
  * Word-count floor for the lead-labels leg (mt#3336, ask#6448 disposition).
  * The leg exists to catch REPORTS whose lead is written in audit-trail
  * vocabulary — but with no floor it also flagged a 56-word one-liner for
@@ -267,6 +289,19 @@ export interface WallOfTextMeasurement {
   deeplinkCount: number;
   /** Count of named-artifact refs (mt#N / PR #N) anywhere in the report. */
   namedRefCount: number;
+  /**
+   * The report's lead, with its TEXT capped at {@link EXCERPT_MAX_CHARS}
+   * (mt#3576) — see that constant's note: a truncated value carries the marker
+   * beyond the cap, so the stored maximum is cap + marker length.
+   *
+   * Byte-for-byte the string `leadLabelHits` was computed from, so a reviewer
+   * classifying a `lead-labels` fire sees the text that matched rather than
+   * only the pattern's name. `wordCount` answers the `over-budget` leg on its
+   * own; nothing in the record answered the label leg, and nothing let a
+   * reviewer recognize a measurement taken against the wrong transcript (the
+   * mt#3028 contamination class) — both are what this carries.
+   */
+  excerpt: string;
 }
 
 /**
@@ -309,7 +344,25 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
           ? "lead-labels"
           : "none";
 
-  return { matched, trigger, wordCount, lineCount, leadLabelHits, deeplinkCount, namedRefCount };
+  // mt#3576: the excerpt is `lead` itself, not a re-derived prefix — that
+  // identity is what guarantees a lead-labels fire retains the text its
+  // `leadLabelHits` were computed from, and it cannot drift as the window
+  // constant changes.
+  const excerpt =
+    lead.length > EXCERPT_MAX_CHARS
+      ? `${lead.slice(0, EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`
+      : lead;
+
+  return {
+    matched,
+    trigger,
+    wordCount,
+    lineCount,
+    leadLabelHits,
+    deeplinkCount,
+    namedRefCount,
+    excerpt,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +717,13 @@ function buildCalibrationRecord(
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
     namedRefCount: m.namedRefCount,
+    // mt#3576: the measured lead, capped. `wordCount` settles the over-budget
+    // leg by itself, but nothing in the record settled the lead-labels leg —
+    // `leadLabelHits` names the pattern, never the text — and nothing let a
+    // reviewer spot a measurement taken against the wrong transcript. The 186
+    // records written before this change carry no `excerpt`; the sweep treats
+    // it as optional so they keep parsing.
+    excerpt: m.excerpt,
     // mt#3028: dedupe key (fix (2)) — any prior record for this session_id
     // (within the bounded lookback) carrying the same hash means an
     // unchanged report is being re-measured, not a genuinely new turn.

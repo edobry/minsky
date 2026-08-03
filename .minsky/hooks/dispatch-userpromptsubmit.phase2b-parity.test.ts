@@ -49,6 +49,11 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "skill-staleness-detector",
       "mcp-daemon-staleness-detector",
       "substrate-bypass-detector",
+      // mt#3601 — sits immediately before retrospective-trigger-scanner: the two
+      // are the fire/complete pair on one family, and keeping them adjacent is
+      // what makes the ordering readable. Log-only, so its position carries no
+      // injection-priority meaning.
+      "retrospective-completeness-detector",
       "retrospective-trigger-scanner",
       "pre-narration-detector",
       "causal-premise-detector",

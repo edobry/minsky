@@ -261,6 +261,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
   "MINSKY_ACK_SUBSTRATE_BYPASS", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
   "MINSKY_ACK_RETROSPECTIVE_TRIGGER", // .claude/hooks/retrospective-trigger-scanner.ts (mt#2057) — override for retrospective-trigger warning injection
+  "MINSKY_SKIP_RETRO_COMPLETENESS", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
   "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
   "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection

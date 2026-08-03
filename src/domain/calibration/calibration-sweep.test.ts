@@ -572,6 +572,11 @@ describe("parseCalibrationRecord", () => {
     });
     expect(parseCalibrationRecord(line, "wall-of-text")).toBeNull();
   });
+
+  // mt#3576's `excerpt` parse tests live in the sibling
+  // `calibration-sweep-wall-of-text.test.ts` — this file sits at the 1500-line
+  // ESLint ceiling and several tasks append to it concurrently, so a per-record
+  // -kind file is the place to grow.
 });
 
 // ---------------------------------------------------------------------------
@@ -1649,6 +1654,24 @@ const KIND_FIXTURES: Readonly<
     // registry invariant below requires unique kinds per entry.
     line: () => makeRetroRecord(),
     expectedGuardName: "turn-end-untaken-action-scan",
+  },
+  "retrospective-completeness": {
+    // mt#3601 — its OWN record shape (`missing_sections` / `unverified_task_ids`),
+    // not the matched-phrase family: this log measures whether a retrospective
+    // that FIRED is COMPLETE, which is a different graduation question from
+    // retrospective-trigger's "did one fire at all".
+    line: () =>
+      JSON.stringify({
+        source: "live",
+        timestamp: "2026-08-03T20:00:00Z",
+        session_id: "test-session",
+        triggered_by: "skill-invocation",
+        triage: "process",
+        family_count: 0,
+        missing_sections: ["Verification"],
+        unverified_task_ids: ["mt#2052"],
+      }),
+    expectedGuardName: "retrospective-completeness-detector",
   },
 };
 

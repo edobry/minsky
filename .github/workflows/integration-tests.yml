@@ -308,7 +308,8 @@ jobs:
           RUN_INTEGRATION_TESTS: "1"
         run: |
           bun test --preload ./tests/setup.ts --timeout=60000 \
-            tests/integration/transcript-metadata-fill-if-null.integration.test.ts
+            tests/integration/transcript-metadata-fill-if-null.integration.test.ts \
+            tests/integration/postgres-client-bounded-socket.integration.test.ts
 
         # HELD OUT until mt#3509 lands (mt#3482 / PR #2503 R1):
         #
