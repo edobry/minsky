@@ -54,6 +54,12 @@ services/reviewer/eval/results/
 # workspace (hooks running with a subpackage cwd spill logs into e.g.
 # cockpit-tray/.minsky/ and infra/.minsky/).
 **/.minsky/*-calibration.jsonl
+# mt#3583 added a second log SUFFIX (`-evaluations`), which the suffix-specific
+# pattern above does not cover — the same escape the comment warns about, one
+# level up: the fix generalized over detector NAMES but not over log KINDS.
+# `.minsky/silent-stretch-evaluations.jsonl` was accidentally committed on
+# mt#3595 before this line existed.
+**/.minsky/*-evaluations.jsonl
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 **/.minsky/calibration-review-cadence-last-warned.json
