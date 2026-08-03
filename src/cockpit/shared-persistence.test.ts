@@ -708,3 +708,28 @@ describe("refreshDbReachability recycle trigger (mt#3638)", () => {
     expect(getDbRecycle().recycleCount).toBe(0);
   });
 });
+
+describe("recycle rate limit (mt#3638 AT4)", () => {
+  test("repeated degraded observations inside the rate-limit window produce exactly ONE recycle", async () => {
+    // Sustained-degradation threshold: 10ms; rate limit: 60s (far beyond test).
+    __setRecycleThresholdsForTests(10, 60_000);
+    const factory: PersistenceServiceFactory = async () =>
+      ({
+        initialize: async () => {},
+        close: async () => {},
+      }) as unknown as PersistenceService;
+    await getSharedPersistenceService(1_000, factory);
+
+    // Enter a degraded run and let it exceed the threshold.
+    await refreshDbReachability(() => Promise.reject(new Error("down")), 5);
+    await new Promise((r) => setTimeout(r, 15));
+
+    // Several degraded observations, all past the duration threshold — only
+    // the FIRST may recycle; the rest fall inside the rate-limit window.
+    await refreshDbReachability(() => Promise.reject(new Error("down")), 5);
+    await refreshDbReachability(() => Promise.reject(new Error("down")), 5);
+    await refreshDbReachability(() => Promise.reject(new Error("down")), 5);
+
+    expect(getDbRecycle().recycleCount).toBe(1);
+  });
+});
