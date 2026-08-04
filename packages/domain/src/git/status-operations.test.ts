@@ -1,5 +1,5 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the integration block below drives REAL git against a real temp repo; that is the contract under test */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -232,7 +232,19 @@ describe("statusImpl against real git (mt#3164 AT4)", () => {
     }
   }
 
-  beforeAll(() => {
+  /**
+   * Per-test, NOT shared. These three cases each need the repo at a different
+   * point in its history — never-pushed, pushed, pushed-then-advanced — and the
+   * later two get there by MUTATING it (`push -u`, then a fresh commit). Built
+   * once in `beforeAll`, they only pass in declaration order, and `bunfig.toml`
+   * sets `randomize = true`, so the order is not guaranteed. Each test now
+   * builds the state it asserts on, from scratch.
+   *
+   * Surfaced by the Bun 1.3.14 upgrade (mt#3561): under 1.2.21 these passed
+   * 12/12 and under 1.3.14 they failed 9/12 — the shuffle actually reorders them
+   * now. The order-dependence was always a defect; it was simply never exercised.
+   */
+  beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "status-ops-repo-"));
     origin = mkdtempSync(join(tmpdir(), "status-ops-origin-"));
 
@@ -246,10 +258,16 @@ describe("statusImpl against real git (mt#3164 AT4)", () => {
     git(["init", "-q", "--bare", "."], origin);
   });
 
-  afterAll(() => {
+  afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
     rmSync(origin, { recursive: true, force: true });
   });
+
+  /** Give the working repo an upstream — the precondition the last two cases share. */
+  function attachUpstream(): void {
+    git(["remote", "add", "origin", origin], repo);
+    git(["push", "-q", "-u", "origin", "main"], repo);
+  }
 
   test("a real committed-but-never-pushed branch reports no upstream, not 0/0", async () => {
     const result = await statusImpl({ repoPath: repo }, realDeps);
@@ -262,11 +280,10 @@ describe("statusImpl against real git (mt#3164 AT4)", () => {
   });
 
   test("the SAME branch reports 0/0 once it actually has an upstream", async () => {
-    // Same repo, same commit, same clean tree — the only thing that changes is
-    // that an upstream now exists. So `0/0` here vs `null/null` above isolates
-    // the distinction the fix introduces.
-    git(["remote", "add", "origin", origin], repo);
-    git(["push", "-q", "-u", "origin", "main"], repo);
+    // Identical starting repo to the case above — same single commit, same clean
+    // tree. The only difference is that an upstream now exists, so `0/0` here vs
+    // `null/null` above isolates exactly the distinction the fix introduces.
+    attachUpstream();
 
     const result = await statusImpl({ repoPath: repo }, realDeps);
     expect(result.upstream).toBe("origin/main");
@@ -275,6 +292,8 @@ describe("statusImpl against real git (mt#3164 AT4)", () => {
   });
 
   test("a real ahead-by-one branch reports ahead 1", async () => {
+    attachUpstream();
+
     writeFileSync(join(repo, "b.txt"), "second\n");
     git(["add", "b.txt"], repo);
     git(["commit", "-qm", "second"], repo);

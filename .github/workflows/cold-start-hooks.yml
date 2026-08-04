@@ -34,6 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # HELD at 1.2.21 while every other workflow moved to 1.3.14 (mt#3561).
+      # `smoke-cold-start-hooks.ts` spawns the bundle from a temp installed
+      # layout WITHOUT `--preload reflect-metadata`, and on 1.3.x that dies with
+      # "tsyringe requires a reflect polyfill" — on Linux. It does NOT reproduce
+      # on macOS, so the discriminator is unknown and a fix cannot be validated
+      # locally. Bumping this pin without fixing the bundle turns a real
+      # product defect into a red check; preloading inside the smoke would make
+      # it pass in a way a real standalone install cannot reproduce.
+      # mt#3680 owns the fix and this pin's removal. Escalation threshold: 10
+      # days — past that, cold-start validated only on a retired runtime is a
+      # stale signal.
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:

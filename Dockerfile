@@ -6,18 +6,18 @@
 #
 # See docs/deploy-minsky-railway.md for deployment specifics (env vars, auth).
 
-# Base-image digest pin (mt#1726). The mutable `oven/bun:1.2-slim` tag is
+# Base-image digest pin (mt#1726). The mutable `oven/bun:1.3-slim` tag is
 # pinned to a content-addressed digest so the build is reproducible and so
 # image-tag drift cannot silently alter the runtime bun version. The pin
 # itself is the safety measure — without it, a `docker pull` weeks from now
 # could surface a different bun version against the same lockfile.
 #
 # To rotate the digest (only when intentionally adopting a newer bun): run
-# `docker pull oven/bun:1.2-slim`, copy the `Digest:` line it prints,
+# `docker pull oven/bun:1.3-slim`, copy the `Digest:` line it prints,
 # replace the `@sha256:...` suffix below, verify locally that
 # `bun install --frozen-lockfile --production --ignore-scripts` still
 # succeeds against the committed lockfile, commit, let Railway rebuild.
-FROM oven/bun:1.2-slim@sha256:9654aa08d4b7e778b84148921bab8edc1409c8d0a85707b8c801dd7cf1878971 AS base
+FROM oven/bun:1.3-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f821d7d0477435ea04 AS base
 
 WORKDIR /app
 

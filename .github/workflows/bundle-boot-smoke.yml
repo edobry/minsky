@@ -36,7 +36,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -82,7 +82,15 @@ jobs:
           # server might fork that holds the port open. PR #1083 R1 BLOCKING:
           # plain `kill` against a PID can leak children and leave the
           # listener up across job retries within the same runner.
-          setsid bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=$PORT \
+          # Invoke the bundle EXACTLY as production does. `Dockerfile`'s CMD is
+          # `bun run --preload reflect-metadata dist/minsky.js ...`; this gate used a bare
+          # `bun dist/minsky.js`, so it was testing an invocation nothing actually ships.
+          # That divergence was invisible while the bundle happened to self-boot, and
+          # surfaced on the Bun 1.3.14 upgrade (mt#3561): 1.3.x no longer runs
+          # reflect-metadata's CommonJS body before tsyringe's ESM body, so the bare form
+          # dies with "tsyringe requires a reflect polyfill" while the production form is
+          # fine. Gate on what we deploy.
+          setsid bun run --preload reflect-metadata dist/minsky.js mcp start --http --host=127.0.0.1 --port=$PORT \
             > /tmp/bundle-boot.log 2>&1 &
           BOOT_PID=$!
           echo "Boot PID: $BOOT_PID"
