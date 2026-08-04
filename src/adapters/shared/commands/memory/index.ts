@@ -558,6 +558,8 @@ async function resolveMemoryService(
       "@minsky/domain/persistence/unconfigured-provider"
     );
     throw new Error(
+      // sql-capability-message: already cause-carrying — mt#3636 adopted the
+      // helper here; the phrase below is this caller's own prefix to it.
       "Memory service requires a SQL-capable persistence provider (Postgres). " +
         `${describePersistenceUnavailability(persistence)} ` +
         `Provider capabilities: ${JSON.stringify(persistence.capabilities)}`

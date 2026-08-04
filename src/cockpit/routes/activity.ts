@@ -4,7 +4,7 @@
  *   GET /api/activity — list system events for the activity feed (mt#2092)
  */
 import type express from "express";
-import { getContextInspectorDb } from "../db-providers";
+import { getContextInspectorDb, describeServerPersistenceUnavailability } from "../db-providers";
 
 /** Mount /api/activity on `app`. */
 export function mountActivityRoutes(app: express.Express): void {
@@ -34,7 +34,7 @@ export function mountActivityRoutes(app: express.Express): void {
       const db = await getContextInspectorDb();
       if (!db) {
         res.status(503).json({
-          error: "DB unavailable — persistence provider does not support SQL",
+          error: `DB unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

@@ -41,6 +41,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 import { log } from "@minsky/shared/logger";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 
 /** Snapshot of how the database's schema compares to what this build expects. */
 export interface SchemaReadiness {
@@ -225,7 +226,10 @@ export async function refreshSchemaReadinessFromDb(): Promise<SchemaReadiness> {
         typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
           "function"
       ) {
-        throw new Error("persistence provider is not SQL-capable");
+        // Provider already in hand — domain helper directly (mt#3661).
+        throw new Error(
+          `schema readiness cannot be judged — ${describePersistenceUnavailability(provider)}`
+        );
       }
       const db = await (
         provider as {

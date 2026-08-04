@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
@@ -267,7 +268,10 @@ export function createTasksRouteCommand(
       const provider = getPersistenceProvider();
 
       if (!provider.capabilities.sql) {
-        throw new Error("Current persistence provider does not support SQL operations");
+        // Provider already in hand — the domain helper directly (mt#3661).
+        throw new Error(
+          `tasks.route: SQL operations unavailable — ${describePersistenceUnavailability(provider)}`
+        );
       }
 
       const routingService = getTaskRoutingService();

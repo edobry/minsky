@@ -91,6 +91,7 @@ import {
 } from "@minsky/domain/ask/principal-page";
 import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
@@ -226,20 +227,10 @@ export async function requireAskRepository(
   const repo = await buildAskRepository(container);
   if (repo) return repo;
 
-  let cause = "The active persistence provider is not SQL-capable.";
-  try {
-    if (container?.has("persistence")) {
-      const { describePersistenceUnavailability } = await import(
-        "@minsky/domain/persistence/unconfigured-provider"
-      );
-      cause = describePersistenceUnavailability(container.get("persistence"));
-    }
-  } catch (err: unknown) {
-    // Never let the diagnosis step mask the failure it is describing.
-    log.warn("asks: could not describe persistence unavailability", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  // Extracted to ./persistence-unavailability (mt#3661) so the six other
+  // adapter-side callers of the same pattern share one implementation. Behavior
+  // is unchanged, including the never-throw fallback.
+  const cause = await describeContainerPersistenceUnavailability(container, "asks");
 
   throw new Error(`${operation}: AskRepository unavailable — ${cause}`);
 }

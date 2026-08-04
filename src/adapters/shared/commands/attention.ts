@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
 import type { AskKind } from "@minsky/domain/ask/types";
 import {
@@ -122,7 +123,7 @@ export function registerAttentionCommands(container?: AppContainerInterface): vo
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
-            "attention.report: AskRepository unavailable — persistence provider does not support SQL"
+            `attention.report: AskRepository unavailable — ${await describeContainerPersistenceUnavailability(container, "attention")}`
           );
         }
 

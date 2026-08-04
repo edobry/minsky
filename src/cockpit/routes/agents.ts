@@ -8,7 +8,11 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
-import { getServerSessionProvider, getContextInspectorDb } from "../db-providers";
+import {
+  getServerSessionProvider,
+  getContextInspectorDb,
+  describeServerPersistenceUnavailability,
+} from "../db-providers";
 import {
   resolveDerivedConversationLinks,
   type ConversationLinkSource,
@@ -156,7 +160,7 @@ export function mountAgentRoutes(app: express.Express): void {
       const provider = await getServerSessionProvider();
       if (!provider) {
         res.status(503).json({
-          error: "Session service unavailable — persistence provider not ready",
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -265,7 +269,7 @@ export function mountAgentRoutes(app: express.Express): void {
       const provider = await getServerSessionProvider();
       if (!provider) {
         res.status(503).json({
-          error: "Session service unavailable — persistence provider not ready",
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -286,7 +290,7 @@ export function mountAgentRoutes(app: express.Express): void {
       const db = await getContextInspectorDb();
       if (!db) {
         res.status(503).json({
-          error: "DB unavailable — persistence provider does not support SQL",
+          error: `DB unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
