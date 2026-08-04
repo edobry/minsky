@@ -256,6 +256,70 @@
   samp {
     font-family: var(--font-mono);
   }
+
+  /* ---------------------------------------------------------------------------
+   * Scrollbars (mt#3701; docs/design-system.md §4)
+   *
+   * Native scrollbars were the one piece of cockpit chrome rendered by the
+   * platform rather than by the design system — a light-gray OS bar sitting
+   * inside a near-black rail. Styled here, once, from semantic tokens: at rest
+   * a thumb the same lightness as a border, brightening to `--muted-foreground`
+   * under the pointer. Same at-rest-neutral / on-approach-legible register the
+   * rest of the interactive chrome uses.
+   *
+   * BOTH mechanisms are declared because different engines honor different
+   * ones, and the pair below is deliberately tuned to the same result either
+   * way. Measured, not assumed (mt#3701, via scripts/verify-session-film-panes.ts
+   * against the dev canary): current Chromium resolves the STANDARD properties
+   * — a scroll container there computes `scrollbar-width: thin` and a
+   * `scrollbar-color` of `oklch(0.27 0 0) rgba(0, 0, 0, 0)`, i.e. our token —
+   * so the `::-webkit-scrollbar` block is what serves older WebKit, including
+   * the engine the tray's macOS window renders in. Firefox has only ever had
+   * the standard properties.
+   *
+   * The thumb is deliberately ALWAYS visible rather than fading in on hover.
+   * On a long virtualized surface — the film ribbon runs to hundreds of rows —
+   * the scrollbar is a position-and-extent readout, not just a drag target, and
+   * a readout that appears only once you have already reached for it isn't one.
+   * The cost is that styling `::-webkit-scrollbar` opts out of macOS overlay
+   * scrollbars, so the gutter takes 10px of layout width; that is the trade
+   * accepted here, and it also means content no longer reflows when a
+   * scrollbar appears.
+   *
+   * `.scrollbar-none` (see @layer utilities below) still fully suppresses this
+   * — a class selector out-specifies the bare pseudo-element rules here, so the
+   * TabBar's deliberate opt-out is unaffected.
+   * ------------------------------------------------------------------------ */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(var(--border)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* The transparent border + `background-clip: content-box` is what yields a
+     4px-wide thumb inside a 10px track: padding, without a padding property to
+     set on a scrollbar part. */
+  ::-webkit-scrollbar-thumb {
+    background-color: oklch(var(--border));
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover,
+  ::-webkit-scrollbar-thumb:active {
+    background-color: oklch(var(--muted-foreground));
+  }
+  /* Chromium draws stepper buttons at each end when any scrollbar part is
+     styled; there is no design-system element for them, so remove them. */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
 }
 
 @layer utilities {
