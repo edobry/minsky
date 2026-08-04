@@ -11,7 +11,7 @@
  *   src/cockpit/web/lib/pane-width.test.ts
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { clampPaneWidth, loadPaneWidth, savePaneWidth } from "./pane-width";
+import { clampPaneWidth, loadPaneWidth, paneWidthCeiling, savePaneWidth } from "./pane-width";
 
 const BOUNDS = { min: 192, max: 640 };
 const KEY = "test.pane-width";
@@ -58,6 +58,29 @@ describe("clampPaneWidth", () => {
     // width constraint at all and silently un-does the split.
     expect(clampPaneWidth(Number.NaN, BOUNDS)).toBe(192);
     expect(clampPaneWidth(Number.POSITIVE_INFINITY, BOUNDS)).toBe(192);
+  });
+});
+
+describe("paneWidthCeiling", () => {
+  // The reachable ceiling is what a divider announces as `aria-valuemax`
+  // (PR #2632 R1): reporting the static max while the fraction bound holds the
+  // pane below it describes a range the operator cannot reach.
+  test("is the static max until the container is measured", () => {
+    expect(paneWidthCeiling(BOUNDS)).toBe(640);
+    expect(paneWidthCeiling({ ...BOUNDS, containerWidth: 0, maxFraction: 0.6 })).toBe(640);
+  });
+
+  test("drops to the container fraction once that is tighter", () => {
+    expect(paneWidthCeiling({ ...BOUNDS, containerWidth: 800, maxFraction: 0.6 })).toBe(480);
+  });
+
+  test("never drops below min, which is why min stays reachable at any width", () => {
+    expect(paneWidthCeiling({ ...BOUNDS, containerWidth: 200, maxFraction: 0.6 })).toBe(192);
+  });
+
+  test("bounds what clampPaneWidth will actually return", () => {
+    const narrow = { ...BOUNDS, containerWidth: 800, maxFraction: 0.6 };
+    expect(clampPaneWidth(10_000, narrow)).toBe(Math.round(paneWidthCeiling(narrow)));
   });
 });
 

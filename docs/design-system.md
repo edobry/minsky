@@ -141,6 +141,15 @@ than per-container. Two consequences worth knowing before changing it:
   selector out-specifies the bare pseudo-element rules, verified in
   `scripts/verify-session-film-panes.ts`.
 
+**Opting a surface out.** Because the rule is global, a surface that genuinely wants different
+scrollbar chrome has to say so. Today there is exactly one opt-out — `.scrollbar-none`, for
+suppressing it entirely — and no surface has needed to restore NATIVE chrome, so no
+`.scrollbar-default` utility exists; the first one that does should add it here rather than
+overriding the pseudo-elements at its own call site. Root-scoping the base selector (`.cockpit *`)
+was considered and skipped: the cockpit bundle styles only its own document, and no external or
+third-party content is hosted inside it. That premise is the thing to re-check if that ever
+changes (PR #2632 R1).
+
 ## 5. Status and severity color semantics
 
 ### 5.1 The red-scarcity rule (exact boundary)

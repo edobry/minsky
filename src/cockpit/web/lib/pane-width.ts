@@ -34,13 +34,30 @@ export interface PaneWidthBounds {
 }
 
 /**
- * Clamp a requested pane width into `bounds`, rounded to whole pixels.
+ * The largest width actually REACHABLE under `bounds` right now — `max`, lowered
+ * by the container fraction once the container has been measured.
+ *
+ * Exported because the reachable ceiling is not an implementation detail of the
+ * clamp: it is what a divider must report as `aria-valuemax`. Announcing the
+ * static `max` while the fraction bound holds the pane well below it tells a
+ * screen-reader user a range that does not exist (PR #2632 R1).
  *
  * Precedence when the container is too narrow for `min` to fit inside
  * `maxFraction`: **`min` wins.** The fraction bound protects the sibling pane's
  * usable area, but a pane narrower than `min` is illegible rather than merely
  * cramped, and an illegible pane helps nobody. At that point the window is too
- * small for the split regardless of where the divider sits.
+ * small for the split regardless of where the divider sits — so the ceiling
+ * never drops below `min`, and `min` therefore stays reachable at every
+ * container width, which is why there is no matching `paneWidthFloor`.
+ */
+export function paneWidthCeiling(bounds: PaneWidthBounds): number {
+  const { min, max, containerWidth = 0, maxFraction = 1 } = bounds;
+  const ceiling = containerWidth > 0 ? Math.min(max, containerWidth * maxFraction) : max;
+  return Math.max(min, ceiling);
+}
+
+/**
+ * Clamp a requested pane width into `bounds`, rounded to whole pixels.
  *
  * A non-finite `requested` (a corrupt stored value, a `NaN` from arithmetic on
  * an unmeasured box) collapses to `min` rather than propagating: every caller
@@ -48,10 +65,8 @@ export interface PaneWidthBounds {
  * constraint at all" and silently un-does the split.
  */
 export function clampPaneWidth(requested: number, bounds: PaneWidthBounds): number {
-  const { min, max, containerWidth = 0, maxFraction = 1 } = bounds;
-  if (!Number.isFinite(requested)) return min;
-  const ceiling = containerWidth > 0 ? Math.min(max, containerWidth * maxFraction) : max;
-  return Math.round(Math.max(min, Math.min(ceiling, requested)));
+  if (!Number.isFinite(requested)) return bounds.min;
+  return Math.round(Math.min(paneWidthCeiling(bounds), Math.max(bounds.min, requested)));
 }
 
 /**

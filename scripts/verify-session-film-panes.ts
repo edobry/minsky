@@ -108,6 +108,23 @@ if (!identity.ok) {
 console.log(describeHealthIdentityResult(identity));
 
 /**
+ * Record WHICH build answered, not merely that a cockpit did.
+ *
+ * The identity check above settles the SERVICE; it cannot settle the WORKTREE,
+ * and on a machine running several sessions' cockpits at once the difference is
+ * the whole ballgame — a port freed by one session is taken by another within
+ * seconds, and the replacement answers `/api/health` identically. Printing the
+ * served commit is what lets a reader of this output tell whether the build
+ * measured was the one under review. (This happened twice while writing this
+ * script: once on 3841, once on 3847, both caught only by this field.)
+ */
+const servedCommit =
+  healthBody && typeof healthBody === "object" && "commit" in healthBody
+    ? String((healthBody as { commit?: unknown }).commit)
+    : "unknown";
+console.log(`served build: commit=${servedCommit} at ${COCKPIT}`);
+
+/**
  * Pick a conversation whose film actually has rows.
  *
  * `agentSessionId` is the id field this endpoint returns, and it IS what the
@@ -216,6 +233,7 @@ type SplitState = {
   /** Positive when the stage's left edge sits at or right of the divider's. */
   stageClearsDivider: boolean;
   ariaValueNow: string | null;
+  ariaValueMax: string | null;
 };
 
 const READ_SPLIT = `(() => {
@@ -247,6 +265,7 @@ const READ_SPLIT = `(() => {
     dividerCenterY: Math.round(d.top + d.height / 2),
     stageClearsDivider: s.left >= d.right - 1,
     ariaValueNow: divider.getAttribute("aria-valuenow"),
+    ariaValueMax: divider.getAttribute("aria-valuemax"),
   });
 })()`;
 
@@ -487,8 +506,19 @@ try {
     const ceiling = Math.round(narrow.splitWidth * MAX_RIBBON_FRACTION);
     console.log(
       `narrow (${NARROW.width}x${NARROW.height}): split=${narrow.splitWidth} ribbon=${narrow.ribbonWidth} ` +
-        `stage=${narrow.stageWidth} fraction-ceiling=${ceiling}`
+        `stage=${narrow.stageWidth} fraction-ceiling=${ceiling} aria-valuemax=${narrow.ariaValueMax}`
     );
+    // The announced range must be the REACHABLE one (PR #2632 R1). This is the
+    // only place it can be checked: happy-dom measures the container as 0, where
+    // the fraction bound — and therefore the whole discrepancy — does not exist.
+    const announcedMax = Number(narrow.ariaValueMax);
+    const reachableMax = Math.max(ceiling, MIN_RIBBON_WIDTH_PX);
+    if (!Number.isFinite(announcedMax) || Math.abs(announcedMax - reachableMax) > 2) {
+      failures.push(
+        `at ${NARROW.width}px the divider announces aria-valuemax=${narrow.ariaValueMax} while only ` +
+          `${reachableMax}px is reachable — assistive tech would report a range that does not exist`
+      );
+    }
     // `min` outranks the fraction by design, so the bound is "at the ceiling OR
     // at the floor" — a ribbon pinned to MIN in a window too narrow for both is
     // the documented outcome, not a failure.

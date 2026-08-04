@@ -31,7 +31,12 @@ import { SessionFilmRibbon } from "./SessionFilmRibbon";
 import { SessionFilmStage } from "./SessionFilmStage";
 import { SessionFilmMinimap } from "./SessionFilmMinimap";
 import { PaneDivider } from "../PaneDivider";
-import { clampPaneWidth, loadPaneWidth, savePaneWidth } from "../../lib/pane-width";
+import {
+  clampPaneWidth,
+  loadPaneWidth,
+  paneWidthCeiling,
+  savePaneWidth,
+} from "../../lib/pane-width";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { isTextEntryTarget } from "../../lib/keyboard";
 import {
@@ -148,12 +153,19 @@ export function SessionFilm({
     observer.observe(node);
     splitObserverRef.current = observer;
   }, []);
-  const ribbonWidthPx = clampPaneWidth(storedRibbonWidth, {
+  const renderBounds = {
     min: MIN_RIBBON_WIDTH_PX,
     max: MAX_RIBBON_WIDTH_PX,
     containerWidth: splitWidthPx,
     maxFraction: MAX_RIBBON_FRACTION,
-  });
+  };
+  const ribbonWidthPx = clampPaneWidth(storedRibbonWidth, renderBounds);
+  // The REACHABLE max, not the static one: in a narrow window the fraction bound
+  // holds the rail well below `MAX_RIBBON_WIDTH_PX`, and a divider announcing
+  // the static value would tell a screen-reader user about a range that does not
+  // exist (PR #2632 R1). `min` needs no such treatment — the ceiling never drops
+  // below it, so it stays reachable at every container width.
+  const ribbonMaxPx = Math.round(paneWidthCeiling(renderBounds));
   const handleRibbonResize = useCallback((nextWidthPx: number) => {
     const next = clampPaneWidth(nextWidthPx, {
       min: MIN_RIBBON_WIDTH_PX,
@@ -357,7 +369,7 @@ export function SessionFilm({
         <PaneDivider
           value={ribbonWidthPx}
           min={MIN_RIBBON_WIDTH_PX}
-          max={MAX_RIBBON_WIDTH_PX}
+          max={ribbonMaxPx}
           onChange={handleRibbonResize}
           onReset={handleRibbonResetWidth}
           label="Resize the event ribbon"
