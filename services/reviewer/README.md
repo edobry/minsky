@@ -78,7 +78,9 @@ tests). The root `bun run test` deliberately scopes its paths and does **not**
 include `services/reviewer`, so this dedicated step is what gates the suite.
 
 This is distinct from the **live harness scripts** under `scripts/`
-(`seeded-bug-harness.ts`, `reviewer-benchmark.ts`) which must NOT run in CI —
+(`seeded-bug-harness.ts`, `reviewer-benchmark.ts`, and the read-only
+`verify-diff-scope-subset.ts` — see [Diff-scope subset probe](#diff-scope-subset-probe-mt3663))
+which must NOT run in CI —
 see [Re-running the harness](#re-running-the-harness-mt1515) → Notes. Those
 consume real GitHub quota and create real PRs; the unit suite does neither.
 
@@ -271,6 +273,45 @@ The benchmark lists recent merged PRs, identifies Tier-3 ones by body marker or 
 - **Do not add these scripts to CI.** They consume real GitHub API quota, create real PRs (harness), and require live credentials. Run manually for baseline collection.
 - The seeded-bug target directory (`scripts/__seeded_bug_targets__/`) is gitignored locally. Harness runs write files there but do not commit them; the remote branch is deleted by the harness in its cleanup step.
 - Results files (`seeded-bug-results.json`, `reviewer-benchmark-results.json`) are written locally in the `scripts/` directory. Commit them manually if you want to checkpoint a baseline.
+
+## Diff-scope subset probe (mt#3663)
+
+`scripts/verify-diff-scope-subset.ts` is a live, operator-run probe for the invariant that a
+narrowed review scope never leaves the PR's own merge-base diff. It runs the **production**
+`resolveDiffScope` against the **real** GitHub responses for PR #2587 — the incident that
+produced mt#3663, where a merge-from-main commit in the compare range turned a 6-file PR into a
+157-file review surface and produced BLOCKING findings against four files the PR never touched.
+
+**Do not add this script to CI.** Like the harness scripts above it consumes real GitHub API
+quota and needs live credentials. It is read-only (no PRs created, no writes of any kind), which
+makes it cheaper and safer than the harness — but "safe to run" is not "should run
+automatically."
+
+| Env var                      | Required | Purpose                                                               |
+| ---------------------------- | -------- | --------------------------------------------------------------------- |
+| `VERIFY_DIFF_SCOPE_RUN_LIVE` | yes      | Must be exactly `true`. Affirmative opt-in; checked BEFORE the token. |
+| `GITHUB_TOKEN`               | yes      | Read-only scope is sufficient.                                        |
+
+The opt-in is checked first **on purpose**: every GitHub Actions job carries a `GITHUB_TOKEN`, so
+gating on the credential alone would let a future workflow pick this script up and spend API
+calls without anyone choosing to. With the opt-in absent it exits 0 and prints a SKIP naming the
+switch.
+
+```bash
+# From the repo root
+VERIFY_DIFF_SCOPE_RUN_LIVE=true GITHUB_TOKEN=$(gh auth token) \
+  bun services/reviewer/scripts/verify-diff-scope-subset.ts
+```
+
+Exit 0 with `"status": "PASS"` means both cases held; exit 1 prints a `failures` array naming the
+case and check that broke.
+
+**Why the repo/PR coordinates are pinned rather than env-parameterized.** The script's assertions
+are _about this incident_: it checks that the compare range still contains four specific paths the
+reviewer falsely flagged, that the range's merge base still equals its base, and that case A
+resolves to the full-diff fallback while case B narrows to exactly one file. Those expectations
+are meaningless against a different PR, so pointing the script elsewhere would not generalize it —
+it would just make it fail. Treat the pinned SHAs as part of the fixture, not as configuration.
 
 ## Operator alerts (mt#2364 / mt#1596)
 
