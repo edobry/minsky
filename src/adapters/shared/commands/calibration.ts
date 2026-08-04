@@ -255,6 +255,15 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
             `    [${rec.timestamp}] rung=${rec.detectionRung} skills=${rec.loadedSkills.slice(0, 3).join(", ")} ` +
               `tools=${rec.researchTools.slice(0, 3).join(", ")} hadPropagation=${rec.hadPropagation}`
           );
+        } else if ("targets" in rec) {
+          // stop-at-decision (mt#3653): render the target task ids + statuses,
+          // the record's diversity axis.
+          lines.push(
+            `    [${rec.timestamp}] targets: ${rec.targets
+              .slice(0, 3)
+              .map((t) => `${t.taskId}:${t.status}`)
+              .join(", ")}`
+          );
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches
