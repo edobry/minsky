@@ -35,6 +35,7 @@ import type { RecordFireLogInput } from "./fire-log";
 
 /** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
 const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
+const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 // mt#2597: runDispatcher now fire-logs EVERY matched guard's outcome via the
 // real `recordFireLogEntry` default when a test doesn't inject
@@ -512,36 +513,89 @@ describe("resolveDispatchContext", () => {
     expect(ctx.event).toBe("PreToolUse");
   });
 
-  test("with transcript_path -> resolves candidates once and parses each", () => {
-    const resolvedCandidates = ["/t/a.jsonl", "/t/b.jsonl"];
-    const parsedByPath: Record<string, TranscriptLine[]> = {
-      "/t/a.jsonl": [{ type: "user" }],
-      "/t/b.jsonl": [{ type: "assistant" }],
-    };
+  test("single candidate -> parses it and uses the flattened result as-is", () => {
     let resolveCallCount = 0;
     let parseCallCount = 0;
     const ctx = resolveDispatchContext(
       "PreToolUse",
-      { transcript_path: "/t/main.jsonl", agent_id: "agent-1" },
+      { transcript_path: "/t/main.jsonl", agent_id: undefined },
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
         resolveTranscriptCandidatesFn: (path, agentId) => {
           resolveCallCount++;
           expect(path).toBe("/t/main.jsonl");
-          expect(agentId).toBe("agent-1");
-          return resolvedCandidates;
+          expect(agentId).toBeUndefined();
+          return ["/t/main.jsonl"];
         },
         parseTranscriptFn: (p) => {
           parseCallCount++;
-          return parsedByPath[p] ?? [];
+          return p === "/t/main.jsonl" ? [{ type: "user" }, { type: "assistant" }] : [];
         },
       }
     );
     expect(resolveCallCount).toBe(1);
-    expect(parseCallCount).toBe(2);
-    expect(ctx.transcriptCandidates).toEqual(resolvedCandidates);
+    expect(parseCallCount).toBe(1);
+    expect(ctx.transcriptCandidates).toEqual(["/t/main.jsonl"]);
     expect(ctx.transcriptLines).toEqual([{ type: "user" }, { type: "assistant" }]);
+  });
+
+  // mt#3293 — `ctx.transcriptLines` is PARENT-ONLY by construction. Before the hoist this
+  // field was `candidates.flatMap(parse)`, so a conversation that had dispatched subagents
+  // handed every consumer the parent's lines with each completed subagent transcript
+  // concatenated after them. Turn extraction over that array can anchor inside a static
+  // subagent segment and re-measure the same frozen turn forever (mt#3003).
+  test("parent + subagent candidates -> parses ONLY the parent, never the subagent", () => {
+    const parentPath = "/t/main.jsonl";
+    const subagentPath = "/t/subagents/agent-abc.jsonl";
+    const parentLines: TranscriptLine[] = [{ type: "user" }, { type: "assistant" }];
+    const parsedPaths: string[] = [];
+
+    const ctx = resolveDispatchContext(
+      USER_PROMPT_SUBMIT,
+      { transcript_path: parentPath, agent_id: undefined },
+      {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        readHostCapFn: () => fakeHostCap,
+        resolveTranscriptCandidatesFn: () => [parentPath, subagentPath],
+        parseTranscriptFn: (p) => {
+          parsedPaths.push(p);
+          if (p === parentPath) return parentLines;
+          throw new Error(`subagent transcript must never be parsed for ctx.transcriptLines: ${p}`);
+        },
+      }
+    );
+
+    expect(parsedPaths).toEqual([parentPath]);
+    expect(ctx.transcriptLines).toEqual(parentLines);
+    // The candidate list itself is unchanged — a guard that genuinely wants every
+    // candidate can still walk it and parse them explicitly.
+    expect(ctx.transcriptCandidates).toEqual([parentPath, subagentPath]);
+  });
+
+  // The candidate array is NOT positionally ordered parent-first: when the invocation's own
+  // `transcript_path` is a per-agent file, `resolveTranscriptCandidates` puts that file FIRST
+  // and the true parent later. Parent identification is structural, not positional.
+  test("subagent candidate listed FIRST -> still resolves the parent's lines", () => {
+    const parentPath = "/t/main.jsonl";
+    const subagentPath = "/t/subagents/agent-abc.jsonl";
+    const parentLines: TranscriptLine[] = [{ type: "user" }];
+
+    const ctx = resolveDispatchContext(
+      USER_PROMPT_SUBMIT,
+      { transcript_path: subagentPath, agent_id: "abc" },
+      {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        readHostCapFn: () => fakeHostCap,
+        resolveTranscriptCandidatesFn: () => [subagentPath, parentPath],
+        parseTranscriptFn: (p) => {
+          if (p === parentPath) return parentLines;
+          throw new Error(`must not parse the per-agent file: ${p}`);
+        },
+      }
+    );
+
+    expect(ctx.transcriptLines).toEqual(parentLines);
   });
 
   test("passes hookFilename and events through to readHostCapFn", () => {
@@ -1420,7 +1474,7 @@ describe("composeAdditionalContext (mt#3394)", () => {
     // asserts, and `guard-feedback-shape.test.ts` separately keeps the
     // annotations honest against each guard's real rendered output.
     const annotated = GUARD_REGISTRY.filter(
-      (r) => r.event === "UserPromptSubmit" && r.attentionCost !== undefined
+      (r) => r.event === USER_PROMPT_SUBMIT && r.attentionCost !== undefined
     );
     const size = (name: string) =>
       annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
