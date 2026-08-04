@@ -38,7 +38,7 @@
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
+  resolveParentTranscriptLinesForPath,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
@@ -929,7 +929,7 @@ export async function main(): Promise<void> {
 
   let lines: TranscriptLine[];
   try {
-    lines = parseTranscript(transcriptPath);
+    lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
       `[substrate-bypass-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`

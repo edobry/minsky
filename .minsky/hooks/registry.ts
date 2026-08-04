@@ -98,11 +98,30 @@ export interface DispatchContext {
    */
   transcriptCandidates: string[];
   /**
-   * Every candidate's parsed lines, concatenated in candidate order. Empty
-   * when there is no transcript_path. A guard that needs per-candidate
-   * short-circuit scanning (rather than a flat merged list) can still walk
-   * `transcriptCandidates` itself and re-parse — cheap, since `parseTranscript`
-   * is a pure read with no shared state.
+   * **The PARENT conversation's parsed lines — never a subagent's** (mt#3293).
+   * Empty when there is no transcript_path.
+   *
+   * When this invocation resolved MORE THAN ONE transcript candidate (i.e. the
+   * conversation has dispatched subagents), this is the parent transcript
+   * re-parsed ALONE, via {@link resolveParentTranscriptLines}. It is NOT the
+   * concatenation of every candidate, which is what it used to be and what the
+   * plural name still suggests.
+   *
+   * **Why the change.** The old flattened value placed every sibling subagent
+   * transcript after the parent's lines with no per-line file-origin marker. Turn
+   * extraction over that array — `findRealPromptIndices`, `extractLastAssistantTurn`,
+   * `extractFinalTurn` — could anchor inside a subagent's already-completed,
+   * no-longer-growing segment and then re-measure that same frozen turn on every
+   * later firing. mt#3003 diagnosed it and fixed two detectors individually;
+   * mt#3293 found the set had grown to sixteen consumers (three of them authored in
+   * the six days between that task being filed and implemented, each reaching for
+   * this field exactly as its name invites), and hoisted the resolution here so
+   * correctness is a property of the field rather than of each consumer remembering.
+   *
+   * **If you genuinely want every candidate's lines** — a guard doing per-candidate
+   * short-circuit scanning, or one whose job IS reading subagent transcripts — walk
+   * `transcriptCandidates` and parse them yourself. That is cheap (`parseTranscript`
+   * is a pure read with no shared state) and, unlike the old default, it is explicit.
    */
   transcriptLines: TranscriptLine[];
 }

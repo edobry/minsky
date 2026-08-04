@@ -62,7 +62,11 @@
 
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { parseTranscript, extractLastAssistantTurn, findCreatedResourceIds } from "./transcript";
+import {
+  resolveParentTranscriptLinesForPath,
+  extractLastAssistantTurn,
+  findCreatedResourceIds,
+} from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -676,7 +680,7 @@ export async function main(): Promise<void> {
 
   let lines: TranscriptLine[];
   try {
-    lines = parseTranscript(transcriptPath);
+    lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
       `[constructed-identifier-batch-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`
