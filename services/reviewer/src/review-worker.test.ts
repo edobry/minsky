@@ -84,6 +84,7 @@ describe("validateReviewOutput", () => {
       promptTokens: 3000,
       completionTokens: 2000,
       reasoningTokens: 1500,
+      cachedTokens: 0,
       totalTokens: 5000,
     },
     toolCalls: [],
@@ -149,6 +150,7 @@ describe("validateReviewOutput", () => {
         promptTokens: 3000,
         completionTokens: 50,
         reasoningTokens: 7000,
+        cachedTokens: 0,
         totalTokens: 10050,
       },
     });
@@ -166,6 +168,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       promptTokens: 4000,
       completionTokens: 0,
       reasoningTokens: 12000,
+      cachedTokens: 0,
       totalTokens: 16000,
     },
     toolCalls: [],
@@ -211,6 +214,7 @@ describe("buildEmptyOutputSkipNotice", () => {
         promptTokens: 4000,
         completionTokens: 100,
         reasoningTokens: 8000,
+        cachedTokens: 0,
         totalTokens: 12100,
       },
     });
@@ -257,7 +261,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     provider: "openai",
     model: "gpt-5",
     tokensUsed: 500,
-    usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    usage: { promptTokens: 3000, completionTokens: 500, cachedTokens: 0, totalTokens: 3500 },
     toolCalls: [],
   };
 
@@ -276,6 +280,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
         promptTokens: 4000,
         completionTokens: 0,
         reasoningTokens: 12000,
+        cachedTokens: 0,
         totalTokens: 16000,
       },
       toolCalls: [],
@@ -404,7 +409,7 @@ describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
     provider: "openai",
     model: "gpt-5",
     tokensUsed: 500,
-    usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    usage: { promptTokens: 3000, completionTokens: 500, cachedTokens: 0, totalTokens: 3500 },
     toolCalls: [],
   };
 
@@ -481,6 +486,7 @@ describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
         promptTokens: 4000,
         completionTokens: 0,
         reasoningTokens: 16000,
+        cachedTokens: 0,
         totalTokens: 20000,
       },
       toolCalls: [],
@@ -1406,6 +1412,7 @@ describe("validateReviewOutput — outputToolsActive path", () => {
       promptTokens: 3000,
       completionTokens: 2000,
       reasoningTokens: 1500,
+      cachedTokens: 0,
       totalTokens: 5000,
     },
     toolCalls: [],
