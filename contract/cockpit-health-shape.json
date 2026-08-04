@@ -78,5 +78,26 @@
       "checkedAt": null,
       "unknownReason": "no database connection available"
     }
+  },
+  "$principalChannelFieldNote": "mt#3608 introduced this field; mt#3683 removed its retry CEILING. `state` is one of disabled/starting/running/unconfigured/retrying/failed. `unconfigured`/`disabled` are healthy-quiet states; `retrying` and `failed` are faults, but different ones. `retrying` means a credential read failed and is classified TRANSIENT — per ADR-035 rule 1 it no longer gives up on its own: past the original ~2-minute/6-attempt window it keeps retrying on a widening, capped backoff instead of settling into `failed`, for as long as the fault persists. `lastAttemptAt`/`nextAttemptAt` (ISO strings, present ONLY on `retrying`, per ADR-035 rule 4) are what make 'still actively working the problem' legible without parsing `reason` prose or inferring it from a possibly-stale `attempts` count — a `nextAttemptAt` in the near future is the discriminator between 'retrying' and 'stuck'. `failed` is now a DIFFERENT fault class entirely: an exception raised AFTER credentials resolved (poller/actuator construction), not reachable from a credential-read failure any more, since that path no longer exhausts.",
+  "$principalChannelFieldVariants": {
+    "disabled": { "state": "disabled" },
+    "unconfigured": {
+      "state": "unconfigured",
+      "reason": "Telegram principal channel is not configured: neither TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are set in the environment, nor are the Pulumi stack values set."
+    },
+    "retrying": {
+      "state": "retrying",
+      "reason": "Telegram principal channel credentials could not be READ (this is not the same as them being unset): chat-id read failed: exit null. The channel will retry.",
+      "attempts": 9,
+      "lastAttemptAt": "2026-08-04T18:59:02.000Z",
+      "nextAttemptAt": "2026-08-04T19:04:02.000Z"
+    },
+    "running": { "state": "running", "chatId": "167346572" },
+    "failedNonCredential": {
+      "state": "failed",
+      "reason": "actuator construction threw: ECONNREFUSED",
+      "attempts": 1
+    }
   }
 }
