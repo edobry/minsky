@@ -13,6 +13,50 @@ import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "@minsky/shared/logger";
 import { countOccurrences } from "./session-edit-tools";
 
+/** Shape of the collapse detector this module consumes (mt#2577's predicate). */
+type CollapseDetector = (
+  originalContent: string,
+  finalContent: string
+) => { originalLines: number; finalLines: number } | null;
+
+/**
+ * Throws when the apply model's merge result collapsed the spec (mt#3674).
+ *
+ * Exported and dependency-injected purely so the refusal is testable without
+ * reaching into the handler's dynamic imports: the handler resolves the real
+ * `detectSuspiciousCollapse` at call time and passes it in. That keeps this a
+ * pure decision over strings — the `assert`-shaped signature is the only IO.
+ *
+ * The DECISION itself is not defined here; it lives in
+ * `@minsky/domain/ai/edit-pattern-utils` alongside the growth guard, shared with
+ * `session_edit_file`. This function owns only the spec-surface refusal message,
+ * which differs from the file surface in one load-bearing way: a file can be
+ * restored from git, a task spec cannot be restored from anything.
+ */
+export function assertNoSuspiciousSpecCollapse(
+  taskId: string,
+  originalContent: string,
+  finalContent: string,
+  allowShrink: boolean,
+  detect: CollapseDetector
+): void {
+  if (allowShrink) return;
+  const collapse = detect(originalContent, finalContent);
+  if (!collapse) return;
+
+  const dropPct = Math.round((1 - collapse.finalLines / collapse.originalLines) * 100);
+  throw new Error(
+    `Refusing to patch task ${taskId}: the merge result is dramatically smaller than the ` +
+      `original spec (${collapse.originalLines} -> ${collapse.finalLines} lines, a ${dropPct}% ` +
+      `drop). This is the marker-collapse failure (mt#2577/mt#3674): the apply model likely ` +
+      `mis-resolved a '// ... existing code ...' marker — check the patch content for stray text ` +
+      `outside the intended edit. Re-issue with tighter, smaller marker regions, or pass ` +
+      `allowShrink=true if this large deletion is intentional. A task spec has no version ` +
+      `history, so this refusal is the only thing standing between a malformed patch and ` +
+      `unrecoverable content loss.`
+  );
+}
+
 // ========================
 // SCHEMAS
 // ========================
@@ -45,6 +89,13 @@ const TaskEditSchema = TaskIdentifierSchema.extend(
       ),
     content: z.string().describe("The edit content with '// ... existing code ...' markers"),
     dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
+    allowShrink: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Override the mt#3674 collapse guard, which refuses a merge result dramatically smaller than the original spec. Set true only when the large deletion is intentional."
+      ),
   }).shape
 );
 
@@ -99,14 +150,16 @@ DO NOT omit spans of pre-existing content without using the // ... existing code
 
 Make all edits to a task spec in a single call instead of multiple calls to the same task.
 
-FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.`,
+FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.
+
+COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the rest of the payload, and the merge is performed by a fast-apply model. A merge result dramatically smaller than the original spec is REFUSED — that is the signature of the model mis-resolving a marker (e.g. because stray text was prefixed before the intended patch body). Re-issue with tighter marker regions, or pass allowShrink=true for an intentional large deletion. Task specs have no version history, so this refusal is the last line before unrecoverable content loss.`,
     parameters: TaskEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.
       const [
         { getTaskSpecContentFromParams, updateTaskFromParams },
         { applyEditPattern },
-        { hasExistingCodeMarkers },
+        { hasExistingCodeMarkers, detectSuspiciousCollapse },
         { autoIndexTaskEmbedding },
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
@@ -188,6 +241,27 @@ FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ...
               originalContent,
               typedArgs.content,
               typedArgs.instructions
+            );
+
+            // mt#3674 collapse guard: the marker check above validates the MARKER, not the
+            // rest of the payload — and the merge itself is done by a fast-apply MODEL whose
+            // output was previously written unchecked. A patch carrying a valid marker plus
+            // malformed text passes the marker guard and can come back as anything.
+            //
+            // Originating incident (mt#3339, 2026-08-04): a stray fragment accidentally
+            // prefixed before an otherwise-correct patch body; the model returned a
+            // 7-character string; a ~26,000-character spec was destroyed with no error. A
+            // task spec has NO version history and no undo, so unlike the file surface this
+            // is unrecoverable — which is why leaving this tool the weaker one was backwards.
+            //
+            // Same predicate as `session_edit_file` (mt#2577), imported rather than
+            // re-derived: one heuristic, two surfaces.
+            assertNoSuspiciousSpecCollapse(
+              typedArgs.taskId,
+              originalContent,
+              finalContent,
+              typedArgs.allowShrink,
+              detectSuspiciousCollapse
             );
           } else {
             // Direct write for a brand-new spec (specExists === false, no markers)
