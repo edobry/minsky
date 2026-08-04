@@ -90,7 +90,9 @@ import {
   type InjectedSpan,
 } from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
-import { findScrollParent, hasGrown, isPinnedToBottom } from "../lib/scroll-pinning";
+import { findScrollParent, hasGrown, isNearTop, isPinnedToBottom } from "../lib/scroll-pinning";
+import { INITIAL_TURNS, useThreadWindow } from "../hooks/useThreadWindow";
+import { ThreadPositionPill, ThreadStartBoundary } from "../components/ThreadOrientation";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -661,16 +663,6 @@ function TurnView({
 // ── Thread (pure, snapshot-in) ──────────────────────────────────────────────────
 
 /**
- * Tail-first window (mt#2433): the measured cost on long sessions is the eager
- * MOUNT of every formatted block (265 blocks / ~1MB took >20s to first content;
- * the snapshot fetch itself is ~1s), so only the most recent INITIAL_TURNS
- * turns render on mount — the chat idiom: the operator cares about the newest
- * exchange. "Show older" reveals earlier turns in OLDER_CHUNK increments.
- */
-const INITIAL_TURNS = 50;
-const OLDER_CHUNK = 100;
-
-/**
  * A day boundary or a long-gap marker between two turns. Renders as a quiet
  * rule with a centered label — it is orientation, not content, so it must not
  * compete with the turns on either side.
@@ -989,32 +981,82 @@ function ConversationThread({
     [turns]
   );
 
-  const [visibleCount, setVisibleCount] = useState(INITIAL_TURNS);
-  // Persistent "Show all" mode: once chosen it tracks transcript GROWTH too —
-  // a fixed count would silently re-clip the oldest turns (and resurface the
-  // control) when a refetch adds turns to the same session (PR #1667 R1).
-  const [showAll, setShowAll] = useState(false);
-
+  /**
+   * Where the rendered window STARTS, as an index into `visibleTurns` — `null`
+   * until the operator has revealed anything.
+   *
+   * The null-vs-index distinction is load-bearing. While `null` the window is
+   * DERIVED (`length - INITIAL_TURNS`) and therefore tracks the tail, so a live
+   * session appending turns keeps showing the newest fifty — right for a reader
+   * who has not scrolled. The first reveal turns it into an INDEX, which stops
+   * moving, so later appends cannot push revealed history back out of the
+   * window.
+   *
+   * Before mt#3688 both this and the separate "show all" flag were counts from
+   * the TAIL, and `slice(length - count)` shifts forward as the tail grows: each
+   * arriving turn silently re-hid one the operator had explicitly asked for. The
+   * old "show all" carried a comment about exactly this hazard (PR #1667 R1) and
+   * solved it only for itself; an index solves it for both, which is why the two
+   * states collapse into this one — "show all" is just `revealedFrom === 0`.
+   */
   // One-shot gate for the initial scroll-to-newest. Declared before the
   // session-change effect below, which re-arms it.
   const didInitialScrollRef = useRef(false);
 
-  // New session in the same mounted component → window back to the tail.
+  // Each session load lands on the tail — including in-place session swaps
+  // (same mounted component, new agentSessionId), so the one-shot scroll gate
+  // re-arms here (PR #1667 R2 non-blocking). The render window resets on the
+  // same key, inside `useThreadWindow`.
   useEffect(() => {
-    setVisibleCount(INITIAL_TURNS);
-    setShowAll(false);
-    // Each session load lands on the tail — including in-place session swaps
-    // (same mounted component, new agentSessionId), so the one-shot scroll
-    // gate re-arms here (PR #1667 R2 non-blocking).
     didInitialScrollRef.current = false;
   }, [snapshot.agentSessionId]);
 
-  const effectiveCount = showAll ? visibleTurns.length : visibleCount;
+  /**
+   * Whether the live tail should follow new content — false once the operator
+   * has scrolled up to read history (mt#3376). Declared here, ahead of the
+   * window hook, because a reveal that jumps to the start clears it.
+   */
+  const pinnedRef = useRef(true);
+
+  /**
+   * The resolved scrollport, as STATE so that everything depending on it — the
+   * scroll listener below, the measurement effect further down — moves together
+   * the moment the resolution changes (mt#3445).
+   *
+   * It is state rather than a ref because the resolution genuinely changes
+   * mid-session and nothing else announces it: `findScrollParent` only accepts
+   * an ancestor that ALREADY overflows, and a live thread spends its first
+   * seconds too short to overflow anything, so the first answer is always the
+   * document fallback. Keying the listener on a ref left it bound to an element
+   * that does not scroll — the reader's scrolling was then never heard, and
+   * whether it ever corrected depended on a ResizeObserver bump landing at the
+   * right moment (observed: it often did not, for a whole session).
+   *
+   * The REF half is what the window hook and the measurement effect read, since
+   * both run outside render and want the resolution as of right now.
+   */
+  const scrollportRef = useRef<Element | null>(null);
+  const [scrollport, setScrollport] = useState<Element | null>(null);
+
+  const {
+    hiddenBefore,
+    isRevealing,
+    revealOlder,
+    revealFromStart,
+    paintPosition,
+    positionFillRef,
+    positionReadoutRef,
+  } = useThreadWindow({
+    totalTurns: visibleTurns.length,
+    sessionKey: snapshot.agentSessionId,
+    scrollportRef,
+    pinnedRef,
+  });
+
   const windowedTurns = useMemo(
-    () => visibleTurns.slice(Math.max(0, visibleTurns.length - effectiveCount)),
-    [visibleTurns, effectiveCount]
+    () => visibleTurns.slice(hiddenBefore),
+    [visibleTurns, hiddenBefore]
   );
-  const hiddenCount = visibleTurns.length - windowedTurns.length;
 
   // Merge call+result pairs within the rendered window (mt#2790), then drop
   // any turn that has nothing left to render (a pure-tool-result USER turn
@@ -1050,10 +1092,10 @@ function ConversationThread({
     if (didInitialScrollRef.current) return;
     if (preparedTurns.length === 0) return;
     didInitialScrollRef.current = true;
-    if (hiddenCount > 0) {
+    if (hiddenBefore > 0) {
       endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [preparedTurns.length, hiddenCount]);
+  }, [preparedTurns.length, hiddenBefore]);
 
   // Live-tail auto-scroll: when live content arrives (the SSE stream, mt#2232,
   // or a driven session's WS frames), scroll to the bottom so the operator sees
@@ -1061,7 +1103,6 @@ function ConversationThread({
   // Scrolling unconditionally yanked the view out from under anyone reading
   // back through an active session, once per arriving tool call or message.
   const extraBlocksLen = extraBlocks?.length ?? 0;
-  const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
   // Forces a re-render whenever the thread's own box changes size — the signal
@@ -1094,21 +1135,6 @@ function ConversationThread({
     // rest of the session (mt#3445).
   }, [endNode]);
 
-  // The resolved scrollport, as STATE so that everything depending on it —
-  // the scroll listener below, the measurement effect further down — moves
-  // together the moment the resolution changes (mt#3445).
-  //
-  // It is state rather than a ref because the resolution genuinely changes
-  // mid-session and nothing else announces it: `findScrollParent` only accepts
-  // an ancestor that ALREADY overflows, and a live thread spends its first
-  // seconds too short to overflow anything, so the first answer is always the
-  // document fallback. Keying the listener on a ref left it bound to an element
-  // that does not scroll — the reader's scrolling was then never heard, and
-  // whether it ever corrected depended on a ResizeObserver bump landing at the
-  // right moment (observed: it often did not, for a whole session).
-  const scrollportRef = useRef<Element | null>(null);
-  const [scrollport, setScrollport] = useState<Element | null>(null);
-
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
@@ -1119,6 +1145,13 @@ function ConversationThread({
       // Scrolling back down by hand dismisses the affordance too — the
       // operator has caught up, so there is nothing left to point at.
       if (pinned) setHasNewBelow(false);
+      paintPosition(scrollport);
+      // Reveal older turns as the reader approaches the top. Gated on the mount
+      // having finished landing on the newest turn: this listener primes itself
+      // with a direct `onScroll()` call below, which on a thread that has not
+      // scrolled yet fires at scrollTop 0 — and would therefore mount the entire
+      // transcript on load, the precise cost the window exists to avoid.
+      if (didInitialScrollRef.current && isNearTop(scrollport)) revealOlder();
     };
     onScroll();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
@@ -1128,7 +1161,11 @@ function ConversationThread({
     // effect below already re-runs on every render, so a re-resolution reaches
     // this listener by changing the thing it is keyed on, rather than by this
     // effect guessing which inputs might have moved it.
-  }, [scrollport]);
+    //
+    // The two callbacks are stable by construction (`useCallback` over refs, not
+    // over the window state), so listing them satisfies exhaustive-deps without
+    // reintroducing the per-chunk re-binding this key deliberately avoids.
+  }, [scrollport, paintPosition, revealOlder]);
 
   const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -1230,7 +1267,12 @@ function ConversationThread({
   }
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    // `[overflow-anchor:none]` opts the thread OUT of the browser's scroll
+    // anchoring (mt#3688). The reveal corrects the scroll itself, because the
+    // platform mechanism does not exist in WebKit — the engine the tray's macOS
+    // window uses — and a correction competing with an anchor on the engines
+    // that DO implement it would double-count the prepended height.
+    <div className={cn("flex flex-col gap-4 [overflow-anchor:none]", className)}>
       <div className="flex items-center justify-end gap-3 text-[11px] text-muted-foreground/70">
         <button
           type="button"
@@ -1247,24 +1289,13 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
-      {hiddenCount > 0 && !showAll && (
-        <div className="flex items-center justify-center gap-3 py-1">
-          <button
-            type="button"
-            onClick={() => setVisibleCount((c) => c + OLDER_CHUNK)}
-            className="rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-          >
-            Show older ({hiddenCount} more)
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            className="text-xs text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline"
-          >
-            Show all
-          </button>
-        </div>
-      )}
+      <ThreadStartBoundary
+        hiddenBefore={hiddenBefore}
+        isRevealing={isRevealing}
+        firstTurnAt={visibleTurns[0]?.timestamp}
+        onRevealOlder={revealOlder}
+        onRevealFromStart={revealFromStart}
+      />
       {buildTurnNodes({
         preparedTurns,
         supersededGroups,
@@ -1285,6 +1316,19 @@ function ConversationThread({
         >
           New messages below ↓
         </button>
+      )}
+      {/* Shown only once the conversation is long enough that the window
+          mechanism engaged at all (mt#3688). Below INITIAL_TURNS every turn is
+          rendered, so the native scrollbar already tells the truth and a
+          floating readout would be chrome for its own sake. */}
+      {visibleTurns.length > INITIAL_TURNS && (
+        <ThreadPositionPill
+          fillRef={positionFillRef}
+          readoutRef={positionReadoutRef}
+          totalTurns={visibleTurns.length}
+          hiddenBefore={hiddenBefore}
+          onRevealFromStart={revealFromStart}
+        />
       )}
       {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
           `scrollIntoView({block:"end"})` calls above align THIS sentinel's

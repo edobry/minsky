@@ -76,13 +76,16 @@ describe("ConversationView — driven-session variant (mt#2751)", () => {
     renderDriven("driven-windowed", blocks);
 
     // Same windowing behavior as ConversationView.windowing.test.tsx's DB-snapshot
-    // case: newest 50 turns visible, oldest 70 hidden behind "Show older".
+    // case: newest 50 turns visible, oldest 70 hidden behind the start boundary.
     expect(screen.getByText("driven-turn-119")).toBeDefined();
     expect(screen.getByText("driven-turn-70")).toBeDefined();
     expect(screen.queryByText("driven-turn-0")).toBeNull();
-    expect(screen.getByText("Show older (70 more)")).toBeDefined();
+    expect(screen.getByTestId("thread-hidden-above").textContent).toContain("70 earlier turns");
 
-    fireEvent.click(screen.getByText("Show older (70 more)"));
+    fireEvent.click(screen.getByText("show more"));
     expect(screen.getByText("driven-turn-0")).toBeDefined();
+    // Revealing to the start replaces the boundary with the beginning marker
+    // rather than leaving blank space (mt#3688).
+    expect(screen.getByTestId("thread-start")).toBeDefined();
   });
 });

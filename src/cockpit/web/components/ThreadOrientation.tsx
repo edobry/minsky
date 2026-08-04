@@ -1,0 +1,164 @@
+/**
+ * Orientation chrome for the conversation thread (mt#3688).
+ *
+ * Two answers to one operator question — "am I looking at the end, the
+ * beginning, or somewhere in the middle?" — which the thread previously did not
+ * answer anywhere: {@link ThreadStartBoundary} names what is above the oldest
+ * rendered turn, and {@link ThreadPositionPill} keeps the reader's position in
+ * the whole transcript on screen.
+ *
+ * @see ../widgets/ConversationView.tsx — the consumer
+ * @see ../hooks/useThreadWindow.ts — the state these render
+ */
+import type { RefObject } from "react";
+import { formatLocalDay } from "../lib/conversation-timeline";
+import { formatThreadPosition } from "../lib/scroll-pinning";
+
+/**
+ * What sits above the oldest rendered turn.
+ *
+ * Exactly one of three things renders, always — and that totality is the point.
+ * Before mt#3688 the top of a fully-revealed thread was simply blank, so "this
+ * is the first message of the conversation" and "there is more above, still
+ * coming" were the same picture, and the operator had no way to tell which one
+ * they were looking at. Naming all three states costs one row and removes the
+ * ambiguity outright.
+ */
+export function ThreadStartBoundary({
+  hiddenBefore,
+  isRevealing,
+  firstTurnAt,
+  onRevealOlder,
+  onRevealFromStart,
+}: {
+  hiddenBefore: number;
+  isRevealing: boolean;
+  firstTurnAt: string | undefined;
+  onRevealOlder: () => void;
+  onRevealFromStart: () => void;
+}) {
+  if (isRevealing) {
+    return (
+      <div
+        className="flex items-center justify-center gap-2 py-2 text-[11px] text-muted-foreground"
+        data-testid="thread-revealing"
+        role="status"
+      >
+        <span className="h-3 w-3 animate-spin rounded-full border border-border border-t-foreground/60" />
+        Revealing older turns…
+      </div>
+    );
+  }
+
+  if (hiddenBefore > 0) {
+    return (
+      <div
+        className="flex items-center gap-3 py-2 text-[11px] text-muted-foreground/80"
+        data-testid="thread-hidden-above"
+      >
+        <span className="h-px flex-1 bg-border" />
+        <span className="tabular-nums">
+          {hiddenBefore} earlier {hiddenBefore === 1 ? "turn" : "turns"}
+        </span>
+        {/* Scrolling up reveals these automatically. The two buttons are the
+            fallback for a host where the thread never overflows — there is no
+            scroll to ride, so a reader with no control would be stranded. */}
+        <button
+          type="button"
+          onClick={onRevealOlder}
+          className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          show more
+        </button>
+        <span aria-hidden>·</span>
+        <button
+          type="button"
+          onClick={onRevealFromStart}
+          className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          jump to the beginning
+        </button>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center gap-3 py-2 text-[11px] text-muted-foreground/70"
+      data-testid="thread-start"
+    >
+      <span className="h-px flex-1 bg-border" />
+      <span>
+        Beginning of conversation
+        {firstTurnAt ? ` — ${formatLocalDay(firstTurnAt)}` : ""}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/**
+ * Where the reader sits in the WHOLE transcript, kept on screen.
+ *
+ * Sticky at the BOTTOM rather than the top, which is not an aesthetic choice:
+ * `ConversationView` is layout-agnostic by contract, and its hosts pin their own
+ * chrome at `sticky top-0` (`RunDetail.tsx`, at a higher z-index), so a bar
+ * stuck to the top of the scrollport would render underneath the host's and be
+ * invisible. The bottom edge is the thread's own affordance zone — the
+ * return-to-newest control already lives there — and needs no knowledge of the
+ * host to be correct.
+ *
+ * The track is the whole conversation: the fill is the reader's position, and
+ * the ghosted leading segment is the part not rendered yet. That segment is the
+ * honest half of the readout — it is what says "you are near the top of what is
+ * loaded, which is nowhere near the beginning."
+ */
+export function ThreadPositionPill({
+  fillRef,
+  readoutRef,
+  totalTurns,
+  hiddenBefore,
+  onRevealFromStart,
+}: {
+  fillRef: RefObject<HTMLSpanElement>;
+  readoutRef: RefObject<HTMLSpanElement>;
+  totalTurns: number;
+  hiddenBefore: number;
+  onRevealFromStart: () => void;
+}) {
+  const unrenderedPercent = totalTurns > 0 ? (hiddenBefore / totalTurns) * 100 : 0;
+  return (
+    <div
+      // Pointer-events off so the pill never eats a click meant for the turn it
+      // floats over; the controls inside opt back in.
+      className="pointer-events-none sticky bottom-2 z-10 ml-auto flex w-fit items-center gap-2 rounded-full border border-border bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm"
+      data-testid="thread-position"
+    >
+      <span className="relative block h-1 w-24 overflow-hidden rounded-full bg-muted">
+        {/* Width is written imperatively on scroll — see `paintPosition`. */}
+        <span ref={fillRef} className="absolute inset-y-0 left-0 w-full bg-foreground/50" />
+        {unrenderedPercent > 0 && (
+          <span
+            className="absolute inset-y-0 left-0 border-r border-border bg-background/75"
+            style={{ width: `${unrenderedPercent.toFixed(2)}%` }}
+            data-testid="thread-position-unrendered"
+          />
+        )}
+      </span>
+      <span ref={readoutRef} className="tabular-nums">
+        {formatThreadPosition(totalTurns, totalTurns)}
+      </span>
+      <button
+        type="button"
+        onClick={onRevealFromStart}
+        disabled={hiddenBefore === 0}
+        className="pointer-events-auto rounded-full px-1 transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
+        aria-label="Jump to the beginning of the conversation"
+        title="Jump to the beginning of the conversation"
+      >
+        ↑ start
+      </button>
+    </div>
+  );
+}
