@@ -20,6 +20,7 @@ import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // module is dependency-light by design, and a deployment that never spawns a
 // driven session just reads an empty registry.
 import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host";
+import { ServerTimingRecorder } from "../server-timing";
 
 /**
  * Pick the driven session an operator should be returned to for a task
@@ -218,8 +219,13 @@ export function mountTaskRoutes(app: express.Express): void {
     // Accept both URL-encoded (mt%231918) and raw (mt#1918) forms
     const taskId = decodeURIComponent(rawId);
 
+    // Per-phase attribution for this handler (mt#3696). The detail read is the
+    // cockpit's dominant server cost, and its waves are individually invisible
+    // from the browser — a client can see the total and nothing else.
+    const timing = new ServerTimingRecorder();
+
     try {
-      const taskDetailDeps = await getServerTaskDetailDeps();
+      const taskDetailDeps = await timing.time("deps", () => getServerTaskDetailDeps());
       if (!taskDetailDeps) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -231,10 +237,12 @@ export function mountTaskRoutes(app: express.Express): void {
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
       // Fetch task metadata and spec in parallel — they don't depend on each other
-      const [taskResult, specResult] = await Promise.allSettled([
-        taskService.getTask(taskId),
-        taskService.getTaskSpecContent(taskId).catch(() => null),
-      ]);
+      const [taskResult, specResult] = await timing.time("task", () =>
+        Promise.allSettled([
+          taskService.getTask(taskId),
+          taskService.getTaskSpecContent(taskId).catch(() => null),
+        ])
+      );
 
       if (taskResult.status === "rejected") {
         const reason =
@@ -262,12 +270,14 @@ export function mountTaskRoutes(app: express.Express): void {
       // listDependencies → outgoing (what this task depends on)
       // listDependents  → incoming (what depends on this task)
       const [parentIdResult, childIdsResult, outgoingIdsResult, incomingIdsResult] =
-        await Promise.allSettled([
-          taskGraphService.getParent(taskId),
-          taskGraphService.listChildren(taskId),
-          taskGraphService.listDependencies(taskId),
-          taskGraphService.listDependents(taskId),
-        ]);
+        await timing.time("graph", () =>
+          Promise.allSettled([
+            taskGraphService.getParent(taskId),
+            taskGraphService.listChildren(taskId),
+            taskGraphService.listDependencies(taskId),
+            taskGraphService.listDependents(taskId),
+          ])
+        );
 
       // Collect all referenced task IDs so we can batch-fetch their metadata
       const referencedIds = new Set<string>();
@@ -286,7 +296,9 @@ export function mountTaskRoutes(app: express.Express): void {
 
       // Batch-fetch metadata for all referenced tasks
       const refTasksArr =
-        referencedIds.size > 0 ? await taskService.getTasks([...referencedIds]) : [];
+        referencedIds.size > 0
+          ? await timing.time("refs", () => taskService.getTasks([...referencedIds]))
+          : [];
       const refTaskMap = new Map(refTasksArr.map((t) => [t.id, t]));
 
       function taskRef(id: string): { id: string; title: string; status: string } {
@@ -336,9 +348,11 @@ export function mountTaskRoutes(app: express.Express): void {
 
       let existingWorkspace: { sessionId: string; prNumber: number | null } | null = null;
       try {
-        const sessionProvider = await getServerSessionProvider();
+        const sessionProvider = await timing.time("workspace", () => getServerSessionProvider());
         if (sessionProvider) {
-          const existing = await sessionProvider.getSessionByTaskId(taskId);
+          const existing = await timing.time("workspace-lookup", () =>
+            sessionProvider.getSessionByTaskId(taskId)
+          );
           if (existing) {
             existingWorkspace = {
               sessionId: existing.sessionId,
@@ -455,6 +469,7 @@ export function mountTaskRoutes(app: express.Express): void {
         }
       }
 
+      timing.applyTo(res);
       res.json({
         task: {
           id: formatTaskIdForDisplay(task.id),
@@ -493,8 +508,13 @@ export function mountTaskRoutes(app: express.Express): void {
    *               caused only 2 of 70 task refs to link in live transcripts.
    */
   app.get("/api/tasks", async (req, res) => {
+    // mt#3696 — instrumented alongside the detail route so a measurement can
+    // compare them: the list returns ~20x the payload of a detail read, which
+    // is what makes the detail read's cost recognizably not payload-bound.
+    const timing = new ServerTimingRecorder();
+
     try {
-      const taskService = await getServerTaskService();
+      const taskService = await timing.time("service", () => getServerTaskService());
       if (!taskService) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -507,7 +527,7 @@ export function mountTaskRoutes(app: express.Express): void {
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";
-      const tasks = await taskService.listTasks({ all: includeAll });
+      const tasks = await timing.time("list", () => taskService.listTasks({ all: includeAll }));
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({
@@ -515,6 +535,7 @@ export function mountTaskRoutes(app: express.Express): void {
           title: t.title ?? "",
           status: (t.status ?? "TODO").toUpperCase(),
         }));
+      timing.applyTo(res);
       res.json({ tasks: taskList });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
