@@ -35,12 +35,15 @@
    ask-form-lint-calibration.test.ts's justification) */
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sharedCommandRegistry } from "../command-registry";
 import { registerCalibrationCommands } from "./calibration";
-import { UNKNOWN_SILENT_STRETCH_SESSION_LABEL } from "../../../domain/calibration/calibration-sweep";
+import {
+  UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
+  type LogWatermark,
+} from "../../../domain/calibration/calibration-sweep";
 
 const COMMAND_ID = "observability.calibration-review";
 const SILENT_STRETCH_LOG = "silent-stretch-calibration.jsonl";
@@ -194,5 +197,175 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 
     expect(result.success).toBe(true);
     expect(result.message).toContain(`conversation=${UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --ack covers every review-due leg, not only pastThreshold (mt#2878)
+// ---------------------------------------------------------------------------
+//
+// `computeReviewDueLogs` has four legs; `--ack` used to advance only the
+// `pastThreshold` one, so a log flagged by any other leg could be reviewed but
+// never marked reviewed — the cadence hook re-warned on it forever. These
+// fixtures deliberately stay BELOW the count bar (FIRES_THRESHOLD = 10) so the
+// old `results.filter((r) => r.pastThreshold)` selection cannot pick them up:
+// each test fails against the pre-fix code.
+
+const CAUSAL_PREMISE_LOG = "causal-premise-calibration.jsonl";
+const WATERMARKS_FILE = "calibration-review-watermarks.json";
+const CAUSAL_PREMISE_PATH = ".minsky/causal-premise-calibration.jsonl";
+const SILENT_STRETCH_PATH = ".minsky/silent-stretch-calibration.jsonl";
+const ASK_ID = "11111111-2222-3333-4444-555555555555";
+
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Records old enough to trip the 30-day never-reviewed window, and few enough to stay under the count bar. */
+function writeAgedCausalPremiseLog(workspace: string, count: number): void {
+  const lines = Array.from({ length: count }, (_, i) =>
+    JSON.stringify({
+      timestamp: daysAgoIso(60),
+      session_id: `conv-${i}`,
+      matchedPhrases: ["because"],
+      hadSameTurnVerification: false,
+    })
+  );
+  writeFileSync(join(workspace, ".minsky", CAUSAL_PREMISE_LOG), `${lines.join("\n")}\n`, "utf-8");
+}
+
+function writeWatermarks(workspace: string, store: Record<string, unknown>): void {
+  writeFileSync(join(workspace, ".minsky", WATERMARKS_FILE), JSON.stringify(store), "utf-8");
+}
+
+function readWatermarks(workspace: string): Record<string, LogWatermark> {
+  // `as string`: src/types/node.d.ts declares readFileSync as returning
+  // `string | Buffer` regardless of encoding, so no overload narrows it. Every
+  // other call site in src/ casts the same way.
+  const raw = readFileSync(join(workspace, ".minsky", WATERMARKS_FILE), {
+    encoding: "utf-8",
+  }) as string;
+  return JSON.parse(raw) as Record<string, LogWatermark>;
+}
+
+type AckResult = {
+  success: boolean;
+  watermarkAdvanced: boolean;
+  skippedOpenAskPaths: string[];
+  reviewDue: Array<{ name: string; reason: string }>;
+  results: Array<{ name: string; pastThreshold: boolean; openAskId?: string }>;
+};
+
+describe("observability.calibration-review — --ack covers all review-due legs (mt#2878)", () => {
+  test("advances a never-reviewed log that has no watermark, and binds its askId", async () => {
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+
+    const command = getCommand();
+
+    // Precondition: due via the never-reviewed leg, and NOT past the count bar
+    // — so the pre-fix pastThreshold-only filter would have selected nothing.
+    const before = (await command.execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+    const dueBefore = before.reviewDue.find((d) => d.name === "causal-premise");
+    expect(dueBefore?.reason).toBe("never-reviewed");
+    expect(before.results.find((r) => r.name === "causal-premise")?.pastThreshold).toBe(false);
+
+    const acked = (await command.execute(
+      { ack: true, json: true, askId: ASK_ID },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.success).toBe(true);
+    expect(acked.watermarkAdvanced).toBe(true);
+
+    // A never-reviewed log has no watermark entry to carry the ask id, so this
+    // asserts the entry is CREATED, not merely updated.
+    const watermarks = readWatermarks(workspace);
+    expect(watermarks[CAUSAL_PREMISE_PATH]?.lastReviewedCount).toBe(3);
+    expect(watermarks[CAUSAL_PREMISE_PATH]?.openAskId).toBe(ASK_ID);
+
+    // And the loop actually closes: the log is no longer review-due.
+    const after = (await command.execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+    expect(after.reviewDue.find((d) => d.name === "causal-premise")).toBeUndefined();
+  });
+
+  test("advances a time-stale log that is below the count bar", async () => {
+    const workspace = makeWorkspace();
+    // 3 fires total, 1 already reviewed -> 2 new, well under FIRES_THRESHOLD.
+    const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
+    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    writeWatermarks(workspace, {
+      [SILENT_STRETCH_PATH]: { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20) },
+    });
+
+    const command = getCommand();
+    const before = (await command.execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+    expect(before.reviewDue.find((d) => d.name === "silent-stretch")?.reason).toBe("time-stale");
+    expect(before.results.find((r) => r.name === "silent-stretch")?.pastThreshold).toBe(false);
+
+    const acked = (await command.execute(
+      { ack: true, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(3);
+  });
+
+  test("still skips a newly-covered-leg log whose ask is open when no askId is supplied", async () => {
+    // The mt#2659 safety property must survive the widening: --ack without
+    // askId must not silently discharge a log the operator is still deciding.
+    const workspace = makeWorkspace();
+    const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
+    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    writeWatermarks(workspace, {
+      [SILENT_STRETCH_PATH]: {
+        lastReviewedCount: 1,
+        lastReviewedAt: daysAgoIso(20),
+        openAskId: ASK_ID,
+      },
+    });
+
+    const command = getCommand();
+    const acked = (await command.execute(
+      { ack: true, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.skippedOpenAskPaths).toContain(SILENT_STRETCH_PATH);
+    expect(acked.watermarkAdvanced).toBe(false);
+    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(1);
+  });
+
+  test("supplying askId reaffirms an open-ask log on a newly-covered leg", async () => {
+    const workspace = makeWorkspace();
+    const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
+    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    writeWatermarks(workspace, {
+      [SILENT_STRETCH_PATH]: {
+        lastReviewedCount: 1,
+        lastReviewedAt: daysAgoIso(20),
+        openAskId: "00000000-0000-0000-0000-000000000000",
+      },
+    });
+
+    const command = getCommand();
+    const acked = (await command.execute(
+      { ack: true, json: true, askId: ASK_ID },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.skippedOpenAskPaths).toHaveLength(0);
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.openAskId).toBe(ASK_ID);
   });
 });
