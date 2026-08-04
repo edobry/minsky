@@ -103,6 +103,15 @@ interface ResolvedRef {
   found: boolean;
   status?: string;
   title?: string;
+  /**
+   * Full canonical UUID, for the uuid-keyed kinds (ask/memory/workspace) only.
+   * ADR-029 makes the uuid the sole `minsky://` deeplink target while the
+   * short id is a label form, so a caller composing links needs this alongside
+   * the short id `id` — without it every linked citation costs a second
+   * per-entity lookup (mt#3685). Task/changeset resolvers leave it unset:
+   * their `id` already IS the link target.
+   */
+  uuid?: string;
 }
 
 /** Per-kind resolver seam — production binds container-backed lookups; tests inject fakes. */
@@ -150,6 +159,8 @@ export interface RefStatusResult {
   found: boolean;
   status?: string;
   title?: string;
+  /** Full canonical UUID for found ask/memory/workspace rows (see ResolvedRef.uuid); absent otherwise. */
+  uuid?: string;
   error?: string;
 }
 
@@ -172,7 +183,16 @@ async function resolveUuidRef(
     try {
       const resolved = await lookupByKind(kind, base.id, resolvers);
       if (resolved.found) {
-        return { ...base, kind, found: true, status: resolved.status, title: resolved.title };
+        return {
+          ...base,
+          kind,
+          found: true,
+          status: resolved.status,
+          title: resolved.title,
+          // For a bare-uuid ref the classified id already IS the uuid, so a
+          // resolver that omits it still yields a uniform field.
+          uuid: resolved.uuid ?? base.id,
+        };
       }
     } catch (error) {
       failures.push({ kind, cause: getErrorMessage(error) });
@@ -220,7 +240,15 @@ export async function resolveRefs(
         if (classified.kind === "uuid") return await resolveUuidRef(base, resolvers);
         const resolved = await lookupByKind(classified.kind, classified.id, resolvers);
         if (!resolved.found) return { ...base, found: false };
-        return { ...base, found: true, status: resolved.status, title: resolved.title };
+        return {
+          ...base,
+          found: true,
+          status: resolved.status,
+          title: resolved.title,
+          // Spread rather than assign so task/changeset rows (whose resolvers
+          // never set it) carry NO uuid key, not `uuid: undefined`.
+          ...(resolved.uuid ? { uuid: resolved.uuid } : {}),
+        };
       } catch (error) {
         return { ...base, found: false, error: getErrorMessage(error) };
       }
@@ -294,8 +322,13 @@ function buildProductionResolvers(
       // this resolver instead of the task one (mt#3354).
       const ask = await new DrizzleAskRepository(db).getById(id);
       if (!ask) return { found: false };
-      const record = ask as { state?: string; question?: string };
-      return { found: true, status: record.state, title: record.question?.slice(0, 100) };
+      const record = ask as { id?: string; state?: string; question?: string };
+      return {
+        found: true,
+        status: record.state,
+        title: record.question?.slice(0, 100),
+        uuid: record.id,
+      };
     },
     async getMemoryState(id) {
       const db = await getDb(container);
@@ -305,7 +338,7 @@ function buildProductionResolvers(
       if (!memory) return { found: false };
       // A memory has no status; its `type` (feedback/project/user/reference) is
       // the closest analogue and is what a cross-reference reader wants.
-      return { found: true, status: memory.type, title: memory.name };
+      return { found: true, status: memory.type, title: memory.name, uuid: memory.id };
     },
     async getWorkspaceState(id) {
       const db = await getDb(container);
@@ -321,6 +354,7 @@ function buildProductionResolvers(
         found: true,
         status: record.status,
         title: record.taskId ?? record.branch ?? record.repoName,
+        uuid: record.sessionId,
       };
     },
   };

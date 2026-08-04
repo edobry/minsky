@@ -74,7 +74,7 @@ const byEitherForm =
   async (id: string) => {
     const normalized = id.toLowerCase();
     return normalized === uuid || normalized === shortId
-      ? { found: true, ...record }
+      ? { found: true, uuid, ...record }
       : { found: false };
   };
 
@@ -172,6 +172,40 @@ describe("resolveRefs", () => {
     const [short, long] = await resolveRefs(["ws#1", WORKSPACE_UUID], resolvers);
     expect(short).toMatchObject({ kind: "workspace", found: true, status: "active" });
     expect(long).toMatchObject({ kind: "workspace", found: true, status: "active" });
+  });
+
+  // mt#3685 AT1/AT2: a short-id ref surfaces its full uuid, so a caller can
+  // emit a minsky:// deeplink (ADR-029: the uuid is the sole link target)
+  // without a second per-entity lookup.
+  test("found uuid-keyed rows carry the full uuid alongside the short id", async () => {
+    const [ask, memory, workspace] = await resolveRefs(["ask#6448", "mem#775", "ws#1"], resolvers);
+    expect(ask?.uuid).toBe(ASK_UUID);
+    expect(memory?.uuid).toBe(MEMORY_UUID);
+    expect(workspace?.uuid).toBe(WORKSPACE_UUID);
+  });
+
+  test("a bare-uuid ref carries the uuid even when the resolver omits it", async () => {
+    const noUuidField: RefResolvers = {
+      ...resolvers,
+      getAskState: async (id) =>
+        id === ASK_UUID ? { found: true, status: "closed", title: "An ask" } : { found: false },
+    };
+    const [result] = await resolveRefs([ASK_UUID], noUuidField);
+    expect(result?.uuid).toBe(ASK_UUID);
+  });
+
+  // mt#3685 AT3: kinds whose `id` already is the link target stay byte-stable —
+  // no uuid key at all, not `uuid: undefined`.
+  test("task and changeset rows carry no uuid key", async () => {
+    const [task, changeset] = await resolveRefs(["mt#1", "100"], resolvers);
+    expect(task && "uuid" in task).toBe(false);
+    expect(changeset && "uuid" in changeset).toBe(false);
+  });
+
+  // mt#3685 AT4
+  test("a not-found row carries no uuid key", async () => {
+    const [absent] = await resolveRefs(["mt#404"], resolvers);
+    expect(absent && "uuid" in absent).toBe(false);
   });
 
   test("a uuid held by no store stays kind uuid rather than a missing ask", async () => {
