@@ -121,6 +121,22 @@ describe("Rail — collapse (AT1: labels drop, accessible names survive)", () =>
     expect(digest.textContent).toContain("3");
   });
 
+  test("the toggle's aria-controls resolves to the aside it collapses (PR #2629 R1)", () => {
+    renderRail();
+    const aside = screen.getByRole("complementary", { name: "Primary navigation" });
+
+    // A dangling IDREF fails silently — it is indistinguishable from a correct
+    // one in the markup, and only assistive tech notices. So the assertion is
+    // that the reference RESOLVES, not merely that the attribute is present.
+    const controls = toggle().getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls as string)).toBe(aside);
+
+    // ...and it still resolves after the collapse, when it matters most.
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(document.getElementById(toggle().getAttribute("aria-controls") as string)).toBe(aside);
+  });
+
   test("the aside narrows from w-60 to w-14", () => {
     renderRail();
     const aside = screen.getByRole("complementary", { name: "Primary navigation" });

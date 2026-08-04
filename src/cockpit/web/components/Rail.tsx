@@ -125,6 +125,14 @@ const BROWSE: NavItem[] = [
   { to: "/vitals", label: "Vitals", icon: Activity },
 ];
 
+/**
+ * The desktop `<aside>`'s DOM id — the target of the collapse toggle's
+ * `aria-controls` (PR #2629 R1). A module constant so the id and the reference
+ * cannot drift apart into a dangling IDREF, which resolves to nothing and fails
+ * silently in exactly the assistive-tech path it exists to serve.
+ */
+const RAIL_REGION_ID = "cockpit-rail";
+
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
   // Segment-aware: exact match, or a deeper path UNDER this route — but not a
@@ -397,6 +405,15 @@ export function describeBuildIdentity(
  * label names the ACTION the press performs. The hint is `aria-hidden` for the
  * same reason it is on `NewConversationButton`: it must not end up in the
  * accessible name.
+ *
+ * `aria-controls` names the region that state is ABOUT (PR #2629 R1). Without
+ * it, `aria-expanded` sits on a control with no stated referent — a screen
+ * reader announces "collapsed" and gives the user no way to reach the thing that
+ * collapsed. The referent here is an ANCESTOR of the button, which is unusual
+ * but is what the markup actually is: the toggle lives inside the rail it
+ * controls, which is exactly what makes the collapsed state self-reversing.
+ * `RailHeader` renders only inside the desktop `<aside>` (the drawer builds its
+ * own header), so `RAIL_REGION_ID` is unique in the document.
  */
 function RailCollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -405,6 +422,7 @@ function RailCollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onTog
       type="button"
       onClick={onToggle}
       aria-expanded={!collapsed}
+      aria-controls={RAIL_REGION_ID}
       aria-label={railToggleLabel(collapsed)}
       aria-keyshortcuts="Meta+B"
       title={`${railToggleLabel(collapsed)} (${RAIL_COLLAPSE_HINT})`}
@@ -666,6 +684,7 @@ export function Rail() {
           media-query hook; nothing else about the transition needs to be
           conditional. */}
       <aside
+        id={RAIL_REGION_ID}
         aria-label="Primary navigation"
         className={cn(
           "hidden h-full flex-shrink-0 flex-col border-r border-border bg-background md:flex",
