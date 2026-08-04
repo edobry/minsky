@@ -30,6 +30,7 @@ import {
   getDbStatus,
   refreshDbReachability,
 } from "../shared-persistence";
+import { getSurvivedExceptions } from "../daemon-error-policy";
 import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
 import type { WidgetModule } from "../types";
@@ -179,6 +180,13 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#3626: uncaught exceptions this process SURVIVED rather than died on
+      // (transient outbound-connect failures inside the runtime's own net
+      // module). Surviving is the designed behavior, so a non-zero count does
+      // NOT degrade `status` — but it must be visible, because the failure it
+      // replaces used to be loud (the process died) and is now quiet. A RISING
+      // `count` across polls is the recurrence signal.
+      survivedExceptions: getSurvivedExceptions(),
       // mt#3608: whether the Telegram principal channel is actually RUNNING.
       // It launches once at boot and, before this, a failed credential read
       // left it permanently off with nothing but a single startup `warn` to
