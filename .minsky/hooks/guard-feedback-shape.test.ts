@@ -140,6 +140,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "mcp-daemon-staleness-detector",
         "memory-search",
         "pre-narration-detector",
+        "require-duplicate-check-record",
         "retrospective-trigger-scanner",
         "silent-stretch-detector",
         "skill-staleness-detector",

@@ -49,7 +49,7 @@ Structure source code so tests don't need complex mocking:
   value the function returns or a dependency it was handed, that's design feedback, not a
   testing problem — extract the decision into a function that returns the observable, inject the
   collaborator, and keep production code as a thin imperative shell around the pure core.
-  In-place patching (`spyOn`) is banned outright, not just discouraged — see
+  In-place patching (`spyOn`) is banned outright — see
   [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
   the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
   shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
