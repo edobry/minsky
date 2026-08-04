@@ -416,29 +416,67 @@ export interface GuardRegistration {
    * `"sessionTitle"` (outcome.sessionTitle set — `auto-session-title`'s
    * scalar-output shape).
    */
-  canary?: {
-    input: Partial<ClaudeHookInput> & Record<string, unknown>;
-    transcriptLines?: TranscriptLine[];
-    expects: "deny" | "warn" | "calibration" | "sessionTitle";
-    /**
-     * Optional pre-invocation priming hook for STATEFUL guards whose real
-     * outcome depends on a prior invocation (e.g. `skill-staleness-detector`
-     * only warns on its SECOND call for a given session — the first
-     * establishes a baseline). Receives the SAME dynamically-imported guard
-     * module and synthetic `DispatchContext` the real canary check will use,
-     * so it can call `mod.run()` itself as many times as needed to prime
-     * state before the canary runner's own (checked) invocation. May
-     * optionally RETURN a partial input patch (e.g. a dynamically-generated
-     * temp `cwd`/`session_id` the checked invocation must reuse) — merged
-     * onto `canary.input` after `setup` completes, so the checked call sees
-     * whatever state `setup` just primed. Most guards don't need this — omit
-     * for anything whose outcome is determined by a single `run()` call.
-     */
-    setup?: (
-      mod: GuardModule,
-      ctx: DispatchContext
-    ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>;
-  };
+  canary?: GuardCanary;
+
+  /**
+   * A SECOND canary posed at the guard's WORST CASE, for guards whose feedback
+   * length scales with their input (mt#3705).
+   *
+   * `canary` above is a single fixed sample, so for a guard that renders one
+   * line per matched item — or interpolates a value with no length bound of its
+   * own, like a caught `Error.message` — measuring it establishes the FLOOR of
+   * the rendered size, not the ceiling. `guard-feedback-shape.test.ts` checks
+   * `attentionCost.denialMessageSizeChars` against whatever it can render, so
+   * for those guards the annotation was only ever a ratchet against drift; its
+   * own header said so and named three examples. That was mt#3479's documented,
+   * deliberate deferral, taken without a magnitude estimate. The estimate turned
+   * out to be 2.7x (`guard-health-escalation-detector`: declared 600, rendered
+   * 1649 at six failing guards), which is what promoted the deferral to work.
+   *
+   * Declare this on any guard classified GROWTH-SHAPED — either axis: an
+   * uncapped iteration over a runtime-length collection, or an unbounded
+   * interpolated value. Pose it at the largest input the guard can actually
+   * face, not a comfortable one; the point is to make the annotation a true
+   * ceiling rather than a sample. A guard that CAPS its own output (the
+   * `…and N more` pattern) is bounded by construction and needs no second
+   * canary — capping is the preferred fix, since the ceiling exists to be
+   * spent against rather than raised.
+   *
+   * Same shape as `canary` so the runner treats them identically; the shape
+   * test renders BOTH and enforces the ceiling against the larger.
+   */
+  worstCaseCanary?: GuardCanary;
+}
+
+/**
+ * A canary declaration — a synthetic input plus the outcome kind a healthy
+ * guard should produce from it.
+ *
+ * Extracted to a named type (mt#3705) so `canary` and `worstCaseCanary` are
+ * the same shape by construction rather than by two copies kept in sync.
+ */
+export interface GuardCanary {
+  input: Partial<ClaudeHookInput> & Record<string, unknown>;
+  transcriptLines?: TranscriptLine[];
+  expects: "deny" | "warn" | "calibration" | "sessionTitle";
+  /**
+   * Optional pre-invocation priming hook for STATEFUL guards whose real
+   * outcome depends on a prior invocation (e.g. `skill-staleness-detector`
+   * only warns on its SECOND call for a given session — the first
+   * establishes a baseline). Receives the SAME dynamically-imported guard
+   * module and synthetic `DispatchContext` the real canary check will use,
+   * so it can call `mod.run()` itself as many times as needed to prime
+   * state before the canary runner's own (checked) invocation. May
+   * optionally RETURN a partial input patch (e.g. a dynamically-generated
+   * temp `cwd`/`session_id` the checked invocation must reuse) — merged
+   * onto `canary.input` after `setup` completes, so the checked call sees
+   * whatever state `setup` just primed. Most guards don't need this — omit
+   * for anything whose outcome is determined by a single `run()` call.
+   */
+  setup?: (
+    mod: GuardModule,
+    ctx: DispatchContext
+  ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1280,7 +1318,17 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 0 },
+    // 600 was measured (mt#3479) against the one-guard/short-message canary
+    // below — the FLOOR of this banner, not its ceiling. Both of its axes were
+    // unbounded: the critical-guard list, and the interpolated `lastEvent.message`
+    // (a caught error's text, so its length belonged to whatever threw). Real
+    // renders: 829 at ONE guard with a 300-char message, 1649 at six. mt#3705
+    // capped both (MAX_LISTED_GUARDS / MAX_ERROR_MESSAGE_CHARS) and this number
+    // is now the DERIVED BOUND, not a sample: 1113 measured at the saturating
+    // input (9 live + 9 stale, 500-char messages, longest registered guard name),
+    // plus headroom for guard names longer than today's longest (37 chars) across
+    // the four rendered lines. `worstCaseCanary` below is what keeps it honest.
+    attentionCost: { denialMessageSizeChars: 1300, optionCount: 0 },
     canary: {
       input: {},
       expects: "warn",
@@ -1308,6 +1356,53 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           )
           .join("\n");
         writeFileSync(join(stateDir, "guard-health-log.jsonl"), `${lines}\n`);
+      },
+    },
+    // mt#3705 — the saturating input, so the annotation above is enforced as a
+    // real ceiling rather than as the one-guard sample the canary happens to
+    // pose. Seeds 12 distinct critically-failing guards (well past
+    // MAX_LISTED_GUARDS) whose names are as long as the longest real registered
+    // guard and whose error messages are far past MAX_ERROR_MESSAGE_CHARS, so
+    // BOTH caps are exercised. Pre-mt#3705 this input rendered unbounded text;
+    // it is what the 1113 figure in the annotation comment was measured from.
+    worstCaseCanary: {
+      input: {},
+      expects: "warn",
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        const now = Date.now();
+        // 37 chars — the longest guard name currently in this registry
+        // (`constructed-identifier-batch-detector`), so per-line name width is
+        // posed at today's real maximum rather than a short synthetic one.
+        const longName = "constructed-identifier-batch-guardX";
+        const lines: string[] = [];
+        for (let g = 0; g < 12; g++) {
+          // Half the guards fail RECENTLY (live section) and half failed long
+          // ago (stale section), so BOTH sections render. Without this the
+          // banner's largest form is unreachable from the canary: every guard
+          // would be live, the stale block would be skipped entirely, and the
+          // "worst case" would measure ~2/3 of the real bound — the exact
+          // posed-at-a-comfortable-input failure this field exists to prevent.
+          // 6h back is comfortably past STALE_ESCALATION_WINDOW_MS (1h).
+          const ageBase = g % 2 === 0 ? 0 : 6 * 60 * 60 * 1000;
+          for (let i = 0; i < 3; i++) {
+            lines.push(
+              JSON.stringify({
+                timestamp: new Date(now - ageBase - (2 - i) * 60_000).toISOString(),
+                guardName: `${longName}${g}`,
+                event: "PreToolUse",
+                kind: "error",
+                errorClass: "Error",
+                message: `saturating-canary-error-${"E".repeat(500)}`,
+              })
+            );
+          }
+        }
+        writeFileSync(join(stateDir, "guard-health-log.jsonl"), `${lines.join("\n")}\n`);
       },
     },
   },

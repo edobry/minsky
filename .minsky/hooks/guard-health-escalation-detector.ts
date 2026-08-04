@@ -41,6 +41,7 @@ import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { getGuardHealthSummary, STALE_ESCALATION_WINDOW_MS } from "./guard-health";
+import { cappedEvidenceLines, truncateToCodePoints } from "./guard-feedback-format";
 import type { GuardHealthSummary } from "./guard-health";
 import {
   shouldNotifyEscalation,
@@ -49,6 +50,49 @@ import {
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
+}
+
+/**
+ * Most guards to name per section before collapsing the rest to a count
+ * (mt#3705).
+ *
+ * Without it this banner had NO bound: `live`/`stale` are whatever
+ * `summary.criticalGuards` contains, and a multi-guard failure streak is
+ * precisely the condition it fires on. Measured pre-cap at 929 chars for three
+ * guards and 1649 for six, against a declared ceiling of 600 — the ceiling held
+ * only because the canary posed one guard with a short message.
+ *
+ * Two is enough to act on. The banner is an ALERT, not a report: full detail is
+ * one `debug_systemInfo` call away, and the trailing line says so. Two rather
+ * than three is worth 314 chars off the bound (1427 -> 1113 with the message cap
+ * below), which is the difference between this guard being the largest
+ * conditional detector on `UserPromptSubmit` and merely the second.
+ */
+export const MAX_LISTED_GUARDS = 2;
+
+/**
+ * Longest interpolated `lastEvent.message` (mt#3705).
+ *
+ * The SECOND unbounded axis, and the one that mattered more: this value is a
+ * caught error's `.message`, so its length belongs to whatever threw. A single
+ * guard with a 300-char stack-ish message rendered 829 chars — over the ceiling
+ * at a list length of ONE, which no per-item cap would have caught.
+ */
+export const MAX_ERROR_MESSAGE_CHARS = 60;
+
+/** Bound an interpolated error message, marking any elision so it doesn't read as the whole message. */
+function truncateMessage(message: string): string {
+  return truncateToCodePoints(message, MAX_ERROR_MESSAGE_CHARS);
+}
+
+/**
+ * Render up to `MAX_LISTED_GUARDS` lines plus an overflow count.
+ *
+ * Shared by both sections so neither can regrow independently — the live list
+ * and the stale list are separate collections and each needed the same bound.
+ */
+function cappedLines(names: string[], render: (name: string) => string): string[] {
+  return cappedEvidenceLines(names, render, MAX_LISTED_GUARDS);
 }
 
 /** Humanize a millisecond age as "Nh Mm" / "Nh" / "Mm" for banner display. mt#2969. */
@@ -94,7 +138,7 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
   const liveLine = (name: string): string => {
     const entry = summary.byGuard[name];
     const streak = entry?.consecutiveStreak ?? 0;
-    const lastMessage = entry?.lastEvent?.message ?? "unknown error";
+    const lastMessage = truncateMessage(entry?.lastEvent?.message ?? "unknown error");
     return `  - ${name}: ${streak} consecutive failures (last: ${lastMessage})${causeClassTag(name)}`;
   };
   const staleLine = (name: string): string => {
@@ -110,13 +154,13 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
         "3+ times in a row and cannot currently be trusted to enforce their " +
         "check — a fail-open guard that crashes permits silently, so its most " +
         'recent "allow" reflects a crash, not a verified check:',
-      ...live.map(liveLine),
+      ...cappedLines(live, liveLine),
     ];
     if (stale.length > 0) {
       lines.push(
         `Also had a failure streak but NONE within the last ${windowLabel} (likely stale — ` +
           "recovered or dormant; verify, don't treat as active):",
-        ...stale.map(staleLine)
+        ...cappedLines(stale, staleLine)
       );
     }
     lines.push(
@@ -136,7 +180,7 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
       `the last ${windowLabel} — likely stale (recovered or dormant), NOT an active incident. ` +
       "Verify via `mcp__minsky__debug_systemInfo`'s `guardHealth` before treating as " +
       "live; a stale streak clears automatically once its last failure ages past 24h:",
-    ...stale.map(staleLine),
+    ...cappedLines(stale, staleLine),
   ].join("\n");
 }
 

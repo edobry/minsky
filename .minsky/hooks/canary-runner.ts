@@ -41,6 +41,23 @@ import type { TranscriptLine } from "./transcript";
 export type CanaryExpectation = NonNullable<GuardRegistration["canary"]>["expects"];
 
 /**
+ * Which of a registration's two canaries to run (mt#3705).
+ *
+ * `"canary"` is the liveness sample every guard declares — the broken-vs-dormant
+ * disambiguator this module was built for. `"worstCase"` is the optional second
+ * sample declared only by GROWTH-SHAPED guards, posed at the largest input the
+ * guard can actually face, so `guard-feedback-shape.test.ts` can enforce
+ * `attentionCost.denialMessageSizeChars` as a real ceiling instead of a ratchet
+ * against drift.
+ *
+ * Deliberately a parameter on the existing runner rather than a second runner:
+ * the whole value of a canary is that it goes through the guard's REAL exported
+ * `run()` via the SAME `reg.module()` loader the dispatcher uses, and a parallel
+ * implementation would be one more thing that can drift away from that.
+ */
+export type CanaryKind = "canary" | "worstCase";
+
+/**
  * True iff `outcome` satisfies `expects`. Pure function — the sole seam
  * exercised directly by the sabotage-detection unit tests (see
  * `canary-runner.test.ts`), independent of any guard module or fs access.
@@ -185,12 +202,13 @@ function restoreEnvSnapshot(snapshot: Record<string, string | undefined>): void 
  */
 export async function runGuardCanary(
   reg: GuardRegistration,
-  moduleLoader?: () => Promise<GuardModule>
+  moduleLoader?: () => Promise<GuardModule>,
+  which: CanaryKind = "canary"
 ): Promise<CanaryResult> {
-  if (!reg.canary) {
+  const canary = which === "worstCase" ? reg.worstCaseCanary : reg.canary;
+  if (!canary) {
     return { guardName: reg.name, source: "registry", passed: undefined };
   }
-  const { canary } = reg;
   const envSnapshot: Record<string, string | undefined> = { ...process.env };
   try {
     const mod = await (moduleLoader ?? reg.module)();
