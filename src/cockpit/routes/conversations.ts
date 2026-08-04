@@ -48,40 +48,19 @@ import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-
 const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 /**
- * Shared task-title cache for the overview route's label computation (mt#3343).
+ * Task-title cache for the overview route's label computation (mt#3343).
  *
- * Lazily constructed so a cockpit boot with no SQL-capable persistence provider
- * never pays for it, and module-level so repeated overview polls reuse one
- * cache rather than re-hitting the task backend per request — the same posture
- * `widgets/context-inspector.ts` takes for the picker's labels. A null task
- * service degrades tier-1/tier-3 task-title resolution to "not found" rather
- * than throwing; `fetchEnrichment` already treats that as a tier miss.
+ * The singleton itself moved to `../shared-task-title-cache` (mt#3691) once
+ * `routes/agents.ts` began labeling its conversation candidates through the
+ * same precedence: two module-private caches would be two caches over one task
+ * backend, warming and expiring independently. This thin alias keeps the
+ * call site below reading the same way it did.
  */
-let overviewTitleCache: import("../task-title-cache").TaskTitleCache | null = null;
 async function getOverviewTitleCache(): Promise<
   import("../task-title-cache").TaskTitleCache | null
 > {
-  if (overviewTitleCache) return overviewTitleCache;
-  try {
-    const { TaskTitleCache } = await import("../task-title-cache");
-    const { getServerTaskService } = await import("../db-providers");
-    overviewTitleCache = new TaskTitleCache(async () => {
-      const taskService = await getServerTaskService();
-      return (
-        taskService ?? {
-          async getTask() {
-            return null;
-          },
-          async getTasks() {
-            return [];
-          },
-        }
-      );
-    });
-    return overviewTitleCache;
-  } catch {
-    return null;
-  }
+  const { getSharedTaskTitleCache } = await import("../shared-task-title-cache");
+  return getSharedTaskTitleCache();
 }
 
 /**
