@@ -578,6 +578,12 @@ async function teardownAll(): Promise<void> {
 
 let ws: WebSocket;
 try {
+  // PUT, not GET — required, not stylistic. Chrome rejects the GET form
+  // outright: `GET /json/new?...` answers 405 with "Using unsafe HTTP verb GET
+  // to invoke /json/new. This action supports only PUT verb." (verified against
+  // Chrome/150.0.7871.187, the shared dev canary, 2026-08-04). Switching to GET
+  // for looking more canonical would break this script (PR #2637 R1). The
+  // sibling `verify-cockpit-shell-scroll.ts` uses PUT for the same reason.
   const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(`${COCKPIT}/`)}`, {
     method: "PUT",
   });

@@ -251,7 +251,12 @@ export function mountTaskRoutes(app: express.Express): void {
     // Per-phase attribution for this handler (mt#3696). The detail read is the
     // cockpit's dominant server cost, and its waves are individually invisible
     // from the browser — a client can see the total and nothing else.
+    //
+    // Attached rather than applied per-exit so the 503/404/500 responses carry
+    // the attribution too: a slow FAILURE is exactly the case someone reaches
+    // for this header to explain (PR #2637 R1).
     const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
 
     try {
       const taskDetailDeps = await timing.time("deps", () => getServerTaskDetailDeps());
@@ -282,6 +287,14 @@ export function mountTaskRoutes(app: express.Express): void {
       // early return fires before the await. `Promise.allSettled` cannot
       // reject, and the workspace probe catches internally and resolves to
       // null, so every promise started here is already non-rejecting.
+      //
+      // Deliberate load-vs-latency trade (PR #2637 R1): a request for an id
+      // that does not exist still runs the graph and workspace reads before the
+      // 404, so a 404 costs reads it does not use. Accepted, because the
+      // alternative does not work — "check the task exists first" IS the
+      // `getTask` round trip, so gating on it re-serializes the whole handler
+      // and gives back the ~400ms this change bought on every successful read.
+      // A 404 here means a malformed URL, not a normal flow.
       const taskPromise = timing.time("task", () =>
         Promise.allSettled([
           taskService.getTask(taskId),
@@ -519,7 +532,6 @@ export function mountTaskRoutes(app: express.Express): void {
         }
       }
 
-      timing.applyTo(res);
       res.json({
         task: {
           id: formatTaskIdForDisplay(task.id),
@@ -562,6 +574,7 @@ export function mountTaskRoutes(app: express.Express): void {
     // compare them: the list returns ~20x the payload of a detail read, which
     // is what makes the detail read's cost recognizably not payload-bound.
     const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
 
     try {
       const taskService = await timing.time("service", () => getServerTaskService());
@@ -585,7 +598,6 @@ export function mountTaskRoutes(app: express.Express): void {
           title: t.title ?? "",
           status: (t.status ?? "TODO").toUpperCase(),
         }));
-      timing.applyTo(res);
       res.json({ tasks: taskList });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

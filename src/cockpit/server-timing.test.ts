@@ -11,6 +11,7 @@ import {
   sanitizeMetricName,
   ServerTimingRecorder,
   type HeaderSink,
+  type JsonResponseSink,
 } from "./server-timing";
 
 /** A clock that advances only when told to, so durations are exact. */
@@ -32,6 +33,27 @@ function recordingSink(headersSent = false): HeaderSink & { headers: Record<stri
     headersSent,
     setHeader(name: string, value: string) {
       headers[name] = value;
+    },
+  };
+}
+
+/** A response-shaped sink that records both headers and sent bodies. */
+function recordingJsonSink(): JsonResponseSink & {
+  headers: Record<string, string>;
+  bodies: unknown[];
+} {
+  const headers: Record<string, string> = {};
+  const bodies: unknown[] = [];
+  return {
+    headers,
+    bodies,
+    headersSent: false,
+    setHeader(name: string, value: string) {
+      headers[name] = value;
+    },
+    json(body: unknown) {
+      bodies.push(body);
+      return body;
     },
   };
 }
@@ -188,6 +210,67 @@ describe("ServerTimingRecorder", () => {
     const recorder = new ServerTimingRecorder(fakeClock().now);
     recorder.record("task graph", 1);
     expect(recorder.toJSON()[0]?.name).toBe("task_graph");
+  });
+
+  test("attachTo emits the header on a FAILURE response, not only on success", async () => {
+    // The regression this closes (PR #2637 R1): the header was applied by hand
+    // immediately before the success `res.json(...)`, so 503/404/500 replies
+    // carried no attribution — the exact responses a latency investigation
+    // reaches for. A slow failure is a finding, not a gap.
+    const clock = fakeClock();
+    const recorder = new ServerTimingRecorder(clock.now);
+    const sink = recordingJsonSink();
+    recorder.attachTo(sink);
+
+    await recorder.time("deps", async () => clock.advance(250));
+    sink.json({ error: "Task service unavailable" });
+
+    expect(sink.headers["Server-Timing"]).toBe(
+      'deps;dur=250.00, total;desc="handler total";dur=250.00'
+    );
+    expect(sink.bodies).toEqual([{ error: "Task service unavailable" }]);
+  });
+
+  test("attachTo captures phases recorded after it was attached", async () => {
+    // Attachment happens at the top of a handler, before any phase has run, so
+    // the header must be built at send time rather than at attach time.
+    const clock = fakeClock();
+    const recorder = new ServerTimingRecorder(clock.now);
+    const sink = recordingJsonSink();
+    recorder.attachTo(sink);
+
+    await recorder.time("task", async () => clock.advance(40));
+    await recorder.time("graph", async () => clock.advance(10));
+    sink.json({ ok: true });
+
+    expect(sink.headers["Server-Timing"]).toContain("task;dur=40.00");
+    expect(sink.headers["Server-Timing"]).toContain("graph;dur=10.00");
+  });
+
+  test("attachTo preserves the value json returns", () => {
+    const recorder = new ServerTimingRecorder(fakeClock().now);
+    const sink = recordingJsonSink();
+    sink.json = () => "sentinel";
+    recorder.attachTo(sink);
+    expect(sink.json({ ok: true })).toBe("sentinel");
+  });
+
+  test("attachTo is idempotent — a second attach does not double-wrap", () => {
+    const recorder = new ServerTimingRecorder(fakeClock().now);
+    const sink = recordingJsonSink();
+    let applyCount = 0;
+    const originalSetHeader = sink.setHeader.bind(sink);
+    sink.setHeader = (name: string, value: string) => {
+      applyCount++;
+      return originalSetHeader(name, value);
+    };
+
+    recorder.attachTo(sink);
+    recorder.attachTo(sink);
+    recorder.record("db", 1);
+    sink.json({ ok: true });
+
+    expect(applyCount).toBe(1);
   });
 
   test("defaults to a real clock when none is injected", async () => {

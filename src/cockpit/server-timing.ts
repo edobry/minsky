@@ -97,6 +97,11 @@ export interface HeaderSink {
   headersSent?: boolean;
 }
 
+/** A response that also sends JSON bodies — what {@link ServerTimingRecorder.attachTo} wraps. */
+export interface JsonResponseSink extends HeaderSink {
+  json: (body: unknown) => unknown;
+}
+
 /**
  * Accumulates per-phase durations for one request.
  *
@@ -172,4 +177,38 @@ export class ServerTimingRecorder {
     sink.setHeader("Server-Timing", value);
     return true;
   }
+
+  /**
+   * Make EVERY JSON response from this handler carry the header, by wrapping
+   * `json` once so the timing is applied immediately before the body is sent.
+   *
+   * Called once at the top of a handler instead of calling {@link applyTo} at
+   * each exit. The difference matters: a handler has an exit per failure mode
+   * (503 when the service is down, 404, 500), and those are precisely the
+   * responses someone investigating latency wants attributed — a slow failure
+   * is a finding. Applying the header by hand at each `return` leaves the
+   * instrumentation only as complete as the author's memory, and the next exit
+   * path added silently loses it. This makes it structural instead.
+   *
+   * Idempotent per response: wrapping twice would apply the timing twice, which
+   * is harmless (the second call overwrites the same header) but pointless, so
+   * a second call is ignored.
+   */
+  attachTo(sink: JsonResponseSink): void {
+    if (ATTACHED.has(sink)) return;
+    ATTACHED.add(sink);
+    const originalJson = sink.json.bind(sink);
+    sink.json = (body: unknown) => {
+      this.applyTo(sink);
+      return originalJson(body);
+    };
+  }
 }
+
+/**
+ * Responses already wrapped by {@link ServerTimingRecorder.attachTo}. Weak so a
+ * finished response is not retained — this holds one entry per in-flight
+ * request, and a strong set would leak every response object the process ever
+ * served.
+ */
+const ATTACHED = new WeakSet<object>();
