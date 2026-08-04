@@ -759,75 +759,55 @@ describe("run() — mt#3003 cross-transcript contamination", () => {
   const PARENT_PATH = "/mock/parent.jsonl";
   const SUBAGENT_PATH = "/mock/subagents/agent-fake.jsonl";
 
-  test("measures only the parent transcript when >1 candidate is resolved, ignoring the flattened array", () => {
-    // The parent's OWN turn is short (5 calls, well under threshold) — it
-    // must NOT fire. A naive scan of the flattened array would see the
-    // subagent's 20-call stretch appended after it and fire on THAT
-    // instead, misattributing the subagent's own activity to this
-    // conversation's turn.
+  // mt#3293 removed `RunDeps.parseTranscriptFn`: with resolution hoisted to the dispatcher
+  // this detector has no transcript-reading seam left, so "never re-reads the transcript" is
+  // structural rather than something a poisoned fake has to assert.
+  const parentOnlyDeps = (): RunDeps => ({
+    ...noDedupeDeps(),
+    readCalibrationLogTextFn: () => undefined,
+  });
+
+  // mt#3293 moved contamination resolution to the dispatcher: `ctx.transcriptLines` is
+  // PARENT-ONLY by construction for every guard, and this detector no longer re-resolves it.
+  // The resolution itself is covered in `dispatcher.test.ts` ("parent + subagent candidates ->
+  // parses ONLY the parent"). What stays worth pinning HERE is the detector's own half of the
+  // contract: it measures exactly the array it is handed, and never re-reads the transcript.
+  test("measures the parent's short turn and does not fire, given the dispatcher's parent-only lines", () => {
+    // The parent's OWN turn is short (5 calls, well under threshold) — it must NOT fire.
+    // Pre-mt#3293 this array would have carried the subagent's 20-call stretch appended
+    // after it, and the detector would have fired on THAT, misattributing a subagent's
+    // activity to this conversation's turn.
     const parentLines = [
       userPromptLine(0),
       ...toolCallChain(1, 5),
       userPromptLine(1 + 5 * 5 + 10, "status?"),
     ];
-    const subagentLines = [
-      userPromptLine(0),
-      ...toolCallChain(1, 20, STRETCH_SPACING),
-      userPromptLine(500),
-    ];
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [PARENT_PATH, SUBAGENT_PATH]);
-    const deps: RunDeps = {
-      ...noDedupeDeps(),
-      parseTranscriptFn: (path) => {
-        expect(path).toBe(PARENT_PATH); // always candidates[0]
-        return parentLines;
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const ctx = makeCtxWithCandidates(parentLines, [PARENT_PATH, SUBAGENT_PATH]);
     const input: ClaudeHookInput = { ...HOOK_INPUT, transcript_path: PARENT_PATH };
-    expect(run(input, ctx, deps)).toBeNull();
+    expect(run(input, ctx, parentOnlyDeps())).toBeNull();
   });
 
-  test("a genuine parent-side stretch still fires even with a contaminated multi-candidate ctx", () => {
+  test("a genuine parent-side stretch fires on the dispatcher's parent-only lines", () => {
     const parentLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
       userPromptLine(1 + 20 * STRETCH_SPACING + 30, "still going?"),
     ];
-    const subagentLines = [
-      userPromptLine(0),
-      assistantTextLine(1, "subagent done"),
-      userPromptLine(2),
-    ];
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [PARENT_PATH, SUBAGENT_PATH]);
-    const deps: RunDeps = {
-      ...noDedupeDeps(),
-      parseTranscriptFn: (path) => (path === PARENT_PATH ? parentLines : []),
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const ctx = makeCtxWithCandidates(parentLines, [PARENT_PATH, SUBAGENT_PATH]);
     const input: ClaudeHookInput = { ...HOOK_INPUT, transcript_path: PARENT_PATH };
-    const outcome = run(input, ctx, deps);
+    const outcome = run(input, ctx, parentOnlyDeps());
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.calibration?.toolCallCount).toBe(20);
   });
 
-  test("<=1 candidate -> unaffected, uses ctx.transcriptLines directly (no parseTranscriptFn call)", () => {
+  test("single candidate -> also consumed as-is, no transcript re-read (structural)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
       userPromptLine(1 + 20 * STRETCH_SPACING + 30),
     ];
     const ctx = makeCtxWithCandidates(transcriptLines, [PARENT_PATH]);
-    const poisoned: RunDeps = {
-      ...noDedupeDeps(),
-      parseTranscriptFn: () => {
-        throw new Error("parseTranscriptFn must not be called for a single candidate");
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
-    const outcome = run(HOOK_INPUT, ctx, poisoned);
+    const outcome = run(HOOK_INPUT, ctx, parentOnlyDeps());
     expect(outcome?.calibration).toBeDefined();
   });
 });
