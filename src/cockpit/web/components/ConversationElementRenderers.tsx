@@ -17,6 +17,7 @@
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
  */
 import { useEffect, useId, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import type {
   ConversationElement,
@@ -36,6 +37,48 @@ import { isApiErrorText } from "../lib/conversation-outcome";
 
 export type ToolCallElement = Extract<ConversationElement, { kind: "tool-call" }>;
 export type ToolResultElement = Extract<ConversationElement, { kind: "tool-result" }>;
+
+/** The spawn descriptor an Agent tool call carries. */
+export type SpawnInfo = NonNullable<ToolCallElement["spawn"]>;
+
+const SPAWN_BADGE_CLASS =
+  "mr-2 shrink-0 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300";
+
+/**
+ * The `→ subagent (kind)` marker on an Agent tool call.
+ *
+ * Links to the conversation this specific call spawned when one resolved
+ * (mt#3692), and stays a plain label when it did not — which is still most
+ * spawns, since only about 30% currently resolve a child (mt#3702 tracks raising
+ * that). The unresolved case is deliberately not rendered as a disabled control:
+ * there is nowhere to go, and a dead link reads worse than a label.
+ *
+ * Shared by the per-tool-call renderer here and `ConversationView`'s turn-level
+ * badge, so the two cannot drift.
+ */
+export function SpawnBadge({ spawn }: { spawn: SpawnInfo }) {
+  const label = `→ subagent${spawn.agentKind ? ` (${spawn.agentKind})` : ""}`;
+
+  if (!spawn.childAgentSessionId) {
+    return <span className={SPAWN_BADGE_CLASS}>{label}</span>;
+  }
+
+  return (
+    <Link
+      to={`/conversation/${spawn.childAgentSessionId}`}
+      data-testid="spawn-child-link"
+      title="Open the conversation this call spawned"
+      className={cn(
+        SPAWN_BADGE_CLASS,
+        "underline decoration-violet-300/40 underline-offset-2",
+        "hover:bg-violet-500/25 hover:text-violet-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      )}
+    >
+      {label}
+    </Link>
+  );
+}
 
 /** View-level "expand all / collapse all" broadcast — see `ToolInvocation`/`InjectedContentBlock`. */
 export type ExpandSignal = { epoch: number; open: boolean } | undefined;
@@ -190,44 +233,47 @@ export function ToolInvocation({
         isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5"
       )}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs"
-      >
-        <Icon
-          aria-hidden
-          className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
-        />
-        <span
-          title={nameTooltip}
-          className={cn(
-            "shrink-0 font-mono font-medium",
-            isError ? "text-destructive" : "text-sky-300"
-          )}
+      {/*
+        The spawn badge sits OUTSIDE the toggle button (mt#3692). When its child
+        conversation resolves it becomes a link, and an anchor nested inside a
+        button is invalid HTML that browsers and screen readers handle
+        inconsistently — so the row is a flex container holding the toggle and the
+        badge as siblings, rather than one button wrapping both.
+      */}
+      <div className="flex w-full items-center">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
         >
-          {label}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-muted-foreground",
-            isError && "text-destructive/80"
-          )}
-        >
-          {digest}
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {call.spawn && (
-            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-              → subagent{call.spawn.agentKind ? ` (${call.spawn.agentKind})` : ""}
-            </span>
-          )}
-          <span aria-hidden className="text-muted-foreground/60">
+          <Icon
+            aria-hidden
+            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
+          />
+          <span
+            title={nameTooltip}
+            className={cn(
+              "shrink-0 font-mono font-medium",
+              isError ? "text-destructive" : "text-sky-300"
+            )}
+          >
+            {label}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-muted-foreground",
+              isError && "text-destructive/80"
+            )}
+          >
+            {digest}
+          </span>
+          <span aria-hidden className="ml-auto shrink-0 pl-1.5 text-muted-foreground/60">
             {open ? "▾" : "▸"}
           </span>
-        </span>
-      </button>
+        </button>
+        {call.spawn && <SpawnBadge spawn={call.spawn} />}
+      </div>
       {open && (
         <div className="border-t border-border/40">
           <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">

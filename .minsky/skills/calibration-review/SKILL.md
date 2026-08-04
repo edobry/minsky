@@ -48,7 +48,7 @@ set:
    the cadence detector resumes normal per-turn warnings for this log:
    `mcp__minsky__observability_calibration-review` with `clearAskId: "<id>"`
    (a single ask id, not an array — one review pass always files exactly one
-   ask covering every past-threshold log in that pass, so there is only ever
+   ask covering every review-due log in that pass, so there is only ever
    one id to clear at a time). Then proceed to classify this log's NEW fires
    (if any) normally in Step 2 onward.
 3. If the ask's `state` is still open (`detected`, `classified`, `routed`,
@@ -62,9 +62,27 @@ set:
    silently `--ack` a still-open-ask log when `askId` isn't supplied — see
    Step 5 — so skipping here is belt-and-suspenders, not the only guard.)
 
-If **no** log has `pastThreshold: true` (after excluding still-open-ask logs
-per step 3 above), stop — nothing to review. Do not emit an Ask, do not
-advance watermarks.
+If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
+3 above), stop — nothing to review. Do not emit an Ask, do not advance
+watermarks.
+
+**Review-due is the trigger, not `pastThreshold` (mt#2878).** `reviewDue`
+carries four reasons: `past-threshold` (the count+diversity bar),
+`time-stale`, `never-reviewed`, and `never-fired`. A log due for one of the
+three time-based reasons is genuinely due for review even though it never
+reached the count bar — a low-volume detector may never reach it at all. This
+step used to stop on `pastThreshold` alone, which left those logs permanently
+undischargeable: reviewed by nobody, warned about every turn. `--ack` now
+advances every `reviewDue` log, so a pass that stops here on the old condition
+re-opens exactly the gap mt#2878 closed.
+
+**A below-count-bar log returns `newRecords: []` BY DESIGN** — `computeLogResult`
+gates that field on `atCountThreshold`, so an empty array here means "under the
+bar," never "no evidence exists." Read the raw JSONL for those logs
+(`jq -c '.' .minsky/<name>-calibration.jsonl | tail -n <firesSinceLastReview>`)
+rather than recording "cannot classify" from the empty array — the
+`classifiability` verdict is computed over the un-gated records and will still
+say `classifiable`. See §"Cannot classify" is a claim about the corpus.
 
 ### Step 1b — Coverage-receipt check (mt#2554)
 
@@ -117,7 +135,8 @@ This is the LIVE-input complement to the canary's synthetic-input check; see
 
 ## Step 2 — False-positive classification
 
-For each log with `pastThreshold: true`, go through its `newRecords` and
+For each log in `reviewDue` (any reason — see Step 1's note; for a below-count-bar
+log read the raw JSONL, since `newRecords` is gated), go through its records and
 classify each as **real positive** or **false positive**:
 
 - A record is a **false positive** if the matched claim was legitimate and did
@@ -167,10 +186,20 @@ an Accepted ADR and two task specs before anyone checked the log.
 
 ## Step 3 — Recommendation
 
-Per log (a `pastThreshold` log already cleared BOTH the fire-count and the
-diversity bar — the command gates `pastThreshold` on both, so low-diversity logs
-never reach this step; they stay in the "keep collecting" state with
-`atCountThreshold: true, pastThreshold: false` and produce no Ask), pick one:
+Per review-due log, pick one. Note what the log's reason tells you about the
+evidence you are reasoning from (mt#2878):
+
+- A **`past-threshold`** log cleared BOTH the fire-count and the diversity bar,
+  so its sample is the strongest — this is the case the flip/tune thresholds
+  below were written for.
+- A **`time-stale`**, **`never-reviewed`**, or **`never-fired`** log reached
+  this step on ELAPSED TIME, not volume. Its sample may be small (single
+  digits) or, for `never-fired`, empty. A low-diversity log can now arrive here
+  too, since the diversity bar gates only `pastThreshold`. Say the sample size
+  out loud in the Ask and prefer **keep** over a flip you cannot support: an FP
+  rate over 3 fires is not the same evidence as one over 30. For `never-fired`
+  the question is not FP rate at all — it is whether the detector is still
+  reachable (cross-reference Step 1b's verdict).
 
 - **flip** — FP rate is low (rule of thumb: < ~20%): recommend enabling the
   hook's injection mode (e.g. flip `INJECTION_ENABLED` to `true` for the
@@ -203,7 +232,7 @@ that bundled a flip whose precondition — dedup — was not yet satisfied.)
 
 The body must LEAD with a one- or two-sentence plain-language definition of
 any term the reader needs (e.g. what "live" vs "log-only" means for a
-detector), then one line per past-threshold log in this shape:
+detector), then one line per review-due log in this shape:
 
 ```
 N. DISPOSITION — detector-name, live|log-only ("what habit it watches, in
@@ -275,7 +304,7 @@ Step 4a's template, not as a cue to bypass:
   reviewable in a future calibration pass. Reaching for it before trying the
   plain-language compression defeats the point of this amendment.
 
-The Ask body must still contain, per past-threshold log, the full stat
+The Ask body must still contain, per review-due log, the full stat
 detail Step 4a's template attaches after the plain-language clause:
 
 - the log name + `injectedFiresSinceLastReview` / `totalFires` + `distinctPhrases`
@@ -316,16 +345,18 @@ these logs until the ask resolves:
   generated flag for `askId` — check `--help` for the exact flag spelling
 
 This marks the reviewed fires so the next sweep only considers new ones AND
-records `openAskId` on every past-threshold log's watermark. This makes the
-loop idempotent: a re-run with no new fires emits no Ask, and a re-run while
-the ask is still open (Step 1a) skips straight past without re-asking.
+records `openAskId` on every review-due log's watermark — including a
+`never-reviewed` log that had no watermark at all, for which the entry is
+CREATED (mt#2878). This makes the loop idempotent: a re-run with no new fires
+emits no Ask, and a re-run while the ask is still open (Step 1a) skips straight
+past without re-asking.
 
 **Command-level guard (belt-and-suspenders).** If Step 1a's skip is ever
 missed, the command itself refuses to help: `--ack` WITHOUT `askId` never
-silently advances the watermark of a past-threshold log whose watermark
+silently advances the watermark of a review-due log whose watermark
 already carries an `openAskId` — that log is left untouched (surfaced in the
 result as `skippedOpenAskPaths`) instead of being marked reviewed. Passing
-`askId` on the ack call always advances every past-threshold log regardless
+`askId` on the ack call always advances every review-due log regardless
 of any pre-existing `openAskId` (an explicit reaffirmation), and an `--ack`
 call that omits `askId` entirely never drops a pre-existing `openAskId` on
 the logs it DOES advance — only `clearAskId` clears it.

@@ -56,6 +56,16 @@ import {
  *   retained (not just exposed via the response) so the caller can still
  *   feed the FULL candidate set into `pickBestConversationLink` for the
  *   back-compat singular `conversation` field.
+ *
+ *   `linkType`, `cwd`, and `generatedTitle` are carried too (mt#3691). The
+ *   first is the candidate's provenance, which the switcher renders so an
+ *   operator can tell an orchestrator conversation from a subagent transcript;
+ *   the other two are label INPUTS. All three are free here — both tables are
+ *   already joined — whereas the four-query enrichment that turns them into a
+ *   label is NOT free, which is why it lives in
+ *   `../conversation-candidate-labels` and only the detail route opts in. This
+ *   function's other caller (`/api/agents/:id/live-tail`) discards everything
+ *   but the best id and must not start paying for labels.
  */
 export async function resolveWorkspaceConversations(
   minskySessionId: string,
@@ -67,6 +77,13 @@ export async function resolveWorkspaceConversations(
     confidence: number | null;
     startedAt: string | null;
     source: ConversationLinkSource;
+    /**
+     * `minsky_session_links.link_type` — null on a derived candidate, which
+     * has no link row by construction.
+     */
+    linkType: string | null;
+    cwd: string | null;
+    generatedTitle: string | null;
   }>
 > {
   try {
@@ -85,6 +102,9 @@ export async function resolveWorkspaceConversations(
         agentSessionId: minskySessionLinksTable.agentSessionId,
         confidence: minskySessionLinksTable.confidence,
         startedAt: agentTranscriptsTable.startedAt,
+        linkType: minskySessionLinksTable.linkType,
+        cwd: agentTranscriptsTable.cwd,
+        title: agentTranscriptsTable.title,
       })
       .from(minskySessionLinksTable)
       .innerJoin(
@@ -100,6 +120,9 @@ export async function resolveWorkspaceConversations(
         confidence: r.confidence,
         startedAt: r.startedAt instanceof Date ? r.startedAt.toISOString() : null,
         source: "link-row" as const,
+        linkType: r.linkType,
+        cwd: r.cwd,
+        generatedTitle: r.title,
       }));
     }
 
@@ -119,6 +142,17 @@ export async function resolveWorkspaceConversations(
         confidence: null,
         startedAt: derivedLink.startedAt,
         source: "derived-agent-id" as const,
+        // A derived candidate has no link row, so there is no link_type to
+        // report — the `source` field already carries its provenance, and the
+        // switcher renders no chip rather than inventing one. `cwd` and the
+        // generated title are not read on this path either: a derived link is
+        // returned ALONE (it only runs when the link-row query came back
+        // empty), so the switcher — which needs 2+ candidates — never renders
+        // it, and the singular `conversation` field it does feed carries no
+        // label.
+        linkType: null,
+        cwd: null,
+        generatedTitle: null,
       },
     ];
   } catch (convErr) {
@@ -193,6 +227,37 @@ export function mountAgentRoutes(app: express.Express): void {
       const { pickBestConversationLink } = await import("../session-detail");
       const conversation = pickBestConversationLink(conversations);
 
+      // mt#3691 — label every candidate with the run list's own precedence, so
+      // the switcher names conversations instead of listing uuids. Computed
+      // HERE rather than inside `resolveWorkspaceConversations` because the
+      // live-tail route shares that function and discards everything but the
+      // best id (see its @returns note).
+      //
+      // Labeled unconditionally, not only at the 2+-candidate threshold the
+      // switcher renders at: a conditionally-present field is a contract every
+      // consumer has to special-case, and the cost is the same four batched
+      // queries the conversation-overview route already pays per request for a
+      // SINGLE conversation on this same page family. Degrades to absent (not
+      // to a uuid) when the DB is unavailable, matching every other enrichment
+      // in this handler.
+      const labels = await (async () => {
+        try {
+          const db = await getContextInspectorDb();
+          if (!db) return new Map<string, string>();
+          const { labelConversationCandidates } = await import("../conversation-candidate-labels");
+          const { getSharedTaskTitleCache } = await import("../shared-task-title-cache");
+          return await labelConversationCandidates(
+            db,
+            conversations,
+            await getSharedTaskTitleCache()
+          );
+        } catch (labelErr) {
+          const msg = labelErr instanceof Error ? labelErr.message : String(labelErr);
+          log.debug(`[agents] candidate labeling degraded: ${msg}`);
+          return new Map<string, string>();
+        }
+      })();
+
       // mt#2752 — surface an app-started driven session bound to this
       // workspace (newest first if several), so the run-detail page can
       // offer the live drive view (/driven/:id). In-process registry read;
@@ -221,6 +286,15 @@ export function mountAgentRoutes(app: express.Express): void {
           // from one derived from the workspace's own (unforgeable-only-by-
           // convention, per ADR-006) agentId.
           source: c.source,
+          // mt#3691 — the FINER provenance the switcher renders: which of the
+          // five writer classes stamped this row. `source` only distinguishes
+          // stamped-vs-derived; this says which writer, so an operator can
+          // tell the conversation that CREATED the workspace from a subagent
+          // that worked in it.
+          linkType: c.linkType,
+          // Absent (not a uuid) when labeling degraded — the client falls back
+          // to a shortened id rather than rendering an empty item.
+          ...(labels.has(c.agentSessionId) ? { label: labels.get(c.agentSessionId) } : {}),
         })),
         driven,
       });

@@ -1722,7 +1722,7 @@ export function clearResolvedAskIds(
 }
 
 /**
- * Result of `selectAckablePaths` — which past-threshold logs may be advanced
+ * Result of `selectAckablePaths` — which review-due logs may be advanced
  * (acked) this pass, and which must be skipped.
  */
 export interface AckSelection {
@@ -1736,13 +1736,20 @@ export interface AckSelection {
 }
 
 /**
- * Determine which past-threshold logs may be safely advanced (acked) in this
+ * Determine which review-due logs may be safely advanced (acked) in this
  * pass, and which must be skipped because they already carry a still-open
  * disposition ask (mt#2659).
  *
+ * The caller decides WHICH logs are review-due and passes them in; this
+ * function never re-derives that set. Callers should hand it the results
+ * corresponding to `computeReviewDueLogs` output — all four legs, not just
+ * `pastThreshold` (mt#2878). Handing it a narrower set silently makes the
+ * ack-able set smaller than the set the cadence hook warns about, which is
+ * exactly the defect mt#2878 fixed at the one call site.
+ *
  * When `askId` is provided, the caller is explicitly (re)affirming an ask for
- * every past-threshold result this call — ALL are ackable regardless of any
- * pre-existing `openAskId`.
+ * every result this call — ALL are ackable regardless of any pre-existing
+ * `openAskId`.
  *
  * When `askId` is NOT provided, any result whose `openAskId` is already set
  * is skipped rather than silently advanced: per the /calibration-review
@@ -1758,12 +1765,12 @@ export interface AckSelection {
  * misapply ask-aware suppression state" independently testable.
  */
 export function selectAckablePaths(
-  pastThresholdResults: CalibrationLogResult[],
+  reviewDueResults: CalibrationLogResult[],
   askId?: string
 ): AckSelection {
   const ackablePaths = new Set<string>();
   const skippedOpenAskPaths: string[] = [];
-  for (const r of pastThresholdResults) {
+  for (const r of reviewDueResults) {
     if (!askId && r.openAskId) {
       skippedOpenAskPaths.push(r.entry.path);
       continue;
