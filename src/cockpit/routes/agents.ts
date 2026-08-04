@@ -261,6 +261,14 @@ export function mountAgentRoutes(app: express.Express): void {
       // SINGLE conversation on this same page family. Degrades to absent (not
       // to a uuid) when the DB is unavailable, matching every other enrichment
       // in this handler.
+      // Timed inside the `.then`, so `labels` measures the labeling work ALONE
+      // and excludes the `convs` wait it depends on (PR #2639 R1 suggested
+      // `timing.time("labels", async () => { const convs = await
+      // conversationsPromise; ... })` instead — that form makes `labels`
+      // subsume `convs`, so the two phases double-count and the sum exceeds the
+      // handler total, which is the opposite of the attribution this task
+      // needs). Nothing runs between the `.then` entry and the timer, so there
+      // is no gap for it to hide; keep it that way.
       const labelsPromise = conversationsPromise.then((convs) =>
         timing.time("labels", async () => {
           try {
@@ -285,24 +293,40 @@ export function mountAgentRoutes(app: express.Express): void {
         labelsPromise,
       ]);
 
-      const { pickBestConversationLink } = await import("../session-detail");
-      const conversation = pickBestConversationLink(conversations);
+      // Everything after the reads, timed as one phase to test where the
+      // handler's unaccounted time goes (PR #2639 R1): the critical path
+      // (session + convs + labels) measures ~1108ms against a ~1259ms total.
+      //
+      // It is NOT here. This phase measures 0.04ms, which falsifies the
+      // dynamic-imports-and-assembly hypothesis it was added to test. The
+      // ~150ms residual is real, reproducible, and currently unexplained — it
+      // sits between the last read resolving and the response being written,
+      // and is left NAMED-as-unknown rather than quietly folded into a
+      // neighbouring phase. Kept because a phase that reads 0.04ms is the
+      // evidence for that, and deleting it would put the next reader back at
+      // the same wrong hypothesis.
+      const { conversation, driven } = await timing.time("assemble", async () => {
+        const { pickBestConversationLink } = await import("../session-detail");
+        const best = pickBestConversationLink(conversations);
 
-      // mt#2752 — surface an app-started driven session bound to this
-      // workspace (newest first if several), so the run-detail page can
-      // offer the live drive view (/driven/:id). In-process registry read;
-      // empty on deployments with no driven-session host.
-      let driven: { sessionId: string; status: string } | null = null;
-      try {
-        const { drivenSessionRegistry } = await import("../driven-session-host");
-        const bound = drivenSessionRegistry
-          .list()
-          .filter((r) => r.minskySessionId === sessionId)
-          .at(-1);
-        if (bound) driven = { sessionId: bound.localId, status: bound.status };
-      } catch {
-        driven = null;
-      }
+        // mt#2752 — surface an app-started driven session bound to this
+        // workspace (newest first if several), so the run-detail page can
+        // offer the live drive view (/driven/:id). In-process registry read;
+        // empty on deployments with no driven-session host.
+        let boundDriven: { sessionId: string; status: string } | null = null;
+        try {
+          const { drivenSessionRegistry } = await import("../driven-session-host");
+          const bound = drivenSessionRegistry
+            .list()
+            .filter((r) => r.minskySessionId === sessionId)
+            .at(-1);
+          if (bound) boundDriven = { sessionId: bound.localId, status: bound.status };
+        } catch {
+          boundDriven = null;
+        }
+
+        return { conversation: best, driven: boundDriven };
+      });
 
       res.json({
         session,

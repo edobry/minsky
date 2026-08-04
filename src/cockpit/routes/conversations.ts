@@ -444,15 +444,19 @@ export function mountConversationRoutes(
       // route already built it, so reusing it costs nothing and stays correct
       // even if the `minsky_session_links` lookup inside `fetchEnrichment`
       // resolves a different (weaker) link.
+      // Awaited BEFORE the `label` timer starts, not inside it (PR #2639 R1).
+      // Awaiting it within the timed block would let any residual enrichment
+      // wait land in `label`, so a phase whose whole point is to show that the
+      // query left the critical path would quietly absorb the query again —
+      // the metric would stop being able to report its own failure.
+      const enrichmentMap = await enrichmentPromise;
+
       const label = await timing.time("label", async () => {
         try {
           const { EMPTY_ENRICHMENT } = await import("../conversation-label-enrichment");
           const { computeConversationLabel } = await import(
             "@minsky/domain/transcripts/conversation-label"
           );
-          // Already in flight since before the reads above (mt#3710); awaiting
-          // it here is normally free.
-          const enrichmentMap = await enrichmentPromise;
           if (!enrichmentMap) throw new Error("enrichment unavailable");
           const enrichment = enrichmentMap.get(agentSessionId) ?? EMPTY_ENRICHMENT;
           return computeConversationLabel({

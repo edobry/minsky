@@ -255,6 +255,41 @@ describe("ServerTimingRecorder", () => {
     expect(sink.json({ ok: true })).toBe("sentinel");
   });
 
+  test("attachTo emits the header on a non-JSON `send` exit too", () => {
+    // Every current handler exits via `json`; this covers the drift case a
+    // future non-JSON exit would otherwise introduce silently (PR #2639 R1).
+    const clock = fakeClock();
+    const recorder = new ServerTimingRecorder(clock.now);
+    const sent: unknown[] = [];
+    const sink: JsonResponseSink & { headers: Record<string, string> } = {
+      headers: {},
+      headersSent: false,
+      setHeader(name: string, value: string) {
+        this.headers[name] = value;
+      },
+      json: (body: unknown) => body,
+      send: (body?: unknown) => {
+        sent.push(body);
+        return body;
+      },
+    };
+    recorder.attachTo(sink);
+    recorder.record("db", 12);
+
+    sink.send?.("plain text");
+
+    expect(sink.headers["Server-Timing"]).toBe('db;dur=12.00, total;desc="handler total";dur=0.00');
+    expect(sent).toEqual(["plain text"]);
+  });
+
+  test("attachTo tolerates a sink with no send method", () => {
+    const recorder = new ServerTimingRecorder(fakeClock().now);
+    const sink = recordingJsonSink();
+    expect(() => recorder.attachTo(sink)).not.toThrow();
+    sink.json({ ok: true });
+    expect(sink.headers["Server-Timing"]).toContain("total");
+  });
+
   test("attachTo is idempotent — a second attach does not double-wrap", () => {
     const recorder = new ServerTimingRecorder(fakeClock().now);
     const sink = recordingJsonSink();
