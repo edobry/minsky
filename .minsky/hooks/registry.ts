@@ -547,10 +547,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./require-duplicate-check-record").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: true,
-    // Measured against buildDenialReason()'s fixed body — ~780 chars. It has to
-    // carry BOTH accepted forms plus the read-the-titles-not-the-scores warning,
-    // because a clean similarity result is exactly what misleads here. One
-    // remediation option (the MINSKY_SKIP_DUPLICATE_RECORD override).
+    // MEASURED, not estimated (PR #2612 R1 corrected an invented "~780"):
+    // `buildDenialReason().length` is exactly 644. The body is wholly static —
+    // no per-hit interpolation — so 644 is the rendered size, not a sample, and
+    // the 900 ceiling leaves 256 chars (~40%) of headroom. The message needs its
+    // length: it carries BOTH accepted forms plus the
+    // read-the-titles-not-the-scores warning, because a clean similarity result
+    // is exactly what misleads here. One remediation option (the
+    // MINSKY_SKIP_DUPLICATE_RECORD override).
     attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
     // A create whose spec carries no record — purely string-driven, no
     // filesystem or env dependency, so the canary is stable.

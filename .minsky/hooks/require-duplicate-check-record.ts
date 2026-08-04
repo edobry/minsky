@@ -129,7 +129,13 @@ if (import.meta.main) {
     const outcome = run(input, {} as DispatchContext);
 
     if (outcome?.auditLines) {
-      for (const line of outcome.auditLines) process.stdout.write(line);
+      // STDERR, not stdout (PR #2612 R1). ADR-028 D1 reserves a PreToolUse
+      // hook's stdout for the single JSON object, and mt#3625 measured that
+      // anything else there makes Claude Code discard the hook's ENTIRE output
+      // — silently and destructively. The override path emits no JSON today, so
+      // this is defensive rather than a live bug; putting diagnostics on stdout
+      // is exactly the coupling that broke the dispatcher for months.
+      for (const line of outcome.auditLines) process.stderr.write(line);
     } else if (outcome?.deny) {
       const output: HookOutput = {
         hookSpecificOutput: {

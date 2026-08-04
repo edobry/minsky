@@ -117,6 +117,18 @@ describe("buildDenialReason", () => {
     expect(reason).toContain(OVERRIDE_ENV_VAR);
   });
 
+  it("fits inside the attentionCost ceiling declared in the registry", () => {
+    // PR #2612 R1 questioned whether the declared 900-char bound covered the
+    // real message. It does — but the registry comment had asserted an
+    // ESTIMATED "~780" that was never measured, which is what made the bound
+    // unauditable. This pins the actual number so the ceiling and the message
+    // cannot drift apart silently: the body is wholly static, so this length is
+    // exact, not a sample.
+    const len = buildDenialReason().length;
+    expect(len).toBe(644);
+    expect(len).toBeLessThan(900);
+  });
+
   it("warns against trusting the similarity scores", () => {
     // mem#819's measured finding: at these distances the scores rank a true
     // duplicate below unrelated tasks. A denial that sent the agent to the
