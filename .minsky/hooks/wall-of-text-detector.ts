@@ -122,12 +122,10 @@ import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold
 import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
   findRealPromptIndices,
   resolveCompletedTurn,
-  resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
@@ -538,41 +536,17 @@ export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
 
 // ---------------------------------------------------------------------------
 // mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
+//
+// RETIRED by mt#3293. This file's `resolveTurnLines` was the original fix: it
+// re-parsed the parent candidate alone whenever `ctx.transcriptLines` carried more
+// than one transcript, so a subagent's own final report could never be measured as
+// this conversation's turn-end report. mt#3003 generalized it into
+// `transcript.ts`'s `resolveParentTranscriptLines`; mt#3293 hoisted that call into
+// the dispatcher, so `ctx.transcriptLines` now arrives parent-only for every guard.
+// Calling a resolver here would re-read and re-parse the parent transcript to
+// produce the array already in hand. The guarantee is unchanged — it just lives at
+// the seam that owns it, and is covered by `dispatcher.test.ts`.
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the transcript lines to measure THIS session's turn-end report
- * against. `ctx.transcriptLines` (D6) is safe to use as-is when there is at
- * most one resolved candidate (the common case — no subagents dispatched
- * this session). When `ctx.transcriptCandidates` names MORE than one file,
- * `ctx.transcriptLines` is a flat concatenation of the parent transcript
- * with every sibling subagent transcript (see the header comment's mt#3028
- * fix (1)) — re-parse the parent candidate (`input.transcript_path`, always
- * `transcriptCandidates[0]` per `resolveTranscriptCandidates`) alone instead,
- * so a subagent's own final report can never be measured as if it were the
- * principal-facing turn-end report of the live conversation.
- *
- * `parseTranscriptFn` is injectable (defaults to the real `parseTranscript`)
- * so tests can exercise the multi-candidate branch with an in-memory fixture
- * instead of a real file (`custom/no-real-fs-in-tests`).
- */
-export function resolveTurnLines(
-  input: ClaudeHookInput,
-  ctx: DispatchContext,
-  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
-): TranscriptLine[] {
-  // mt#3003: delegates to the shared transcript.ts primitive — this
-  // function's own signature/behavior is unchanged (kept for callers/tests
-  // that already reference it by this name), it just no longer duplicates
-  // the candidate-resolution logic. See resolveParentTranscriptLines's own
-  // doc comment for the full contamination-mechanism rationale.
-  return resolveParentTranscriptLines(
-    input.transcript_path,
-    ctx.transcriptCandidates,
-    ctx.transcriptLines,
-    parseTranscriptFn
-  );
-}
 
 // ---------------------------------------------------------------------------
 // mt#3028 fix (2) — dedupe: an unchanged report logs at most once per session
@@ -748,18 +722,16 @@ function buildCalibrationRecord(
 
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
 export interface RunDeps {
-  /** Defaults to the real `parseTranscript`. Used by `resolveTurnLines`'s multi-candidate branch. */
-  parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
   readCalibrationLogTextFn?: (cwd: string) => string | undefined;
 }
 
 /**
- * Guard-dispatcher entry point. Uses `resolveTurnLines` (mt#3028 fix (1)) —
- * `ctx.transcriptLines` (D6) as-is when there is at most one transcript
- * candidate, otherwise a fresh parse of the parent candidate alone, so a
- * dispatched subagent's own final report is never measured as this
- * session's turn-end report. Before logging, checks the dedupe hash
+ * Guard-dispatcher entry point. Consumes `ctx.transcriptLines` (D6) directly:
+ * as of mt#3293 the dispatcher resolves that field to the PARENT transcript
+ * alone, so a dispatched subagent's own final report is never measured as this
+ * session's turn-end report — the guarantee this file's `resolveTurnLines`
+ * (mt#3028 fix (1)) used to provide for itself. Before logging, checks the dedupe hash
  * (mt#3028 fix (2)) so an unchanged report already logged for this session
  * is not re-logged. The `calibration` field is always returned on a match
  * (forwarded to `logCalibrationRecord` per this guard's
@@ -789,10 +761,13 @@ export function run(
   }
 
   if (!input.transcript_path) return null;
-  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
   const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
 
-  const lines = resolveTurnLines(input, ctx, parseTranscriptFn);
+  // `ctx.transcriptLines` is PARENT-ONLY by construction as of mt#3293 — the dispatcher
+  // resolves it through `resolveParentTranscriptLines` for every guard, so `resolveTurnLines`
+  // (this file's mt#3028 fix, hoisted to the shared helper by mt#3003) would now re-read and
+  // re-parse the parent transcript to arrive at the array already in hand.
+  const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];

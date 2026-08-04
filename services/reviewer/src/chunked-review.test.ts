@@ -30,7 +30,8 @@ import {
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
-import type { ReviewOutput } from "./providers";
+import type { ReviewOutput, ReviewUsage } from "./providers";
+import { timingTokenFields } from "./token-cost";
 import type { CallReviewerFn } from "./review-output-validation";
 import type { ReviewerConfig } from "./config";
 
@@ -495,5 +496,134 @@ describe("runChunkedReview — output.text aggregation (mt#2739)", () => {
     );
     expect(result.output.text).toBe("chunk A body\n\nchunk B body");
     expect(result.output.text).not.toMatch(/\n{3,}/);
+  });
+});
+
+// runChunkedReview — usage aggregation across chunks (mt#3665)
+//
+// The aggregator sums promptTokens/completionTokens/reasoningTokens across
+// chunks. It did NOT sum cachedTokens, and omitted the field from the aggregate
+// `usage` entirely — so `timingTokenFields` read undefined, persisted NULL, and
+// `computeCostUsd` priced the whole prompt at the full uncached rate. Because
+// chunking is size-triggered, this mis-priced exactly the largest reviews:
+// ~50% of all recorded reviewer spend over 16 days sat in that class, at roughly
+// 4x its true cost. These tests assert the aggregation directly.
+// ---------------------------------------------------------------------------
+describe("runChunkedReview — usage aggregation (mt#3665)", () => {
+  const fakeConfig = {
+    provider: "google",
+    providerApiKey: "fake",
+    providerModel: "gemini-2.5-pro",
+  } as unknown as ReviewerConfig;
+
+  const basePromptInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 3665,
+    prTitle: "Usage aggregation test",
+    prBody: "",
+    taskSpec: null,
+    authorshipTier: 3,
+    branchName: "task/mt-3665",
+    baseBranch: "main",
+  };
+
+  /** A CallReviewerFn returning one queued usage record per chunk. */
+  function fakeReviewerReturningUsage(usages: ReviewUsage[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools) => {
+      const usage = usages[i] ?? { cachedTokens: 0 };
+      i++;
+      const out: ReviewOutput = {
+        text: "",
+        provider: "google",
+        model: "gemini-2.5-pro",
+        toolCalls: [],
+        usage,
+      };
+      return out;
+    };
+  }
+
+  function twoChunkFiles(): PrFileEntry[] {
+    return Array.from({ length: FILES_PER_CHUNK + 1 }, (_, i) => makeFile(`f-${i}.ts`, 100));
+  }
+
+  function inputWith(callReviewerFn: CallReviewerFn, fileEntries: PrFileEntry[]) {
+    return {
+      config: fakeConfig,
+      systemPrompt: "sys",
+      userPrompt: "user",
+      basePromptInput,
+      tools: undefined,
+      outputToolsActive: false,
+      fileEntries,
+      diff: "",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3665,
+      totalDiffLines: 42,
+      callReviewerFn,
+    };
+  }
+
+  test("sums cachedTokens across chunks into the aggregate usage", async () => {
+    const files = twoChunkFiles();
+    // Sanity: the fixture really produces >1 chunk (else the assertion is vacuous).
+    expect(chunkFiles(files).length).toBeGreaterThan(1);
+
+    const result = await runChunkedReview(
+      inputWith(
+        fakeReviewerReturningUsage([
+          { promptTokens: 400_000, completionTokens: 1_000, cachedTokens: 340_000 },
+          { promptTokens: 300_000, completionTokens: 500, cachedTokens: 250_000 },
+        ]),
+        files
+      )
+    );
+
+    expect(result.output.usage?.cachedTokens).toBe(590_000);
+    // The siblings that already worked must keep working — this is an addition,
+    // not a re-shaping of the aggregate.
+    expect(result.output.usage?.promptTokens).toBe(700_000);
+    expect(result.output.usage?.completionTokens).toBe(1_500);
+  });
+
+  test("emits a real 0 rather than an absent field when no chunk cached anything", async () => {
+    // The distinction this whole task rests on: 0 is an observation and prices
+    // at the full rate correctly; absent/NULL is unpriceable. The aggregate must
+    // never be the latter.
+    const result = await runChunkedReview(
+      inputWith(
+        fakeReviewerReturningUsage([
+          { promptTokens: 1_000, completionTokens: 10, cachedTokens: 0 },
+          { promptTokens: 2_000, completionTokens: 20, cachedTokens: 0 },
+        ]),
+        twoChunkFiles()
+      )
+    );
+
+    expect(result.output.usage?.cachedTokens).toBe(0);
+    expect(result.output.usage).toHaveProperty("cachedTokens");
+  });
+
+  test("the aggregate prices at the cached rate end-to-end, not the full one", async () => {
+    // Guards the actual defect: a correct field that never reaches the cost
+    // computation would still overstate the bill. 700k prompt / 590k cached on
+    // gpt-5 = 110k*$1.25 + 590k*$0.125 = (137500 + 73750)/1e6 = $0.21125,
+    // versus $0.875 if the cached count were dropped — a 4.1x overstatement.
+    const result = await runChunkedReview(
+      inputWith(
+        fakeReviewerReturningUsage([
+          { promptTokens: 400_000, completionTokens: 0, cachedTokens: 340_000 },
+          { promptTokens: 300_000, completionTokens: 0, cachedTokens: 250_000 },
+        ]),
+        twoChunkFiles()
+      )
+    );
+
+    const usage = result.output.usage;
+    expect(usage).toBeDefined();
+    const fields = timingTokenFields({ model: "gpt-5", usage });
+    expect(fields.cachedTokens).toBe(590_000);
+    expect(fields.costUsd).toBe(0.21125);
   });
 });

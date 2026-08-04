@@ -38,7 +38,7 @@
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
+  resolveParentTranscriptLinesForPath,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
@@ -555,7 +555,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const lines = parseTranscript(transcriptPath);
+  const lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   if (lines.length === 0) {
     process.exit(0);
   }
