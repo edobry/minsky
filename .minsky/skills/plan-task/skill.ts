@@ -1017,13 +1017,65 @@ conversations, all of them this skill's gate reports).
 
    - The user said something during planning that explicitly defers implementation ("don't implement yet", "just plan it", "I'll handle the impl").
    - The READY transition itself surfaced a new blocking signal (e.g., dependency status check failed mid-transition).
-   - The task is gated on an external decision the user owns (e.g., "spec needs your approval before impl"), explicitly stated in the spec.
+   - The task is gated on a principal-owned decision — and you can NAME which reserved category from \`principal-context.mdc §Decisions Eugene reserves\` it falls under.
 
-   **Do NOT halt for any of these reasons** (each was a confabulated halt rationale in the originating incident):
+   **The third condition is a positive citation test, not a judgment call (mt#3596).** Name the
+   category out loud before halting on it. The closed list:
+
+   - Naming (product names, customer-facing terms, domain naming that sets precedent, agent
+     self-presentation to external parties)
+   - Architectural moves that affect customer experience or product surface
+   - Authorization for shared / production state changes
+   - Scope changes to in-flight work
+   - Vendor commitments
+   - Framework choices when stakes are principal-level
+
+   **If you cannot name one, it is not a principal decision and the chain walks.** Do NOT settle the
+   question by checking your rationale against the known-bad list below: that list is illustrative,
+   and an enumeration of bad reasons is defeated by a novel bad reason — walking it honestly returns
+   "not a confabulated halt" for any rationale nobody has thought of yet. Ask positively, against
+   the closed list.
+
+   **What a failed citation means — act, do not re-route the same halt.** A rationale that names no
+   category is one of three things, none of them a delegation boundary:
+
+   - **Low confidence.** Say so plainly and work more carefully; do not promote a feeling into
+     governance. The tell is affective, not logical: the halt follows a failure, an error, or a loss
+     of confidence rather than following anything about the work itself (mem#367 §Anti-patterns,
+     R5-shape). If the rationale would not have occurred to you before the failure, it is the
+     failure talking.
+   - **Missing information.** Run the lookup — \`/classify-before-deferring\` exists for exactly this
+     classification.
+   - **A real decision that is simply yours.** Make it, and say what you decided.
+
+   Only when a category IS nameable does the halt stand — and then it routes through
+   \`asks_create\` per the Ask-or-cite-ask paragraph below, never through chat prose.
+
+   **Worked example — the 2026-08-03 halt (R5).** Asked to proceed on mt#3592, an ordinary
+   READY-able TODO with a spec, the agent halted: *"blocked on a principal decision: mt#3592
+   re-attempts the change that took production down an hour ago … re-attempting it unprompted is
+   your call."* Against the negative enumeration that rationale appears on none of the three lines,
+   so the old test returns "not a confabulated halt" and the halt stands — which is what happened,
+   until the principal asked *"sorry, what's my decision? I don't understand."* Against the positive
+   test: is implementing a planned task **naming**? No. **An architectural move affecting customer
+   surface**? No. **Authorization for a shared/production state change**? Nearest, and still no —
+   that category governs changing prod state, not writing code that will pass through review, CI and
+   a merge gate first. **A scope change**, **a vendor commitment**, **a framework choice**? No, no,
+   no. No category is nameable → **NOT a valid halt; the chain walks.** The agent's actual state was
+   low confidence after causing an outage, which the first branch above covers. Incident: mem#823;
+   family root mem#367 (R5).
+
+   **Counter-example — a valid halt.** "Should this cockpit surface be called Attention or Inbox?"
+   → **Naming** (a customer-facing term that sets precedent). The category is nameable, so the halt
+   stands and routes through \`asks_create\`. The test is not a bias toward acting; it is a
+   requirement that the halt cite something.
+
+   **Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
    - "Planning is the skill's scope; implementation is a separate skill."
    - "User might want to review the gate report before I proceed."
    - "The next move is user-driven."
+   - "Re-attempting the change that took production down is your call." (R5, 2026-08-03)
 
    When a brief affirmative ("proceed", "continue", "go", "ok", "yes") arrives at any planning hand-off point, treat it as confirmation to walk the chain forward — NOT as acknowledgment to stop. The bridge memory \`4b83ff51\` covers this verbatim; this step encodes the same discipline structurally so the agent doesn't have to recall the memory at hand-off time.
 

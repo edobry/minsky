@@ -55,12 +55,15 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 - The user said something during the prior step that explicitly defers the next step ("don't implement yet", "just plan it", "I'll handle the impl").
 - The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
-- The task is gated on an external decision the user owns, explicitly stated in the spec or an Ask.
+- The task is gated on a principal-owned decision — and you can NAME which reserved category from `principal-context.mdc §Decisions Eugene reserves` it falls under.
 
-**Confabulated halt rationales** (do NOT halt for any of these):
+**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes. **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
+
+**Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
 - "Planning is the skill's scope; implementation is a separate skill."
 - "User might want to review the gate report before I proceed."
 - "The next move is user-driven."
+- "Re-attempting the change that took production down is your call." (R5, 2026-08-03 — the halt stood until the principal asked "sorry, what's my decision?")
 
 **Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/merge-coordination` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.
