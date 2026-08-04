@@ -40,7 +40,7 @@ describe("status-comment body builders", () => {
       review: { id: 123, htmlUrl: "https://github.com/edobry/minsky/pull/1#pullrequestreview-123" },
       providerUsed: "openai",
       providerModel: "gpt-5",
-      usage: { promptTokens: 95000, completionTokens: 4000 },
+      usage: { promptTokens: 95000, completionTokens: 4000, cachedTokens: 0 },
       scope: "standard" as never,
     };
 
