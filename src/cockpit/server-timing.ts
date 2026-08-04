@@ -97,9 +97,15 @@ export interface HeaderSink {
   headersSent?: boolean;
 }
 
-/** A response that also sends JSON bodies — what {@link ServerTimingRecorder.attachTo} wraps. */
+/**
+ * A response {@link ServerTimingRecorder.attachTo} can wrap.
+ *
+ * `send` is optional so an express `Response` satisfies this without a cast
+ * while a hand-rolled test double can supply only `json`.
+ */
 export interface JsonResponseSink extends HeaderSink {
   json: (body: unknown) => unknown;
+  send?: (body?: unknown) => unknown;
 }
 
 /**
@@ -197,11 +203,26 @@ export class ServerTimingRecorder {
   attachTo(sink: JsonResponseSink): void {
     if (ATTACHED.has(sink)) return;
     ATTACHED.add(sink);
+
     const originalJson = sink.json.bind(sink);
     sink.json = (body: unknown) => {
       this.applyTo(sink);
       return originalJson(body);
     };
+
+    // `send` too, not only `json` (PR #2639 R1). Every current handler exits
+    // via `json`, so this changes nothing today — it exists so a later
+    // non-JSON exit (an error page, a redirect body, a plain-text 503) does
+    // not silently drop the attribution. `json` internally delegates to
+    // `send`, which would double-apply; `applyTo` no-ops once the headers are
+    // flushed and is idempotent before that, so the second call is harmless.
+    const originalSend = sink.send?.bind(sink);
+    if (originalSend) {
+      sink.send = (body?: unknown) => {
+        this.applyTo(sink);
+        return originalSend(body);
+      };
+    }
   }
 }
 
