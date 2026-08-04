@@ -235,15 +235,22 @@ export async function resolveDiffScope(
   const outOfPrFileCount = incremental.fileEntries.length - narrowedFileEntries.length;
 
   if (narrowedFileEntries.length === 0 || narrowedDiff.trim().length === 0) {
-    // Every file in range was out-of-PR, or none of the survivors could be
-    // located in the PR diff. Either way there is nothing safe to narrow TO.
+    // Two distinct situations reach this branch and they mean different things,
+    // so they are logged under different reasons. `no_in_pr_files_in_range` is
+    // routine — a round whose only new commits came from the base branch.
+    // `pr_files_absent_from_pr_diff` means the PR's file list and its own diff
+    // text disagree (a binary file, a truncated diff), which is worth noticing
+    // on its own rather than being folded into the routine case.
+    const reason =
+      narrowedFileEntries.length === 0 ? "no_in_pr_files_in_range" : "pr_files_absent_from_pr_diff";
     log.info("reviewer.incremental_diff_fallback_full", {
       event: "reviewer.incremental_diff_fallback_full",
       pr: prNumber,
       baseSha: priorReviewCommitId,
       headSha,
-      reason: "no_in_pr_files_in_range",
+      reason,
       incrementalFileCount: incremental.fileEntries.length,
+      narrowedFileCount: narrowedFileEntries.length,
       outOfPrFileCount,
     });
     return full;

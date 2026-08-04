@@ -1121,10 +1121,27 @@ describe("fetchChangedFilesSince", () => {
     expect(result).toEqual([{ filename: "src/a.ts" }]);
   });
 
-  test("mt#3663: treats an absent commits array as linear, not as a merge", async () => {
-    // GitHub always returns `commits`, but a degraded/partial payload must not
-    // flip every range to ambiguous.
-    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }]);
+  test("mt#3663: treats an EMPTY commits array as linear, not as a merge", async () => {
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }], []);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
+  });
+
+  test("mt#3663: treats an ABSENT commits key as linear, not as a merge", async () => {
+    // Distinct from the empty-array case above: this payload has no `commits`
+    // key at all, which is what exercises the `?? []` coalesce rather than the
+    // array's own emptiness. GitHub always returns `commits`, but a degraded or
+    // partial payload must not flip every range to ambiguous and silently
+    // retire the classifier's signal.
+    const octokit = {
+      rest: {
+        repos: {
+          compareCommits: mock(async () => ({ data: { files: [{ filename: "src/a.ts" }] } })),
+        },
+      },
+    } as unknown as Octokit;
 
     const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
 

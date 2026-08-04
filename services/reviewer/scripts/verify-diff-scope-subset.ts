@@ -37,10 +37,26 @@
  * base-branch content, this script FAILS rather than silently "passing"
  * against a defect that no longer exists.
  *
- * Gates on GITHUB_TOKEN; exits 0 with SKIP when absent.
+ * ## This is an operator-run probe, not a CI check
+ *
+ * It reaches the live GitHub API, so it is gated on TWO things and skips (exit
+ * 0) unless both are present:
+ *
+ *   1. `VERIFY_DIFF_SCOPE_RUN_LIVE=true` — an affirmative opt-in, matching the
+ *      convention its sibling live probes in this directory already use (e.g.
+ *      `SMOKE_ADOPTION_RUN_LIVE_SWEEP`). A token alone must not be sufficient:
+ *      CI environments routinely carry `GITHUB_TOKEN`, so token-only gating
+ *      would let a future workflow pick this up by accident.
+ *   2. `GITHUB_TOKEN` — the credential for the reads below.
+ *
+ * What it costs and touches: about four read-only calls (`pulls.listFiles`,
+ * the PR diff, and one `compareCommits` per case) against a PUBLIC repo, on
+ * commits that are already merged. It performs no writes, and it never prints
+ * the token — only file names, counts, and SHAs already visible in the PR.
  *
  * Usage:
- *   GITHUB_TOKEN=$(gh auth token) bun services/reviewer/scripts/verify-diff-scope-subset.ts
+ *   VERIFY_DIFF_SCOPE_RUN_LIVE=true GITHUB_TOKEN=$(gh auth token) \
+ *     bun services/reviewer/scripts/verify-diff-scope-subset.ts
  */
 
 import { Octokit } from "@octokit/rest";
@@ -103,6 +119,18 @@ function toPrFileEntries(
 }
 
 async function main(): Promise<number> {
+  // Opt-in first, credential second — see the header. Checking the opt-in
+  // BEFORE the token means an environment that happens to carry GITHUB_TOKEN
+  // (every GitHub Actions job does) still skips with a message naming the
+  // switch, rather than silently spending API calls.
+  if (process.env.VERIFY_DIFF_SCOPE_RUN_LIVE !== "true") {
+    console.log(
+      "SKIP: live probe not enabled. Set VERIFY_DIFF_SCOPE_RUN_LIVE=true to run it " +
+        "(operator-run only; it reaches the live GitHub API)."
+    );
+    return 0;
+  }
+
   const token = process.env.GITHUB_TOKEN;
   if (token === undefined || token.trim() === "") {
     console.log("SKIP: GITHUB_TOKEN not set — cannot reach the GitHub API.");
