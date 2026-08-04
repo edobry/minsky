@@ -90,18 +90,10 @@ describe("createConfiguredTaskService — degraded reads fail closed (mt#3636)",
   const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
   const WORKSPACE = "/tmp/mt3636-test-workspace";
 
-  let errorSpy: ReturnType<typeof spyOn>;
-  let warnSpy: ReturnType<typeof spyOn>;
-
-  beforeEach(() => {
-    errorSpy = spyOn(log, "error").mockImplementation(() => {});
-    warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    errorSpy.mockRestore();
-    warnSpy.mockRestore();
-  });
+  // No log spies: these assert on the THROWN error, which is the observable
+  // this task is about. The boot log is separately covered by the pure-core
+  // `classifyBackendUnavailableSeverity` tests above (mt#3628) — the whole
+  // point of mt#3636 being that the log alone never reached the caller.
 
   test("configured-but-unavailable: listTasks RAISES and carries the boot reason end-to-end", async () => {
     const service = await createConfiguredTaskService({

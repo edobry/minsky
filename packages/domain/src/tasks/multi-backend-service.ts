@@ -489,6 +489,12 @@ export class TaskServiceImpl implements TaskService {
     }
 
     if (!backend) {
+      // mt#3636: when the cause is "nothing registered at all", say WHY —
+      // "No backends registered" is loud but not actionable, and it was the
+      // only signal a caller got during the 2026-08-03 boot failure. When
+      // backends DO exist, the original message is still the accurate one
+      // (a routing/default-selection problem, not an unavailable backend).
+      this.assertBackendAvailable("create a task");
       throw new Error("No backends registered");
     }
 

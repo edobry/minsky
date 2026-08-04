@@ -15,18 +15,22 @@
 import { describe, test, expect } from "bun:test";
 import {
   UnconfiguredPersistenceProvider,
+  PersistenceUnavailableError,
   describePersistenceUnavailability,
 } from "./unconfigured-provider";
 import { FakePersistenceProvider } from "./fake-persistence-provider";
 
+/** The verbatim boot failure from the 2026-08-03 incident. */
+const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
+
 describe("describePersistenceUnavailability (mt#3636)", () => {
   test("configured-but-unavailable names the boot failure and says the DB is unreachable", () => {
     const described = describePersistenceUnavailability(
-      new UnconfiguredPersistenceProvider("getaddrinfo ENOTFOUND", true)
+      new UnconfiguredPersistenceProvider(BOOT_FAILURE, true)
     );
 
     expect(described).toContain("Postgres IS configured");
-    expect(described).toContain("getaddrinfo ENOTFOUND");
+    expect(described).toContain(BOOT_FAILURE);
     expect(described).toContain("unreachable");
     // Must not send the operator off to fix a config that is already correct.
     expect(described).not.toContain("Set persistence.postgres.connectionString");
@@ -51,5 +55,63 @@ describe("describePersistenceUnavailability (mt#3636)", () => {
   test("a non-provider value does not throw", () => {
     expect(describePersistenceUnavailability(undefined)).toContain("not SQL-capable");
     expect(describePersistenceUnavailability(null)).toContain("not SQL-capable");
+  });
+});
+
+/**
+ * Regression guard for the surfaces mt#3636 did NOT have to fix (mt#3636 SC5).
+ *
+ * `session_*` and `memory_*` already failed loudly during the incident, and the
+ * reason they did is entirely this class: every DB accessor throws, the
+ * capability flags read false, and the thrown error is `bootDeferrable` so the
+ * DI container converts it into its own "Service X is unavailable" message
+ * rather than crashing the process at boot.
+ *
+ * That is the shared root beneath both surfaces, so it is the thing worth
+ * pinning: if any accessor here started returning a value instead of throwing,
+ * `session_*` and `memory_*` would silently re-open exactly the hole this task
+ * closed on the task read path. (Scope note: this asserts the mechanism, not
+ * the two command surfaces end-to-end — those were verified live via the CLI,
+ * recorded in the PR body's evidence block.)
+ */
+describe("UnconfiguredPersistenceProvider stays fail-closed (mt#3636 SC5)", () => {
+  const degraded = () => new UnconfiguredPersistenceProvider(BOOT_FAILURE, true);
+
+  test("getDatabaseConnection throws rather than returning null", async () => {
+    await expect(degraded().getDatabaseConnection()).rejects.toBeInstanceOf(
+      PersistenceUnavailableError
+    );
+  });
+
+  test("getRawSqlConnection throws rather than returning null", async () => {
+    await expect(degraded().getRawSqlConnection()).rejects.toBeInstanceOf(
+      PersistenceUnavailableError
+    );
+  });
+
+  test("getVectorStorageForDomain throws rather than returning an empty store", () => {
+    expect(() => degraded().getVectorStorageForDomain("tasks", 1536)).toThrow(
+      PersistenceUnavailableError
+    );
+  });
+
+  test("every capability reads false — what memory_*'s SQL-capability guard keys on", () => {
+    expect(degraded().getCapabilities()).toEqual({
+      sql: false,
+      transactions: false,
+      jsonb: false,
+      vectorStorage: false,
+      migrations: false,
+    });
+  });
+
+  test("the thrown error is bootDeferrable — what produces session_*'s container message", async () => {
+    const error = await degraded()
+      .getDatabaseConnection()
+      .catch((e: unknown) => e as PersistenceUnavailableError);
+
+    expect(error.bootDeferrable).toBe(true);
+    // The reason must survive into the message the operator actually reads.
+    expect(error.message).toContain(BOOT_FAILURE);
   });
 });
