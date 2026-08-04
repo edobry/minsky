@@ -26,7 +26,7 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
-import { getContextInspectorDb } from "../db-providers";
+import { getContextInspectorDb, describeServerPersistenceUnavailability } from "../db-providers";
 
 export interface ConversationSearchRouteOptions {
   /**
@@ -106,7 +106,7 @@ export function mountConversationSearchRoutes(
       const db = await getDb();
       if (!db) {
         res.status(503).json({
-          error: "DB unavailable — persistence provider does not support SQL",
+          error: `DB unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

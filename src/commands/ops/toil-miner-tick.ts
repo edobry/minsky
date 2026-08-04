@@ -17,6 +17,7 @@
 
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import { log } from "@minsky/shared/logger";
 import { createTaskSimilarityService } from "../../adapters/shared/commands/tasks/similarity-commands";
 
@@ -59,13 +60,29 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
     typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
   ) {
     throw new Error(
-      "engprod_toil_miner: persistence provider is not SQL-capable (no getDatabaseConnection)"
+      // Provider already in hand — the domain helper directly (mt#3661).
+      `engprod_toil_miner: no getDatabaseConnection — ${describePersistenceUnavailability(persistence)}`
     );
   }
   const sqlPersistence = persistence as SqlCapablePersistenceProvider;
-  const db = await sqlPersistence.getDatabaseConnection();
+  let db: Awaited<ReturnType<SqlCapablePersistenceProvider["getDatabaseConnection"]>>;
+  try {
+    db = await sqlPersistence.getDatabaseConnection();
+  } catch (err: unknown) {
+    // PR #2620 R1. `UnconfiguredPersistenceProvider` DEFINES getDatabaseConnection
+    // (it throws from it), so it passes the capability check above — meaning THIS
+    // is the degraded path's actual exit, not that branch. Its
+    // PersistenceUnavailableError already carries the cause; it was just missing
+    // the `engprod_toil_miner:` prefix every other exit here has, so the same
+    // failure read two different ways in an ops log depending on provider shape.
+    throw new Error(`engprod_toil_miner: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    });
+  }
   if (!db) {
-    throw new Error("engprod_toil_miner: getDatabaseConnection() returned null");
+    throw new Error(
+      `engprod_toil_miner: getDatabaseConnection() returned null — ${describePersistenceUnavailability(persistence)}`
+    );
   }
 
   const { getConfiguration } = await import("@minsky/domain/configuration");
