@@ -35,12 +35,29 @@
  * at which point it "passes" for the wrong reason).
  */
 
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { GitHubChangesetAdapter, GitHubTokenUnavailableError } from "./github-adapter";
 import { MinskyError } from "../../errors/index";
+import { _resetConfigurationForTests } from "../../configuration/index";
 import type { Octokit } from "@octokit/rest";
 import type { TokenProvider } from "../../auth";
+
+/**
+ * mt#3669: clear the process-global configuration singleton before every test in
+ * this file. `bun test` shares one process across files, so without this the
+ * file inherits whichever earlier file called `initializeConfiguration()` — and
+ * with it, the developer's real config and real GitHub token.
+ *
+ * This is the ambient-state half of the fix; the `githubConfigSource` seam is
+ * the injected-dependency half. Both are here on purpose: the seam makes each
+ * test state its own precondition explicitly, and this reset means a future
+ * sibling added to this file cannot silently reintroduce the leak by forgetting
+ * to use the seam.
+ */
+beforeEach(() => {
+  _resetConfigurationForTests();
+});
 
 const REPO_URL = "https://github.com/edobry/minsky";
 
@@ -142,6 +159,32 @@ describe("GitHubChangesetAdapter empty-token refusal (mt#3606)", () => {
 
     try {
       const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { githubConfigSource: () => null });
+
+      expect(adapter.platform).toBe("github-pr");
+      await expect(callGetOctokit(adapter)).rejects.toBeInstanceOf(GitHubTokenUnavailableError);
+    } finally {
+      if (originalGithubToken !== undefined) process.env.GITHUB_TOKEN = originalGithubToken;
+      if (originalGhToken !== undefined) process.env.GH_TOKEN = originalGhToken;
+    }
+  });
+
+  test("refuses via the REAL default resolution — no seam injected — once the singleton is reset", async () => {
+    // The seam-free case, which is what actually regressed: this constructs the
+    // adapter exactly as production does (no `deps` at all) and relies solely on
+    // the file-level `beforeEach` reset for its precondition.
+    //
+    // It is also the non-vacuity control for that reset. If
+    // `_resetConfigurationForTests()` were a no-op, an earlier sibling file's
+    // `initializeConfiguration()` would leave the real config visible, the real
+    // token would resolve, and this test would fail exactly the way the original
+    // one did — so a broken reset cannot pass here.
+    const originalGithubToken = process.env.GITHUB_TOKEN;
+    const originalGhToken = process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GH_TOKEN;
+
+    try {
+      const adapter = new GitHubChangesetAdapter(REPO_URL, {});
 
       expect(adapter.platform).toBe("github-pr");
       await expect(callGetOctokit(adapter)).rejects.toBeInstanceOf(GitHubTokenUnavailableError);
