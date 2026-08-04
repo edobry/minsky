@@ -72,6 +72,7 @@ import {
 import { resolveConfirmDeps } from "../../packages/domain/src/detectors/llm-confirm-factory";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -931,9 +932,12 @@ function buildReminder(matches: TriggerMatch[]): string {
         "Your next response MUST invoke `/retrospective` before any other action."
     );
     lines.push("");
-    for (const m of assistantMatches) {
-      lines.push(`  - Family ${m.family}: "${m.matchedPhrase}"`);
-    }
+    lines.push(
+      ...cappedEvidenceLines(
+        assistantMatches,
+        (m) => `  - Family ${m.family}: "${m.matchedPhrase}"`
+      )
+    );
     lines.push("");
   }
 
@@ -943,9 +947,7 @@ function buildReminder(matches: TriggerMatch[]): string {
         "Invoke `/retrospective` immediately."
     );
     lines.push("");
-    for (const m of userMatches) {
-      lines.push(`  - Signal: "${m.matchedPhrase}"`);
-    }
+    lines.push(...cappedEvidenceLines(userMatches, (m) => `  - Signal: "${m.matchedPhrase}"`));
     lines.push("");
   }
 
@@ -955,9 +957,9 @@ function buildReminder(matches: TriggerMatch[]): string {
         "run /retrospective triage on why the design was produced without the research."
     );
     lines.push("");
-    for (const m of methodRedirectMatches) {
-      lines.push(`  - Signal: "${m.matchedPhrase}"`);
-    }
+    lines.push(
+      ...cappedEvidenceLines(methodRedirectMatches, (m) => `  - Signal: "${m.matchedPhrase}"`)
+    );
     lines.push("");
   }
 

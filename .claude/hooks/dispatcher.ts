@@ -528,12 +528,13 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *     inject-current-time 90 + inject-git-state 300 + inject-prod-state 250 +
  *     memory-search 550 = **1190**.
  *   - The five largest conditional detectors: inject-dispatch-watchdog 1550 +
- *     substrate-bypass 650 + pre-narration 650 + code-mechanism-assertion 600 +
- *     ask-routing-deferral 600 = **4050**.
+ *     guard-health-escalation 1300 + substrate-bypass 650 + pre-narration 650 +
+ *     code-mechanism-assertion 600 = **4750**. (ask-routing-deferral, also 600,
+ *     is now sixth and drops out of the bucket.)
  *
- * 1190 + 4050 = 5240 chars of fragment TEXT. The budget bounds the emitted
+ * 1190 + 4750 = 5940 chars of fragment TEXT. The budget bounds the emitted
  * BLOCK, which also carries the `\n\n` separators between fragments: 9
- * fragments means 8 separators at 2 chars = 16. So 5240 + 16 = **5256**.
+ * fragments means 8 separators at 2 chars = 16. So 5940 + 16 = **5956**.
  *
  * (That separator term is not pedantry — the first draft of this constant
  * omitted it and the "measured turn is not truncated" test below failed by
@@ -572,8 +573,23 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * This number should keep coming DOWN as more guard text is trimmed to the
  * authoring standard — it is sized by what the corpus currently emits, not by
  * what it ought to emit.
+ *
+ * **Why it went UP once, 5256 -> 5956 (mt#3705).** The sentence above is the
+ * right expectation and this is the exception that proves what the number
+ * means. `guard-health-escalation-detector` was annotated 600, measured off a
+ * one-guard canary — but its banner had two UNBOUNDED axes (an uncapped guard
+ * list, and an interpolated `Error.message` belonging to whatever threw) and
+ * really rendered 1649 at six failing guards. So the old 5256 was not a
+ * smaller budget for the same corpus; it was the same corpus with one member
+ * mis-measured, and the guard's true output was never counted at all. mt#3705
+ * CAPPED both axes (worst case now 1113, bounded by construction rather than by
+ * luck) and set the annotation to 1300, which promotes it into the top-five
+ * conditional bucket and moves this derivation with it. The trade is a
+ * knowingly larger budget for a corpus with no unbounded members left in it —
+ * `guard-feedback-shape.test.ts`'s classification receipt is what keeps that
+ * true.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 5256;
+export const MERGED_CONTEXT_BUDGET_CHARS = 5956;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";

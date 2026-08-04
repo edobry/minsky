@@ -47,6 +47,7 @@ import {
 } from "./retrospective-trigger-scanner";
 import type { TriggerMatch } from "./retrospective-trigger-scanner";
 import { flagKey, readFlagged, turnKeyFor, writeFlagged } from "./turn-end-scan-store";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 
 /**
  * Stop-event payload fields beyond the base `ClaudeHookInput` (hooks.md
@@ -64,9 +65,9 @@ function buildTurnEndReminder(matches: TriggerMatch[]): string {
     "[turn-end-retro-scan] Retrospective-trigger phrase detected in the turn you just completed, with no /retrospective invocation in the same turn.",
     "",
   ];
-  for (const m of matches) {
-    lines.push(`  - Family ${m.family}: "${m.matchedPhrase}"`);
-  }
+  lines.push(
+    ...cappedEvidenceLines(matches, (m) => `  - Family ${m.family}: "${m.matchedPhrase}"`)
+  );
   lines.push(
     "",
     "Address this BEFORE ending the turn: invoke `/retrospective` now — its Step 0.5 triage owns whether a full retrospective is warranted. " +
