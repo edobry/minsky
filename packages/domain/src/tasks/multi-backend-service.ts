@@ -9,7 +9,7 @@ import type {
 export type { TaskBackend } from "./types";
 import type { TaskServiceInterface } from "../tasks";
 import { log } from "@minsky/shared/logger";
-import { TaskBackendUnavailableError } from "./multi-backend-errors";
+import { MultiBackendError, TaskBackendUnavailableError } from "./multi-backend-errors";
 
 /**
  * Why no task backend could be registered (mt#3636).
@@ -489,13 +489,23 @@ export class TaskServiceImpl implements TaskService {
     }
 
     if (!backend) {
-      // mt#3636: when the cause is "nothing registered at all", say WHY —
-      // "No backends registered" is loud but not actionable, and it was the
-      // only signal a caller got during the 2026-08-03 boot failure. When
-      // backends DO exist, the original message is still the accurate one
-      // (a routing/default-selection problem, not an unavailable backend).
+      // Zero backends registered — name the cause (mt#3636). This is the state
+      // the 2026-08-03 boot failure produced, and the old "No backends
+      // registered" said nothing about the database being unreachable.
       this.assertBackendAvailable("create a task");
-      throw new Error("No backends registered");
+
+      // Backends ARE registered, but no default was selected. Unreachable
+      // today — `registerBackend` sets `defaultBackend` on the first
+      // registration and nothing clears it — so this is a defensive branch
+      // only. It gets its own message because reusing "No backends
+      // registered" here would state something plainly false about a service
+      // that has backends (PR #2596 R1).
+      const available = this.backends.map((b) => `${b.name}(${b.prefix}#)`).join(", ");
+      throw new MultiBackendError(
+        `No default task backend is selected, though backends are registered: ${available}. ` +
+          "Set tasks.backend in configuration, or pass an explicit backend to this call.",
+        "create_task"
+      );
     }
 
     const created = await backend.createTaskFromTitleAndSpec(title, spec, options);
