@@ -672,10 +672,14 @@ export function readTunedThreshold(
 //
 // Scope: only `decision: "blocked"` (a `permissionDecision: "deny"`) is
 // covered in v1. "overridden" decisions (MINSKY_FORCE_*/MINSKY_SKIP_* env-var
-// bypasses) are logged by each hook as its own free-text audit line to stdout
-// (e.g. "[parallel-work-guard] override active: ...") — there is no shared
-// choke point for those the way there is for `writeOutput`'s JSON contract,
-// and retrofitting every override call site would violate the
+// bypasses) are surfaced by each guard as its own free-text audit line on
+// `GuardOutcome.auditLines` (e.g. "[block-secret-file-read] OVERRIDE: ..."),
+// which the dispatcher writes to STDERR (dispatcher.ts's `stderrWrite` loop).
+// A guard must never write to stdout: Claude Code discards a hook's ENTIRE
+// output when stdout carries anything besides the single JSON object, which
+// silently voids even a different guard's `deny` (mt#3625). There is still no
+// shared choke point for override lines the way there is for `writeOutput`'s
+// JSON contract, and retrofitting every override call site would violate the
 // touch-few-hooks design preference. Deferred; see mt#2537 PR body.
 //
 // Invocation path: fire-and-forget, detached `minsky events emit hook.fired`
