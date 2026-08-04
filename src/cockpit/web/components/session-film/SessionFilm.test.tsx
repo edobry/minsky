@@ -15,7 +15,13 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { SessionFilm, parsePlayheadParam } from "./SessionFilm";
+import {
+  SessionFilm,
+  parsePlayheadParam,
+  DEFAULT_RIBBON_WIDTH_PX,
+  MIN_RIBBON_WIDTH_PX,
+  MAX_RIBBON_WIDTH_PX,
+} from "./SessionFilm";
 
 const CONVERSATION_ID = "12345678-1234-1234-1234-123456789012";
 
@@ -23,6 +29,9 @@ let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
+  // The ribbon width persists (mt#3701), so a test that drags leaks into every
+  // later test's default unless storage is reset between them.
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -121,18 +130,109 @@ describe("SessionFilm — renders without a picker (mt#3461 SC 1)", () => {
 });
 
 describe("SessionFilm — layout balance (mt#3258 SC 4, held through the fold)", () => {
-  test("the ribbon rail stays a narrow fixed width, not a proportion of the stage", async () => {
-    // Asserting the Tailwind class directly: happy-dom has no layout engine, so
+  test("the ribbon rail opens at its narrow default width, not a proportion of the stage", async () => {
+    // Asserting the applied width directly: happy-dom has no layout engine, so
     // there is no real box to measure (see src/cockpit/CLAUDE.md — geometry
-    // assertions belong in a CDP verify script, not here). `shrink-0` matters
-    // as much as `w-64`: without it the rail can be squeezed by its flex-1
-    // sibling.
+    // assertions belong in a CDP verify script, not here). The width moved from
+    // a `w-64` class to an inline style when mt#3701 made it draggable; the
+    // DEFAULT is unchanged, which is what this has always asserted. `shrink-0`
+    // matters as much as the width: without it the rail can be squeezed by its
+    // flex-1 sibling.
     mockEvents();
     renderFilm(FILM_PATH);
     const ribbon = await screen.findByTestId("session-film-ribbon");
-    expect(ribbon.className).toContain("w-64");
-    expect(ribbon.className).not.toContain("w-80");
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX}px`);
     expect(ribbon.className).toContain("shrink-0");
+  });
+});
+
+describe("SessionFilm — draggable ribbon/stage divider (mt#3701)", () => {
+  test("dragging the divider resizes the ribbon (SC 1, SC 2)", async () => {
+    mockEvents();
+    renderFilm(FILM_PATH);
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    const divider = screen.getByTestId("session-film-divider");
+
+    fireEvent.pointerDown(divider, { clientX: 256, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 376 });
+    fireEvent.pointerUp(window, { clientX: 376 });
+
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX + 120}px`);
+    expect(divider.getAttribute("aria-valuenow")).toBe(String(DEFAULT_RIBBON_WIDTH_PX + 120));
+  });
+
+  test("the clamp holds at both ends (SC 2)", async () => {
+    // The container-fraction bound is NOT exercised here — happy-dom measures
+    // every box as 0, so `splitWidthPx` stays 0 and the fraction is inert by
+    // design (see lib/pane-width.ts). That bound is checked in
+    // scripts/verify-session-film-panes.ts against a real layout.
+    mockEvents();
+    renderFilm(FILM_PATH);
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    const divider = screen.getByTestId("session-film-divider");
+
+    fireEvent.pointerDown(divider, { clientX: 500, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 100 });
+    expect(ribbon.style.width).toBe(`${MIN_RIBBON_WIDTH_PX}px`);
+
+    fireEvent.pointerMove(window, { clientX: 2500 });
+    expect(ribbon.style.width).toBe(`${MAX_RIBBON_WIDTH_PX}px`);
+    fireEvent.pointerUp(window, { clientX: 2500 });
+  });
+
+  test("arrow keys resize without scrubbing the film (SC 3, SC 4)", async () => {
+    mockEvents();
+    renderFilm(FILM_PATH);
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    const divider = screen.getByTestId("session-film-divider");
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-0").getAttribute("aria-current")).toBe("true");
+    });
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX + 16}px`);
+    // Still on row 0: the film's own window-level ArrowRight handler steps the
+    // playhead, and a resize keystroke must not also scrub.
+    expect(screen.getByTestId("session-film-row-0").getAttribute("aria-current")).toBe("true");
+
+    fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX + 16 - 64}px`);
+
+    fireEvent.keyDown(divider, { key: "Home" });
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX}px`);
+
+    // Control: the same key from outside the divider DOES scrub, so the
+    // assertion above is about the divider swallowing it and not about the film
+    // having lost its keyboard stepping.
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-1").getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("the dragged width survives a remount (SC 5)", async () => {
+    mockEvents();
+    const first = renderFilm(FILM_PATH);
+    const divider = await screen.findByTestId("session-film-divider");
+    fireEvent.pointerDown(divider, { clientX: 256, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 336 });
+    fireEvent.pointerUp(window, { clientX: 336 });
+    first.unmount();
+
+    renderFilm(FILM_PATH);
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX + 80}px`);
+  });
+
+  test("a corrupt or out-of-range stored width falls back to the default (SC 5)", async () => {
+    for (const stored of ["not-a-number", "99999", "-40"]) {
+      localStorage.setItem("cockpit.session-film.ribbon-width.v1", stored);
+      mockEvents();
+      const view = renderFilm(FILM_PATH);
+      const ribbon = await screen.findByTestId("session-film-ribbon");
+      expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX}px`);
+      view.unmount();
+    }
   });
 });
 

@@ -1,0 +1,488 @@
+#!/usr/bin/env bun
+/**
+ * Film ribbon/stage split + cockpit scrollbar chrome, in a real browser (mt#3701).
+ *
+ * The component suite settles what the divider REPORTS and what the host stores.
+ * It cannot settle what any of it MEASURES: happy-dom has no layout engine, so
+ * `clientWidth` and `getBoundingClientRect()` read 0 there (src/cockpit/CLAUDE.md
+ * §Asserting layout geometry). Three claims therefore only exist here:
+ *
+ *   1. A real pointer drag on the divider actually moves the split — driven via
+ *      CDP `Input.dispatchMouseEvent`, i.e. the browser's own input pipeline,
+ *      not a JS-synthesized event the component would have received either way.
+ *   2. The container-fraction bound holds: narrow the window far enough and the
+ *      ribbon gives way, leaving the stage a real width. In happy-dom the
+ *      measured container is always 0, which makes that bound inert by design —
+ *      it has never been exercised anywhere but here.
+ *   3. The scrollbar treatment resolves from tokens, and `.scrollbar-none` still
+ *      out-specifies it.
+ *
+ * Usage:
+ *   bun scripts/verify-session-film-panes.ts
+ *   MINSKY_COCKPIT_URL=http://127.0.0.1:3839 bun scripts/verify-session-film-panes.ts
+ *
+ * Prerequisites (each is CHECKED at startup — a missing one exits 0 with a
+ * `SKIP:` line, so this is safe to run unattended):
+ *
+ *   1. A running cockpit, started WITHOUT `--no-dev-chromium`:
+ *
+ *        bun run cockpit:build                    # prod bundle; HMR is unreliable here
+ *        bun src/cli.ts cockpit start --port=3839
+ *
+ *      To verify a change that is not yet on `main`, run BOTH from the SESSION
+ *      workspace and point `MINSKY_COCKPIT_URL` at that port — a cockpit started
+ *      from `main` serves `main`'s build, not yours.
+ *
+ *   2. A CDP endpoint at `127.0.0.1:9222` (the shared dev chromium).
+ *   3. At least one filmable conversation, via
+ *      `GET /api/cockpit/session-film/sessions`. A fresh database has none;
+ *      that is a SKIP, not a failure.
+ *
+ * Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`),
+ * `MINSKY_CDP_URL` (default `http://127.0.0.1:9222`).
+ *
+ * Local/operator-run, not a CI job — CI has neither a cockpit daemon nor a dev
+ * chromium. Sibling whose CDP shape this follows:
+ * `scripts/verify-cockpit-shell-scroll.ts`.
+ */
+import {
+  assertServiceIdentity,
+  describeHealthIdentityResult,
+  SERVICE_IDENTITIES,
+} from "../packages/domain/src/deployment/health-identity";
+
+const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
+const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
+
+/** Mirrors SessionFilm.tsx. Duplicated rather than imported: this script drives
+ *  the SERVED bundle, whose constants are whatever was built — importing the
+ *  source would assert the build against itself. */
+const DEFAULT_RIBBON_WIDTH_PX = 256;
+const MIN_RIBBON_WIDTH_PX = 192;
+const MAX_RIBBON_FRACTION = 0.6;
+
+const WIDE = { width: 1400, height: 900 };
+/** Narrow enough that 60% of the split is below the default ribbon width. */
+const NARROW = { width: 520, height: 900 };
+
+const DRAG_PX = 120;
+
+function skip(reason: string): never {
+  console.log(`SKIP: ${reason}`);
+  process.exit(0);
+}
+
+async function reachable(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(3000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- Prerequisites -------------------------------------------------------
+
+/** `/api/health`, NOT `/health` — the latter falls through to the SPA's
+ *  index.html and answers 200 with HTML. */
+const HEALTH = `${COCKPIT}/api/health`;
+
+if (!(await reachable(HEALTH))) skip(`no cockpit reachable at ${COCKPIT}`);
+if (!(await reachable(`${CDP}/json/version`))) skip(`no CDP endpoint at ${CDP}`);
+
+let healthBody: unknown;
+try {
+  healthBody = await (await fetch(HEALTH, { signal: AbortSignal.timeout(5000) })).json();
+} catch (err) {
+  console.error(`FAIL: ${HEALTH} did not return JSON: ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
+// Assert WHICH service answered, not merely that something did (mt#3148):
+// every Minsky service is built from the same monorepo, so a misconfigured
+// build can put a different application on this port and answer 200 identically.
+const identity = assertServiceIdentity(healthBody, SERVICE_IDENTITIES.cockpit);
+if (!identity.ok) {
+  console.error(`FAIL: ${describeHealthIdentityResult(identity)}`);
+  process.exit(1);
+}
+console.log(describeHealthIdentityResult(identity));
+
+type FilmSession = { conversationId?: string; scrubGateOk?: boolean; eventCount?: number };
+let filmConversationId: string | undefined;
+try {
+  const res = await fetch(`${COCKPIT}/api/cockpit/session-film/sessions`, {
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = (await res.json()) as { sessions?: FilmSession[] };
+  filmConversationId = (body.sessions ?? []).find(
+    (s) => s.scrubGateOk !== false && typeof s.conversationId === "string"
+  )?.conversationId;
+} catch (err) {
+  skip(`could not list filmable conversations: ${err instanceof Error ? err.message : err}`);
+}
+if (!filmConversationId) skip("no filmable conversation in this database");
+
+const FILM_URL = `${COCKPIT}/conversation/${filmConversationId}/film`;
+
+// --- CDP plumbing (shape follows verify-cockpit-shell-scroll.ts) ----------
+
+type CdpResult = { result?: { value?: string }; exceptionDetails?: unknown };
+
+let msgId = 0;
+function cdp(
+  ws: WebSocket,
+  method: string,
+  params: Record<string, unknown> = {}
+): Promise<CdpResult> {
+  const id = ++msgId;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ws.removeEventListener("message", onMsg);
+      reject(new Error(`CDP ${method} timed out`));
+    }, 30_000);
+    function onMsg(ev: MessageEvent) {
+      const m = JSON.parse(String(ev.data));
+      if (m.id !== id || settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.removeEventListener("message", onMsg);
+      m.error ? reject(new Error(JSON.stringify(m.error))) : resolve(m.result);
+    }
+    ws.addEventListener("message", onMsg);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+async function evaluate(ws: WebSocket, expression: string): Promise<string> {
+  const r = await cdp(ws, "Runtime.evaluate", {
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+  });
+  if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails));
+  return r.result?.value ?? "";
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// --- In-page expressions -------------------------------------------------
+
+type SplitState = {
+  present: boolean;
+  splitWidth: number;
+  ribbonWidth: number;
+  stageWidth: number;
+  dividerWidth: number;
+  gripWidth: number;
+  gripHeight: number;
+  /** Divider midpoint in viewport coordinates — where the drag starts. */
+  dividerCenterX: number;
+  dividerCenterY: number;
+  /** Positive when the stage's left edge sits at or right of the divider's. */
+  stageClearsDivider: boolean;
+  ariaValueNow: string | null;
+};
+
+const READ_SPLIT = `(() => {
+  const ribbon = document.querySelector('[data-testid="session-film-ribbon"]');
+  const divider = document.querySelector('[data-testid="session-film-divider"]');
+  const grip = document.querySelector('[data-testid="session-film-divider-grip"]');
+  // The stage is the divider's next sibling: its root is PanZoomSVG's <svg>,
+  // which carries no test id of its own (the id inside it is on a <g>, whose
+  // box is the SCENE's, not the pane's).
+  const stage = divider.nextElementSibling;
+  if (!ribbon || !divider || !stage) return JSON.stringify({ present: false });
+  const split = divider.parentElement;
+  const r = ribbon.getBoundingClientRect();
+  const d = divider.getBoundingClientRect();
+  const s = stage.getBoundingClientRect();
+  const g = grip ? grip.getBoundingClientRect() : { width: 0, height: 0 };
+  return JSON.stringify({
+    present: true,
+    splitWidth: Math.round(split.getBoundingClientRect().width),
+    ribbonWidth: Math.round(r.width),
+    stageWidth: Math.round(s.width),
+    dividerWidth: Math.round(d.width),
+    gripWidth: Math.round(g.width),
+    gripHeight: Math.round(g.height),
+    dividerCenterX: Math.round(d.left + d.width / 2),
+    dividerCenterY: Math.round(d.top + d.height / 2),
+    stageClearsDivider: s.left >= d.right - 1,
+    ariaValueNow: divider.getAttribute("aria-valuenow"),
+  });
+})()`;
+
+/**
+ * Scrollbar chrome, measured on a real overflowing element.
+ *
+ * The gutter (`offsetWidth - clientWidth`) is REPORTED rather than asserted to
+ * an exact width: whether a styled scrollbar reserves layout space depends on
+ * the host's "show scroll bars" setting, and pinning a number here would make
+ * the check pass or fail on a macOS preference. What IS asserted is
+ * token-resolution and the opt-out, neither of which depends on that setting.
+ */
+const PROBE_ID = "mt3701-scrollbar-probe";
+const MEASURE_SCROLLBAR = `(() => {
+  function probe(className) {
+    const host = document.createElement("div");
+    host.className = className;
+    host.style.cssText = "position:fixed;top:-9999px;left:0;width:120px;height:80px;overflow-y:scroll";
+    const filler = document.createElement("div");
+    filler.style.height = "800px";
+    host.appendChild(filler);
+    host.id = ${JSON.stringify(PROBE_ID)} + "-" + (className || "styled");
+    document.body.appendChild(host);
+    const cs = getComputedStyle(host);
+    const out = {
+      gutter: host.offsetWidth - host.clientWidth,
+      scrollbarWidth: cs.scrollbarWidth,
+      scrollbarColor: cs.scrollbarColor,
+    };
+    host.remove();
+    return out;
+  }
+  return JSON.stringify({ styled: probe(""), optedOut: probe("scrollbar-none") });
+})()`;
+
+type ScrollbarProbe = { gutter: number; scrollbarWidth: string; scrollbarColor: string };
+
+async function waitForFilm(ws: WebSocket): Promise<boolean> {
+  const DEADLINE_MS = 30_000;
+  const started = Date.now();
+  while (Date.now() - started < DEADLINE_MS) {
+    const state = JSON.parse(await evaluate(ws, READ_SPLIT)) as SplitState;
+    if (state.present && state.ribbonWidth > 0) return true;
+    await sleep(150);
+  }
+  return false;
+}
+
+/** Read the split once two consecutive samples agree, so a mid-layout sample
+ *  cannot be mistaken for a settled one. */
+async function readSplitWhenStable(ws: WebSocket, what: string): Promise<SplitState> {
+  const DEADLINE_MS = 15_000;
+  const started = Date.now();
+  let previousKey: string | null = null;
+  let last: SplitState | null = null;
+  while (Date.now() - started < DEADLINE_MS) {
+    const state = JSON.parse(await evaluate(ws, READ_SPLIT)) as SplitState;
+    last = state;
+    if (state.present) {
+      const key = `${state.splitWidth}:${state.ribbonWidth}:${state.stageWidth}`;
+      if (key === previousKey) return state;
+      previousKey = key;
+    }
+    await sleep(100);
+  }
+  throw new Error(
+    `the split never stabilized within ${DEADLINE_MS}ms while waiting for ${what} ` +
+      `(last sample: ${last ? JSON.stringify(last) : "none"})`
+  );
+}
+
+/** Drag the divider `dx` px with the browser's own input pipeline. */
+async function dragDivider(ws: WebSocket, from: SplitState, dx: number): Promise<void> {
+  const y = from.dividerCenterY;
+  const x = from.dividerCenterX;
+  await cdp(ws, "Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+  });
+  // A few intermediate moves rather than one jump: closer to a real drag, and
+  // it exercises the continuous-report path rather than a single delta.
+  for (const step of [0.25, 0.5, 0.75, 1]) {
+    await cdp(ws, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: Math.round(x + dx * step),
+      y,
+      button: "left",
+      buttons: 1,
+    });
+    await sleep(20);
+  }
+  await cdp(ws, "Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: Math.round(x + dx),
+    y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1,
+  });
+}
+
+// --- Run -----------------------------------------------------------------
+
+const failures: string[] = [];
+const teardown: Array<() => Promise<unknown>> = [];
+async function teardownAll(): Promise<void> {
+  for (const step of teardown.reverse()) await step().catch(() => {});
+}
+
+let ws: WebSocket;
+try {
+  const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(FILM_URL)}`, { method: "PUT" });
+  const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
+  teardown.push(() => fetch(`${CDP}/json/close/${target.id}`));
+  ws = new WebSocket(target.webSocketDebuggerUrl);
+  teardown.push(async () => ws.close());
+  await new Promise<void>((res, rej) => {
+    const timer = setTimeout(() => rej(new Error("CDP socket did not open within 15s")), 15_000);
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      res();
+    });
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      rej(new Error("CDP socket failed"));
+    });
+  });
+} catch (err) {
+  await teardownAll();
+  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+
+try {
+  await cdp(ws, "Runtime.enable");
+  await cdp(ws, "Emulation.setDeviceMetricsOverride", {
+    ...WIDE,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+
+  if (!(await waitForFilm(ws))) {
+    failures.push(
+      `the film never rendered a ribbon + divider at ${FILM_URL} within 30s — ` +
+        `a bad route, a scrub-gated conversation, or a bundle that predates mt#3701`
+    );
+  } else {
+    // --- 1. Opens at the default, with a grip that is actually drawn --------
+    const initial = await readSplitWhenStable(ws, "the film's first paint");
+    console.log(
+      `wide (${WIDE.width}x${WIDE.height}): split=${initial.splitWidth} ribbon=${initial.ribbonWidth} ` +
+        `stage=${initial.stageWidth} divider=${initial.dividerWidth} grip=${initial.gripWidth}x${initial.gripHeight}`
+    );
+    if (initial.ribbonWidth !== DEFAULT_RIBBON_WIDTH_PX) {
+      failures.push(
+        `the ribbon opened at ${initial.ribbonWidth}px, expected the ${DEFAULT_RIBBON_WIDTH_PX}px default ` +
+          `(a stored preference in this profile's localStorage would also explain it)`
+      );
+    }
+    if (!(initial.gripWidth > 0 && initial.gripHeight > 0)) {
+      failures.push(
+        `the divider's grip has no rendered box (${initial.gripWidth}x${initial.gripHeight}) — ` +
+          `the handle is invisible, which is the affordance mt#3701 exists to provide`
+      );
+    }
+    if (!initial.stageClearsDivider) {
+      failures.push(`the stage overlaps the divider at rest`);
+    }
+
+    // --- 2. A real pointer drag moves the split ---------------------------
+    await dragDivider(ws, initial, DRAG_PX);
+    const dragged = await readSplitWhenStable(ws, "the drag to settle");
+    console.log(
+      `after +${DRAG_PX}px drag: ribbon=${dragged.ribbonWidth} stage=${dragged.stageWidth} ` +
+        `aria-valuenow=${dragged.ariaValueNow}`
+    );
+    const expected = DEFAULT_RIBBON_WIDTH_PX + DRAG_PX;
+    if (Math.abs(dragged.ribbonWidth - expected) > 2) {
+      failures.push(
+        `a +${DRAG_PX}px drag left the ribbon at ${dragged.ribbonWidth}px, expected ~${expected}px`
+      );
+    }
+    if (dragged.stageWidth >= initial.stageWidth) {
+      failures.push(
+        `the stage did not give up the width the ribbon took ` +
+          `(${initial.stageWidth} -> ${dragged.stageWidth})`
+      );
+    }
+    if (!dragged.stageClearsDivider) {
+      failures.push(`the stage overlaps the divider after the drag`);
+    }
+    if (dragged.ariaValueNow !== String(dragged.ribbonWidth)) {
+      failures.push(
+        `aria-valuenow (${dragged.ariaValueNow}) disagrees with the rendered width ` +
+          `(${dragged.ribbonWidth}) — a screen reader would report the wrong size`
+      );
+    }
+
+    // --- 3. The container-fraction bound (only observable here) ------------
+    await cdp(ws, "Emulation.setDeviceMetricsOverride", {
+      ...NARROW,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const narrow = await readSplitWhenStable(ws, "the narrow viewport");
+    const ceiling = Math.round(narrow.splitWidth * MAX_RIBBON_FRACTION);
+    console.log(
+      `narrow (${NARROW.width}x${NARROW.height}): split=${narrow.splitWidth} ribbon=${narrow.ribbonWidth} ` +
+        `stage=${narrow.stageWidth} fraction-ceiling=${ceiling}`
+    );
+    // `min` outranks the fraction by design, so the bound is "at the ceiling OR
+    // at the floor" — a ribbon pinned to MIN in a window too narrow for both is
+    // the documented outcome, not a failure.
+    if (narrow.ribbonWidth > Math.max(ceiling, MIN_RIBBON_WIDTH_PX) + 2) {
+      failures.push(
+        `at ${NARROW.width}px the ribbon holds ${narrow.ribbonWidth}px, past both the ` +
+          `${MAX_RIBBON_FRACTION} fraction ceiling (${ceiling}) and the ${MIN_RIBBON_WIDTH_PX}px floor`
+      );
+    }
+    if (narrow.stageWidth <= 0) {
+      failures.push(`at ${NARROW.width}px the stage has no width left`);
+    }
+  }
+
+  // --- 4. Scrollbar chrome ------------------------------------------------
+  const scrollbars = JSON.parse(await evaluate(ws, MEASURE_SCROLLBAR)) as {
+    styled: ScrollbarProbe;
+    optedOut: ScrollbarProbe;
+  };
+  console.log(
+    `scrollbar (default): gutter=${scrollbars.styled.gutter}px width=${scrollbars.styled.scrollbarWidth} ` +
+      `color=${scrollbars.styled.scrollbarColor}`
+  );
+  console.log(
+    `scrollbar (.scrollbar-none): gutter=${scrollbars.optedOut.gutter}px ` +
+      `width=${scrollbars.optedOut.scrollbarWidth}`
+  );
+  if (scrollbars.styled.scrollbarColor === "auto" || scrollbars.styled.scrollbarColor === "") {
+    failures.push(
+      `a scroll container computes scrollbar-color "${scrollbars.styled.scrollbarColor}" — ` +
+        `the token-derived declaration did not apply, so the scrollbar is still OS chrome`
+    );
+  }
+  if (scrollbars.styled.scrollbarWidth !== "thin") {
+    failures.push(
+      `a scroll container computes scrollbar-width "${scrollbars.styled.scrollbarWidth}", expected "thin"`
+    );
+  }
+  if (scrollbars.optedOut.scrollbarWidth !== "none" || scrollbars.optedOut.gutter !== 0) {
+    failures.push(
+      `.scrollbar-none no longer suppresses scrollbar chrome ` +
+        `(width="${scrollbars.optedOut.scrollbarWidth}", gutter=${scrollbars.optedOut.gutter}px) — ` +
+        `the new default out-specifies the opt-out the TabBar depends on`
+    );
+  }
+} catch (err) {
+  failures.push(`measurement error: ${err instanceof Error ? err.message : String(err)}`);
+} finally {
+  await teardownAll();
+}
+
+if (failures.length > 0) {
+  console.error(`\nFAIL: ${failures.length} assertion(s) failed:`);
+  for (const f of failures) console.error(`  - ${f}`);
+  process.exit(1);
+}
+
+console.log(
+  "\nPASS: the film split drags, clamps to the container, and the scrollbar chrome is ours."
+);

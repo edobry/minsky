@@ -83,10 +83,12 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
+| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
-`verify-cockpit-shell-scroll.ts` and `verify-conversation-live-tail.ts` are the scripts here that
+`verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`, and
+`verify-session-film-panes.ts` are the scripts here that
 drive a real browser, so their shared prerequisites are worth stating (everything below is checked
 at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
 absent).
@@ -115,8 +117,12 @@ than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Ope
 
 3. **A cockpit auth token at `~/.local/state/minsky/cockpit-token`** — written by the cockpit
    daemon on first start; no manual step. Needed only by `verify-conversation-live-tail.ts`, which
-   reads it for the driven-session API calls; `verify-cockpit-shell-scroll.ts` makes no authed
-   request and does not require it.
+   reads it for the driven-session API calls; `verify-cockpit-shell-scroll.ts` and
+   `verify-session-film-panes.ts` make no authed request and do not require it.
+
+`verify-session-film-panes.ts` has one further precondition: at least one filmable conversation,
+which it looks up via `GET /api/cockpit/session-film/sessions`. A fresh database has none — that
+is a `SKIP`, not a failure.
 
 Note that `verify-cockpit-shell-scroll.ts` reads the cockpit's identity from **`/api/health`**, not
 `/health` — the latter falls through to the SPA's `index.html` and answers 200 with HTML, which

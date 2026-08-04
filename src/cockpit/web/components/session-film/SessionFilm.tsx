@@ -30,6 +30,8 @@ import { ErrorState } from "../ErrorState";
 import { SessionFilmRibbon } from "./SessionFilmRibbon";
 import { SessionFilmStage } from "./SessionFilmStage";
 import { SessionFilmMinimap } from "./SessionFilmMinimap";
+import { PaneDivider } from "../PaneDivider";
+import { clampPaneWidth, loadPaneWidth, savePaneWidth } from "../../lib/pane-width";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { isTextEntryTarget } from "../../lib/keyboard";
 import {
@@ -40,12 +42,38 @@ import {
 import { deriveChapters, groupEventsIntoBatchRows } from "../../lib/session-film-batches";
 import { buildKeyframes, foldAtBatchIndex } from "../../lib/session-film-fold";
 import { computeStageLayout } from "../../lib/session-film-layout";
-import {
-  DEFAULT_SESSION_FILM_CONFIG,
-  type SessionFilmConfig,
-} from "../../lib/session-film-config";
+import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
 
 export const PLAYHEAD_PARAM = "t";
+
+/**
+ * Ribbon width (mt#3701). The DEFAULT is unchanged — 256px is what `w-64` was,
+ * and mt#3226 SC 1 / mt#3258 SC 4 chose it as the smallest width that still
+ * fits the glyphic row's icon badge, realm swatch, and a readable truncated
+ * target label. What changed is that the operator can now move it: the rail
+ * carries variable-length labels and the stage's useful area varies with the
+ * fold, so the right balance is per-film and per-window, not a constant.
+ *
+ * `MIN` is below the default on purpose. It is the point at which a row still
+ * shows its badge and a few characters of label — cramped, but the operator
+ * asking for cramped is asking to see more stage, which is a legitimate thing
+ * to want. `MAX_FRACTION` is the real protection: it keeps the stage from being
+ * squeezed to nothing in a narrow window regardless of what was stored.
+ */
+export const DEFAULT_RIBBON_WIDTH_PX = 256;
+export const MIN_RIBBON_WIDTH_PX = 192;
+export const MAX_RIBBON_WIDTH_PX = 640;
+const MAX_RIBBON_FRACTION = 0.6;
+
+/**
+ * One preference for the film surface, not one per conversation: the operator
+ * is expressing how they like to READ a film, and re-tuning that on every
+ * conversation would be the opposite of a preference.
+ *
+ * localStorage key name, not a credential — gitleaks generic-api-key
+ * false-positives on the `*KEY = "<string>"` shape (mirrors lib/tabs.tsx).
+ */
+const RIBBON_WIDTH_STORAGE_KEY = "cockpit.session-film.ribbon-width.v1"; // gitleaks:allow
 
 export interface SessionFilmProps {
   /** The conversation to replay. Supplied by the route, not by a picker. */
@@ -80,6 +108,48 @@ export function SessionFilm({
   // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6).
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [hasAppliedDeepLinkPlayhead, setHasAppliedDeepLinkPlayhead] = useState(false);
+
+  // Ribbon/stage split (mt#3701). Two values, deliberately: `storedRibbonWidth`
+  // is the operator's PREFERENCE, bounded only by min/max; `ribbonWidthPx` is
+  // what actually renders, additionally bounded by the measured container. A
+  // narrow window therefore narrows the rail without overwriting a wider
+  // preference the operator set at a larger size — resize the window back and
+  // their width returns.
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [splitWidthPx, setSplitWidthPx] = useState(0);
+  const [storedRibbonWidth, setStoredRibbonWidth] = useState(() =>
+    loadPaneWidth(RIBBON_WIDTH_STORAGE_KEY, DEFAULT_RIBBON_WIDTH_PX, {
+      min: MIN_RIBBON_WIDTH_PX,
+      max: MAX_RIBBON_WIDTH_PX,
+    })
+  );
+  useEffect(() => {
+    const el = splitRef.current;
+    if (!el) return;
+    const measure = () => setSplitWidthPx(el.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const ribbonWidthPx = clampPaneWidth(storedRibbonWidth, {
+    min: MIN_RIBBON_WIDTH_PX,
+    max: MAX_RIBBON_WIDTH_PX,
+    containerWidth: splitWidthPx,
+    maxFraction: MAX_RIBBON_FRACTION,
+  });
+  const handleRibbonResize = useCallback((nextWidthPx: number) => {
+    const next = clampPaneWidth(nextWidthPx, {
+      min: MIN_RIBBON_WIDTH_PX,
+      max: MAX_RIBBON_WIDTH_PX,
+    });
+    setStoredRibbonWidth(next);
+    savePaneWidth(RIBBON_WIDTH_STORAGE_KEY, next);
+  }, []);
+  const handleRibbonResetWidth = useCallback(() => {
+    setStoredRibbonWidth(DEFAULT_RIBBON_WIDTH_PX);
+    savePaneWidth(RIBBON_WIDTH_STORAGE_KEY, DEFAULT_RIBBON_WIDTH_PX);
+  }, []);
 
   // Scroll-idle camera suppression (mt#3247 SC2c): the ribbon's scroll-as-scrub
   // coupling advances the playhead, which can jump the touched set (and hence
@@ -243,14 +313,19 @@ export function SessionFilm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="session-film">
-      <div className="flex min-h-0 flex-1">
+      <div ref={splitRef} className="flex min-h-0 flex-1">
         {/*
-          Stage-first layout (mt#3226 SC 1, narrowed by mt#3258 SC 4). The ribbon
-          is a fixed-WIDTH narrow rail — not a proportion of viewport width — so
-          the stage dominates at any window size while the ribbon stays the
-          scroll-as-scrub driver, keyboard-stepping target, and `?t=` receipts
-          surface. 256px is the smallest width that still fits the glyphic row's
-          icon badge + realm swatch + a readable truncated target label.
+          Stage-first layout (mt#3226 SC 1, narrowed by mt#3258 SC 4, made
+          adjustable by mt#3701). The ribbon is an EXPLICIT-width rail — never a
+          proportion of viewport width — so the stage dominates at any window
+          size while the ribbon stays the scroll-as-scrub driver,
+          keyboard-stepping target, and `?t=` receipts surface. The width is now
+          the operator's, defaulting to the 256px this rail always used; the
+          `MAX_RIBBON_FRACTION` bound is what preserves "the stage dominates" as
+          an invariant rather than a consequence of the constant.
+
+          `shrink-0` is as load-bearing as the width itself: without it the
+          flex-1 stage can squeeze the rail below whatever was dragged.
         */}
         <SessionFilmRibbon
           events={events}
@@ -260,7 +335,17 @@ export function SessionFilm({
           selectedRowIndex={selectedRowIndex}
           onSelectRow={setSelectedRowIndex}
           onScrollRowChange={handleScrollRowChange}
-          className="w-64 shrink-0 border-r border-border"
+          className="shrink-0"
+          style={{ width: ribbonWidthPx }}
+        />
+        <PaneDivider
+          value={ribbonWidthPx}
+          min={MIN_RIBBON_WIDTH_PX}
+          max={MAX_RIBBON_WIDTH_PX}
+          onChange={handleRibbonResize}
+          onReset={handleRibbonResetWidth}
+          label="Resize the event ribbon"
+          data-testid="session-film-divider"
         />
         <SessionFilmStage
           layout={layout}
