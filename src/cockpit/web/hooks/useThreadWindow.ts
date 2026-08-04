@@ -169,12 +169,37 @@ export function useThreadWindow({
    * Gated on the transition having COMMITTED (`!isRevealing`) so the correction
    * measures the thread with the new turns in the DOM, not the render that
    * merely started the reveal.
+   *
+   * **Known bound.** The correction is a height DELTA, so it assumes every pixel
+   * the thread gained during the reveal was added above the reader. On a live
+   * session that is not strictly true: a turn arriving at the TAIL inside the
+   * same transition is counted too, and the reader is over-scrolled by its
+   * height. The error is bounded by whatever arrived in that window — typically
+   * one turn — and the reader is already told content arrived (`hasNewBelow`).
+   * Anchoring on the previously-oldest turn's offset instead would be immune,
+   * and is the move if this is ever observed to matter; it is not worth the DOM
+   * bookkeeping for a case that needs an append to land inside a ~100ms window
+   * while the operator is reading history.
    */
   useLayoutEffect(() => {
     const pending = revealPendingRef.current;
-    if (!pending || isRevealing) return;
-    revealPendingRef.current = null;
+    if (!pending) return;
     const port = scrollportRef.current;
+
+    if (isRevealing) {
+      // The transition has STARTED but its turns are not mounted yet, so the
+      // thread still measures pre-reveal — and this commit is much closer to
+      // the one that mounts them than the click was. Re-baselining here shrinks
+      // the window in which some OTHER height change (a markdown block settling,
+      // an entity link resolving, the boundary row swapping variants) can land
+      // above the reader and go uncompensated. Measured against a real
+      // transcript, the click-time baseline drifted by up to ~18px; this
+      // baseline does not.
+      if (port) pending.previousScrollHeight = port.scrollHeight;
+      return;
+    }
+
+    revealPendingRef.current = null;
     if (!port) return;
     if (pending.toStart) {
       port.scrollTop = 0;
@@ -198,15 +223,20 @@ export function useThreadWindow({
    */
   const paintPosition = useCallback((port: Element | null) => {
     const { hiddenBefore: hidden, totalTurns: total } = windowStateRef.current;
-    const fraction = scrollFraction(port);
+    const position = threadPositionFromScroll(scrollFraction(port), hidden, total);
     if (positionFillRef.current) {
-      positionFillRef.current.style.width = `${(fraction * 100).toFixed(2)}%`;
+      // Drawn against the WHOLE transcript, deliberately NOT against the scroll
+      // range. Those are different scales, and the track already carries the
+      // unrendered region on the transcript scale — painting the fill on the
+      // scroll scale put two rulers on one bar, so a reader 90% through the
+      // MOUNTED turns appeared to be standing inside the region that is not
+      // mounted. On this scale the fill meets the ghosted segment exactly when
+      // the reader reaches the oldest rendered turn, which is what it means.
+      const percent = total > 0 ? (position / total) * 100 : 100;
+      positionFillRef.current.style.width = `${percent.toFixed(2)}%`;
     }
     if (positionReadoutRef.current) {
-      positionReadoutRef.current.textContent = formatThreadPosition(
-        threadPositionFromScroll(fraction, hidden, total),
-        total
-      );
+      positionReadoutRef.current.textContent = formatThreadPosition(position, total);
     }
   }, []);
 

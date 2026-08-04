@@ -1,18 +1,40 @@
 /**
  * Orientation chrome for the conversation thread (mt#3688).
  *
- * Two answers to one operator question — "am I looking at the end, the
- * beginning, or somewhere in the middle?" — which the thread previously did not
- * answer anywhere: {@link ThreadStartBoundary} names what is above the oldest
- * rendered turn, and {@link ThreadPositionPill} keeps the reader's position in
- * the whole transcript on screen.
+ * Everything the thread renders to answer "where am I?" rather than "what was
+ * said?". {@link ThreadStartBoundary} names what is above the oldest rendered
+ * turn, {@link ThreadPositionPill} keeps the reader's position in the whole
+ * transcript on screen, and {@link TurnSeparatorRow} marks day boundaries and
+ * long pauses between turns.
  *
  * @see ../widgets/ConversationView.tsx — the consumer
  * @see ../hooks/useThreadWindow.ts — the state these render
  */
 import type { RefObject } from "react";
-import { formatLocalDay } from "../lib/conversation-timeline";
+import { cn } from "../lib/utils";
+import { formatLocalDay, type TurnSeparator } from "../lib/conversation-timeline";
 import { formatThreadPosition } from "../lib/scroll-pinning";
+
+/**
+ * A day boundary or a long-gap marker between two turns. Renders as a quiet
+ * rule with a centered label — it is orientation, not content, so it must not
+ * compete with the turns on either side.
+ */
+export function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
+  const isDay = separator.kind === "day";
+  return (
+    <div
+      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70"
+      data-testid={isDay ? "turn-day-divider" : "turn-gap-divider"}
+    >
+      <span className="h-px flex-1 bg-border" />
+      <span className={cn("tabular-nums", isDay && "font-medium text-muted-foreground")}>
+        {isDay ? separator.label : `${separator.label} gap`}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
 
 /**
  * What sits above the oldest rendered turn.
@@ -146,7 +168,7 @@ export function ThreadPositionPill({
           />
         )}
       </span>
-      <span ref={readoutRef} className="tabular-nums">
+      <span ref={readoutRef} className="tabular-nums" data-testid="thread-position-readout">
         {formatThreadPosition(totalTurns, totalTurns)}
       </span>
       <button

@@ -16,7 +16,7 @@
  * CDP. Everything below is state, not geometry, and belongs here.
  */
 import { describe, test, expect, afterEach } from "bun:test";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationView } from "./ConversationView";
 import type {
@@ -84,6 +84,19 @@ function hiddenAboveText(): string | null {
   return screen.queryByTestId("thread-hidden-above")?.textContent ?? null;
 }
 
+/**
+ * Click a reveal control and wait for the resulting render to land.
+ *
+ * The wait matches the shape of the thing being waited on: a reveal runs inside
+ * a React transition (mt#3688), so it is asynchronous by construction, and
+ * asserting synchronously after triggering one is relying on `act()` to flush
+ * it rather than on anything the code promises.
+ */
+async function clickAndSettle(label: string, settled: () => boolean): Promise<void> {
+  fireEvent.click(screen.getByText(label));
+  await waitFor(() => expect(settled()).toBe(true));
+}
+
 describe("ConversationView tail-first windowing (mt#2433)", () => {
   afterEach(cleanup);
 
@@ -110,44 +123,40 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
     expect(screen.queryByTestId("thread-start")).toBeNull();
   });
 
-  test("revealing a chunk decrements the hidden count", () => {
+  test("revealing a chunk decrements the hidden count", async () => {
     renderCV(syntheticSnapshot(300));
     // 300 - 50 = 250 hidden initially.
     expect(hiddenAboveText()).toContain("250 earlier turns");
-    fireEvent.click(screen.getByText("show more"));
     // +100 → 150 hidden.
-    expect(hiddenAboveText()).toContain("150 earlier turns");
+    await clickAndSettle("show more", () => !!hiddenAboveText()?.includes("150 earlier turns"));
     expect(screen.getByText("turn-150 body")).toBeDefined();
     expect(screen.queryByText("turn-149 body")).toBeNull();
   });
 
-  test("the last chunk reveals the transcript's beginning", () => {
+  test("the last chunk reveals the transcript's beginning", async () => {
     renderCV(syntheticSnapshot(120));
-    fireEvent.click(screen.getByText("show more"));
     // 70 hidden - 100 → 0: everything is visible and the boundary becomes the
     // start marker rather than disappearing into blank space.
+    await clickAndSettle("show more", () => !!screen.queryByTestId("thread-start"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
     expect(hiddenAboveText()).toBeNull();
-    expect(screen.getByTestId("thread-start")).toBeDefined();
   });
 
-  test("jump to the beginning reveals the entire transcript at once", () => {
+  test("jump to the beginning reveals the entire transcript at once", async () => {
     renderCV(syntheticSnapshot(300));
     expect(screen.queryByText("turn-0 body")).toBeNull();
-    fireEvent.click(screen.getByText("jump to the beginning"));
+    await clickAndSettle("jump to the beginning", () => !!screen.queryByTestId("thread-start"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
     expect(hiddenAboveText()).toBeNull();
-    expect(screen.getByTestId("thread-start")).toBeDefined();
   });
 
-  test("a PARTIAL reveal survives the same session's transcript growing", () => {
+  test("a PARTIAL reveal survives the same session's transcript growing", async () => {
     // The mt#3688 regression. The window used to be a count from the TAIL, so
     // `slice(length - count)` shifted forward as turns arrived and silently
     // re-hid history the operator had explicitly revealed. Anchored to an INDEX
     // it cannot: turn-150 was revealed, so turn-150 stays revealed.
     const { rerenderCV } = renderCV(syntheticSnapshot(300));
-    fireEvent.click(screen.getByText("show more"));
-    expect(hiddenAboveText()).toContain("150 earlier turns");
+    await clickAndSettle("show more", () => !!hiddenAboveText()?.includes("150 earlier turns"));
     expect(screen.getByText("turn-150 body")).toBeDefined();
 
     rerenderCV(syntheticSnapshot(360));
@@ -159,11 +168,11 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
     expect(screen.getByText("turn-359 body")).toBeDefined();
   });
 
-  test("a full reveal survives the same session's transcript growing", () => {
+  test("a full reveal survives the same session's transcript growing", async () => {
     // The pre-existing PR #1667 R1 invariant, preserved: "show all" is now just
     // the index 0, so it holds for the same reason the partial case does.
     const { rerenderCV } = renderCV(syntheticSnapshot(120));
-    fireEvent.click(screen.getByText("jump to the beginning"));
+    await clickAndSettle("jump to the beginning", () => !!screen.queryByTestId("thread-start"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
 
     rerenderCV(syntheticSnapshot(180));
@@ -172,9 +181,9 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
     expect(hiddenAboveText()).toBeNull();
   });
 
-  test("window resets to the tail when the session changes", () => {
+  test("window resets to the tail when the session changes", async () => {
     const { rerenderCV } = renderCV(syntheticSnapshot(120));
-    fireEvent.click(screen.getByText("jump to the beginning"));
+    await clickAndSettle("jump to the beginning", () => !!screen.queryByTestId("thread-start"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
 
     const other = { ...syntheticSnapshot(120), agentSessionId: "agent-test-windowing-2" };
@@ -203,9 +212,9 @@ describe("ConversationView thread position readout (mt#3688)", () => {
     expect((unrendered as HTMLElement).style.width).toBe("75.00%");
   });
 
-  test("the unrendered region disappears once everything is revealed", () => {
+  test("the unrendered region disappears once everything is revealed", async () => {
     renderCV(syntheticSnapshot(200));
-    fireEvent.click(screen.getByText("jump to the beginning"));
+    await clickAndSettle("jump to the beginning", () => !!screen.queryByTestId("thread-start"));
     expect(screen.queryByTestId("thread-position-unrendered")).toBeNull();
     expect(screen.getByTestId("thread-position").textContent).toContain("/ 200");
   });

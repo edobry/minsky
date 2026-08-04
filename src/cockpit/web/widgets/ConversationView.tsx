@@ -92,7 +92,11 @@ import {
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
 import { findScrollParent, hasGrown, isNearTop, isPinnedToBottom } from "../lib/scroll-pinning";
 import { INITIAL_TURNS, useThreadWindow } from "../hooks/useThreadWindow";
-import { ThreadPositionPill, ThreadStartBoundary } from "../components/ThreadOrientation";
+import {
+  ThreadPositionPill,
+  ThreadStartBoundary,
+  TurnSeparatorRow,
+} from "../components/ThreadOrientation";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -662,27 +666,6 @@ function TurnView({
 
 // ── Thread (pure, snapshot-in) ──────────────────────────────────────────────────
 
-/**
- * A day boundary or a long-gap marker between two turns. Renders as a quiet
- * rule with a centered label — it is orientation, not content, so it must not
- * compete with the turns on either side.
- */
-function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
-  const isDay = separator.kind === "day";
-  return (
-    <div
-      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70"
-      data-testid={isDay ? "turn-day-divider" : "turn-gap-divider"}
-    >
-      <span className="h-px flex-1 bg-border" />
-      <span className={cn("tabular-nums", isDay && "font-medium text-muted-foreground")}>
-        {isDay ? separator.label : `${separator.label} gap`}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
-}
-
 /** One operator prompt the operator rewrote before the agent ever saw it. */
 interface SupersededPrompt {
   /** The abandoned block's id — a stable React key. */
@@ -1003,11 +986,28 @@ function ConversationThread({
   // session-change effect below, which re-arms it.
   const didInitialScrollRef = useRef(false);
 
-  // Each session load lands on the tail — including in-place session swaps
-  // (same mounted component, new agentSessionId), so the one-shot scroll gate
-  // re-arms here (PR #1667 R2 non-blocking). The render window resets on the
-  // same key, inside `useThreadWindow`.
-  useEffect(() => {
+  /**
+   * Re-arm the one-shot on a genuine session SWAP — not on mount.
+   *
+   * Two details are load-bearing, and getting either wrong disables the
+   * scroll-driven reveal silently (found by
+   * `scripts/verify-conversation-orientation.ts`, which is the only place it is
+   * observable — happy-dom cannot scroll):
+   *
+   *   - It compares the key rather than firing on every run of the effect. As a
+   *     plain mount effect it re-armed on MOUNT too, landing AFTER the layout
+   *     effect below had set the gate — so the gate read false for the entire
+   *     session and `isNearTop` was never consulted.
+   *   - It is a LAYOUT effect, so on a real swap the reset lands before the
+   *     scroll effect below reads the gate. As a passive effect it would run
+   *     after, clobbering the flag that effect had just set.
+   *
+   * The render window resets on the same key, inside `useThreadWindow`.
+   */
+  const lastSessionKeyRef = useRef(snapshot.agentSessionId);
+  useLayoutEffect(() => {
+    if (lastSessionKeyRef.current === snapshot.agentSessionId) return;
+    lastSessionKeyRef.current = snapshot.agentSessionId;
     didInitialScrollRef.current = false;
   }, [snapshot.agentSessionId]);
 
@@ -1095,7 +1095,10 @@ function ConversationThread({
     if (hiddenBefore > 0) {
       endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [preparedTurns.length, hiddenBefore]);
+    // Keyed on the session too, so a swap whose new transcript happens to have
+    // the same turn count and window still re-runs this and re-lands on its
+    // newest turn — and re-sets the gate the reset above just cleared.
+  }, [preparedTurns.length, hiddenBefore, snapshot.agentSessionId]);
 
   // Live-tail auto-scroll: when live content arrives (the SSE stream, mt#2232,
   // or a driven session's WS frames), scroll to the bottom so the operator sees
@@ -1139,21 +1142,32 @@ function ConversationThread({
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
     if (!scrollport) return;
-    const onScroll = () => {
+    /** Sample the scrollport. Runs on mount AND on every scroll. */
+    const sample = () => {
       const pinned = isPinnedToBottom(scrollport);
       pinnedRef.current = pinned;
       // Scrolling back down by hand dismisses the affordance too — the
       // operator has caught up, so there is nothing left to point at.
       if (pinned) setHasNewBelow(false);
       paintPosition(scrollport);
-      // Reveal older turns as the reader approaches the top. Gated on the mount
-      // having finished landing on the newest turn: this listener primes itself
-      // with a direct `onScroll()` call below, which on a thread that has not
-      // scrolled yet fires at scrollTop 0 — and would therefore mount the entire
-      // transcript on load, the precise cost the window exists to avoid.
+    };
+    /**
+     * Reveal older turns as the reader approaches the top.
+     *
+     * Bound to the EVENT only, deliberately never to the priming call below. A
+     * reveal answers the reader scrolling; it must not answer this component
+     * re-resolving its scrollport, which happens on a schedule of its own (the
+     * resolution effect re-runs on every render, and the resolution genuinely
+     * moves mid-session — mt#3445). Priming at scrollTop 0 would read as "near
+     * the top" every time that happened, and since each reveal re-renders, the
+     * result was a loop that unwound the whole window in one mount — mounting
+     * the entire transcript, the precise cost the window exists to avoid.
+     */
+    const onScroll = () => {
+      sample();
       if (didInitialScrollRef.current && isNearTop(scrollport)) revealOlder();
     };
-    onScroll();
+    sample();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollport.removeEventListener("scroll", onScroll);
     // Just the resolved element. Whether an element scrolls is a LAYOUT fact,
