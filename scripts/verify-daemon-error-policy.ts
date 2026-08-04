@@ -63,12 +63,30 @@ function throwApplicationBug(): void {
 
 if (MODE === "survive") {
   installHandler((code) => process.exit(code));
+
+  // AT4: keep an HTTP server listening across the throw, so survival is proven
+  // by the process STILL SERVING under the SAME pid — not merely by not having
+  // exited. Uses an ephemeral bare server rather than a second cockpit daemon:
+  // a real daemon runs the sweeper set against the shared production database
+  // (mt#3534), whereas this starts no sweepers and touches no DB.
+  const pidBefore = process.pid;
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => new Response(JSON.stringify({ status: "ok", pid: process.pid })),
+  });
+
   throwTransientConnectError();
-  // If the handler swallowed it as specified, this process is still alive to
-  // print PROOF and exit 0 of its own accord.
-  setTimeout(() => {
-    console.log("PROOF: process still alive after a transient connect throw");
-    process.exit(0);
+
+  setTimeout(async () => {
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+    const body = (await res.json()) as { status: string; pid: number };
+    const samePid = body.pid === pidBefore;
+    console.log(
+      `PROOF: still serving after a transient connect throw — ` +
+        `HTTP ${res.status}, pid ${body.pid} (same pid: ${samePid})`
+    );
+    server.stop();
+    process.exit(res.status === 200 && samePid ? 0 : 3);
   }, 300);
 } else if (MODE === "exit") {
   installHandler((code) => process.exit(code));

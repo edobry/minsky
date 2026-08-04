@@ -162,6 +162,57 @@ function errorSignature(err: unknown): string {
 }
 
 /**
+ * Telemetry for exceptions the daemon survived, surfaced on `/api/health`.
+ *
+ * Surviving is the DESIGNED behavior, so this never changes `status` — it is a
+ * visibility field, not a degradation verdict. Its job is that a daemon which
+ * has swallowed 400 connect crashes is distinguishable from one that has
+ * swallowed none, without reading logs. A RISING `count` across polls is the
+ * recurrence signal; the mt#3534 signature appeared 190 times in one rotated
+ * log, and post-mt#3626 that same condition produces a live daemon and a quiet
+ * log — exactly the shape that goes unnoticed.
+ */
+export interface SurvivedExceptions {
+  /** ISO timestamp of the most recent survived exception, or null if none. */
+  lastAt: string | null;
+  /** Total survived exceptions since this process started. */
+  count: number;
+  /** How many DISTINCT error signatures are represented in that count. */
+  distinctSignatures: number;
+}
+
+let survivedTotal = 0;
+let survivedLastAtMs: number | null = null;
+const survivedSignatures = new Map<string, number>();
+
+/** Read the survived-exception telemetry. Zero-valued — never absent — when none have occurred. */
+export function getSurvivedExceptions(): SurvivedExceptions {
+  return {
+    lastAt: survivedLastAtMs === null ? null : new Date(survivedLastAtMs).toISOString(),
+    count: survivedTotal,
+    distinctSignatures: survivedSignatures.size,
+  };
+}
+
+/** @internal Test-only — resets the module-level telemetry between cases. */
+export function resetSurvivedExceptions(): void {
+  survivedTotal = 0;
+  survivedLastAtMs = null;
+  survivedSignatures.clear();
+}
+
+function recordSurvived(signature: string, nowMs: number): number {
+  survivedTotal += 1;
+  survivedLastAtMs = nowMs;
+  if (!survivedSignatures.has(signature) && survivedSignatures.size >= MAX_TRACKED_SIGNATURES) {
+    survivedSignatures.clear();
+  }
+  const count = (survivedSignatures.get(signature) ?? 0) + 1;
+  survivedSignatures.set(signature, count);
+  return count;
+}
+
+/**
  * Builds the logger for exceptions the daemon survives.
  *
  * Surviving changes the failure shape: an error that used to kill the process
@@ -174,14 +225,12 @@ export function createSurvivedErrorLogger(
   write: (line: string) => void,
   fullDetailEvery = 50
 ): (err: unknown) => void {
-  const counts = new Map<string, number>();
-
   return (err: unknown) => {
     const signature = errorSignature(err);
-    if (!counts.has(signature) && counts.size >= MAX_TRACKED_SIGNATURES) counts.clear();
-
-    const count = (counts.get(signature) ?? 0) + 1;
-    counts.set(signature, count);
+    // Counting lives in the module-level telemetry so `/api/health` reads the
+    // SAME bookkeeping the log lines are derived from, rather than a second
+    // parallel counter that could drift from it.
+    const count = recordSurvived(signature, Date.now());
 
     if (count === 1 || count % fullDetailEvery === 0) {
       write(

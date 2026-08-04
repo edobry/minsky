@@ -3,8 +3,10 @@ import {
   classifyUncaughtException,
   createSurvivedErrorLogger,
   formatErrorForLog,
+  getSurvivedExceptions,
   isTransientConnectError,
   originatingFrame,
+  resetSurvivedExceptions,
 } from "./daemon-error-policy";
 
 /**
@@ -152,8 +154,48 @@ describe("formatErrorForLog", () => {
   });
 });
 
+describe("getSurvivedExceptions", () => {
+  test("is zero-valued, not absent, before anything is survived", () => {
+    resetSurvivedExceptions();
+    expect(getSurvivedExceptions()).toEqual({
+      lastAt: null,
+      count: 0,
+      distinctSignatures: 0,
+    });
+  });
+
+  test("counts survived exceptions and distinct signatures", () => {
+    resetSurvivedExceptions();
+    const log = createSurvivedErrorLogger(() => {}, 100);
+
+    log(bunConnectCrash());
+    log(bunConnectCrash());
+    log(new Error("a different failure"));
+
+    const summary = getSurvivedExceptions();
+    expect(summary.count).toBe(3);
+    expect(summary.distinctSignatures).toBe(2);
+    expect(summary.lastAt).not.toBeNull();
+  });
+
+  test("reads the SAME bookkeeping the log lines use — no parallel counter", () => {
+    resetSurvivedExceptions();
+    const lines: string[] = [];
+    const log = createSurvivedErrorLogger((line) => lines.push(line), 2);
+
+    log(bunConnectCrash());
+    log(bunConnectCrash());
+
+    // The logger emitted "occurrence 1" and "occurrence 2"; the telemetry must
+    // agree with that count rather than track its own.
+    expect(lines[1]).toContain("occurrence 2");
+    expect(getSurvivedExceptions().count).toBe(2);
+  });
+});
+
 describe("createSurvivedErrorLogger", () => {
   test("logs the first occurrence and then every Nth", () => {
+    resetSurvivedExceptions();
     const lines: string[] = [];
     const log = createSurvivedErrorLogger((line) => lines.push(line), 5);
 
@@ -167,6 +209,7 @@ describe("createSurvivedErrorLogger", () => {
   });
 
   test("counts each distinct signature separately", () => {
+    resetSurvivedExceptions();
     const lines: string[] = [];
     const log = createSurvivedErrorLogger((line) => lines.push(line), 100);
 
@@ -179,6 +222,7 @@ describe("createSurvivedErrorLogger", () => {
   });
 
   test("includes the stack in the survived line", () => {
+    resetSurvivedExceptions();
     const lines: string[] = [];
     createSurvivedErrorLogger((line) => lines.push(line))(bunConnectCrash());
     expect(lines[0]).toContain("at internalConnectMultipleTimeout (node:net:1128:5)");
