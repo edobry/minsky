@@ -224,6 +224,37 @@ describe("SessionFilm — draggable ribbon/stage divider (mt#3701)", () => {
     expect(ribbon.style.width).toBe(`${DEFAULT_RIBBON_WIDTH_PX + 80}px`);
   });
 
+  test("the split is measured once it exists, not only on the loading frame (SC 2)", async () => {
+    // The container-fraction bound needs a measured container. This component
+    // returns a loading state BEFORE the split exists, so the measurement has
+    // to attach when the split mounts — a mount-time effect runs a render too
+    // early, finds nothing, and never retries, leaving the bound silently
+    // inert. happy-dom reports 0 for every box, so no assertion here can tell
+    // "unmeasured" from "measured as 0"; what it CAN tell is whether the
+    // observer was ever pointed at the split, which is the defect.
+    // scripts/verify-session-film-panes.ts covers the resulting geometry.
+    const observed: Element[] = [];
+    const RealResizeObserver = globalThis.ResizeObserver;
+    class RecordingResizeObserver {
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = RecordingResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      mockEvents();
+      renderFilm(FILM_PATH);
+      const ribbon = await screen.findByTestId("session-film-ribbon");
+      const split = ribbon.parentElement;
+      expect(split).not.toBeNull();
+      expect(observed).toContain(split as Element);
+    } finally {
+      globalThis.ResizeObserver = RealResizeObserver;
+    }
+  });
+
   test("a corrupt or out-of-range stored width falls back to the default (SC 5)", async () => {
     for (const stored of ["not-a-number", "99999", "-40"]) {
       localStorage.setItem("cockpit.session-film.ribbon-width.v1", stored);

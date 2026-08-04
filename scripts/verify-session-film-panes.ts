@@ -107,20 +107,52 @@ if (!identity.ok) {
 }
 console.log(describeHealthIdentityResult(identity));
 
-type FilmSession = { conversationId?: string; scrubGateOk?: boolean; eventCount?: number };
+/**
+ * Pick a conversation whose film actually has rows.
+ *
+ * `agentSessionId` is the id field this endpoint returns, and it IS what the
+ * events endpoint's `conversationId` param and the `/conversation/:id/film`
+ * route expect — the same id-space, under the name the sessions payload happens
+ * to use. Verified against a live cockpit rather than assumed.
+ *
+ * Candidates are probed rather than taken on faith: `scrubGateOk` says a film is
+ * PERMITTED, not that it is non-empty, and a film with no rows would fail the
+ * split assertions below for a reason that has nothing to do with this change.
+ */
+type FilmSession = { agentSessionId?: string; scrubGateOk?: boolean; ingestedAt?: string | null };
+const MIN_FILM_EVENTS = 10;
+const MAX_CANDIDATES = 6;
+
 let filmConversationId: string | undefined;
 try {
   const res = await fetch(`${COCKPIT}/api/cockpit/session-film/sessions`, {
     signal: AbortSignal.timeout(20_000),
   });
   const body = (await res.json()) as { sessions?: FilmSession[] };
-  filmConversationId = (body.sessions ?? []).find(
-    (s) => s.scrubGateOk !== false && typeof s.conversationId === "string"
-  )?.conversationId;
+  const candidates = (body.sessions ?? [])
+    .filter((s) => s.scrubGateOk !== false && typeof s.agentSessionId === "string")
+    .sort((a, b) => String(b.ingestedAt ?? "").localeCompare(String(a.ingestedAt ?? "")))
+    .slice(0, MAX_CANDIDATES);
+  for (const candidate of candidates) {
+    const id = candidate.agentSessionId as string;
+    const events = await fetch(
+      `${COCKPIT}/api/cockpit/session-film/events?conversationId=${encodeURIComponent(id)}`,
+      { signal: AbortSignal.timeout(30_000) }
+    );
+    if (!events.ok) continue;
+    const payload = (await events.json()) as { events?: unknown[] };
+    if ((payload.events?.length ?? 0) >= MIN_FILM_EVENTS) {
+      filmConversationId = id;
+      break;
+    }
+  }
 } catch (err) {
   skip(`could not list filmable conversations: ${err instanceof Error ? err.message : err}`);
 }
-if (!filmConversationId) skip("no filmable conversation in this database");
+if (!filmConversationId) {
+  skip(`no conversation with at least ${MIN_FILM_EVENTS} film events in this database`);
+}
+console.log(`film subject: ${filmConversationId}`);
 
 const FILM_URL = `${COCKPIT}/conversation/${filmConversationId}/film`;
 
@@ -190,11 +222,14 @@ const READ_SPLIT = `(() => {
   const ribbon = document.querySelector('[data-testid="session-film-ribbon"]');
   const divider = document.querySelector('[data-testid="session-film-divider"]');
   const grip = document.querySelector('[data-testid="session-film-divider-grip"]');
+  // Guard BEFORE dereferencing: this runs on every poll, including the ones
+  // before the film has mounted anything at all.
+  if (!ribbon || !divider) return JSON.stringify({ present: false });
   // The stage is the divider's next sibling: its root is PanZoomSVG's <svg>,
   // which carries no test id of its own (the id inside it is on a <g>, whose
   // box is the SCENE's, not the pane's).
   const stage = divider.nextElementSibling;
-  if (!ribbon || !divider || !stage) return JSON.stringify({ present: false });
+  if (!stage) return JSON.stringify({ present: false });
   const split = divider.parentElement;
   const r = ribbon.getBoundingClientRect();
   const d = divider.getBoundingClientRect();
@@ -249,12 +284,36 @@ const MEASURE_SCROLLBAR = `(() => {
 
 type ScrollbarProbe = { gutter: number; scrollbarWidth: string; scrollbarColor: string };
 
+/**
+ * Start from the shipped default rather than from whatever this profile last
+ * did.
+ *
+ * The ribbon width PERSISTS, and the canary profile is shared and long-lived —
+ * so a previous run of this very script leaves its drag behind, and the second
+ * run then measures a 376px "default". A check whose expected values depend on
+ * its own history is not a check. Clearing the key and reloading makes each run
+ * start from the same state; the side effect is that running this resets the
+ * operator's ribbon width in the canary profile, which is not the profile they
+ * work in.
+ */
+const RESET_STORED_WIDTH = `(() => {
+  try { localStorage.removeItem("cockpit.session-film.ribbon-width.v1"); } catch { /* private mode */ }
+  location.reload();
+  return "ok";
+})()`;
+
 async function waitForFilm(ws: WebSocket): Promise<boolean> {
   const DEADLINE_MS = 30_000;
   const started = Date.now();
   while (Date.now() - started < DEADLINE_MS) {
-    const state = JSON.parse(await evaluate(ws, READ_SPLIT)) as SplitState;
-    if (state.present && state.ribbonWidth > 0) return true;
+    try {
+      const state = JSON.parse(await evaluate(ws, READ_SPLIT)) as SplitState;
+      if (state.present && state.ribbonWidth > 0) return true;
+    } catch {
+      // The execution context is torn down and rebuilt across the reload above;
+      // an evaluate landing in that window throws. Keep polling — a context
+      // that never comes back is caught by the deadline.
+    }
     await sleep(150);
   }
   return false;
@@ -356,6 +415,10 @@ try {
     deviceScaleFactor: 1,
     mobile: false,
   });
+  // Wait for a first mount, then reset the persisted width and let it come back
+  // at the default — see RESET_STORED_WIDTH.
+  await waitForFilm(ws);
+  await evaluate(ws, RESET_STORED_WIDTH).catch(() => "");
 
   if (!(await waitForFilm(ws))) {
     failures.push(

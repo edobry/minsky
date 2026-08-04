@@ -267,10 +267,15 @@
    * under the pointer. Same at-rest-neutral / on-approach-legible register the
    * rest of the interactive chrome uses.
    *
-   * Both engines are covered because both are in play: Chromium (the dev canary
-   * and every browser-hosted cockpit) reads the `::-webkit-scrollbar*`
-   * pseudo-elements, WebKit (the tray's macOS window) reads them too, and
-   * Firefox reads only `scrollbar-width`/`scrollbar-color`.
+   * BOTH mechanisms are declared because different engines honor different
+   * ones, and the pair below is deliberately tuned to the same result either
+   * way. Measured, not assumed (mt#3701, via scripts/verify-session-film-panes.ts
+   * against the dev canary): current Chromium resolves the STANDARD properties
+   * — a scroll container there computes `scrollbar-width: thin` and a
+   * `scrollbar-color` of `oklch(0.27 0 0) rgba(0, 0, 0, 0)`, i.e. our token —
+   * so the `::-webkit-scrollbar` block is what serves older WebKit, including
+   * the engine the tray's macOS window renders in. Firefox has only ever had
+   * the standard properties.
    *
    * The thumb is deliberately ALWAYS visible rather than fading in on hover.
    * On a long virtualized surface — the film ribbon runs to hundreds of rows —

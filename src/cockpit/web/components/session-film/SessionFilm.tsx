@@ -115,7 +115,6 @@ export function SessionFilm({
   // narrow window therefore narrows the rail without overwriting a wider
   // preference the operator set at a larger size — resize the window back and
   // their width returns.
-  const splitRef = useRef<HTMLDivElement>(null);
   const [splitWidthPx, setSplitWidthPx] = useState(0);
   const [storedRibbonWidth, setStoredRibbonWidth] = useState(() =>
     loadPaneWidth(RIBBON_WIDTH_STORAGE_KEY, DEFAULT_RIBBON_WIDTH_PX, {
@@ -123,14 +122,31 @@ export function SessionFilm({
       max: MAX_RIBBON_WIDTH_PX,
     })
   );
-  useEffect(() => {
-    const el = splitRef.current;
-    if (!el) return;
-    const measure = () => setSplitWidthPx(el.getBoundingClientRect().width);
+  /**
+   * A CALLBACK ref, not a `useRef` + mount effect. This component returns early
+   * — a loading state, then possibly an error state — before the split exists,
+   * so a `useEffect(..., [])` runs on the LOADING frame, finds `.current` null,
+   * and never runs again: the observer is never attached and the width is stuck
+   * at 0, which silently disables the container-fraction bound entirely. (That
+   * was the shipped behavior until `scripts/verify-session-film-panes.ts`
+   * measured it — happy-dom reports 0 for the container either way, so no
+   * component test could distinguish "unmeasured" from "measured as 0".)
+   * A callback ref instead fires exactly when the node enters and leaves the
+   * tree, whichever render that happens on.
+   */
+  const splitObserverRef = useRef<ResizeObserver | null>(null);
+  const splitRef = useCallback((node: HTMLDivElement | null) => {
+    splitObserverRef.current?.disconnect();
+    splitObserverRef.current = null;
+    if (!node) {
+      setSplitWidthPx(0);
+      return;
+    }
+    const measure = () => setSplitWidthPx(node.getBoundingClientRect().width);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    observer.observe(node);
+    splitObserverRef.current = observer;
   }, []);
   const ribbonWidthPx = clampPaneWidth(storedRibbonWidth, {
     min: MIN_RIBBON_WIDTH_PX,
