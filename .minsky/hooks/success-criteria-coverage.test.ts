@@ -302,6 +302,38 @@ describe("AT7: a dedicated SC<N> section addresses that criterion", () => {
   });
 });
 
+// mt#3339: the absent-vs-present-elsewhere partition, mirrored onto this surface per
+// mt#3566's design note 2. This surface had produced ZERO calibration records when mt#3339
+// was planned, so the field ships now to make its rate measurable PROSPECTIVELY — a field
+// added after the corpus accumulates cannot retro-classify it.
+describe("present-elsewhere classification (mt#3339)", () => {
+  test("classifies a criterion as present-elsewhere when its number appears outside the evidence", () => {
+    // `SC1` is referenced in the body but NOT in the evidence text the gate reads, and not
+    // under an `SC<N>` heading — so it stays unaddressed, and is recorded as a location gap.
+    const body = "## Notes\n\nSC1 was checked by hand during review.\n";
+    const coverage = checkSuccessCriteriaCoverage(SPEC_WITH_EXECUTABLE, body, "");
+
+    expect(coverage.unaddressedCriteria.map((c) => c.number)).toEqual([1]);
+    expect(coverage.presentElsewhereCriteria.map((c) => c.number)).toEqual([1]);
+  });
+
+  test("classifies a criterion as absent when its number appears nowhere", () => {
+    const body = "## Notes\n\nNothing relevant here.\n";
+    const coverage = checkSuccessCriteriaCoverage(SPEC_WITH_EXECUTABLE, body, "");
+
+    expect(coverage.unaddressedCriteria.map((c) => c.number)).toEqual([1]);
+    expect(coverage.presentElsewhereCriteria).toEqual([]);
+  });
+
+  test("an addressed criterion appears in neither list", () => {
+    const body = "## SC1 — evidence\n\nRan it; 0 hits.\n";
+    const coverage = checkSuccessCriteriaCoverage(SPEC_WITH_EXECUTABLE, body, "");
+
+    expect(coverage.unaddressedCriteria).toEqual([]);
+    expect(coverage.presentElsewhereCriteria).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Acceptance test 6 — the injection actually fires
 // ---------------------------------------------------------------------------
