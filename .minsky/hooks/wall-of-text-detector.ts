@@ -118,7 +118,8 @@
 //   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readPositiveIntEnv } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -190,7 +191,9 @@ export const SUPPRESSION_DEPTH_REQUEST = "depth-request-override";
  * (registered in HOOK_ONLY_ENV_VARS); malformed values fall back to the
  * default.
  */
-export const LEAD_WORD_BUDGET = readPositiveIntEnv("MINSKY_WALL_OF_TEXT_WORD_BUDGET", 200);
+export const LEAD_WORD_BUDGET = readTunedThreshold("MINSKY_WALL_OF_TEXT_WORD_BUDGET", 200, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
 
 /** A record is logged at this multiple of the budget — clear violation, not borderline. */
 export const OVER_BUDGET_MULTIPLIER = 2;

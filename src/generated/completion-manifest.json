@@ -6216,6 +6216,35 @@
           ]
         },
         {
+          "name": "patch",
+          "description": "Append to, prepend to, or replace ONE markdown section of a memory's content, leaving every other byte unchanged (mt#3602). Use this instead of `memory.update` when adding an entry to a long-lived record — appending an R-entry to a family root's `## Recurrences` is the canonical case. Fails loudly when the section is missing or appears more than once; never falls back to a wholesale write. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
+          "options": [
+            {
+              "flags": ["--section"],
+              "description": "Markdown section heading to target, with or without leading hashes (e.g. \"## Recurrences\"). Matched case-insensitively against the whole heading text — a prefix does not match.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--text"],
+              "description": "Text to insert (append/prepend), or the section's new body (replace). May span multiple lines.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "append (default) inserts after the section's last content line; prepend inserts directly under the heading; replace swaps the section body.",
+              "takesValue": true,
+              "values": ["append", "prepend", "replace"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
           "arguments": [

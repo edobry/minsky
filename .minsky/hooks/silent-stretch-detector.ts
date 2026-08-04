@@ -109,7 +109,8 @@
 // @see mt#3003 — this task: shared anchoring fix (resolveParentTranscriptLines) + dedupe guard
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readPositiveIntEnv } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -187,8 +188,12 @@ const CALIBRATION_LOG = ".minsky/silent-stretch-calibration.jsonl";
  * Locally overridable via the registered env vars below; malformed values
  * fall back to the defaults.
  */
-export const GAP_MINUTES_THRESHOLD = readPositiveIntEnv("MINSKY_SILENT_STRETCH_GAP_MINUTES", 10);
-export const TOOL_CALL_THRESHOLD = readPositiveIntEnv("MINSKY_SILENT_STRETCH_TOOL_CALLS", 15);
+export const GAP_MINUTES_THRESHOLD = readTunedThreshold("MINSKY_SILENT_STRETCH_GAP_MINUTES", 10, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
+export const TOOL_CALL_THRESHOLD = readTunedThreshold("MINSKY_SILENT_STRETCH_TOOL_CALLS", 15, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
 
 /**
  * mt#3336 (ask#6448 disposition): the bare call-count leg over-fired — 9 of
