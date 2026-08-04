@@ -1,4 +1,4 @@
-# ADR-031: Symbol identification in `code-mechanism-assertion` stays shape-based
+# ADR-034: Symbol identification in `code-mechanism-assertion` stays shape-based
 
 ## Status
 

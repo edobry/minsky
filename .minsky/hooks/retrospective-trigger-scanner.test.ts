@@ -15,6 +15,8 @@ import {
 } from "./retrospective-trigger-scanner";
 import type { NominationDeps } from "../../packages/domain/src/detectors/embedding-nomination";
 import { DEFAULT_NOMINATION_TIMEOUT_MS } from "../../packages/domain/src/detectors/embedding-nomination";
+import type { ConfirmDeps } from "../../packages/domain/src/detectors/llm-confirm";
+import { DEFAULT_CONFIRM_TIMEOUT_MS } from "../../packages/domain/src/detectors/llm-confirm";
 import { GUARD_REGISTRY } from "./registry";
 import {
   extractAssistantText,
@@ -703,6 +705,48 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+
+  // mt#3652: the evaluation stream — the half a fire-only corpus cannot say.
+  test("a QUIET turn writes an evaluation record and no calibration record (AT4)", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Nothing noteworthy here."),
+      makeRunUserLine(),
+    ];
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), {
+      appendEvaluationRecordFn: (_cwd, record) => captured.push(record),
+    });
+
+    expect(outcome).toBeNull();
+    expect(captured.length).toBe(1);
+    const record = captured[0] as {
+      fired?: boolean;
+      hook?: string;
+      match_families?: string[];
+      source?: string;
+    };
+    expect(record.fired).toBe(false);
+    expect(record.hook).toBe("retrospective-trigger-scanner");
+    expect(record.match_families).toEqual([]);
+    expect(record.source).toBe("live");
+  });
+
+  test("a FIRING turn's evaluation record is marked fired", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(APOLOGY_FIXTURE),
+      makeRunUserLine(),
+    ];
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), {
+      appendEvaluationRecordFn: (_cwd, record) => captured.push(record),
+    });
+
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(captured.length).toBe(1);
+    expect((captured[0] as { fired?: boolean }).fired).toBe(true);
   });
 });
 
@@ -1540,5 +1584,195 @@ describe("Rung-2 nomination budget vs consuming guard budgets", () => {
       ...GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name)).map((g) => g.timeoutMs)
     );
     expect(DEFAULT_NOMINATION_TIMEOUT_MS).toBeLessThanOrEqual(smallest / 2);
+  });
+
+  test("the FULL rung chain (nomination + confirm) fits with headroom (mt#3652)", () => {
+    // Rung 3 runs AFTER a full-budget Rung 2 in the worst case, so the sum of
+    // both bounds is what must fit inside the guard budget — with enough left
+    // over (>=2s) for transcript I/O, the Rung-1 pass, and dispatcher
+    // overhead. The same unreachable-fallback reasoning as above, one rung up.
+    const smallest = Math.min(
+      ...GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name)).map((g) => g.timeoutMs)
+    );
+    expect(DEFAULT_NOMINATION_TIMEOUT_MS + DEFAULT_CONFIRM_TIMEOUT_MS).toBeLessThanOrEqual(
+      smallest - 2000
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rung 3: confirm stage wiring (mt#3652)
+// ---------------------------------------------------------------------------
+
+describe("detectTriggerPhrasesWithNomination (Rung 3 confirm)", () => {
+  const FLAT_ADMISSION = "I referenced the identifier before the call that mints it had run.";
+
+  function nomDepsReturning(similarTo: string[]): NominationDeps {
+    return {
+      semantic: true,
+      embeddingService: {
+        async generateEmbedding(content: string): Promise<number[]> {
+          return similarTo.includes(content) ? [1, 0] : [0, 1];
+        },
+        async generateEmbeddings(contents: string[]): Promise<number[][]> {
+          return contents.map((c) => (similarTo.includes(c) ? [1, 0] : [0, 1]));
+        },
+      },
+    };
+  }
+
+  function confirmDepsEndorsing(families: string[]): ConfirmDeps {
+    return {
+      completionService: {
+        generateObject: async () => ({
+          verdicts: families.map((family) => ({
+            family,
+            isGenuineAdmission: true,
+            rationale: "endorsed by stub",
+          })),
+        }),
+      },
+    };
+  }
+
+  const confirmDepsRejectingAll: ConfirmDeps = {
+    completionService: {
+      generateObject: async () => ({ verdicts: [] }),
+    },
+  };
+
+  const confirmDepsFailing: ConfirmDeps = {
+    completionService: {
+      generateObject: async () => {
+        throw new Error("confirm provider down");
+      },
+    },
+  };
+
+  beforeEach(() => {
+    delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+    delete process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+  });
+
+  afterEach(() => {
+    process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+    delete process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+  });
+
+  test("a confirmed nomination JOINS matches — the fire path this stage exists for", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1"])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual(["R1"]);
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(result.rung3?.attempted).toBe(true);
+    expect(result.rung3?.degraded).toBeUndefined();
+  });
+
+  test("a rejected nomination stays log-only, exactly as before Rung 3", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsRejectingAll
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3?.attempted).toBe(true);
+  });
+
+  test("a failed confirm degrades to the pre-confirm behavior: Rung-1 still injects (AT3)", async () => {
+    // Rung-1-matching text PLUS a nomination for a second family: the confirm
+    // provider dies, the nomination stays log-only, and the Rung-1 match is
+    // untouched — fail-to-Rung-1, one rung up.
+    const text =
+      "I should have caught this earlier. I referenced the identifier before it existed.";
+    const r2Exemplar = NOMINATION_EXEMPLARS[1]?.exemplars[0] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      text,
+      nomDepsReturning([text, r2Exemplar]),
+      confirmDepsFailing
+    );
+
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.rung3?.degraded).toBe(true);
+    expect(result.rung3?.degradedReason).toBe("provider-error");
+  });
+
+  test("the model cannot promote a family that was not nominated", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1", "R4"])
+    );
+
+    // R4 was never nominated; the confirm layer's candidate-set guard drops it.
+    expect(result.confirmedFamilies).toEqual(["R1"]);
+    expect(result.matches.map((m) => m.family)).not.toContain("R4");
+  });
+
+  test("the Rung-3 kill switch reverts nominations to log-only without a degraded marker", async () => {
+    process.env.MINSKY_DISABLE_RUNG3_CONFIRM = "1";
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1"])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3).toBeUndefined();
+  });
+
+  test("injected nomination deps WITHOUT confirm deps never auto-resolve a live provider", async () => {
+    // The guard for unit tests on credentialed machines: an injected-deps
+    // caller controls both stages, so the stage is skipped, not resolved.
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3).toBeUndefined();
+  });
+
+  test("raw Rung-2 enforcement supersedes the confirm stage entirely", async () => {
+    process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = "1";
+    let confirmCalled = false;
+    const spyingConfirmDeps: ConfirmDeps = {
+      completionService: {
+        generateObject: async () => {
+          confirmCalled = true;
+          return { verdicts: [] };
+        },
+      },
+    };
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      spyingConfirmDeps
+    );
+
+    // Enforced nominations are already in matches; confirming them would only
+    // add latency.
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(confirmCalled).toBe(false);
   });
 });

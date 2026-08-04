@@ -81,11 +81,35 @@ export interface TaskServiceOptions {
 
 // ---- Factory Functions ----
 
+/** Injectable warn/error sink for createConfiguredTaskService (mt#3628). */
+export interface TaskServiceLogSink {
+  error: (message: string, meta?: Record<string, unknown>) => void;
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultTaskServiceLogSink: TaskServiceLogSink = { error: log.error, warn: log.warn };
+
+/**
+ * Pure decision core for the mt#2949 severity split (mt#3628 extraction): a
+ * Postgres connection that was configured but failed to initialize is a
+ * genuine outage ("error"); one that was never configured at all is the
+ * expected local/dev degraded mode ("warn"). No I/O, no logger — testable
+ * entirely by return value.
+ */
+export function classifyBackendUnavailableSeverity(
+  configuredButUnavailable: boolean
+): "error" | "warn" {
+  return configuredButUnavailable ? "error" : "warn";
+}
+
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
   persistenceProvider: import("../persistence/types").BasePersistenceProvider;
+  /** Injectable warn/error sink (mt#3628); defaults to the real shared logger. */
+  logSink?: TaskServiceLogSink;
 }): Promise<TaskServiceInterface> {
+  const logSink = options.logSink ?? defaultTaskServiceLogSink;
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
 
@@ -230,6 +254,11 @@ export async function createConfiguredTaskService(options: {
             log.debug("Minsky backend registered successfully");
           } else {
             log.debug("Minsky backend database connection returned null");
+            service.setBackendUnavailable({
+              reason: "the persistence provider returned no database connection",
+              configured: true,
+              backend: "postgres",
+            });
           }
         } catch (error) {
           // mt#2949: distinguish "deliberately unconfigured" (local/dev, no
@@ -242,22 +271,48 @@ export async function createConfiguredTaskService(options: {
           // multi-backend-service.ts when something finally tried to use
           // the task service. Surface it loudly instead so a
           // configured-but-down backend doesn't degrade silently.
-          if (
+          const configuredButUnavailable =
             persistenceProvider instanceof UnconfiguredPersistenceProvider &&
-            persistenceProvider.configuredButUnavailable
-          ) {
-            log.error(
+            persistenceProvider.configuredButUnavailable;
+          const severity = classifyBackendUnavailableSeverity(configuredButUnavailable);
+          if (severity === "error") {
+            logSink.error(
               "Minsky task backend unavailable: Postgres is configured but persistence " +
                 "failed to initialize — the 'mt' task backend will NOT be registered. " +
                 "This is a genuine outage, not the expected local/dev degraded mode.",
               { error: getErrorMessage(error) }
             );
           } else {
-            log.warn("Minsky backend database connection failed", {
+            logSink.warn("Minsky backend database connection failed", {
               error: getErrorMessage(error),
             });
           }
+
+          // mt#3636: the log.error above goes to stderr, which an MCP client
+          // never sees — so the failure was invisible at the tool surface and a
+          // later read answered `{tasks: [], total: 0}`. Record the cause on the
+          // service so the zero-backend guard can name it in the error it
+          // raises instead.
+          service.setBackendUnavailable(
+            persistenceProvider instanceof UnconfiguredPersistenceProvider
+              ? {
+                  reason: persistenceProvider.reason,
+                  configured: persistenceProvider.configuredButUnavailable,
+                  backend: "postgres",
+                }
+              : { reason: getErrorMessage(error), configured: true, backend: "postgres" }
+          );
         }
+      } else {
+        // No `getDatabaseConnection` at all — the provider cannot back a task
+        // backend, so nothing will be registered from this path either. NOT
+        // `configured: true`: this provider never claimed SQL capability, so
+        // describing it as "configured but failed to initialize at boot" would
+        // fabricate a boot failure that did not happen.
+        service.setBackendUnavailable({
+          reason: "the active persistence provider does not expose a database connection",
+          configured: false,
+        });
       }
 
       // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')

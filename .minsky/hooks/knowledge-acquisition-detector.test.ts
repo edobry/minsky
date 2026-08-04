@@ -28,9 +28,12 @@
 
 import { describe, test, expect } from "bun:test";
 import {
+  buildMatchExcerpt,
   detectKnowledgeAcquisition,
   extractFrontmatterDescription,
   extractSkillKeywords,
+  findAllKeywordOverlaps,
+  isNameDerivedKeyword,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   TRAILING_WINDOW_TURNS,
@@ -243,6 +246,46 @@ describe("detectKnowledgeAcquisition", () => {
     expect(detection?.result.hadPropagation).toBe(false);
   });
 
+  test("mt#3617: records EVERY keyword hit across EVERY loaded skill, while nominating the first", () => {
+    const lines = buildLines({ fillerTurns: TRAILING_WINDOW_TURNS });
+    const secondSkill = "prose-review";
+    const keywords = new Map<string, string[]>([
+      [SKILL, ["argumentative", "prose"]],
+      [secondSkill, ["prose", "review"]],
+    ]);
+
+    const detection = detectKnowledgeAcquisition(lines, [SKILL, secondSkill], keywords, new Set());
+
+    // Nomination is UNCHANGED by the instrumentation: still the first loaded
+    // skill with a hit, and that skill's first matching keyword.
+    expect(detection?.result.matchedSkill).toBe(SKILL);
+    expect(detection?.result.matchedKeyword).toBe("argumentative");
+
+    // ...while the record now carries the hits nomination discards, which is
+    // the whole point: "prose" also matched, and it matched a SECOND skill.
+    const hits = detection?.result.keywordHits ?? [];
+    expect(hits).toContainEqual({ skill: SKILL, keyword: "argumentative", source: "description" });
+    expect(hits).toContainEqual({ skill: SKILL, keyword: "prose", source: "description" });
+    expect(hits).toContainEqual({ skill: secondSkill, keyword: "prose", source: "name" });
+    // "review" is a keyword of the second skill but absent from the text.
+    expect(hits.some((h) => h.keyword === "review")).toBe(false);
+
+    expect(detection?.result.matchedTextExcerpt).toContain("argumentative");
+  });
+
+  test("mt#3617: a suppressed (propagation-in-window) record carries the hits too", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__memory_create",
+      propagationInFillerIndex: 0,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+    expect(detection?.result.hadPropagation).toBe(true);
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    expect(detection?.result.keywordHits.length).toBeGreaterThan(0);
+  });
+
   test("not yet due: fewer than TRAILING_WINDOW_TURNS elapsed -> null (grace period)", () => {
     // buildLines' trailing "current turn" prompt itself counts as one elapsed
     // turn beyond the filler loop, so `fillerTurns: TRAILING_WINDOW_TURNS - 2`
@@ -283,6 +326,62 @@ describe("detectKnowledgeAcquisition", () => {
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
     expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  // mt#3272 — the spec-writing channels. Research done inside /plan-task or
+  // /create-task lands in the task spec, not in a memory, and was reading as
+  // "never written down." Measured: 11 fires across two sessions on the
+  // 2026-08-03 sweep, both of which had written their findings into specs.
+  test("suppressed (mt#3272): tasks_spec_patch in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__tasks_spec_patch",
+      propagationInFillerIndex: 1,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    expect(detection?.result.hadPropagation).toBe(true);
+  });
+
+  test("suppressed (mt#3272): tasks_spec_search_replace in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__tasks_spec_search_replace",
+      propagationInFillerIndex: 0,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  test("suppressed (mt#3272): memory_update in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__memory_update",
+      propagationInFillerIndex: 2,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  // The boundary that keeps the widening from swallowing the detector. Writing
+  // code is not capturing research about it; if these counted, almost nothing
+  // would ever fire. Covers the CLASS, not one member (PR #2591 R1): all four
+  // source-editing tools, each of which is frequent in real transcripts —
+  // `session_edit_file` alone appears 1485 times across the local corpus.
+  test.each([
+    "mcp__minsky__session_write_file",
+    "mcp__minsky__session_edit_file",
+    "mcp__minsky__session_search_replace",
+    "Edit",
+  ])("mt#3272: a SOURCE edit (%s) is NOT propagation", (toolName) => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: toolName,
+      propagationInFillerIndex: 1,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([]);
+    expect(detection?.result.hadPropagation).toBe(false);
   });
 
   test("mt#3207: a live fire records an EMPTY suppressionReasons, not an absent one", () => {
@@ -485,5 +584,81 @@ describe("run() against the real engineering-writing skill (mt#2708 originating-
     // keyword — there is no description at all for a skill whose SKILL.md
     // does not exist on disk.
     expect(["nonexistent", "widget"]).toContain(outcome?.calibration?.matchedKeyword);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3617 — keyword-hit instrumentation primitives
+// ---------------------------------------------------------------------------
+
+describe("isNameDerivedKeyword (mt#3617)", () => {
+  test("a hyphen-split name segment is name-derived", () => {
+    expect(isNameDerivedKeyword("plan-task", "task")).toBe(true);
+    expect(isNameDerivedKeyword("plan-task", "plan")).toBe(true);
+  });
+
+  test("a word absent from the name is description-derived", () => {
+    expect(isNameDerivedKeyword("implement-task", "minsky")).toBe(false);
+  });
+
+  test("a segment shorter than 4 chars is not a name keyword", () => {
+    // `extractSkillKeywords` never emits it, so it must not be claimed as one.
+    expect(isNameDerivedKeyword("draft-rfc", "rfc")).toBe(false);
+  });
+
+  test("underscore-separated names split the same way", () => {
+    expect(isNameDerivedKeyword("tanstack_query", "query")).toBe(true);
+  });
+});
+
+describe("findAllKeywordOverlaps (mt#3617)", () => {
+  const TEXTS = ["designing a retrospective for the release", "notes about query planning"];
+
+  test("returns EVERY matching keyword, not just the first", () => {
+    const hits = findAllKeywordOverlaps("retrospective", TEXTS, [
+      "retrospective",
+      "query",
+      "absent",
+    ]);
+    expect(hits.map((h) => h.keyword)).toEqual(["retrospective", "query"]);
+  });
+
+  test("tags provenance per keyword", () => {
+    const hits = findAllKeywordOverlaps("retrospective", TEXTS, ["retrospective", "query"]);
+    expect(hits).toEqual([
+      { skill: "retrospective", keyword: "retrospective", source: "name" },
+      { skill: "retrospective", keyword: "query", source: "description" },
+    ]);
+  });
+
+  test("matches whole words only", () => {
+    expect(findAllKeywordOverlaps("s", ["retrospectives are useful"], ["retrospective"])).toEqual(
+      []
+    );
+  });
+
+  test("returns [] when nothing matches", () => {
+    expect(findAllKeywordOverlaps("skill", TEXTS, ["nothing", "here"])).toEqual([]);
+  });
+});
+
+describe("buildMatchExcerpt (mt#3617)", () => {
+  test("returns a bounded window containing the keyword", () => {
+    const long = `${"x".repeat(1000)} needle ${"y".repeat(1000)}`;
+    const excerpt = buildMatchExcerpt([long], "needle");
+    expect(excerpt).toContain("needle");
+    expect(excerpt?.length).toBeLessThanOrEqual(400);
+  });
+
+  test("returns undefined when the keyword is absent", () => {
+    expect(buildMatchExcerpt(["nothing relevant"], "needle")).toBeUndefined();
+  });
+
+  test("returns undefined when there is no matched keyword", () => {
+    expect(buildMatchExcerpt(["anything"], undefined)).toBeUndefined();
+  });
+
+  test("does not truncate a short text", () => {
+    expect(buildMatchExcerpt(["a needle here"], "needle")).toBe("a needle here");
   });
 });

@@ -7,11 +7,10 @@
  * closes — a test that only checked the process was alive would reproduce the
  * bug rather than catch it.
  */
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
-
-import { log } from "@minsky/shared/logger";
+import { describe, test, expect, beforeEach } from "bun:test";
 
 import {
+  decideBehindTransitionSignal,
   getSchemaReadiness,
   isSchemaBehind,
   refreshSchemaReadiness,
@@ -106,31 +105,64 @@ describe("schema readiness", () => {
   // PR #2379 R1: the gate runs on every sweep tick. A check whose stated
   // purpose is bounding log volume must not itself write a line every 30
   // minutes for as long as the condition lasts, so it logs the TRANSITION only.
-  test("warns on entering the behind state, then stays quiet while it persists", async () => {
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-    try {
-      const behind = { readPendingMigrations: async () => ["0076_pending"] };
+  //
+  // The dedup decision itself is a pure state machine (mt#3629 / mt#3565
+  // §Reframe) — asserted directly by return value below, no spy required.
+  describe("decideBehindTransitionSignal (pure core)", () => {
+    test("signals only on the false -> true edge", () => {
+      expect(decideBehindTransitionSignal(false, true)).toEqual({ shouldSignal: true });
+    });
 
-      await refreshSchemaReadiness(behind);
-      const afterFirst = warnSpy.mock.calls.length;
-      expect(afterFirst).toBe(1);
+    test("stays quiet while behind persists", () => {
+      expect(decideBehindTransitionSignal(true, true)).toEqual({ shouldSignal: false });
+    });
 
-      // Three more ticks with the condition unchanged.
-      await refreshSchemaReadiness(behind);
-      await refreshSchemaReadiness(behind);
-      await refreshSchemaReadiness(behind);
-      expect(warnSpy.mock.calls.length).toBe(afterFirst);
+    test("stays quiet on recovery (true -> false)", () => {
+      expect(decideBehindTransitionSignal(true, false)).toEqual({ shouldSignal: false });
+    });
 
-      // Still reported as behind throughout — quiet is not the same as clear.
-      expect(isSchemaBehind()).toBe(true);
+    test("stays quiet while current persists", () => {
+      expect(decideBehindTransitionSignal(false, false)).toEqual({ shouldSignal: false });
+    });
+  });
 
-      // Recovering and regressing warns again: this is a new event.
-      await refreshSchemaReadiness({ readPendingMigrations: async () => [] });
-      await refreshSchemaReadiness(behind);
-      expect(warnSpy.mock.calls.length).toBe(afterFirst + 1);
-    } finally {
-      warnSpy.mockRestore();
-    }
+  // One wiring test: the shell forwards what the pure core decided to an
+  // injected sink — no logger spy needed (mt#3629).
+  test("wiring: refreshSchemaReadiness forwards the transition decision to the injected sink", async () => {
+    const behindCalls: Array<{ message: string; pending: string[] }> = [];
+    const recoveredCalls: string[] = [];
+    const behind = {
+      readPendingMigrations: async () => ["0076_pending"],
+      logBehindTransition: (message: string, meta: { pending: string[] }) => {
+        behindCalls.push({ message, pending: meta.pending });
+      },
+      logRecovered: (message: string) => {
+        recoveredCalls.push(message);
+      },
+    };
+
+    await refreshSchemaReadiness(behind);
+    expect(behindCalls.length).toBe(1);
+    expect(behindCalls[0]?.pending).toEqual(["0076_pending"]);
+
+    // Three more ticks with the condition unchanged — no further sink calls.
+    await refreshSchemaReadiness(behind);
+    await refreshSchemaReadiness(behind);
+    await refreshSchemaReadiness(behind);
+    expect(behindCalls.length).toBe(1);
+    expect(isSchemaBehind()).toBe(true);
+
+    // Recovering emits the recovery sink, once.
+    await refreshSchemaReadiness({
+      readPendingMigrations: async () => [],
+      logBehindTransition: behind.logBehindTransition,
+      logRecovered: behind.logRecovered,
+    });
+    expect(recoveredCalls.length).toBe(1);
+
+    // Regressing warns again: this is a new event.
+    await refreshSchemaReadiness(behind);
+    expect(behindCalls.length).toBe(2);
   });
 
   test("the snapshot is a copy — callers cannot mutate the gate", async () => {

@@ -339,3 +339,70 @@ describe("test-process live-database guard (mt#3254)", () => {
     });
   });
 });
+
+describe("epoch-keyed cache invalidation (mt#3638)", () => {
+  test("a getter re-resolves after the persistence epoch moves", async () => {
+    let epoch = 0;
+    let resolves = 0;
+    const dbA: FakeDb = { marker: "A" };
+    const dbB: FakeDb = { marker: "B" };
+    const getDb = createCachedSqlDbGetter({
+      cacheNegative: false,
+      getProvider: async () => {
+        resolves++;
+        return makeSuccessProvider(resolves === 1 ? dbA : dbB);
+      },
+      getEpoch: () => epoch,
+    });
+
+    expect(await getDb()).toBe(dbA as unknown as Awaited<ReturnType<typeof getDb>>);
+    expect(await getDb()).toBe(dbA as unknown as Awaited<ReturnType<typeof getDb>>);
+    expect(resolves).toBe(1);
+
+    // Simulated pool recycle: the epoch moves, the cached handle is stale.
+    epoch++;
+    expect(await getDb()).toBe(dbB as unknown as Awaited<ReturnType<typeof getDb>>);
+    expect(resolves).toBe(2);
+  });
+
+  test("an epoch bump clears a cached negative even under cacheNegative: true", async () => {
+    let epoch = 0;
+    let calls = 0;
+    const db: FakeDb = { marker: "recovered" };
+    const getDb = createCachedSqlDbGetter({
+      cacheNegative: true,
+      getProvider: async () => {
+        calls++;
+        return calls === 1 ? makeFailingProvider() : makeSuccessProvider(db);
+      },
+      getEpoch: () => epoch,
+    });
+
+    expect(await getDb()).toBeNull();
+    expect(await getDb()).toBeNull();
+    expect(calls).toBe(1); // permanently cached negative WITHIN the epoch
+
+    // A recycle may have fixed exactly what made the probe fail — retry.
+    epoch++;
+    expect(await getDb()).toBe(db as unknown as Awaited<ReturnType<typeof getDb>>);
+    expect(calls).toBe(2);
+  });
+
+  test("a stable epoch keeps the cache (no spurious re-resolution)", async () => {
+    let resolves = 0;
+    const db: FakeDb = { marker: "stable" };
+    const getDb = createCachedSqlDbGetter({
+      cacheNegative: false,
+      getProvider: async () => {
+        resolves++;
+        return makeSuccessProvider(db);
+      },
+      getEpoch: () => 7,
+    });
+
+    await getDb();
+    await getDb();
+    await getDb();
+    expect(resolves).toBe(1);
+  });
+});

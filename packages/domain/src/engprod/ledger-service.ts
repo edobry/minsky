@@ -113,9 +113,72 @@ export function decideReconciliation(status: string | undefined): Reconciliation
   return "accepted";
 }
 
+/** Injectable warn/error sink for ProposalLedgerService (mt#3628). */
+export interface LedgerServiceLogSink {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  error: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultLedgerServiceLogSink: LedgerServiceLogSink = { warn: log.warn, error: log.error };
+
+/** A single structured log event, described independent of WHERE it's emitted. */
+export interface SuppressedFailureLogEvent {
+  level: "warn" | "error";
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Pure decision core (mt#3628): describe the log event for a failed
+ * bulk-chunk upsert that is about to fall back to per-row narrowing. No
+ * I/O, no logger — testable entirely by return value.
+ */
+export function describeChunkFailure(
+  chunkSize: number,
+  chunkStartIndex: number,
+  error: unknown
+): SuppressedFailureLogEvent {
+  return {
+    level: "warn",
+    event: "engprod_ledger.suppressed_batch_chunk_failed",
+    payload: {
+      event: "engprod_ledger.suppressed_batch_chunk_failed",
+      chunkSize,
+      chunkStartIndex,
+      error: getLoggableErrorSummary(error),
+    },
+  };
+}
+
+/**
+ * Pure decision core (mt#3628): describe the log event for a single row
+ * that failed even on its own 1-row narrowing retry (a genuinely poisoned
+ * row). No I/O, no logger — testable entirely by return value.
+ */
+export function describeRowFailure(
+  signature: string,
+  suppressedReason: string,
+  error: unknown
+): SuppressedFailureLogEvent {
+  return {
+    level: "error",
+    event: "engprod_ledger.suppressed_write_failed",
+    payload: {
+      event: "engprod_ledger.suppressed_write_failed",
+      signature,
+      suppressedReason,
+      error: getLoggableErrorSummary(error),
+    },
+  };
+}
+
 @injectable()
 export class ProposalLedgerService {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    /** Injectable warn/error sink (mt#3628); defaults to the real shared logger. */
+    private readonly logSink: LedgerServiceLogSink = defaultLedgerServiceLogSink
+  ) {}
 
   async getBySignature(signature: string): Promise<ProposalLedgerRow | null> {
     const rows = await this.db
@@ -337,22 +400,18 @@ export class ProposalLedgerService {
       try {
         await this.upsertSuppressedChunk(chunk, now);
       } catch (err) {
-        log.warn("engprod_ledger.suppressed_batch_chunk_failed", {
-          event: "engprod_ledger.suppressed_batch_chunk_failed",
-          chunkSize: chunk.length,
-          chunkStartIndex: i,
-          error: getLoggableErrorSummary(err),
-        });
+        const chunkEvent = describeChunkFailure(chunk.length, i, err);
+        this.logSink.warn(chunkEvent.event, chunkEvent.payload);
         for (const entry of chunk) {
           try {
             await this.upsertSuppressedChunk([entry], now);
           } catch (rowErr) {
-            log.error("engprod_ledger.suppressed_write_failed", {
-              event: "engprod_ledger.suppressed_write_failed",
-              signature: entry.cluster.signature,
-              suppressedReason: entry.suppressedReason,
-              error: getLoggableErrorSummary(rowErr),
-            });
+            const rowEvent = describeRowFailure(
+              entry.cluster.signature,
+              entry.suppressedReason,
+              rowErr
+            );
+            this.logSink.error(rowEvent.event, rowEvent.payload);
           }
         }
       }
