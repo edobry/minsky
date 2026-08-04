@@ -149,6 +149,7 @@ const TSX_CUSTOM_PLUGIN = {
     "no-raw-console": noRawConsole,
     "no-raw-colors-in-cockpit": noRawColorsInCockpit,
     "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+    "no-spy-patching": noSpyPatching,
   },
 };
 
@@ -989,6 +990,33 @@ export default [
     files: ["**/*.test.ts", "**/*.spec.ts"],
     rules: {
       "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
+    },
+  },
+  // === no-spy-patching — TSX/JSX test-file coverage parity (mt#3565 PR #2608 R1) ===
+  // The main `**/*.ts`/`**/*.js` block registers `custom/no-spy-patching`, but React
+  // component tests (e.g. src/cockpit/web/components/CopyId.test.tsx — a direct-spyOn
+  // migration target under mt#3629) are `.tsx` and therefore invisible to it: the
+  // `custom` plugin is registered separately for TSX/JSX (see TSX_CUSTOM_PLUGIN above),
+  // scoped narrowly per the mt#2916/mt#1960 "no unrelated scope creep into TSX" precedent
+  // set elsewhere in this file. Scoped to test files only (not all `.tsx`/`.jsx`, unlike
+  // the broader no-raw-console block) since spyOn is a test-only concern.
+  {
+    files: ["**/*.test.tsx", "**/*.spec.tsx", "**/*.test.jsx", "**/*.spec.jsx"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      custom: TSX_CUSTOM_PLUGIN,
+    },
+    rules: {
+      "custom/no-spy-patching": "error",
     },
   },
   // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) ===
