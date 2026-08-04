@@ -208,6 +208,43 @@ export async function buildAskRepository(
 }
 
 /**
+ * Build the repository or throw an error that NAMES why it is unavailable
+ * (mt#3636).
+ *
+ * The eight ask commands previously each threw
+ * "AskRepository unavailable — persistence provider does not support SQL".
+ * That is loud — which is already better than the task read path, which
+ * answered empty — but it does not distinguish "Postgres was never configured"
+ * from "Postgres is configured and the boot connection failed", and those need
+ * opposite responses from the operator. The discriminating detail lives on
+ * `UnconfiguredPersistenceProvider`; this surfaces it.
+ */
+export async function requireAskRepository(
+  container: AppContainerInterface | undefined,
+  operation: string
+): Promise<AskRepository> {
+  const repo = await buildAskRepository(container);
+  if (repo) return repo;
+
+  let cause = "The active persistence provider is not SQL-capable.";
+  try {
+    if (container?.has("persistence")) {
+      const { describePersistenceUnavailability } = await import(
+        "@minsky/domain/persistence/unconfigured-provider"
+      );
+      cause = describePersistenceUnavailability(container.get("persistence"));
+    }
+  } catch (err: unknown) {
+    // Never let the diagnosis step mask the failure it is describing.
+    log.warn("asks: could not describe persistence unavailability", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  throw new Error(`${operation}: AskRepository unavailable — ${cause}`);
+}
+
+/**
  * Resolve a caller-supplied ask id — a full UUID, an unambiguous 8-char hex
  * prefix (mt#2696), or an `ask#N` short id (mt#2965/mt#2963) — to the full
  * UUID `asks.id` before it reaches any `eq(asksTable.id, ...)` comparison in
@@ -1714,12 +1751,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.list: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.list");
 
         const allProjects = params.allProjects as boolean | undefined;
         const summary = params.summary as boolean | undefined;
@@ -1775,12 +1807,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksGetParams,
       execute: async (params): Promise<Ask> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.get: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.get");
 
         const rawId = params.id as string;
         // mt#2696: resolve a short-prefix citation before it ever reaches a
@@ -1802,12 +1829,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksReconcileParams,
       execute: async (): Promise<ReconcileResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.reconcile: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.reconcile");
 
         let tokenProvider;
         try {
@@ -1859,12 +1881,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: false,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.respond: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.respond");
 
         // mt#2696: resolve a short-prefix citation to the full uuid before it
         // ever reaches a Postgres `uuid` column comparison.
@@ -1931,12 +1948,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         validateFormLintNotViolated(params);
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.create: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.create");
 
         // ADR-021 / mt#2563: resolve the current project and stamp it on the new
         // Ask so it is visible to the default project-scoped asks.list — completes
@@ -2080,12 +2092,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: false,
       parameters: asksWaitForResponseParams,
       execute: async (params): Promise<AskWaitForResponseResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.wait-for-response: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.wait-for-response");
 
         // mt#2696: resolve a short-prefix citation before it ever reaches a
         // Postgres `uuid` column comparison.
@@ -2146,12 +2153,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.edit: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.edit");
 
         // mt#2696: resolve a short-prefix citation before it ever reaches a
         // Postgres `uuid` column comparison.

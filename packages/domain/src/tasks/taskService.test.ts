@@ -74,3 +74,66 @@ describe("createConfiguredTaskService — mt backend silent-degrade fix (mt#2949
     expect(errorCalls.some((msg) => msg.includes("Minsky task backend unavailable"))).toBe(false);
   });
 });
+
+/**
+ * mt#3636 — the same failure, one layer further out.
+ *
+ * mt#2949 (above) made the boot failure LOUD in the log. It stayed invisible at
+ * the tool surface anyway, because the log goes to stderr and an MCP client
+ * only sees the tool result — which was `{tasks: [], total: 0}`. These tests
+ * exercise the REAL factory (not a hand-built `TaskServiceImpl`) so they cover
+ * the production wiring: the reason recorded in the catch block must reach the
+ * zero-backend guard's message.
+ */
+describe("createConfiguredTaskService — degraded reads fail closed (mt#3636)", () => {
+  /** The verbatim boot failure from the 2026-08-03 incident. */
+  const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
+  const WORKSPACE = "/tmp/mt3636-test-workspace";
+
+  // No log spies: these assert on the THROWN error, which is the observable
+  // this task is about. The boot log is separately covered by the pure-core
+  // `classifyBackendUnavailableSeverity` tests above (mt#3628) — the whole
+  // point of mt#3636 being that the log alone never reached the caller.
+
+  test("configured-but-unavailable: listTasks RAISES and carries the boot reason end-to-end", async () => {
+    const service = await createConfiguredTaskService({
+      workspacePath: WORKSPACE,
+      persistenceProvider: new UnconfiguredPersistenceProvider(BOOT_FAILURE, true),
+    });
+
+    const error = await service.listTasks().catch((e: unknown) => e as Error);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("TaskBackendUnavailableError");
+    // The verbatim reason from the persistence provider survives the hop from
+    // the catch block through setBackendUnavailable into the guard's message.
+    expect(error.message).toContain(BOOT_FAILURE);
+    expect(error.message).toContain("postgres");
+  });
+
+  test("configured-but-unavailable: a task that EXISTS is not reported as not-found", async () => {
+    const service = await createConfiguredTaskService({
+      workspacePath: WORKSPACE,
+      persistenceProvider: new UnconfiguredPersistenceProvider(BOOT_FAILURE, true),
+    });
+
+    // The incident: `tasks_status_get mt#3524` answered "not found or has no
+    // status" for a real task. Returning undefined here is the defect.
+    await expect(service.getTaskStatus("mt#3524")).rejects.toThrow(/Task backend unavailable/);
+  });
+
+  test("deliberately unconfigured: still raises, with configure-Postgres guidance", async () => {
+    const service = await createConfiguredTaskService({
+      workspacePath: WORKSPACE,
+      persistenceProvider: new UnconfiguredPersistenceProvider(
+        "no Postgres connection configured",
+        false
+      ),
+    });
+
+    const error = await service.listTasks().catch((e: unknown) => e as Error);
+
+    expect(error.message).toContain("persistence is not configured");
+    expect(error.message).not.toContain("failed to initialize at boot");
+  });
+});

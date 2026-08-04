@@ -552,9 +552,15 @@ async function resolveMemoryService(
   }
 
   if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    // mt#3636: the capability dump alone cannot tell "never configured" from
+    // "configured and unreachable" — both are all-false. Name the cause.
+    const { describePersistenceUnavailability } = await import(
+      "@minsky/domain/persistence/unconfigured-provider"
+    );
     throw new Error(
       "Memory service requires a SQL-capable persistence provider (Postgres). " +
-        `Got provider with capabilities: ${JSON.stringify(persistence.capabilities)}`
+        `${describePersistenceUnavailability(persistence)} ` +
+        `Provider capabilities: ${JSON.stringify(persistence.capabilities)}`
     );
   }
 
