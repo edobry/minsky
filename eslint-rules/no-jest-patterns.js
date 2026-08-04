@@ -66,11 +66,14 @@ export default {
               if (node.source.value === "jest") {
                 const importText = context.getSourceCode().getText(node);
 
-                // Convert jest imports to bun:test imports
+                // Convert jest imports to bun:test imports. Deliberately NOT importing
+                // `spyOn` here (mt#3565 / ADR-036): even suggesting the import steers a
+                // reader toward the now-banned in-place-patching mechanism, and
+                // custom/no-spy-patching would immediately flag any use of it anyway.
                 if (importText.includes("import jest")) {
                   const bunImport = importText.replace(
                     /import\s+.*?\s+from\s+['"']jest['"']/,
-                    "import { mock, spyOn } from 'bun:test'"
+                    "import { mock } from 'bun:test'"
                   );
                   return fixer.replaceText(node, bunImport);
                 }
