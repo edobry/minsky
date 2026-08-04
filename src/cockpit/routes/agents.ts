@@ -17,6 +17,7 @@ import {
   resolveDerivedConversationLinks,
   type ConversationLinkSource,
 } from "../derived-conversation-link";
+import { ServerTimingRecorder } from "../server-timing";
 
 /**
  * Resolve every `minsky_session_links` candidate for a workspace session
@@ -190,8 +191,14 @@ export function mountAgentRoutes(app: express.Express): void {
       return;
     }
 
+    // mt#3710 — per-phase attribution, so this route's cost is answerable the
+    // way mt#3696 made the task-detail route's answerable. Attached (not
+    // applied per-exit) so the 503/404/500 replies carry it too.
+    const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
+
     try {
-      const provider = await getServerSessionProvider();
+      const provider = await timing.time("provider", () => getServerSessionProvider());
       if (!provider) {
         res.status(503).json({
           error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -199,33 +206,47 @@ export function mountAgentRoutes(app: express.Express): void {
         return;
       }
 
-      const record = await provider.getSession(sessionId);
+      const record = await timing.time("session", () => provider.getSession(sessionId));
       if (!record) {
         res.status(404).json({ error: `Session ${sessionId} not found` });
         return;
       }
 
+      // mt#3710 — started HERE, before the workdir lookup, not after it. This
+      // read needs only `record.agentId`; it has nothing to do with the
+      // workspace directory, so waiting for that lookup was ~300ms of pure
+      // serialization. Measured before this change: session 305ms -> workdir
+      // 308ms -> convs 154ms -> labels 620ms, a ~1390ms handler.
+      //
+      // `labels` chains off THIS promise rather than off the `Promise.all`
+      // below, for the same reason: it needs the conversations and nothing
+      // else, so pinning it behind the workspace overview would hand back most
+      // of what starting the read early just bought.
+      const conversationsPromise = timing.time("convs", () =>
+        resolveWorkspaceConversations(sessionId, record.agentId)
+      );
+
       // Workspace dir: record fields first, provider lookup as fallback.
       let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
       if (!workdir) {
-        try {
-          workdir = await provider.getSessionWorkdir(sessionId);
-        } catch {
-          workdir = null;
-        }
+        workdir = await timing.time("workdir", async () => {
+          try {
+            return await provider.getSessionWorkdir(sessionId);
+          } catch {
+            return null;
+          }
+        });
       }
 
       const { buildWorkspaceOverview } = await import("../workspace-overview");
-      const overviewPromise = buildWorkspaceOverview(record, workdir);
-      const conversationsPromise = resolveWorkspaceConversations(sessionId, record.agentId);
-
-      const [{ session, commits, pr }, conversations] = await Promise.all([
-        overviewPromise,
-        conversationsPromise,
-      ]);
-
-      const { pickBestConversationLink } = await import("../session-detail");
-      const conversation = pickBestConversationLink(conversations);
+      // Timed from CREATION, not from an await. A promise begins executing the
+      // moment it is constructed, so timing only the await would measure the
+      // time REMAINING when control reached it and silently understate the
+      // phase — the first pass at this instrumentation did exactly that and
+      // left ~300ms unattributed.
+      const overviewPromise = timing.time("overview", () =>
+        buildWorkspaceOverview(record, workdir)
+      );
 
       // mt#3691 — label every candidate with the run list's own precedence, so
       // the switcher names conversations instead of listing uuids. Computed
@@ -240,23 +261,32 @@ export function mountAgentRoutes(app: express.Express): void {
       // SINGLE conversation on this same page family. Degrades to absent (not
       // to a uuid) when the DB is unavailable, matching every other enrichment
       // in this handler.
-      const labels = await (async () => {
-        try {
-          const db = await getContextInspectorDb();
-          if (!db) return new Map<string, string>();
-          const { labelConversationCandidates } = await import("../conversation-candidate-labels");
-          const { getSharedTaskTitleCache } = await import("../shared-task-title-cache");
-          return await labelConversationCandidates(
-            db,
-            conversations,
-            await getSharedTaskTitleCache()
-          );
-        } catch (labelErr) {
-          const msg = labelErr instanceof Error ? labelErr.message : String(labelErr);
-          log.debug(`[agents] candidate labeling degraded: ${msg}`);
-          return new Map<string, string>();
-        }
-      })();
+      const labelsPromise = conversationsPromise.then((convs) =>
+        timing.time("labels", async () => {
+          try {
+            const db = await getContextInspectorDb();
+            if (!db) return new Map<string, string>();
+            const { labelConversationCandidates } = await import(
+              "../conversation-candidate-labels"
+            );
+            const { getSharedTaskTitleCache } = await import("../shared-task-title-cache");
+            return await labelConversationCandidates(db, convs, await getSharedTaskTitleCache());
+          } catch (labelErr) {
+            const msg = labelErr instanceof Error ? labelErr.message : String(labelErr);
+            log.debug(`[agents] candidate labeling degraded: ${msg}`);
+            return new Map<string, string>();
+          }
+        })
+      );
+
+      const [{ session, commits, pr }, conversations, labels] = await Promise.all([
+        overviewPromise,
+        conversationsPromise,
+        labelsPromise,
+      ]);
+
+      const { pickBestConversationLink } = await import("../session-detail");
+      const conversation = pickBestConversationLink(conversations);
 
       // mt#2752 — surface an app-started driven session bound to this
       // workspace (newest first if several), so the run-detail page can
