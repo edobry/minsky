@@ -1030,6 +1030,11 @@ conversations, all of them this skill's gate reports).
    - Vendor commitments
    - Framework choices when stakes are principal-level
 
+   That list is restated here because the halt happens here, but it is a COPY. The canonical
+   source is \`principal-context.mdc §Decisions Eugene reserves\` — edit there first; if the two
+   ever disagree, that file wins and this copy is the bug.
+   \`tests/domain/plan-task-halt-citation.test.ts\` fails on divergence.
+
    **If you cannot name one, it is not a principal decision and the chain walks.** Do NOT settle the
    question by checking your rationale against the known-bad list below: that list is illustrative,
    and an enumeration of bad reasons is defeated by a novel bad reason — walking it honestly returns
