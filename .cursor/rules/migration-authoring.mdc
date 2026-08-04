@@ -56,13 +56,35 @@ DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint
               WHERE conrelid = 'public.<table>'::regclass AND contype = 'p')
   THEN RAISE EXCEPTION '<table> still has a primary key after the drop'; END IF;
+
+  -- When the drop leaves the table relying on a replacement index for identity,
+  -- assert that index's SHAPE — unique, non-partial, exactly these columns in this
+  -- order. Never assert its NAME: a name is a proxy, and trusting one is the very
+  -- mistake this section exists to prevent. A renamed-but-correct index should pass;
+  -- a same-named index that lost uniqueness or changed columns must fail.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index i
+     WHERE i.indrelid = 'public.<table>'::regclass
+       AND i.indisunique
+       AND i.indpred IS NULL   -- partial unique indexes cannot arbitrate a bare
+                               -- ON CONFLICT target (mem#659)
+       AND (SELECT array_agg(a.attname::text ORDER BY k.ord)
+              FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum)
+           = ARRAY['<col_a>', '<col_b>']
+  ) THEN RAISE EXCEPTION '<table> has no usable replacement identity'; END IF;
 END $$;
 ```
 
 The second block is the load-bearing half. A constraint drop is exactly the operation that can
 report success while doing nothing, so it must assert its intended END STATE rather than trust its
 own exit status — the general "verify outcomes, not actions" discipline, applied where the gap is
-invisible. When the drop leaves a table without an identity, assert its replacement index too.
+invisible.
+
+**Assert properties, not names — on both sides.** The drop discovers the name it removes; the
+assertion describes the shape it requires. Writing the assertion against an index NAME would
+reintroduce the same class of bug one level up, which is what PR #2638 R1 caught in this recipe's
+own first draft.
 
 Originating incident: migration `0088` (mt#3692) dropped
 `agent_spawns_parent_agent_session_id_parent_turn_index_pk`; prod and every cold-start DB held
