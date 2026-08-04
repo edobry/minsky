@@ -619,18 +619,19 @@ export function detectKnowledgeAcquisition(
     // suppressed (not yet a candidate; re-evaluated on future invocations).
     if (!matchedSkill) continue;
 
-    // mt#3617 instrumentation. Collected AFTER the nomination loop and AFTER
-    // the gate, so it cannot influence which skill is nominated and does no
-    // work on occurrences that never become records. The nomination loop above
-    // is untouched for that reason — a shared scan would couple the two.
+    // Trailing-window grace period: not yet due for evaluation.
+    const elapsedTurns = countPromptBoundariesAfter(lines, occ.idx);
+    if (elapsedTurns < windowTurns) continue;
+
+    // mt#3617 instrumentation. Collected after the nomination loop — so it
+    // cannot influence which skill is nominated — and after BOTH early-exit
+    // gates above, so it runs only on occurrences that go on to emit a record.
+    // The nomination loop is untouched for the same reason: a shared scan
+    // would couple instrumentation to nomination.
     const keywordHits = loadedSkills.flatMap((skill) =>
       findAllKeywordOverlaps(skill, candidateTexts, skillKeywordsByName.get(skill) ?? [])
     );
     const matchedTextExcerpt = buildMatchExcerpt(candidateTexts, matchedKeyword);
-
-    // Trailing-window grace period: not yet due for evaluation.
-    const elapsedTurns = countPromptBoundariesAfter(lines, occ.idx);
-    if (elapsedTurns < windowTurns) continue;
 
     // True negative: propagation happened somewhere in the trailing window.
     // mt#3207: recorded as a SUPPRESSED detection rather than dropped — this
