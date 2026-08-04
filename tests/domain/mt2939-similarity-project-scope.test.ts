@@ -19,7 +19,7 @@
  * these tests instead of passing vacuously.
  */
 
-import { describe, it, expect, beforeEach, beforeAll, afterAll, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, beforeAll } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { ALL_PROJECTS } from "@minsky/domain/project/scope";
 import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
@@ -347,8 +347,6 @@ describe("TaskSimilarityService project scoping (ADR-021, mt#2939)", () => {
 // ---------------------------------------------------------------------------
 
 describe("createTaskSimilarityService searchTasks closure forwards projectScope (mt#2939)", () => {
-  let embeddingFactorySpy: ReturnType<typeof spyOn>;
-
   beforeAll(async () => {
     const { initializeConfiguration, CustomConfigFactory } = await import(
       "@minsky/domain/configuration/index"
@@ -357,33 +355,22 @@ describe("createTaskSimilarityService searchTasks closure forwards projectScope 
       enableCache: true,
       skipValidation: true,
     });
-
-    // createTaskSimilarityService() eagerly builds the real OpenAI embedding
-    // service via createEmbeddingServiceFromConfig(), which requires
-    // ai.providers.openai.apiKey to be configured — absent in an isolated CI
-    // shard (mt#2939 PR #2085 R1). This suite only asserts the searchTasks
-    // closure's projectScope-forwarding (the exact gap the spec named), which
-    // never touches the embedding service, so spy the factory out instead of
-    // requiring a live credential. `mock.module()` is avoided (banned outside
-    // tests/setup.ts, per packages/domain/src/ai/completion-service.test.ts) —
-    // spyOn on the module namespace object relies on Bun's ESM live-binding
-    // semantics to intercept similarity-commands.ts's named import of the
-    // same export.
-    const embeddingServiceFactory = await import("@minsky/domain/ai/embedding-service-factory");
-    embeddingFactorySpy = spyOn(
-      embeddingServiceFactory,
-      "createEmbeddingServiceFromConfig"
-    ).mockImplementation(async () => ({
-      generateEmbedding: async () => [0, 0, 0, 0],
-      generateEmbeddings: async (texts: string[]) => texts.map(() => [0, 0, 0, 0]),
-    }));
-  });
-
-  afterAll(() => {
-    embeddingFactorySpy?.mockRestore();
   });
 
   it("forwards the resolved projectScope into taskService.listTasks", async () => {
+    // createTaskSimilarityService() otherwise eagerly builds the real OpenAI
+    // embedding service via createEmbeddingServiceFromConfig(), which
+    // requires ai.providers.openai.apiKey to be configured — absent in an
+    // isolated CI shard (mt#2939 PR #2085 R1). This suite only asserts the
+    // searchTasks closure's projectScope-forwarding (the exact gap the spec
+    // named), which never touches the embedding service, so a fake is
+    // injected directly through createTaskSimilarityService's `deps`
+    // parameter (mt#3622) instead of requiring a live credential or
+    // `spyOn`-patching the embedding-service-factory module namespace object.
+    const fakeCreateEmbeddingService = async () => ({
+      generateEmbedding: async () => [0, 0, 0, 0],
+      generateEmbeddings: async (texts: string[]) => texts.map(() => [0, 0, 0, 0]),
+    });
     const { createTaskSimilarityService } = await import(
       "../../src/adapters/shared/commands/tasks/similarity-commands"
     );
@@ -431,7 +418,8 @@ describe("createTaskSimilarityService searchTasks closure forwards projectScope 
 
     const service = await createTaskSimilarityService(
       fakePersistenceProvider as any,
-      fakeTaskService as any
+      fakeTaskService as any,
+      { createEmbeddingService: fakeCreateEmbeddingService as any }
     );
 
     // Trigger a filtered-path search (projectScope active), which calls
