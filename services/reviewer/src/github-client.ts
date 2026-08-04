@@ -536,9 +536,33 @@ const GITHUB_COMPARE_FILES_CAP = 300;
  *
  * Returns `[]` immediately when `baseSha === headSha` (nothing to compare).
  * Returns `undefined` on any API failure (e.g. the base/head pair is
- * unreachable after a force-push rewrote history) or a possibly-truncated
- * response (see `GITHUB_COMPARE_FILES_CAP`) — callers must treat this as
- * "cannot determine," never as "no files changed."
+ * unreachable after a force-push rewrote history), a possibly-truncated
+ * response (see `GITHUB_COMPARE_FILES_CAP`), or a range containing a merge
+ * commit (see below) — callers must treat this as "cannot determine," never as
+ * "no files changed."
+ *
+ * ## Why a merge commit in range yields "cannot determine" (mt#3663)
+ *
+ * `baseSha` is a commit on the PR branch, so `base...head` collapses to
+ * `base..head` and a merge-from-main commit in that range contributes every
+ * file the BASE BRANCH touched, indistinguishably from files this PR's author
+ * touched. The caller's question is whether the PR ADDRESSED a finding, and a
+ * base-branch edit to the finding's cited file is not an answer to it — so the
+ * range stops carrying the signal the caller needs.
+ *
+ * Filtering the file list against the PR's own file list does NOT rescue this:
+ * a merge-from-main routinely touches the very files the PR touches (that is
+ * what a conflict resolution IS), so the cited file survives any such filter
+ * while the only edit to it came from the base branch. There is no cheap way to
+ * recover the PR-authored subset from one compare call, and the classifier's
+ * standing rule is to fail toward ambiguity rather than toward an unsupported
+ * "argued out" accusation — so this returns `undefined` and the caller records
+ * `unknown`.
+ *
+ * This is deliberately a DIFFERENT remedy from the one `incremental-diff-scope.ts`
+ * applies to the same wrong-base compare: that consumer asks "what should the
+ * model be shown," which the PR's own merge-base entries answer exactly; this
+ * one asks "did the author change this file," which they cannot answer at all.
  */
 export async function fetchChangedFilesSince(
   octokit: Octokit,
@@ -568,6 +592,19 @@ export async function fetchChangedFilesSince(
         repo,
         baseSha,
         headSha,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
+    const mergeCommits = (resp.data.commits ?? []).filter((c) => (c.parents?.length ?? 0) > 1);
+    if (mergeCommits.length > 0) {
+      log.info("reviewer.compare_commits_merge_in_range", {
+        event: "reviewer.compare_commits_merge_in_range",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        mergeCommitCount: mergeCommits.length,
         fileCount: files.length,
       });
       return undefined;

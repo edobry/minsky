@@ -540,7 +540,20 @@ describe("buildReviewPrompt incremental-scope notice (mt#3471)", () => {
     const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
 
     expect(prompt).toContain("NOT the full PR");
-    expect(prompt).toContain("commits pushed since your most recent review");
+    expect(prompt).toContain("touched since your most recent review");
+  });
+
+  test("mt#3663: describes the narrowing as by-file, and the content as PR-relative", () => {
+    // The notice must match what resolveDiffScope actually produces. Before
+    // mt#3663 it promised "only the commits pushed since your last review",
+    // which the subset invariant no longer delivers — each shown file now
+    // carries its full PR-relative change, so a model told otherwise would
+    // mis-read already-reviewed hunks as newly pushed work.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("as this pull request introduces it");
+    expect(prompt).toContain("nothing here is code the PR did not author");
+    expect(prompt).not.toContain("contains only the commits pushed");
   });
 
   test("cancels the absence-is-evidence rules that a narrowed diff would otherwise trip", () => {
