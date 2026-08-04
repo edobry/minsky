@@ -382,6 +382,16 @@ Structure source code so tests don't need complex mocking:
   function processData(config: Config) { /* ... */ }
   ```
 - **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
+- **Don't patch a collaborator in place to observe it.** If proving a behavior would require
+  `spyOn`-ing something the code reaches itself (a module import, a singleton) rather than a
+  value the function returns or a dependency it was handed, that's design feedback, not a
+  testing problem — extract the decision into a function that returns the observable, inject the
+  collaborator, and keep production code as a thin imperative shell around the pure core.
+  In-place patching (`spyOn`) is banned outright, not just discouraged — see
+  [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
+  the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
+  shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
+  §Console Output`), enforced by `custom/no-spy-patching`.
 
 ## Test Data
 
@@ -504,10 +514,18 @@ When adding a new test helper:
      * Terminal output formatting or styling
      * Terminal interactive prompts
 
-4. **NEVER Test Console Output Directly**
-   * Tests MUST NOT assert against specific console output strings or formatting
-   * Instead, test that the correct information was passed to the output function
-   * **Examples of what NOT to test:**
+4. **Split log output into support vs. diagnostic — test only the support half, and never as text**
+   * A **support** log event is one the system is contractually required to emit — the log call
+     IS the behavior under test (a swallow contract, a severity-channel choice, a
+     transition-only volume bound, a structured degradation event, a security redaction). Test
+     these as fact-of-emission: assert an event was emitted with the right structured fields, via
+     an injected sink — never by patching the logger in place (`spyOn` on a logger is banned
+     outright; see [ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)).
+   * A **diagnostic** log event is a developer aid with no behavioral contract. Do not test it at
+     all — no spy, no captured-output assertion.
+   * Tests MUST NOT assert against console output *strings or formatting*, for either class —
+     that ban is unconditional and unrelated to the support/diagnostic split above.
+   * **Examples of what NOT to test, regardless of class:**
      * Specific console.log output strings
      * ANSI color codes or styling
      * Table formatting or alignment
@@ -659,20 +677,38 @@ test("writeConfig saves the config to the correct path", () => {
 ```
 
 ### Console Output
-❌ **DO NOT TEST:** Specific console output strings or formatting
+
+Log output splits into two classes (Khorikov's support-vs-diagnostic distinction — see
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)):
+
+❌ **DO NOT TEST — diagnostic output.** A developer aid with no behavioral contract. Never spy on
+it, never assert on its content, never test it at all.
+
+✅ **DO TEST — support output, but only as fact-of-emission via an injected sink.** When a log
+event genuinely IS the behavior under test (e.g. "the handler swallows a driver error instead of
+throwing"), assert that an event was emitted with the right structured fields — never by patching
+the logger in place, and never by matching on message-string formatting.
 
 ```typescript
-// BAD test example - Testing console output directly
+// BAD — patches the logger in place (banned per ADR-036) and asserts on a formatted string
 test("reportStatus logs the status", () => {
-  const spy = jest.spyOn(console, 'log');
+  const spy = spyOn(log, "info");
 
   reportStatus({ status: "completed" });
 
-  // Don't test specific output strings
   expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
 });
 
-// GOOD test example - Testing the core logic instead
+// GOOD — the log event IS the contract here; observe it via an injected sink, not a patched logger
+test("reportStatus emits a completion event through the injected sink", () => {
+  const events: LogEvent[] = [];
+
+  reportStatus({ status: "completed" }, { logSink: (e) => events.push(e) });
+
+  expect(events).toContainEqual(expect.objectContaining({ level: "info", status: "completed" }));
+});
+
+// GOOD — when no event needs to be a contract, test the returned value instead
 test("getStatusReport returns the correct status information", () => {
   const report = getStatusReport({ status: "completed" });
 
@@ -1277,6 +1313,7 @@ so measurement is unaffected. Separate events still mean separate blocks: a `Sto
 - **Turn-end-unwalked-task** — Stop-event scan (mt#3536): the turn minted a task id (a `tasks_create` whose result confirms `success` + `taskId`) and ended with no `tasks_status_set`/`session_start`/`tasks_dispatch`/`asks_create` naming it. Keys on tool-call STATE, not on wording — the R4 stop named no next action at all, so the phrase-keyed sibling above correctly stayed silent; the SILENT stop is the gap this closes. R4 of `family:stop-at-handoff`, after two prose fixes (mt#1478, mt#2689) both went DONE and both failed to contain it — mt#2689's lived in `/create-task`'s exit step and was bypassed by calling the tool directly. Dedups per task id. `MINSKY_ACK_UNWALKED_TASK`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read. Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is unchanged; the split makes the authorship-as-verification class countable. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would count as an operator-facing fire it never was, driving the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. **Durable artifacts are the third surface (mt#3642):** everything an agent writes for the record — a PR body, a task spec or spec patch, a memory, an ask's question — reaches the transcript as a `tool_use` INPUT, not as assistant text, so the SAME sentence was watched in chat (ephemeral) and unwatched in the artifact (durable, read later as justification). Their prose bodies are now a third pass, recorded as `artifactSurfaceClaims` / `artifactSurfaceClaimCount` under the `artifact-surface-only` reason, **log-only** on the same terms as the comment pass. Scoped to artifact-authoring tools, NOT all write-class tools: an ordinary source edit stays the comment pass's job. Reads BOTH `tool_use` shapes — a top-level line carrying `name`/`tool_name` + `input`, and a block nested in an assistant message's `content` — matching `extractToolUseNames`; handling only the nested shape made top-level-recorded turns invisible (PR #2584 R1), and the comment pass still has that gap (mt#3650). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Turn-end-unescalated-incident** — Stop-event scan (mt#3593): the turn's final message reports an incident AND names the remediation as the principal's, and the turn contains no `asks_create` carrying `severity: "incident"`. LIVE (injecting), not calibration-first — the family already spent a prose fix (mt#3436) that failed three days later, so a log-only third tier would stop nothing; it still writes its calibration record so the false-positive rate stays measurable. A HYBRID of its two Stop siblings by necessity: `untaken-action` keys on a phrase, `unwalked-task` keys purely on tool-call state, and this one must read the final message for its TRIGGER because no tool call means "an incident happened" — the ABSENCE half is structural. Reads the argument, not just the call: an `asks_create` WITHOUT the severity marker is the R1 shape (ask filed, principal never told) and does not count as discharge. Deliberately does NOT check for `principal_notify` — after mt#3595 a correctly-handled incident contains no such call by design, and the superseded predicate would have fired on every correct handling. Elides quoted/code spans, so a turn discussing the guard does not trip it. `MINSKY_ACK_UNESCALATED_INCIDENT`.
+- **Stop-at-decision** — Stop-event scan (mt#3653), LOG-ONLY: fourth `family:stop-at-handoff` signature — the turn's substantive mutations are evidence-writes (`tasks_spec_patch` into a non-bound TODO/PLANNING task) and it ends with no `asks_create`/`tasks_status_set`/`tasks_dispatch`/`tasks_create`/`Skill` call and no recommendation marker: the silent stop at a ripe decision, which mints nothing (mt#3536 blind) and says nothing (mt#3179 blind). Never injects; writes `stop-at-decision` calibration records plus an evaluation stream (mt#3583 pattern); dedup per (turn, target-task); status reads fail open. Registered at `Stop` as a recorded ADR-031 deviation — the walked-away final turn is the core case (full rationale: guard header + mt#3653 Planning Audit). `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.

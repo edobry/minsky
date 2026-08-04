@@ -255,6 +255,22 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
             `    [${rec.timestamp}] rung=${rec.detectionRung} skills=${rec.loadedSkills.slice(0, 3).join(", ")} ` +
               `tools=${rec.researchTools.slice(0, 3).join(", ")} hadPropagation=${rec.hadPropagation}`
           );
+        } else if ("targets" in rec) {
+          // stop-at-decision (mt#3653): render the target task ids + statuses,
+          // the record's diversity axis. Structural (`"targets" in rec`)
+          // discrimination matches every sibling branch in this chain and in
+          // calibration-sweep's extractDistinctPhrases — the union is
+          // discriminated by field shape, not by kind, so a future record
+          // kind adding a `targets` field must pick a different field name or
+          // convert this whole chain to kind-tagged parsing (PR #2611 R1
+          // noted the collision risk; changing only this branch would not
+          // remove it).
+          lines.push(
+            `    [${rec.timestamp}] targets: ${rec.targets
+              .slice(0, 3)
+              .map((t) => `${t.taskId}:${t.status}`)
+              .join(", ")}`
+          );
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches

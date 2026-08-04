@@ -37,6 +37,14 @@ export interface PersistenceHealthStatus {
    */
   mode: PersistenceHealthMode;
   reason?: string;
+  /**
+   * ISO timestamp of the last re-initialization attempt (mt#3635 / ADR-035
+   * rule 4). ABSENT means no attempt has been made since boot — which is what
+   * distinguishes a provider stuck since startup from one actively retrying
+   * against a real outage. Without it an operator sees the same payload in
+   * both cases and cannot tell a wedged process from a down database.
+   */
+  lastAttemptAt?: string;
 }
 
 /**
@@ -63,13 +71,18 @@ export function assessPersistenceHealth(
 
   if (provider instanceof UnconfiguredPersistenceProvider) {
     if (provider.configuredButUnavailable) {
+      const attemptDetail = provider.lastAttemptError ? `: ${provider.lastAttemptError}` : "";
+      const retryNote = provider.lastAttemptAt
+        ? `Last re-initialization attempt ${provider.lastAttemptAt} also failed${attemptDetail}.`
+        : "No re-initialization has been attempted since boot.";
       return {
         healthy: false,
         mode: "unavailable",
         reason:
           "Postgres connection is configured but persistence failed to initialize " +
           `(${provider.reason}) — see boot logs for the underlying error. This is ` +
-          "NOT the expected local/dev degraded mode.",
+          `NOT the expected local/dev degraded mode. ${retryNote}`,
+        ...(provider.lastAttemptAt ? { lastAttemptAt: provider.lastAttemptAt } : {}),
       };
     }
     return {

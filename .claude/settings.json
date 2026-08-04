@@ -298,10 +298,10 @@
             "statusMessage": "Final type check..."
           },
           {
-            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY (currently two: turn-end-retro-scan, the framework's first Stop-event guard — advisory turn-end retrospective-trigger scan; and turn-end-untaken-action-scan (mt#3179) — advisory scan for a turn ending with an announced-but-untaken next action). Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout=21 (host-cap budget model, hook-files.mdc): the family's worst-case SUM — turn-end-retro-scan at timeoutMs 10s plus turn-end-untaken-action-scan at timeoutMs 5s — plus dispatcher overhead margin. Bump this whenever a Stop guard is added or its timeoutMs changes. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
+            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY (currently five: turn-end-retro-scan at timeoutMs 10s, plus turn-end-untaken-action-scan (mt#3179), turn-end-unwalked-task-scan (mt#3536), and turn-end-unescalated-incident-scan (mt#3593) at 5s each, plus stop-at-decision-scan (mt#3653) at 8s — its budget covers up to two 2.5s `minsky` CLI status reads). Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout=39 (host-cap budget model, hook-files.mdc): the family's worst-case SUM — 10+5+5+5+8 = 33s — plus the 6s dispatcher overhead margin the prior 21 (=15+6) encoded. The pre-mt#3653 value was stale at 21 while the sum was already 25: the mt#3536/mt#3593 additions bumped registry timeouts without this comment's required recompute. Bump this whenever a Stop guard is added or its timeoutMs changes. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
-            "timeout": 21,
+            "timeout": 39,
             "statusMessage": "Running guard dispatcher (Stop)..."
           }
         ]

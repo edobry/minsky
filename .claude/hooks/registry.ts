@@ -1748,6 +1748,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3653 — LOG-ONLY fourth Stop-event sibling: R5 of
+    // family:stop-at-handoff. `untaken-action` keys on a sign-off phrase,
+    // `unwalked-task` on a tasks_create MINT; this one keys on an
+    // evidence-WRITE — a `tasks_spec_patch` into a non-bound open task — with
+    // no discharge call in the same turn: the silent stop at a ripe decision,
+    // which mints nothing and says nothing, so both siblings are blind to it.
+    //
+    // Calibration-first: never emits `additionalContext`, so no attentionCost
+    // and no canary (the retrospective-completeness-detector precedent — a
+    // nominal attentionCost would distort the merged-context budget, which is
+    // derived by summing these annotations). Returns only a calibration
+    // record, plus a separate evaluation stream
+    // (.minsky/stop-at-decision-evaluations.jsonl, mt#3583 pattern). Full
+    // rationale, including the recorded ADR-031 deviation for the Stop-side
+    // tool-call read: the guard module's header.
+    name: "stop-at-decision-scan",
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./stop-at-decision-scan").then((m) => ({ run: m.run })),
+    // 8s, not the sibling 5s: this guard makes up to MAX_STATUS_READS (2)
+    // `minsky` CLI status reads at 2.5s timeout each (measured 1.64s live),
+    // and the reads must fit inside the guard budget with the transcript
+    // scan's share left over.
+    timeoutMs: 8000,
+    calibrationLog: "stop-at-decision",
+    denyCapable: false,
+    // TRUE: both the trigger (spec-patch tool calls) and the discharge check
+    // (asks_create/status-set/dispatch/Skill absence) live only in the
+    // transcript; only the recommendation-marker leg reads
+    // last_assistant_message.
+    needsTranscript: true,
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
