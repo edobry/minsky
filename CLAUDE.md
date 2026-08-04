@@ -69,6 +69,19 @@ ACTUAL value, the honest label is `unknown`, not an assumption. Detector: `hook-
 §Code-mechanism-assertion` now SURFACES relayed claims (it used to suppress them). Cues:
 `/check-premise` (g) and (h).
 
+**The corpus is agent-authored — citing it is self-citation (mt#3599).** `.minsky/rules/**`,
+memories, ADRs, hook docs, and task specs are prose an agent wrote. Before citing one as EVIDENCE
+(as distinct from a POLICY you are obeying), classify what it is doing. **Recording** something
+external — an incident that occurred, a decision the principal made, a code behavior verified by
+running it, a vendor doc actually read — is legitimate evidence for that thing. **Asserting**
+something it originated — a coined term, a chosen framing, a threshold an agent picked, a taxonomy
+imposed on a problem — carries no independent warrant; it is `inferred` at most, and repetition
+across files does not upgrade it. The file format renders both identically, which is what makes
+the confusion easy. "Per `<rule>.mdc`" answers WHEN a claim was written, never WHETHER it is true.
+On a provenance challenge, answer with `git_log` / `git_blame` on the file and say plainly if the
+answer is "an agent did" — a file path is not an answer. Incident + worked examples:
+`docs/rules-rationale/claim-confidence.md §The corpus is agent-authored`.
+
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
