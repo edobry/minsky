@@ -109,6 +109,7 @@ function parseArgs(argv: string[]): {
   files: number;
   probe: boolean;
   rung2: boolean;
+  rung3: boolean;
   limit: number;
   json: boolean;
   projectsDir: string;
@@ -117,6 +118,7 @@ function parseArgs(argv: string[]): {
   let files = DEFAULT_FILE_COUNT;
   let probe = false;
   let rung2 = false;
+  let rung3 = false;
   let limit = DEFAULT_RUNG2_TURN_LIMIT;
   let json = false;
   let projectsDir = join(homedir(), ".claude", "projects");
@@ -126,13 +128,14 @@ function parseArgs(argv: string[]): {
     const arg = argv[i];
     if (arg === "--probe") probe = true;
     else if (arg === "--rung2") rung2 = true;
+    else if (arg === "--rung3") rung3 = true;
     else if (arg === "--limit") limit = Number(argv[++i] ?? DEFAULT_RUNG2_TURN_LIMIT);
     else if (arg === "--json") json = true;
     else if (arg === "--files") files = Number(argv[++i] ?? DEFAULT_FILE_COUNT);
     else if (arg === "--projects-dir") projectsDir = String(argv[++i] ?? projectsDir);
     else if (arg === "--corpus-dir") corpusDir = String(argv[++i] ?? "");
   }
-  return { files, probe, rung2, limit, json, projectsDir, corpusDir };
+  return { files, probe, rung2, rung3, limit, json, projectsDir, corpusDir };
 }
 
 /**
@@ -309,24 +312,36 @@ async function runRung2Delta(
   let rung1FireCount = 0;
   let degradedCount = 0;
 
-  for (const turn of turns) {
-    const rung1 = detectFromSource(turn);
-    if (rung1.length > 0) rung1FireCount++;
+  // This mode measures RUNG 2 in isolation. Since mt#3652 the live path also
+  // runs the Rung-3 confirm on nominated turns; disabling it here keeps this
+  // mode's cost and semantics exactly what mt#3408 shipped (one embedding call
+  // per turn, no completion calls) — `--rung3` is the mode that measures the
+  // full pipeline.
+  const priorRung3Disable = process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+  process.env.MINSKY_DISABLE_RUNG3_CONFIRM = "1";
+  try {
+    for (const turn of turns) {
+      const rung1 = detectFromSource(turn);
+      if (rung1.length > 0) rung1FireCount++;
 
-    const detected = await detectTriggerPhrasesWithNomination(turn);
-    if (detected.degradedReason !== undefined) {
-      degradedCount++;
-      continue;
+      const detected = await detectTriggerPhrasesWithNomination(turn);
+      if (detected.degradedReason !== undefined) {
+        degradedCount++;
+        continue;
+      }
+      if (detected.nominatedFamilies.length === 0) continue;
+
+      const added = detected.matches.find((m) =>
+        detected.nominatedFamilies.includes(m.family as string)
+      );
+      newOnly.push({
+        families: detected.nominatedFamilies,
+        excerpt: (added?.matchedPhrase ?? turn).slice(0, 2 * EXCERPT_RADIUS).replace(/\n/g, " "),
+      });
     }
-    if (detected.nominatedFamilies.length === 0) continue;
-
-    const added = detected.matches.find((m) =>
-      detected.nominatedFamilies.includes(m.family as string)
-    );
-    newOnly.push({
-      families: detected.nominatedFamilies,
-      excerpt: (added?.matchedPhrase ?? turn).slice(0, 2 * EXCERPT_RADIUS).replace(/\n/g, " "),
-    });
+  } finally {
+    if (priorRung3Disable === undefined) delete process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+    else process.env.MINSKY_DISABLE_RUNG3_CONFIRM = priorRung3Disable;
   }
 
   const summary = {
@@ -361,12 +376,119 @@ async function runRung2Delta(
   return 0;
 }
 
+/**
+ * Full-pipeline delta over real turns (mt#3652): Rung 1 + Rung 2 + Rung-3
+ * confirm. Where `--rung2` prints every nomination for hand-classification,
+ * this mode reports which nominations the confirm stage ENDORSED — each
+ * confirmed fire is a turn that would now inject where the pre-Rung-3 hook
+ * stayed quiet, so the confirmed list is the new-noise question and the
+ * rejected count is the precision the confirm stage added.
+ */
+async function runRung3Delta(
+  files: number,
+  limit: number,
+  projectsDir: string,
+  json: boolean,
+  corpusDirOverride: string | null
+): Promise<number> {
+  const repoRoot = resolve(import.meta.dir, "..");
+  const corpusDir = corpusDirOverride ?? corpusDirFor(projectsDir, repoRoot);
+  if (!existsSync(corpusDir)) {
+    console.log(`SKIP: no transcript corpus at ${corpusDir} — nothing to replay.`);
+    return 0;
+  }
+
+  const { detectTriggerPhrasesWithNomination } = await import(
+    "../.minsky/hooks/retrospective-trigger-scanner"
+  );
+
+  const allTurns = readAssistantTurns(corpusDir, files);
+  const turns = allTurns.slice(0, limit);
+
+  const confirmedFires: Array<{ families: string[]; excerpt: string }> = [];
+  let rung1FireCount = 0;
+  let nominatedTurns = 0;
+  let rejectedTurns = 0;
+  let degradedCount = 0;
+  const confirmLatencies: number[] = [];
+
+  for (const turn of turns) {
+    const rung1 = detectFromSource(turn);
+    if (rung1.length > 0) rung1FireCount++;
+
+    const detected = await detectTriggerPhrasesWithNomination(turn);
+    if (detected.degradedReason !== undefined || detected.rung3?.degraded) {
+      degradedCount++;
+      continue;
+    }
+    if (detected.nominatedFamilies.length === 0) continue;
+    nominatedTurns++;
+    if (detected.rung3?.latencyMs !== undefined) confirmLatencies.push(detected.rung3.latencyMs);
+
+    if (detected.confirmedFamilies.length === 0) {
+      rejectedTurns++;
+      continue;
+    }
+    const added = detected.matches.find((m) =>
+      detected.confirmedFamilies.includes(m.family as string)
+    );
+    confirmedFires.push({
+      families: detected.confirmedFamilies,
+      excerpt: (added?.matchedPhrase ?? turn).slice(0, 2 * EXCERPT_RADIUS).replace(/\n/g, " "),
+    });
+  }
+
+  const meanLatency =
+    confirmLatencies.length > 0
+      ? Math.round(confirmLatencies.reduce((a, b) => a + b, 0) / confirmLatencies.length)
+      : null;
+
+  const summary = {
+    mode: "rung3-delta",
+    corpusDir,
+    turnsAvailable: allTurns.length,
+    turnsSampled: turns.length,
+    limit,
+    rung1Fires: rung1FireCount,
+    nominatedTurns,
+    confirmedFires: confirmedFires.length,
+    rejectedByConfirm: rejectedTurns,
+    degradedTurns: degradedCount,
+    meanConfirmLatencyMs: meanLatency,
+    confirmed: confirmedFires,
+  };
+
+  if (json) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.log(`corpus dir:          ${corpusDir}`);
+    console.log(`turns available:     ${allTurns.length}`);
+    console.log(`turns sampled:       ${turns.length} (bounded by --limit ${limit})`);
+    console.log(`Rung-1 fires:        ${rung1FireCount}`);
+    console.log(`nominated turns:     ${nominatedTurns}`);
+    console.log(`confirmed (inject):  ${confirmedFires.length}`);
+    console.log(`rejected by confirm: ${rejectedTurns}`);
+    console.log(`degraded turns:      ${degradedCount}`);
+    console.log(`mean confirm ms:     ${meanLatency ?? "n/a"}\n`);
+    for (const f of confirmedFires) {
+      console.log(`[+${f.families.join(",")}] …${f.excerpt}…\n`);
+    }
+    console.log(
+      "Every confirmed fire above is a turn the pre-Rung-3 hook stayed quiet on;\n" +
+        "hand-classify each as a genuine admission or a false positive and record\n" +
+        "the result in the task's ## Outcome."
+    );
+  }
+  return 0;
+}
+
 async function main(): Promise<number> {
-  const { files, probe, rung2, limit, json, projectsDir, corpusDir } = parseArgs(
+  const { files, probe, rung2, rung3, limit, json, projectsDir, corpusDir } = parseArgs(
     process.argv.slice(2)
   );
   if (probe) return runProbe(json);
   if (rung2) return runRung2Delta(files, limit, projectsDir, json, corpusDir);
+  if (rung3) return runRung3Delta(files, limit, projectsDir, json, corpusDir);
   return runReplay(files, projectsDir, json, corpusDir);
 }
 
