@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   bindTelegramChannelTopicToTask,
+  CREDENTIAL_RETRY_DELAYS_MS,
   createEventLogCursor,
   createTopicActuatorResolver,
   ensureTelegramChannelTopic,
@@ -20,6 +21,7 @@ import {
   startPrincipalChannel,
   telegramTopicLocalId,
   type DbLike,
+  type PrincipalChannelStatus,
 } from "./principal-channel-launch";
 import type { ChannelActuator } from "./principal-channel-poller";
 import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
@@ -482,25 +484,92 @@ describe("resolveWithRetry (mt#3608)", () => {
     expect(getPrincipalChannelStatus().state).toBe("starting");
   });
 
-  test("AT2 — a permanently failing read gives up as `failed`, NOT as `unconfigured`", async () => {
+  test("mt#3683 — a read failing WELL past the old 6-entry ceiling keeps RETRYING, never `failed` (negative control: this test fails against the pre-mt#3683 code, which gives up as `failed` after exactly 4 calls)", async () => {
+    // Beyond NO_WAIT.length (3) — the old code gave up here. The new code
+    // must not: it should still be asking, and eventually succeed, which is
+    // this task's AT1 and SC5 ("a test drives the arc: credential read fails
+    // past the current 6-attempt window, then succeeds, and the channel
+    // reaches `running` with no process restart" — exercised here at the
+    // resolveWithRetry level, the same unit `startPrincipalChannel` awaits).
+    let calls = 0;
+    const FAIL_COUNT = 9;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+    const statusesObservedDuringRetry: string[] = [];
+    const recordingSleep = async (): Promise<void> => {
+      statusesObservedDuringRetry.push(getPrincipalChannelStatus().state);
+    };
+
+    const result = await resolveWithRetry({ resolve, sleep: recordingSleep, delaysMs: NO_WAIT });
+
+    expect(result.configured).toBe(true);
+    expect(calls).toBe(FAIL_COUNT + 1);
+    // No restart happened — this is one continuous resolveWithRetry call.
+    // Every observed intermediate status was "retrying", never "failed",
+    // even well past the point the old schedule would have given up.
+    expect(statusesObservedDuringRetry).toHaveLength(FAIL_COUNT);
+    expect(statusesObservedDuringRetry.every((s) => s === "retrying")).toBe(true);
+  });
+
+  test("mt#3683 SC3 — a retrying status carries `lastAttemptAt` and a `nextAttemptAt` strictly later, distinguishing 'still retrying' from 'gave up'", async () => {
     let calls = 0;
     const resolve = async () => {
       calls += 1;
-      return TRANSIENT;
+      return calls === 1 ? TRANSIENT : CONFIGURED;
+    };
+    let clockMs = 1_700_000_000_000;
+    const now = () => clockMs;
+    // A `const` array pushed-to from the injected `sleep`, not a reassigned
+    // `let` — reassigning a captured `let` from a nested closure defeats
+    // TypeScript's discriminant narrowing on that variable at the read site.
+    const capturedDuringRetry: PrincipalChannelStatus[] = [];
+    const capturingSleep = async (ms: number): Promise<void> => {
+      capturedDuringRetry.push(getPrincipalChannelStatus());
+      clockMs += ms;
     };
 
-    const result = await resolveWithRetry({ resolve, sleep, delaysMs: NO_WAIT });
+    await resolveWithRetry({
+      resolve,
+      sleep: capturingSleep,
+      delaysMs: CREDENTIAL_RETRY_DELAYS_MS,
+      now,
+    });
 
-    expect(result.configured).toBe(false);
-    // Every delay is consumed, then one final attempt — the loop must not give
-    // up before it has actually used its budget.
-    expect(calls).toBe(NO_WAIT.length + 1);
+    const status = capturedDuringRetry[0];
+    expect(status?.state).toBe("retrying");
+    if (status !== undefined && status.state === "retrying") {
+      expect(status.lastAttemptAt).toBe(new Date(1_700_000_000_000).toISOString());
+      expect(new Date(status.nextAttemptAt).getTime()).toBeGreaterThan(
+        new Date(status.lastAttemptAt).getTime()
+      );
+    }
+  });
 
-    const status = getPrincipalChannelStatus();
-    expect(status.state).toBe("failed");
-    // `failed` carries the reason so the health surface can say WHY, and is a
-    // different state from `unconfigured` — that is the whole point.
-    expect(status.state === "failed" && status.reason).toContain("ENOTFOUND");
+  test("mt#3683 SC1 — past the seeded schedule, backoff keeps widening but is CAPPED, not uncapped exponential", async () => {
+    const delaysSeen: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 5;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+    const recordingSleep = async (ms: number): Promise<void> => {
+      delaysSeen.push(ms);
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: recordingSleep,
+      delaysMs: [1_000],
+      maxDelayMs: 4_000,
+    });
+
+    // Seeded once at 1s, then doubles (2s, 4s), then holds at the 4s cap —
+    // never uncapped growth (8s, 16s, ...).
+    expect(delaysSeen).toEqual([1_000, 2_000, 4_000, 4_000, 4_000]);
+    expect(Math.max(...delaysSeen)).toBeLessThanOrEqual(4_000);
   });
 
   test("AT3 — a genuinely-unconfigured channel does NOT retry", async () => {
@@ -516,18 +585,6 @@ describe("resolveWithRetry (mt#3608)", () => {
     // Exactly one attempt: retrying an absent credential only delays a message
     // the operator needs to see, and burns the Pulumi backend for nothing.
     expect(calls).toBe(1);
-  });
-
-  test("a resolution that fails permanently leaves `failed`, not a stale `retrying`", async () => {
-    // The sibling of AT1's fix: whichever way the loop exits, the status it
-    // leaves behind must describe the state the channel is ACTUALLY in.
-    await resolveWithRetry({
-      resolve: async () => TRANSIENT,
-      sleep,
-      delaysMs: NO_WAIT,
-    });
-
-    expect(getPrincipalChannelStatus().state).toBe("failed");
   });
 
   test("an unconfigured verdict mid-retry clears the stale `retrying`", async () => {

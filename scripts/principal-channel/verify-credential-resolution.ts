@@ -19,6 +19,34 @@
  * times and then refuse to start on a machine that is correctly configured —
  * turning a fix for "never starts" into a different "never starts."
  *
+ * ## mt#3683 finding: `exit null` is a timeout, not a PATH failure
+ *
+ * The 2026-08-04 outage's reason string was `chat-id read failed: exit null` —
+ * `readPulumiChatId`'s `stderr || \`exit ${proc.exitCode}\`` fallback with
+ * `proc.exitCode === null`. Two hypotheses were live: a PATH-resolution
+ * failure (the tray-launched daemon not inheriting `pulumi`'s location), or a
+ * genuinely transient network read. Determined by live reproduction against
+ * this exact Bun runtime (`Bun v1.2.21 (macOS arm64)`), not assumption:
+ *
+ *   - `Bun.spawnSync(["<binary not on PATH>"], ...)` THROWS synchronously with
+ *     a distinct `ENOENT` / `Executable not found in $PATH` error — caught by
+ *     `readPulumiChatId`'s outer `catch`, which would produce a DIFFERENT
+ *     reason string, never `exit null`.
+ *   - `Bun.spawnSync(["sleep", "3"], { timeout: 300 })` — a process that DID
+ *     spawn but was killed before completing — returns `exitCode: null`,
+ *     `signalCode: "SIGTERM"`, empty stderr. This reproduces `exit null`
+ *     exactly (empty stderr falls through to the `exit ${proc.exitCode}`
+ *     branch).
+ *
+ * So `exit null` can only mean the `pulumi` binary WAS found and spawned via
+ * the inherited PATH, and was killed by `readPulumiChatId`'s own 5000ms
+ * subprocess `timeout` — a real, transient network condition (the Pulumi
+ * backend was slow to answer), not an unresolvable binary. No binary-path
+ * resolution fix was warranted; `principal-channel-launch.ts`'s retry-ceiling
+ * removal is the correct and sufficient fix for this signature. See
+ * `CREDENTIAL_RETRY_DELAYS_MS`'s docblock in `principal-channel-launch.ts` for
+ * the same finding recorded at the call site.
+ *
  * Usage:
  *
  *   bun scripts/principal-channel/verify-credential-resolution.ts
