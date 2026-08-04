@@ -69,6 +69,8 @@ export interface MemoryServiceDb {
 export interface MemoryServiceSurface {
   search(query: string, opts?: MemorySearchOptions): Promise<MemorySearchResponse>;
   get(id: string): Promise<MemoryRecord | null>;
+  /** Read without bumping access tracking — for read-in-order-to-write callers (mt#3602). */
+  getWithoutAccessTracking(id: string): Promise<MemoryRecord | null>;
   list(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
   create(input: MemoryCreateInput): Promise<MemoryRecord>;
   update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
@@ -375,6 +377,33 @@ export class MemoryService implements MemoryServiceSurface {
    * Access tracking: bumps last_accessed_at and access_count non-blocking (fire-and-forget).
    */
   async get(id: string): Promise<MemoryRecord | null> {
+    const record = await this.fetchById(id);
+    if (!record) return null;
+    this.bumpAccessCount([record.id]);
+    return record;
+  }
+
+  /**
+   * Read a record WITHOUT bumping `last_accessed_at` / `access_count`.
+   *
+   * For a caller that reads a record in order to WRITE it — `memory.patch`
+   * (mt#3602) reads the current content to splice one section — the read is
+   * bookkeeping for the write, not a read OF the record by a consumer. This is
+   * the same distinction `getMemoryRefSummary` above draws for `refs.status`,
+   * and the same reason: counting maintenance reads inflates the access stats
+   * that surface memory relevance.
+   *
+   * That inflation is not cosmetic here. `access_count` is what marks a
+   * long-lived family root as heavily-cited, and appending an entry to such a
+   * root is precisely the operation `memory.patch` exists to make cheap — so
+   * counting each append as a read would let routine maintenance manufacture
+   * the very signal used to judge which records matter.
+   */
+  async getWithoutAccessTracking(id: string): Promise<MemoryRecord | null> {
+    return this.fetchById(id);
+  }
+
+  private async fetchById(id: string): Promise<MemoryRecord | null> {
     const where = memoryIdWhere(id);
     // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
     // Returning null here is what keeps a malformed route param from
@@ -385,9 +414,7 @@ export class MemoryService implements MemoryServiceSurface {
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
-    const record = rowToRecord(row);
-    this.bumpAccessCount([record.id]);
-    return record;
+    return rowToRecord(row);
   }
 
   async list(filter?: MemoryListFilter): Promise<MemoryRecord[]> {

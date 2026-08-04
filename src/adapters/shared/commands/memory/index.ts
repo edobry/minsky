@@ -1,18 +1,22 @@
 /**
  * Memory Commands
  *
- * Commands for creating, searching, listing, updating, deleting, and
- * superseding memory records.  Registers 8 commands in the shared command
+ * Commands for creating, searching, listing, updating, patching, deleting, and
+ * superseding memory records.  Registers 10 commands in the shared command
  * registry under the MEMORY category:
  *   - memory.search    — semantic search over memory records
  *   - memory.get       — fetch a single memory by id
  *   - memory.list      — browse memories with optional filters
  *   - memory.create    — create a new memory (with derivation-discipline check)
- *   - memory.update    — update fields on an existing memory
+ *   - memory.update    — update fields on an existing memory (whole-content write)
+ *   - memory.patch     — edit ONE markdown section, leaving the rest byte-identical
  *   - memory.delete    — delete a memory by id
  *   - memory.similar   — find memories similar to an existing one
  *   - memory.supersede — atomically replace an existing memory
  *   - memory.lineage   — trace a memory's supersession chain
+ *
+ * The count above was already wrong before mt#3602 (it said 8 while listing 9);
+ * corrected here rather than incremented, since this file's edit made it worse.
  */
 
 import { z } from "zod";
@@ -24,6 +28,7 @@ import {
   type CommandDefinition,
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
+import { patchSection } from "./section-patch";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
 import type { VectorStorage } from "@minsky/domain/storage/vector/types";
@@ -326,6 +331,38 @@ const memoryUpdateParams = {
   },
 } satisfies CommandParameterMap;
 
+const memoryPatchParams = {
+  id: {
+    schema: z.string(),
+    description:
+      "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+      "or a mem#N short id (mt#2966)",
+    required: true as const,
+  },
+  section: {
+    schema: z.string(),
+    description:
+      'Markdown section heading to target, with or without leading hashes (e.g. "## Recurrences"). ' +
+      "Matched case-insensitively against the whole heading text — a prefix does not match.",
+    required: true as const,
+  },
+  text: {
+    schema: z.string(),
+    description:
+      "Text to insert (append/prepend), or the section's new body (replace). " +
+      "May span multiple lines.",
+    required: true as const,
+  },
+  mode: {
+    schema: z.enum(["append", "prepend", "replace"]),
+    description:
+      "append (default) inserts after the section's last content line; prepend inserts " +
+      "directly under the heading; replace swaps the section body.",
+    required: false as const,
+    defaultValue: "append" as const,
+  },
+} satisfies CommandParameterMap;
+
 const memoryDeleteParams = {
   id: {
     schema: z.string(),
@@ -515,9 +552,15 @@ async function resolveMemoryService(
   }
 
   if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    // mt#3636: the capability dump alone cannot tell "never configured" from
+    // "configured and unreachable" — both are all-false. Name the cause.
+    const { describePersistenceUnavailability } = await import(
+      "@minsky/domain/persistence/unconfigured-provider"
+    );
     throw new Error(
       "Memory service requires a SQL-capable persistence provider (Postgres). " +
-        `Got provider with capabilities: ${JSON.stringify(persistence.capabilities)}`
+        `${describePersistenceUnavailability(persistence)} ` +
+        `Provider capabilities: ${JSON.stringify(persistence.capabilities)}`
     );
   }
 
@@ -903,6 +946,55 @@ export function registerMemoryCommands(
 
       if (!record) {
         throw new Error(`Memory not found: "${rawId}"`);
+      }
+
+      return record;
+    },
+  });
+
+  // ── memory.patch ──────────────────────────────────────────────────────────
+  targetRegistry.registerCommand({
+    id: "memory.patch",
+    category: CommandCategory.MEMORY,
+    name: "patch",
+    description:
+      "Append to, prepend to, or replace ONE markdown section of a memory's content, " +
+      "leaving every other byte unchanged (mt#3602). Use this instead of `memory.update` " +
+      "when adding an entry to a long-lived record — appending an R-entry to a family " +
+      "root's `## Recurrences` is the canonical case. Fails loudly when the section is " +
+      "missing or appears more than once; never falls back to a wholesale write. " +
+      "Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N " +
+      "short id (mt#2966).",
+    parameters: memoryPatchParams,
+    execute: async (params, ctx?: CommandExecutionContext) => {
+      log.debug("Executing memory.patch", { id: params.id, section: params.section });
+
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+      const service = await resolveMemoryService(deps, ctx ?? {});
+
+      // Deliberately the non-tracking read: this read exists to serve the
+      // WRITE below, so counting it would inflate the access stats that mark a
+      // record as heavily-cited — see getWithoutAccessTracking's own comment.
+      const existing = await service.getWithoutAccessTracking(id);
+      if (!existing) {
+        throw new Error(`Memory not found: "${params.id}"`);
+      }
+
+      // The splice runs BEFORE any write, so a missing or ambiguous section
+      // aborts with the record untouched rather than half-patched.
+      const patched = patchSection({
+        content: existing.content,
+        section: params.section,
+        text: params.text,
+        mode: params.mode ?? "append",
+      });
+
+      // Routed through the same domain service `memory.update` uses (ADR-018),
+      // so embedding regeneration and `updatedAt` behave identically — the
+      // reason a direct SQL append is not an acceptable shortcut here.
+      const record = await service.update(id, { content: patched });
+      if (!record) {
+        throw new Error(`Memory not found: "${params.id}"`);
       }
 
       return record;

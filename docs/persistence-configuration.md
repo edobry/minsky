@@ -5,6 +5,54 @@ mt#1193: connection pool sizing, connection-exhaustion retry policy, and MCP gra
 For migrating between backends, see [SessionDB Migration Guide](./sessiondb-migration-guide.md).
 For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-troubleshooting.md).
 
+## Behavior When Initialization Fails at Boot (mt#3636)
+
+If a Postgres connection string is configured but `initialize()` fails at startup — DNS failure,
+unreachable host, bad credentials, a migration error — the process **still boots**, so `/health`
+and non-DB commands keep working (mt#2349). DI substitutes `UnconfiguredPersistenceProvider`, whose
+capability flags are all `false` and whose every DB accessor throws.
+
+### The data plane fails closed
+
+**Every DB-backed read raises; none returns an empty or not-found result.** This matters because an
+empty result is byte-identical to the truthful answer for an empty database, so a caller cannot
+tell "the database is unreachable" from "there is nothing there":
+
+- `tasks_*` reads (`list` / `get` / `status get`) raise `TaskBackendUnavailableError` naming the
+  backend, the degraded state, and the underlying initialization error. Before mt#3636 they
+  answered `{"tasks": [], "total": 0}` and "not found" with exit 0.
+- `session_*` raises via the DI container's boot-deferral path.
+- `memory_*` and `asks_*` raise, and (mt#3636) their messages now also carry the boot reason rather
+  than a bare "not SQL-capable".
+
+### The diagnostic plane stays available
+
+Deliberately — "refuse to boot at all" would make the failure undiagnosable without a database:
+
+```bash
+minsky persistence check     # reports the underlying initialization failure
+minsky debug systemInfo      # answers normally
+minsky config list           # answers normally
+```
+
+### Two causes, opposite responses
+
+Both raise; the messages are deliberately distinguishable, because the capability flags are
+all-false in both cases and give the operator nothing to act on:
+
+| State                                                      | Message says                                                            | Response                                                                                         |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Configured, init failed (`configuredButUnavailable: true`) | "Postgres IS configured, but initialization failed at boot: `<reason>`" | Fix connectivity, then **restart** — a failed provider is not currently re-initialized (mt#3635) |
+| Not configured (`configuredButUnavailable: false`)         | "Persistence is not configured: `<reason>`"                             | Set `persistence.postgres.connectionString` or `MINSKY_PERSISTENCE_POSTGRES_URL`                 |
+
+The distinction is rendered once by `describePersistenceUnavailability()` in
+`packages/domain/src/persistence/unconfigured-provider.ts`. Per ADR-018 (quoted in ADR-027), the
+unconfigured case is also an error rather than a silent fallback: _"A bare install with no Postgres
+connection should fail with a clear 'configure Postgres' error, not silently fall back."_
+
+A boot failure is logged at error level once at startup — but on **stderr**, which an MCP client
+never sees. That is why each failing tool result carries the cause itself.
+
 ## Connection Pool Size
 
 ### Default

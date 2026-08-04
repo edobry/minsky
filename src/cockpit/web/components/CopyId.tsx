@@ -61,6 +61,31 @@ export interface CopyIdProps {
 }
 
 type CopiedKind = "id" | "link" | null;
+export type CopyAction = Exclude<CopiedKind, null>;
+
+/**
+ * Pure core: build the string a copy action writes to the clipboard. Carries
+ * the ADR-029 / mt#2946 policy in ONE place (extracted mt#3629 / mt#3565
+ * §Reframe — the 7 spies this test file used to carry were all asserting
+ * exactly this string, indirectly, via `navigator.clipboard.writeText`):
+ *
+ *  - `"id"` — the DISPLAY id: `displayId` when provided (a short id like
+ *    `ask#7`), otherwise the canonical `id`. Never the uuid when a short id
+ *    exists (mt#2965).
+ *  - `"link"` — always the canonical `minsky://<type>/<id>` deeplink, built
+ *    from the FULL `id`. `displayId` never substitutes here, even when
+ *    present (mt#2946's decision) — percent-encoding (`#` → `%23`) is
+ *    {@link entityToMinskyUri}'s job, carried through unchanged.
+ */
+export function buildCopyPayload(
+  type: RoutableEntityType,
+  id: string,
+  displayId: string | undefined,
+  action: CopyAction
+): string {
+  if (action === "id") return displayId ?? id;
+  return entityToMinskyUri(type, id);
+}
 
 /** Human label for the trigger's aria-label / title, e.g. "ask id". */
 function entityLabel(type: RoutableEntityType): string {
@@ -95,10 +120,13 @@ export function CopyId({ type, id, displayId, truncateAt = 8, className }: CopyI
     });
   }, []);
 
-  const handleCopyId = useCallback(() => doCopy("id", shownId), [doCopy, shownId]);
+  const handleCopyId = useCallback(
+    () => doCopy("id", buildCopyPayload(type, id, displayId, "id")),
+    [doCopy, type, id, displayId]
+  );
   const handleCopyLink = useCallback(
-    () => doCopy("link", entityToMinskyUri(type, id)),
-    [doCopy, type, id]
+    () => doCopy("link", buildCopyPayload(type, id, displayId, "link")),
+    [doCopy, type, id, displayId]
   );
 
   const label = entityLabel(type);

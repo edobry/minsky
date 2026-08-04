@@ -428,15 +428,27 @@ import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-se
 import { getConfiguration } from "@minsky/domain/configuration";
 import { getEmbeddingDimension } from "@minsky/domain/ai/embedding-models";
 
+/**
+ * Injectable embedding-service-factory seam (mt#3622). Defaults to the real
+ * `createEmbeddingServiceFromConfig` (which requires a configured AI
+ * provider credential); tests inject a fake directly instead of
+ * `spyOn`-patching the `embedding-service-factory` module namespace object.
+ */
+export interface CreateTaskSimilarityServiceDeps {
+  createEmbeddingService: typeof createEmbeddingServiceFromConfig;
+}
+
 export async function createTaskSimilarityService(
   persistenceProvider: import("@minsky/domain/persistence/types").BasePersistenceProvider,
-  taskService: TaskServiceInterface
+  taskService: TaskServiceInterface,
+  deps: Partial<CreateTaskSimilarityServiceDeps> = {}
 ): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
   const model = cfg.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
-  const embedding = await createEmbeddingServiceFromConfig();
+  const createEmbeddingService = deps.createEmbeddingService ?? createEmbeddingServiceFromConfig;
+  const embedding = await createEmbeddingService();
 
   const resolvedProvider = persistenceProvider;
 

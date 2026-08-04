@@ -133,11 +133,16 @@ export interface GuardOutcome {
    */
   additionalContext?: string;
   /**
-   * Raw non-JSON line(s) the guard wants written to stdout verbatim — e.g.
+   * Raw non-JSON line(s) the guard wants written verbatim to STDERR — e.g.
    * its own legacy per-guard override audit line (the "legacy vars remain
    * honored by the guards themselves" carve-out; deprecation-shim removal is
    * Phase 7, not this task). Each string should include its own trailing
    * newline.
+   *
+   * STDERR, not stdout (mt#3625). These went to stdout until the dispatch's
+   * JSON was found to be discarded wholesale by Claude Code whenever stdout
+   * carried anything else — so an audit line could silently void a later
+   * guard's deny on the same call.
    */
   auditLines?: string[];
   /**
@@ -1636,6 +1641,48 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       setup: async () => {
         const store = await import("./turn-end-scan-store");
         store.clearFlagged("mt3536-unwalked-task-canary");
+      },
+    },
+  },
+  {
+    // mt#3593 — third Stop-event sibling. `untaken-action` keys on a sign-off
+    // phrase; `unwalked-task` keys purely on tool-call state. This one is a
+    // hybrid because its trigger has no tool-call signature: nothing the agent
+    // CALLS means "an incident happened", so the trigger must be read from the
+    // final message while the absence check stays structural (an `asks_create`
+    // carrying severity: "incident"). Full rationale: the guard module's header.
+    name: "turn-end-unescalated-incident-scan",
+    tuningOwnership: "preference",
+    event: "Stop",
+    module: () => import("./turn-end-unescalated-incident-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "unescalated-incident",
+    denyCapable: false,
+    // TRUE: the absence half is a tool-call check, which lives only in the
+    // transcript. The trigger half comes from last_assistant_message.
+    needsTranscript: true,
+    // Measured against the canary below, not estimated.
+    attentionCost: { denialMessageSizeChars: 720, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3593-unescalated-incident-canary",
+        transcript_path: "/nonexistent/mt3593-canary.jsonl",
+        // Both halves present, no ask filed — the R2 shape.
+        last_assistant_message:
+          "Production is down — the health probe reports persistence unavailable. " +
+          "I can't push the revert; the pre-push gate blocks it and you'll need to run it.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "did the merge land?" } },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Checking." }] },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3593-unescalated-incident-canary");
       },
     },
   },

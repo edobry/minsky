@@ -110,3 +110,35 @@ export class UnconfiguredPersistenceProvider extends PersistenceProvider {
     this.fail();
   }
 }
+
+/**
+ * Describe WHY a provider cannot serve DB-backed operations, for a consumer to
+ * append to its own "not SQL-capable" error (mt#3636).
+ *
+ * "not SQL-capable" is true but not actionable: it says nothing about whether
+ * Postgres was never configured (fix your config) or was configured and failed
+ * to reach the database at boot (a genuine outage). Both produce the same
+ * capability flags, and the discriminating detail — the initialization error —
+ * is already on the placeholder; it was just never surfaced anywhere except
+ * `persistence_check` and the boot log.
+ *
+ * Returns a sentence fragment intended to follow a caller's own prefix.
+ */
+export function describePersistenceUnavailability(provider: unknown): string {
+  if (!(provider instanceof UnconfiguredPersistenceProvider)) {
+    return "The active persistence provider is not SQL-capable.";
+  }
+  if (provider.configuredButUnavailable) {
+    return (
+      `Postgres IS configured, but initialization failed at boot: ${provider.reason}. ` +
+      "The database is unreachable — this is a degraded provider, not a missing " +
+      "configuration. Check the boot logs and restart once the database is reachable; " +
+      "`minsky persistence check` reports the same failure."
+    );
+  }
+  return (
+    `Persistence is not configured: ${provider.reason}. Set ` +
+    "persistence.postgres.connectionString in config, or export " +
+    "MINSKY_PERSISTENCE_POSTGRES_URL."
+  );
+}

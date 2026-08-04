@@ -55,6 +55,22 @@ agent does next, and all of it is paid for on every fire — in the agent's cont
 string — there it is the actionable remedy. `check-guessed-session-path`'s deny message names
 `MINSKY_SKIP_SESSION_PATH_CHECK=1` and is correct to.
 
+## A third channel: `auditLines` goes to stderr, and that is load-bearing
+
+`GuardOutcome.auditLines` is the raw-line channel — a guard's own diagnostic, written verbatim
+rather than folded into the merged context block. The dispatcher writes it to **stderr**.
+
+Not a style choice (mt#3625): Claude Code discards a PreToolUse hook's **entire output** when
+stdout carries anything besides the single JSON object. An audit line on stdout therefore voids
+the dispatch's JSON — including a *different* guard's `deny`, which then never fires, with nothing
+logged anywhere. Measured live: with the pre-fix dispatcher, overriding one guard let a second
+guard's deny be silently dropped and the tool ran.
+
+So: **never write to stdout from a guard.** Return `auditLines` and let the dispatcher place it.
+The dispatcher deliberately exposes no general-purpose stdout writer beside its JSON emitter, so
+there is no correct way to do otherwise — if you find yourself reaching for `process.stdout.write`
+in a guard, the answer is `auditLines` (diagnostic) or `additionalContext` (agent-facing).
+
 ## The size ceiling is enforced
 
 Every guard declares `attentionCost.denialMessageSizeChars` in `.minsky/hooks/registry.ts`.
