@@ -394,6 +394,7 @@ const INSTALL_TRACKER = `(() => {
 interface SettleProbe {
   hasMain: boolean;
   textLength: number;
+  nodeCount: number;
   path: string;
   inflight: number;
   completed: number;
@@ -406,6 +407,7 @@ const SETTLE_PROBE = `(() => {
   return JSON.stringify({
     hasMain: !!main,
     textLength: main ? main.innerText.length : 0,
+    nodeCount: main ? main.getElementsByTagName("*").length : 0,
     path: location.pathname,
     inflight: s ? s.inflight : 0,
     completed: s ? s.completed : 0,
@@ -435,10 +437,10 @@ function samePath(a: string, b: string): boolean {
  *     reports its timings under the target's name. The first version of this
  *     script had exactly that bug.
  *   - **no in-flight requests** — the page is not still waiting on data.
- *   - **request count stable** — a page that finishes one request and
- *     immediately issues the next is not done; requiring a stable count across
- *     consecutive samples catches request chains.
- *   - **text stable** — data can arrive and still take a frame to render.
+ *   - **DOM stable** — data can arrive and still take a frame to render, and a
+ *     page that finishes one request and immediately issues the next is not
+ *     done. Measured by node count; see the comment at the key below for why
+ *     not by text length or request count.
  *
  * `MIN_OBSERVE_MS` keeps the whole test from passing in the gap between mount
  * and the first effect, when there is genuinely nothing in flight yet.
@@ -451,13 +453,18 @@ async function waitForSettle(ws: WebSocket, what: string, expectPath?: string): 
   while (Date.now() - started < SETTLE_DEADLINE_MS) {
     const probe = await evaluateJson<SettleProbe>(ws, SETTLE_PROBE);
     const arrived = expectPath === undefined || samePath(probe.path, expectPath);
-    // Deliberately NOT keyed on the completed-request count. The cockpit polls
-    // several widgets forever, so a global request counter never stops moving
-    // and no page would ever be declared settled — measured: `/tasks` and the
-    // conversation view both hit the deadline under that rule. `inflight === 0`
-    // plus stable rendered text is the condition that actually distinguishes
-    // "still loading" from "loaded, and polling in the background".
-    const key = `${probe.hasMain}:${probe.textLength}:${probe.path}`;
+    // Keyed on DOM node count, NOT on the completed-request count and NOT on
+    // rendered text length. Both of those were tried and both make the cockpit
+    // permanently unsettleable:
+    //   - request count: widgets poll forever, so it never stops moving.
+    //   - text length: the lists render relative timestamps ("3s ago"), which
+    //     re-render on a timer, so the text changes indefinitely on a page that
+    //     is completely finished loading. This is why `/tasks`, `/asks`,
+    //     `/agents` and the conversation view all hit the deadline.
+    // Node count is stable under both — a ticking label does not add elements,
+    // while arriving data does. `textLength > 0` is still required below, as a
+    // has-content gate rather than as a stability signal.
+    const key = `${probe.hasMain}:${probe.nodeCount}:${probe.path}`;
     const ready =
       arrived &&
       probe.hasMain &&
@@ -712,8 +719,13 @@ try {
       const named = Object.entries(phases).filter(([n]) => n !== "total");
       if (named.length > 0) {
         const totalRuns = result.cold.length + result.warm.length || 1;
+        // `total` is reported separately and FIRST because it is the number a
+        // before/after comparison turns on: the per-phase figures barely move
+        // when independent reads are de-serialized — what changes is whether
+        // the handler costs their SUM or their MAX.
+        const handlerTotal = phases["total"];
         console.log(
-          `    server: ${named
+          `    server: ${handlerTotal !== undefined ? `total=${ms(handlerTotal / totalRuns)} | ` : ""}${named
             .sort((a, b) => b[1] - a[1])
             .map(([n, v]) => `${n}=${ms(v / totalRuns)}`)
             .join(" ")} (mean per page load)`
