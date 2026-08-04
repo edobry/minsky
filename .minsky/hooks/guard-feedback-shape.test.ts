@@ -92,6 +92,20 @@ interface Measured {
 let measured: Measured[] = [];
 let canaryResults: Array<{ reg: GuardRegistration; result: CanaryResult }> = [];
 
+/**
+ * Which registrations the measurement pass covers (PR #2635 R1).
+ *
+ * Named and exercised directly by a unit test below rather than left inline in
+ * `beforeAll`: the bug it encodes — gating on `canary` alone, so a
+ * worst-case-only guard is measured by nothing — cannot be caught by any
+ * assertion over the CURRENT registry, because no guard is worst-case-only
+ * today. A test that only compares real-registry sets would pass with the bug
+ * reintroduced.
+ */
+function declaresAnyCanary(reg: Pick<GuardRegistration, "canary" | "worstCaseCanary">): boolean {
+  return Boolean(reg.canary || reg.worstCaseCanary);
+}
+
 /** Text off an outcome, or "" when the guard produced none. */
 function textsOf(result: CanaryResult | undefined): { advisory: string; denial: string } {
   const outcome = result?.outcome ?? undefined;
@@ -122,10 +136,23 @@ beforeAll(async () => {
     worstCase.set(reg.name, await runGuardCanary(reg, undefined, "worstCase"));
   }
 
-  measured = canaryResults.map(({ reg, result }) => {
-    const ordinary = textsOf(result);
+  // Measure every guard declaring EITHER canary — not just the ones with an
+  // ordinary `canary` (PR #2635 R1 BLOCKING).
+  //
+  // Deriving `measured` from `canaryResults` (which is gated on `reg.canary`)
+  // meant a guard declaring ONLY a `worstCaseCanary` was skipped outright: it
+  // would render no text here, so it would be absent from the ceiling check AND
+  // from the classification receipt's `producing` list — and the receipt's
+  // completeness assertion would then fail against an entry the author had
+  // correctly classified, pushing them to DELETE the classification rather than
+  // fix the measurement. Precisely the invisible-omission class this file exists
+  // to close, reintroduced one level up. No guard is worst-case-only today; the
+  // regression test below keeps it from silently mattering when one is.
+  const ordinaryByName = new Map(canaryResults.map(({ reg, result }) => [reg.name, result]));
+  const longer = (a: string, b: string): string => (b.length > a.length ? b : a);
+  measured = GUARD_REGISTRY.filter(declaresAnyCanary).map((reg) => {
+    const ordinary = textsOf(ordinaryByName.get(reg.name));
     const worst = textsOf(worstCase.get(reg.name));
-    const longer = (a: string, b: string): string => (b.length > a.length ? b : a);
     return {
       guardName: reg.name,
       declared: reg.attentionCost?.denialMessageSizeChars ?? -1,
@@ -276,6 +303,34 @@ describe("guard feedback — growth-shape classification receipt (mt#3705)", () 
   // render function. The ceiling check below is the real enforcement for those;
   // this classification is what makes an UNBOUNDED guard visible as an omission
   // rather than as a blank.
+  // Regression for PR #2635 R1: the measurement pass used to be gated on
+  // `reg.canary`, so a guard declaring ONLY a `worstCaseCanary` was measured by
+  // nothing. Asserting the invariant directly rather than via a fixture guard —
+  // there is no worst-case-only guard today, and adding a fake registration to
+  // prove it would itself have to be excluded from the receipts above.
+  test("a worst-case-only guard is selected for measurement", () => {
+    const ordinaryOnly = { canary: {} } as Pick<GuardRegistration, "canary" | "worstCaseCanary">;
+    const worstCaseOnly = { worstCaseCanary: {} } as Pick<
+      GuardRegistration,
+      "canary" | "worstCaseCanary"
+    >;
+    const neither = {} as Pick<GuardRegistration, "canary" | "worstCaseCanary">;
+
+    // The middle one is the regression: it was `false` before this fix.
+    expect([ordinaryOnly, worstCaseOnly, neither].map(declaresAnyCanary)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  test("every guard declaring either canary is measured", () => {
+    const declaring = GUARD_REGISTRY.filter(declaresAnyCanary)
+      .map((r) => r.name)
+      .sort();
+    expect(measured.map((m) => m.guardName).sort()).toEqual(declaring);
+  });
+
   test("the worst-case-canary classification matches the registry, both ways", () => {
     const claimed = Object.entries(FEEDBACK_SHAPE)
       .filter(([, shape]) => shape === WORST_CASE_CANARY)
