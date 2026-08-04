@@ -536,10 +536,18 @@ tunes; calibration review never routes to a customer):
   `tuningOwnership: "invariant" | "preference" | "advisory"` (see the field's doc comment in
   `.minsky/hooks/registry.ts` for the class definitions and per-class decision surfaces), and
   `registry.test.ts` requires the stamp on every entry — new guards are classified at birth.
-  Preference-class thresholds read their values via `readPositiveIntEnv` (`types.ts`): the
-  shipped constant is the vendor default, a registered `MINSKY_*` env var is the local
-  override. First instances: `MINSKY_WALL_OF_TEXT_WORD_BUDGET`,
-  `MINSKY_SILENT_STRETCH_GAP_MINUTES`, `MINSKY_SILENT_STRETCH_TOOL_CALLS`.
+  Preference-class thresholds read their values via `readTunedThreshold` (`types.ts`), which
+  resolves THREE sources in order (mt#3581): an explicit registered `MINSKY_*` env var wins,
+  then a locally-tuned value from `.minsky/hooks/guard-tuning-store.ts`
+  (`~/.local/state/minsky/guard-tuning.json`), then the shipped constant. The env var ranks
+  first deliberately — a human typed that number, and an automatic tune must not silently
+  overrule it. The tuned value is re-bounds-checked on read, so a hand-edited store cannot
+  reach past the 10x ceiling the env path enforces. First instances:
+  `MINSKY_WALL_OF_TEXT_WORD_BUDGET`, `MINSKY_SILENT_STRETCH_GAP_MINUTES`,
+  `MINSKY_SILENT_STRETCH_TOOL_CALLS`. A state-dir file rather than `config.yaml` because
+  guards run in the hook process, which is dependency-free (cannot load domain config) and
+  which mt#1427's boot-cache would otherwise leave reading a stale value until a `/mcp`
+  reconnect.
   Guards NOT yet migrated into the registry (the merge-gate stack and other
   settings.json-direct hooks, ADR-028 Phases 4–6) are uniformly **invariant**-class; they
   inherit a structural stamp when their phase migrates them.
