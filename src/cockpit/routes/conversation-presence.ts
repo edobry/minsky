@@ -25,6 +25,7 @@ import {
   type LinkedOpenAsk,
 } from "@minsky/domain/conversation-run-state/read";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import { describeServerPersistenceUnavailability } from "../db-providers";
 import {
   classifySnapshotMiss,
   looksLikeConversationId,
@@ -156,7 +157,14 @@ export function mountConversationPresenceRoutes(
         conversationId,
         error: getLoggableErrorSummary(err),
       });
-      presenceError(res, 503, "store_unavailable", "Presence store is unavailable.");
+      presenceError(
+        res,
+        503,
+        "store_unavailable",
+        // The `store_unavailable` CODE is the contract clients branch on and is
+        // unchanged (mt#3687); only the human-facing message gains the cause.
+        `Presence store is unavailable. ${await describeServerPersistenceUnavailability()}`
+      );
       return;
     }
 
@@ -165,7 +173,14 @@ export function mountConversationPresenceRoutes(
       // conversation"; it must never stand in for "we could not reach the
       // store".
       log.warn("[conversation-presence] no SQL provider available", { conversationId });
-      presenceError(res, 503, "store_unavailable", "Presence store is unavailable.");
+      presenceError(
+        res,
+        503,
+        "store_unavailable",
+        // The `store_unavailable` CODE is the contract clients branch on and is
+        // unchanged (mt#3687); only the human-facing message gains the cause.
+        `Presence store is unavailable. ${await describeServerPersistenceUnavailability()}`
+      );
       return;
     }
 

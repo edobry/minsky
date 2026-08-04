@@ -356,6 +356,22 @@ describe("DB-unavailable status classification on the routes", () => {
     );
   }
 
+  /**
+   * The guarantee mt#3398 shipped: a DB-unavailable 503 names the STORE as
+   * unavailable and does NOT claim the THREAD failed — the turns are intact and
+   * the agent may still be running.
+   *
+   * That guarantee was originally asserted by banning `/fail/i`, a sound PROXY
+   * while the only failure language the message could contain was about the
+   * thread. mt#3687 made the message also name WHY persistence is unavailable,
+   * and that cause legitimately contains failure language about the DATABASE
+   * ("persistence failed to initialize") — the actionable half, and the opposite
+   * of the confusion the guard exists to prevent. So the guarantee is now
+   * asserted directly rather than through the proxy. The test below pins that
+   * this pattern still fires on the claims the proxy was protecting against.
+   */
+  const CLAIMS_THREAD_FAILED = /thread\s+(failed|is broken|could not|was lost)/i;
+
   test("GET answers 503 and names the store when the database is unreachable", async () => {
     const url = await serveWithFailingSeed(wedgedDbError());
     const res = await fetch(`${url}/api/entity-thread/ask/real`);
@@ -366,7 +382,31 @@ describe("DB-unavailable status classification on the routes", () => {
     // appears in the store's name, `entity-thread store`, so the meaningful
     // assertion is the absence of failure language, not of the word.)
     expect(body.error).toContain("store unavailable");
-    expect(body.error).not.toMatch(/fail/i);
+    expect(body.error).not.toMatch(CLAIMS_THREAD_FAILED);
+  });
+
+  // PR #2626 R1. The reviewer blocked on this narrowing (mt#3687 SC4), and was
+  // right to: "the rationale is sound" is exactly what a weakened test always
+  // sounds like. So the narrowing does not rest on the rationale — this test
+  // pins that the replacement assertion still CATCHES what the original
+  // protected. A guard nobody has shown can fire is not a guard.
+  test("the thread-failure guard is not vacuous", () => {
+    // Still rejected — these are the claims mt#3398 shipped the guard to prevent.
+    for (const claim of [
+      "the thread failed to load",
+      "entity thread is broken",
+      "the thread could not be read",
+      "The Thread Was Lost",
+    ]) {
+      expect(claim).toMatch(CLAIMS_THREAD_FAILED);
+    }
+    // Accepted — names the STORE and the DATABASE cause, claims nothing about
+    // the thread. This is the message the routes now emit, and the string the
+    // original /fail/i proxy rejected.
+    expect(
+      "entity-thread store unavailable — Postgres IS configured, but persistence " +
+        "failed to initialize: getaddrinfo ENOTFOUND. The database is unreachable."
+    ).not.toMatch(CLAIMS_THREAD_FAILED);
   });
 
   test("POST answers 503 when the database is unreachable", async () => {
