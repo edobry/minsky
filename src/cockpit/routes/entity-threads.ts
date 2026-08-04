@@ -42,6 +42,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
+import { describeServerPersistenceUnavailability } from "../db-providers";
 import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
@@ -210,7 +211,9 @@ export function mountEntityThreadRoutes(
     if (!db) {
       // 503, not 500: a missing SQL provider is a transient environment
       // condition, and the panel should retry rather than render an error.
-      res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+      res.status(503).json({
+        error: `${DB_UNAVAILABLE_MESSAGE} — ${await describeServerPersistenceUnavailability()}`,
+      });
       return;
     }
 
@@ -264,7 +267,9 @@ export function mountEntityThreadRoutes(
         // Same 503 the missing-handle branch above already returns — a wedged
         // pool is the same transient environment condition, and the panel keeps
         // polling through it instead of presenting a dead thread.
-        res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+        res.status(503).json({
+          error: `${DB_UNAVAILABLE_MESSAGE} — ${await describeServerPersistenceUnavailability()}`,
+        });
         return;
       }
       res.status(500).json({ error: "failed to load thread" });
@@ -290,7 +295,9 @@ export function mountEntityThreadRoutes(
 
     const db = options.dbOverride ?? (await getEntityThreadDb());
     if (!db) {
-      res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+      res.status(503).json({
+        error: `${DB_UNAVAILABLE_MESSAGE} — ${await describeServerPersistenceUnavailability()}`,
+      });
       return;
     }
 
@@ -342,7 +349,9 @@ export function mountEntityThreadRoutes(
         error: getLoggableErrorSummary(err),
       });
       if (isDatabaseUnavailableError(err)) {
-        res.status(503).json({ error: DB_UNAVAILABLE_MESSAGE });
+        res.status(503).json({
+          error: `${DB_UNAVAILABLE_MESSAGE} — ${await describeServerPersistenceUnavailability()}`,
+        });
         return;
       }
       res.status(500).json({ error: "failed to post message" });

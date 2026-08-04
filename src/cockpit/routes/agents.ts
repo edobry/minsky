@@ -160,7 +160,7 @@ export function mountAgentRoutes(app: express.Express): void {
       const provider = await getServerSessionProvider();
       if (!provider) {
         res.status(503).json({
-          error: "Session service unavailable — persistence provider not ready",
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -269,7 +269,7 @@ export function mountAgentRoutes(app: express.Express): void {
       const provider = await getServerSessionProvider();
       if (!provider) {
         res.status(503).json({
-          error: "Session service unavailable — persistence provider not ready",
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

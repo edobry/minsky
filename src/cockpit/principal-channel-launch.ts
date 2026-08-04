@@ -40,6 +40,7 @@ import {
   createCachedSqlDbGetter,
   getServerAskRepository,
   getServerTaskService,
+  describeServerPersistenceUnavailability,
 } from "./db-providers";
 import {
   createDrivenSessionActuator,
@@ -853,7 +854,11 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
 export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorder {
   return async (eventType, payload: PrincipalMessageEventPayload) => {
     const db = await getDb();
-    if (!db) throw new Error("persistence unavailable — cannot record the inbound audit event");
+    if (!db) {
+      throw new Error(
+        `persistence unavailable — cannot record the inbound audit event. ${await describeServerPersistenceUnavailability()}`
+      );
+    }
 
     const { sql } = await import("drizzle-orm");
     // The payload's own token, not one derived from the update id: the

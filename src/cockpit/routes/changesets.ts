@@ -11,6 +11,7 @@ import {
   getServerTaskService,
   getServerChangesetService,
   getServerChecksReader,
+  describeServerPersistenceUnavailability,
 } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
 import type { Changeset } from "@minsky/domain/changeset/types";
@@ -258,7 +259,9 @@ export function mountChangesetRoutes(app: express.Express): void {
     try {
       const provider = await getServerSessionProvider();
       if (!provider) {
-        res.status(503).json({ error: "Session service unavailable" });
+        res.status(503).json({
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
+        });
         return;
       }
       const { buildSessionMeta, buildPrRef, compareChangesetsByRecency } = await import(

@@ -27,7 +27,7 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { recordRunStateEvent } from "@minsky/domain/conversation-run-state/repository";
-import { createCachedSqlDbGetter } from "../db-providers";
+import { createCachedSqlDbGetter, describeServerPersistenceUnavailability } from "../db-providers";
 
 /**
  * Lazy-cached SQL handle. `cacheNegative: false` — a failed probe is retried on
@@ -110,7 +110,9 @@ export function mountConversationRunStateRoutes(
       // 503, not 500: the writer treats any non-2xx as "drop it and move on",
       // and a missing SQL provider is a transient environment condition rather
       // than a bad request.
-      res.status(503).json({ error: "run-state store unavailable" });
+      res.status(503).json({
+        error: `run-state store unavailable — ${await describeServerPersistenceUnavailability()}`,
+      });
       return;
     }
 

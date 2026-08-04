@@ -366,7 +366,15 @@ describe("DB-unavailable status classification on the routes", () => {
     // appears in the store's name, `entity-thread store`, so the meaningful
     // assertion is the absence of failure language, not of the word.)
     expect(body.error).toContain("store unavailable");
-    expect(body.error).not.toMatch(/fail/i);
+    // mt#3687 NARROWED this assertion, deliberately. The guarantee it protects —
+    // stated in the comment above — is that we do not claim the THREAD failed.
+    // Banning /fail/i was a sound PROXY for that while the only failure language
+    // the message could contain was about the thread. The message now also names
+    // WHY persistence is unavailable, and that cause legitimately contains
+    // failure language about the DATABASE ("persistence failed to initialize"),
+    // which is the opposite of misleading — it is the actionable half. So assert
+    // the intent directly instead of the proxy: no claim about the thread.
+    expect(body.error).not.toMatch(/thread\s+(failed|is broken|could not|was lost)/i);
   });
 
   test("POST answers 503 when the database is unreachable", async () => {

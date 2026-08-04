@@ -83,19 +83,101 @@ function* walk(dir: string): Generator<string> {
 
 const violations: string[] = [];
 
+/** Every `.ts` file under ROOTS, read once and shared by both passes. */
+const sources = new Map<string, string[]>();
 for (const root of ROOTS) {
   for (const file of walk(root)) {
-    if (EXCLUDED_FILES.some((suffix) => file.endsWith(suffix))) continue;
-    const lines = readFileSync(file, "utf8").split("\n");
-    lines.forEach((line, i) => {
-      if (!BARE_PHRASES.some((re) => re.test(line))) return;
-      // A comment describing behavior is not a message a user ever sees.
-      if (isCommentLine(line)) return;
-      const lookbehind = lines.slice(Math.max(0, i - MARKER_LOOKBEHIND), i).join("\n");
-      if (lookbehind.includes(MARKER)) return;
-      violations.push(`${file}:${i + 1}: ${line.trim()}`);
-    });
+    sources.set(file, readFileSync(file, "utf8").split("\n"));
   }
+}
+
+function markedAbove(lines: string[], i: number): boolean {
+  return lines
+    .slice(Math.max(0, i - MARKER_LOOKBEHIND), i)
+    .join("\n")
+    .includes(MARKER);
+}
+
+// ---------------------------------------------------------------------------
+// Pass 1 — PHRASE-keyed (mt#3661). Sees only messages that mention SQL.
+// ---------------------------------------------------------------------------
+for (const [file, lines] of sources) {
+  if (EXCLUDED_FILES.some((suffix) => file.endsWith(suffix))) continue;
+  lines.forEach((line, i) => {
+    if (!BARE_PHRASES.some((re) => re.test(line))) return;
+    // A comment describing behavior is not a message a user ever sees.
+    if (isCommentLine(line)) return;
+    if (markedAbove(lines, i)) return;
+    violations.push(`${file}:${i + 1}: ${line.trim()}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pass 2 — STRUCTURE-keyed (mt#3687). The class pass 1 is blind to.
+//
+// Pass 1 can only find a cause-free message that happens to mention SQL. The
+// defect is not the wording: it is a persistence-gated getter returning null and
+// the handler reporting the SYMPTOM ("store unavailable") while discarding the
+// cause. `routes/asks.ts`'s fourth 503 read "Ask repository unavailable", four
+// lines from three converted siblings, and was invisible to pass 1 — a reviewer
+// found it, not the check.
+//
+// So key on the GETTER, not the message. The getter set is DERIVED from the
+// source rather than hardcoded, so adding a new persistence-gated getter puts it
+// under the check automatically instead of silently widening the blind spot.
+// ---------------------------------------------------------------------------
+
+/** Getters whose null return means "persistence cannot serve this". */
+const gatedGetters = new Set<string>([
+  // Adapter-side builders; these have no single defining syntax to derive from.
+  "buildAskRepository",
+  "buildPrWatchRepository",
+  "getDb",
+]);
+for (const lines of sources.values()) {
+  for (const line of lines) {
+    // `const getRunStateDb = createCachedSqlDbGetter({...})`
+    const cached = line.match(/(?:const|let)\s+(\w+)\s*=\s*createCachedSqlDbGetter/);
+    if (cached?.[1]) gatedGetters.add(cached[1]);
+    // `export async function getServerAskRepository(...)`
+    const server = line.match(/export\s+async\s+function\s+(getServer\w+)/);
+    if (server?.[1]) gatedGetters.add(server[1]);
+  }
+}
+
+/** How far below a null-guard to look for the error it emits. */
+const GUARD_BODY_LOOKAHEAD = 8;
+/** How far above a null-guard to look for the assignment it guards. */
+const ASSIGNMENT_LOOKBEHIND = 4;
+
+for (const [file, lines] of sources) {
+  if (EXCLUDED_FILES.some((suffix) => file.endsWith(suffix))) continue;
+  lines.forEach((line, i) => {
+    // A null-guard: `if (!repo) {` / `if (!db)`.
+    const guard = line.match(/if\s*\(\s*!\s*(\w+)\s*\)/);
+    const guarded = guard?.[1];
+    if (!guarded) return;
+
+    // Was `guarded` assigned from a persistence-gated getter just above?
+    const assignment = lines.slice(Math.max(0, i - ASSIGNMENT_LOOKBEHIND), i).join("\n");
+    const fromGatedGetter = [...gatedGetters].some(
+      (g) => assignment.includes(`${guarded} =`) && assignment.includes(`${g}(`)
+    );
+    if (!fromGatedGetter) return;
+
+    // What does the guard body emit?
+    const body = lines.slice(i, Math.min(lines.length, i + GUARD_BODY_LOOKAHEAD)).join("\n");
+    const emitsError = /res\s*\.status\(\s*503\s*\)|throw new Error\(|presenceError\(/.test(body);
+    if (!emitsError) return;
+
+    // Cause-carrying if it calls any describe*Unavailab* helper, or is marked.
+    if (/describe\w*Unavailab\w*\(/.test(body)) return;
+    if (markedAbove(lines, i)) return;
+
+    violations.push(
+      `${file}:${i + 1}: persistence-gated \`${guarded}\` guarded, but the error carries no cause`
+    );
+  });
 }
 
 if (violations.length > 0) {
