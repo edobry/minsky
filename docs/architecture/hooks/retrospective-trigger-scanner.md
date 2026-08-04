@@ -157,3 +157,27 @@ registered in `HOOK_ONLY_ENV_VARS` at
 - mt#2446 — method-redirect user-correction family (design-context-gated
   user-prompt patterns); ADR-024 Rung-1 input, coverage-receipt gate
   (mt#2554) applies to its live fires.
+
+## Ladder state as of mt#3652 (ported from the rule index by mt#3667)
+
+The full ADR-024 three-rung ladder is now wired:
+
+- **Rung 1 (regex)** — fires directly.
+- **Rung 2 (embedding nomination)** — stays **LOG-ONLY**; `MINSKY_RUNG2_NOMINATION_ENFORCE` is
+  untouched, because mt#3408's 3-of-3 false-positive measurement still stands.
+- **Rung 3 (Haiku confirm)** — judges Rung-2 nominations, and a CONFIRMED nomination injects.
+  Pilot results: 6/6 positives, 0/7 false positives, including all three of mt#3408's FP
+  sentences. The first live corpus fire was hand-classified a true positive (the mt#3639 prettier
+  admission).
+
+**Failure posture:** fails to Rung-1 on any confirm failure. The full 2000ms + 5000ms chain budget
+is test-pinned against the 10s guard budget.
+
+**Kill switch:** `MINSKY_DISABLE_RUNG3_CONFIRM`.
+
+### Evaluation stream
+
+Also writes `.minsky/retrospective-trigger-evaluations.jsonl` — every evaluated turn, fired or
+not (the mt#3583 pattern). Separate file, since coverage-receipt reads calibration-record
+existence as fire-evidence. It closes the gap where a Rung-1 miss wrote nothing at all, leaving
+recall misses discoverable only by a human noticing.
