@@ -84,13 +84,15 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
+| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
 `verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`, and
-`verify-conversation-orientation.ts` are the scripts here that drive a real browser, so their shared
-prerequisites are worth stating (everything below is checked at startup — each script exits 0 with a
-`SKIP:` line rather than failing when a precondition is absent).
+`verify-conversation-orientation.ts`, and `verify-session-film-panes.ts` are the scripts here that
+drive a real browser, so their shared prerequisites are worth stating (everything below is checked
+at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
+absent).
 
 They exist because the component suite runs under happy-dom, which has **no layout engine**: every
 `clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
@@ -117,13 +119,19 @@ than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Ope
 3. **A cockpit auth token at `~/.local/state/minsky/cockpit-token`** — written by the cockpit
    daemon on first start; no manual step. Needed by `verify-conversation-live-tail.ts` (for the
    driven-session API calls) and by `verify-conversation-orientation.ts` (which reads the agents
-   widget and a snapshot to find a long enough transcript); `verify-cockpit-shell-scroll.ts` makes
-   no authed request and does not require it.
+   widget and a snapshot to find a long enough transcript); `verify-cockpit-shell-scroll.ts` and
+   `verify-session-film-panes.ts` make no authed request and do not require it.
 
 `verify-conversation-orientation.ts` additionally needs some ingested conversation longer than 150
 turns, which it discovers from the agents widget — `MINSKY_CONVERSATION_ID` names one explicitly.
 Unlike its live-tail sibling it spawns no agent and costs no tokens: it only reads an
 already-ingested transcript, so it is the cheaper of the two to run.
+
+`verify-session-film-panes.ts` has one further precondition: at least one filmable conversation,
+which it looks up via `GET /api/cockpit/session-film/sessions`. A fresh database has none — that
+is a `SKIP`, not a failure. It also prints the served build's `commit` from `/api/health`: on a
+machine running several sessions' cockpits at once, the service identity alone cannot tell you
+WHICH worktree's build answered.
 
 Note that `verify-cockpit-shell-scroll.ts` reads the cockpit's identity from **`/api/health`**, not
 `/health` — the latter falls through to the SPA's `index.html` and answers 200 with HTML, which
