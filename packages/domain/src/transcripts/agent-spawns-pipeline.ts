@@ -20,7 +20,9 @@
  *     whose cwd matches parent cwd and startedAt falls within the spawn turn's time window).
  *   - `spawned_at`: the turn's `ended_at` timestamp (moment the Agent tool was invoked).
  *
- * Idempotent: upserts on (parent_agent_session_id, parent_turn_index).
+ * Idempotent: upserts on (parent_agent_session_id, parent_tool_use_id) — one row
+ * per Agent tool call, so a turn that dispatches several subagents records all of
+ * them rather than only the first (mt#3692).
  *
  * Also drives the `subagent_spawn` `minsky_session_links` writer (mt#2756):
  * once `childAgentSessionId` is resolved for a spawn, this pipeline calls
@@ -45,7 +47,11 @@ import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-t
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { writeSpawnLink } from "./spawn-link-writer";
-import { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
+import {
+  findAgentToolCall,
+  findAgentToolCalls,
+  type AgentToolCallBlock,
+} from "./agent-tool-call-shape";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
 
@@ -88,6 +94,15 @@ export interface SpawnsPipelineRunResult {
    * of the link write).
    */
   spawnLinksErrored: number;
+  /**
+   * Agent tool calls skipped because they carry no harness `tool_use` id
+   * (mt#3692). That id is the row's identity, so such a call cannot be
+   * upserted — writing it anyway would insert a fresh duplicate on every
+   * sweep, since NULLs never collide under the unique index. Expected to stay
+   * 0: every Agent call in the corpus has an id. A non-zero value means the
+   * harness changed its tool-call shape.
+   */
+  spawnsSkippedNoToolUseId: number;
 }
 
 /** Time-window margin in milliseconds for cwd-time heuristic (± 30 seconds). */
@@ -129,6 +144,7 @@ export class AgentSpawnsPipeline {
       spawnLinksWritten: 0,
       spawnLinksSkippedNoPromptMatch: 0,
       spawnLinksErrored: 0,
+      spawnsSkippedNoToolUseId: 0,
     };
 
     // ── 1. Load spawn-boundary turns with parent metadata ─────────────────
@@ -166,99 +182,7 @@ export class AgentSpawnsPipeline {
 
     // ── 2. Process each spawn-boundary turn ──────────────────────────────
     for (const row of rows) {
-      try {
-        const { agentSessionId, turnIndex, toolCalls, endedAt, parentCwd } = row;
-
-        // Extract Agent tool call from tool_calls JSONB.
-        const agentCall = findAgentToolCall(toolCalls);
-        if (!agentCall) {
-          // is_spawn_boundary was true but no Agent tool call found — shouldn't happen,
-          // but guard gracefully.
-          log.warn(
-            `AgentSpawnsPipeline: is_spawn_boundary=true but no Agent tool call found for ${agentSessionId}[${turnIndex}]`
-          );
-          continue;
-        }
-
-        const agentKind = extractAgentKind(agentCall);
-        const spawnType = extractSpawnType(agentCall);
-        const spawnedAt = endedAt;
-
-        // Attempt to resolve child session ID.
-        let childAgentSessionId: string | null = null;
-        let linkSource: "metadata" | "heuristic" | "unresolved" = "unresolved";
-
-        // Primary: extract from tool-call metadata (tool result carries session ID).
-        // This is populated when the tool_calls JSONB includes a session_id field
-        // on the Agent call's input (some harness versions include this).
-        const metadataSessionId = extractChildSessionIdFromMetadata(agentCall);
-        if (metadataSessionId) {
-          childAgentSessionId = metadataSessionId;
-          linkSource = "metadata";
-        } else if (parentCwd && spawnedAt) {
-          // Fallback: cwd-time-window heuristic.
-          const heuristicId = await this.resolveChildByCwdTimeWindow(
-            agentSessionId,
-            parentCwd,
-            spawnedAt
-          );
-          if (heuristicId) {
-            childAgentSessionId = heuristicId;
-            linkSource = "heuristic";
-          }
-        }
-
-        // Upsert into agent_spawns.
-        await this.db
-          .insert(agentSpawnsTable)
-          .values({
-            parentAgentSessionId: agentSessionId,
-            parentTurnIndex: turnIndex,
-            childAgentSessionId: childAgentSessionId ?? undefined,
-            spawnType: spawnType ?? undefined,
-            agentKind: agentKind ?? undefined,
-            spawnedAt: spawnedAt ?? undefined,
-          })
-          .onConflictDoUpdate({
-            target: [agentSpawnsTable.parentAgentSessionId, agentSpawnsTable.parentTurnIndex],
-            set: {
-              childAgentSessionId: sql`EXCLUDED.child_agent_session_id`,
-              spawnType: sql`EXCLUDED.spawn_type`,
-              agentKind: sql`EXCLUDED.agent_kind`,
-              spawnedAt: sql`EXCLUDED.spawned_at`,
-            },
-          });
-
-        result.spawnsWritten++;
-        if (linkSource === "metadata") result.childLinkedFromMetadata++;
-        else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
-        else result.childUnresolved++;
-
-        // mt#2756: write the subagent_spawn minsky_session_links row using
-        // the SAME Agent tool call's prompt text already loaded above — no
-        // extra query. The discriminated outcome (mt#2756 R1) lets us count
-        // "no-prompt-match" separately from "no-child" (already reflected
-        // above via childUnresolved) and from a genuine DB-write failure —
-        // collapsing those into one boolean was flagged in review as
-        // misleading (a low written-count is ambiguous without this split).
-        const spawnLinkOutcome = await writeSpawnLink(
-          this.db,
-          childAgentSessionId,
-          agentCall.input?.prompt,
-          this.sessionsDir
-        );
-        if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
-        else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
-        else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
-        // "no-child" needs no separate counter — childUnresolved above already
-        // captures it from the same childAgentSessionId resolution state.
-      } catch (err) {
-        result.spawnsErrored++;
-        log.warn(
-          `AgentSpawnsPipeline: failed to process spawn for ${row.agentSessionId}[${row.turnIndex}]`,
-          { error: getLoggableErrorSummary(err) }
-        );
-      }
+      await this.processSpawnTurn(row.agentSessionId, row, result);
     }
 
     log.info("AgentSpawnsPipeline: run complete", {
@@ -271,6 +195,7 @@ export class AgentSpawnsPipeline {
       spawnLinksWritten: result.spawnLinksWritten,
       spawnLinksSkippedNoPromptMatch: result.spawnLinksSkippedNoPromptMatch,
       spawnLinksErrored: result.spawnLinksErrored,
+      spawnsSkippedNoToolUseId: result.spawnsSkippedNoToolUseId,
     });
 
     return result;
@@ -293,6 +218,7 @@ export class AgentSpawnsPipeline {
       spawnLinksWritten: 0,
       spawnLinksSkippedNoPromptMatch: 0,
       spawnLinksErrored: 0,
+      spawnsSkippedNoToolUseId: 0,
     };
 
     let rows: Array<{
@@ -332,13 +258,62 @@ export class AgentSpawnsPipeline {
     result.spawnsScanned = rows.length;
 
     for (const row of rows) {
-      try {
-        const { turnIndex, toolCalls, endedAt, parentCwd } = row;
+      await this.processSpawnTurn(agentSessionId, row, result);
+    }
 
-        const agentCall = findAgentToolCall(toolCalls);
-        if (!agentCall) {
+    return result;
+  }
+
+  /**
+   * Record every spawn on ONE spawn-boundary turn, accumulating into `result`.
+   *
+   * Shared by {@link run} and {@link runForSession}, which previously carried
+   * byte-identical copies of this logic (one even said "see the identical
+   * comment in run() above").
+   *
+   * **One row per Agent tool call, not per turn (mt#3692).** A turn can dispatch
+   * several subagents at once, and the table's former turn-granular key could
+   * record only the first — 85 turns in the corpus carry 2+ calls. Each call is
+   * keyed by its own harness-assigned `tool_use` id.
+   *
+   * A failure on one call is contained to that call: the remaining calls on the
+   * same turn are still processed.
+   */
+  private async processSpawnTurn(
+    agentSessionId: string,
+    row: {
+      turnIndex: number;
+      toolCalls: unknown;
+      endedAt: Date | null;
+      parentCwd: string | null;
+    },
+    result: SpawnsPipelineRunResult
+  ): Promise<void> {
+    const { turnIndex, toolCalls, endedAt, parentCwd } = row;
+
+    const agentCalls = findAgentToolCalls(toolCalls);
+    if (agentCalls.length === 0) {
+      // is_spawn_boundary was true but no Agent tool call found — shouldn't happen,
+      // but guard gracefully.
+      log.warn(
+        `AgentSpawnsPipeline: is_spawn_boundary=true but no Agent tool call found for ${agentSessionId}[${turnIndex}]`
+      );
+      return;
+    }
+
+    for (const agentCall of agentCalls) {
+      try {
+        // The tool_use id IS the row's identity (see agent-spawns-schema.ts). A
+        // call without one cannot be upserted: NULLs never collide under the
+        // unique index, so every sweep would insert another copy rather than
+        // updating the existing row. Skip it and say so, rather than growing the
+        // table without bound. Every Agent call in the corpus carries an id, so
+        // this is a defensive branch, not an expected one.
+        const parentToolUseId = agentCall.id;
+        if (typeof parentToolUseId !== "string" || parentToolUseId.length === 0) {
+          result.spawnsSkippedNoToolUseId++;
           log.warn(
-            `AgentSpawnsPipeline: is_spawn_boundary=true but no Agent tool call found for ${agentSessionId}[${turnIndex}]`
+            `AgentSpawnsPipeline: Agent tool call without a tool_use id at ${agentSessionId}[${turnIndex}] — skipped (cannot key the row)`
           );
           continue;
         }
@@ -347,14 +322,19 @@ export class AgentSpawnsPipeline {
         const spawnType = extractSpawnType(agentCall);
         const spawnedAt = endedAt;
 
+        // Attempt to resolve child session ID.
         let childAgentSessionId: string | null = null;
         let linkSource: "metadata" | "heuristic" | "unresolved" = "unresolved";
 
+        // Primary: extract from tool-call metadata (tool result carries session ID).
+        // This is populated when the tool_calls JSONB includes a session_id field
+        // on the Agent call's input (some harness versions include this).
         const metadataSessionId = extractChildSessionIdFromMetadata(agentCall);
         if (metadataSessionId) {
           childAgentSessionId = metadataSessionId;
           linkSource = "metadata";
         } else if (parentCwd && spawnedAt) {
+          // Fallback: cwd-time-window heuristic.
           const heuristicId = await this.resolveChildByCwdTimeWindow(
             agentSessionId,
             parentCwd,
@@ -366,19 +346,25 @@ export class AgentSpawnsPipeline {
           }
         }
 
+        // Upsert into agent_spawns, keyed by the Agent call's tool_use id.
         await this.db
           .insert(agentSpawnsTable)
           .values({
             parentAgentSessionId: agentSessionId,
             parentTurnIndex: turnIndex,
+            parentToolUseId,
             childAgentSessionId: childAgentSessionId ?? undefined,
             spawnType: spawnType ?? undefined,
             agentKind: agentKind ?? undefined,
             spawnedAt: spawnedAt ?? undefined,
           })
           .onConflictDoUpdate({
-            target: [agentSpawnsTable.parentAgentSessionId, agentSpawnsTable.parentTurnIndex],
+            target: [agentSpawnsTable.parentAgentSessionId, agentSpawnsTable.parentToolUseId],
             set: {
+              // parent_turn_index is refreshed too: re-extraction can move a spawn
+              // to a different index, and the row should follow it rather than
+              // stranding a stale pointer (the defect that orphaned 179 rows).
+              parentTurnIndex: sql`EXCLUDED.parent_turn_index`,
               childAgentSessionId: sql`EXCLUDED.child_agent_session_id`,
               spawnType: sql`EXCLUDED.spawn_type`,
               agentKind: sql`EXCLUDED.agent_kind`,
@@ -391,7 +377,13 @@ export class AgentSpawnsPipeline {
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
         else result.childUnresolved++;
 
-        // mt#2756: see the identical comment in run() above.
+        // mt#2756: write the subagent_spawn minsky_session_links row using
+        // the SAME Agent tool call's prompt text already loaded above — no
+        // extra query. The discriminated outcome (mt#2756 R1) lets us count
+        // "no-prompt-match" separately from "no-child" (already reflected
+        // above via childUnresolved) and from a genuine DB-write failure —
+        // collapsing those into one boolean was flagged in review as
+        // misleading (a low written-count is ambiguous without this split).
         const spawnLinkOutcome = await writeSpawnLink(
           this.db,
           childAgentSessionId,
@@ -401,16 +393,16 @@ export class AgentSpawnsPipeline {
         if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
         else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
         else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
+        // "no-child" needs no separate counter — childUnresolved above already
+        // captures it from the same childAgentSessionId resolution state.
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
-          `AgentSpawnsPipeline: failed to process spawn for ${agentSessionId}[${row.turnIndex}]`,
+          `AgentSpawnsPipeline: failed to process spawn for ${agentSessionId}[${turnIndex}]`,
           { error: getLoggableErrorSummary(err) }
         );
       }
     }
-
-    return result;
   }
 
   /**

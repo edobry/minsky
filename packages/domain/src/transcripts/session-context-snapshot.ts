@@ -17,8 +17,12 @@
 import { asc, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import { log } from "@minsky/shared/logger";
+
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
+import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
 import { markAbandonedRewindBranches } from "./rewind-detection";
 import type {
@@ -245,10 +249,99 @@ export async function assembleSessionContextSnapshot(
   //    Returns the same array reference when there is no rewind to mark.
   const markedBlocks = markAbandonedRewindBranches(blocks);
 
+  // 6. Resolve the spawn edges in both directions (mt#3692). Two small indexed
+  //    lookups; a failure in either degrades to "no links" rather than failing
+  //    the whole snapshot, since the transcript is still fully readable without
+  //    the navigation affordance.
+  const [spawnChildrenByToolUseId, spawnParent] = await Promise.all([
+    resolveSpawnChildren(db, agentSessionId),
+    resolveSpawnParent(db, agentSessionId),
+  ]);
+
   return {
     agentSessionId,
     harness: typeof harness === "string" ? harness : "unknown",
     blocks: markedBlocks,
+    ...(spawnChildrenByToolUseId ? { spawnChildrenByToolUseId } : {}),
+    ...(spawnParent ? { spawnParent } : {}),
     assembledAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Map each of this session's resolved spawns to its child conversation, keyed by
+ * the spawning Agent call's `tool_use` id (mt#3692).
+ *
+ * Returns `undefined` when the session spawned nothing resolvable, so the field
+ * is omitted from the snapshot rather than serialized as an empty object.
+ */
+async function resolveSpawnChildren(
+  db: PostgresJsDatabase,
+  agentSessionId: AgentSessionId
+): Promise<Record<string, string> | undefined> {
+  let rows: Array<{ parentToolUseId: string | null; childAgentSessionId: string | null }>;
+  try {
+    rows = await db
+      .select({
+        parentToolUseId: agentSpawnsTable.parentToolUseId,
+        childAgentSessionId: agentSpawnsTable.childAgentSessionId,
+      })
+      .from(agentSpawnsTable)
+      .where(eq(agentSpawnsTable.parentAgentSessionId, agentSessionId));
+  } catch (err) {
+    log.warn("assembleSessionContextSnapshot: spawn-children lookup failed", {
+      agentSessionId,
+      error: getLoggableErrorSummary(err),
+    });
+    return undefined;
+  }
+
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    // Both halves must be present. A null tool_use id is a pre-mt#3692 row the
+    // backfill could not key (its parent turn no longer carries the call, or a
+    // sibling row already claimed the key) — it addresses nothing in the
+    // transcript, so it must not produce a link. A null child is simply an
+    // unresolved spawn, which renders as a static badge.
+    if (row.parentToolUseId && row.childAgentSessionId) {
+      map[row.parentToolUseId] = row.childAgentSessionId;
+    }
+  }
+  return Object.keys(map).length > 0 ? map : undefined;
+}
+
+/**
+ * Find the conversation that dispatched this one, if any (mt#3692).
+ *
+ * Index-independent: `agent_spawns.child_agent_session_id` names the child
+ * directly, so this direction never needed a turn index. Same shape as
+ * `resolveUserTurnActor` in the session-film route.
+ */
+async function resolveSpawnParent(
+  db: PostgresJsDatabase,
+  agentSessionId: AgentSessionId
+): Promise<{ agentSessionId: string; agentKind?: string } | undefined> {
+  try {
+    const rows = await db
+      .select({
+        parentAgentSessionId: agentSpawnsTable.parentAgentSessionId,
+        agentKind: agentSpawnsTable.agentKind,
+      })
+      .from(agentSpawnsTable)
+      .where(eq(agentSpawnsTable.childAgentSessionId, agentSessionId))
+      .limit(1);
+
+    const parent = rows[0];
+    if (!parent) return undefined;
+    return {
+      agentSessionId: parent.parentAgentSessionId,
+      ...(parent.agentKind ? { agentKind: parent.agentKind } : {}),
+    };
+  } catch (err) {
+    log.warn("assembleSessionContextSnapshot: spawn-parent lookup failed", {
+      agentSessionId,
+      error: getLoggableErrorSummary(err),
+    });
+    return undefined;
+  }
 }
