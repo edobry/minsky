@@ -37,10 +37,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # HELD at 1.2.21 — same cause as cold-start-hooks.yml (mt#3561).
+      # `smoke-cold-start-cockpit-web.ts` spawns the bundle from a temp
+      # installed layout without `--preload reflect-metadata`; on 1.3.x that
+      # path hits the tsyringe polyfill error on Linux. mt#3680 owns the fix
+      # and this pin's removal. Escalation threshold: 10 days.
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.2.21"
 
       # DELIBERATE cache scope, matching cold-start-hooks.yml: only Bun's
       # download cache is cached — every run performs a true cold

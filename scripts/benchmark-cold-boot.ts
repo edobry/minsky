@@ -63,6 +63,12 @@ const PACKAGE_ROOT = join(SCRIPT_DIR, "..");
 const SOURCE_PATH = join(PACKAGE_ROOT, "src", "cli.ts");
 const DEFAULT_BUNDLE = join(PACKAGE_ROOT, "dist", "minsky.js");
 const RESULTS_PATH = join(SCRIPT_DIR, "cold-boot-benchmark-results.json");
+// Absolute, matching `smoke-cold-start-migrate.ts` (PR #2551 R5). The bare
+// specifier `reflect-metadata` resolves against the CALLER's node_modules, so
+// it silently depends on where the benchmark is invoked from; this path is
+// anchored to the repo the script lives in. mt#3680 tracks removing the
+// preload entirely by making the bundle self-sufficient.
+const REFLECT_POLYFILL = join(PACKAGE_ROOT, "node_modules", "reflect-metadata", "Reflect.js");
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -255,7 +261,7 @@ function buildBinInvocation(
   // the more honest benchmark: it is what production actually pays on every cold boot.
   return useSource
     ? { cmd: "bun", args: ["run", SOURCE_PATH, ...trailing] }
-    : { cmd: "bun", args: ["run", "--preload", "reflect-metadata", bin, ...trailing] };
+    : { cmd: "bun", args: ["run", "--preload", REFLECT_POLYFILL, bin, ...trailing] };
 }
 
 const TIERS: TierSpec[] = [
