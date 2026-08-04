@@ -61,7 +61,9 @@ function makeDeferOrEscalateHandler(
     try {
       const repo = askRepoOverride ?? (await getServerAskRepository());
       if (!repo) {
-        res.status(503).json({ error: "Ask repository unavailable" });
+        res.status(503).json({
+          error: `Ask repository unavailable — ${await describeServerPersistenceUnavailability()}`,
+        });
         return;
       }
       // Read-only: report current state, never transition. See docblock.

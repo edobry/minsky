@@ -19,6 +19,15 @@
  *
  * Exit 0 = every remaining occurrence is either a comment or explicitly marked.
  * Exit 1 = at least one bare, unmarked message — the list is printed.
+ *
+ * KNOWN BLIND SPOT — do not read a PASS as "no cause-free persistence errors."
+ * This matches PHRASES, so it can only see messages that mention SQL capability.
+ * A persistence-gated failure whose message never says "SQL" is the same defect
+ * and is invisible here — e.g. `res.status(503).json({ error: "Ask repository
+ * unavailable" })`, which sat four lines from three converted siblings and was
+ * found by a REVIEWER, not by this check (PR #2620 R1). The phrase-independent
+ * sweep (a null from a persistence-gated getter → a cause-free 503 or throw) is
+ * tracked as mt#3687; the remaining known sites are enumerated there.
  */
 import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";

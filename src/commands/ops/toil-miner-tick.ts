@@ -65,9 +65,24 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
     );
   }
   const sqlPersistence = persistence as SqlCapablePersistenceProvider;
-  const db = await sqlPersistence.getDatabaseConnection();
+  let db: Awaited<ReturnType<SqlCapablePersistenceProvider["getDatabaseConnection"]>>;
+  try {
+    db = await sqlPersistence.getDatabaseConnection();
+  } catch (err: unknown) {
+    // PR #2620 R1. `UnconfiguredPersistenceProvider` DEFINES getDatabaseConnection
+    // (it throws from it), so it passes the capability check above — meaning THIS
+    // is the degraded path's actual exit, not that branch. Its
+    // PersistenceUnavailableError already carries the cause; it was just missing
+    // the `engprod_toil_miner:` prefix every other exit here has, so the same
+    // failure read two different ways in an ops log depending on provider shape.
+    throw new Error(`engprod_toil_miner: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    });
+  }
   if (!db) {
-    throw new Error("engprod_toil_miner: getDatabaseConnection() returned null");
+    throw new Error(
+      `engprod_toil_miner: getDatabaseConnection() returned null — ${describePersistenceUnavailability(persistence)}`
+    );
   }
 
   const { getConfiguration } = await import("@minsky/domain/configuration");
