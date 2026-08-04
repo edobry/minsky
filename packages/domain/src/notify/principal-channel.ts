@@ -81,7 +81,7 @@ export type PrincipalChannelResolution =
     };
 
 /** Outcome of one credential read: a value, a definite absence, or a failure. */
-type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
+export type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
 
 /**
  * Injected readers. Both default to the real sources; tests pass stubs so no
@@ -252,6 +252,60 @@ async function readPulumiToken(deps: PrincipalChannelDeps): Promise<CredentialRe
   }
 }
 
+/**
+ * Structurally test whether `key` is set in a `pulumi config --json` payload
+ * (mt#3698). Returns `null` when the question cannot be answered — unparseable
+ * or non-object output — which callers must treat as "don't know", never as an
+ * absence.
+ *
+ * Keys in the `--json` map are NAMESPACED (`minsky-infra:reviewer-telegram-chat-id`)
+ * while `pulumi config get` accepts the bare key, so both forms match. Missing
+ * this is not a cosmetic bug: a bare-key-only comparison reads EVERY key as
+ * absent, reintroducing mt#3608's collapse through a new mechanism.
+ */
+export function isPulumiConfigKeySet(configJson: string, key: string): boolean | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return Object.keys(parsed as Record<string, unknown>).some(
+    (k) => k === key || k.endsWith(`:${key}`)
+  );
+}
+
+/**
+ * Decide what a non-zero `pulumi config get` exit MEANS: the key is genuinely
+ * unset, or the read failed (mt#3698).
+ *
+ * Pulumi exits non-zero for both, and until mt#3698 this was decided by
+ * regex-matching its stderr prose for three English phrases. That was already
+ * WRONG on the installed CLI: Pulumi v3.252.0 says `configuration key 'x' not
+ * found for stack 'y'`, which matches none of them — so a genuinely unset key
+ * was reported as a retryable failure, the exact collapse mt#3608 built this
+ * distinction to prevent, inverted. Pulumi documents no error-text contract,
+ * so no phrase list can be correct for long.
+ *
+ * `keyPresent` therefore comes from a STRUCTURAL lookup ({@link isPulumiConfigKeySet}):
+ * `false` is the only value that proves absence. `true` (the key exists, so the
+ * failure was something else) and `null` (presence undeterminable) are both
+ * read failures — when in doubt, stay retryable rather than telling the caller
+ * an operator must act.
+ */
+export function classifyPulumiConfigGetFailure(
+  exitCode: number | null,
+  stderr: string,
+  keyPresent: boolean | null
+): CredentialRead {
+  if (keyPresent === false) return { ok: true, value: null };
+  return {
+    ok: false,
+    error: `chat-id read failed: ${stderr || `exit ${exitCode ?? "unknown"}`}`,
+  };
+}
+
 async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<CredentialRead> {
   if (deps.readPulumiPlain) {
     try {
@@ -287,13 +341,27 @@ async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<CredentialR
       // Pulumi exits non-zero BOTH for "this key is not set" and for "I could
       // not reach the backend." Only the first is an absence; the second is a
       // failure that a retry can clear, so they must not collapse (mt#3608).
+      // WHICH one it is comes from a structural key-presence read, not from
+      // Pulumi's error prose (mt#3698) — one extra spawn, and only on a path
+      // that has already failed.
       const stderr = proc.stderr.toString().trim();
-      const keyIsUnset = /missing required configuration|has no value|no configuration value/i.test(
-        stderr
-      );
-      return keyIsUnset
-        ? { ok: true, value: null }
-        : { ok: false, error: `chat-id read failed: ${stderr || `exit ${proc.exitCode}`}` };
+      const probe = Bun.spawnSync(["pulumi", "-C", infraDir, "config", "--json"], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          PULUMI_CONFIG_PASSPHRASE: process.env["PULUMI_CONFIG_PASSPHRASE"] ?? "",
+        },
+        timeout: 5000,
+      });
+      // `config --json` without `--show-secrets` lists keys and leaves secret
+      // values encrypted, so this never decrypts anything and never needs the
+      // passphrase to succeed (verified against the live stack, mt#3698).
+      const keyPresent =
+        probe.exitCode === 0
+          ? isPulumiConfigKeySet(probe.stdout.toString(), TELEGRAM_CHAT_ID_PULUMI_KEY)
+          : null;
+      return classifyPulumiConfigGetFailure(proc.exitCode, stderr, keyPresent);
     }
     return { ok: true, value: proc.stdout.toString().trim() || null };
   } catch (err: unknown) {

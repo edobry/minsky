@@ -12,8 +12,10 @@ const ENV_TOKEN = "TELEGRAM_BOT_TOKEN";
 const ENV_CHAT_ID = "TELEGRAM_CHAT_ID";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
+  classifyPulumiConfigGetFailure,
   clearPrincipalChannelCache,
   findTelegramTopicForTask,
+  isPulumiConfigKeySet,
   markTelegramChannelTopicDead,
   notifyPrincipal,
   resolvePrincipalChannel,
@@ -590,5 +592,92 @@ describe("markTelegramChannelTopicDead (mt#3507)", () => {
         }),
       })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("pulumi config absence detection (mt#3698)", () => {
+  /**
+   * Pulumi v3.252.0's ACTUAL missing-key message, captured from the installed
+   * CLI. The retired regex (`missing required configuration|has no value|no
+   * configuration value`) matches none of it — which is why a genuinely unset
+   * key used to be reported as a retryable read failure.
+   */
+  const REAL_MISSING_KEY_STDERR =
+    "error: configuration key 'reviewer-telegram-chat-id' not found for stack 'prod'";
+
+  describe("isPulumiConfigKeySet", () => {
+    test("matches the NAMESPACED key form `pulumi config --json` actually emits", () => {
+      const json = JSON.stringify({
+        "minsky-infra:reviewer-telegram-chat-id": { value: "123", secret: false },
+      });
+      expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(true);
+    });
+
+    test("matches a bare, un-namespaced key too", () => {
+      const json = JSON.stringify({ [TELEGRAM_CHAT_ID_PULUMI_KEY]: { value: "123" } });
+      expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(true);
+    });
+
+    test("reports a genuinely absent key as absent", () => {
+      const json = JSON.stringify({ "minsky-infra:something-else": { value: "x" } });
+      expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(false);
+    });
+
+    test("does not confuse a key that merely ENDS WITH the name", () => {
+      const json = JSON.stringify({ "ns:not-the-reviewer-telegram-chat-id": { value: "x" } });
+      expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(false);
+    });
+
+    test("returns null (not false) when the payload cannot be parsed", () => {
+      expect(isPulumiConfigKeySet("not json at all", TELEGRAM_CHAT_ID_PULUMI_KEY)).toBeNull();
+    });
+
+    test("returns null for valid JSON that is not a config object", () => {
+      expect(isPulumiConfigKeySet("[1,2,3]", TELEGRAM_CHAT_ID_PULUMI_KEY)).toBeNull();
+      expect(isPulumiConfigKeySet("null", TELEGRAM_CHAT_ID_PULUMI_KEY)).toBeNull();
+    });
+  });
+
+  describe("classifyPulumiConfigGetFailure", () => {
+    test("an absent key is an ABSENCE, whatever Pulumi's error prose says", () => {
+      // The negative control for this task: with the retired regex, this exact
+      // stderr produced { ok: false } — a real absence misreported as a
+      // retryable failure.
+      expect(classifyPulumiConfigGetFailure(1, REAL_MISSING_KEY_STDERR, false)).toEqual({
+        ok: true,
+        value: null,
+      });
+    });
+
+    test("a key that IS set means the read failed for some other reason", () => {
+      const result = classifyPulumiConfigGetFailure(1, "could not reach backend", true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("could not reach backend");
+    });
+
+    test("undeterminable presence stays a FAILURE, never an absence", () => {
+      // The safe direction: "ask again shortly" beats telling the caller an
+      // operator must act when we could not actually check.
+      expect(classifyPulumiConfigGetFailure(1, "backend unreachable", null).ok).toBe(false);
+    });
+
+    test("falls back to the exit code when stderr is empty", () => {
+      const result = classifyPulumiConfigGetFailure(7, "", true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("exit 7");
+    });
+
+    test("survives a null exit code without emitting 'undefined'", () => {
+      const result = classifyPulumiConfigGetFailure(null, "", true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).not.toContain("undefined");
+    });
+  });
+
+  test("the retired regex would have misclassified the real message", () => {
+    // Pins WHY this task exists, so a future author cannot reintroduce the
+    // phrase list believing it covered the real output.
+    const retired = /missing required configuration|has no value|no configuration value/i;
+    expect(retired.test(REAL_MISSING_KEY_STDERR)).toBe(false);
   });
 });
