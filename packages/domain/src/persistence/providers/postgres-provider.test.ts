@@ -2,7 +2,7 @@
  * Layer 1: Persistence Layer Tests
  * Test that persistence providers work correctly with mocked database connections
  */
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
@@ -12,6 +12,7 @@ import {
   resolveSocketTimeoutMs,
   shouldAutoMigrate,
 } from "./postgres-provider";
+import { logPostgresNotice } from "../postgres-notice-handler";
 import net from "node:net";
 import { once } from "node:events";
 // The unix-socket test below binds a REAL listener, and a socket can only be
@@ -21,7 +22,6 @@ import { once } from "node:events";
 // eslint-disable-next-line custom/no-real-fs-in-tests
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { log } from "@minsky/shared/logger";
 // mt#1767 — `resolveMigrationsFolder()` operates on real filesystem state by
 // design (it must verify the deployed bundle's migrations folder exists).
 // The tests below assert real-fs resolution, so the in-test fs prohibition
@@ -316,7 +316,7 @@ describe("PostgresPersistenceProvider", () => {
     expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
-  test("initialize() wires onnotice handler that routes NOTICEs through the logger (mt#1827 + mt#1828)", async () => {
+  test("wiring: initialize() wires onnotice to the real logPostgresNotice handler (mt#1827 + mt#1828, mt#3628)", async () => {
     // mt#1827: drizzle's `CREATE SCHEMA IF NOT EXISTS drizzle` + `CREATE TABLE
     // IF NOT EXISTS __drizzle_migrations` emit Postgres NOTICE codes 42P06 +
     // 42P07 on every cold start. Without an `onnotice` handler, postgres-js's
@@ -324,9 +324,12 @@ describe("PostgresPersistenceProvider", () => {
     // JSON-parses the output.
     //
     // mt#1828 strengthens the contract: the wired handler must route through
-    // `log.debug` (preserving the operational signal) rather than dropping
-    // silently. This test asserts both — handler exists AND invoking it calls
-    // log.debug, not stdout.
+    // the logger (preserving the operational signal) rather than dropping
+    // silently. mt#3628: the message-building decision itself now lives in
+    // `describeNotice` (postgres-notice-handler.test.ts, tested by return
+    // value); this test's job is the PRODUCTION-WIRING check — confirming
+    // `initialize()` actually installs the real `logPostgresNotice` handler,
+    // not a decoy — via reference identity, never `spyOn(log)`.
     const { factory: pgFactory, getCapturedArgs } = makeMockPostgresFactory();
     const config: PersistenceConfig = {
       backend: "postgres",
@@ -340,38 +343,8 @@ describe("PostgresPersistenceProvider", () => {
     expect(capturedArgs).not.toBeNull();
     if (capturedArgs) {
       const [, opts] = capturedArgs;
-      const onnotice = (opts as { onnotice?: (notice: unknown) => unknown }).onnotice;
-      expect(typeof onnotice).toBe("function");
-
-      // Invoke the wired handler and confirm it routes to log.debug with the
-      // structured-field shape from postgres-notice-handler.ts. Filter the
-      // captured call list by the notice-prefix string so we don't conflate
-      // unrelated log.debug calls from the broader initialize() path.
-      const { log } = await import("@minsky/shared/logger");
-      const debugSpy = spyOn(log, "debug").mockImplementation(() => {});
-      try {
-        const result = onnotice?.({
-          severity: "NOTICE",
-          code: "42P06",
-          message: "test notice for mt#1828 wiring",
-          routine: "CreateSchemaCommand",
-        });
-        expect(result).toBeUndefined();
-        const noticeCalls = debugSpy.mock.calls.filter(
-          (call: unknown[]) =>
-            typeof call[0] === "string" && (call[0] as string).startsWith("postgres notice:")
-        );
-        expect(noticeCalls).toHaveLength(1);
-        const [message, context] = noticeCalls[0] as [string, Record<string, unknown>];
-        expect(message).toBe("postgres notice: test notice for mt#1828 wiring");
-        expect(context).toEqual({
-          severity: "NOTICE",
-          code: "42P06",
-          routine: "CreateSchemaCommand",
-        });
-      } finally {
-        debugSpy.mockRestore();
-      }
+      const onnotice = (opts as { onnotice?: unknown }).onnotice;
+      expect(onnotice).toBe(logPostgresNotice);
     }
   });
 });
@@ -961,38 +934,32 @@ describe("buildPostgresClient socket wiring (mt#3592)", () => {
     }
   });
 
-  test("does not install the bound under TLS, and says so (mt#3603)", () => {
+  test("wiring: TLS-bound warning routes through the injected logSink, not spyOn(log) (mt#3603, mt#3628)", () => {
     // Skipped rather than installed-but-inert: under TLS postgres-js wraps this
     // socket, and whether the wrapped socket's byte counters keep moving is
     // unverified — a check that read a busy connection as idle would sever it.
-    const warn = spyOn(log, "warn").mockImplementation(() => {});
-    const { factory, getCapturedArgs } = makeMockPostgresFactory();
-    try {
-      buildPostgresClient(
-        { connectionString: "postgresql://user:pass@host/db?sslmode=require" },
-        factory as any
-      );
-      expect(getCapturedArgs()?.[1].socket).toBeUndefined();
-      const warned = warn.mock.calls.some((call) => String(call[0]).includes("mt#3603"));
-      expect(warned).toBe(true);
-    } finally {
-      warn.mockRestore();
-    }
-  });
+    const warnCalls: string[] = [];
+    const logSink = { warn: (message: string) => warnCalls.push(message) };
 
-  test("installs the bound for sslmode=disable, which leaves TLS off", () => {
-    const warn = spyOn(log, "warn").mockImplementation(() => {});
-    const { factory, getCapturedArgs } = makeMockPostgresFactory();
-    try {
-      buildPostgresClient(
-        { connectionString: "postgresql://user:pass@host/db?sslmode=disable" },
-        factory as any
-      );
-      expect(typeof getCapturedArgs()?.[1].socket).toBe("function");
-      const warned = warn.mock.calls.some((call) => String(call[0]).includes("mt#3603"));
-      expect(warned).toBe(false);
-    } finally {
-      warn.mockRestore();
-    }
+    // sslmode enabled -> bound not installed, warns.
+    const { factory: sslFactory, getCapturedArgs: sslArgs } = makeMockPostgresFactory();
+    buildPostgresClient(
+      { connectionString: "postgresql://user:pass@host/db?sslmode=require" },
+      sslFactory as any,
+      logSink
+    );
+    expect(sslArgs()?.[1].socket).toBeUndefined();
+    expect(warnCalls.some((msg) => msg.includes("mt#3603"))).toBe(true);
+
+    // sslmode=disable -> bound installed, no warn.
+    warnCalls.length = 0;
+    const { factory: disableFactory, getCapturedArgs: disableArgs } = makeMockPostgresFactory();
+    buildPostgresClient(
+      { connectionString: "postgresql://user:pass@host/db?sslmode=disable" },
+      disableFactory as any,
+      logSink
+    );
+    expect(typeof disableArgs()?.[1].socket).toBe("function");
+    expect(warnCalls.some((msg) => msg.includes("mt#3603"))).toBe(false);
   });
 });

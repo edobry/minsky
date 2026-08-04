@@ -1767,3 +1767,46 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     );
   });
 });
+
+describe("buildCriticConstitution — tool budget section (mt#3547)", () => {
+  const BUDGET_HEADING = "### Your tool budget";
+
+  test("grants explicit permission to conclude when tools are available", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(BUDGET_HEADING);
+    expect(prompt).toContain("When you have spent the budget you have, conclude.");
+    expect(prompt).toContain("You do not need permission to be done");
+  });
+
+  test("tells the model conclude_review must land before the tool rounds run out", () => {
+    // The final round passes no tools and conclude_review IS a tool call, so a
+    // model that plans to conclude "at the end" loses the ability to do so.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("The final round accepts no tools at all");
+    expect(prompt).toContain("before the budget runs out, not after");
+  });
+
+  test("requires uncovered surface to be DECLARED, not silently skipped", () => {
+    // The escape hatch must not read as permission to skip coverage — that
+    // would weaken Principle 11, which is out of scope for mt#3547 and owned
+    // by the sibling coverage-ledger task.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Name the uncovered surface explicitly");
+    expect(prompt).toContain("not permission to conclude silently");
+  });
+
+  test("does not license a lower evidence standard to finish sooner", () => {
+    // OpenAI's own reduce-eagerness snippet says "even if it might not be fully
+    // correct" — the wrong trade for a reviewer that gates merges. This asserts
+    // we deviated from it deliberately.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Finish earlier by investigating less, never by asserting more.");
+    expect(prompt).not.toContain("even if it might not be fully correct");
+  });
+
+  test("is absent when tools are unavailable — there is no loop to budget", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).not.toContain(BUDGET_HEADING);
+    expect(prompt).not.toContain("[TOOL BUDGET]");
+  });
+});
