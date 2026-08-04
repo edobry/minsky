@@ -159,11 +159,15 @@ async function runCase(testCase: Case): Promise<{ ok: boolean; detail: string }>
  * exists looks fine there and throws "could not acquire" on a real fresh install.
  */
 async function runFreshDirCase(): Promise<{ ok: boolean; detail: string }> {
-  const { writeTunedValue, readTunedValue, getGuardTuningStorePath } = await import(
-    "../.minsky/hooks/guard-tuning-store"
-  );
+  const { writeTunedValue, readTunedValue } = await import("../.minsky/hooks/guard-tuning-store");
 
-  const neverCreated = join(mkdtempSync(join(tmpdir(), "minsky-fresh-")), "never-created");
+  // Cleanup targets the scratch ROOT captured here, never a path resolved after
+  // the env is restored (PR #2577 R3). Calling `getGuardTuningStorePath()` in
+  // the `finally` resolved against the RESTORED `MINSKY_STATE_DIR`, so the
+  // cleanup deleted the operator's REAL store instead of the scratch one — a
+  // verification script with a destructive side effect on production state.
+  const scratchRoot = mkdtempSync(join(tmpdir(), "minsky-fresh-"));
+  const neverCreated = join(scratchRoot, "never-created");
   const previous = process.env["MINSKY_STATE_DIR"];
   process.env["MINSKY_STATE_DIR"] = neverCreated;
 
@@ -182,9 +186,11 @@ async function runFreshDirCase(): Promise<{ ok: boolean; detail: string }> {
       detail: `first tune on a fresh state dir FAILED: ${err instanceof Error ? err.message : String(err)}`,
     };
   } finally {
+    // Remove the scratch tree by its captured root — order-independent and
+    // incapable of naming anything outside the temp dir this case created.
+    rmSync(scratchRoot, { recursive: true, force: true });
     if (previous === undefined) delete process.env["MINSKY_STATE_DIR"];
     else process.env["MINSKY_STATE_DIR"] = previous;
-    rmSync(getGuardTuningStorePath(), { force: true });
   }
 }
 
