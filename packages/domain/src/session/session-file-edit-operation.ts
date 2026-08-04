@@ -29,59 +29,9 @@
 import { stat, writeFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import { readTextFile } from "@minsky/shared/fs";
-import { hasExistingCodeMarkers } from "../ai/edit-pattern-utils";
+import { hasExistingCodeMarkers, detectSuspiciousCollapse } from "../ai/edit-pattern-utils";
 import { applyEditPattern as defaultApplyEditPattern } from "../ai/edit-pattern-service";
 import { SessionPathResolver, type SessionProviderInput } from "./session-path-resolver";
-
-/**
- * Line-count floor below which the mt#2577 collapse guard's shrink-ratio check
- * is not applied — a ratio is too noisy on tiny files, and an accidental large
- * drop is only meaningful on a non-trivial file.
- */
-export const COLLAPSE_GUARD_MIN_ORIGINAL_LINES = 40;
-
-/**
- * A marker-based apply that retains FEWER than this fraction of the original's
- * lines is treated as a suspicious collapse (mt#2577). Tuned to fire on the
- * observed 999->517 (~52% retained) incident with margin, while leaving normal
- * marker edits — which change size by a small delta — untouched.
- */
-export const COLLAPSE_GUARD_SHRINK_RATIO = 0.6;
-
-/**
- * Count lines in a string, normalizing away ALL trailing blank lines so a file
- * with a different count of trailing newlines / trailing blank lines counts the
- * same. This keeps the collapse ratio insensitive to trailing-whitespace churn
- * on either side (mt#2577 R1): comparing content-line counts, not trailing
- * blanks, avoids both false positives (trailing blanks removed) and false
- * negatives (trailing blanks padding an otherwise-collapsed file).
- */
-function countLines(content: string): number {
-  if (content === "") return 0;
-  const parts = content.split("\n");
-  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
-  return parts.length;
-}
-
-/**
- * Pure predicate for the mt#2577 marker-spanning-collapse guard: did a
- * marker-based apply shrink the file far more than a normal edit would? Returns
- * the before/after line counts when the drop is suspicious, else null. Only
- * meaningful for the marker-apply path — the caller gates on
- * `hasMarkers && fileExisted` before calling this.
- */
-export function detectSuspiciousCollapse(
-  originalContent: string,
-  finalContent: string
-): { originalLines: number; finalLines: number } | null {
-  const originalLines = countLines(originalContent);
-  if (originalLines < COLLAPSE_GUARD_MIN_ORIGINAL_LINES) return null;
-  const finalLines = countLines(finalContent);
-  if (finalLines < originalLines * COLLAPSE_GUARD_SHRINK_RATIO) {
-    return { originalLines, finalLines };
-  }
-  return null;
-}
 
 /**
  * Input arguments for {@link applySessionFileEditOperation}.

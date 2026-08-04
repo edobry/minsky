@@ -10,6 +10,64 @@ export function hasExistingCodeMarkers(content: string): boolean {
 }
 
 /**
+ * Line-count floor below which the collapse guard's shrink-ratio check is not
+ * applied — a ratio is too noisy on tiny content, and an accidental large drop
+ * is only meaningful on a non-trivial document.
+ */
+export const COLLAPSE_GUARD_MIN_ORIGINAL_LINES = 40;
+
+/**
+ * A marker-based apply that retains FEWER than this fraction of the original's
+ * lines is treated as a suspicious collapse (mt#2577). Tuned to fire on the
+ * observed 999->517 (~52% retained) incident with margin, while leaving normal
+ * marker edits — which change size by a small delta — untouched.
+ */
+export const COLLAPSE_GUARD_SHRINK_RATIO = 0.6;
+
+/**
+ * Count lines in a string, normalizing away ALL trailing blank lines so content
+ * with a different count of trailing newlines / trailing blank lines counts the
+ * same. This keeps the collapse ratio insensitive to trailing-whitespace churn
+ * on either side (mt#2577 R1): comparing content-line counts, not trailing
+ * blanks, avoids both false positives (trailing blanks removed) and false
+ * negatives (trailing blanks padding an otherwise-collapsed document).
+ */
+function countLines(content: string): number {
+  if (content === "") return 0;
+  const parts = content.split("\n");
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts.length;
+}
+
+/**
+ * Pure predicate for the marker-spanning-collapse guard (mt#2577): did a
+ * marker-based apply shrink the content far more than a normal edit would?
+ * Returns the before/after line counts when the drop is suspicious, else null.
+ * Only meaningful for the marker-apply path — the caller gates on
+ * `hasMarkers && contentExisted` before calling this.
+ *
+ * **Lives here, not beside one caller (mt#3674).** This is the same decision for
+ * every apply-model-backed partial-edit surface, and scoping it to one tool is
+ * what let the family recur: mt#2577 guarded `session_edit_file`, and
+ * `tasks_spec_patch` — the tool whose artifact has no version history to restore
+ * from — went unguarded until a spec was destroyed through it. Any future
+ * apply-model edit surface should import this rather than re-derive a second,
+ * divergent heuristic.
+ */
+export function detectSuspiciousCollapse(
+  originalContent: string,
+  finalContent: string
+): { originalLines: number; finalLines: number } | null {
+  const originalLines = countLines(originalContent);
+  if (originalLines < COLLAPSE_GUARD_MIN_ORIGINAL_LINES) return null;
+  const finalLines = countLines(finalContent);
+  if (finalLines < originalLines * COLLAPSE_GUARD_SHRINK_RATIO) {
+    return { originalLines, finalLines };
+  }
+  return null;
+}
+
+/**
  * Size-growth factor above which a `replace_all` operation is refused without
  * an explicit override (mt#2400 fail-closed guard). A `replace_all` that
  * balloons the file past this multiple of its original size is, far more often

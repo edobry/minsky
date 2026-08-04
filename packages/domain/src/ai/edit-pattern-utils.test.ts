@@ -17,6 +17,9 @@ import {
   exceedsGrowthThreshold,
   preserveTrailingNewline,
   REPLACE_ALL_GROWTH_REFUSAL_FACTOR,
+  detectSuspiciousCollapse,
+  COLLAPSE_GUARD_MIN_ORIGINAL_LINES,
+  COLLAPSE_GUARD_SHRINK_RATIO,
 } from "./edit-pattern-utils";
 
 describe("hasExistingCodeMarkers", () => {
@@ -112,5 +115,63 @@ describe("preserveTrailingNewline", () => {
 
   test("a lone-CR original gets CR back", () => {
     expect(preserveTrailingNewline("x", "orig\r")).toBe("x\r");
+  });
+});
+
+/**
+ * mt#3674: the collapse guard moved here from `session-file-edit-operation.ts` so BOTH
+ * apply-model partial-edit surfaces consume one decision. These pin the predicate itself;
+ * the per-tool refusal behavior is pinned in each tool's own suite.
+ */
+describe("detectSuspiciousCollapse", () => {
+  const makeLines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join("\n");
+
+  test("thresholds are the mt#2577 values", () => {
+    expect(COLLAPSE_GUARD_MIN_ORIGINAL_LINES).toBe(40);
+    expect(COLLAPSE_GUARD_SHRINK_RATIO).toBe(0.6);
+  });
+
+  test("fires on the observed 999 -> 517 disaster", () => {
+    expect(detectSuspiciousCollapse(makeLines(999), makeLines(517))).toEqual({
+      originalLines: 999,
+      finalLines: 517,
+    });
+  });
+
+  test("reproduces the mt#3339 spec-destruction shape", () => {
+    // The real incident: a ~26,000-character, ~380-line spec replaced by the 7-character
+    // string `mt#3672`. This is the case the guard exists to refuse — asserted here so the
+    // predicate cannot drift below the severity that actually destroyed a durable artifact.
+    expect(detectSuspiciousCollapse(makeLines(380), "mt#3672")).toEqual({
+      originalLines: 380,
+      finalLines: 1,
+    });
+  });
+
+  test("does not fire on an unchanged or grown document", () => {
+    expect(detectSuspiciousCollapse(makeLines(999), makeLines(999))).toBeNull();
+    expect(detectSuspiciousCollapse(makeLines(100), makeLines(400))).toBeNull();
+  });
+
+  test("does not fire below the small-document floor", () => {
+    expect(detectSuspiciousCollapse(makeLines(30), makeLines(5))).toBeNull();
+  });
+
+  test("boundary: exactly the ratio passes, one line below fires", () => {
+    expect(detectSuspiciousCollapse(makeLines(100), makeLines(60))).toBeNull();
+    expect(detectSuspiciousCollapse(makeLines(100), makeLines(59))).toEqual({
+      originalLines: 100,
+      finalLines: 59,
+    });
+  });
+
+  test("trailing blank lines on either side do not move the verdict", () => {
+    expect(detectSuspiciousCollapse(makeLines(100), `${makeLines(100)}\n\n\n\n\n`)).toBeNull();
+    expect(detectSuspiciousCollapse(`${makeLines(100)}\n\n\n\n\n`, makeLines(100))).toBeNull();
+  });
+
+  test("an empty original is never a collapse — nothing to lose", () => {
+    expect(detectSuspiciousCollapse("", "")).toBeNull();
+    expect(detectSuspiciousCollapse("", "anything")).toBeNull();
   });
 });

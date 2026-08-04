@@ -16,10 +16,10 @@ import { join } from "path";
 import { mkdtemp, writeFile as fsWriteFile, readFile as fsReadFile, rm, access } from "fs/promises";
 // eslint-disable-next-line custom/no-real-fs-in-tests
 import { tmpdir } from "os";
-import {
-  applySessionFileEditOperation,
-  detectSuspiciousCollapse,
-} from "./session-file-edit-operation";
+import { applySessionFileEditOperation } from "./session-file-edit-operation";
+// mt#3674: the collapse guard moved to the shared apply-model module so
+// `tasks_spec_patch` consumes the same decision instead of re-deriving one.
+import { detectSuspiciousCollapse } from "../ai/edit-pattern-utils";
 import type { SessionProviderInterface } from "./index";
 
 function buildSessionProvider(workspaceDir: string): SessionProviderInterface {
