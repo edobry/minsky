@@ -207,6 +207,16 @@ describe("the injected guidance text (mt#3699)", () => {
     expect(text).toContain("I'll dispatch these");
   });
 
+  // A single-task fire is the common case in the calibration log, so the
+  // header has to read correctly there and not only in the multi-id case that
+  // motivated the wording (PR #2628 R1).
+  test.each([
+    [1, "You filed this and"],
+    [2, "You filed these and"],
+  ])("agrees in number when the turn minted %i task(s)", (count, expected) => {
+    expect(render(count as number)).toContain(expected as string);
+  });
+
   // The walk imperative keeps full force (that is the R4 containment this guard
   // shipped for) but must not LEAD — the agent is asked which branch holds
   // before it is told to walk.

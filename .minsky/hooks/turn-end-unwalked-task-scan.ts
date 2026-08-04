@@ -177,8 +177,8 @@ export const MAX_LISTED_IDS = 3;
 
 function buildReminder(unwalked: UnwalkedTask[]): string {
   const lines: string[] = [
-    "[turn-end-unwalked-task] You filed these and ended the turn with no " +
-      "status/session/dispatch/ask call:",
+    `[turn-end-unwalked-task] You filed ${unwalked.length === 1 ? "this" : "these"} and ` +
+      "ended the turn with no status/session/dispatch/ask call:",
     "",
   ];
   for (const u of unwalked.slice(0, MAX_LISTED_IDS)) {
