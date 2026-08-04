@@ -421,6 +421,20 @@ let _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
 let _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
 
 /**
+ * Guard for the test-only surfaces below (PR #2586 R1): `bun test` sets
+ * NODE_ENV to "test", so any other environment reaching one of these is
+ * production misuse — throw instead of silently mutating live recycle state.
+ * Mirrors `assertTestEnvironment` in db-providers.ts.
+ */
+function assertTestEnvironment(api: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `${api} is test-only (NODE_ENV must be "test"; got ${JSON.stringify(process.env.NODE_ENV)})`
+    );
+  }
+}
+
+/**
  * @internal Test-only: shrink the recycle thresholds so the trigger path can be
  * exercised in milliseconds. Restored by __resetSharedPersistenceForTests.
  */
@@ -428,6 +442,7 @@ export function __setRecycleThresholdsForTests(
   afterDegradedMs: number,
   minIntervalMs: number
 ): void {
+  assertTestEnvironment("__setRecycleThresholdsForTests");
   _recycleAfterDegradedMs = afterDegradedMs;
   _recycleMinIntervalMs = minIntervalMs;
 }
@@ -723,6 +738,7 @@ export function startDbRetryBackoff(
  * the live singleton).
  */
 export function __resetSharedPersistenceForTests(): void {
+  assertTestEnvironment("__resetSharedPersistenceForTests");
   _instance = null;
   _initPromise = null;
   _dbStatus = "unreachable"; // gh#1761: reset status so degraded-path tests start clean

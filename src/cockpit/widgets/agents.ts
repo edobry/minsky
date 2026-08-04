@@ -705,17 +705,26 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
     "@minsky/domain/session/drizzle-session-repository"
   );
 
-  const epochAtBuild = getPersistenceEpoch();
-  const svc = await getSharedPersistenceService();
-  const provider = await createSessionProvider(undefined, {
-    persistenceService: {
-      isInitialized: () => true,
-      getProvider: () => svc.getProvider(),
-    },
-  });
-  _cachedProvider = provider;
-  _cachedProviderEpoch = epochAtBuild;
-  return provider;
+  // Rebuild until the epoch is stable across construction (PR #2586 R1): a
+  // recycle DURING the awaits below means the provider may wrap the torn-down
+  // pool. Bounded in practice — the epoch moves at most once per rate-limit
+  // window (RECYCLE_MIN_INTERVAL_MS), so a second pass is already rare and a
+  // third essentially impossible.
+  for (;;) {
+    const epochAtBuild = getPersistenceEpoch();
+    const svc = await getSharedPersistenceService();
+    const provider = await createSessionProvider(undefined, {
+      persistenceService: {
+        isInitialized: () => true,
+        getProvider: () => svc.getProvider(),
+      },
+    });
+    if (getPersistenceEpoch() === epochAtBuild) {
+      _cachedProvider = provider;
+      _cachedProviderEpoch = epochAtBuild;
+      return provider;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -737,20 +746,25 @@ async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
 
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
-  const epochAtBuild = getPersistenceEpoch();
-  const svc = await getSharedPersistenceService();
-  const persistenceProvider = svc.getProvider();
+  // Same stable-epoch rebuild discipline as defaultProviderFactory above.
+  for (;;) {
+    const epochAtBuild = getPersistenceEpoch();
+    const svc = await getSharedPersistenceService();
+    const persistenceProvider = svc.getProvider();
 
-  const workspacePath = process.cwd();
+    const workspacePath = process.cwd();
 
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
-    persistenceProvider,
-  });
+    const taskService = await createConfiguredTaskService({
+      workspacePath,
+      persistenceProvider,
+    });
 
-  _cachedTaskProvider = taskService;
-  _cachedTaskProviderEpoch = epochAtBuild;
-  return _cachedTaskProvider;
+    if (getPersistenceEpoch() === epochAtBuild) {
+      _cachedTaskProvider = taskService;
+      _cachedTaskProviderEpoch = epochAtBuild;
+      return _cachedTaskProvider;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -733,3 +733,16 @@ describe("recycle rate limit (mt#3638 AT4)", () => {
     expect(getDbRecycle().recycleCount).toBe(1);
   });
 });
+
+describe("test-only surface guards (PR #2586 R1)", () => {
+  test("__setRecycleThresholdsForTests and __resetSharedPersistenceForTests refuse outside NODE_ENV=test", () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      expect(() => __setRecycleThresholdsForTests(1, 1)).toThrow(/test-only/);
+      expect(() => __resetSharedPersistenceForTests()).toThrow(/test-only/);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
+});
