@@ -375,6 +375,16 @@ export interface CallsiteCheckUnavailableEvent {
   event: "adoption_sweeper.callsite_check_unavailable";
   source: "positive_control" | "per_task_signal";
   result: CallsiteCheckResult;
+  /**
+   * Top-level mirror of `result.reason` when the underlying check result
+   * carries one (`result.status === "unavailable"`). Backward-compat shim
+   * (reviewer-bot R1/R2, mt#3629 PR #2597): the pre-extraction per-task-signal
+   * payload had `reason` at the TOP LEVEL and no `result` field at all — this
+   * keeps that field present for any downstream consumer (dashboard, alert,
+   * log parser) matching on it, even though the new pure core's canonical
+   * shape carries the full result object too.
+   */
+  reason?: string;
   message?: string;
   taskId?: string;
   signalKind?: string;
@@ -400,6 +410,7 @@ export function classifyCallsiteCheckUnavailable(
     event: "adoption_sweeper.callsite_check_unavailable",
     source,
     result,
+    ...(result.status === "unavailable" ? { reason: result.reason } : {}),
     ...(source === "positive_control"
       ? {
           message:

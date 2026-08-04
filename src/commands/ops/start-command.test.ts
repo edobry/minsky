@@ -851,11 +851,34 @@ describe("classifyCallsiteCheckUnavailable (pure core)", () => {
       event: CALLSITE_CHECK_UNAVAILABLE_EVENT,
       source: "per_task_signal",
       result,
+      reason: "boom",
       taskId: "mt#1",
       signalKind: "export",
       signalName: "foo",
     });
     expect(event.message).toBeUndefined();
+  });
+
+  // Reviewer-bot R1/R2 (PR #2597): the pre-extraction per-task-signal payload
+  // carried `reason` at the TOP LEVEL (and had no `result` field at all) —
+  // any downstream consumer (dashboard, alert, log parser) matching on a
+  // top-level `reason` must keep seeing it. Pinning both directions: present
+  // when the result IS "unavailable" (has a reason to mirror), absent when
+  // it is not (nothing to mirror — never a bare `reason: undefined`).
+  test("mirrors result.reason at the top level when the result is unavailable (backward-compat)", () => {
+    const result: CallsiteCheckResult = { status: "unavailable", reason: "network timeout" };
+    const event = classifyCallsiteCheckUnavailable("per_task_signal", result, {
+      taskId: "mt#1",
+      signalKind: "export",
+      signalName: "foo",
+    });
+    expect(event.reason).toBe("network timeout");
+  });
+
+  test('carries no top-level reason when the result is not unavailable (e.g. status "zero")', () => {
+    const result: CallsiteCheckResult = { status: "zero" };
+    const event = classifyCallsiteCheckUnavailable(POSITIVE_CONTROL_SOURCE, result);
+    expect("reason" in event).toBe(false);
   });
 });
 
