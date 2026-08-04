@@ -1,18 +1,22 @@
 /**
  * Memory Commands
  *
- * Commands for creating, searching, listing, updating, deleting, and
- * superseding memory records.  Registers 8 commands in the shared command
+ * Commands for creating, searching, listing, updating, patching, deleting, and
+ * superseding memory records.  Registers 10 commands in the shared command
  * registry under the MEMORY category:
  *   - memory.search    — semantic search over memory records
  *   - memory.get       — fetch a single memory by id
  *   - memory.list      — browse memories with optional filters
  *   - memory.create    — create a new memory (with derivation-discipline check)
- *   - memory.update    — update fields on an existing memory
+ *   - memory.update    — update fields on an existing memory (whole-content write)
+ *   - memory.patch     — edit ONE markdown section, leaving the rest byte-identical
  *   - memory.delete    — delete a memory by id
  *   - memory.similar   — find memories similar to an existing one
  *   - memory.supersede — atomically replace an existing memory
  *   - memory.lineage   — trace a memory's supersession chain
+ *
+ * The count above was already wrong before mt#3602 (it said 8 while listing 9);
+ * corrected here rather than incremented, since this file's edit made it worse.
  */
 
 import { z } from "zod";
