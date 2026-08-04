@@ -106,6 +106,71 @@ that RFC's **severity-piercing rule** (its triggers include "a destructive or ha
 action taken or refused," the ledger's territory), so the ledger leads chat _under_ severity
 piercing.
 
+## The corpus is agent-authored
+
+The relayed-claim discipline above covers subagent reports, `WebSearch` summaries, and your own
+tooling's echo. It stopped one step short: it never said that Minsky's OWN corpus —
+`.minsky/rules/**`, memories, ADRs, hook docs, task specs — is the same epistemic class. Every
+byte of it was written by an agent. Citing it as evidence for a claim it originated is
+self-citation with a file path in front of it.
+
+### The distinction
+
+The test is what the artifact is DOING, not what kind of file it is:
+
+- **Recording** something external — an incident that occurred, a decision the principal made, a
+  code behavior verified by running it, a vendor doc actually read. This is legitimate evidence
+  for that thing, and it is most of what the corpus is for. mem#664's list of DONE task ids and
+  mem#824's quotes from the principal are recordings; they can be checked against task state and
+  transcripts, and they were.
+- **Asserting** something it originated — a coined term, a chosen framing, a threshold an agent
+  picked, a taxonomy imposed on a problem. No independent warrant. `inferred` at most, and
+  repetition across files does not upgrade it: three rules repeating a coinage is one agent's
+  judgment written down three times.
+
+The file format renders both identically. A verbatim quote from a rule looks exactly as
+authoritative whether the sentence records a vendor doc or invents a category, which is what makes
+this easy to get wrong while being careful.
+
+### Worked example: a threshold
+
+An agent cites `decision-defaults.mdc §Thresholds` for "2+ in 24h, OR 3+ in 5 days." Is that
+evidence?
+
+For the claim _"Minsky policy is 2+/24h"_ — yes. The rule IS the policy; citing it is obeying a
+policy, not making an empirical claim.
+
+For the claim _"2+/24h is the right threshold"_ — no. The rule's own text says thresholds come
+from "observed cadence," so the warrant lives in the observation, not the rule. An agent picked
+these numbers from a corpus of incidents; if the question is whether they are correct, the answer
+is in the incidents, and the rule is `inferred`.
+
+### Worked example: the provenance challenge
+
+2026-08-03. Challenged on whether "push into scroll" was a real term, the agent checked, found it
+at `communication-contract.mdc:28` and `CLAUDE.md:180`, and reported that as evidence it had not
+invented the term. The principal corrected the premise: _"It was you. You're the only one that
+writes things in here. It's only ever been Claude."_
+
+The check was the right move and the conclusion was framed wrong. Finding a term in the corpus
+establishes the coinage DATE, not the provenance. `git_log` on that file returns
+`docs(mt#3436)`, `docs(mt#3287)`, `docs(mt#3087)` — agent-authored throughout. **On a provenance
+challenge, answer with `git_log` / `git_blame`, and say plainly if the answer is "an agent did."**
+A file path is not an answer to "where did this come from?"
+
+### Why self-authorship is aggravating, not mitigating
+
+Per mem#736, a spec or rule you wrote yourself this session is MORE likely to be over-trusted, not
+less: what you retain is the intent, while the divergence lives in the specifics. The same applies
+to citation. A rule you helped write reads as settled fact on the next pass, and there is nothing
+in the artifact to distinguish "we verified this" from "I decided this and wrote it down."
+
+### Cross-references
+
+mt#3599 (this amendment, Leg B) · mt#3598 (the corpus audit) · mem#824 (the originating incident)
+· mem#664 (`family:principal-altitude` root) · ADR-037 (the forward control mechanism this
+amendment accompanies) · `user-preferences.mdc §Plain-language first`.
+
 ## Enforcement surfaces (not in the rule) + cross-references
 
 Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923**
