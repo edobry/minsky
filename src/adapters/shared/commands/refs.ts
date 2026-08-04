@@ -17,6 +17,7 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { CommonParameters } from "../common-parameters";
+import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -315,7 +316,11 @@ function buildProductionResolvers(
     },
     async getAskState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable");
+      if (!db) {
+        throw new Error(
+          `DB unavailable — ${await describeContainerPersistenceUnavailability(container, "refs")}`
+        );
+      }
       const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
       // `getById` accepts BOTH id forms via the shared `askIdWhere`, so an
       // `ask#N` needs no extra resolution here — it only needs to be routed to
@@ -332,7 +337,11 @@ function buildProductionResolvers(
     },
     async getMemoryState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable");
+      if (!db) {
+        throw new Error(
+          `DB unavailable — ${await describeContainerPersistenceUnavailability(container, "refs")}`
+        );
+      }
       const { getMemoryRefSummary } = await import("@minsky/domain/memory/memory-service");
       const memory = await getMemoryRefSummary(db, id);
       if (!memory) return { found: false };
@@ -342,7 +351,11 @@ function buildProductionResolvers(
     },
     async getWorkspaceState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable");
+      if (!db) {
+        throw new Error(
+          `DB unavailable — ${await describeContainerPersistenceUnavailability(container, "refs")}`
+        );
+      }
       const { DrizzleSessionRepository } = await import(
         "@minsky/domain/session/drizzle-session-repository"
       );
