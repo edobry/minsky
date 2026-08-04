@@ -48,6 +48,16 @@ Structure source code so tests don't need complex mocking:
   function processData(config: Config) { /* ... */ }
   ```
 - **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
+- **Don't patch a collaborator in place to observe it.** If proving a behavior would require
+  `spyOn`-ing something the code reaches itself (a module import, a singleton) rather than a
+  value the function returns or a dependency it was handed, that's design feedback, not a
+  testing problem — extract the decision into a function that returns the observable, inject the
+  collaborator, and keep production code as a thin imperative shell around the pure core.
+  In-place patching (`spyOn`) is banned outright, not just discouraged — see
+  [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
+  the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
+  shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
+  §Console Output`), enforced by `custom/no-spy-patching`.
 
 ## Test Data
 

@@ -382,6 +382,16 @@ Structure source code so tests don't need complex mocking:
   function processData(config: Config) { /* ... */ }
   ```
 - **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
+- **Don't patch a collaborator in place to observe it.** If proving a behavior would require
+  `spyOn`-ing something the code reaches itself (a module import, a singleton) rather than a
+  value the function returns or a dependency it was handed, that's design feedback, not a
+  testing problem — extract the decision into a function that returns the observable, inject the
+  collaborator, and keep production code as a thin imperative shell around the pure core.
+  In-place patching (`spyOn`) is banned outright, not just discouraged — see
+  [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
+  the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
+  shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
+  §Console Output`), enforced by `custom/no-spy-patching`.
 
 ## Test Data
 
@@ -504,10 +514,18 @@ When adding a new test helper:
      * Terminal output formatting or styling
      * Terminal interactive prompts
 
-4. **NEVER Test Console Output Directly**
-   * Tests MUST NOT assert against specific console output strings or formatting
-   * Instead, test that the correct information was passed to the output function
-   * **Examples of what NOT to test:**
+4. **Split log output into support vs. diagnostic — test only the support half, and never as text**
+   * A **support** log event is one the system is contractually required to emit — the log call
+     IS the behavior under test (a swallow contract, a severity-channel choice, a
+     transition-only volume bound, a structured degradation event, a security redaction). Test
+     these as fact-of-emission: assert an event was emitted with the right structured fields, via
+     an injected sink — never by patching the logger in place (`spyOn` on a logger is banned
+     outright; see [ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)).
+   * A **diagnostic** log event is a developer aid with no behavioral contract. Do not test it at
+     all — no spy, no captured-output assertion.
+   * Tests MUST NOT assert against console output *strings or formatting*, for either class —
+     that ban is unconditional and unrelated to the support/diagnostic split above.
+   * **Examples of what NOT to test, regardless of class:**
      * Specific console.log output strings
      * ANSI color codes or styling
      * Table formatting or alignment
@@ -659,20 +677,38 @@ test("writeConfig saves the config to the correct path", () => {
 ```
 
 ### Console Output
-❌ **DO NOT TEST:** Specific console output strings or formatting
+
+Log output splits into two classes (Khorikov's support-vs-diagnostic distinction — see
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)):
+
+❌ **DO NOT TEST — diagnostic output.** A developer aid with no behavioral contract. Never spy on
+it, never assert on its content, never test it at all.
+
+✅ **DO TEST — support output, but only as fact-of-emission via an injected sink.** When a log
+event genuinely IS the behavior under test (e.g. "the handler swallows a driver error instead of
+throwing"), assert that an event was emitted with the right structured fields — never by patching
+the logger in place, and never by matching on message-string formatting.
 
 ```typescript
-// BAD test example - Testing console output directly
+// BAD — patches the logger in place (banned per ADR-036) and asserts on a formatted string
 test("reportStatus logs the status", () => {
-  const spy = jest.spyOn(console, 'log');
+  const spy = spyOn(log, "info");
 
   reportStatus({ status: "completed" });
 
-  // Don't test specific output strings
   expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
 });
 
-// GOOD test example - Testing the core logic instead
+// GOOD — the log event IS the contract here; observe it via an injected sink, not a patched logger
+test("reportStatus emits a completion event through the injected sink", () => {
+  const events: LogEvent[] = [];
+
+  reportStatus({ status: "completed" }, { logSink: (e) => events.push(e) });
+
+  expect(events).toContainEqual(expect.objectContaining({ level: "info", status: "completed" }));
+});
+
+// GOOD — when no event needs to be a contract, test the returned value instead
 test("getStatusReport returns the correct status information", () => {
   const report = getStatusReport({ status: "completed" });
 
