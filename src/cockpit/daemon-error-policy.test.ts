@@ -178,6 +178,21 @@ describe("getSurvivedExceptions", () => {
     expect(summary.lastAt).not.toBeNull();
   });
 
+  test("saturates distinctSignatures at the cap instead of resetting to zero", () => {
+    resetSurvivedExceptions();
+    const log = createSurvivedErrorLogger(() => {}, 10_000);
+
+    // Push well past MAX_TRACKED_SIGNATURES (200) with unique signatures. A
+    // clear()-based bound would drop distinctSignatures to a small number here;
+    // eviction holds it at the cap, which is what an operator watching the
+    // field expects.
+    for (let i = 0; i < 260; i++) log(new Error(`unique failure ${i}`));
+
+    const summary = getSurvivedExceptions();
+    expect(summary.count).toBe(260);
+    expect(summary.distinctSignatures).toBe(200);
+  });
+
   test("reads the SAME bookkeeping the log lines use — no parallel counter", () => {
     resetSurvivedExceptions();
     const lines: string[] = [];

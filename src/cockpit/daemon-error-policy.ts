@@ -205,7 +205,13 @@ function recordSurvived(signature: string, nowMs: number): number {
   survivedTotal += 1;
   survivedLastAtMs = nowMs;
   if (!survivedSignatures.has(signature) && survivedSignatures.size >= MAX_TRACKED_SIGNATURES) {
-    survivedSignatures.clear();
+    // Evict the OLDEST entry rather than clearing the table (PR #2602 R2).
+    // `distinctSignatures` is operator-facing, and a full reset would drop it
+    // to 0 mid-flight — a field whose whole purpose is visibility must not
+    // look like the condition stopped happening. A Map iterates in insertion
+    // order, so the first key is the oldest. Size stays bounded either way.
+    const oldest = survivedSignatures.keys().next().value;
+    if (oldest !== undefined) survivedSignatures.delete(oldest);
   }
   const count = (survivedSignatures.get(signature) ?? 0) + 1;
   survivedSignatures.set(signature, count);
