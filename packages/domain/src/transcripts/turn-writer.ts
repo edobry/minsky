@@ -62,6 +62,21 @@ export interface WriteTurnsResult {
 }
 
 /**
+ * Injectable warn/error sink for turn-writer's logging (mt#3628). Defaults to
+ * the real shared logger; tests inject a plain recording function instead of
+ * patching `log` with `spyOn` — the winston output itself is already silenced
+ * under the test harness (`tests/setup.ts` sets `TEST_LOGGER_SILENCED_FLAG`;
+ * see `logger.ts`'s `isTestHarnessConsoleSilent()`), so a spy buys nothing a
+ * plain fake doesn't.
+ */
+export interface TurnWriterLogSink {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  error: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultLogSink: TurnWriterLogSink = { warn: log.warn, error: log.error };
+
+/**
  * Extract per-turn rows from a session's transcript and upsert them into
  * `agent_transcript_turns` (text/metadata columns only — never `embedding`).
  *
@@ -79,7 +94,8 @@ export interface WriteTurnsResult {
 export async function writeTurnsForTranscript(
   db: PostgresJsDatabase,
   agentSessionId: string,
-  transcript: unknown
+  transcript: unknown,
+  logSink: TurnWriterLogSink = defaultLogSink
 ): Promise<WriteTurnsResult> {
   if (!Array.isArray(transcript) || transcript.length === 0) {
     return { written: 0, nonEmptyYieldedZero: false, erroredChunks: 0 };
@@ -91,7 +107,7 @@ export async function writeTurnsForTranscript(
     // loud failure signal — the extractor didn't recognize this era's/shape's
     // JSONB, which is indistinguishable from a genuinely-empty session unless
     // we say so explicitly. Never silently swallow this.
-    log.warn(
+    logSink.warn(
       `writeTurnsForTranscript: non-empty transcript (${transcript.length} raw lines) yielded ` +
         `zero turns for session ${agentSessionId} — possible extractor-shape mismatch`,
       { agentSessionId, transcriptLines: transcript.length }
@@ -156,7 +172,7 @@ export async function writeTurnsForTranscript(
       // (written stays 0) is classified downstream as "skipped" (nothing to
       // do) rather than "errored" (something went wrong).
       erroredChunks++;
-      log.warn(
+      logSink.warn(
         `writeTurnsForTranscript: failed to upsert a chunk of ${chunk.length} turns for ` +
           `${agentSessionId} (turns ${chunk[0]?.turnIndex}-${chunk[chunk.length - 1]?.turnIndex})`,
         {
@@ -167,6 +183,44 @@ export async function writeTurnsForTranscript(
   }
 
   return { written, nonEmptyYieldedZero: false, erroredChunks };
+}
+
+/** Which aggregate bucket a single transcript's write outcome falls into. */
+export type WriteOutcomeBucket = "processed" | "skipped" | "errored";
+
+/** Pure classification of a single transcript's write outcome (mt#3628). */
+export interface WriteOutcomeClassification {
+  bucket: WriteOutcomeBucket;
+  /** Turns to add to the running `turnsWritten` aggregate for this transcript. */
+  turnsWritten: number;
+  /** Whether this outcome should also increment the aggregate's `nonEmptyYieldedZero`. */
+  countNonEmptyYieldedZero: boolean;
+}
+
+/**
+ * Pure decision core for `extractTurnsForAllTranscripts`'s per-transcript
+ * bucketing (mt#3628, extracted from mt#2457 R1 review's chunk-failure
+ * classification). Any chunk error takes priority over the write count —
+ * a partial write (`written > 0` alongside `erroredChunks > 0`) is still
+ * `\"errored\"`, not folded into `\"processed\"` just because some turns
+ * landed. No I/O, no logger: testable entirely by return value.
+ */
+export function classifyWriteOutcome({
+  written,
+  nonEmptyYieldedZero,
+  erroredChunks,
+}: WriteTurnsResult): WriteOutcomeClassification {
+  if (erroredChunks > 0) {
+    return {
+      bucket: "errored",
+      turnsWritten: written > 0 ? written : 0,
+      countNonEmptyYieldedZero: false,
+    };
+  }
+  if (written === 0) {
+    return { bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: nonEmptyYieldedZero };
+  }
+  return { bucket: "processed", turnsWritten: written, countNonEmptyYieldedZero: false };
 }
 
 /** Aggregate result of an extraction reconciliation sweep. */
@@ -279,6 +333,8 @@ export interface ExtractAllTurnsOptions {
     partial: Readonly<ExtractAllTurnsResult>,
     lastId: string
   ) => void | Promise<void>;
+  /** Injectable warn/error sink (mt#3628); see `TurnWriterLogSink`. */
+  logSink?: TurnWriterLogSink;
 }
 
 /**
@@ -303,6 +359,7 @@ export async function extractTurnsForAllTranscripts(
 ): Promise<ExtractAllTurnsResult> {
   const batchSize = options.batchSize ?? DEFAULT_EXTRACT_ALL_BATCH_SIZE;
   const fetchPage = options.fetchPage ?? fetchTranscriptPage;
+  const logSink = options.logSink ?? defaultLogSink;
 
   const result: ExtractAllTurnsResult = {
     transcriptsScanned: 0,
@@ -326,7 +383,7 @@ export async function extractTurnsForAllTranscripts(
       // had no way to tell "clean end of corpus" from "gave up on a fetch
       // error partway through" (both looked like a normal loop exit).
       result.aborted = true;
-      log.error("extractTurnsForAllTranscripts: failed to load a transcript batch", {
+      logSink.error("extractTurnsForAllTranscripts: failed to load a transcript batch", {
         error: getLoggableErrorSummary(err),
         cursor,
       });
@@ -341,32 +398,37 @@ export async function extractTurnsForAllTranscripts(
     for (const row of rows) {
       lastId = row.agentSessionId;
       try {
-        const { written, nonEmptyYieldedZero, erroredChunks } = await writeTurnsForTranscript(
+        const outcome = await writeTurnsForTranscript(
           db,
           row.agentSessionId,
-          row.transcript
+          row.transcript,
+          logSink
         );
-        if (erroredChunks > 0) {
-          // mt#2457 R1 review: any chunk write failure is an error, even when
-          // some OTHER chunk of the same transcript succeeded (written > 0) —
-          // a partial write is not "processed", it's a degraded result that
-          // needs investigating, same as a total write failure.
-          result.transcriptsErrored++;
-          if (written > 0) {
-            result.turnsWritten += written;
-          }
-        } else if (written === 0) {
-          result.transcriptsSkipped++;
-          if (nonEmptyYieldedZero) {
-            result.nonEmptyYieldedZero++;
-          }
-        } else {
-          result.transcriptsProcessed++;
-          result.turnsWritten += written;
+        // mt#3628: bucketing is a pure decision (classifyWriteOutcome) — any
+        // chunk write failure is an error even when some OTHER chunk of the
+        // same transcript succeeded (written > 0); a partial write is not
+        // "processed", it's a degraded result that needs investigating, same
+        // as a total write failure.
+        const classification = classifyWriteOutcome(outcome);
+        switch (classification.bucket) {
+          case "errored":
+            result.transcriptsErrored++;
+            result.turnsWritten += classification.turnsWritten;
+            break;
+          case "skipped":
+            result.transcriptsSkipped++;
+            if (classification.countNonEmptyYieldedZero) {
+              result.nonEmptyYieldedZero++;
+            }
+            break;
+          case "processed":
+            result.transcriptsProcessed++;
+            result.turnsWritten += classification.turnsWritten;
+            break;
         }
       } catch (err) {
         result.transcriptsErrored++;
-        log.warn(`extractTurnsForAllTranscripts: failed for ${row.agentSessionId}`, {
+        logSink.warn(`extractTurnsForAllTranscripts: failed for ${row.agentSessionId}`, {
           error: getLoggableErrorSummary(err),
         });
       }
