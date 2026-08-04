@@ -20,6 +20,7 @@ import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // module is dependency-light by design, and a deployment that never spawns a
 // driven session just reads an empty registry.
 import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host";
+import { ServerTimingRecorder } from "../server-timing";
 
 /**
  * Pick the driven session an operator should be returned to for a task
@@ -81,6 +82,35 @@ export function selectLiveDrivenSession<
  * instances). Module-level singleton cache, separate instance from those two
  * widgets' caches — no shared state, no cross-contamination.
  */
+/**
+ * Collect the task ids referenced by a task's graph neighborhood, deduplicated
+ * and in a stable order (mt#3696).
+ *
+ * Extracted as a pure function for the same reason `selectLiveDrivenSession` is:
+ * the `/api/tasks/:id` route has no DI seam and `mock.module` is banned here, so
+ * the RULES are tested directly (see ./tasks.test.ts) and the route keeps only
+ * the wiring.
+ *
+ * Every argument is a settled result rather than a value because the four graph
+ * reads run under `Promise.allSettled` — one of them failing must degrade that
+ * edge to "no neighbors" rather than fail the whole detail read, which is the
+ * behavior this preserves.
+ */
+export function collectReferencedTaskIds(
+  parent: PromiseSettledResult<string | null | undefined>,
+  children: PromiseSettledResult<readonly string[] | undefined>,
+  outgoing: PromiseSettledResult<readonly string[] | undefined>,
+  incoming: PromiseSettledResult<readonly string[] | undefined>
+): string[] {
+  const ids = new Set<string>();
+  if (parent.status === "fulfilled" && parent.value) ids.add(parent.value);
+  for (const list of [children, outgoing, incoming]) {
+    if (list.status !== "fulfilled") continue;
+    for (const id of list.value ?? []) ids.add(id);
+  }
+  return [...ids];
+}
+
 async function taskMetaProvider(): Promise<TaskProviderLike> {
   const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
   return {
@@ -218,8 +248,18 @@ export function mountTaskRoutes(app: express.Express): void {
     // Accept both URL-encoded (mt%231918) and raw (mt#1918) forms
     const taskId = decodeURIComponent(rawId);
 
+    // Per-phase attribution for this handler (mt#3696). The detail read is the
+    // cockpit's dominant server cost, and its waves are individually invisible
+    // from the browser — a client can see the total and nothing else.
+    //
+    // Attached rather than applied per-exit so the 503/404/500 responses carry
+    // the attribution too: a slow FAILURE is exactly the case someone reaches
+    // for this header to explain (PR #2637 R1).
+    const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
+
     try {
-      const taskDetailDeps = await getServerTaskDetailDeps();
+      const taskDetailDeps = await timing.time("deps", () => getServerTaskDetailDeps());
       if (!taskDetailDeps) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -230,11 +270,84 @@ export function mountTaskRoutes(app: express.Express): void {
       const { taskService, taskGraphService } = taskDetailDeps;
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
-      // Fetch task metadata and spec in parallel — they don't depend on each other
-      const [taskResult, specResult] = await Promise.allSettled([
-        taskService.getTask(taskId),
-        taskService.getTaskSpecContent(taskId).catch(() => null),
-      ]);
+      // Three independent reads, all started before any is awaited (mt#3696).
+      //
+      // Each of these needs only `taskId`, which is known at request entry —
+      // none consumes another's output. Awaiting them in sequence therefore
+      // serialized three round trips to a remote Postgres for no reason, and
+      // that serialization WAS the page's cost, not the size of any one query:
+      // measured on the detail route, task=583ms + graph=171ms +
+      // workspace-lookup=246ms summed to a ~1.0s handler against a ~4KB
+      // response, while the 71KB list route answered in a fifth of the time.
+      //
+      // Only `refs` below is genuinely dependent — it needs the ids `graph`
+      // returns — so it stays sequenced after it.
+      //
+      // Starting all three here means a rejection could go unhandled if an
+      // early return fires before the await. `Promise.allSettled` cannot
+      // reject, and the workspace probe catches internally and resolves to
+      // null, so every promise started here is already non-rejecting.
+      //
+      // Deliberate load-vs-latency trade (PR #2637 R1): a request for an id
+      // that does not exist still runs the graph and workspace reads before the
+      // 404, so a 404 costs reads it does not use. Accepted, because the
+      // alternative does not work — "check the task exists first" IS the
+      // `getTask` round trip, so gating on it re-serializes the whole handler
+      // and gives back the ~400ms this change bought on every successful read.
+      // A 404 here means a malformed URL, not a normal flow.
+      const taskPromise = timing.time("task", () =>
+        Promise.allSettled([
+          taskService.getTask(taskId),
+          taskService.getTaskSpecContent(taskId).catch(() => null),
+        ])
+      );
+
+      const graphPromise = timing.time("graph", () =>
+        Promise.allSettled([
+          taskGraphService.getParent(taskId),
+          taskGraphService.listChildren(taskId),
+          taskGraphService.listDependencies(taskId),
+          taskGraphService.listDependents(taskId),
+        ])
+      );
+
+      // `refs` is the ONE genuinely dependent read — it needs the ids `graph`
+      // returns — so it chains off `graphPromise` rather than off the awaits
+      // below. Sequencing it after `await taskPromise` instead would have made
+      // it wait on a read it has nothing to do with: measured, that pushed the
+      // handler to task(468ms) + refs(157ms) = 625ms when graph+refs together
+      // finish in ~310ms and could hide entirely inside the task read.
+      //
+      // Unlike its two siblings this CAN reject, and an early 404 return could
+      // leave that rejection unobserved. The no-op catch marks it handled
+      // without swallowing it: `await refsPromise` below still throws, so a
+      // genuine failure still reaches the handler's catch and still 500s.
+      const refsPromise = graphPromise.then(async (settled) => {
+        const ids = collectReferencedTaskIds(...settled);
+        if (ids.length === 0) return [];
+        return timing.time("refs", () => taskService.getTasks(ids));
+      });
+      refsPromise.catch(() => {});
+
+      const workspacePromise = timing.time("workspace-lookup", async () => {
+        try {
+          const sessionProvider = await getServerSessionProvider();
+          if (!sessionProvider) return null;
+          const existing = await sessionProvider.getSessionByTaskId(taskId);
+          return existing
+            ? { sessionId: existing.sessionId, prNumber: existing.pullRequest?.number ?? null }
+            : null;
+        } catch (workspaceErr) {
+          log.warn(
+            `[tasks] actions workspace probe failed for ${taskId}: ${
+              workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
+            }`
+          );
+          return null;
+        }
+      });
+
+      const [taskResult, specResult] = await taskPromise;
 
       if (taskResult.status === "rejected") {
         const reason =
@@ -262,31 +375,9 @@ export function mountTaskRoutes(app: express.Express): void {
       // listDependencies → outgoing (what this task depends on)
       // listDependents  → incoming (what depends on this task)
       const [parentIdResult, childIdsResult, outgoingIdsResult, incomingIdsResult] =
-        await Promise.allSettled([
-          taskGraphService.getParent(taskId),
-          taskGraphService.listChildren(taskId),
-          taskGraphService.listDependencies(taskId),
-          taskGraphService.listDependents(taskId),
-        ]);
+        await graphPromise;
 
-      // Collect all referenced task IDs so we can batch-fetch their metadata
-      const referencedIds = new Set<string>();
-      if (parentIdResult.status === "fulfilled" && parentIdResult.value) {
-        referencedIds.add(parentIdResult.value);
-      }
-      if (childIdsResult.status === "fulfilled") {
-        for (const id of childIdsResult.value ?? []) referencedIds.add(id);
-      }
-      if (outgoingIdsResult.status === "fulfilled") {
-        for (const id of outgoingIdsResult.value ?? []) referencedIds.add(id);
-      }
-      if (incomingIdsResult.status === "fulfilled") {
-        for (const id of incomingIdsResult.value ?? []) referencedIds.add(id);
-      }
-
-      // Batch-fetch metadata for all referenced tasks
-      const refTasksArr =
-        referencedIds.size > 0 ? await taskService.getTasks([...referencedIds]) : [];
+      const refTasksArr = await refsPromise;
       const refTaskMap = new Map(refTasksArr.map((t) => [t.id, t]));
 
       function taskRef(id: string): { id: string; title: string; status: string } {
@@ -334,25 +425,11 @@ export function mountTaskRoutes(app: express.Express): void {
         note?: string;
       }
 
-      let existingWorkspace: { sessionId: string; prNumber: number | null } | null = null;
-      try {
-        const sessionProvider = await getServerSessionProvider();
-        if (sessionProvider) {
-          const existing = await sessionProvider.getSessionByTaskId(taskId);
-          if (existing) {
-            existingWorkspace = {
-              sessionId: existing.sessionId,
-              prNumber: existing.pullRequest?.number ?? null,
-            };
-          }
-        }
-      } catch (workspaceErr) {
-        log.warn(
-          `[tasks] actions workspace probe failed for ${taskId}: ${
-            workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
-          }`
-        );
-      }
+      // Started concurrently with the task and graph reads above; by the time
+      // control reaches here it has usually already resolved. It still degrades
+      // to "no workspace" on any error rather than failing the detail read —
+      // the catch now lives inside the promise rather than around this await.
+      const existingWorkspace = await workspacePromise;
 
       // mt#3400 — a live driven session bound to this task is the operator's
       // actual work surface, and until this probe existed the task page could
@@ -493,8 +570,14 @@ export function mountTaskRoutes(app: express.Express): void {
    *               caused only 2 of 70 task refs to link in live transcripts.
    */
   app.get("/api/tasks", async (req, res) => {
+    // mt#3696 — instrumented alongside the detail route so a measurement can
+    // compare them: the list returns ~20x the payload of a detail read, which
+    // is what makes the detail read's cost recognizably not payload-bound.
+    const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
+
     try {
-      const taskService = await getServerTaskService();
+      const taskService = await timing.time("service", () => getServerTaskService());
       if (!taskService) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -507,7 +590,7 @@ export function mountTaskRoutes(app: express.Express): void {
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";
-      const tasks = await taskService.listTasks({ all: includeAll });
+      const tasks = await timing.time("list", () => taskService.listTasks({ all: includeAll }));
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({

@@ -148,3 +148,9 @@ supabase/
 # `session_commit --all` in any session would otherwise sweep in state files
 # belonging to OTHER sessions — which is exactly how one landed in PR #2341.
 /.minsky/state/
+
+# Latency measurements written by scripts/verify-cockpit-navigation-latency.ts
+# (mt#3696). Timings are a property of the machine and its load at the moment of
+# the run, not of the repo: committing them would produce a large diff on every
+# run and invite reading one machine's numbers as a project-wide baseline.
+/scripts/cockpit-navigation-latency-results.json
