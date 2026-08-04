@@ -406,17 +406,17 @@ const SQL_KEYWORDS_UPPER: ReadonlySet<string> = new Set([
  * list built up over five calibration rounds (mt#3113, mt#3002 x2, mt#3042,
  * mt#3540).
  *
- * **Before adding a sixth exclusion, read ADR-031.** mt#3549 proposed replacing
+ * **Before adding a sixth exclusion, read ADR-034.** mt#3549 proposed replacing
  * this whole predicate with an allowlist of symbols the repo actually defines,
  * which would retire every exclusion at once. It was REJECTED on measurement:
  * most claims this detector correctly fires on are about MCP tool names, env
  * vars, file names, guard names, and DB columns — real repo identifiers that a
  * TypeScript symbol index does not contain — so gating on one would convert
- * true positives into silent false negatives. ADR-031 also records the three
+ * true positives into silent false negatives. ADR-034 also records the three
  * conditions that would reopen the question; a sixth round is a good moment to
  * check them rather than to write another predicate.
  *
- * @see docs/architecture/adr-031-symbol-identification-in-code-mechanism-assertion.md
+ * @see docs/architecture/adr-034-symbol-identification-in-code-mechanism-assertion.md
  */
 function isPlausibleSymbol(tok: string): boolean {
   const t = tok.trim();

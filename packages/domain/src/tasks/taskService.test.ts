@@ -12,69 +12,65 @@
  * confusingly, as "No backends registered" once something tried to use the
  * task service.
  *
- * These tests spy on `log.error`/`log.warn` (established pattern — see
- * persistence/postgres-notice-handler.test.ts) rather than using
- * `mock.module()`, which is banned (eslint-rules/no-global-module-mocks.js).
+ * mt#3628: the severity split itself is `classifyBackendUnavailableSeverity`,
+ * a pure function tested below by return value. `createConfiguredTaskService`
+ * gets one wiring test verifying the shell routes through the decision via
+ * its injected `logSink` (constructor option), never `spyOn(log)`.
  */
 
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { log } from "@minsky/shared/logger";
-import { createConfiguredTaskService } from "./taskService";
+import { describe, test, expect } from "bun:test";
+import { createConfiguredTaskService, classifyBackendUnavailableSeverity } from "./taskService";
 import { UnconfiguredPersistenceProvider } from "../persistence/unconfigured-provider";
 
+describe("classifyBackendUnavailableSeverity (pure core, mt#3628 / mt#2949)", () => {
+  test("configured-but-unavailable classifies as error", () => {
+    expect(classifyBackendUnavailableSeverity(true)).toBe("error");
+  });
+
+  test("deliberately unconfigured classifies as warn", () => {
+    expect(classifyBackendUnavailableSeverity(false)).toBe("warn");
+  });
+});
+
 describe("createConfiguredTaskService — mt backend silent-degrade fix (mt#2949)", () => {
-  let errorSpy: ReturnType<typeof spyOn>;
-  let warnSpy: ReturnType<typeof spyOn>;
+  test("wiring: severity routes to the matching logSink method, not spyOn(log) (mt#3628)", async () => {
+    const errorCalls: string[] = [];
+    const warnCalls: string[] = [];
+    const logSink = {
+      error: (message: string) => errorCalls.push(message),
+      warn: (message: string) => warnCalls.push(message),
+    };
 
-  beforeEach(() => {
-    errorSpy = spyOn(log, "error").mockImplementation(() => {});
-    warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    errorSpy.mockRestore();
-    warnSpy.mockRestore();
-  });
-
-  test("configured-but-unavailable (Postgres configured, init failed) surfaces via log.error, not log.warn", async () => {
-    const provider = new UnconfiguredPersistenceProvider(
-      "connect ECONNREFUSED — Postgres unreachable",
-      true
-    );
-
+    // configured-but-unavailable -> error, not warn.
     await createConfiguredTaskService({
       workspacePath: "/tmp/mt2949-test-workspace",
-      persistenceProvider: provider,
+      persistenceProvider: new UnconfiguredPersistenceProvider(
+        "connect ECONNREFUSED — Postgres unreachable",
+        true
+      ),
+      logSink,
     });
-
-    const errorCalls = errorSpy.mock.calls.map((c) => String(c[0]));
     expect(errorCalls.some((msg) => msg.includes("Minsky task backend unavailable"))).toBe(true);
-
     // The pre-existing "Minsky backend database connection failed" warn must
     // NOT also fire for this case — it's the deliberately-unconfigured path.
-    const warnCalls = warnSpy.mock.calls.map((c) => String(c[0]));
     expect(warnCalls.some((msg) => msg.includes("Minsky backend database connection failed"))).toBe(
       false
     );
-  });
 
-  test("deliberately unconfigured (no connection string anywhere) keeps the quiet log.warn path — no regression for local/dev", async () => {
-    const provider = new UnconfiguredPersistenceProvider(
-      "no Postgres connection configured",
-      false
-    );
-
+    // deliberately unconfigured -> warn, not error — no regression for local/dev.
+    errorCalls.length = 0;
+    warnCalls.length = 0;
     await createConfiguredTaskService({
       workspacePath: "/tmp/mt2949-test-workspace",
-      persistenceProvider: provider,
+      persistenceProvider: new UnconfiguredPersistenceProvider(
+        "no Postgres connection configured",
+        false
+      ),
+      logSink,
     });
-
-    const warnCalls = warnSpy.mock.calls.map((c) => String(c[0]));
     expect(warnCalls.some((msg) => msg.includes("Minsky backend database connection failed"))).toBe(
       true
     );
-
-    const errorCalls = errorSpy.mock.calls.map((c) => String(c[0]));
     expect(errorCalls.some((msg) => msg.includes("Minsky task backend unavailable"))).toBe(false);
   });
 });

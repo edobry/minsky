@@ -285,6 +285,62 @@ describe("detectKnowledgeAcquisition", () => {
     expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
   });
 
+  // mt#3272 — the spec-writing channels. Research done inside /plan-task or
+  // /create-task lands in the task spec, not in a memory, and was reading as
+  // "never written down." Measured: 11 fires across two sessions on the
+  // 2026-08-03 sweep, both of which had written their findings into specs.
+  test("suppressed (mt#3272): tasks_spec_patch in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__tasks_spec_patch",
+      propagationInFillerIndex: 1,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    expect(detection?.result.hadPropagation).toBe(true);
+  });
+
+  test("suppressed (mt#3272): tasks_spec_search_replace in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__tasks_spec_search_replace",
+      propagationInFillerIndex: 0,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  test("suppressed (mt#3272): memory_update in the trailing window", () => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: "mcp__minsky__memory_update",
+      propagationInFillerIndex: 2,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+  });
+
+  // The boundary that keeps the widening from swallowing the detector. Writing
+  // code is not capturing research about it; if these counted, almost nothing
+  // would ever fire. Covers the CLASS, not one member (PR #2591 R1): all four
+  // source-editing tools, each of which is frequent in real transcripts —
+  // `session_edit_file` alone appears 1485 times across the local corpus.
+  test.each([
+    "mcp__minsky__session_write_file",
+    "mcp__minsky__session_edit_file",
+    "mcp__minsky__session_search_replace",
+    "Edit",
+  ])("mt#3272: a SOURCE edit (%s) is NOT propagation", (toolName) => {
+    const lines = buildLines({
+      fillerTurns: TRAILING_WINDOW_TURNS,
+      propagationToolName: toolName,
+      propagationInFillerIndex: 1,
+    });
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.suppressionReasons).toEqual([]);
+    expect(detection?.result.hadPropagation).toBe(false);
+  });
+
   test("mt#3207: a live fire records an EMPTY suppressionReasons, not an absent one", () => {
     const lines = buildLines({ fillerTurns: TRAILING_WINDOW_TURNS });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
