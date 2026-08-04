@@ -526,6 +526,45 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "deny",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#3673 — the duplicate-check record, enforced at the tool boundary.
+  //
+  // mt#3585 put the requirement in `/create-task` Step 1a and its exit gate; a
+  // direct `tasks_create` call never enters the skill, so neither ran. That is
+  // the bypass shape `hook-observers.mdc §Turn-end-unwalked-task` already
+  // records for mt#2689. The similarity sibling (parallel-work-guard-standalone,
+  // mt#2813) stays advisory and unchanged — it provably cannot discriminate at
+  // the distances real duplicates sit at (mem#819), so this guard checks that
+  // the agent LOOKED, not whether a duplicate exists.
+  // -------------------------------------------------------------------------
+  {
+    name: "require-duplicate-check-record",
+    // `invariant`: whether a create records its duplicate check is not a
+    // threshold to tune — the record is either present or it is not.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./require-duplicate-check-record").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // Measured against buildDenialReason()'s fixed body — ~780 chars. It has to
+    // carry BOTH accepted forms plus the read-the-titles-not-the-scores warning,
+    // because a clean similarity result is exactly what misleads here. One
+    // remediation option (the MINSKY_SKIP_DUPLICATE_RECORD override).
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // A create whose spec carries no record — purely string-driven, no
+    // filesystem or env dependency, so the canary is stable.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nA spec with no duplicate-check record.\n",
+        },
+      },
+      expects: "deny",
+    },
+  },
   {
     name: "block-secret-file-read",
     // `invariant`: the set of files whose content is credential material is not
