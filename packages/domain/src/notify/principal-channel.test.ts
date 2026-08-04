@@ -628,6 +628,18 @@ describe("pulumi config absence detection (mt#3698)", () => {
       expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(false);
     });
 
+    test("rejects a MULTI-segment namespace (PR #2627 R1)", () => {
+      // `endsWith(":" + key)` accepted this; a single-segment namespace does not.
+      const json = JSON.stringify({ "a:b:reviewer-telegram-chat-id": { value: "x" } });
+      expect(isPulumiConfigKeySet(json, TELEGRAM_CHAT_ID_PULUMI_KEY)).toBe(false);
+    });
+
+    test("treats a regex metacharacter in the key as a literal", () => {
+      const json = JSON.stringify({ "ns:axb": { value: "x" } });
+      expect(isPulumiConfigKeySet(json, "a.b")).toBe(false);
+      expect(isPulumiConfigKeySet(JSON.stringify({ "ns:a.b": { value: "x" } }), "a.b")).toBe(true);
+    });
+
     test("returns null (not false) when the payload cannot be parsed", () => {
       expect(isPulumiConfigKeySet("not json at all", TELEGRAM_CHAT_ID_PULUMI_KEY)).toBeNull();
     });

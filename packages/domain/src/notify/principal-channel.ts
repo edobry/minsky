@@ -80,8 +80,17 @@ export type PrincipalChannelResolution =
       transient: boolean;
     };
 
-/** Outcome of one credential read: a value, a definite absence, or a failure. */
-export type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
+/**
+ * Outcome of one credential read: a value, a definite absence, or a failure.
+ *
+ * Deliberately NOT exported (PR #2627 R1): the two pure helpers below reference
+ * it in their signatures, which does not require it to be public — this package
+ * is consumed from source, so nothing needs to name the type externally. Keeping
+ * it module-private avoids widening the deep-import surface
+ * (`@minsky/domain/notify/principal-channel`) as a side effect of extracting a
+ * testable helper.
+ */
+type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
 
 /**
  * Injected readers. Both default to the real sources; tests pass stubs so no
@@ -262,6 +271,15 @@ async function readPulumiToken(deps: PrincipalChannelDeps): Promise<CredentialRe
  * while `pulumi config get` accepts the bare key, so both forms match. Missing
  * this is not a cosmetic bug: a bare-key-only comparison reads EVERY key as
  * absent, reintroducing mt#3608's collapse through a new mechanism.
+ *
+ * The namespace is matched as ONE segment (PR #2627 R1) rather than by a bare
+ * `endsWith`, so `a:b:reviewer-telegram-chat-id` no longer counts. A real map
+ * does carry several namespaces at once (`minsky-infra:`, `secrets:`,
+ * `railway:`, `pulumi:`), so this cannot pin the exact owning project without
+ * reading `Pulumi.yaml`. That residual is deliberate and safe by direction: an
+ * over-accepted match reports the key as PRESENT, and present routes to the
+ * FAILURE branch — retryable — never to a false absence, which is the verdict
+ * that would strand the channel.
  */
 export function isPulumiConfigKeySet(configJson: string, key: string): boolean | null {
   let parsed: unknown;
@@ -271,9 +289,15 @@ export function isPulumiConfigKeySet(configJson: string, key: string): boolean |
     return null;
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const namespaced = new RegExp(`^[^:]+:${escapeForRegExp(key)}$`);
   return Object.keys(parsed as Record<string, unknown>).some(
-    (k) => k === key || k.endsWith(`:${key}`)
+    (k) => k === key || namespaced.test(k)
   );
+}
+
+/** Escape a literal for safe interpolation into a RegExp. */
+function escapeForRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
