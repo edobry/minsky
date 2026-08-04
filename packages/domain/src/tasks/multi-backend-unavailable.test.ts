@@ -32,6 +32,9 @@ const WORKSPACE = "/mock/mt3636-workspace";
 /** The verbatim boot failure from the 2026-08-03 incident. */
 const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
 
+/** The guard's error name — asserted rather than matched on prose. */
+const UNAVAILABLE_ERROR = "TaskBackendUnavailableError";
+
 /** Minimal in-memory backend — enough to prove the guard does NOT fire. */
 function fakeBackend(tasks: Task[] = []): TaskBackend {
   return {
@@ -96,6 +99,21 @@ describe("zero-backend read guard (mt#3636)", () => {
       await expect(build().deleteTask("mt#3524")).rejects.toThrow(/Task backend unavailable/);
     });
 
+    test("the WRITE path names the cause even with an EXPLICIT backend argument", async () => {
+      // PR #2596 R2: the explicit-backend lookup runs before the default-backend
+      // path, so with zero backends it used to answer "Requested backend
+      // 'minsky' is not registered. Available backends: none." — a description
+      // of the symptom that hides the unreachable database. The guard now runs
+      // ahead of every routing decision.
+      const error = await build()
+        .createTaskFromTitleAndSpec("a title", "a spec", { backend: "minsky" })
+        .catch((e: unknown) => e as Error);
+
+      expect(error.name).toBe(UNAVAILABLE_ERROR);
+      expect(error.message).toContain(BOOT_FAILURE);
+      expect(error.message).not.toContain("is not registered");
+    });
+
     test("the WRITE path now names the cause too, not a bare 'No backends registered'", async () => {
       // The write path was always loud, but "No backends registered" was the
       // only signal a caller got during the incident — it says nothing about
@@ -104,7 +122,7 @@ describe("zero-backend read guard (mt#3636)", () => {
         .createTaskFromTitleAndSpec("a title", "a spec")
         .catch((e: unknown) => e as Error);
 
-      expect(error.name).toBe("TaskBackendUnavailableError");
+      expect(error.name).toBe(UNAVAILABLE_ERROR);
       expect(error.message).toContain(BOOT_FAILURE);
       expect(error.message).not.toBe("No backends registered");
     });
@@ -119,7 +137,7 @@ describe("zero-backend read guard (mt#3636)", () => {
       expect(error.message).toContain("failed to initialize at boot");
       // Must not be mistakable for a legitimately empty database.
       expect(error.message).toContain("NOT an empty database");
-      expect(error.name).toBe("TaskBackendUnavailableError");
+      expect(error.name).toBe(UNAVAILABLE_ERROR);
     });
 
     test("getTasks([]) still returns empty — an empty request needs no backend", async () => {

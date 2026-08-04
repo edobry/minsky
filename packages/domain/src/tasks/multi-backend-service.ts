@@ -467,6 +467,13 @@ export class TaskServiceImpl implements TaskService {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
+    // Fail closed BEFORE any routing decision (mt#3636, PR #2596 R2). With zero
+    // backends the cause is unavailability, not a bad backend name — and the
+    // explicit-backend lookup below would otherwise answer "Requested backend
+    // 'minsky' is not registered. Available backends: none.", which describes
+    // the symptom and hides that the database is unreachable.
+    this.assertBackendAvailable("create a task");
+
     // If the caller requested a specific backend, route there instead of using the
     // configured default.  This is the fix for mt#2572 Bug 4: when the minsky DB
     // backend is down, GitHub becomes the effective defaultBackend, so tasks_create
@@ -489,15 +496,12 @@ export class TaskServiceImpl implements TaskService {
     }
 
     if (!backend) {
-      // Zero backends registered — name the cause (mt#3636). This is the state
-      // the 2026-08-03 boot failure produced, and the old "No backends
-      // registered" said nothing about the database being unreachable.
-      this.assertBackendAvailable("create a task");
-
-      // Backends ARE registered, but no default was selected. Unreachable
-      // today — `registerBackend` sets `defaultBackend` on the first
-      // registration and nothing clears it — so this is a defensive branch
-      // only. It gets its own message because reusing "No backends
+      // Zero backends is already handled by the guard at the top of this
+      // method, so reaching here means backends ARE registered but no default
+      // was selected. Unreachable today — `registerBackend` sets
+      // `defaultBackend` on the first registration and nothing clears it — so
+      // this is a defensive branch only, kept because TS still needs the
+      // narrowing. It gets its own message because reusing "No backends
       // registered" here would state something plainly false about a service
       // that has backends (PR #2596 R1).
       const available = this.backends.map((b) => `${b.name}(${b.prefix}#)`).join(", ");
