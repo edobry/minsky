@@ -56,6 +56,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,17 @@ export interface ClaimMatch {
   category: string;
   matchedPhrase: string;
   expectedTool: string;
+  /**
+   * The sentence or clause containing `matchedPhrase` (mt#3198).
+   *
+   * SEPARATE from `matchedPhrase` on purpose. `matchedPhrase` is the diversity
+   * axis the calibration sweep keys on — `extractDistinctPhrases` in
+   * `src/domain/calibration/calibration-sweep.ts` derives `matchedPhrases`
+   * from `matches[].phrase`, so widening THAT field would make every record a
+   * distinct "phrase" (sentences are near-unique) and silently destroy the
+   * distinct-count that drives the review-due threshold.
+   */
+  context: string;
 }
 
 /**
@@ -240,6 +252,96 @@ export function elideMarkdownContexts(text: string): string {
   result = result.replace(/(`+)([^`]|(?!`)[^`]*?)\1(?!`)/g, (m) => " ".repeat(m.length));
   result = result.replace(/^[ \t]{0,3}>+.*$/gm, (m) => " ".repeat(m.length));
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Match context capture (mt#3198)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cap on the captured context, in UTF-16 code units.
+ *
+ * Sized to hold a normal prose sentence with room for a long one, and small
+ * enough that the log stays a log rather than a transcript mirror: the two
+ * sibling detectors that already capture context cap at 200
+ * (`MATCH_EXCERPT_MAX_CHARS` in `operator-deferral-detector.ts`, and
+ * `substrate-bypass-detector.ts`'s slice), and those capture a fixed
+ * ±20-character window rather than a whole sentence, so this one is a little
+ * larger for the same reviewability.
+ */
+export const MATCH_CONTEXT_MAX_CHARS = 240;
+
+/**
+ * Cap on the matched phrase itself, in UTF-16 code units. Pre-existing bound
+ * (it shipped with the detector as a bare `.slice(0, 200)`); named here, and
+ * routed through `safeTruncate`, so a match ending on an emoji cannot leave a
+ * lone surrogate in the JSONL — `JSON.stringify` emits it and the re-parse a
+ * calibration sweep does then rejects the line (mt#1598).
+ */
+export const MATCHED_PHRASE_MAX_CHARS = 200;
+
+/**
+ * How far to scan outward from a match hunting for a sentence boundary before
+ * giving up and cutting at the scan limit. Bounds the work done on a
+ * pathological input (a wall of prose with no terminal punctuation) and keeps
+ * the pre-truncation slice within a small multiple of the cap.
+ */
+const CONTEXT_SCAN_RADIUS = 300;
+
+/**
+ * Extract the sentence or clause containing a match (mt#3198).
+ *
+ * **Call this with the ELIDED text, never the raw turn text.** The elision in
+ * `elideMarkdownContexts` replaces code spans, fenced blocks and blockquotes
+ * with same-length whitespace — it preserves character positions, so a match
+ * index computed against the elided text addresses the same span here, and any
+ * secret-bearing content the agent pasted into a fence has already been
+ * blanked. Widening the capture window is exactly where pasted tool output
+ * would otherwise leak into a committed log; extracting from the elided text
+ * is what makes the widening safe rather than a new exposure.
+ *
+ * Boundaries are `.`/`!`/`?` (a terminator followed by whitespace, going
+ * backwards; the terminator itself going forwards) or a newline. This is a
+ * deliberately simple splitter — an abbreviation or a decimal point can cut a
+ * sentence short. That degrades the excerpt, it does not corrupt the record,
+ * and a reviewer reading a slightly-short clause is still incomparably better
+ * off than one reading the bare phrase `merged PR`.
+ *
+ * Whitespace runs (including the elision's blanks) collapse to single spaces so
+ * one record stays one readable line.
+ */
+export function extractMatchContext(text: string, matchIndex: number, matchLength: number): string {
+  const lowerBound = Math.max(0, matchIndex - CONTEXT_SCAN_RADIUS);
+  let start = lowerBound;
+  for (let i = matchIndex - 1; i > lowerBound; i--) {
+    const ch = text[i];
+    if (ch === "\n") {
+      start = i + 1;
+      break;
+    }
+    if ((ch === "." || ch === "!" || ch === "?") && /\s/.test(text[i + 1] ?? " ")) {
+      start = i + 1;
+      break;
+    }
+  }
+
+  const matchEnd = matchIndex + matchLength;
+  const upperBound = Math.min(text.length, matchEnd + CONTEXT_SCAN_RADIUS);
+  let end = upperBound;
+  for (let i = matchEnd; i < upperBound; i++) {
+    const ch = text[i];
+    if (ch === "\n") {
+      end = i;
+      break;
+    }
+    if (ch === "." || ch === "!" || ch === "?") {
+      end = i + 1;
+      break;
+    }
+  }
+
+  const raw = text.slice(start, end).replace(/\s+/g, " ").trim();
+  return safeTruncate(raw, MATCH_CONTEXT_MAX_CHARS, "head");
 }
 
 // ---------------------------------------------------------------------------
@@ -327,8 +429,11 @@ export function detectPreNarrationWithSuppression(
       if (m) {
         matched = {
           category: category.key,
-          matchedPhrase: m[0].slice(0, 200),
+          matchedPhrase: safeTruncate(m[0], MATCHED_PHRASE_MAX_CHARS, "head"),
           expectedTool: category.expectedTool,
+          // `text` is the ELIDED text the match ran against — see
+          // extractMatchContext's contract for why that matters.
+          context: extractMatchContext(text, m.index, m[0].length),
         };
         break; // one match per category is enough
       }
@@ -360,6 +465,15 @@ export function detectPreNarrationWithSuppression(
  * shared contract `isSuppressedRecord` reads: populated only when the pass
  * injected NOTHING, because a record with even one live match is a fire the
  * operator saw and must count as injected.
+ *
+ * `context` (mt#3198) is what makes a record classifiable by a HUMAN rather
+ * than only by the machine. `hadMatchingTool` answers "was a backing tool call
+ * present"; it cannot answer "was this a claim at all". The bare phrase
+ * `merged PR` is equally consistent with pre-narration ("I merged the PR") and
+ * with ordinary retrospective reference ("the merged PR touches X") — the
+ * dominant false-positive shape in this log, and indistinguishable without the
+ * surrounding sentence. Added as a NEW key; `phrase` keeps its exact prior
+ * meaning because the calibration sweep's diversity axis is keyed on it.
  */
 export function buildPreNarrationRecord(
   sessionId: string | undefined,
@@ -376,12 +490,14 @@ export function buildPreNarrationRecord(
       ...detection.matches.map((m) => ({
         category: m.category,
         phrase: m.matchedPhrase,
+        context: m.context,
         expectedTool: m.expectedTool,
         hadMatchingTool: false,
       })),
       ...detection.suppressed.map((m) => ({
         category: m.category,
         phrase: m.matchedPhrase,
+        context: m.context,
         expectedTool: m.expectedTool,
         hadMatchingTool: true,
         suppressionReason: m.reason,

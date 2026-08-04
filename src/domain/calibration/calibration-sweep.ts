@@ -47,9 +47,12 @@ export interface CalibrationLogEntry {
    *   same matches-shape as retrospective-trigger; the per-match label key is
    *   `class` not `family`. Both parse through the same branch.
    * "code-mechanism-assertion" → record.claims: {symbol, predicate}[] (mt#2486).
-   * "pre-narration"            → record.matches: {category, phrase, ...}[] (mt#2197) —
+   * "pre-narration"            → record.matches: {category, phrase, context, ...}[] (mt#2197) —
    *   same matches-shape family as retrospective-trigger/ask-routing-deferral;
-   *   the per-match label key is `category`.
+   *   the per-match label key is `category`. `context` (mt#3198) is the
+   *   containing sentence — the field that makes a fire classifiable, since
+   *   `phrase` alone cannot separate a claim ("I merged the PR") from a
+   *   reference ("the merged PR touches X").
    * "policy-coverage"          → record.{reason, outcome, evidence?} (mt#1575) —
    *   a per-tool-call coverage-decision audit record, NOT a matched-phrase
    *   record. Diversity is measured over distinct `reason` values instead of
@@ -517,6 +520,20 @@ export interface RetrospectiveTriggerRecord {
     family: string;
     phrase: string;
     /**
+     * The sentence or clause the phrase was matched in, when the detector
+     * captures one (`pre-narration`, mt#3198). Absent for detectors that do
+     * not.
+     *
+     * First-class rather than left to `detectorFields` deliberately. This
+     * field exists so a reviewer can tell a claim from a reference — the whole
+     * point of capturing it — and mem#827 records THREE reviews that read the
+     * nested `detectorFields` sub-object as if it were the record and
+     * concluded "unclassifiable" from records whose evidence sat one level up.
+     * Shipping the disambiguator into that same sub-object would satisfy the
+     * mechanical contract and lose the reader it was written for.
+     */
+    context?: string;
+    /**
      * Per-match keys this branch does not consume structurally — e.g.
      * `pre-narration`'s `expectedTool` / `hadMatchingTool` (mt#3289).
      */
@@ -853,7 +870,7 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * `expectedTool` and `hadMatchingTool` — and is carried through rather than
  * dropped.
  */
-const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
+const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "context"]);
 
 /**
  * Collect every raw record key the per-kind parse did not consume (mt#3289).
@@ -1108,9 +1125,12 @@ function parseCalibrationRecordCore(
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
     // pre-narration labels it with `category`. Read all three so any of the
-    // three kinds parses; only `.phrase` is used downstream (diversity +
-    // fire-count).
-    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase}][], transcript_excerpt? }
+    // three kinds parses. `.phrase` is the DIVERSITY axis (extractDistinctPhrases
+    // keys on it), so it must stay the short matched span — pre-narration's
+    // reviewer-facing sentence rides in `.context` for exactly that reason
+    // (mt#3198); widening `.phrase` would make every record distinct and
+    // silently flatten the diversity signal to "always high".
+    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase, context?}][], transcript_excerpt? }
     const matches = Array.isArray(raw["matches"])
       ? (raw["matches"] as unknown[]).map((m) => {
           const obj = m as Record<string, unknown>;
@@ -1118,6 +1138,7 @@ function parseCalibrationRecordCore(
           return {
             family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
             phrase: String(obj["phrase"] ?? ""),
+            ...(obj["context"] === undefined ? {} : { context: String(obj["context"]) }),
             ...(dropped.length > 0 ? { detectorFields: Object.fromEntries(dropped) } : {}),
           };
         })
