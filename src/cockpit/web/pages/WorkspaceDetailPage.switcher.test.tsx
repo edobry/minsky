@@ -126,9 +126,18 @@ function renderWorkspaceDetailPage() {
   );
 }
 
+/**
+ * 2.5h, not 2h (PR #2631 R1). `relativeTime` floors to whole hours, so an
+ * offset sitting exactly on a bucket boundary is one scheduling hiccup away
+ * from landing in the neighbouring bucket. Mid-bucket gives ~30 minutes of
+ * slack either side of the "2h ago" it renders, which no realistic test-run
+ * delay can cross.
+ */
+const ORCHESTRATOR_AGE_MS = 2.5 * 60 * 60 * 1000;
+
 const orchestrator = (): CandidateFixture => ({
   agentSessionId: CONV_ORCHESTRATOR,
-  startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  startedAt: new Date(Date.now() - ORCHESTRATOR_AGE_MS).toISOString(),
   source: "link-row",
   label: "Conversation switcher legibility",
   linkType: "session_creator",
