@@ -296,13 +296,31 @@ async function resolveSpawnChildren(
     return undefined;
   }
 
+  return spawnChildrenFromRows(rows);
+}
+
+/**
+ * Reduce `agent_spawns` rows to the tool_use-id → child map (mt#3692).
+ *
+ * Exported and pure so the row-admission rule is testable on its own, without
+ * standing up a database to observe it.
+ *
+ * Both halves must be present:
+ *   - A null `parentToolUseId` is a pre-mt#3692 row the backfill could not key —
+ *     its parent turn no longer carries the call, or a sibling row already
+ *     claimed the key. It addresses nothing in the transcript, so it must not
+ *     produce a link.
+ *   - A null `childAgentSessionId` is simply an unresolved spawn, which renders
+ *     as a static badge.
+ *
+ * Returns `undefined` rather than `{}` when nothing qualifies, so the field is
+ * omitted from the snapshot instead of serialized empty.
+ */
+export function spawnChildrenFromRows(
+  rows: ReadonlyArray<{ parentToolUseId: string | null; childAgentSessionId: string | null }>
+): Record<string, string> | undefined {
   const map: Record<string, string> = {};
   for (const row of rows) {
-    // Both halves must be present. A null tool_use id is a pre-mt#3692 row the
-    // backfill could not key (its parent turn no longer carries the call, or a
-    // sibling row already claimed the key) — it addresses nothing in the
-    // transcript, so it must not produce a link. A null child is simply an
-    // unresolved spawn, which renders as a static badge.
     if (row.parentToolUseId && row.childAgentSessionId) {
       map[row.parentToolUseId] = row.childAgentSessionId;
     }
