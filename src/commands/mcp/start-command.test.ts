@@ -207,22 +207,37 @@ function waitForExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promis
  *
  * Override: MINSKY_TEST_READY_TIMEOUT_MS (registered in HOOK_ONLY_ENV_VARS
  * per the MINSKY_TEST_WATCHDOG_MS precedent — an unregistered MINSKY_* var
- * crashes the CLI config parser when set). Junk values fall back to the
- * default, mirroring PG_DRAIN_TIMEOUT_MS's sanitization philosophy.
+ * crashes the CLI config parser when set). Junk values — INCLUDING
+ * partial-numeric strings like "20s", which parseInt would prefix-parse into
+ * a 20ms deadline (PR #2613 R1) — fall back to the default via a strict
+ * whole-string Number() parse, mirroring PG_DRAIN_TIMEOUT_MS's
+ * junk-falls-back-to-default philosophy.
  */
 const READY_TIMEOUT_MS = (() => {
   const raw = process.env["MINSKY_TEST_READY_TIMEOUT_MS"];
-  const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20000;
+  const parsed = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 20000;
 })();
 
 /**
- * Per-test budget for the shutdown-path tests: the readiness wait plus the
- * exit wait (waitForExit's 6000-7000ms call sites) plus spawn/teardown slack.
- * Derived from READY_TIMEOUT_MS rather than a second literal, so the two
- * deadlines cannot drift apart the way the old 5000-inside-12000 pair could.
+ * Exit-wait bounds for the shutdown-path tests. These bound the SHUTDOWN
+ * phase (drain + cleanup after the signal), which is independent of the
+ * boot-under-load problem READY_TIMEOUT_MS addresses — every R1/R2 failure
+ * was in the readiness phase, none in the exit phase — so they deliberately
+ * do NOT scale with the readiness budget (PR #2613 R1 non-blocking). Named
+ * here, and reused in the per-test budget below, so the pieces cannot drift
+ * apart the way the old 5000-inside-12000 literal pair could.
  */
-const SHUTDOWN_TEST_TIMEOUT_MS = READY_TIMEOUT_MS + 9000;
+const EXIT_TIMEOUT_MS = 6000;
+const HARD_TIMEOUT_EXIT_MS = 7000;
+const SPAWN_SLACK_MS = 2000;
+
+/**
+ * Per-test budget for the shutdown-path tests: the readiness wait plus the
+ * largest exit wait plus spawn/teardown slack — derived from the named
+ * constants above rather than a second literal.
+ */
+const SHUTDOWN_TEST_TIMEOUT_MS = READY_TIMEOUT_MS + HARD_TIMEOUT_EXIT_MS + SPAWN_SLACK_MS;
 
 /**
  * Wait until the child has logged "Press Ctrl+C to stop" — the server prints
@@ -290,7 +305,7 @@ describe("mcp start — shutdown paths", () => {
       // stdin is always a Writable stream when stdio[0] is "pipe".
       if (child.stdin) child.stdin.end();
 
-      const { code, output } = await waitForExit(child, 6000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
       expect(code).toBe(0);
       expect(output).toContain(SHUTDOWN_MARKER);
     },
@@ -306,7 +321,7 @@ describe("mcp start — shutdown paths", () => {
 
       child.kill("SIGTERM");
 
-      const { code, output } = await waitForExit(child, 6000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
       expect(code).toBe(0);
       expect(output).toContain(SHUTDOWN_MARKER);
     },
@@ -322,7 +337,7 @@ describe("mcp start — shutdown paths", () => {
 
       child.kill("SIGHUP");
 
-      const { code, output } = await waitForExit(child, 6000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
       expect(code).toBe(0);
       expect(output).toContain(SHUTDOWN_MARKER);
     },
@@ -346,7 +361,7 @@ describe("mcp start — shutdown paths", () => {
       // stdin is always a Writable stream when stdio[0] is "pipe".
       if (child.stdin) child.stdin.end();
 
-      const { code, output } = await waitForExit(child, 7000);
+      const { code, output } = await waitForExit(child, HARD_TIMEOUT_EXIT_MS);
       // eslint-disable-next-line custom/no-real-fs-in-tests -- timing measurement, not path creation
       const elapsedMs = Date.now() - startedAt;
 
@@ -379,7 +394,7 @@ describe("mcp start — shutdown paths", () => {
       await waitForReady(child, READY_TIMEOUT_MS);
       child.kill("SIGTERM");
 
-      const { code, output } = await waitForExit(child, 6000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
       expect(code).toBe(0);
       expect(output).toContain(SHUTDOWN_MARKER);
       // The forced-exit path's log line must NOT appear — the default kicked in.
