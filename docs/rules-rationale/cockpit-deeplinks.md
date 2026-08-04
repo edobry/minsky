@@ -18,9 +18,17 @@ installed, or the terminal is non-macOS / lacks OSC-8 — the link degrades to t
 (which is why the label must always be a readable ref). This does NOT gate emission: emit the
 link unconditionally and let it degrade gracefully.
 
-This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so
-this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the
-in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
+This is Surface A (the terminal). Linking here is **agent discipline** — you emit the markdown by
+hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via
+mt#2518.)
+
+**That is a fact about today, not a permanent constraint — corrected 2026-08-04.** This paragraph
+used to read "There is no harness hook that rewrites assistant output," which was true when
+written and is now false: Claude Code's `MessageDisplay` hook (2.1.152+) does exactly that. The
+stale sentence was load-bearing — mt#2565 inherited it as a settled premise and scoped itself
+around a seam it assumed did not exist. Discipline remains the mechanism _until the hook is
+built_ (mt#2565), not because no alternative exists. See
+§The one-link-per-entity ration is provisional below for the evidence and the decision.
 
 ## Additional examples
 
@@ -98,6 +106,43 @@ as written, with the compliance half tightened: the first mention of an entity i
 no exceptions. (The originating session also contained a genuine violation — an entity bare on its
 FIRST mention — which is ordinary discipline, not a rule-design question, and needed no rule
 change.)
+
+### The noise tradeoff of the tightening, demonstrated
+
+The rule DID change — "typically the first mention" became "the first mention of an entity is
+always linked, no exceptions" — so the tradeoff is shown here rather than asserted. Same turn,
+authored under each version:
+
+**Under the old rule** ("typically the first mention" — a judgment call, so a first mention can
+legitimately go bare when the author reads it as incidental):
+
+```
+Merged [mt#3198](minsky://task/mt%233198); the detector change also touches mt#2565's
+scope, and mt#3286 may narrow once it lands. mt#3198's spec carries the evidence, and
+mt#2565 is the follow-on.
+```
+
+Four distinct entities, one link. Three of the four are unclickable on their first appearance —
+the exact experience that reads as "not linkified."
+
+**Under the new rule** (first mention of each entity always linked; repeats stay bare):
+
+```
+Merged [mt#3198](minsky://task/mt%233198); the detector change also touches
+[mt#2565](minsky://task/mt%232565)'s scope, and [mt#3286](minsky://task/mt%233286) may
+narrow once it lands. mt#3198's spec carries the evidence, and mt#2565 is the follow-on.
+```
+
+Four links where there was one. **That is the cost, and it is the point:** the added density is
+bounded by the number of DISTINCT entities in the message, not by the number of mentions — the
+repeats in the second sentence stay bare under both versions. So the tightening cannot produce the
+runaway link-soup option 2 would (link _every_ mention); it raises the floor from "however many
+the author noticed" to "one per entity," which is the ration the rule always claimed to enforce
+and did not.
+
+**What it does not fix,** and why the display-surface decision above still stands: the repeats are
+still bare, so a reader landing mid-message on the second `mt#3198` still cannot click it. The
+tightening removes the arbitrariness; only the linkifier removes the problem.
 
 ## Cross-references
 
