@@ -175,10 +175,15 @@ describe("findPortHolder", () => {
       const { server, port } = await bindListener();
       try {
         lastHolder = findPortHolder(port);
-        // Someone else is on this port number too, and lsof listed them first.
-        // Re-roll rather than assert against a port we do not exclusively hold.
-        if (lastHolder && lastHolder.pid !== process.pid) continue;
-        break;
+        // Break ONLY on the outcome we are asserting. Both other outcomes are
+        // transient and get a fresh port:
+        //   - another pid: someone else holds this port number too and lsof
+        //     listed them first;
+        //   - null: `lsof` is a subprocess and does not always observe a
+        //     just-completed bind immediately, so a null here is visibility
+        //     lag rather than a real absence (PR #2598 R1 — breaking on null
+        //     re-introduced exactly the flake this retry exists to remove).
+        if (lastHolder?.pid === process.pid) break;
       } finally {
         await closeListener(server);
       }
