@@ -96,6 +96,19 @@ describe("zero-backend read guard (mt#3636)", () => {
       await expect(build().deleteTask("mt#3524")).rejects.toThrow(/Task backend unavailable/);
     });
 
+    test("the WRITE path now names the cause too, not a bare 'No backends registered'", async () => {
+      // The write path was always loud, but "No backends registered" was the
+      // only signal a caller got during the incident — it says nothing about
+      // the database being unreachable.
+      const error = await build()
+        .createTaskFromTitleAndSpec("a title", "a spec")
+        .catch((e: unknown) => e as Error);
+
+      expect(error.name).toBe("TaskBackendUnavailableError");
+      expect(error.message).toContain(BOOT_FAILURE);
+      expect(error.message).not.toBe("No backends registered");
+    });
+
     test("the error names the backend, the degraded state, and the underlying cause", async () => {
       const error = await build()
         .listTasks()
