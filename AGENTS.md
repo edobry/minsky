@@ -318,7 +318,17 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testing-standards, orchestrate skill
+- **Testable design (mt#3632).** Before importing a collaborator directly into a domain
+  function — a DB client, HTTP client, filesystem call, subprocess, clock/random — stop and
+  thread it as a parameter or constructor argument instead. A domain module whose behavior can
+  only be observed by patching an import (`spyOn` on the module/object it reaches itself) is a
+  design smell surfacing at test time, not a testing problem: extract the decision into a
+  function that returns the observable. See [testing-standards](mdc:.cursor/rules/testing-standards.mdc)
+  §Testable Design for the pattern (inject dependencies, prefer pure functions, push side
+  effects to injectable edges). This rule's glob already fires on `packages/domain/src/**` — the
+  design-time surface where that decision gets made, ahead of the test file that would otherwise
+  be the first place the doctrine loads.
+- See also: orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -1046,18 +1056,46 @@ Routine progress compresses at the standing register everywhere else. Reporting 
 decoupled from action authority: raising or lowering the register never changes what an agent may
 do — merge gates, asks, and authorization boundaries are unaffected.
 
-**Transport binding, not just reporting (mt#3436).** Severity is not only a reporting-altitude
-concern — when a fired trigger's remediation is **operator-only** (the agent cannot resolve it;
-only the principal can act), the trigger ALSO escalates the ask's TRANSPORT: create or re-route
-the ask with `forceImmediate: true` AND send one `mcp__minsky__principal_notify` page pointing at
-it. An ask left on default routing (e.g. `serviceStrategy: deadline-bound`, `transport: inbox`) is
-not an escalation — it is scroll the principal has to go find. The ask carries the decision;
-`principal_notify` carries the attention — treating the ask alone as "having escalated" is the gap
-this closes. **Dedupe carve-out:** skip the page when the principal is already actively responding
-in the same conversation — the page exists for the walked-away case, not as a redundant ping
-mid-exchange. Originating incident: mt#3433 / mem#779 — a correctly diagnosed, correctly filed,
-correctly severity-reported incident still cost ~4h of avoidable downtime because the ask never
-left default routing and no page was sent. Full incident + the ask/notify split:
+**Transport binding, not just reporting (mt#3436; mechanized mt#3595).** Severity is not only a
+reporting-altitude concern. When a fired trigger's remediation is **operator-only** — the agent
+cannot resolve it; only the principal can act — the trigger ALSO escalates the ask's TRANSPORT.
+
+**What you do: one thing.** Create the ask with **`severity: "incident"`**. The substrate then
+sends the principal one notification on their phone pointing at that ask. **You do NOT send a
+separate `principal_notify` call for it** — that second remembered call is exactly the step that
+was dropped in both recorded occurrences, once three days after this rule shipped as
+always-loaded text with the text verbatim in context.
+
+Also pass `forceImmediate: true`, but understand it as a **separate, independent** setting: the
+two fields do different jobs and neither gates the other. `severity` controls whether the
+principal is NOTIFIED; `forceImmediate` controls whether the ask waits for the next service
+window before landing in the inbox. A severity ask without `forceImmediate` still notifies
+immediately — you just get an inbox entry that is queued when the principal goes looking for it.
+Set both: the notification should not lead to an ask that is not there yet.
+
+**What the substrate guarantees**, so you neither repeat nor second-guess it: exactly one
+notification per ask (the claim is a conditional write, so a repeat create or a later edit cannot
+re-notify); a ceiling of 3 per 24h with any suppression logged rather than silent; and a delivery
+failure recorded as an actionable `ask.page_failed` event rather than swallowed. A notification
+failure never fails ask creation — the ask is the decision record.
+
+**Both halves are required for the marker.** A severity event you can fix yourself does not
+warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
+inbox. Marking a non-operator-routed ask is inert: the notification only fires for asks routed to
+the operator, because nothing else has a human on the other end.
+
+**Dedupe carve-out — now the only transport judgment left to you.** When the principal is
+actively responding in the same conversation, a notification is redundant; omit the marker and
+say plainly in chat that this is an operator-only incident. The mechanism exists for the
+walked-away case. Do not omit it merely because the principal spoke recently — in the originating
+recurrence the last message was 39 minutes earlier, which is the walked-away case, not an active
+exchange.
+
+An ask on default routing (`serviceStrategy: deadline-bound`, `transport: inbox`) is not an
+escalation — it lands in the chat log and the inbox, both of which the principal has to go look
+at. Originating incidents: mt#3433 and mem#779 — a correctly diagnosed, correctly filed,
+correctly severity-reported incident still cost ~4h of avoidable downtime because no
+notification was sent. Full detail:
 `docs/rules-rationale/communication-contract.md §Severity transport binding`.
 
 ### Executive scheduled sampling
@@ -1193,7 +1231,7 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Three log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, and test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix).
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
@@ -1230,7 +1268,7 @@ so measurement is unaffected. Separate events still mean separate blocks: a `Sto
 - **Retrospective-completeness** (mt#3601) — the sibling of the above on the OTHER axis: retrospective-trigger asks whether a retro FIRES, this asks whether a retro that fired is COMPLETE. When the turn produced retrospective-shaped work (the `Skill{skill:"retrospective"}` tool call, or retrospective-shaped headings), checks that the sections the DECLARED triage level requires are present — `### Triage` at every level; the full set incl. `### Verification` at Process/Repeated; `### Escalation` at Repeated or whenever a family count ≥3 is stated anywhere in the output — and that every cited `mt#` fix-task had its status READ in-turn (the skill's Step 5 liveness check, keyed on tool-call state rather than on prose claiming it ran). A correctly-compressed `Minor correction` is NOT flagged; an output with retrospective headings but NO declared triage is treated as the full set, since the compressed format is only defensible as an explicit call. **Log-only** — writes `retrospective-completeness` calibration records, never injects. Registered on `UserPromptSubmit` per ADR-031 (tool-inspecting → read tool calls at maximum transcript flush, not at `Stop`); ADR-024's ladder does NOT govern its matching (it matches mandated headings, not paraphrasable trigger phrases — no recall axis to widen), but its fail-to-`degraded`-never-silent-skip invariant and `source: "live"` coverage-receipt contract both apply. Family `retrospective-under-run`: R1 mem#598 (2026-06-28, batch volume), R2 mem#826 (2026-08-03, correction pressure); R1's memory-tier fix did not contain R2. `MINSKY_SKIP_RETRO_COMPLETENESS`.
 - **Turn-end-untaken-action** — Stop-event scan (mt#3179): the turn's final message names a next action ("I'll implement it", "say the word") without taking it. Keys on the SURFACE phrase, not the reason, and dedups per phrase per turn. Suppressed when the same message also matches ask-routing-deferral, whose guidance is the more specific (mt#3336). `MINSKY_ACK_UNTAKEN_ACTION`.
 - **Turn-end-unwalked-task** — Stop-event scan (mt#3536): the turn minted a task id (a `tasks_create` whose result confirms `success` + `taskId`) and ended with no `tasks_status_set`/`session_start`/`tasks_dispatch`/`asks_create` naming it. Keys on tool-call STATE, not on wording — the R4 stop named no next action at all, so the phrase-keyed sibling above correctly stayed silent; the SILENT stop is the gap this closes. R4 of `family:stop-at-handoff`, after two prose fixes (mt#1478, mt#2689) both went DONE and both failed to contain it — mt#2689's lived in `/create-task`'s exit step and was bypassed by calling the tool directly. Dedups per task id. `MINSKY_ACK_UNWALKED_TASK`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read (measured: 108 of 298 records carried that reason, 58 by it alone). Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is UNCHANGED — both still suppress; the split makes the authorship-as-verification class countable, which is the precondition for deciding whether it should surface. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted as an operator-facing fire it never was and would drive the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read (measured: 108 of 298 records carried that reason, 58 by it alone). Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is UNCHANGED — both still suppress; the split makes the authorship-as-verification class countable, which is the precondition for deciding whether it should surface. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted as an operator-facing fire it never was and would drive the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. **Durable artifacts are the third surface (mt#3642):** everything an agent writes for the record — a PR body, a task spec or spec patch, a memory, an ask's question — reaches the transcript as a `tool_use` INPUT, not as assistant text, so the SAME sentence was watched in chat (ephemeral, contradictable) and unwatched in the artifact (durable, read later as justification). mt#3092's false socket-contract claim was in a PR body and produced NO record at all — the outage was not a suppression failure, and mt#3594's problem statement was corrected on that basis. The prose bodies of those tools are now a third pass, recorded as `artifactSurfaceClaims` / `artifactSurfaceClaimCount` under the `artifact-surface-only` reason, **log-only** on the same terms as the comment pass. Scoped to artifact-authoring tools, NOT all write-class tools: an ordinary source edit stays the comment pass's job. Reads BOTH `tool_use` shapes — a top-level line carrying `name`/`tool_name` + `input`, and a block nested in an assistant message's `content` — matching `extractToolUseNames`; handling only the nested shape made top-level-recorded turns invisible (PR #2584 R1), and the comment pass still has that gap (mt#3650). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.

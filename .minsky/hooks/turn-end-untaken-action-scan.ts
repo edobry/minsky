@@ -31,7 +31,13 @@
 
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
+import {
+  STOP_INJECTED_OVERLAP_FAMILY,
+  flagKey,
+  overlapTurnKey,
+  readFlagged,
+  writeFlagged,
+} from "./turn-end-scan-store";
 import { createHash } from "node:crypto";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
@@ -39,14 +45,13 @@ import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
 /**
- * Reason string for this guard's ONE suppression gate — the mt#3336 dedup
- * against the live ask-routing-deferral detector (mt#3207).
+ * RETIRED as an active suppression reason (mt#3620). This guard no longer
+ * yields to the prompt-time ask-routing-deferral detector — see the inversion
+ * rationale at the overlap block in {@link run}.
  *
- * The same verdict is ALSO kept as the detector-specific
- * `suppressedByAskRoutingDeferral` boolean below: `isSuppressedRecord` reads
- * only `suppressionReasons`, so the shared field is what the cadence
- * accounting needs, while the boolean keeps the 18 pre-mt#3207 records the
- * 2026-08-01 pass measured comparable with new ones.
+ * The string is kept exported because it appears in ~18 pre-mt#3620 calibration
+ * records that the review cadence still reads; deleting it would make those
+ * records unclassifiable. No code path emits it any more.
  */
 export const SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL = "deduped-by-ask-routing-deferral";
 
@@ -183,8 +188,12 @@ function buildReminder(matches: UntakenActionMatch[]): string {
  * dedup to one warning. That is the right call — identical sign-off, identical
  * advice — and is bounded to a single suppressed beat rather than a session.
  */
+function sha1Short(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 16);
+}
+
 function turnKeyForMessage(finalMessage: string): string {
-  return createHash("sha1").update(finalMessage).digest("hex").slice(0, 16);
+  return sha1Short(finalMessage);
 }
 
 /**
@@ -231,15 +240,29 @@ export function run(
   }
   writeFlagged(sessionId, flagged, storeDir);
 
-  // mt#3336 (ask#6448 disposition): when the same final message ALSO matches
-  // the ask-routing-deferral patterns, that live detector will inject its own
-  // reminder at the next UserPromptSubmit for this exact text — two
-  // injections about one closing sentence ("say the word" sits in BOTH
-  // pattern sets). Suppress THIS guard's injection — the deferral guidance
-  // (route it through an ask / classify-before-deferring) is the more
-  // specific of the two — but keep the calibration record, with the
-  // suppression named, so the overlap stays measurable.
-  const suppressedByAskRoutingDeferral = detectDeferralPhrases(finalMessage).length > 0;
+  // mt#3620: when the same final message ALSO matches the ask-routing-deferral
+  // patterns ("say the word" sits in BOTH pattern sets), exactly one of the two
+  // guards should speak. THIS one does.
+  //
+  // mt#3336 originally made this guard yield instead, on the reasoning that the
+  // deferral guidance is the more specific of the two. The reasoning holds; the
+  // direction did not. The sibling runs on `UserPromptSubmit`, an event that by
+  // construction occurs only AFTER the principal has read the closing sentence
+  // and typed a reply — so yielding to it traded a warning that could prevent
+  // the round-trip for one that can only comment on it afterwards. A dedup
+  // between guards on DIFFERENT events is a handoff, and it has to hand toward
+  // the EARLIER event.
+  //
+  // The overlap is recorded in the store instead, and the prompt-time sibling
+  // reads it and stays quiet — one closing sentence, one injection, as intended.
+  const deferralOverlap = detectDeferralPhrases(finalMessage);
+  if (deferralOverlap.length > 0) {
+    const overlapKey = overlapTurnKey(finalMessage, sha1Short);
+    for (const m of deferralOverlap) {
+      flagged.add(flagKey(overlapKey, STOP_INJECTED_OVERLAP_FAMILY, m.matchedPhrase));
+    }
+    writeFlagged(sessionId, flagged, storeDir);
+  }
 
   return {
     calibration: {
@@ -250,14 +273,15 @@ export function run(
       stop_hook_active: input.stop_hook_active === true,
       matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-      suppressedByAskRoutingDeferral,
-      // mt#3207: the shared contract the sweep actually reads. Empty (not
-      // absent) when this guard injected — absent would mean "records no
-      // outcome", which is the state this task removes.
-      suppressionReasons: suppressedByAskRoutingDeferral
-        ? [SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL]
-        : [],
+      // Retained (mt#3620) so the overlap rate stays measurable across the
+      // direction change — but it no longer suppresses, so it is reported
+      // under its own name and NOT as a suppression reason.
+      deferralOverlap: deferralOverlap.length > 0,
+      // mt#3207: the shared contract the sweep actually reads. This guard now
+      // always injects when it has new matches, so the list is always empty —
+      // empty (not absent) still means "recorded an outcome, did not suppress".
+      suppressionReasons: [] as string[],
     },
-    ...(suppressedByAskRoutingDeferral ? {} : { additionalContext: buildReminder(newMatches) }),
+    additionalContext: buildReminder(newMatches),
   };
 }

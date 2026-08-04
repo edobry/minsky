@@ -236,7 +236,13 @@ export class AgentTranscriptIngestService {
      * `ToolCallProjectionPipeline` bound to `db`. Override only from tests —
      * mirrors `spawnsExtractor` immediately above.
      */
-    private readonly toolCallProjector: ToolCallProjector = new ToolCallProjectionPipeline(db)
+    private readonly toolCallProjector: ToolCallProjector = new ToolCallProjectionPipeline(db),
+    /**
+     * Injectable warn sink (mt#3628), defaulting to the real shared logger's
+     * `warn`. Exists so the missing-genuine-model wiring test can observe the
+     * emission via a plain injected function instead of `spyOn(log)`.
+     */
+    private readonly logWarn: (message: string, meta?: Record<string, unknown>) => void = log.warn
   ) {}
 
   /**
@@ -536,10 +542,11 @@ export class AgentTranscriptIngestService {
     // extractor. Logging only the latter case keeps the common path quiet
     // while making a future format drift visible instead of silently
     // reproducing the 0/1,729 state this task exists to fix.
-    if (extractedModel === null) {
+    {
       const assistantLineCount = countAssistantLines(newLines);
-      if (assistantLineCount > 0) {
-        log.warn(
+      const { shouldWarn } = decideMissingModelWarn(extractedModel, assistantLineCount);
+      if (shouldWarn) {
+        this.logWarn(
           `[transcripts] No genuine model id found in ${assistantLineCount} assistant line(s) for session ${agentSessionId} — possible transcript-shape drift`,
           { agentSessionId, assistantLineCount }
         );
@@ -1131,6 +1138,27 @@ export function countAssistantLines(lines: readonly RawTurnLine[]): number {
     if (line.type === "assistant") count++;
   }
   return count;
+}
+
+/** Result of the missing-genuine-model warn decision (mt#3628, mt#3089 R1). */
+export interface MissingModelWarnDecision {
+  /** True when this batch should surface a "possible transcript-shape drift" warning. */
+  shouldWarn: boolean;
+}
+
+/**
+ * Pure decision core for the warn/no-warn split documented on
+ * {@link countAssistantLines}: warn only when a batch has 1+ assistant lines
+ * but NONE carried a genuine (non-synthetic) model — never when there are
+ * simply no assistant lines to extract from. Extracted (mt#3628) so the
+ * split is testable by return value alone, independent of `ingestSession`'s
+ * DB/source orchestration.
+ */
+export function decideMissingModelWarn(
+  extractedModel: string | null,
+  assistantLineCount: number
+): MissingModelWarnDecision {
+  return { shouldWarn: extractedModel === null && assistantLineCount > 0 };
 }
 
 /**

@@ -7,7 +7,7 @@
  * @see mt#1351 — AgentTranscriptIngestService
  */
 
-import { describe, test, expect, spyOn } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
@@ -16,6 +16,7 @@ import {
   INGEST_QUARANTINE_THRESHOLD,
   extractModelFromNewLines,
   countAssistantLines,
+  decideMissingModelWarn,
 } from "./agent-transcript-ingest-service";
 import type {
   IngestAllResult,
@@ -24,7 +25,6 @@ import type {
 } from "./agent-transcript-ingest-service";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
-import { log } from "@minsky/shared/logger";
 import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -494,9 +494,16 @@ function makeSvc(
   db: FakeDbType,
   source: FakeTranscriptSource,
   spawnsExtractor: SpawnsExtractor = makeNoopSpawnsExtractor(),
-  toolCallProjector: ToolCallProjector = makeNoopToolCallProjector()
+  toolCallProjector: ToolCallProjector = makeNoopToolCallProjector(),
+  logWarn?: (message: string, meta?: Record<string, unknown>) => void
 ): AgentTranscriptIngestService {
-  return new AgentTranscriptIngestService(asPgDb(db), source, spawnsExtractor, toolCallProjector);
+  return new AgentTranscriptIngestService(
+    asPgDb(db),
+    source,
+    spawnsExtractor,
+    toolCallProjector,
+    logWarn
+  );
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1746,77 +1753,92 @@ describe("AgentTranscriptIngestService — model column (mt#3089)", () => {
 // (nothing to extract from) but a GENUINE miss when assistant lines ARE
 // present and none carried a genuine model — either every one was a
 // synthetic retry, or the transcript shape has drifted out from under the
-// extractor. These tests assert `ingestSession` distinguishes the two and
-// only logs the latter, using `spyOn` on the shared logger singleton (not a
-// module mock — `agent-transcript-ingest-service.ts` and this test both
-// resolve `log` to the SAME module-cached object, so spying on the method
-// directly works regardless of import order, unlike `mock.module`, which
-// only affects imports registered after the mock call).
+// extractor. The warn/no-warn split itself is `decideMissingModelWarn`, a
+// pure function (mt#3628) tested below by return value; `ingestSession`'s
+// role is reduced to a single wiring test verifying the shell actually
+// EMITS what the core decided, via the constructor's injected `logWarn`
+// (never `spyOn(log)` — the underlying model-extraction behavior
+// (state.get(...).model) is exercised directly, not via the log channel).
 // ---------------------------------------------------------------------------
 
+describe("decideMissingModelWarn (pure core, mt#3628 / mt#3089 R1)", () => {
+  test("warns when assistant lines are present but none carried a genuine model", () => {
+    expect(decideMissingModelWarn(null, 2)).toEqual({ shouldWarn: true });
+  });
+
+  test("does NOT warn when there are no assistant lines at all (the common, unremarkable case)", () => {
+    expect(decideMissingModelWarn(null, 0)).toEqual({ shouldWarn: false });
+  });
+
+  test("does NOT warn when a genuine model was found", () => {
+    expect(decideMissingModelWarn("claude-sonnet-5", 1)).toEqual({ shouldWarn: false });
+  });
+});
+
 describe("extractor observability — assistant-lines-present-but-no-model (mt#3089 R1)", () => {
-  test("logs a warning naming the session id and assistant-line count when every assistant line is synthetic", async () => {
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-    try {
-      const source = new FakeTranscriptSource();
-      source.addSession(SESSION_A, [
-        makeAssistantLine(TS1, SYNTHETIC_MODEL_SENTINEL, "u1"),
-        makeAssistantLine(TS2, SYNTHETIC_MODEL_SENTINEL, "u2"),
-      ]);
-      const state = new Map<string, FakeRow>();
-      const db = makeDb(state);
-      db._primeSession(SESSION_A);
+  test("does NOT regress model extraction when every assistant line is synthetic", async () => {
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [
+      makeAssistantLine(TS1, SYNTHETIC_MODEL_SENTINEL, "u1"),
+      makeAssistantLine(TS2, SYNTHETIC_MODEL_SENTINEL, "u2"),
+    ]);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
 
-      const svc = makeSvc(db, source);
-      await svc.ingestSession(makeDiscovered(SESSION_A));
+    const svc = makeSvc(db, source);
+    await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(state.get(SESSION_A)?.model ?? null).toBeNull();
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      const [message, meta] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(message).toContain(SESSION_A);
-      expect(message).toContain("2 assistant line(s)");
-      expect(meta).toMatchObject({ agentSessionId: SESSION_A, assistantLineCount: 2 });
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(state.get(SESSION_A)?.model ?? null).toBeNull();
   });
 
-  test("does NOT log when the batch simply has no assistant lines (the common, unremarkable case)", async () => {
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-    try {
-      const source = new FakeTranscriptSource();
-      source.addSession(SESSION_A, [
-        { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
-      ]);
-      const state = new Map<string, FakeRow>();
-      const db = makeDb(state);
-      db._primeSession(SESSION_A);
+  test("does NOT regress model extraction when a genuine model IS found", async () => {
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [makeAssistantLine(TS1, "claude-sonnet-5", "u1")]);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
 
-      const svc = makeSvc(db, source);
-      await svc.ingestSession(makeDiscovered(SESSION_A));
+    const svc = makeSvc(db, source);
+    await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(warnSpy).not.toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
   });
 
-  test("does NOT log when a genuine model IS found", async () => {
-    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
-    try {
-      const source = new FakeTranscriptSource();
-      source.addSession(SESSION_A, [makeAssistantLine(TS1, "claude-sonnet-5", "u1")]);
-      const state = new Map<string, FakeRow>();
-      const db = makeDb(state);
-      db._primeSession(SESSION_A);
+  test("wiring: ingestSession routes the warn decision through the injected logWarn sink, not spyOn(log)", async () => {
+    const warnCalls: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const makeSvcWithSink = (source: FakeTranscriptSource, db: FakeDbType) =>
+      makeSvc(db, source, undefined, undefined, (message, meta) =>
+        warnCalls.push({ message, meta })
+      );
 
-      const svc = makeSvc(db, source);
-      await svc.ingestSession(makeDiscovered(SESSION_A));
+    // Warn-worthy: assistant lines present, none carried a genuine model.
+    const warnSource = new FakeTranscriptSource();
+    warnSource.addSession(SESSION_A, [
+      makeAssistantLine(TS1, SYNTHETIC_MODEL_SENTINEL, "u1"),
+      makeAssistantLine(TS2, SYNTHETIC_MODEL_SENTINEL, "u2"),
+    ]);
+    const warnState = new Map<string, FakeRow>();
+    const warnDb = makeDb(warnState);
+    warnDb._primeSession(SESSION_A);
+    await makeSvcWithSink(warnSource, warnDb).ingestSession(makeDiscovered(SESSION_A));
 
-      expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
-      expect(warnSpy).not.toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]?.message).toContain(SESSION_A);
+    expect(warnCalls[0]?.message).toContain("2 assistant line(s)");
+    expect(warnCalls[0]?.meta).toMatchObject({ agentSessionId: SESSION_A, assistantLineCount: 2 });
+
+    // Not warn-worthy: no assistant lines at all — must NOT route through the sink.
+    warnCalls.length = 0;
+    const quietSource = new FakeTranscriptSource();
+    quietSource.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+    ]);
+    const quietState = new Map<string, FakeRow>();
+    const quietDb = makeDb(quietState);
+    quietDb._primeSession(SESSION_A);
+    await makeSvcWithSink(quietSource, quietDb).ingestSession(makeDiscovered(SESSION_A));
+
+    expect(warnCalls).toHaveLength(0);
   });
 });

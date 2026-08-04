@@ -6,6 +6,10 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
+
+/** Env-var names the resolver reads, shared so the literals appear once. */
+const ENV_TOKEN = "TELEGRAM_BOT_TOKEN";
+const ENV_CHAT_ID = "TELEGRAM_CHAT_ID";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
   clearPrincipalChannelCache,
@@ -44,11 +48,7 @@ describe("resolvePrincipalChannel", () => {
     const result = await resolvePrincipalChannel(
       deps({
         readEnv: (name) =>
-          name === "TELEGRAM_BOT_TOKEN"
-            ? "env-token"
-            : name === "TELEGRAM_CHAT_ID"
-              ? "1"
-              : undefined,
+          name === ENV_TOKEN ? "env-token" : name === ENV_CHAT_ID ? "1" : undefined,
         readPulumiToken: async () => "pulumi-token",
         readPulumiPlain: async () => "999",
       })
@@ -80,7 +80,7 @@ describe("resolvePrincipalChannel", () => {
   test("labels a split resolution as mixed", async () => {
     const result = await resolvePrincipalChannel(
       deps({
-        readEnv: (name) => (name === "TELEGRAM_CHAT_ID" ? "1" : undefined),
+        readEnv: (name) => (name === ENV_CHAT_ID ? "1" : undefined),
         readPulumiToken: async () => "pulumi-token",
       })
     );
@@ -100,7 +100,7 @@ describe("resolvePrincipalChannel", () => {
     const result = await resolvePrincipalChannel(deps());
     expect(result.configured).toBe(false);
     if (result.configured) return;
-    expect(result.reason).toContain("TELEGRAM_BOT_TOKEN");
+    expect(result.reason).toContain(ENV_TOKEN);
     expect(result.reason).toContain(TELEGRAM_CHAT_ID_PULUMI_KEY);
   });
 
@@ -161,6 +161,76 @@ describe("resolvePrincipalChannel", () => {
     clock += 6 * 60 * 1000;
     await resolvePrincipalChannel(d);
     expect(tokenReads).toBe(2);
+  });
+});
+
+/**
+ * A failed credential READ is not an absent credential (mt#3608).
+ *
+ * Both readers used to swallow their errors into `null`, so a DNS blip against
+ * the Pulumi backend produced the same verdict as a channel the operator had
+ * never set up. The launch path gives up permanently on that verdict, which is
+ * how a five-second network hiccup turned the channel off for a whole day.
+ */
+describe("resolvePrincipalChannel — read failure vs absence (mt#3608)", () => {
+  const noEnv = (): undefined => undefined;
+
+  test("a THROWING token read is transient, not 'not configured'", async () => {
+    const resolution = await resolvePrincipalChannel({
+      readEnv: noEnv,
+      readPulumiToken: () => Promise.reject(new Error("getaddrinfo ENOTFOUND api.pulumi.com")),
+      readPulumiPlain: async () => "167346572",
+    });
+
+    expect(resolution.configured).toBe(false);
+    expect(resolution.configured === false && resolution.transient).toBe(true);
+    // The reason must say the read FAILED — an operator reading "not
+    // configured" goes and checks their config, which is the wrong action.
+    expect(resolution.configured === false && resolution.reason).toContain("could not be READ");
+    expect(resolution.configured === false && resolution.reason).toContain("ENOTFOUND");
+  });
+
+  test("a THROWING chat-id read is transient too", async () => {
+    const resolution = await resolvePrincipalChannel({
+      readEnv: noEnv,
+      readPulumiToken: async () => "a-token",
+      readPulumiPlain: () => Promise.reject(new Error("connect ETIMEDOUT")),
+    });
+
+    expect(resolution.configured === false && resolution.transient).toBe(true);
+    expect(resolution.configured === false && resolution.reason).toContain("ETIMEDOUT");
+  });
+
+  test("a genuinely ABSENT credential is NOT transient", async () => {
+    const resolution = await resolvePrincipalChannel({
+      readEnv: noEnv,
+      readPulumiToken: async () => null,
+      readPulumiPlain: async () => null,
+    });
+
+    expect(resolution.configured).toBe(false);
+    // This is the case where retrying would only delay a message the operator
+    // needs to see, so it must be distinguishable from the failure above.
+    expect(resolution.configured === false && resolution.transient).toBe(false);
+    expect(resolution.configured === false && resolution.reason).toContain("is not configured");
+  });
+
+  test("env credentials bypass the failing reader entirely", async () => {
+    let pulumiCalls = 0;
+    const resolution = await resolvePrincipalChannel({
+      readEnv: (name) =>
+        name === ENV_TOKEN ? "env-token" : name === ENV_CHAT_ID ? "42" : undefined,
+      readPulumiToken: () => {
+        pulumiCalls += 1;
+        return Promise.reject(new Error("should never be consulted"));
+      },
+      readPulumiPlain: async () => null,
+    });
+
+    expect(resolution.configured).toBe(true);
+    // An env-configured channel is structurally immune to this whole failure
+    // class, which is worth pinning: it is the documented workaround.
+    expect(pulumiCalls).toBe(0);
   });
 });
 

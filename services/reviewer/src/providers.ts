@@ -167,6 +167,56 @@ export interface ReviewOutput {
    * run as backstop.
    */
   concludeReviewGuard?: { rejectionCount: number; boundExhausted: boolean };
+  /**
+   * mt#3547: what the tool-use loop actually did. Present only on the OpenAI
+   * tool-use path (the only path with a loop). Exists because round count and
+   * "did the model stop on its own?" are not otherwise recoverable by a caller:
+   * `toolCalls` includes calls the post-loop forced passes supplied, so a
+   * conclude_review in that array does NOT mean the model emitted one in-loop.
+   *
+   * `roundsUsed` counts main-loop rounds only, excluding the forced passes —
+   * the same quantity `timing.roundLatenciesMs.length` carries, named here so
+   * consumers do not have to know that coincidence.
+   */
+  toolLoop?: ToolLoopDiagnostics;
+}
+
+/**
+ * Observed behavior of one tool-use loop (mt#3547).
+ *
+ * The reviewer's cost is dominated by round count, and its long-standing defect
+ * is that the model does not emit `conclude_review` in-loop — so a forced
+ * post-loop pass has to extract the verdict. Both facts were previously
+ * observable only in logs; the round-budget replay harness needs them as data.
+ */
+export interface ToolLoopDiagnostics {
+  /** Main-loop rounds actually run (excludes the post-loop forced passes). */
+  roundsUsed: number;
+  /** The cap in force for this run, so a consumer can test "did it exhaust?". */
+  maxRounds: number;
+  /**
+   * True when the model emitted `conclude_review` itself during the loop —
+   * i.e. the stop signal worked and no forced pass was needed. This is the
+   * metric mt#3547 moves; `false` here is the ~15-month-old defect.
+   */
+  concludedInLoop: boolean;
+  /**
+   * 1-based round on which the model first emitted `conclude_review`, or null
+   * if it never did in-loop.
+   *
+   * Distinguishes two behaviors that `concludedInLoop` alone conflates when the
+   * loop also runs to the cap: concluding on the LAST tool-capable round (the
+   * model paced itself to the deadline) versus concluding EARLY and continuing
+   * to call tools afterward (conclude_review is not acting as a stop signal at
+   * all). They imply different fixes, so measure rather than infer.
+   */
+  concludedAtRound: number | null;
+  /**
+   * Which forced-pass branch fired, or null when none did (`concludedInLoop`
+   * true). Mirrors the `gate_branch` discriminator on the
+   * `reviewer.conclude_review_reminder` audit log.
+   */
+  forcedConcludeGateBranch: "emitted_no_conclude" | "emitted_nothing" | null;
 }
 
 /**
@@ -226,6 +276,68 @@ export async function callReviewer(
 
 /** Maximum number of tool-use rounds before forcing the model to finalize. */
 const MAX_TOOL_ROUNDS = 10;
+
+/**
+ * How many tool-capable rounds remain when the budget notice switches from
+ * reporting the count to telling the model to wrap up (mt#3547).
+ *
+ * Two, not one: `conclude_review` is a tool call, and the final round passes no
+ * tools (see the `isLastRound` guard in the loop), so a model that waits for
+ * "one round left" to start finalizing has already lost the ability to emit
+ * findings and conclude in separate rounds.
+ */
+const ROUND_BUDGET_WRAP_UP_THRESHOLD = 2;
+
+/**
+ * The per-round budget notice appended after each round's tool results
+ * (mt#3547).
+ *
+ * Structural half of "give the reviewer permission to stop". The prompt grants
+ * the permission once, at the top, where it competes with the coverage mandates
+ * for attention; this restates the remaining budget at the only moment the
+ * model can act on it. Prose mandates have failed twice in this service and
+ * been replaced by structural mechanisms both times (PR #614 → a coverage gate;
+ * mt#2828 → a tool-call-boundary rejection), so the wording alone is not
+ * trusted to carry this.
+ *
+ * APPEND-ONLY, deliberately: it is pushed after the round's tool results and no
+ * earlier message is ever rewritten. An in-place edit would invalidate the
+ * OpenAI prompt-cache prefix from the edit point on, which at the reviewer's
+ * ~0.82 cache-hit rate costs roughly 10x what it saves (mem#806).
+ *
+ * @param roundIndex Zero-based index of the round that just completed.
+ * @param maxRounds  The cap in force (`MAX_TOOL_ROUNDS`).
+ */
+export function buildRoundBudgetNotice(roundIndex: number, maxRounds: number): string {
+  const roundsDone = roundIndex + 1;
+  // The last round is text-only, so tool-capable rounds are indices
+  // 0..maxRounds-2 — one fewer than the cap.
+  const toolCapableRemaining = Math.max(0, maxRounds - 1 - roundsDone);
+
+  const header = `[TOOL BUDGET] Round ${roundsDone} of ${maxRounds} complete. ${toolCapableRemaining} tool-capable round(s) remain.`;
+
+  if (toolCapableRemaining === 0) {
+    return (
+      `${header} This was your LAST round that could emit tool calls — the next round has no tools, ` +
+      `so no further findings or conclude_review can be recorded from it. ` +
+      `Nothing you were saving for later will be captured.`
+    );
+  }
+
+  if (toolCapableRemaining <= ROUND_BUDGET_WRAP_UP_THRESHOLD) {
+    return (
+      `${header} Stop opening new lines of investigation now. Emit any findings you are still holding, ` +
+      `then call conclude_review. If you did not cover everything, say so in the summary — ` +
+      `an honest, bounded review is the goal, not an exhaustive one. Remember conclude_review is ` +
+      `itself a tool call and cannot be emitted after your tool rounds run out.`
+    );
+  }
+
+  return (
+    `${header} Spend them on the verification the constitution asks for, then conclude on your own — ` +
+    `you do not need to exhaust the budget to be done.`
+  );
+}
 
 /**
  * Envelope shapes returned to the model for each tool call (mt#1216).
@@ -976,6 +1088,12 @@ export async function callOpenAIWithClient(
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
 
+  /**
+   * 1-based round on which the model first emitted `conclude_review` itself,
+   * or null if it never did in-loop (mt#3547).
+   */
+  let concludedAtRound: number | null = null;
+
   const roundLatenciesMs: number[] = [];
   let timeoutCount = 0;
   const retryOutcomes: string[] = [];
@@ -1206,6 +1324,14 @@ export async function callOpenAIWithClient(
           }
 
           accumulatedToolCalls.push(parsed);
+          // mt#3547: record WHICH round the model concluded on, not just that it
+          // did. Without this, `roundsUsed === maxRounds && concludedInLoop` is
+          // ambiguous between "concluded on the last tool-capable round" and
+          // "concluded early and kept calling tools anyway" — two different
+          // behaviors that call for different fixes.
+          if (parsed.name === "conclude_review" && concludedAtRound === null) {
+            concludedAtRound = round + 1;
+          }
           const count = accumulatedToolCalls.length;
           log.info("reviewer.output_tool_call", {
             event: "reviewer.output_tool_call",
@@ -1297,12 +1423,34 @@ export async function callOpenAIWithClient(
         content: resultContent,
       });
     }
+
+    // mt#3547: tell the model how much budget is left, at the only point it can
+    // still act on it. Appended AFTER this round's tool results and never
+    // rewritten, so the prompt-cache prefix through the previous round stays
+    // byte-identical (see buildRoundBudgetNotice's docstring).
+    //
+    // The `isLastRound` guard is defensive rather than load-bearing today:
+    // that round passes no tools, so the API cannot return tool calls and
+    // control breaks out above before reaching here. It states the invariant
+    // explicitly so the behavior stays correct if the cap semantics change.
+    if (!isLastRound) {
+      messages.push({
+        role: "user",
+        content: buildRoundBudgetNotice(round, MAX_TOOL_ROUNDS),
+      });
+    }
   }
 
   // Snapshot main-loop output count BEFORE forced passes so the conclude
   // gate's gate_branch discriminator reflects main-loop behavior, not
   // forced-pass side-effects (mt#2115 reviewer finding).
   const mainLoopOutputCount = accumulatedToolCalls.length;
+
+  // mt#3547: snapshot the stop-signal outcome BEFORE any forced pass can supply
+  // a conclude_review. Read after the forced passes this is always true and the
+  // metric mt#3547 exists to move would be invisible.
+  const concludedInLoop = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
+  let forcedConcludeGateBranch: "emitted_no_conclude" | "emitted_nothing" | null = null;
 
   // Post-loop forced submit_documentation_impact pass (mt#2115).
   const hasDocImpact = accumulatedToolCalls.some((tc) => tc.name === "submit_documentation_impact");
@@ -1379,6 +1527,7 @@ export async function callOpenAIWithClient(
     const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls
       ? "emitted_no_conclude"
       : "emitted_nothing";
+    forcedConcludeGateBranch = gateBranch;
     try {
       const forced = await forceConcludeReview(
         client,
@@ -1444,6 +1593,14 @@ export async function callOpenAIWithClient(
     concludeReviewGuard: {
       rejectionCount: concludeReviewRejectionCount,
       boundExhausted: concludeReviewGuardBoundExhausted,
+    },
+    // mt#3547: what the loop actually did, for the round-budget replay harness.
+    toolLoop: {
+      roundsUsed: totalRoundsUsed,
+      maxRounds: MAX_TOOL_ROUNDS,
+      concludedInLoop,
+      concludedAtRound,
+      forcedConcludeGateBranch,
     },
   };
 }
