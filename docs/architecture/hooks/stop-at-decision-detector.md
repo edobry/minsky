@@ -4,7 +4,7 @@
 > cross-references, and design rationale for this observer. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
-**Hook file:** `.minsky/hooks/stop-at-decision-detector.ts`
+**Hook file:** `.minsky/hooks/stop-at-decision-scan.ts`
 **Event:** `Stop`
 **Status:** LOG-ONLY — never injects
 **Override:** `MINSKY_SKIP_STOP_AT_DECISION`

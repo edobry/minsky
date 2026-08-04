@@ -4,7 +4,7 @@
 > cross-references, and design rationale for this observer. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
-**Hook file:** `.minsky/hooks/turn-end-unwalked-task-detector.ts`
+**Hook file:** `.minsky/hooks/turn-end-unwalked-task-scan.ts`
 **Event:** `Stop`
 **Override:** `MINSKY_ACK_UNWALKED_TASK`
 
