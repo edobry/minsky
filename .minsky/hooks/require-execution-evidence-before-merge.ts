@@ -44,6 +44,7 @@ import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
 import { isTestFile } from "./pr-file-predicates";
@@ -810,7 +811,20 @@ export function checkAcceptanceTestCoverage(
   // be near-certainly all-positive — a PR body reliably mentions its own subject matter and
   // `extractSignificantKeywords` accepts any >=5-char non-stopword token — so it would
   // classify substantially everything as a location gap and carry no signal at all.
-  const presentElsewhereAts = unaddressedAts.filter((at) => isAtReferencedByNumber(at, prBody));
+  //
+  // Quoted/code contexts are elided first (PR #2610 R1): a PR body that PASTES the gate's own
+  // warning text, or quotes a spec excerpt, mentions `AT3` without that being a reference to
+  // real evidence — counting it would inflate the location-gap rate this field exists to
+  // measure. Measured against the full 52-pair corpus before adopting: raw 24,
+  // elided 24, with ZERO ATs referenced only inside a quoted/code span — so on today's corpus
+  // the elision changes nothing and is adopted purely to bound the inflation vector going
+  // forward. Recorded because the reverse risk is real too: an evidence block IS usually
+  // fenced, so if a future corpus shows the two counts diverging, check which direction before
+  // assuming this elision is still the conservative choice.
+  const proseOnlyBody = elideQuotedContexts(prBody);
+  const presentElsewhereAts = unaddressedAts.filter((at) =>
+    isAtReferencedByNumber(at, proseOnlyBody)
+  );
 
   return { applicable: true, executableAts, unaddressedAts, presentElsewhereAts };
 }

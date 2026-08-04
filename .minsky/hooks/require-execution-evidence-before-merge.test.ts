@@ -1778,6 +1778,38 @@ describe("checkAcceptanceTestCoverage — present-elsewhere classification (mt#3
     expect(result.presentElsewhereAts).toHaveLength(0);
   });
 
+  // PR #2610 R1 (non-blocking): a PR body that PASTES the gate's own warning, or quotes a
+  // spec excerpt, names `AT3` without that being a reference to real evidence. Counting it
+  // would inflate the location-gap rate the field exists to measure.
+  it("does not count an AT mentioned only inside a fenced block", () => {
+    const body = `${PROXY_EVIDENCE_BODY}\n\n## Notes\n\n\`\`\`\nAT3: services boot on the role\n\`\`\`\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.presentElsewhereAts).toEqual([]);
+  });
+
+  it("does not count an AT mentioned only in a blockquote or an inline code span", () => {
+    const quoted = `${PROXY_EVIDENCE_BODY}\n\n> the gate said AT3 was unaddressed\n`;
+    expect(
+      checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", quoted).presentElsewhereAts
+    ).toEqual([]);
+
+    const inlineCode = `${PROXY_EVIDENCE_BODY}\n\n## Notes\n\nThe warning named \`AT3\` here.\n`;
+    expect(
+      checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", inlineCode)
+        .presentElsewhereAts
+    ).toEqual([]);
+  });
+
+  it("still counts an AT named in ordinary prose outside the evidence block", () => {
+    // The positive control for the elision above: eliding must not swallow the real case.
+    const body = `${PROXY_EVIDENCE_BODY}\n\n## Testing\n\nAT3 was verified by a live boot.\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+
+    expect(result.presentElsewhereAts.map((at) => at.number)).toEqual([3]);
+  });
+
   it("does not classify a deferred AT as present-elsewhere", () => {
     // A `[atN-deferred:]` marker contains the AT number, so a naive full-body number probe
     // would match it. Deferral is resolved BEFORE the partition, so the AT is addressed and
@@ -1958,6 +1990,23 @@ describe("runAtCoverageCalibration — never emits deny, only warns/logs", () =>
     const record = JSON.parse(written.trim().split("\n")[0] ?? "{}");
     expect(record.task).toBe("mt#2542");
     expect(record.unaddressedAts?.[0]?.number).toBe(3);
+
+    // PR #2610 R1 (non-blocking): pin the ON-DISK record shape a downstream consumer reads.
+    // `scripts/at-coverage-reclassify.ts` parses this log, so a renamed or dropped key is a
+    // silent breakage there rather than a test failure here. Assert the pre-existing keys are
+    // intact ALONGSIDE the mt#3339 addition — the addition is only safe because it is additive.
+    expect(Object.keys(record).sort()).toEqual([
+      "executableAtCount",
+      "prNumber",
+      "presentElsewhereAts",
+      "surface",
+      "task",
+      "timestamp",
+      "unaddressedAts",
+    ]);
+    // AT3 is absent from this body entirely (proxy evidence names no AT number), so the
+    // partition records it as NOT present-elsewhere — the field is written either way.
+    expect(record.presentElsewhereAts).toEqual([]);
   });
 
   it("returns no warning when every executable AT is deferred or covered", () => {
