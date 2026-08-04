@@ -32,7 +32,11 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 // authentication is attempted, and a credential-shaped literal here would trip
 // the pre-commit secret scan for no benefit.
 const UNRESOLVABLE = "postgresql://nonexistent-mt3635.invalid:5432/db";
-const LIVE = process.env.INTEGRATION_POSTGRES_URL ?? "postgres://edobry@127.0.0.1:5432/postgres";
+// No username in the default (PR #2603 R1): baking one in makes the script look
+// broken to everyone else. Omitted, postgres-js falls back to the OS user, which
+// is what a local install grants anyway. Point it elsewhere with
+// INTEGRATION_POSTGRES_URL.
+const LIVE = process.env.INTEGRATION_POSTGRES_URL ?? "postgres://127.0.0.1:5432/postgres";
 
 /**
  * The slice of the real task service this check needs. Deliberately the REAL
@@ -78,7 +82,15 @@ const sleep = (ms: number): Promise<void> =>
 
 /** Gate: is the live database reachable at all? If not, skip rather than fail. */
 async function liveDbReachable(): Promise<boolean> {
-  const postgres = (await import("postgres")).default;
+  // Guarded import (PR #2603 R1): a missing driver throws BEFORE the
+  // reachability check below, so without this the script would die with a
+  // module-resolution stack trace instead of skipping the way it advertises.
+  const postgresModule = await import("postgres").catch(() => null);
+  if (postgresModule === null) {
+    console.log("SKIP: the 'postgres' driver is not installed in this context");
+    process.exit(0);
+  }
+  const postgres = postgresModule.default;
   const sql = postgres(LIVE, { max: 1, connect_timeout: 5, prepare: false, onnotice: () => {} });
   try {
     await sql`select 1`;

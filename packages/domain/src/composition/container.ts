@@ -209,6 +209,19 @@ export class TsyringeContainer implements AppContainerInterface {
    */
   private readonly retryState = new Map<string, RetryState>();
   /**
+   * Lifecycle generation, bumped by `close()` (PR #2603 R1).
+   *
+   * Both `retryDeferred()` and `reresolveDependents()` register an instance
+   * AFTER awaiting a factory. If `close()` runs during that await, the pending
+   * `register()` would land on a container that has already been torn down —
+   * resurrecting a service after teardown, on a `tsyringe` instance that
+   * `close()` just `reset()`. A boolean "closed" flag would make the container
+   * permanently unusable after one close; a generation counter also lets a
+   * re-`initialize()` proceed cleanly, because the stale task compares against
+   * the value it captured at spawn rather than against "has close ever run".
+   */
+  private lifecycleEpoch = 0;
+  /**
    * True while `initialize()` is walking the registration order (mt#3635).
    *
    * Retries are suppressed for the duration. A dependent's factory calls
@@ -295,6 +308,15 @@ export class TsyringeContainer implements AppContainerInterface {
     if (this.retryInFlight.has(key)) return;
     const registration = this.factories.get(key);
     if (!registration) return;
+    // Claim the key BEFORE the backoff computation (PR #2603 R1). As written,
+    // every statement between the check above and this line is synchronous, so
+    // the event loop cannot interleave a second caller into the window and the
+    // race described in review cannot occur on this runtime. Claiming first is
+    // hardening, not a bug fix: it keeps "at most one attempt in flight per
+    // key" from silently depending on nobody ever introducing an `await` into
+    // that window. The early return below MUST release the claim.
+    this.retryInFlight.add(key);
+    const epoch = this.lifecycleEpoch;
     // Backoff gate (mt#3635). `get()` calls this opportunistically on every
     // resolution of a deferred key, so without a floor the attempt rate is the
     // process's call rate — a retry storm against the very dependency that is
@@ -305,11 +327,14 @@ export class TsyringeContainer implements AppContainerInterface {
     };
     const nowMs = Date.now();
     if (state.lastAttemptAtMs !== null && nowMs - state.lastAttemptAtMs < state.delayMs) {
+      // Release the claim taken above — holding it here would wedge the key
+      // permanently in-flight and stop it from EVER retrying again, turning a
+      // rate limit into the exact permanent degradation this task removes.
+      this.retryInFlight.delete(key);
       return;
     }
     state.lastAttemptAtMs = nowMs;
     this.retryState.set(key, state);
-    this.retryInFlight.add(key);
     // NOTE: the factory call MUST happen inside this async IIFE's try block,
     // not as a bare expression passed to Promise.resolve(). A factory that
     // throws SYNCHRONOUSLY (the common case — see bootDeferrableError in
@@ -325,6 +350,10 @@ export class TsyringeContainer implements AppContainerInterface {
         // reach here AFTER `set()` already ran, since this is the first
         // `await` boundary since the retry began.)
         if (this.manuallyOverridden.has(key)) return;
+        // The container was closed (or closed and re-initialized) while this
+        // factory was awaiting (PR #2603 R1). Registering now would resurrect a
+        // service on a container that has already been torn down.
+        if (this.lifecycleEpoch !== epoch) return;
         // Contract (PR #2113 R1 review): tsyringe's `register(token, {useValue})`
         // REPLACES any prior registration for the same token rather than
         // stacking a second binding — a single `useValue` registration is a
@@ -411,6 +440,7 @@ export class TsyringeContainer implements AppContainerInterface {
   private reresolveDependents(recoveredKey: string): void {
     const startIndex = this.registrationOrder.indexOf(recoveredKey);
     if (startIndex === -1) return;
+    const epoch = this.lifecycleEpoch;
     const dependents = this.registrationOrder.slice(startIndex + 1);
     for (const dependentKey of dependents) {
       // A manual override is the caller's explicit instance — never clobber it,
@@ -422,6 +452,10 @@ export class TsyringeContainer implements AppContainerInterface {
         try {
           const instance = await Promise.resolve(registration.factory(this));
           if (this.manuallyOverridden.has(dependentKey)) return;
+          // Same teardown guard as retryDeferred (PR #2603 R1) — this is the
+          // writer the review flagged: a rebuild spawned before `close()` would
+          // otherwise re-register a dependent after the container was reset.
+          if (this.lifecycleEpoch !== epoch) return;
           this.tsyringe.register(dependentKey, { useValue: instance });
           if (asDegradedSubstitute(instance)) {
             this.deferredKeys.add(dependentKey);
@@ -498,6 +532,11 @@ export class TsyringeContainer implements AppContainerInterface {
   }
 
   async close(): Promise<void> {
+    // Invalidate in-flight retries and dependent rebuilds FIRST (PR #2603 R1),
+    // before the first `await` below. Bumping after the disposal loop would
+    // leave the whole loop as a window in which a settling background task
+    // could still register onto a container being torn down.
+    this.lifecycleEpoch += 1;
     // Dispose in reverse registration order (tear down leaves before roots)
     const keys = [...this.registrationOrder].reverse();
     for (const key of keys) {
