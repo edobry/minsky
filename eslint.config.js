@@ -86,6 +86,12 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // module so the session-film ribbon can reuse them without forking. Same
   // exemption rationale, same code, new file.
   "src/cockpit/web/components/ConversationElementRenderers.tsx",
+  // mt#3692: the "Spawned by" backlink is the ascent half of the same
+  // subagent-spawn affordance the violet badge marks above, so it carries the
+  // same violet to read as one pair. Extracted into its own file because
+  // ConversationView.tsx had grown past the 1500-line max-lines limit — same
+  // exemption rationale, same code, new file, exactly as mt#3262 above.
+  "src/cockpit/web/components/SpawnParentBacklink.tsx",
   // Command-palette entity-type badges (memory=emerald, conversation=sky) —
   // categorical entity-type coloring, not health status. Unifying with the
   // signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already uses for
