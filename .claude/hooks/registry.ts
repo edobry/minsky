@@ -1648,6 +1648,48 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3593 — third Stop-event sibling. `untaken-action` keys on a sign-off
+    // phrase; `unwalked-task` keys purely on tool-call state. This one is a
+    // hybrid because its trigger has no tool-call signature: nothing the agent
+    // CALLS means "an incident happened", so the trigger must be read from the
+    // final message while the absence check stays structural (an `asks_create`
+    // carrying severity: "incident"). Full rationale: the guard module's header.
+    name: "turn-end-unescalated-incident-scan",
+    tuningOwnership: "preference",
+    event: "Stop",
+    module: () => import("./turn-end-unescalated-incident-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "unescalated-incident",
+    denyCapable: false,
+    // TRUE: the absence half is a tool-call check, which lives only in the
+    // transcript. The trigger half comes from last_assistant_message.
+    needsTranscript: true,
+    // Measured against the canary below, not estimated.
+    attentionCost: { denialMessageSizeChars: 720, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3593-unescalated-incident-canary",
+        transcript_path: "/nonexistent/mt3593-canary.jsonl",
+        // Both halves present, no ask filed — the R2 shape.
+        last_assistant_message:
+          "Production is down — the health probe reports persistence unavailable. " +
+          "I can't push the revert; the pre-push gate blocks it and you'll need to run it.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "did the merge land?" } },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Checking." }] },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3593-unescalated-incident-canary");
+      },
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept

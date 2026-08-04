@@ -81,6 +81,20 @@ export function makeProcessStdout(): StdoutSink {
   return process.stdout;
 }
 
+/** Which delivery channel `notify()` uses (mt#3628). */
+export type NotifyChannel = "osascript" | "cliWarn";
+
+/**
+ * Pure decision core (mt#3628): which delivery channel `notify()` routes
+ * through for a given platform. macOS gets a native notification banner;
+ * every other platform routes through the CLI/program logger (always
+ * stderr) so stdout stays clean in every log mode. No I/O — testable
+ * entirely by return value.
+ */
+export function decideNotifyChannel(platform: string): NotifyChannel {
+  return platform === "darwin" ? "osascript" : "cliWarn";
+}
+
 /**
  * Concrete implementation targeting the local desktop.
  *
@@ -90,15 +104,26 @@ export class SystemOperatorNotify implements OperatorNotify {
   private readonly executor: CommandExecutor;
   private readonly stdout: StdoutSink;
   private readonly platform: string;
+  private readonly cliWarnSink: ((message: string) => void) | undefined;
 
   constructor(
     executor: CommandExecutor = makeSpawnExecutor(),
     stdout: StdoutSink = makeProcessStdout(),
-    platform: string = process.platform
+    platform: string = process.platform,
+    /**
+     * Injectable STRUCTURED-mode delivery sink (mt#3628). Defaults to
+     * `undefined`, which preserves the original lazy `require()` of the
+     * real logger inside `notify()` (see this file's docblock — keeps the
+     * module loadable in browser-like environments without pulling in the
+     * winston bundle at import time). Tests inject a plain recording
+     * function instead of `spyOn(programLog, "cliWarn")`.
+     */
+    cliWarnSink?: (message: string) => void
   ) {
     this.executor = executor;
     this.stdout = stdout;
     this.platform = platform;
+    this.cliWarnSink = cliWarnSink;
   }
 
   bell(): void {
@@ -106,7 +131,8 @@ export class SystemOperatorNotify implements OperatorNotify {
   }
 
   notify(title: string, body: string): void {
-    if (this.platform === "darwin") {
+    const channel = decideNotifyChannel(this.platform);
+    if (channel === "osascript") {
       // Escape any double-quotes in title/body to prevent osascript injection.
       const safeTitle = title.replace(/"/g, '\\"');
       const safeBody = body.replace(/"/g, '\\"');
@@ -118,9 +144,16 @@ export class SystemOperatorNotify implements OperatorNotify {
       // Non-darwin: route through the program/CLI logger (always stderr) so
       // stdout stays clean in every log mode (HUMAN, STRUCTURED, agent).
       // Lazy require keeps this module loadable in browser bundles (same
-      // pattern as the child_process require above).
-      const { log } = require("@minsky/shared/logger") as typeof import("@minsky/shared/logger");
-      log.cliWarn(`[notify] notification suppressed on non-darwin platform: ${title} — ${body}`);
+      // pattern as the child_process require above) — only reached when no
+      // cliWarnSink was injected.
+      const cliWarn =
+        this.cliWarnSink ??
+        ((message: string) => {
+          const { log } =
+            require("@minsky/shared/logger") as typeof import("@minsky/shared/logger");
+          log.cliWarn(message);
+        });
+      cliWarn(`[notify] notification suppressed on non-darwin platform: ${title} — ${body}`);
     }
   }
 }

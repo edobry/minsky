@@ -195,6 +195,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_MIGRATION_COLLISION_CHECK", // src/hooks/pre-commit.ts (mt#2948) — journal-when-immutability + concurrent-migration-collision check override
   "MINSKY_SKIP_MIGRATION_GUARD_CHECK", // src/hooks/pre-commit.ts (mt#3299) — unguarded DROP INDEX / CREATE UNIQUE INDEX check override
   "MINSKY_SKIP_DUPLICATE_GENERATED_CONTENT_CHECK", // src/hooks/pre-commit.ts (mt#3299) — duplicate-generated-content check override
+  "MINSKY_SKIP_ADR_NUMBERING_COLLISION_CHECK", // src/hooks/pre-commit.ts (mt#3613) — ADR-numbering-collision check override
   "MINSKY_SKIP_RELATED_TESTS", // src/hooks/pre-commit.ts (mt#2932) — fast changed-file-scoped related-test gate override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
   // mt#2335 — loaded-source freshness signal. Set by scripts/cli-entry.ts BEFORE
@@ -350,6 +351,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
   "MINSKY_ACK_UNTAKEN_ACTION", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
   "MINSKY_ACK_UNWALKED_TASK", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
+  "MINSKY_ACK_UNESCALATED_INCIDENT", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
   "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 

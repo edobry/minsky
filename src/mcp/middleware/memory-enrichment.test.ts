@@ -74,6 +74,9 @@ function makeMemoryService(opts: {
     async get() {
       return null;
     },
+    async getWithoutAccessTracking() {
+      return null;
+    },
     async list() {
       return [];
     },
@@ -366,6 +369,9 @@ describe("memory-enrichment / enrichToolResponse", () => {
       async get() {
         return null;
       },
+      async getWithoutAccessTracking() {
+        return null;
+      },
       async list() {
         return [];
       },
@@ -399,6 +405,9 @@ describe("memory-enrichment / enrichToolResponse", () => {
         return { results: [], backend: "embeddings", degraded: false };
       },
       async get() {
+        return null;
+      },
+      async getWithoutAccessTracking() {
         return null;
       },
       async list() {
@@ -440,6 +449,9 @@ describe("memory-enrichment / enrichToolResponse", () => {
         });
       },
       async get() {
+        return null;
+      },
+      async getWithoutAccessTracking() {
         return null;
       },
       async list() {
