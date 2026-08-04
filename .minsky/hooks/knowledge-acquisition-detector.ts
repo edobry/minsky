@@ -147,10 +147,44 @@ export const RESEARCH_TOOL_NAMES: readonly string[] = [
  * invocation whose name contains "learn" (the mt#2709 `/learn` routing skill)
  * is checked separately in {@link hasPropagationAfter} since Skill
  * invocations aren't named by tool name alone.
+ *
+ * **The channel set is an OR across destinations, not a ranking (mt#3272).**
+ * The test for membership is "does a call to this tool mean the research
+ * landed somewhere durable that a future reader will find?" — not "is this the
+ * BEST place for it." Two dispositions (ask#6136 `tune-both`, ask#6817
+ * "approve both tunes") directed widening it beyond the memory/task pair,
+ * because research that lands in the artifact it was FOR was reading as
+ * "never written down."
+ *
+ * The spec-writing entries are that widening. A `/plan-task` session's research
+ * goes into the task spec; a `/draft-rfc` session's goes into the RFC. Both are
+ * durable, both are the canonical destination for that work, and neither calls
+ * `memory_create`. Measured on the 2026-08-03 sweep: 11 fires across two
+ * sessions, and BOTH sessions had written their findings into task specs —
+ * `aecd65f4` via four spec edits, `0e0d6b66` via thirteen.
+ *
+ * **What is deliberately NOT here:** `session_write_file` / `session_edit_file`
+ * and the other source-editing tools. Writing code is not capturing research
+ * about it, and admitting them would make the detector fire on approximately
+ * nothing — the same over-widening that would follow from treating every write
+ * as propagation.
+ *
+ * Recording an artifact does not make writing a memory unnecessary — mt#3272's
+ * spec preserves that distinction explicitly ("an RFC is a propagation
+ * destination for the *argument*, not necessarily for every reusable mechanism
+ * discovered while writing it"). This set answers the narrower question the
+ * detector asks.
  */
 export const PROPAGATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "mcp__minsky__memory_create",
   "mcp__minsky__tasks_create",
+  // Spec-writing: the destination for research done inside /plan-task and
+  // /create-task, which is where this detector's own fires concentrate.
+  "mcp__minsky__tasks_spec_patch",
+  "mcp__minsky__tasks_spec_search_replace",
+  // Memory revision — updating an existing entry captures an acquisition
+  // exactly as creating one does.
+  "mcp__minsky__memory_update",
 ]);
 
 /**
