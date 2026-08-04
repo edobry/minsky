@@ -102,11 +102,30 @@ export interface DispatchContext {
    */
   transcriptCandidates: string[];
   /**
-   * Every candidate's parsed lines, concatenated in candidate order. Empty
-   * when there is no transcript_path. A guard that needs per-candidate
-   * short-circuit scanning (rather than a flat merged list) can still walk
-   * `transcriptCandidates` itself and re-parse — cheap, since `parseTranscript`
-   * is a pure read with no shared state.
+   * **The PARENT conversation's parsed lines — never a subagent's** (mt#3293).
+   * Empty when there is no transcript_path.
+   *
+   * When this invocation resolved MORE THAN ONE transcript candidate (i.e. the
+   * conversation has dispatched subagents), this is the parent transcript
+   * re-parsed ALONE, via {@link resolveParentTranscriptLines}. It is NOT the
+   * concatenation of every candidate, which is what it used to be and what the
+   * plural name still suggests.
+   *
+   * **Why the change.** The old flattened value placed every sibling subagent
+   * transcript after the parent's lines with no per-line file-origin marker. Turn
+   * extraction over that array — `findRealPromptIndices`, `extractLastAssistantTurn`,
+   * `extractFinalTurn` — could anchor inside a subagent's already-completed,
+   * no-longer-growing segment and then re-measure that same frozen turn on every
+   * later firing. mt#3003 diagnosed it and fixed two detectors individually;
+   * mt#3293 found the set had grown to sixteen consumers (three of them authored in
+   * the six days between that task being filed and implemented, each reaching for
+   * this field exactly as its name invites), and hoisted the resolution here so
+   * correctness is a property of the field rather than of each consumer remembering.
+   *
+   * **If you genuinely want every candidate's lines** — a guard doing per-candidate
+   * short-circuit scanning, or one whose job IS reading subagent transcripts — walk
+   * `transcriptCandidates` and parse them yourself. That is cheap (`parseTranscript`
+   * is a pure read with no shared state) and, unlike the old default, it is explicit.
    */
   transcriptLines: TranscriptLine[];
 }
@@ -137,11 +156,16 @@ export interface GuardOutcome {
    */
   additionalContext?: string;
   /**
-   * Raw non-JSON line(s) the guard wants written to stdout verbatim — e.g.
+   * Raw non-JSON line(s) the guard wants written verbatim to STDERR — e.g.
    * its own legacy per-guard override audit line (the "legacy vars remain
    * honored by the guards themselves" carve-out; deprecation-shim removal is
    * Phase 7, not this task). Each string should include its own trailing
    * newline.
+   *
+   * STDERR, not stdout (mt#3625). These went to stdout until the dispatch's
+   * JSON was found to be discarded wholesale by Claude Code whenever stdout
+   * carried anything else — so an audit line could silently void a later
+   * guard's deny on the same call.
    */
   auditLines?: string[];
   /**
@@ -160,6 +184,32 @@ export interface GuardOutcome {
    * it, so ordering is moot.
    */
   sessionTitle?: string;
+  /**
+   * PreToolUse-only: replaces the tool's ARGUMENTS before it runs, forwarded
+   * verbatim as `hookSpecificOutput.updatedInput` (mt#3612). A third output
+   * shape alongside `deny` (short-circuit) and `additionalContext`
+   * (concatenate) — it is a REPLACEMENT value, so neither of those rules
+   * applies to it.
+   *
+   * Aggregation: **first guard in registry order wins.** A later guard's
+   * rewrite is DISCARDED and the discard is written as a stderr audit line
+   * naming both guards (stderr because Claude Code drops a PreToolUse hook's
+   * whole output if stdout holds anything but the one JSON object). Registry order is ADR-028 D1's explicit declared ordering
+   * property (the same one first-deny-wins rests on) — deliberately NOT the
+   * last-write-wins that `sessionTitle` above uses, because that rule is
+   * documented as moot for a single-writer field and a silently dropped
+   * argument rewrite is a correctness failure rather than a cosmetic one.
+   *
+   * A guard returning both `deny` and `updatedInput` gets the deny: the tool
+   * never runs, so its arguments are irrelevant.
+   *
+   * Claude Code honors the field on PreToolUse only. The dispatcher forwards
+   * it on whatever event the guard is registered for — same as `sessionTitle`
+   * above, which is documented UserPromptSubmit-only and likewise forwarded
+   * unconditionally. Scoping is the harness's; the dispatcher does not silently
+   * drop a value a guard deliberately returned.
+   */
+  updatedInput?: Record<string, unknown>;
 }
 
 export type GuardRunResult = GuardOutcome | null | undefined | void;
@@ -475,6 +525,49 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_name: "Bash",
         tool_input: {
           command: `cd ${CANARY_NONEXISTENT_SESSION_PATH}/ && ls`,
+        },
+      },
+      expects: "deny",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#3673 — the duplicate-check record, enforced at the tool boundary.
+  //
+  // mt#3585 put the requirement in `/create-task` Step 1a and its exit gate; a
+  // direct `tasks_create` call never enters the skill, so neither ran. That is
+  // the bypass shape `hook-observers.mdc §Turn-end-unwalked-task` already
+  // records for mt#2689. The similarity sibling (parallel-work-guard-standalone,
+  // mt#2813) stays advisory and unchanged — it provably cannot discriminate at
+  // the distances real duplicates sit at (mem#819), so this guard checks that
+  // the agent LOOKED, not whether a duplicate exists.
+  // -------------------------------------------------------------------------
+  {
+    name: "require-duplicate-check-record",
+    // `invariant`: whether a create records its duplicate check is not a
+    // threshold to tune — the record is either present or it is not.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./require-duplicate-check-record").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // MEASURED, not estimated (PR #2612 R1 corrected an invented "~780"):
+    // `buildDenialReason().length` is exactly 644. The body is wholly static —
+    // no per-hit interpolation — so 644 is the rendered size, not a sample, and
+    // the 900 ceiling leaves 256 chars (~40%) of headroom. The message needs its
+    // length: it carries BOTH accepted forms plus the
+    // read-the-titles-not-the-scores warning, because a clean similarity result
+    // is exactly what misleads here. One remediation option (the
+    // MINSKY_SKIP_DUPLICATE_RECORD override).
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // A create whose spec carries no record — purely string-driven, no
+    // filesystem or env dependency, so the canary is stable.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nA spec with no duplicate-check record.\n",
         },
       },
       expects: "deny",
@@ -892,6 +985,25 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       ],
       expects: "warn",
     },
+  },
+  {
+    // mt#3601 — LOG-ONLY. Checks that a retrospective produced the sections its
+    // declared triage level requires, and that every cited structural-fix task
+    // had its status read in-turn. No `additionalContext`, so no canary: this
+    // guard never warns by design until the FP rate is measured.
+    //
+    // `UserPromptSubmit`, not `Stop`, per ADR-031: this detector is
+    // tool-inspecting (it reads the turn's `tool_use` blocks for the Skill
+    // invocation and for `tasks_status_get` calls), and tool calls are read at
+    // the moment of MAXIMUM transcript flush.
+    name: "retrospective-completeness-detector",
+    tuningOwnership: "preference",
+    event: "UserPromptSubmit",
+    module: () => import("./retrospective-completeness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-completeness",
+    denyCapable: false,
+    needsTranscript: true,
   },
   {
     name: "retrospective-trigger-scanner",
@@ -1597,6 +1709,81 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         store.clearFlagged("mt3536-unwalked-task-canary");
       },
     },
+  },
+  {
+    // mt#3593 — third Stop-event sibling. `untaken-action` keys on a sign-off
+    // phrase; `unwalked-task` keys purely on tool-call state. This one is a
+    // hybrid because its trigger has no tool-call signature: nothing the agent
+    // CALLS means "an incident happened", so the trigger must be read from the
+    // final message while the absence check stays structural (an `asks_create`
+    // carrying severity: "incident"). Full rationale: the guard module's header.
+    name: "turn-end-unescalated-incident-scan",
+    tuningOwnership: "preference",
+    event: "Stop",
+    module: () => import("./turn-end-unescalated-incident-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "unescalated-incident",
+    denyCapable: false,
+    // TRUE: the absence half is a tool-call check, which lives only in the
+    // transcript. The trigger half comes from last_assistant_message.
+    needsTranscript: true,
+    // Measured against the canary below, not estimated.
+    attentionCost: { denialMessageSizeChars: 720, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3593-unescalated-incident-canary",
+        transcript_path: "/nonexistent/mt3593-canary.jsonl",
+        // Both halves present, no ask filed — the R2 shape.
+        last_assistant_message:
+          "Production is down — the health probe reports persistence unavailable. " +
+          "I can't push the revert; the pre-push gate blocks it and you'll need to run it.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "did the merge land?" } },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Checking." }] },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3593-unescalated-incident-canary");
+      },
+    },
+  },
+  {
+    // mt#3653 — LOG-ONLY fourth Stop-event sibling: R5 of
+    // family:stop-at-handoff. `untaken-action` keys on a sign-off phrase,
+    // `unwalked-task` on a tasks_create MINT; this one keys on an
+    // evidence-WRITE — a `tasks_spec_patch` into a non-bound open task — with
+    // no discharge call in the same turn: the silent stop at a ripe decision,
+    // which mints nothing and says nothing, so both siblings are blind to it.
+    //
+    // Calibration-first: never emits `additionalContext`, so no attentionCost
+    // and no canary (the retrospective-completeness-detector precedent — a
+    // nominal attentionCost would distort the merged-context budget, which is
+    // derived by summing these annotations). Returns only a calibration
+    // record, plus a separate evaluation stream
+    // (.minsky/stop-at-decision-evaluations.jsonl, mt#3583 pattern). Full
+    // rationale, including the recorded ADR-031 deviation for the Stop-side
+    // tool-call read: the guard module's header.
+    name: "stop-at-decision-scan",
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./stop-at-decision-scan").then((m) => ({ run: m.run })),
+    // 8s, not the sibling 5s: this guard makes up to MAX_STATUS_READS (2)
+    // `minsky` CLI status reads at 2.5s timeout each (measured 1.64s live),
+    // and the reads must fit inside the guard budget with the transcript
+    // scan's share left over.
+    timeoutMs: 8000,
+    calibrationLog: "stop-at-decision",
+    denyCapable: false,
+    // TRUE: both the trigger (spec-patch tool calls) and the discharge check
+    // (asks_create/status-set/dispatch/Skill absence) live only in the
+    // transcript; only the recommendation-marker leg reads
+    // last_assistant_message.
+    needsTranscript: true,
   },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the

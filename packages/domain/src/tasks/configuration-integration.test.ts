@@ -7,6 +7,14 @@
  * NO MOCKS — the function is designed to handle missing config, missing
  * persistence, and missing git gracefully via try/catch fallbacks.
  * Previous mock-based approach caused module system poisoning (mt#660).
+ *
+ * mt#3636 — "graceful" is scoped to CONSTRUCTION, not to reads. Building the
+ * service against a provider that cannot back a task backend still succeeds
+ * (so `/health` and non-DB commands keep working, per mt#2349), but a READ on
+ * the resulting zero-backend service now RAISES instead of returning `[]`.
+ * These two tests previously asserted `Array.isArray(tasks)` — the fail-open
+ * contract where an unreachable database is indistinguishable from an empty
+ * one. That is the defect mt#3636 fixes, so they now assert the guard.
  */
 
 import { test, expect, describe } from "bun:test";
@@ -22,8 +30,8 @@ describe("Configuration Integration", () => {
     });
 
     expect(taskService).toBeDefined();
-    const tasks = await taskService.listTasks();
-    expect(Array.isArray(tasks)).toBe(true);
+    // Construction succeeds; the read fails closed and names why (mt#3636).
+    await expect(taskService.listTasks()).rejects.toThrow(/Task backend unavailable/);
   });
 
   test("createConfiguredTaskService should handle missing config directory", async () => {
@@ -36,8 +44,7 @@ describe("Configuration Integration", () => {
     });
 
     expect(taskService).toBeDefined();
-    const tasks = await taskService.listTasks();
-    expect(Array.isArray(tasks)).toBe(true);
+    await expect(taskService.listTasks()).rejects.toThrow(/Task backend unavailable/);
   });
 
   test("createConfiguredTaskService should reject unknown backend with clear error", async () => {

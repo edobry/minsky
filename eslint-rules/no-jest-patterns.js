@@ -21,7 +21,13 @@ export default {
       jestImport: "Use Bun test imports instead of Jest imports. Import from 'bun:test' instead.",
       jestFn: "Use Bun test patterns: import { mock } from 'bun:test'; const mockFn = mock();",
       jestMock: "Use centralized mockModule() from test-utils/mocking.ts instead of jest.mock()",
-      jestSpyOn: "Use Bun test patterns: import { spyOn } from 'bun:test'; spyOn(obj, 'method');",
+      jestSpyOn:
+        "jest.spyOn() is not a Bun-API swap: in-place collaborator patching is banned in this " +
+        "codebase (ADR-036: docs/architecture/adr-036-testing-doubles-mechanism-and-patching-" +
+        "ban.md), and custom/no-spy-patching enforces the Bun-native spyOn() form separately. " +
+        "Not autofixed — the fix is a seam, not a s/jest.spyOn/spyOn/: extract the decision " +
+        "into a function that returns the observable and inject the collaborator instead, " +
+        "per testing-standards.mdc §Testable Design.",
       mockImplementation:
         "Use Bun mock patterns: mock(() => returnValue) or mock().mockImplementation(() => returnValue)",
       mockReturnValue:
@@ -60,11 +66,14 @@ export default {
               if (node.source.value === "jest") {
                 const importText = context.getSourceCode().getText(node);
 
-                // Convert jest imports to bun:test imports
+                // Convert jest imports to bun:test imports. Deliberately NOT importing
+                // `spyOn` here (mt#3565 / ADR-036): even suggesting the import steers a
+                // reader toward the now-banned in-place-patching mechanism, and
+                // custom/no-spy-patching would immediately flag any use of it anyway.
                 if (importText.includes("import jest")) {
                   const bunImport = importText.replace(
                     /import\s+.*?\s+from\s+['"']jest['"']/,
-                    "import { mock, spyOn } from 'bun:test'"
+                    "import { mock } from 'bun:test'"
                   );
                   return fixer.replaceText(node, bunImport);
                 }
@@ -117,15 +126,13 @@ export default {
           node.callee.object.name === "jest" &&
           node.callee.property.name === "spyOn"
         ) {
+          // Deliberately NOT autofixed (mt#3565 / ADR-036): the mechanical `jest.spyOn(x, 'y')`
+          // -> `spyOn(x, 'y')` rewrite this rule used to apply landed exactly on the now-banned
+          // form that custom/no-spy-patching flags separately. Autofixing toward a banned
+          // mechanism contradicts the ban; the correct fix is a seam, which no autofix can derive.
           context.report({
             node,
             messageId: "jestSpyOn",
-            fix(fixer) {
-              const args = node.arguments
-                .map((arg) => context.getSourceCode().getText(arg))
-                .join(", ");
-              return fixer.replaceText(node, `spyOn(${args})`);
-            },
           });
         }
 

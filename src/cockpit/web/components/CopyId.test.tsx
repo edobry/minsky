@@ -13,16 +13,71 @@
  * inside `act(...)` to deterministically "advance" the timer. Scoped to its
  * own nested `describe` with its own `beforeEach`/`afterEach` so the fake
  * never leaks into the other (real-timer, sub-second) tests in this file.
+ *
+ * mt#3629 / mt#3565 §Reframe: the ADR-029 / mt#2946 copy-payload policy
+ * (short-id Copy-ID payload, canonical-uuid link target, `%23` encoding) is
+ * now `buildCopyPayload(type, id, displayId, action)`, a pure function
+ * asserted directly by return value — no clipboard, no DOM, no spy. The
+ * remaining component tests below are WIRING tests: they verify clicking
+ * (or keyboard-activating) the real rendered buttons actually reaches the
+ * real clipboard. happy-dom 20.9 ships a real `Clipboard` implementation
+ * (`node_modules/happy-dom/src/clipboard/Clipboard.ts`) backed by an
+ * in-memory store with `writeText`/`readText`, and its `Permissions.query`
+ * defaults every permission name to `'granted'`
+ * (`node_modules/happy-dom/src/permissions/Permissions.ts:55`) — so
+ * `navigator.clipboard.writeText()` genuinely works under happy-dom with no
+ * setup required, and a wiring test can read the value BACK via
+ * `navigator.clipboard.readText()` instead of patching `writeText` with a
+ * spy. VERIFIED LIVE this session (mt#3629 AT3 — the interop mt#3565 flagged
+ * UNVERIFIED): every test below drives the DOM with
+ * `@testing-library/user-event` and asserts on the real clipboard's content;
+ * no fallback to an injected copy-function prop was needed.
  */
-import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { render, screen, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CopyId } from "./CopyId";
+import { CopyId, buildCopyPayload } from "./CopyId";
 import { entityToMinskyUri } from "../lib/entity-codec";
 
 afterEach(cleanup);
 
 const ASK_ID = "550e8400-e29b-41d4-a716-446655440000";
+
+// ---------------------------------------------------------------------------
+// Pure-core tests: buildCopyPayload (the ADR-029 / mt#2946 policy)
+// ---------------------------------------------------------------------------
+
+describe("buildCopyPayload (pure core)", () => {
+  test("id action: no displayId copies the canonical id", () => {
+    expect(buildCopyPayload("ask", ASK_ID, undefined, "id")).toBe(ASK_ID);
+  });
+
+  test("id action: a displayId (short id) wins over the canonical id (mt#2965)", () => {
+    expect(buildCopyPayload("ask", ASK_ID, "ask#7", "id")).toBe("ask#7");
+  });
+
+  test("link action: no displayId — the deeplink targets the canonical id, uuid needs no encoding", () => {
+    const payload = buildCopyPayload("ask", ASK_ID, undefined, "link");
+    expect(payload).toBe(`minsky://ask/${ASK_ID}`);
+    expect(payload).toBe(entityToMinskyUri("ask", ASK_ID));
+  });
+
+  test("link action: a displayId is present but NEVER substitutes the link target (mt#2946)", () => {
+    const payload = buildCopyPayload("ask", ASK_ID, "ask#7", "link");
+    expect(payload).toBe(entityToMinskyUri("ask", ASK_ID));
+    expect(payload).not.toContain("ask#7");
+  });
+
+  test("link action: a task id's '#' is percent-encoded (AT2)", () => {
+    expect(buildCopyPayload("task", "mt#2410", undefined, "link")).toBe(
+      "minsky://task/mt%232410"
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rendering tests (no clipboard involved)
+// ---------------------------------------------------------------------------
 
 describe("CopyId", () => {
   test("renders a long id as truncated, selectable monospace text with the full id in the title", () => {
@@ -46,44 +101,6 @@ describe("CopyId", () => {
     expect(screen.getByRole("button", { name: "Copy ask id" })).toBeTruthy();
   });
 
-  test("Copy ID writes the bare full id to the clipboard and shows Copied feedback", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
-    render(<CopyId type="ask" id={ASK_ID} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
-    fireEvent.click(await screen.findByText("Copy ID"));
-
-    expect(writeText).toHaveBeenCalledWith(ASK_ID);
-
-    // Icon/label swap: "Copied" feedback renders transiently. (The ~2s revert
-    // itself is exercised deterministically, with a fake timer, in the nested
-    // "copy feedback timing" describe block below — no real-time wait here.)
-    await screen.findByText("Copied");
-  });
-
-  test("Copy link writes the ask's minsky:// deeplink (percent-encoded uuid) to the clipboard", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
-    render(<CopyId type="ask" id={ASK_ID} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
-    fireEvent.click(await screen.findByText("Copy link"));
-
-    const expected = entityToMinskyUri("ask", ASK_ID);
-    expect(expected).toBe(`minsky://ask/${ASK_ID}`); // UUIDs need no percent-encoding
-    expect(writeText).toHaveBeenCalledWith(expected);
-    await screen.findByText("Copied");
-  });
-
-  test("Copy link for a task percent-encodes the '#' in the minsky:// deeplink", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
-    render(<CopyId type="task" id="mt#2410" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy task id" }));
-    fireEvent.click(await screen.findByText("Copy link"));
-
-    expect(writeText).toHaveBeenCalledWith("minsky://task/mt%232410");
-  });
-
   test("displayId (mt#2965): renders the short id as the visible/title text, not the uuid", () => {
     render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
     const idEl = screen.getByTitle("ask#7");
@@ -91,35 +108,49 @@ describe("CopyId", () => {
     expect(screen.queryByTitle(ASK_ID)).toBeNull();
   });
 
-  test("displayId (mt#2965): Copy ID copies the short id, not the uuid", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
-    render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
-    fireEvent.click(await screen.findByText("Copy ID"));
-    expect(writeText).toHaveBeenCalledWith("ask#7");
-  });
-
-  test("displayId (mt#2965): Copy link still targets the canonical uuid, never the short id", async () => {
-    const writeText = spyOn(navigator.clipboard, "writeText");
-    render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
-    fireEvent.click(await screen.findByText("Copy link"));
-    // mt#2946's decision: short ids never replace the uuid as the
-    // minsky:// deeplink target.
-    expect(writeText).toHaveBeenCalledWith(entityToMinskyUri("ask", ASK_ID));
-  });
-
   test("omitting displayId is unaffected (regression): behaves exactly as before this prop existed", () => {
     render(<CopyId type="ask" id={ASK_ID} />);
     const idEl = screen.getByTitle(ASK_ID);
     expect(idEl.textContent).not.toBe(ASK_ID); // still truncated, same as the first test above
   });
+});
+
+// ---------------------------------------------------------------------------
+// Wiring tests: clicking/activating the real buttons reaches the real
+// clipboard (mt#3629). No spyOn anywhere below — every assertion reads
+// navigator.clipboard.readText() back, which happy-dom backs with a real
+// in-memory store (see file header).
+// ---------------------------------------------------------------------------
+
+describe("CopyId — wiring (real clipboard via happy-dom, driven by user-event)", () => {
+  test("mouse: Copy ID writes buildCopyPayload's \"id\" payload to the clipboard and shows Copied feedback", async () => {
+    const user = userEvent.setup();
+    render(<CopyId type="ask" id={ASK_ID} />);
+
+    await user.click(screen.getByRole("button", { name: "Copy ask id" }));
+    await user.click(await screen.findByText("Copy ID"));
+
+    expect(await navigator.clipboard.readText()).toBe(buildCopyPayload("ask", ASK_ID, undefined, "id"));
+    // Icon/label swap: "Copied" feedback renders transiently. (The ~2s revert
+    // itself is exercised deterministically, with a fake timer, in the
+    // "copy feedback timing" describe block below — no real-time wait here.)
+    await screen.findByText("Copied");
+  });
+
+  test("mouse: Copy link writes buildCopyPayload's \"link\" payload to the clipboard", async () => {
+    const user = userEvent.setup();
+    render(<CopyId type="task" id="mt#2410" />);
+
+    await user.click(screen.getByRole("button", { name: "Copy task id" }));
+    await user.click(await screen.findByText("Copy link"));
+
+    expect(await navigator.clipboard.readText()).toBe(
+      buildCopyPayload("task", "mt#2410", undefined, "link")
+    );
+  });
 
   test("keyboard: Enter on the focused trigger opens the menu, Enter on the focused item activates it", async () => {
     const user = userEvent.setup();
-    const writeText = spyOn(navigator.clipboard, "writeText");
     render(<CopyId type="ask" id={ASK_ID} />);
 
     const trigger = screen.getByRole("button", { name: "Copy ask id" });
@@ -130,7 +161,7 @@ describe("CopyId", () => {
     copyIdItem.focus();
     await user.keyboard("{Enter}");
 
-    expect(writeText).toHaveBeenCalledWith(ASK_ID);
+    expect(await navigator.clipboard.readText()).toBe(ASK_ID);
   });
 
   describe("copy feedback timing (deterministic fake timer)", () => {
@@ -164,13 +195,13 @@ describe("CopyId", () => {
     });
 
     test("Copy -> Check feedback reverts once the ~2s timer is advanced (not before)", async () => {
-      const writeText = spyOn(navigator.clipboard, "writeText");
+      const user = userEvent.setup();
       render(<CopyId type="ask" id={ASK_ID} />);
 
-      fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
-      fireEvent.click(await screen.findByText("Copy ID"));
+      await user.click(screen.getByRole("button", { name: "Copy ask id" }));
+      await user.click(await screen.findByText("Copy ID"));
 
-      expect(writeText).toHaveBeenCalledWith(ASK_ID);
+      expect(await navigator.clipboard.readText()).toBe(ASK_ID);
 
       // Immediate, deterministic: feedback renders off the clipboard promise
       // resolution, independent of the (faked) revert timer.

@@ -15,6 +15,9 @@
     "uptimeSec": "number",
     "db": "string",
     "dbCheck": "object",
+    "dbRecycle": "object",
+    "survivedExceptions": "object",
+    "principalChannel": "object",
     "processStartedAtMs": "number",
     "consecutiveDegraded": "number",
     "transcriptWatcher": "object",
@@ -32,6 +35,9 @@
     "uptimeSec": 42,
     "db": "ok",
     "dbCheck": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 7 },
+    "dbRecycle": { "lastRecycleAt": null, "recycleCount": 0 },
+    "survivedExceptions": { "lastAt": null, "count": 0, "distinctSignatures": 0 },
+    "principalChannel": { "state": "running", "chatId": "167346572" },
     "processStartedAtMs": 1735689600000,
     "consecutiveDegraded": 0,
     "transcriptWatcher": { "activeSessionCount": 0 },
@@ -57,6 +63,7 @@
     "healthy": { "checkedAt": "2026-08-03T17:57:36.748Z", "latencyMs": 231 },
     "wedgedSinceLastGoodProbe": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 231 }
   },
+  "$dbRecycleFieldNote": "mt#3638: `dbRecycle` reports the wedge-triggered pool recycle (the recovery half of mt#3563's detection). Always an object; `lastRecycleAt` (ISO string | null) is null until the first recycle this process, `recycleCount` (number) counts recycles since process start. A non-zero count means the daemon detected sustained DB degradation and rebuilt its connection pool in place instead of waiting for a restart; a count that keeps rising while `db` stays degraded means recycling is not helping — the DB itself (or the network path) is down, which is the case the recycle deliberately does not try to fix.",
   "$schemaFieldNote": "mt#3297: `schema.current` is TRI-STATE — true (every shipped migration applied), false (the DB is behind this build, `pending` names which), or null (readiness could not be determined; `unknownReason` says why). A consumer that treats null as true reintroduces the bug this field exists to surface: the daemon boots fine and answers 200 while every schema-dependent write fails, so the status code cannot carry this and the body has to. Handle all three explicitly — true: proceed; false: the DB needs `minsky persistence migrate --execute`, and schema-dependent sweeps are paused; null: state unknown, treat as 'cannot vouch for it' rather than as either healthy or broken.",
   "$schemaFieldVariants": {
     "current": { "current": true, "pending": [], "checkedAt": "2026-07-29T06:22:40.780Z" },

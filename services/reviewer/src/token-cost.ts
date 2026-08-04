@@ -72,12 +72,22 @@ const USD_PER_MTOK: Record<string, ModelPrice> = {
  * at CACHED_INPUT_DISCOUNT x the base input rate. `completionTokens` already
  * includes any reasoning tokens (a subset, not an additional billed dimension),
  * so reasoning tokens are NOT added again.
+ *
+ * `cachedTokens` is a REQUIRED parameter and `null` means "not recorded", NOT
+ * "zero cached" — the two are priced 10x apart and must not collapse (mt#3665).
+ * A null alongside real prompt tokens returns null (unpriceable), reusing the
+ * existing "not priced" signal, because pricing it would silently overstate the
+ * call ~4x. Previously this parameter was optional and a null was clamped to 0,
+ * so a path that forgot to thread the count was indistinguishable from a
+ * genuine cache miss; roughly half of all recorded reviewer spend over 16 days
+ * was attributed to calls mis-priced exactly that way. A provider with no
+ * caching passes 0 — a real observation, priced at the full rate correctly.
  */
 export function computeCostUsd(
   model: string | null | undefined,
   promptTokens: number | null | undefined,
   completionTokens: number | null | undefined,
-  cachedTokens?: number | null | undefined
+  cachedTokens: number | null
 ): number | null {
   if (!model) return null;
   if (promptTokens == null && completionTokens == null) return null;
@@ -85,6 +95,9 @@ export function computeCostUsd(
   if (!price) return null;
   const inTok = promptTokens ?? 0;
   const outTok = completionTokens ?? 0;
+  // Unpriceable rather than wrong: we cannot know what share of these prompt
+  // tokens was discounted, and assuming none is the expensive direction.
+  if (cachedTokens == null && inTok > 0) return null;
   // Clamp cached to [0, inTok] so a bad count can't yield negative uncached input.
   const cachedTok = Math.min(Math.max(cachedTokens ?? 0, 0), inTok);
   const uncachedInTok = inTok - cachedTok;
@@ -103,7 +116,8 @@ export interface TokenCostSource {
     promptTokens?: number;
     completionTokens?: number;
     reasoningTokens?: number;
-    cachedTokens?: number;
+    /** Required when `usage` is present — see ReviewUsage.cachedTokens (mt#3665). */
+    cachedTokens: number;
   };
   model: string;
 }

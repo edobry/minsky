@@ -67,7 +67,17 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testing-standards, orchestrate skill
+- **Testable design (mt#3632).** Before importing a collaborator directly into a domain
+  function — a DB client, HTTP client, filesystem call, subprocess, clock/random — stop and
+  thread it as a parameter or constructor argument instead. A domain module whose behavior can
+  only be observed by patching an import (`spyOn` on the module/object it reaches itself) is a
+  design smell surfacing at test time, not a testing problem: extract the decision into a
+  function that returns the observable. See [testing-standards](mdc:.cursor/rules/testing-standards.mdc)
+  §Testable Design for the pattern (inject dependencies, prefer pure functions, push side
+  effects to injectable edges). This rule's glob already fires on `packages/domain/src/**` — the
+  design-time surface where that decision gets made, ahead of the test file that would otherwise
+  be the first place the doctrine loads.
+- See also: orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)

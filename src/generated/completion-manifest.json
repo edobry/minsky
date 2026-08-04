@@ -4584,6 +4584,10 @@
             {
               "flags": ["--sources"],
               "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--show-secrets"],
+              "description": "Show actual credential values (SECURITY RISK: use with caution)"
             }
           ],
           "arguments": [
@@ -5386,6 +5390,11 @@
                 {
                   "flags": ["--force-immediate"],
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
+                },
+                {
+                  "flags": ["--severity"],
+                  "description": "Set to 'incident' when a severity trigger fired AND remediation is operator-only (production incident, outage, security finding, blocked-past-threshold). On an operator-routed ask this sends the principal ONE notification on their phone pointing at this ask — you do not need to send a separate notification yourself. Both halves are required: an incident you can fix yourself does not warrant it, and an operator-only chore that is not a severity event belongs in the normal inbox.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--acknowledge-form-warnings"],
@@ -6207,6 +6216,35 @@
           ]
         },
         {
+          "name": "patch",
+          "description": "Append to, prepend to, or replace ONE markdown section of a memory's content, leaving every other byte unchanged (mt#3602). Use this instead of `memory.update` when adding an entry to a long-lived record — appending an R-entry to a family root's `## Recurrences` is the canonical case. Fails loudly when the section is missing or appears more than once; never falls back to a wholesale write. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
+          "options": [
+            {
+              "flags": ["--section"],
+              "description": "Markdown section heading to target, with or without leading hashes (e.g. \"## Recurrences\"). Matched case-insensitively against the whole heading text — a prefix does not match.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--text"],
+              "description": "Text to insert (append/prepend), or the section's new body (replace). May span multiple lines.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "append (default) inserts after the section's last content line; prepend inserts directly under the heading; replace swaps the section body.",
+              "takesValue": true,
+              "values": ["append", "prepend", "replace"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
           "arguments": [
@@ -6871,7 +6909,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6881,6 +6919,7 @@
                 "embeddings.provider_degraded",
                 "principal.message_rejected",
                 "principal.message_failed",
+                "ask.page_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -6961,7 +7000,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
             }
           ]
         }

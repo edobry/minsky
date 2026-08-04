@@ -31,6 +31,9 @@ import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { EntityRef } from "../components/EntityRef";
+import { Prose } from "../components/Prose";
+import { LinkifiedText } from "../lib/entity-linkifier";
+import { useEntityIndex } from "../lib/use-entity-index";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
 import {
@@ -203,6 +206,61 @@ function optionTitle(ask: AskItem, a: InlineAction): string {
 }
 
 // ---------------------------------------------------------------------------
+// Expanded row body — the full question + option descriptions.
+// ---------------------------------------------------------------------------
+
+/**
+ * The question renders through the shared `<Prose>` Markdown renderer, not as
+ * `whitespace-pre-wrap` text (mt#3639). Ask questions are agent-authored
+ * Markdown — GFM comparison tables, emphasis, entity refs — and this surface
+ * showed all of it as literal syntax while `/ask/:id` rendered the same field
+ * correctly through `<Prose>`. Option labels and descriptions get the same
+ * entity-linkification the detail page gives them.
+ *
+ * `Prose` keeps the band's muted tone via `className`: the expansion is
+ * secondary to the row header, and the fix is about Markdown structure, not
+ * about restyling the row. This is an override, not a conflict — `Prose`
+ * composes its own `text-foreground/90` with the incoming class through
+ * `cn()` (clsx + tailwind-merge), which resolves the pair to the caller's:
+ * `cn("break-words text-sm text-foreground/90", "text-muted-foreground")`
+ * returns `"break-words text-sm text-muted-foreground"`, so the outcome does
+ * not depend on stylesheet order.
+ *
+ * Split out of `AskRow` so `useEntityIndex()` mounts only with an EXPANDED
+ * row. The hook's TanStack queries dedupe across mounts, but its `useMemo`
+ * id-set build does not — a queue of collapsed rows would each pay for one.
+ */
+function AskExpandedBody({ ask }: { ask: AskItem }) {
+  const entityIndex = useEntityIndex();
+  return (
+    <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
+      <Prose entityIndex={entityIndex} className="text-muted-foreground">
+        {ask.question}
+      </Prose>
+      {ask.options && ask.options.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {ask.options.map((opt, i) => (
+            <li key={`${opt.label}-${i}`} className="text-xs">
+              <span className="font-medium text-foreground">
+                {/* This surface renders the letter, so a producer's own
+                    "B — " / "[b] " prefix would double it (mt#3253). */}
+                {String.fromCharCode(65 + i)}.{" "}
+                <LinkifiedText text={stripOptionLetterPrefix(opt.label)} index={entityIndex} />
+              </span>
+              {opt.description && (
+                <span className="ml-1">
+                  — <LinkifiedText text={opt.description} index={entityIndex} />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // One ask row — badge, title, inline actions, expandable question.
 // ---------------------------------------------------------------------------
 
@@ -333,23 +391,7 @@ function AskRow({
           question so the expanded read order is question → options → act. */}
       {expanded && (
         <>
-          <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
-            <p className="whitespace-pre-wrap">{ask.question}</p>
-            {ask.options && ask.options.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {ask.options.map((opt, i) => (
-                  <li key={`${opt.label}-${i}`} className="text-xs">
-                    <span className="font-medium text-foreground">
-                      {/* This surface renders the letter, so a producer's own
-                          "B — " / "[b] " prefix would double it (mt#3253). */}
-                      {String.fromCharCode(65 + i)}. {stripOptionLetterPrefix(opt.label)}
-                    </span>
-                    {opt.description && <span className="ml-1">— {opt.description}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <AskExpandedBody ask={ask} />
           <div className="px-3 pb-2 pl-9">
             <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
           </div>

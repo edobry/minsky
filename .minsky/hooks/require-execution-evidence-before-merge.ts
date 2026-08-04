@@ -44,6 +44,7 @@ import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
 import { isTestFile } from "./pr-file-predicates";
@@ -616,8 +617,8 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * heading immediately following the Execution evidence content) was invisible to the
  * scan, which stops at the next heading of any level: `checkAcceptanceTestCoverage`
  * would then report a genuinely-addressed AT as unaddressed — recorded as FP-3 in
- * mt#3059's `## Observed false positives` running log. `communication-contract.mdc
- * §Three authoring requirements` (mt#3200) now tells authors to keep AT references
+ * mt#3059's `## Observed false positives` running log. `/implement-task` §7 item 7(c)'s
+ * "three authoring requirements" (mt#3200) now tells authors to keep AT references
  * INSIDE the Execution evidence block going forward; this widening is the scanner-side
  * complement, covering evidence written before that convention existed (like PR #2264
  * itself) and PR bodies that reasonably split a dedicated AT-by-number section out for
@@ -748,6 +749,29 @@ export interface AtCoverageResult {
   executableAts: AcceptanceTestItem[];
   /** Executable ATs neither referenced in the evidence block nor deferred. */
   unaddressedAts: AcceptanceTestItem[];
+  /**
+   * The subset of `unaddressedAts` that IS referenced by number somewhere in the PR body,
+   * just not inside the block the scanner reads (mt#3339, FP-4).
+   *
+   * Splits the flagged population into two kinds that were previously indistinguishable:
+   * an AT with NO evidence anywhere (a real gap), and one whose evidence lives under a
+   * heading the extractor has no notion of (a LOCATION gap). Both looked identical in the
+   * calibration log, so "N of M unaddressed" could not be argued about — the FP-4
+   * re-measurement produced "28 of 52 pairs still flagged" with no way to tell how many
+   * were real gaps. That number is the input to mt#3059's 0-known-FP graduation bar, so
+   * partitioning it is a precondition for the graduation decision, not a nicety.
+   *
+   * Directly mirrors `negativeControlUnmatched` on the sibling test-first surface
+   * (`test-first-evidence.ts`, mt#3511), which shipped the same present-but-unmatched
+   * split for the same reason.
+   *
+   * **Log-only.** Nothing branches on this field: an AT classified `present-elsewhere` is
+   * still counted unaddressed and still warned about. Widening the extractor to ACCEPT
+   * these locations is deliberately NOT done here — the whole point is to measure the rate
+   * first, because widening carries a false-negative risk (an AT number mentioned in a
+   * `### Does NOT cover` bullet is not evidence) that must be argued from data.
+   */
+  presentElsewhereAts: AcceptanceTestItem[];
 }
 
 /**
@@ -757,6 +781,10 @@ export interface AtCoverageResult {
  *   - the Execution-evidence block references it by number, OR
  *   - the Execution-evidence block shares a distinctive keyword with its text.
  * Any executable AT satisfying none of these is "unaddressed".
+ *
+ * Each unaddressed AT is then CLASSIFIED (mt#3339) as absent vs present-elsewhere — see
+ * `AtCoverageResult.presentElsewhereAts`. The classification never changes the addressed/
+ * unaddressed verdict; it only records WHY the AT is flagged.
  */
 export function checkAcceptanceTestCoverage(
   specContent: string,
@@ -767,7 +795,7 @@ export function checkAcceptanceTestCoverage(
   const executableAts = allAts.filter((at) => isExecutableAcceptanceTest(at.text, taskKind));
 
   if (executableAts.length === 0) {
-    return { applicable: false, executableAts: [], unaddressedAts: [] };
+    return { applicable: false, executableAts: [], unaddressedAts: [], presentElsewhereAts: [] };
   }
 
   const evidenceText = extractExecutionEvidenceText(prBody);
@@ -778,7 +806,27 @@ export function checkAcceptanceTestCoverage(
     return true;
   });
 
-  return { applicable: true, executableAts, unaddressedAts };
+  // The loose probe is number-reference-only, NOT number-plus-keyword (mt#3566's design
+  // note 1, absorbed into mt#3339). Running the KEYWORD matcher over the whole body would
+  // be near-certainly all-positive — a PR body reliably mentions its own subject matter and
+  // `extractSignificantKeywords` accepts any >=5-char non-stopword token — so it would
+  // classify substantially everything as a location gap and carry no signal at all.
+  //
+  // Quoted/code contexts are elided first (PR #2610 R1): a PR body that PASTES the gate's own
+  // warning text, or quotes a spec excerpt, mentions `AT3` without that being a reference to
+  // real evidence — counting it would inflate the location-gap rate this field exists to
+  // measure. Measured against the full 52-pair corpus before adopting: raw 24,
+  // elided 24, with ZERO ATs referenced only inside a quoted/code span — so on today's corpus
+  // the elision changes nothing and is adopted purely to bound the inflation vector going
+  // forward. Recorded because the reverse risk is real too: an evidence block IS usually
+  // fenced, so if a future corpus shows the two counts diverging, check which direction before
+  // assuming this elision is still the conservative choice.
+  const proseOnlyBody = elideQuotedContexts(prBody);
+  const presentElsewhereAts = unaddressedAts.filter((at) =>
+    isAtReferencedByNumber(at, proseOnlyBody)
+  );
+
+  return { applicable: true, executableAts, unaddressedAts, presentElsewhereAts };
 }
 
 /** Override env var (mt#1788 `HOOK_ONLY_ENV_VARS`) — skips the AT-coverage check entirely. */
@@ -913,8 +961,12 @@ export function runAtCoverageCalibrationWithSpec(
     return { ranCheck: true };
   }
 
+  const presentElsewhereNumbers = new Set(coverage.presentElsewhereAts.map((at) => at.number));
   const unaddressedList = coverage.unaddressedAts
-    .map((at) => `  - AT${at.number}: ${at.text}`)
+    .map(
+      (at) =>
+        `  - AT${at.number}${presentElsewhereNumbers.has(at.number) ? " [present elsewhere in the PR body — location gap, not a missing test]" : ""}: ${at.text}`
+    )
     .join("\n");
 
   try {
@@ -926,6 +978,13 @@ export function runAtCoverageCalibrationWithSpec(
         surface: "execution-evidence-at-coverage",
         executableAtCount: coverage.executableAts.length,
         unaddressedAts: coverage.unaddressedAts.map((at) => ({ number: at.number, text: at.text })),
+        // mt#3339 (FP-4): the absent-vs-present-elsewhere partition. Additive — every
+        // pre-existing field keeps its shape, so `scripts/at-coverage-reclassify.ts` and any
+        // other reader of this log are unaffected by the addition.
+        presentElsewhereAts: coverage.presentElsewhereAts.map((at) => ({
+          number: at.number,
+          text: at.text,
+        })),
       },
       repoRootDir
     );
@@ -934,12 +993,22 @@ export function runAtCoverageCalibrationWithSpec(
     // belt-and-suspenders against any error in building the record itself.
   }
 
+  const locationGapNote =
+    coverage.presentElsewhereAts.length === 0
+      ? ""
+      : `${coverage.presentElsewhereAts.length} of these IS referenced by number elsewhere in ` +
+        `the PR body, just not inside the \`Execution evidence:\` block the gate reads — a ` +
+        `LOCATION gap, not a missing test. Fix by moving the reference (and its evidence) ` +
+        `INSIDE the block, per the three authoring requirements in \`/implement-task\` §7 ` +
+        `item 7(c).\n\n`;
+
   const warning =
     `[execution-evidence-at-coverage] CALIBRATION (log-only, mt#3033 — would block if ` +
     `graduated): ${coverage.unaddressedAts.length} of ${coverage.executableAts.length} ` +
     `executable acceptance test(s) for ${task} not addressed by the \`Execution evidence:\` ` +
     `block (no number/keyword reference, and no \`[atN-deferred: mt#NNNN]\` marker found):\n` +
     `${unaddressedList}\n\n` +
+    `${locationGapNote}` +
     `Merge is NOT blocked by this — it is a calibration signal only. Override: set ` +
     `${AT_COVERAGE_SKIP_ENV_VAR}=1 to skip this check.`;
 

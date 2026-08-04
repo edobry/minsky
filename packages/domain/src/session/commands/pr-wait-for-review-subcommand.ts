@@ -57,6 +57,23 @@ export interface SessionPrWaitForReviewDependencies {
   /** Test seam: override the delay between polls. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
   /**
+   * Test seam: override the TOTAL budget for the mt#2777 SC#1 final
+   * authoritative check. Defaults to `FINAL_CHECK_DEADLINE_MS` (10s).
+   *
+   * Exists for tests that must run the final check against REAL timers
+   * (`now`/`sleep` left un-stubbed, because the point is to prove a real
+   * `setTimeout`-based deadline bounds a stalled call). Such a test otherwise
+   * has to spend the full production budget in wall-clock time: the mt#3551
+   * instance sat at ~11s against bun's 15s per-test ceiling, and already
+   * failed outright under bun's 5s DEFAULT — which is what any invocation
+   * that omits `--timeout` gets. Shrinking the budget keeps the real timer
+   * and drops the cost.
+   *
+   * Not a production knob: no CLI/MCP parameter maps to it, which is why it
+   * lives here rather than on `SessionPrWaitForReviewParams`.
+   */
+  finalCheckDeadlineMs?: number;
+  /**
    * Test seam: override the TokenProvider used for role resolution
    * (`reviewer: "reviewer" | "implementer"`). Defaults to a provider
    * constructed from runtime config the same way `pr-review-context-subcommand`
@@ -737,6 +754,23 @@ export async function sessionPrWaitForReview(
   const createBackend = deps.createBackend ?? createRepositoryBackendFromSession;
   const getTokenProvider = deps.getTokenProvider ?? defaultGetTokenProvider;
 
+  // PR #2571 R1 (non-blocking): validate the mt#3551 final-check budget seam
+  // eagerly, and THROW rather than clamp. A non-positive budget would make
+  // every final-check call exceed its deadline instantly; that error is caught
+  // downstream and degrades to `finalCheckPerformed: false` — indistinguishable
+  // from a legitimately-unavailable check. Silently accepting a bad value would
+  // therefore turn a typo into a test that passes while verifying nothing (the
+  // fail-open trap in mem#620). Validated here, at setup, so it lands outside
+  // `finalizeTimeout`'s try/catch and cannot be swallowed.
+  const finalCheckBudgetMs = deps.finalCheckDeadlineMs ?? FINAL_CHECK_DEADLINE_MS;
+  if (!Number.isFinite(finalCheckBudgetMs) || finalCheckBudgetMs <= 0) {
+    throw new ValidationError(
+      `deps.finalCheckDeadlineMs must be a finite number greater than 0 (got ${String(
+        deps.finalCheckDeadlineMs
+      )})`
+    );
+  }
+
   // Parameter schema enforces the outer cap of 1800s; clamp defensively here.
   const timeoutMs = clamp(params.timeoutSeconds ?? 600, 1, 1800) * 1000;
   // Polling interval: 15s default, clamped [5, 60] so callers can't hammer
@@ -879,8 +913,9 @@ export async function sessionPrWaitForReview(
      * diagnostic read must never turn an otherwise-legitimate timeout into
      * a thrown error.
      *
-     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` is a TOTAL budget
-     * for the whole sequence below, not a per-call cap — a single
+     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` — or the
+     * `deps.finalCheckDeadlineMs` test-seam override (mt#3551) — is a TOTAL
+     * budget for the whole sequence below, not a per-call cap — a single
      * `finalCheckDeadline` timestamp is computed once, and each of the
      * three sequential calls (`getHeadSha`, `listReviews`,
      * `fetchReviewerCheckRunState`) is bounded to whatever remains of it
@@ -891,7 +926,7 @@ export async function sessionPrWaitForReview(
      */
     const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
       let finalCheckPerformed = false;
-      const finalCheckDeadline = now() + FINAL_CHECK_DEADLINE_MS;
+      const finalCheckDeadline = now() + finalCheckBudgetMs;
       try {
         if (getHeadSha) {
           headSha = await withDeadline(

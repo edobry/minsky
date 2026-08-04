@@ -88,6 +88,29 @@ export function resetSchemaReadiness(): void {
   state = UNCHECKED;
 }
 
+/** Result of {@link decideBehindTransitionSignal}. */
+export interface SchemaTransitionSignal {
+  /** True only when this tick should emit the "entered behind" warn line. */
+  shouldSignal: boolean;
+}
+
+/**
+ * Pure transition decision for the "entered behind" warn line (PR #2379 R1;
+ * extracted mt#3629 / mt#3565 §Reframe).
+ *
+ * The gate runs on every sweep tick, so a naive "warn whenever behind" would
+ * itself become the unbounded-log-volume problem this module exists to
+ * prevent. The decision is a pure function of the previous and next
+ * behind-state: signal only on the FALSE → TRUE edge, not on every tick the
+ * condition persists.
+ */
+export function decideBehindTransitionSignal(
+  wasBehind: boolean,
+  isBehind: boolean
+): SchemaTransitionSignal {
+  return { shouldSignal: isBehind && !wasBehind };
+}
+
 /**
  * Dependencies for {@link refreshSchemaReadiness}, injectable so the check can
  * be tested without a database or a real migrations folder.
@@ -98,6 +121,18 @@ export interface SchemaReadinessDeps {
    * Throws if the comparison cannot be made.
    */
   readPendingMigrations: () => Promise<string[]>;
+  /**
+   * Injectable sink for the "entered behind" warn line, defaulting to the
+   * shared logger. Tests inject a fake here instead of spying on the logger
+   * module (mt#3629) — the shell's only job is forwarding what the pure core
+   * in {@link decideBehindTransitionSignal} decided.
+   */
+  logBehindTransition?: (message: string, meta: { pending: string[] }) => void;
+  /**
+   * Injectable sink for the "now current" recovery line, defaulting to the
+   * shared logger.
+   */
+  logRecovered?: (message: string) => void;
 }
 
 /**
@@ -111,29 +146,32 @@ export async function refreshSchemaReadiness(deps: SchemaReadinessDeps): Promise
   try {
     const pending = await deps.readPendingMigrations();
     const wasBehind = state.current === false;
+    const isBehind = pending.length > 0;
     state = {
       current: pending.length === 0,
       pending,
       checkedAt: new Date().toISOString(),
     };
 
-    if (pending.length > 0) {
-      // Log the TRANSITION into behind, not every check (PR #2379 R1). This
-      // runs on every sweep tick, and a check that exists to bound log volume
-      // must not itself become the thing writing a line every 30 minutes
-      // forever. The condition stays continuously visible on /api/health, which
-      // is the surface built for standing state; the log is for the event.
-      if (!wasBehind) {
-        log.warn(
-          `cockpit: database schema is BEHIND this build — ${pending.length} migration(s) not applied. ` +
-            `Schema-dependent sweeps are paused until this is resolved. ` +
-            `Run 'minsky persistence migrate --execute'.`,
-          { pending }
-        );
-      }
-    } else if (wasBehind) {
+    // Log the TRANSITION into behind, not every check (PR #2379 R1). This runs
+    // on every sweep tick, and a check that exists to bound log volume must
+    // not itself become the thing writing a line every 30 minutes forever. The
+    // condition stays continuously visible on /api/health, which is the
+    // surface built for standing state; the log is for the event. The decision
+    // itself is the pure core above — this shell only forwards it.
+    const { shouldSignal } = decideBehindTransitionSignal(wasBehind, isBehind);
+    if (shouldSignal) {
+      const logBehindTransition = deps.logBehindTransition ?? log.warn;
+      logBehindTransition(
+        `cockpit: database schema is BEHIND this build — ${pending.length} migration(s) not applied. ` +
+          `Schema-dependent sweeps are paused until this is resolved. ` +
+          `Run 'minsky persistence migrate --execute'.`,
+        { pending }
+      );
+    } else if (!isBehind && wasBehind) {
       // Only on the transition, so the common case stays quiet.
-      log.cli("cockpit: database schema is now current — schema-dependent sweeps resumed.");
+      const logRecovered = deps.logRecovered ?? log.cli;
+      logRecovered("cockpit: database schema is now current — schema-dependent sweeps resumed.");
     }
     return getSchemaReadiness();
   } catch (err) {

@@ -7,7 +7,7 @@
  * `minsky events emit hook.fired` subprocess that must never block or throw
  * back into the caller regardless of spawn success/failure.
  */
-import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3393 default-resolution test below must read the REAL tree; injecting a mock fs there would only re-assert the injected tests
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -24,72 +24,160 @@ import {
   deriveHookRepoRoot,
   readPositiveIntEnv,
 } from "./types";
-import type { MergeDetectFs } from "./types";
+import type {
+  MergeDetectFs,
+  SpawnCallOptions,
+  SpawnImpl,
+  SpawnSyncCallOptions,
+  SpawnSyncImpl,
+} from "./types";
 import { decideReminder } from "./drive-pr-to-convergence";
 import { isDoneTransition } from "./bridge-memory-retirement";
 
-describe("emitHookFiredOnDeny (mt#2537)", () => {
-  afterEach(() => {
-    // @ts-expect-error — restore any spy installed by a test
-    if (Bun.spawn.mockRestore) (Bun.spawn as unknown as { mockRestore: () => void }).mockRestore();
-  });
+// ---------------------------------------------------------------------------
+// Injectable spawn fakes (mt#3630)
+// ---------------------------------------------------------------------------
+//
+// These replace the previous spy patches on `Bun.spawn` / `Bun.spawnSync`. A spy mutates
+// the Bun global for the whole test-runner process and must be restored by hand — a
+// missed or thrown-past restore leaks a fake spawn into every later test file. An
+// injected impl is scoped to the one call that receives it, so there is nothing to
+// restore and nothing to leak.
 
+interface SpawnCall {
+  cmd: string[];
+  options: SpawnCallOptions;
+}
+
+/** Records every `Bun.spawn`-shaped call; optionally throws to exercise the swallow path. */
+function makeSpawnRecorder(behavior?: { throws: Error }): {
+  calls: SpawnCall[];
+  unrefCount: () => number;
+  spawnImpl: SpawnImpl;
+} {
+  const calls: SpawnCall[] = [];
+  let unrefs = 0;
+  return {
+    calls,
+    unrefCount: () => unrefs,
+    spawnImpl: (cmd, options) => {
+      calls.push({ cmd, options });
+      if (behavior) throw behavior.throws;
+      return {
+        unref: () => {
+          unrefs++;
+        },
+      };
+    },
+  };
+}
+
+interface SpawnSyncCall {
+  cmd: string[];
+  options: SpawnSyncCallOptions;
+}
+
+/** Records every `Bun.spawnSync`-shaped call and replays a canned result (or throws). */
+function makeSpawnSyncRecorder(
+  behavior: { throws: Error } | { stdout?: string; stderr?: string; exitCode?: number | null }
+): { calls: SpawnSyncCall[]; spawnSyncImpl: SpawnSyncImpl } {
+  const calls: SpawnSyncCall[] = [];
+  return {
+    calls,
+    spawnSyncImpl: (cmd, options) => {
+      calls.push({ cmd, options });
+      if ("throws" in behavior) throw behavior.throws;
+      return {
+        // `?? 0` would be wrong here: `exitCode: null` is a MEANINGFUL value (the
+        // killed/timed-out spawn Bun reports), not an absent one.
+        exitCode: behavior.exitCode === undefined ? 0 : behavior.exitCode,
+        stdout: Buffer.from(behavior.stdout ?? ""),
+        stderr: Buffer.from(behavior.stderr ?? ""),
+      };
+    },
+  };
+}
+
+/** Collects the `[hook-exec] DEGRADED` warnings instead of writing them to the console. */
+function makeDegradedCollector(): { messages: string[]; onDegraded: (m: string) => void } {
+  const messages: string[] = [];
+  return { messages, onDegraded: (m: string) => messages.push(m) };
+}
+
+describe("emitHookFiredOnDeny (mt#2537)", () => {
   test("non-deny decisions never spawn a subprocess", () => {
-    const spawnSpy = spyOn(Bun, "spawn");
-    emitHookFiredOnDeny({
-      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
-    });
-    emitHookFiredOnDeny({ hookSpecificOutput: { hookEventName: "PreToolUse" } });
-    emitHookFiredOnDeny({});
-    expect(spawnSpy).not.toHaveBeenCalled();
+    const spawn = makeSpawnRecorder();
+    emitHookFiredOnDeny(
+      { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } },
+      { spawnImpl: spawn.spawnImpl }
+    );
+    emitHookFiredOnDeny(
+      { hookSpecificOutput: { hookEventName: "PreToolUse" } },
+      { spawnImpl: spawn.spawnImpl }
+    );
+    emitHookFiredOnDeny({}, { spawnImpl: spawn.spawnImpl });
+    expect(spawn.calls).toHaveLength(0);
   });
 
   test("a deny decision spawns a detached `minsky events emit hook.fired` call", () => {
-    const unref = () => {};
-    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(() => ({ unref }) as never);
+    const spawn = makeSpawnRecorder();
 
-    emitHookFiredOnDeny({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: "blocked for testing",
+    emitHookFiredOnDeny(
+      {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "blocked for testing",
+        },
       },
-    });
+      { spawnImpl: spawn.spawnImpl }
+    );
 
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    const [cmd, options] = spawnSpy.mock.calls[0] as [string[], Record<string, unknown>];
+    expect(spawn.calls).toHaveLength(1);
+    const { cmd, options } = spawn.calls[0] as SpawnCall;
     expect(cmd[0]).toBe("minsky");
     expect(cmd.slice(1, 4)).toEqual(["events", "emit", "hook.fired"]);
     expect(cmd[4]).toBe("--payload");
     const payload = JSON.parse(cmd[5] as string);
     expect(payload.decision).toBe("blocked");
     expect(typeof payload.hook).toBe("string");
-    // Fire-and-forget: stdio ignored, no stdin required from the parent.
+    // Fire-and-forget: stdio ignored, no stdin required from the parent, and the
+    // handle is unref'd so the parent hook's exit is never blocked on it.
     expect(options.stdout).toBe("ignore");
     expect(options.stderr).toBe("ignore");
+    expect(spawn.unrefCount()).toBe(1);
   });
 
-  test("a throwing Bun.spawn is swallowed — never propagates", () => {
-    spyOn(Bun, "spawn").mockImplementation(() => {
-      throw new Error("spawn boom");
-    });
+  test("a throwing spawn impl is swallowed — never propagates", () => {
+    const spawn = makeSpawnRecorder({ throws: new Error("spawn boom") });
     expect(() =>
-      emitHookFiredOnDeny({
-        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
-      })
+      emitHookFiredOnDeny(
+        { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" } },
+        { spawnImpl: spawn.spawnImpl }
+      )
     ).not.toThrow();
+    expect(spawn.calls).toHaveLength(1);
   });
 
   test("writeOutput still writes JSON to stdout and never throws on deny", () => {
-    spyOn(Bun, "spawn").mockImplementation(() => ({ unref: () => {} }) as never);
-    const writeSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = makeSpawnRecorder();
+    const written: string[] = [];
     expect(() =>
-      writeOutput({
-        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
-      })
+      writeOutput(
+        { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" } },
+        {
+          spawnImpl: spawn.spawnImpl,
+          writeImpl: (chunk) => {
+            written.push(chunk);
+            return true;
+          },
+        }
+      )
     ).not.toThrow();
-    expect(writeSpy).toHaveBeenCalledTimes(1);
-    writeSpy.mockRestore();
+    expect(written).toHaveLength(1);
+    expect(JSON.parse(written[0] as string)).toEqual({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
+    });
   });
 });
 
@@ -214,40 +302,29 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
    * describe block's tests to avoid magic-string duplication. */
   const ENOENT_GIT_ERROR_MESSAGE = 'Executable not found in $PATH: "git"';
 
-  // mt#2810 PR #1952 R1 BLOCKING #2 (reviewer finding): the previous
-  // afterEach duck-typed `if (Bun.spawnSync.mockRestore)` to decide whether
-  // to restore — brittle, since a native (unmocked) function doesn't
-  // reliably expose `mockRestore`, and if any test threw BEFORE calling
-  // `spyOn`, nothing would need restoring but the check itself could
-  // misbehave on an already-unmocked native function. Each test now
-  // captures the spy HANDLE `spyOn` returns and assigns it to these
-  // describe-scoped variables; `afterEach` restores deterministically via
-  // the captured handle (optional-chained, since a given test may not spy
-  // on both) rather than probing the global for a `mockRestore` property.
-  let spawnSyncSpy: ReturnType<typeof spyOn<typeof Bun, "spawnSync">> | undefined;
-  let consoleErrorSpy: ReturnType<typeof spyOn<typeof console, "error">> | undefined;
+  /** A spawn impl that throws exactly as a real ENOENT `Bun.spawnSync` does. */
+  function throwingSpawnSync() {
+    return makeSpawnSyncRecorder({ throws: new Error(ENOENT_GIT_ERROR_MESSAGE) });
+  }
 
-  afterEach(() => {
-    spawnSyncSpy?.mockRestore();
-    spawnSyncSpy = undefined;
-    consoleErrorSpy?.mockRestore();
-    consoleErrorSpy = undefined;
-  });
-
-  test("execWithPath never throws when Bun.spawnSync throws ENOENT", () => {
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
-      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
-    });
-    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-    expect(() => execWithPath(["git", "status"])).not.toThrow();
+  test("execWithPath never throws when the spawn impl throws ENOENT", () => {
+    const spawn = throwingSpawnSync();
+    const degraded = makeDegradedCollector();
+    expect(() =>
+      execWithPath(["git", "status"], {
+        spawnSyncImpl: spawn.spawnSyncImpl,
+        onDegraded: degraded.onDegraded,
+      })
+    ).not.toThrow();
   });
 
   test("execWithPath returns a structured non-zero ExecResult instead of throwing", () => {
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
-      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    const spawn = throwingSpawnSync();
+    const degraded = makeDegradedCollector();
+    const result = execWithPath(["git", "status"], {
+      spawnSyncImpl: spawn.spawnSyncImpl,
+      onDegraded: degraded.onDegraded,
     });
-    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-    const result = execWithPath(["git", "status"]);
     expect(result.exitCode).not.toBe(0);
     expect(result.exitCode).toBe(127);
     expect(result.stdout).toBe("");
@@ -256,41 +333,64 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
   });
 
   test("execWithPath logs a loud structured degradation warning naming the failed command", () => {
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
-      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    const spawn = throwingSpawnSync();
+    const degraded = makeDegradedCollector();
+    execWithPath(["git", "remote", "get-url", "origin"], {
+      spawnSyncImpl: spawn.spawnSyncImpl,
+      onDegraded: degraded.onDegraded,
     });
-    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-    execWithPath(["git", "remote", "get-url", "origin"]);
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const message = consoleErrorSpy.mock.calls[0]?.[0] as string;
+    expect(degraded.messages).toHaveLength(1);
+    const message = degraded.messages[0] as string;
     expect(message).toContain("[hook-exec] DEGRADED");
     expect(message).toContain("git remote get-url origin");
     expect(message).not.toContain("undefined");
   });
 
-  test("execSync never throws when Bun.spawnSync throws ENOENT", () => {
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
-      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
-    });
-    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-    expect(() => execSync(["git", "rev-parse", "HEAD"])).not.toThrow();
-    const result = execSync(["git", "rev-parse", "HEAD"]);
+  test("execSync never throws when the spawn impl throws ENOENT", () => {
+    const degraded = makeDegradedCollector();
+    const deps = {
+      spawnSyncImpl: throwingSpawnSync().spawnSyncImpl,
+      onDegraded: degraded.onDegraded,
+    };
+    expect(() => execSync(["git", "rev-parse", "HEAD"], deps)).not.toThrow();
+    const result = execSync(["git", "rev-parse", "HEAD"], deps);
     expect(result.exitCode).toBe(127);
   });
 
   test("a non-ENOENT spawn success still passes through normally (no regression)", () => {
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(
-      () =>
-        ({
-          exitCode: 0,
-          stdout: Buffer.from("hello\n"),
-          stderr: Buffer.from(""),
-          signalCode: null,
-        }) as never
-    );
-    const result = execWithPath(["gh", "pr", "view"]);
+    const spawn = makeSpawnSyncRecorder({ exitCode: 0, stdout: "hello\n" });
+    const result = execWithPath(["gh", "pr", "view"], { spawnSyncImpl: spawn.spawnSyncImpl });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("hello");
+  });
+
+  test("execWithPath's 10s timeout is a caller-overridable default; execSync sets none", () => {
+    // PR #2580 R1 BLOCKING claimed mt#3630 "now forces" a 10s timeout on execWithPath.
+    // Verified false positive — `?? 10000` is context in `git diff main...HEAD`, not an
+    // added line. Asserted here rather than only documented, so the property is checked
+    // rather than claimed: the default applies, a caller value WINS over it, and
+    // execSync (the plain wrapper) still passes the caller's value through untouched.
+    const withDefault = makeSpawnSyncRecorder({ exitCode: 0 });
+    execWithPath(["git", "status"], { spawnSyncImpl: withDefault.spawnSyncImpl });
+    expect(withDefault.calls[0]?.options.timeout).toBe(10000);
+
+    const withOverride = makeSpawnSyncRecorder({ exitCode: 0 });
+    execWithPath(["git", "status"], {
+      timeout: 250,
+      spawnSyncImpl: withOverride.spawnSyncImpl,
+    });
+    expect(withOverride.calls[0]?.options.timeout).toBe(250);
+
+    const plain = makeSpawnSyncRecorder({ exitCode: 0 });
+    execSync(["git", "status"], { spawnSyncImpl: plain.spawnSyncImpl });
+    expect(plain.calls[0]?.options.timeout).toBeUndefined();
+  });
+
+  test("a null exitCode (killed/timed-out spawn) degrades to exitCode 1 + timedOut", () => {
+    const spawn = makeSpawnSyncRecorder({ exitCode: null });
+    const result = execWithPath(["git", "log"], { spawnSyncImpl: spawn.spawnSyncImpl });
+    expect(result.exitCode).toBe(1);
+    expect(result.timedOut).toBe(true);
   });
 
   test("execWithPath resolves git to an absolute path even when process.env.PATH is broken", () => {
@@ -311,7 +411,6 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
 });
 
 describe("execWithPath Postgres connect-timeout injection (mt#2982)", () => {
-  let spawnSyncSpy: ReturnType<typeof spyOn<typeof Bun, "spawnSync">> | undefined;
   let priorValue: string | undefined;
 
   beforeEach(() => {
@@ -319,8 +418,6 @@ describe("execWithPath Postgres connect-timeout injection (mt#2982)", () => {
   });
 
   afterEach(() => {
-    spawnSyncSpy?.mockRestore();
-    spawnSyncSpy = undefined;
     if (priorValue === undefined) {
       delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
     } else {
@@ -328,38 +425,25 @@ describe("execWithPath Postgres connect-timeout injection (mt#2982)", () => {
     }
   });
 
-  /** Spy Bun.spawnSync and capture the env the spawn was given. */
-  function captureSpawnEnv(): () => Record<string, string | undefined> {
-    let seenEnv: Record<string, string | undefined> = {};
-    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(((
-      _cmd: unknown,
-      opts?: { env?: Record<string, string | undefined> }
-    ) => {
-      seenEnv = opts?.env ?? {};
-      return {
-        exitCode: 0,
-        stdout: Buffer.from(""),
-        stderr: Buffer.from(""),
-        signalCode: null,
-      } as never;
-    }) as never);
-    return () => seenEnv;
+  /** Run one `execWithPath` through an injected spawn impl and return the env it saw. */
+  function envSeenBySpawn(cmd: string[]): Record<string, string | undefined> {
+    const spawn = makeSpawnSyncRecorder({ exitCode: 0 });
+    execWithPath(cmd, { spawnSyncImpl: spawn.spawnSyncImpl });
+    return spawn.calls[0]?.options.env ?? {};
   }
 
   test("injects the short connect timeout into the spawn env by default", () => {
     delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
-    const getEnv = captureSpawnEnv();
-    execWithPath(["minsky", "tasks", "search", "query", "--json"]);
-    expect(getEnv().MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe(
+    const env = envSeenBySpawn(["minsky", "tasks", "search", "query", "--json"]);
+    expect(env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe(
       HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC
     );
   });
 
   test("an operator-set parent-env value wins over the injected default", () => {
     process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = "7";
-    const getEnv = captureSpawnEnv();
-    execWithPath(["minsky", "tasks", "search", "query", "--json"]);
-    expect(getEnv().MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe("7");
+    const env = envSeenBySpawn(["minsky", "tasks", "search", "query", "--json"]);
+    expect(env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe("7");
   });
 });
 

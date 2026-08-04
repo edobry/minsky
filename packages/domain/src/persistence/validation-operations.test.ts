@@ -77,4 +77,45 @@ describe("validatePostgresBackend (mt#2949 false-positive fix)", () => {
     expect(result.success).toBe(false);
     expect(result.details).toBe("PostgreSQL connection not configured");
   });
+
+  // mt#3635 / ADR-035 rule 4: the report has to say whether a re-init has been
+  // ATTEMPTED, not only that boot failed. A stuck process needs a restart; a
+  // live outage needs the database back — and the operator could not tell which
+  // from the previous report.
+  describe("retry reporting (mt#3635)", () => {
+    /** The originating incident's boot-time failure (2026-08-03). */
+    const ENOTFOUND = "getaddrinfo ENOTFOUND";
+
+    test("never retried since boot → the report says so", async () => {
+      const provider = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+
+      const result = await validatePostgresBackend(provider, {
+        getConfiguration: configWithConnectionString,
+      });
+
+      const issues = result.issues ?? [];
+      expect(issues.some((i) => i.includes("No re-initialization has been attempted"))).toBe(true);
+      expect(issues.some((i) => i.includes("Last re-initialization attempt"))).toBe(false);
+    });
+
+    test("retried and still failing → the report names the attempt and its outcome", async () => {
+      const provider = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+      provider.noteRetryAttempt(new Date("2026-08-04T07:00:00.000Z"), ENOTFOUND);
+
+      const result = await validatePostgresBackend(provider, {
+        getConfiguration: configWithConnectionString,
+      });
+
+      const issues = result.issues ?? [];
+      expect(
+        issues.some((i) => i.includes("Last re-initialization attempt 2026-08-04T07:00:00.000Z"))
+      ).toBe(true);
+      expect(issues.some((i) => i.includes("live outage rather than a stuck process"))).toBe(true);
+      expect(issues.some((i) => i.includes("No re-initialization has been attempted"))).toBe(false);
+
+      // The operator-facing advice differs too: no restart is called for.
+      const suggestions = result.suggestions ?? [];
+      expect(suggestions.some((s) => s.includes("no restart is"))).toBe(true);
+    });
+  });
 });

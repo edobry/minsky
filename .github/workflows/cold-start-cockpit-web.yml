@@ -1,0 +1,70 @@
+name: Cold-Start Cockpit Web Smoke
+
+# mt#3611 — install-channel portability: cold-start cockpit-web SPA smoke.
+#
+# Builds the bundle (including `cockpit:build` + `build:copy-cockpit-web`),
+# copies dist/ to a temp "install" directory SEPARATED from the source
+# checkout, starts `minsky cockpit start` from that installed layout, and
+# asserts GET / serves the built SPA's own index.html (HTTP 200, text/html,
+# exact body match) — not a fallback or error page.
+#
+# This is the regression gate for the cockpitWebDistDir() bundled-layout
+# candidate (`<moduleDir>/cockpit-web` beside the bundle) + the
+# build:copy-cockpit-web emission: it proves a packaged install — not just
+# the dev checkout — can serve the cockpit UI. The cockpit-web sibling of
+# cold-start-hooks.yml (mt#3578) and cold-start-migrate.yml (mt#2369),
+# completing the mt#1767 Phase 0 triad (bundler-emits-assets + ordered
+# resolver + cold-start CI test) for the third asset class in the ADR-033
+# asset inventory.
+#
+# No database service: createCockpitServer() binds and serves the static SPA
+# fallback route without touching persistence.
+#
+# Job name (`cold-start-cockpit-web`) is the contract for the Checks API.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cold-start-cockpit-web:
+    name: cold-start-cockpit-web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # DELIBERATE cache scope, matching cold-start-hooks.yml: only Bun's
+      # download cache is cached — every run performs a true cold
+      # `bun install --frozen-lockfile`.
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --no-progress
+
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Verify cockpit web SPA copied into dist/
+        run: |
+          test -f dist/cockpit-web/index.html \
+            || { echo "::error::dist/cockpit-web/index.html missing (build:copy-cockpit-web regression)"; exit 1; }
+          echo "Cockpit web SPA present:"
+          ls dist/cockpit-web/
+
+      - name: Run cold-start cockpit-web smoke (installed layout)
+        run: bun scripts/smoke-cold-start-cockpit-web.ts

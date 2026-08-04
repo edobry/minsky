@@ -32,7 +32,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
-import { parseTranscript, resolveTranscriptCandidates } from "./transcript";
+import {
+  parseTranscript,
+  resolveParentTranscriptLines,
+  resolveTranscriptCandidates,
+} from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
 import type {
@@ -276,6 +280,30 @@ export function buildOverrideAuditLine(
   return `[dispatcher:${event}] OVERRIDE: guard=${guardName} session=${sessionId ?? "unknown"}${reasonPart} ts=${now()}\n`;
 }
 
+/**
+ * Audit line for an `updatedInput` rewrite the dispatcher DROPPED because an
+ * earlier guard in registry order already supplied one (mt#3612).
+ *
+ * `updatedInput` is a replacement value, so two guards rewriting the same tool
+ * call cannot both be honored — and the loser is invisible without this line.
+ * Discarding it silently is the failure class the whole surrounding tree keeps
+ * hitting, so the drop is recorded rather than inferred.
+ *
+ * Written to STDERR by the caller. Claude Code discards a PreToolUse hook's
+ * entire output when stdout carries anything besides the single JSON object, so
+ * an audit line on stdout would silently void the rewrite that won — turning a
+ * visibility mechanism into the very failure it was added to prevent.
+ */
+export function buildDiscardedRewriteAuditLine(
+  event: LifecycleEvent,
+  discardedGuard: string,
+  keptGuard: string,
+  sessionId: string | undefined,
+  now: () => string = () => new Date().toISOString()
+): string {
+  return `[dispatcher:${event}] REWRITE-DISCARDED: guard=${discardedGuard} kept=${keptGuard} session=${sessionId ?? "unknown"} ts=${now()}\n`;
+}
+
 // ---------------------------------------------------------------------------
 // D4 — calibration logging as a framework service
 // ---------------------------------------------------------------------------
@@ -386,7 +414,27 @@ export function resolveDispatchContext(
   let transcriptLines: TranscriptLine[] = [];
   if (input.transcript_path) {
     transcriptCandidates = resolveCandidates(input.transcript_path, input.agent_id);
-    transcriptLines = transcriptCandidates.flatMap((p) => parse(p));
+    // PARENT-ONLY BY CONSTRUCTION (mt#3293). `transcriptCandidates.flatMap(parse)` — what this
+    // used to be — concatenates the parent transcript with EVERY sibling subagent transcript,
+    // subagents always ordered after the parent, with no per-line file-origin marker. Turn
+    // extraction over that array (`findRealPromptIndices`, `extractLastAssistantTurn`,
+    // `extractFinalTurn`) can anchor inside a static, already-completed subagent segment and
+    // re-measure the same frozen turn forever. mt#3003 fixed that for two detectors by having
+    // each call `resolveParentTranscriptLines` itself; this hoists it to the shared D6 field so
+    // every consumer — including ones not yet written — gets the guarantee without opting in.
+    //
+    // Only flatten when there is at most one candidate: `resolveParentTranscriptLines` discards
+    // `flatLines` entirely in the multi-candidate branch (it re-parses the parent alone), so
+    // eagerly parsing every subagent transcript would be pure wasted I/O. Mirrors
+    // `resolveParentTranscriptLinesForPath`'s own lazy-flatten for the same reason.
+    const flatLines =
+      transcriptCandidates.length > 1 ? [] : transcriptCandidates.flatMap((p) => parse(p));
+    transcriptLines = resolveParentTranscriptLines(
+      input.transcript_path,
+      transcriptCandidates,
+      flatLines,
+      parse
+    );
   }
 
   return {
@@ -409,10 +457,16 @@ export interface RunDispatcherOptions {
   registrations?: GuardRegistration[];
   /** Injectable for tests — defaults to `readInput<ToolHookInput>()` from `./types`. */
   readInputFn?: () => Promise<ToolHookInput>;
-  /** Injectable for tests — defaults to `writeOutput` from `./types`. */
+  /**
+   * Injectable for tests — defaults to `writeOutput` from `./types`.
+   *
+   * The ONLY writer of stdout in the dispatcher (mt#3625). There is deliberately
+   * no general-purpose `stdoutWrite` seam beside it: Claude Code discards a
+   * PreToolUse hook's entire output when stdout carries anything besides the one
+   * JSON object, so any second stdout writer is a latent way to void a guard's
+   * decision. Diagnostics go to `stderrWrite`.
+   */
   writeOutputFn?: (output: HookOutput) => void;
-  /** Injectable for tests — defaults to `process.stdout.write`. */
-  stdoutWrite?: (s: string) => void;
   /** Injectable for tests — defaults to `process.stderr.write`. */
   stderrWrite?: (s: string) => void;
   /** Injectable for tests — defaults to the real `logCalibrationRecord`. */
@@ -639,7 +693,6 @@ export async function runDispatcher(
   const registrations = options.registrations ?? GUARD_REGISTRY;
   const readInputFn = options.readInputFn ?? (() => readInput<ToolHookInput>());
   const writeOutputFn = options.writeOutputFn ?? writeOutput;
-  const stdoutWrite = options.stdoutWrite ?? ((s: string) => process.stdout.write(s));
   const stderrWrite = options.stderrWrite ?? ((s: string) => process.stderr.write(s));
   const logCalibration = options.logCalibrationRecordFn ?? logCalibrationRecord;
   const resolveContext =
@@ -658,11 +711,21 @@ export async function runDispatcher(
   const knownGuardNames = registrations.map((r) => r.name);
   const contextFragments: ContextFragment[] = [];
   let sessionTitle: string | undefined;
+  // mt#3612: first-in-registry-order wins for `updatedInput`. `keptBy` records
+  // WHICH guard won so a later guard's discarded rewrite can name it.
+  let updatedInput: Record<string, unknown> | undefined;
+  let updatedInputKeptBy: string | undefined;
   for (const reg of matched) {
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
-      stdoutWrite(
+      // STDERR (mt#3625). This used to go to stdout, ahead of the dispatch's
+      // JSON — which meant overriding THIS guard silently voided a LATER
+      // guard's deny, because Claude Code drops a PreToolUse hook's whole
+      // output when stdout holds anything but the one JSON object. Live on the
+      // shared `Bash|mcp__minsky__session_exec` matcher, where an override of
+      // check-guessed-session-path disabled block-secret-file-read's deny.
+      stderrWrite(
         buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
       );
       // mt#2597 R1 fix: attribute the fire-log record to whichever channel
@@ -737,7 +800,9 @@ export async function runDispatcher(
 
     if (!outcome) continue;
 
-    for (const line of outcome.auditLines ?? []) stdoutWrite(line);
+    // STDERR (mt#3625) — same reason as the override line above. A guard's
+    // audit line is a diagnostic; stdout belongs to the single JSON object.
+    for (const line of outcome.auditLines ?? []) stderrWrite(line);
     // mt#3519: a registration may declare several logs. The dispatcher writes
     // the one record it has to the PRIMARY log — the first declared — never to
     // all of them, which would duplicate the record across logs and inflate
@@ -774,15 +839,42 @@ export async function runDispatcher(
       });
     }
     if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
+    // mt#3612: first-in-registry-order wins. A second rewrite cannot be merged
+    // with the first (each guard builds its object from the ORIGINAL input, so
+    // a merge would resurrect fields the first guard deliberately changed), so
+    // it is dropped — but named, never silently.
+    if (outcome.updatedInput !== undefined) {
+      if (updatedInput === undefined) {
+        updatedInput = outcome.updatedInput;
+        updatedInputKeptBy = reg.name;
+      } else {
+        // STDERR, not stdout. Claude Code discards a PreToolUse hook's ENTIRE
+        // output when stdout carries anything besides the one JSON object
+        // (ADR-028 D1's "exactly one JSON object", confirmed live in PR #2573:
+        // an identical run with one junk stdout line ahead of the JSON executed
+        // the ORIGINAL command instead of the rewrite). Writing this line to
+        // stdout would therefore void the winning guard's rewrite in precisely
+        // the multi-guard case the line exists to make visible.
+        stderrWrite(
+          buildDiscardedRewriteAuditLine(
+            event,
+            reg.name,
+            updatedInputKeptBy ?? "unknown",
+            input.session_id
+          )
+        );
+      }
+    }
   }
 
   const additionalContext = composeAdditionalContext(contextFragments);
-  if (additionalContext !== undefined || sessionTitle !== undefined) {
+  if (additionalContext !== undefined || sessionTitle !== undefined || updatedInput !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
         ...(additionalContext !== undefined ? { additionalContext } : {}),
         ...(sessionTitle !== undefined ? { sessionTitle } : {}),
+        ...(updatedInput !== undefined ? { updatedInput } : {}),
       },
     });
   }

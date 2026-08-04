@@ -5,6 +5,54 @@ mt#1193: connection pool sizing, connection-exhaustion retry policy, and MCP gra
 For migrating between backends, see [SessionDB Migration Guide](./sessiondb-migration-guide.md).
 For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-troubleshooting.md).
 
+## Behavior When Initialization Fails at Boot (mt#3636)
+
+If a Postgres connection string is configured but `initialize()` fails at startup — DNS failure,
+unreachable host, bad credentials, a migration error — the process **still boots**, so `/health`
+and non-DB commands keep working (mt#2349). DI substitutes `UnconfiguredPersistenceProvider`, whose
+capability flags are all `false` and whose every DB accessor throws.
+
+### The data plane fails closed
+
+**Every DB-backed read raises; none returns an empty or not-found result.** This matters because an
+empty result is byte-identical to the truthful answer for an empty database, so a caller cannot
+tell "the database is unreachable" from "there is nothing there":
+
+- `tasks_*` reads (`list` / `get` / `status get`) raise `TaskBackendUnavailableError` naming the
+  backend, the degraded state, and the underlying initialization error. Before mt#3636 they
+  answered `{"tasks": [], "total": 0}` and "not found" with exit 0.
+- `session_*` raises via the DI container's boot-deferral path.
+- `memory_*` and `asks_*` raise, and (mt#3636) their messages now also carry the boot reason rather
+  than a bare "not SQL-capable".
+
+### The diagnostic plane stays available
+
+Deliberately — "refuse to boot at all" would make the failure undiagnosable without a database:
+
+```bash
+minsky persistence check     # reports the underlying initialization failure
+minsky debug systemInfo      # answers normally
+minsky config list           # answers normally
+```
+
+### Two causes, opposite responses
+
+Both raise; the messages are deliberately distinguishable, because the capability flags are
+all-false in both cases and give the operator nothing to act on:
+
+| State                                                      | Message says                                                            | Response                                                                                         |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Configured, init failed (`configuredButUnavailable: true`) | "Postgres IS configured, but initialization failed at boot: `<reason>`" | Fix connectivity, then **restart** — a failed provider is not currently re-initialized (mt#3635) |
+| Not configured (`configuredButUnavailable: false`)         | "Persistence is not configured: `<reason>`"                             | Set `persistence.postgres.connectionString` or `MINSKY_PERSISTENCE_POSTGRES_URL`                 |
+
+The distinction is rendered once by `describePersistenceUnavailability()` in
+`packages/domain/src/persistence/unconfigured-provider.ts`. Per ADR-018 (quoted in ADR-027), the
+unconfigured case is also an error rather than a silent fallback: _"A bare install with no Postgres
+connection should fail with a clear 'configure Postgres' error, not silently fall back."_
+
+A boot failure is logged at error level once at startup — but on **stderr**, which an MCP client
+never sees. That is why each failing tool result carries the cause itself.
+
 ## Connection Pool Size
 
 ### Default
@@ -550,3 +598,77 @@ threshold was hit (~9 s later).
 | `src/cockpit/shared-persistence.ts`     | `startDbRetryBackoff`, `markDbDegraded`, `getDbStatus`, `PersistenceInitTimeoutError` |
 | `src/commands/cockpit/start-command.ts` | `isDbDegradationError`, `unhandledRejection` handler                                  |
 | `src/cockpit/server.ts`                 | `/api/health` endpoint (`db: getDbStatus()`)                                          |
+
+## Boot-time init failure: re-initialization on use (mt#3635)
+
+Applies to every process built on the DI container — the MCP server and the CLI.
+(The cockpit daemon has its own singleton and its own recovery path, documented above and in
+mt#3638; this section is not about that one.)
+
+### What happens when initialization fails at boot
+
+`createDomainContainer()`'s persistence factory is boot-tolerant: when a Postgres connection IS
+configured but `initialize()` fails — an unreachable host, bad credentials, a migration error — it
+returns `UnconfiguredPersistenceProvider` instead of throwing, so the process still starts and
+`/health`, `config_*`, and `persistence_check` keep answering.
+
+That substitute is now **enrolled for re-initialization**. On a later `container.get("persistence")`
+the container re-runs the factory in the background; if it succeeds, the real provider replaces the
+substitute AND every service registered after it is rebuilt, because services capture the provider
+at their own construction time and would otherwise keep serving the degraded one. No process
+restart or `/mcp` reconnect is required.
+
+Before mt#3635 nothing retried: a transient failure at boot — the originating case was a ~20-second
+DNS blip — left the process degraded for its entire lifetime. Per ADR-035, that is the class the
+rule "a composition root must not register a substitute value for a failed initialization without
+also registering the retry" exists to close.
+
+### Retry schedule
+
+| Property              | Value                                        |
+| --------------------- | -------------------------------------------- |
+| Trigger               | a `get()` of the affected key                |
+| Minimum interval      | 10 s (`RETRY_MIN_INTERVAL_MS`)               |
+| Backoff               | doubles per failed attempt, reset on success |
+| Ceiling               | 5 min (`RETRY_MAX_INTERVAL_MS`)              |
+| Concurrency           | at most one attempt in flight per key        |
+| During `initialize()` | suppressed                                   |
+
+Attempts are usage-gated, so there is no fixed attempt cap: a process that stops calling stops
+retrying. The 10 s floor is what prevents a busy process from re-attempting once per call.
+
+This is a **cross-call re-initialization** and is distinct from `withPgPoolRetry` (mt#1193, the
+3-attempt / 150 ms / 2 s-cap schedule documented above), which is a **within-call** retry for pool
+saturation on an already-initialized client. They compose: a re-init attempt runs a full
+`PersistenceService.initialize()`, which uses `withPgPoolRetry` internally.
+
+### Telling a stuck process from a live outage
+
+Both `persistence_check` and the persistence block of `/health` report the last re-init attempt:
+
+- **No attempt recorded** — nothing has been retried since boot. `persistence_check` says
+  "No re-initialization has been attempted since boot"; `assessPersistenceHealth` omits
+  `lastAttemptAt`.
+- **An attempt recorded** — the provider is retrying and the database is still unreachable.
+  Both surfaces name the attempt timestamp and its error, and `persistence_check` says explicitly
+  that no restart is needed.
+
+The distinction is the point: the first state calls for a restart, the second for fixing the
+database, and before mt#3635 the two produced identical output.
+
+### Verifying it
+
+`bun scripts/verify-persistence-self-heal.ts` drives the whole arc against a real Postgres —
+initialization failing with `getaddrinfo ENOTFOUND`, then recovering on a later use with no
+restart, the dependent service rebuilt, and the rate limit holding. It skips with exit 0 when no
+database is reachable; point it at one with `INTEGRATION_POSTGRES_URL`.
+
+### Related files
+
+| File                                                       | Role                                                |
+| ---------------------------------------------------------- | --------------------------------------------------- |
+| `packages/domain/src/composition/container.ts`             | enrollment, backoff, dependent rebuild              |
+| `packages/domain/src/composition/domain.ts`                | the persistence factory that returns the substitute |
+| `packages/domain/src/persistence/unconfigured-provider.ts` | `DegradedSubstitute` marker + attempt bookkeeping   |
+| `packages/domain/src/persistence/health.ts`                | `lastAttemptAt` on the liveness surface             |
+| `packages/domain/src/persistence/validation-operations.ts` | `persistence_check`'s retry-state report            |

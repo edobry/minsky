@@ -229,3 +229,57 @@ back to the harness.
 - mt#2652 — ADR-028 Phase 2a guard-dispatcher migration; this hook's `run()`
   is the dispatcher-compatible entry point, `main()` is the standalone CLI
   entrypoint the Claude Code harness invokes directly.
+
+## Surface expansions since mt#3113 (ported from the rule index, mt#3667)
+
+The detector originally watched **assistant chat prose only**. Three later tasks widened what it
+reads. Each is recorded here because the rule index carried this detail and nothing else did.
+
+### mt#3489 — writing a symbol no longer backs a claim about it
+
+A write tool's `tool_result` echoes the payload the agent just authored. That echo used to land in
+the verification corpus, so a claim about just-written code was suppressed as `same-turn-read` —
+indistinguishable from a claim backed by an actual read. Measured: 108 of 298 records carried that
+reason, 58 by it alone.
+
+Write-class results now route to a **separate corpus** and suppress under `write-echo-backed`
+instead. Injection behavior is UNCHANGED — both still suppress. The split makes the
+authorship-as-verification class countable, which is the precondition for deciding whether it
+should surface at all. A `tool_result` whose originating tool cannot be identified still counts as
+a read.
+
+### mt#3571 — comments the turn ADDED are scanned (log-only)
+
+A claim written into a code comment reads as the justification for the code beside it, and was
+never examined. Comment lines a write payload **adds** now run through the same claim detection; a
+comment that merely **moved** (present on both sides of a search/replace) does not, since
+relocating a comment is not asserting it.
+
+**Log-only** — this pass never reaches the injection branch. Recorded as `commentSurfaceClaims` /
+`commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the
+`comment-surface-only` suppression reason. That label is required, not cosmetic:
+`isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted
+as an operator-facing fire it never was, and would drive the review cadence on false input.
+
+Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and
+legitimately describe mechanism. Measure before proposing to wire it.
+
+### mt#3642 — durable artifacts are the third surface (log-only)
+
+Everything an agent writes for the record — a PR body, a task spec or spec patch, a memory, an
+ask's question — reaches the transcript as a `tool_use` **input**, not as assistant text. So the
+same sentence was watched in chat (ephemeral, contradictable) and unwatched in the artifact
+(durable, read later as justification).
+
+mt#3092's false socket-contract claim was in a PR body and produced **no record at all** — that
+outage was not a suppression failure, and mt#3594's problem statement was corrected on that basis.
+
+The prose bodies of artifact-authoring tools are now a third pass, recorded as
+`artifactSurfaceClaims` / `artifactSurfaceClaimCount` under the `artifact-surface-only` reason,
+log-only on the same terms as the comment pass. Scoped to artifact-authoring tools, NOT all
+write-class tools — an ordinary source edit stays the comment pass's job.
+
+It reads BOTH `tool_use` shapes: a top-level line carrying `name`/`tool_name` + `input`, and a
+block nested in an assistant message's `content`, matching `extractToolUseNames`. Handling only
+the nested shape made top-level-recorded turns invisible (PR #2584 R1). **The comment pass still
+has that gap — tracked as mt#3650.**

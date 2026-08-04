@@ -137,3 +137,18 @@ stretches` — the discipline-layer sibling this hook calibrates
   (heartbeat floor, Phase 1; silent-stretch detection, Phase 3)
 - ADR-028 — guard-dispatcher framework this hook is registered onto directly
   (authored on the framework, not migrated from a prior standalone hook)
+
+## Evaluation stream (mt#3583, ported from the rule index by mt#3667)
+
+Beyond the calibration log described above, the detector writes an **evaluation stream** to
+`.minsky/silent-stretch-evaluations.jsonl` recording **every measurement, fired or not**.
+
+This is deliberately a **separate file** from the calibration log, and the reason is mechanical:
+`coverage-receipt.ts` reads a calibration record's existence as evidence the detector FIRED, and
+its discovery glob is `.minsky/*-calibration.jsonl`. Writing non-fires into that file would
+corrupt the coverage signal.
+
+It exists because a fire-only corpus can say "it happened again" but can never say "it stopped
+happening" — and the second half is what ADR-032's tuning loop needs to close.
+
+Deduped on the same turn anchor as the calibration record.

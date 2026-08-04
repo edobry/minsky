@@ -14,45 +14,28 @@
  * one (conditional spread), never fabricated, never passed through as
  * `undefined`.
  *
- * These tests spy on the "ai" package's exported `generateText` /
- * `generateObject` functions (via `spyOn` on the module namespace object,
- * which Bun's ESM live-binding semantics make visible to
- * completion-service.ts's named imports of the same functions) and assert
- * on the literal call-argument object completion-service.ts builds. This
- * is deliberately NOT testing the AI SDK's own internal normalization
- * (Vercel AI SDK v4's `prepareCallSettings` defaults an unset temperature
- * to `0` before it reaches a provider's `doGenerate` — a separate,
- * upstream SDK behavior outside this file's control) — it tests only what
- * this codebase is responsible for: not fabricating or forwarding an
- * unset temperature into the call it makes.
+ * These tests inject fake `generateText` / `generateObject` / `streamText`
+ * implementations through `DefaultAICompletionService`'s constructor `deps`
+ * parameter (mt#3622) and assert on the literal call-argument object
+ * completion-service.ts builds. This is deliberately NOT testing the AI
+ * SDK's own internal normalization (Vercel AI SDK v4's `prepareCallSettings`
+ * defaults an unset temperature to `0` before it reaches a provider's
+ * `doGenerate` — a separate, upstream SDK behavior outside this file's
+ * control) — it tests only what this codebase is responsible for: not
+ * fabricating or forwarding an unset temperature into the call it makes.
  *
- * No `mock.module()` is used (banned outside tests/setup.ts); `spyOn` on
- * the "ai" module's own export object is a narrower, module-registry-safe
- * technique.
- *
- * Reliability of this seam (addressing PR review feedback that a
- * namespace-object spy might not reliably intercept a named import):
- * completion-service.ts imports `generateText`/`generateObject`/`streamText`
- * as `import { generateText, streamText, generateObject, ... } from "ai"`
- * — under Bun's ESM live-binding semantics, a named import and the
- * corresponding property on the namespace object obtained via
- * `import * as aiModule from "ai"` reference the SAME underlying export
- * slot, so `spyOn(aiModule, "generateText")` patches what
- * completion-service.ts's `generateText` reference resolves to as well.
- * This isn't asserted only by inspection: every test below configures the
- * fake `AnyConfigService` with a placeholder (non-functional) API key and
- * NO network mocking exists anywhere in this suite — if the spy failed to
- * intercept, the real `generateText`/`generateObject`/`streamText` would
- * run and either attempt a real network call (which would fail fast on
- * the placeholder key, or hang past the 15s test timeout) instead of
- * returning the spy's synchronous mock value. All tests pass in well
- * under a second, which is only possible if interception is working.
+ * Prior to mt#3622 this suite used `spyOn` on the "ai" module's own export
+ * object (`import * as aiModule from "ai"`), relying on Bun's ESM
+ * live-binding semantics to make the spy visible to completion-service.ts's
+ * named imports of the same functions. The constructor-injected `deps` seam
+ * removes that dependency entirely: the fakes below are passed directly, so
+ * there is no live-binding trick to reason about and no module-registry
+ * mutation to restore between tests.
  */
 
-import { describe, it, expect, spyOn, afterEach } from "bun:test";
-import * as aiModule from "ai";
+import { describe, it, expect, mock } from "bun:test";
 import { z } from "zod";
-import { DefaultAICompletionService } from "./completion-service";
+import { DefaultAICompletionService, type AICompletionServiceDeps } from "./completion-service";
 import type { AnyConfigService } from "./config-service";
 
 /** Minimal config service satisfying AnyConfigService's `getConfig()` shape. */
@@ -68,47 +51,50 @@ const fakeConfigService: AnyConfigService = {
   }),
 };
 
-function makeService(): DefaultAICompletionService {
-  return new DefaultAICompletionService(fakeConfigService);
+function makeService(deps: Partial<AICompletionServiceDeps>): DefaultAICompletionService {
+  return new DefaultAICompletionService(fakeConfigService, deps);
 }
 
-// Track spies created per-test so they can always be restored, even on
-// assertion failure, without relying on global mock-cleanup behavior.
-let activeSpies: Array<{ mockRestore: () => void }> = [];
-
-afterEach(() => {
-  for (const spy of activeSpies) {
-    spy.mockRestore();
-  }
-  activeSpies = [];
-});
-
-function spyOnGenerateText() {
-  const spy = spyOn(aiModule, "generateText").mockImplementation((async () => ({
+function fakeGenerateText() {
+  return mock(async () => ({
     text: "ok",
     usage: {},
     toolCalls: undefined,
     steps: undefined,
     finishReason: "stop",
     experimental_providerMetadata: undefined,
-  })) as any);
-  activeSpies.push(spy);
-  return spy;
+  })) as unknown as AICompletionServiceDeps["generateText"] & {
+    mock: { calls: unknown[][] };
+  };
 }
 
-function spyOnGenerateObject(returnedObject: unknown) {
-  const spy = spyOn(aiModule, "generateObject").mockImplementation((async () => ({
+function fakeGenerateObject(returnedObject: unknown) {
+  return mock(async () => ({
     object: returnedObject,
-  })) as any);
-  activeSpies.push(spy);
-  return spy;
+  })) as unknown as AICompletionServiceDeps["generateObject"] & {
+    mock: { calls: unknown[][] };
+  };
+}
+
+function fakeStreamText() {
+  return mock(() => ({
+    textStream: (async function* () {
+      yield "ok";
+    })(),
+    text: Promise.resolve("ok"),
+    usage: Promise.resolve({}),
+    toolCalls: Promise.resolve(undefined),
+    finishReason: Promise.resolve("stop"),
+  })) as unknown as AICompletionServiceDeps["streamText"] & {
+    mock: { calls: unknown[][] };
+  };
 }
 
 describe("DefaultAICompletionService — temperature handling (mt#2733)", () => {
   describe("complete() -> generateText", () => {
     it("omits temperature from the generateText call when the caller did not set one", async () => {
-      const spy = spyOnGenerateText();
-      const service = makeService();
+      const generateText = fakeGenerateText();
+      const service = makeService({ generateText });
 
       await service.complete({
         provider: "anthropic",
@@ -116,14 +102,14 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         prompt: "hi",
       });
 
-      expect(spy).toHaveBeenCalledTimes(1);
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(generateText).toHaveBeenCalledTimes(1);
+      const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(Object.prototype.hasOwnProperty.call(callArgs, "temperature")).toBe(false);
     });
 
     it("passes an explicit temperature: 0 through unchanged", async () => {
-      const spy = spyOnGenerateText();
-      const service = makeService();
+      const generateText = fakeGenerateText();
+      const service = makeService({ generateText });
 
       await service.complete({
         provider: "anthropic",
@@ -132,14 +118,14 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         temperature: 0,
       });
 
-      expect(spy).toHaveBeenCalledTimes(1);
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(generateText).toHaveBeenCalledTimes(1);
+      const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(callArgs.temperature).toBe(0);
     });
 
     it("passes an explicit non-zero temperature through unchanged", async () => {
-      const spy = spyOnGenerateText();
-      const service = makeService();
+      const generateText = fakeGenerateText();
+      const service = makeService({ generateText });
 
       await service.complete({
         provider: "anthropic",
@@ -148,7 +134,7 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         temperature: 0.7,
       });
 
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(callArgs.temperature).toBe(0.7);
     });
   });
@@ -157,8 +143,8 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
     const schema = z.object({ ok: z.boolean() });
 
     it("omits temperature from the generateObject call when the caller did not set one (no 0.3 fabrication)", async () => {
-      const spy = spyOnGenerateObject({ ok: true });
-      const service = makeService();
+      const generateObject = fakeGenerateObject({ ok: true });
+      const service = makeService({ generateObject });
 
       await service.generateObject({
         provider: "anthropic",
@@ -167,14 +153,14 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         schema,
       });
 
-      expect(spy).toHaveBeenCalledTimes(1);
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(generateObject).toHaveBeenCalledTimes(1);
+      const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(Object.prototype.hasOwnProperty.call(callArgs, "temperature")).toBe(false);
     });
 
     it("passes an explicit temperature: 0 through unchanged (not clobbered to 0.3)", async () => {
-      const spy = spyOnGenerateObject({ ok: true });
-      const service = makeService();
+      const generateObject = fakeGenerateObject({ ok: true });
+      const service = makeService({ generateObject });
 
       await service.generateObject({
         provider: "anthropic",
@@ -184,13 +170,13 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         temperature: 0,
       });
 
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(callArgs.temperature).toBe(0);
     });
 
     it("passes an explicit non-zero temperature through unchanged", async () => {
-      const spy = spyOnGenerateObject({ ok: true });
-      const service = makeService();
+      const generateObject = fakeGenerateObject({ ok: true });
+      const service = makeService({ generateObject });
 
       await service.generateObject({
         provider: "anthropic",
@@ -200,24 +186,15 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         temperature: 0.5,
       });
 
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(callArgs.temperature).toBe(0.5);
     });
   });
 
   describe("stream() -> streamText", () => {
     it("omits temperature from the streamText call when the caller did not set one", async () => {
-      const spy = spyOn(aiModule, "streamText").mockImplementation((() => ({
-        textStream: (async function* () {
-          yield "ok";
-        })(),
-        text: Promise.resolve("ok"),
-        usage: Promise.resolve({}),
-        toolCalls: Promise.resolve(undefined),
-        finishReason: Promise.resolve("stop"),
-      })) as any);
-      activeSpies.push(spy);
-      const service = makeService();
+      const streamText = fakeStreamText();
+      const service = makeService({ streamText });
 
       const iterator = service.stream({
         provider: "anthropic",
@@ -229,8 +206,8 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
         // no-op — just draining
       }
 
-      expect(spy).toHaveBeenCalledTimes(1);
-      const callArgs = spy.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(streamText).toHaveBeenCalledTimes(1);
+      const callArgs = streamText.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(Object.prototype.hasOwnProperty.call(callArgs, "temperature")).toBe(false);
     });
   });

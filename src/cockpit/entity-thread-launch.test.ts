@@ -20,7 +20,10 @@ import { PassThrough } from "stream";
 const TEST_CWD = mkdtempSync(join(tmpdir(), "entity-thread-launch-"));
 
 import {
+  DEFAULT_PERMISSION_MODE,
   DrivenSessionRegistry,
+  hasLiveActuator,
+  resumeDrivenSession,
   sendDrivenSessionInput,
   DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
   type ProcessLike,
@@ -538,9 +541,9 @@ describe("seed prompt attribution", () => {
     };
   }
 
-  test("a seeded spawn appends NO operator-input frame", () => {
+  test("a seeded spawn appends NO operator-input frame", async () => {
     const registry = new DrivenSessionRegistry();
-    const session = startEntityThreadSession({
+    const session = await startEntityThreadSession({
       seed: seed(),
       cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
@@ -556,12 +559,12 @@ describe("seed prompt attribution", () => {
     expect(operatorFrames).toHaveLength(0);
   });
 
-  test("the seed text specifically never appears as operator-attributed content", () => {
+  test("the seed text specifically never appears as operator-attributed content", async () => {
     // Stronger than the count above: even a future change that appends some
     // other operator frame must not put the SEED's words in the operator's
     // mouth.
     const registry = new DrivenSessionRegistry();
-    const session = startEntityThreadSession({
+    const session = await startEntityThreadSession({
       seed: seed(),
       cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
@@ -576,7 +579,7 @@ describe("seed prompt attribution", () => {
     expect(operatorText).not.toContain("Approve the thing?");
   });
 
-  test("the spawn drives the durable-persistence observer with the thread's localId", () => {
+  test("the spawn drives the durable-persistence observer with the thread's localId", async () => {
     // mt#3402: this callsite previously passed NO observers, so no
     // `driven_sessions` row was ever written and the deterministic localId's
     // restart-survival property silently never held. The observer's ARGUMENT
@@ -584,7 +587,7 @@ describe("seed prompt attribution", () => {
     // localId would not satisfy the one-row-per-entity contract.
     const registry = new DrivenSessionRegistry();
     const seen: string[] = [];
-    const session = startEntityThreadSession({
+    const session = await startEntityThreadSession({
       seed: seed(),
       cwd: "/tmp/x",
       spawnFn: fakeSpawn(),
@@ -597,12 +600,12 @@ describe("seed prompt attribution", () => {
     expect(session.localId).toBe("entity-thread:ask:seed-attribution-test");
   });
 
-  test("an operator message on the SAME session DOES append exactly one frame", () => {
+  test("an operator message on the SAME session DOES append exactly one frame", async () => {
     // The contrast that makes the assertions above meaningful: the opt-out is
     // scoped to the seed, not a blanket disabling of operator attribution.
     // Without this, a bug that suppressed every echo would pass the tests above.
     const registry = new DrivenSessionRegistry();
-    const session = startEntityThreadSession({
+    const session = await startEntityThreadSession({
       seed: seed(),
       cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
@@ -616,6 +619,261 @@ describe("seed prompt attribution", () => {
     );
     expect(operatorFrames).toHaveLength(1);
     expect(operatorFrames[0]?.payload["text"]).toBe("what is this asking me?");
+  });
+});
+
+/**
+ * mt#3550 — a thread whose agent has exited must get a new one.
+ *
+ * The reuse branch used to fire on `registry.get(localId)` being truthy, and an
+ * exited child's record stays registered with a terminal status. So every later
+ * message was stored as an operator turn and then refused by
+ * `sendDrivenSessionInput`'s dead-stdin guard — permanently, since nothing
+ * re-spawned. These tests pin the two halves of the fix: the guard now asks
+ * `hasLiveActuator` (the same question the liveness report asks), and the
+ * replacement prefers a RESUME so the agent still has the thread's earlier
+ * turns.
+ */
+describe("re-spawn after the agent exits (mt#3550)", () => {
+  const HARNESS_ID = "3550aaaa-0000-4000-8000-000000000000";
+  const SEED_MARKER = "You are answering the principal's questions";
+  const SEED_BODY = "Approve the migration?";
+
+  /** ProcessLike double that keeps what was written to its stdin. */
+  class RecordingProcess extends EventEmitter implements ProcessLike {
+    readonly pid = 5150;
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly stdin = new PassThrough();
+    readonly written: string[] = [];
+    constructor() {
+      super();
+      this.stdin.on("data", (chunk: Buffer | string) => this.written.push(String(chunk)));
+    }
+    kill(): boolean {
+      return true;
+    }
+  }
+
+  interface Spawn {
+    argv: string[];
+    proc: RecordingProcess;
+  }
+
+  function recordingSpawn(spawns: Spawn[]): SpawnFn {
+    return (_command: string, argv: string[]) => {
+      const proc = new RecordingProcess();
+      spawns.push({ argv, proc });
+      return proc;
+    };
+  }
+
+  function seed(entityId: string): EntitySeedContext {
+    return { entityType: "ask", entityId, title: "ask#7", body: SEED_BODY };
+  }
+
+  /** The resume seam's answer when there is nothing to resume. */
+  const nothingToResume = async () => ({ outcome: "not-found" }) as const;
+
+  /**
+   * Spawn a thread session and then drive the host's real exit wiring, so the
+   * record reaches a terminal status the way production does rather than by
+   * being hand-mutated.
+   */
+  async function spawnThenExit(entityId: string, registry: DrivenSessionRegistry, spawns: Spawn[]) {
+    const session = await startEntityThreadSession({
+      seed: seed(entityId),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      resumeSession: nothingToResume,
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    });
+    spawns[spawns.length - 1]?.proc.emit("exit", 0, null);
+    return session;
+  }
+
+  test("a LIVE record is still reused — no rival child against one conversation", async () => {
+    // The regression guard for the fix: mt#3095's DAG-fork protection depends
+    // on this branch staying put.
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    const opts = {
+      seed: seed("live-reuse"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      resumeSession: nothingToResume,
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    };
+
+    const first = await startEntityThreadSession(opts);
+    const second = await startEntityThreadSession(opts);
+
+    expect(first.spawned).toBe(true);
+    expect(second.spawned).toBe(false);
+    expect(second.record).toBe(first.record);
+    expect(spawns).toHaveLength(1);
+  });
+
+  test("a record whose child has exited is replaced, not reused", async () => {
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    const first = await spawnThenExit("dead-replaced", registry, spawns);
+
+    expect(hasLiveActuator(first.record)).toBe(false);
+    expect(registry.get(first.localId)).toBe(first.record);
+
+    const second = await startEntityThreadSession({
+      seed: seed("dead-replaced"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      resumeSession: nothingToResume,
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    });
+
+    expect(second.spawned).toBe(true);
+    expect(second.record).not.toBe(first.record);
+    expect(spawns).toHaveLength(2);
+    expect(registry.get(second.localId)).toBe(second.record);
+    // The whole point: a message can now be delivered again.
+    expect(sendDrivenSessionInput(second.record, "well?")).toBe(true);
+  });
+
+  test("a resumable thread is RESUMED — the earlier turns survive the swap", async () => {
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    const first = await spawnThenExit("resumable", registry, spawns);
+    // What the child's `system/init` frame would have linked in production.
+    first.record.harnessSessionId = HARNESS_ID;
+
+    const second = await startEntityThreadSession({
+      seed: seed("resumable"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      onStateChange: () => {},
+      onResultSummary: () => {},
+      // Stands in for the persisted-row lookup + advisory lock only; the actual
+      // respawn below is the REAL one, so the argv and the swap are the
+      // production article rather than a fixture.
+      resumeSession: async (localId: string) => {
+        const { record } = resumeDrivenSession({
+          previous: {
+            localId,
+            cwd: TEST_CWD,
+            permissionMode: DEFAULT_PERMISSION_MODE,
+            harnessSessionId: HARNESS_ID,
+            taskId: null,
+            minskySessionId: null,
+            startedAt: first.record.startedAt,
+            actuatorGeneration: first.record.actuatorGeneration,
+          },
+          registry,
+          spawnFn: recordingSpawn(spawns),
+          command: "fake-claude",
+          mcpConfig: null,
+        });
+        return { outcome: "resumed", record } as const;
+      },
+    });
+
+    expect(second.spawned).toBe(true);
+    expect(spawns).toHaveLength(2);
+    expect(spawns[1]?.argv).toContain("--resume");
+    expect(spawns[1]?.argv).toContain(HARNESS_ID);
+    expect(second.record.actuatorGeneration).toBe(first.record.actuatorGeneration + 1);
+    expect(registry.get(second.localId)).toBe(second.record);
+    // The resumed conversation was seeded the first time round; re-sending the
+    // scoping prompt would repeat it to an agent that already has it.
+    expect(spawns[1]?.proc.written.join("")).not.toContain(SEED_MARKER);
+  });
+
+  test("a thread with nothing to resume gets a fresh child AND the seed prompt again", async () => {
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    await spawnThenExit("unresumable", registry, spawns);
+
+    const second = await startEntityThreadSession({
+      seed: seed("unresumable"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      // The child died before `init`, so there is no conversation to resume.
+      resumeSession: async () => ({ outcome: "unrecoverable", reason: "spawn-died-before-init" }),
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    });
+
+    expect(second.spawned).toBe(true);
+    expect(second.seeded).toBe(true);
+    const written = spawns[1]?.proc.written.join("") ?? "";
+    expect(written).toContain(SEED_MARKER);
+    expect(written).toContain(SEED_BODY);
+  });
+
+  test("a conversation another process is resuming is not restarted underneath it", async () => {
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    const first = await spawnThenExit("locked", registry, spawns);
+
+    const second = await startEntityThreadSession({
+      seed: seed("locked"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      resumeSession: async () => ({ outcome: "locked" }) as const,
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    });
+
+    // Honest rather than convenient: the dead record comes back, the send
+    // reports itself undelivered, and the lock clears in seconds.
+    expect(second.spawned).toBe(false);
+    expect(second.record).toBe(first.record);
+    expect(spawns).toHaveLength(1);
+    expect(sendDrivenSessionInput(second.record, "well?")).toBe(false);
+    // PR #2601 R1 BLOCKING — `seeded` claims a reachable scoped agent, and
+    // there is none here. Reporting true would mask exactly the stuck thread
+    // this task exists to end.
+    expect(second.seeded).toBe(false);
+  });
+
+  test("the dead record's subscribers are told to swap exactly once", async () => {
+    const registry = new DrivenSessionRegistry();
+    const spawns: Spawn[] = [];
+    const first = await spawnThenExit("swap-notice", registry, spawns);
+
+    let swaps = 0;
+    first.record.subscribers.add({
+      onEvent: () => {},
+      onSwap: () => {
+        swaps += 1;
+      },
+    });
+
+    await startEntityThreadSession({
+      seed: seed("swap-notice"),
+      cwd: TEST_CWD,
+      spawnFn: recordingSpawn(spawns),
+      registry,
+      command: "fake-claude",
+      resumeSession: nothingToResume,
+      onStateChange: () => {},
+      onResultSummary: () => {},
+    });
+
+    expect(swaps).toBe(1);
   });
 });
 

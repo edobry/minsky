@@ -25,7 +25,7 @@
 import { spawnSync } from "child_process";
 import { mkdtempSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 
 // ── env-gate ─────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,9 @@ if (!DATABASE_URL) {
 
 // ── locate the bundle ────────────────────────────────────────────────────────
 
-const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
+// Separator-agnostic repo-root derivation (same class as PR #2572 R1's finding
+// on the hooks smoke — this script was its template).
+const repoRoot = resolve(import.meta.dir, "..");
 const bundlePath = join(repoRoot, "dist", "minsky.js");
 
 // Mirror the production invocation. `Dockerfile`'s CMD is

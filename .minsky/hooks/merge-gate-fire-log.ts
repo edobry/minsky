@@ -37,6 +37,7 @@ import {
   type FireLogDecision,
   type FireLogRecordOptions,
   type OverrideClassification,
+  type RecordFireLogInput,
   type TaskResolutionSource,
 } from "./fire-log";
 
@@ -86,6 +87,104 @@ export type RecordAndExit = (
 ) => never;
 
 /**
+ * The exit code every merge-gate exit point terminates with. A PreToolUse hook's
+ * actual permission decision travels in the JSON it already wrote to stdout, never in
+ * its exit status — a non-zero exit is read by the harness as "the hook itself broke",
+ * which is precisely the fail-open shape mt#2810 documents. So `deny` exits 0 too.
+ */
+const MERGE_GATE_EXIT_CODE = 0;
+
+/**
+ * The value one merge-gate exit point represents: the fire-log record to write, and
+ * the code the process should terminate with. Pure data — building one performs no
+ * I/O and does not exit, so a test asserts on it by return value (mt#3630).
+ */
+export interface MergeGateDecision {
+  exitCode: number;
+  record: RecordFireLogInput;
+}
+
+/** Builds the {@link MergeGateDecision} for one exit point. Pure; no I/O, no exit. */
+export type MergeGateDecider = (
+  decision: FireLogDecision,
+  overrideFields?: MergeGateOverrideFields
+) => MergeGateDecision;
+
+/**
+ * The PURE half of {@link makeRecordAndExit} (mt#3630): captures the same
+ * `guardName`/`startMs`/`input`/`context` and turns one exit point into a
+ * `{ exitCode, record }` decision value — but writes nothing and exits nothing.
+ *
+ * Split out so the record-construction contract (the mt#3084 field set, and mt#3355's
+ * read-at-EXIT-time `taskResolutionSource`) is testable by return value instead of by
+ * patching `process.exit` out from under the test process. The write-and-exit half is
+ * {@link dispatchMergeGateDecision}; `makeRecordAndExit` composes the two so every
+ * guard call site keeps its unchanged, can't-forget-to-exit `never`-typed shape.
+ *
+ * `nowMs` is test-only DI (defaults to `Date.now`) — production never passes it.
+ */
+export function makeMergeGateDecider(
+  guardName: string,
+  startMs: number,
+  input: MergeGateHookInput,
+  context?: MergeGateFireLogContext,
+  nowMs: () => number = Date.now
+): MergeGateDecider {
+  return (decision, overrideFields) => ({
+    exitCode: MERGE_GATE_EXIT_CODE,
+    record: {
+      guardName,
+      event: "PreToolUse",
+      decision,
+      durationMs: nowMs() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+      // mt#3355: read at EXIT time, not decider-construction time — the gate assigns
+      // this after it resolves the task id, which happens after this factory runs.
+      ...(context?.taskResolutionSource !== undefined
+        ? { taskResolutionSource: context.taskResolutionSource }
+        : {}),
+      // Reviewer R2 BLOCKING (verified false positive, mt#3084): spreading an
+      // `undefined` value into an object literal is a JS-spec no-op ({...undefined}
+      // === {}), NOT a runtime throw — confirmed empirically (`bun -e`) before this
+      // comment was written, per the /implement-task diagnostic ladder's
+      // "verified-false-positive" condition. `overrideFields` is `undefined` on
+      // every non-override call site (the overwhelming majority — every plain
+      // allow/deny/warn with no escape hatch consulted), so this path already ran
+      // correctly in all 619 passing tests plus the mt#3084 PR's synthetic
+      // live-invocation verification. The `?? {}` below is redundant defensive
+      // clarity, not a behavior change — it exists so a future reader (or
+      // static-analysis reviewer) doesn't need to re-derive the object-spread
+      // vs. array/call-spread distinction from scratch.
+      ...(overrideFields ?? {}),
+    },
+  });
+}
+
+/**
+ * The IMPERATIVE half (mt#3630): write the record, then exit. Its only job — it makes
+ * no decisions, so the "did this gate decide correctly" question is answered entirely
+ * by {@link makeMergeGateDecider}'s pure return value.
+ *
+ * Stays `never`-typed so composing it into `makeRecordAndExit` preserves the
+ * can't-forget-to-record-and-exit ergonomic the mt#3084 shape was chosen for: a guard
+ * exit point that calls `recordAndExit(...)` cannot fall through.
+ *
+ * Fail-safe by construction: `recordFireLogEntry` never throws (see fire-log.ts), so a
+ * broken log destination can never prevent the exit.
+ *
+ * `exitImpl` is test-only DI (defaults to `process.exit`) — production never passes it.
+ */
+export function dispatchMergeGateDecision(
+  decision: MergeGateDecision,
+  recordOptions?: FireLogRecordOptions,
+  exitImpl: (code: number) => never = process.exit
+): never {
+  recordFireLogEntry(decision.record, recordOptions);
+  return exitImpl(decision.exitCode);
+}
+
+/**
  * Build a `recordAndExit` closure for a merge-gate PreToolUse hook's entry
  * point. Captures `guardName`, the invocation's start time, and the parsed
  * input's `tool_name`/`session_id` once, so every exit point in the hook's
@@ -113,6 +212,12 @@ export type RecordAndExit = (
  * call sites never pass it, so every real invocation records through the
  * real fs at the real `~/.local/state/minsky/fire-log.jsonl` path, exactly
  * like every other fire-log-instrumented standalone guard.
+ *
+ * As of mt#3630 this is a two-line composition of {@link makeMergeGateDecider} (pure
+ * record construction) and {@link dispatchMergeGateDecision} (write + exit). The
+ * signature, the record it produces, and the `never` return are unchanged — every one
+ * of the ~10 guard call sites is untouched by that split, deliberately: this is the
+ * merge-enforcement surface.
  */
 export function makeRecordAndExit(
   guardName: string,
@@ -121,36 +226,7 @@ export function makeRecordAndExit(
   recordOptions?: FireLogRecordOptions,
   context?: MergeGateFireLogContext
 ): RecordAndExit {
-  return (decision, overrideFields) => {
-    recordFireLogEntry(
-      {
-        guardName,
-        event: "PreToolUse",
-        decision,
-        durationMs: Date.now() - startMs,
-        toolName: input.tool_name,
-        sessionId: input.session_id,
-        // mt#3355: read at EXIT time, not closure-construction time — the gate assigns
-        // this after it resolves the task id, which happens after this factory runs.
-        ...(context?.taskResolutionSource !== undefined
-          ? { taskResolutionSource: context.taskResolutionSource }
-          : {}),
-        // Reviewer R2 BLOCKING (verified false positive, mt#3084): spreading an
-        // `undefined` value into an object literal is a JS-spec no-op ({...undefined}
-        // === {}), NOT a runtime throw — confirmed empirically (`bun -e`) before this
-        // comment was written, per the /implement-task diagnostic ladder's
-        // "verified-false-positive" condition. `overrideFields` is `undefined` on
-        // every non-override call site (the overwhelming majority — every plain
-        // allow/deny/warn with no escape hatch consulted), so this path already ran
-        // correctly in all 619 passing tests plus the mt#3084 PR's synthetic
-        // live-invocation verification. The `?? {}` below is redundant defensive
-        // clarity, not a behavior change — it exists so a future reader (or
-        // static-analysis reviewer) doesn't need to re-derive the object-spread
-        // vs. array/call-spread distinction from scratch.
-        ...(overrideFields ?? {}),
-      },
-      recordOptions
-    );
-    process.exit(0);
-  };
+  const decide = makeMergeGateDecider(guardName, startMs, input, context);
+  return (decision, overrideFields) =>
+    dispatchMergeGateDecision(decide(decision, overrideFields), recordOptions);
 }

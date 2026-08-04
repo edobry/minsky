@@ -10,6 +10,27 @@ Derived from the RFC _Detection-mechanism strategy for the guidance-hook family_
 prior "hooks can't detect semantic coherence" framing in
 `docs/architecture/agent-guidance-mechanisms.md` (fixed in the same change).
 
+**Amended 2026-08-03 (mt#3652): Rung 3 reached for the retrospective-trigger family; mechanism
+decided.** Both halves of the sign-off (a)/(c) gate were satisfied: the measured insufficiency
+of Rungs 1-2 (mt#3408's Rung-2 precision: 3/3 hand-classified false positives against sign-off
+(b)'s 0-known-FP bar, forcing permanent log-only; plus three live Rung-1 recall misses on
+record — mt#3341 and the two 2026-08-03 mt#3639 misses), and the principal decision the ADR
+reserves (mt#3521 `## Principal disposition`, 2026-08-03: option (b), "go up the rungs").
+The offline pilot (`scripts/pilot-rung3-confirm.ts`, 13 labeled turns) decided the mechanism:
+**generative Haiku confirm** — 6/6 positives fired (pipeline = Rung 1 ∪ confirmed), 0/7 false
+positives including all three of mt#3408's FP sentences verbatim; the **discriminative** arm is
+not trainable at the current corpus size (13 labeled turns against this ADR's own ~50-200
+fine-tune floor) and is revisited only if the labeled corpus — now growing via the evaluation
+stream below — reaches the floor AND the generative arm's measured precision degrades. The
+confirm stage runs ONLY on Rung-2 nominations (per §Rung 3's design), ships enforcing (a
+confirmed nomination injects; kill switch `MINSKY_DISABLE_RUNG3_CONFIRM`), and preserves both
+cross-cutting invariants: fail-to-Rung-1 on every failure path, and the coverage-receipt gate.
+Raw Rung-2 enforcement (`MINSKY_RUNG2_NOMINATION_ENFORCE`) is untouched and stays off. This
+amendment also adds the family's **evaluation stream**
+(`.minsky/retrospective-trigger-evaluations.jsonl`, every evaluated turn recorded, fired or
+not) — the measurement substrate a fire-only calibration log cannot provide, and the input that
+keeps both the FP rate and the false-negative rate observable post-ship.
+
 ## Context
 
 Minsky runs several `UserPromptSubmit` **guidance hooks** — `retrospective-trigger-scanner`,
@@ -110,10 +131,10 @@ embedding; learned confirm) are gated by measured evidence, not dates.
 - Phase tasks: **mt#2554** (Phase 1 — Rung-1 prefilter), **mt#2557** (Phase 0 — this ADR + doc-fix).
 - `docs/architecture/agent-guidance-mechanisms.md` — corrected in this change (the "strength
   ordering" + hook framework this ADR refines).
-- **ADR-031** — symbol identification in `code-mechanism-assertion`. A scope boundary of THIS
+- **ADR-034** — symbol identification in `code-mechanism-assertion`. A scope boundary of THIS
   ADR, recorded there rather than here: the rungs below are about matching trigger PHRASES, so
   they do not reach the separate question of whether a token names a code symbol at all. That
-  axis went five rounds of shape exclusions without a rung to belong to; ADR-031 names it and
+  axis went five rounds of shape exclusions without a rung to belong to; ADR-034 names it and
   decides it (shape-based, allowlist rejected on measurement) — with three explicit conditions
   that reopen the question, so the rejection is bounded rather than permanent.
 - Reuse: `.claude/hooks/block-out-of-band-merge.ts` (`elideMarkdownNonProse` — the Rung-1

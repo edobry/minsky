@@ -121,15 +121,14 @@
 //   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readPositiveIntEnv } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
   findRealPromptIndices,
   resolveCompletedTurn,
-  resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
@@ -193,7 +192,9 @@ export const SUPPRESSION_DEPTH_REQUEST = "depth-request-override";
  * (registered in HOOK_ONLY_ENV_VARS); malformed values fall back to the
  * default.
  */
-export const LEAD_WORD_BUDGET = readPositiveIntEnv("MINSKY_WALL_OF_TEXT_WORD_BUDGET", 200);
+export const LEAD_WORD_BUDGET = readTunedThreshold("MINSKY_WALL_OF_TEXT_WORD_BUDGET", 200, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
 
 /** A record is logged at this multiple of the budget — clear violation, not borderline. */
 export const OVER_BUDGET_MULTIPLIER = 2;
@@ -207,6 +208,28 @@ export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
  * legitimately carry them, so the scan never extends past this window.
  */
 export const LEAD_WINDOW_WORDS = 150;
+
+/**
+ * Hard character cap on the retained excerpt (mt#3576).
+ *
+ * The excerpt IS the lead — the same `LEAD_WINDOW_WORDS` slice the label
+ * patterns are scanned against — so a `lead-labels` fire always retains the
+ * text that produced its `leadLabelHits`, rather than only the pattern's name.
+ * This cap is a size backstop on top of that word bound, not a second
+ * truncation policy: 150 words of ordinary prose runs ~900-1000 chars, so it
+ * binds only on unusually long tokens (a pasted URL, a base64 blob) and the
+ * record stays bounded regardless of what the report contains.
+ *
+ * **The cap bounds the retained TEXT, before the marker.** When truncation
+ * fires the stored string is `EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length`
+ * — the marker is a visible signal that text was cut, deliberately outside the
+ * budget it reports on rather than eating into it. A consumer needing a hard
+ * ceiling on the stored value should use that sum (PR #2568 R1).
+ */
+export const EXCERPT_MAX_CHARS = 1200;
+
+/** Appended when the lead exceeds `EXCERPT_MAX_CHARS`, so truncation is visible in the record. */
+export const EXCERPT_TRUNCATION_MARKER = "...";
 
 /**
  * Word-count floor for the lead-labels leg (mt#3336, ask#6448 disposition).
@@ -267,6 +290,19 @@ export interface WallOfTextMeasurement {
   deeplinkCount: number;
   /** Count of named-artifact refs (mt#N / PR #N) anywhere in the report. */
   namedRefCount: number;
+  /**
+   * The report's lead, with its TEXT capped at {@link EXCERPT_MAX_CHARS}
+   * (mt#3576) — see that constant's note: a truncated value carries the marker
+   * beyond the cap, so the stored maximum is cap + marker length.
+   *
+   * Byte-for-byte the string `leadLabelHits` was computed from, so a reviewer
+   * classifying a `lead-labels` fire sees the text that matched rather than
+   * only the pattern's name. `wordCount` answers the `over-budget` leg on its
+   * own; nothing in the record answered the label leg, and nothing let a
+   * reviewer recognize a measurement taken against the wrong transcript (the
+   * mt#3028 contamination class) — both are what this carries.
+   */
+  excerpt: string;
 }
 
 /**
@@ -309,7 +345,25 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
           ? "lead-labels"
           : "none";
 
-  return { matched, trigger, wordCount, lineCount, leadLabelHits, deeplinkCount, namedRefCount };
+  // mt#3576: the excerpt is `lead` itself, not a re-derived prefix — that
+  // identity is what guarantees a lead-labels fire retains the text its
+  // `leadLabelHits` were computed from, and it cannot drift as the window
+  // constant changes.
+  const excerpt =
+    lead.length > EXCERPT_MAX_CHARS
+      ? `${lead.slice(0, EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`
+      : lead;
+
+  return {
+    matched,
+    trigger,
+    wordCount,
+    lineCount,
+    leadLabelHits,
+    deeplinkCount,
+    namedRefCount,
+    excerpt,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -485,41 +539,17 @@ export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
 
 // ---------------------------------------------------------------------------
 // mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
+//
+// RETIRED by mt#3293. This file's `resolveTurnLines` was the original fix: it
+// re-parsed the parent candidate alone whenever `ctx.transcriptLines` carried more
+// than one transcript, so a subagent's own final report could never be measured as
+// this conversation's turn-end report. mt#3003 generalized it into
+// `transcript.ts`'s `resolveParentTranscriptLines`; mt#3293 hoisted that call into
+// the dispatcher, so `ctx.transcriptLines` now arrives parent-only for every guard.
+// Calling a resolver here would re-read and re-parse the parent transcript to
+// produce the array already in hand. The guarantee is unchanged — it just lives at
+// the seam that owns it, and is covered by `dispatcher.test.ts`.
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the transcript lines to measure THIS session's turn-end report
- * against. `ctx.transcriptLines` (D6) is safe to use as-is when there is at
- * most one resolved candidate (the common case — no subagents dispatched
- * this session). When `ctx.transcriptCandidates` names MORE than one file,
- * `ctx.transcriptLines` is a flat concatenation of the parent transcript
- * with every sibling subagent transcript (see the header comment's mt#3028
- * fix (1)) — re-parse the parent candidate (`input.transcript_path`, always
- * `transcriptCandidates[0]` per `resolveTranscriptCandidates`) alone instead,
- * so a subagent's own final report can never be measured as if it were the
- * principal-facing turn-end report of the live conversation.
- *
- * `parseTranscriptFn` is injectable (defaults to the real `parseTranscript`)
- * so tests can exercise the multi-candidate branch with an in-memory fixture
- * instead of a real file (`custom/no-real-fs-in-tests`).
- */
-export function resolveTurnLines(
-  input: ClaudeHookInput,
-  ctx: DispatchContext,
-  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
-): TranscriptLine[] {
-  // mt#3003: delegates to the shared transcript.ts primitive — this
-  // function's own signature/behavior is unchanged (kept for callers/tests
-  // that already reference it by this name), it just no longer duplicates
-  // the candidate-resolution logic. See resolveParentTranscriptLines's own
-  // doc comment for the full contamination-mechanism rationale.
-  return resolveParentTranscriptLines(
-    input.transcript_path,
-    ctx.transcriptCandidates,
-    ctx.transcriptLines,
-    parseTranscriptFn
-  );
-}
 
 // ---------------------------------------------------------------------------
 // mt#3028 fix (2) — dedupe: an unchanged report logs at most once per session
@@ -664,6 +694,13 @@ function buildCalibrationRecord(
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
     namedRefCount: m.namedRefCount,
+    // mt#3576: the measured lead, capped. `wordCount` settles the over-budget
+    // leg by itself, but nothing in the record settled the lead-labels leg —
+    // `leadLabelHits` names the pattern, never the text — and nothing let a
+    // reviewer spot a measurement taken against the wrong transcript. The 186
+    // records written before this change carry no `excerpt`; the sweep treats
+    // it as optional so they keep parsing.
+    excerpt: m.excerpt,
     // mt#3028: dedupe key (fix (2)) — any prior record for this session_id
     // (within the bounded lookback) carrying the same hash means an
     // unchanged report is being re-measured, not a genuinely new turn.
@@ -688,18 +725,16 @@ function buildCalibrationRecord(
 
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
 export interface RunDeps {
-  /** Defaults to the real `parseTranscript`. Used by `resolveTurnLines`'s multi-candidate branch. */
-  parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
   readCalibrationLogTextFn?: (cwd: string) => string | undefined;
 }
 
 /**
- * Guard-dispatcher entry point. Uses `resolveTurnLines` (mt#3028 fix (1)) —
- * `ctx.transcriptLines` (D6) as-is when there is at most one transcript
- * candidate, otherwise a fresh parse of the parent candidate alone, so a
- * dispatched subagent's own final report is never measured as this
- * session's turn-end report. Before logging, checks the dedupe hash
+ * Guard-dispatcher entry point. Consumes `ctx.transcriptLines` (D6) directly:
+ * as of mt#3293 the dispatcher resolves that field to the PARENT transcript
+ * alone, so a dispatched subagent's own final report is never measured as this
+ * session's turn-end report — the guarantee this file's `resolveTurnLines`
+ * (mt#3028 fix (1)) used to provide for itself. Before logging, checks the dedupe hash
  * (mt#3028 fix (2)) so an unchanged report already logged for this session
  * is not re-logged. The `calibration` field is always returned on a match
  * (forwarded to `logCalibrationRecord` per this guard's
@@ -729,10 +764,13 @@ export function run(
   }
 
   if (!input.transcript_path) return null;
-  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
   const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
 
-  const lines = resolveTurnLines(input, ctx, parseTranscriptFn);
+  // `ctx.transcriptLines` is PARENT-ONLY by construction as of mt#3293 — the dispatcher
+  // resolves it through `resolveParentTranscriptLines` for every guard, so `resolveTurnLines`
+  // (this file's mt#3028 fix, hoisted to the shared helper by mt#3003) would now re-read and
+  // re-parse the parent transcript to arrive at the array already in hand.
+  const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];

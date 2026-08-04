@@ -60,7 +60,28 @@ export interface PrincipalChannelConfig {
 
 export type PrincipalChannelResolution =
   | { configured: true; config: PrincipalChannelConfig }
-  | { configured: false; reason: string };
+  | {
+      configured: false;
+      reason: string;
+      /**
+       * True when a credential READ FAILED, rather than the credential being
+       * genuinely absent (mt#3608).
+       *
+       * The two used to be indistinguishable: both readers swallowed their
+       * errors into `null`, so a DNS blip against the Pulumi backend produced
+       * the same "not configured" verdict as an operator who had never set the
+       * value. Callers therefore could not tell a transient fault from a
+       * permanent one, and the channel's launch path — which gives up on
+       * "not configured" — treated a five-second network hiccup as a
+       * configuration decision and stayed off for the life of the process.
+       *
+       * `true` means "ask again shortly"; `false` means "an operator must act."
+       */
+      transient: boolean;
+    };
+
+/** Outcome of one credential read: a value, a definite absence, or a failure. */
+type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
 
 /**
  * Injected readers. Both default to the real sources; tests pass stubs so no
@@ -138,21 +159,46 @@ async function resolveUncached(deps: PrincipalChannelDeps): Promise<PrincipalCha
   const envToken = nonEmpty(readEnv("TELEGRAM_BOT_TOKEN"));
   const envChatId = nonEmpty(readEnv("TELEGRAM_CHAT_ID"));
 
-  const token = envToken ?? nonEmpty(await readPulumiToken(deps));
-  const chatId = envChatId ?? nonEmpty(await readPulumiChatId(deps));
+  // Env wins and cannot fail, so the Pulumi read is skipped entirely when the
+  // env var is set — which also means an env-configured channel is immune to
+  // the transient-failure class this distinction exists for.
+  const tokenRead: CredentialRead =
+    envToken !== undefined ? { ok: true, value: envToken } : await readPulumiToken(deps);
+  const chatIdRead: CredentialRead =
+    envChatId !== undefined ? { ok: true, value: envChatId } : await readPulumiChatId(deps);
+
+  // A read that FAILED tells us nothing about whether the value exists, so the
+  // verdict is "ask again", not "not configured" (mt#3608).
+  const failures = [tokenRead, chatIdRead].filter(
+    (r): r is Extract<CredentialRead, { ok: false }> => !r.ok
+  );
+  if (failures.length > 0) {
+    return {
+      configured: false,
+      transient: true,
+      reason:
+        "Telegram principal channel credentials could not be READ (this is not the same as them " +
+        `being unset): ${failures.map((f) => f.error).join("; ")}. The channel will retry.`,
+    };
+  }
+
+  const token = nonEmpty(tokenRead.ok ? tokenRead.value : null);
+  const chatId = nonEmpty(chatIdRead.ok ? chatIdRead.value : null);
 
   if (!token && !chatId) {
     return {
       configured: false,
+      transient: false,
       reason:
         "Telegram principal channel is not configured: neither TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID " +
         "are set in the environment, nor are the Pulumi stack values " +
-        `(secrets:minsky-reviewer-telegram-bot-token, ${TELEGRAM_CHAT_ID_PULUMI_KEY}) readable.`,
+        `(secrets:minsky-reviewer-telegram-bot-token, ${TELEGRAM_CHAT_ID_PULUMI_KEY}) set.`,
     };
   }
   if (!token) {
     return {
       configured: false,
+      transient: false,
       reason:
         "Telegram principal channel has a chat id but no bot token. Set TELEGRAM_BOT_TOKEN, or " +
         "store the token via the cockpit credentials widget (Telegram provider) / " +
@@ -162,6 +208,7 @@ async function resolveUncached(deps: PrincipalChannelDeps): Promise<PrincipalCha
   if (!chatId) {
     return {
       configured: false,
+      transient: false,
       reason:
         "Telegram principal channel has a bot token but no chat id. Message the bot once, then " +
         "run `bun scripts/reviewer-alerts/discover-chat-id.ts` and set it with " +
@@ -174,29 +221,54 @@ async function resolveUncached(deps: PrincipalChannelDeps): Promise<PrincipalCha
   return { configured: true, config: { token, chatId, source } };
 }
 
-async function readPulumiToken(deps: PrincipalChannelDeps): Promise<string | null> {
-  if (deps.readPulumiToken) return deps.readPulumiToken();
+async function readPulumiToken(deps: PrincipalChannelDeps): Promise<CredentialRead> {
+  if (deps.readPulumiToken) {
+    // An injected reader that throws is a READ FAILURE, exactly like the real
+    // one — otherwise the seam would be incapable of expressing the very case
+    // this distinction exists for, and no test could reach it.
+    try {
+      return { ok: true, value: await deps.readPulumiToken() };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        error: `token read failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
   try {
     // Lazy import: the credentials provider reaches for the filesystem and the
     // `pulumi` binary at module scope-adjacent paths, and this module is
     // imported by surfaces (tests, the browser-facing bundle) that have
     // neither.
     const { telegramProvider } = await import("../credentials/providers/telegram");
-    return (await telegramProvider.read?.()) ?? null;
+    return { ok: true, value: (await telegramProvider.read?.()) ?? null };
   } catch (err: unknown) {
-    log.debug("principal-channel: Pulumi token read failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+    // Reported as a FAILURE, not as an absent token (mt#3608). This throw is
+    // what a DNS blip against the Pulumi backend looks like, and collapsing it
+    // into `null` is what made a transient fault permanent.
+    const error = err instanceof Error ? err.message : String(err);
+    log.debug("principal-channel: Pulumi token read failed", { error });
+    return { ok: false, error: `token read failed: ${error}` };
   }
 }
 
-async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<string | null> {
-  if (deps.readPulumiPlain) return deps.readPulumiPlain(TELEGRAM_CHAT_ID_PULUMI_KEY);
+async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<CredentialRead> {
+  if (deps.readPulumiPlain) {
+    try {
+      return { ok: true, value: await deps.readPulumiPlain(TELEGRAM_CHAT_ID_PULUMI_KEY) };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        error: `chat-id read failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
   try {
     const { resolveInfraDir } = await import("../credentials/providers/telegram");
     const infraDir = resolveInfraDir();
-    if (!infraDir) return null;
+    // A missing infra dir is a real ABSENCE, not a failure: there is no Pulumi
+    // project here to read from, and retrying cannot change that.
+    if (!infraDir) return { ok: true, value: null };
     // `config get` on a PLAIN key decrypts nothing and returns no secret; the
     // chat id is an operator identifier, not a credential.
     const proc = Bun.spawnSync(
@@ -211,10 +283,23 @@ async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<string | nu
         timeout: 5000,
       }
     );
-    if (proc.exitCode !== 0) return null;
-    return proc.stdout.toString().trim() || null;
-  } catch {
-    return null;
+    if (proc.exitCode !== 0) {
+      // Pulumi exits non-zero BOTH for "this key is not set" and for "I could
+      // not reach the backend." Only the first is an absence; the second is a
+      // failure that a retry can clear, so they must not collapse (mt#3608).
+      const stderr = proc.stderr.toString().trim();
+      const keyIsUnset = /missing required configuration|has no value|no configuration value/i.test(
+        stderr
+      );
+      return keyIsUnset
+        ? { ok: true, value: null }
+        : { ok: false, error: `chat-id read failed: ${stderr || `exit ${proc.exitCode}`}` };
+    }
+    return { ok: true, value: proc.stdout.toString().trim() || null };
+  } catch (err: unknown) {
+    // A spawn failure (binary missing, timeout, DNS) is never an absence.
+    const error = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `chat-id read failed: ${error}` };
   }
 }
 

@@ -320,7 +320,7 @@ export function mountEntityThreadRoutes(
 
       let session: EntityThreadSession;
       try {
-        session = startSession({ seed });
+        session = await startSession({ seed });
       } catch (err) {
         log.error(`entity-thread: failed to start session for ${thread.localId}`, {
           error: err instanceof Error ? err.message : String(err),

@@ -67,6 +67,16 @@ export interface HookOutput {
      * whose output is a scalar session label rather than additive context.
      */
     sessionTitle?: string;
+    /**
+     * PreToolUse-only: replaces the tool's arguments before it runs. Part of
+     * Claude Code's documented hook-output contract — verified present in the
+     * installed 2.1.220 bundle's own embedded hook documentation, which lists
+     * it under `hookSpecificOutput` as "Modified tool input (PreToolUse
+     * only)". Added by mt#3612 so a guard can reach the field at all; the
+     * dispatcher's aggregation rule for it lives on `GuardOutcome` in
+     * `./registry.ts`.
+     */
+    updatedInput?: Record<string, unknown>;
   };
 }
 
@@ -143,22 +153,95 @@ export interface HookOutput {
 /** Options accepted by `Bun.spawnSync`'s `env` field. */
 type SpawnEnv = Record<string, string | undefined>;
 
+/** The structured result every exec helper in this module returns. Never thrown past. */
+export interface ExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}
+
+/** Options `safeSpawnSync` hands to its spawn impl (a subset of Bun's `SpawnOptions`). */
+export interface SpawnSyncCallOptions {
+  cwd?: string;
+  stdout: "pipe";
+  stderr: "pipe";
+  timeout?: number;
+  env?: SpawnEnv;
+}
+
+/** The subset of `Bun.spawnSync`'s return shape `safeSpawnSync` actually reads. */
+export interface SpawnSyncResultLike {
+  exitCode: number | null;
+  stdout: { toString(): string };
+  stderr: { toString(): string };
+}
+
+/**
+ * An injectable stand-in for `Bun.spawnSync` (mt#3630). Production always uses the
+ * real one; tests pass a fake (or a thrower, for the mt#2810 ENOENT contract) instead
+ * of patching the global, so no test mutates `Bun` for the whole runner process.
+ */
+export type SpawnSyncImpl = (cmd: string[], options: SpawnSyncCallOptions) => SpawnSyncResultLike;
+
+/**
+ * Sink for the loud `[hook-exec] DEGRADED` warning (mt#2810's structured-warning
+ * criterion). Defaults to `console.error`; injectable (mt#3630) so a test asserts on
+ * the captured message instead of silencing the real console with a spy.
+ */
+export type DegradedSink = (message: string) => void;
+
+/** Test-only injection points shared by every exec helper here (mt#3630). */
+export interface ExecInjection {
+  /** Injectable `Bun.spawnSync` — production defaults to the real one. */
+  spawnSyncImpl?: SpawnSyncImpl;
+  /** Injectable degradation sink — production defaults to `console.error`. */
+  onDegraded?: DegradedSink;
+}
+
+/** Options accepted by `execSync` / `execWithPath`. */
+export interface ExecOptions extends ExecInjection {
+  cwd?: string;
+  timeout?: number;
+}
+
+const realSpawnSync: SpawnSyncImpl = (cmd, options) => Bun.spawnSync(cmd, options);
+
+/**
+ * Forward only the injection fields a caller actually supplied (PR #2580 R1
+ * NON-BLOCKING). Every exec helper funnels its DI through this ONE place, so adding a
+ * future injection point is a single edit here rather than a per-helper conditional
+ * spread. Conditional rather than unconditional so an absent field stays absent instead
+ * of becoming an explicit `undefined` — which would defeat the `??` defaults below.
+ */
+function execInjection(options?: ExecInjection): ExecInjection {
+  return {
+    ...(options?.spawnSyncImpl ? { spawnSyncImpl: options.spawnSyncImpl } : {}),
+    ...(options?.onDegraded ? { onDegraded: options.onDegraded } : {}),
+  };
+}
+
 /**
  * Spawn a command synchronously WITHOUT throwing on failure to resolve or
  * exec the binary (mt#2810 fix #1 — see the module comment above). Every
  * exec helper in this module funnels through here so a spawn failure
  * (missing binary, permission denied, etc.) always degrades to a
  * structured `ExecResult` instead of crashing the hook process, and always
- * logs a loud, structured `console.error` naming the exact command that
- * failed to spawn — visible in the hook's own stderr regardless of whether
- * the caller has its own fail-open warning path.
+ * logs a loud, structured warning naming the exact command that failed to
+ * spawn — visible in the hook's own stderr regardless of whether the caller
+ * has its own fail-open warning path.
+ *
+ * `spawnSyncImpl` / `onDegraded` are test-only DI (mt#3630) defaulting to the real
+ * `Bun.spawnSync` and `console.error`; production call sites pass neither.
  */
 function safeSpawnSync(
   cmd: string[],
-  options: { cwd?: string; timeout?: number; env?: SpawnEnv }
-): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+  options: { cwd?: string; timeout?: number; env?: SpawnEnv } & ExecInjection
+): ExecResult {
+  const spawnSyncImpl = options.spawnSyncImpl ?? realSpawnSync;
+  const onDegraded = options.onDegraded ?? ((message: string) => console.error(message));
   try {
-    const result = Bun.spawnSync(cmd, {
+    const result = spawnSyncImpl(cmd, {
       cwd: options.cwd,
       stdout: "pipe",
       stderr: "pipe",
@@ -187,7 +270,7 @@ function safeSpawnSync(
     // common layer every gate's exec call funnels through, so it fires
     // regardless of which of the four gates (or future callers) triggered
     // it, and regardless of whether that caller has its own warning path.
-    console.error(
+    onDegraded(
       `[hook-exec] DEGRADED: failed to spawn \`${cmd.join(" ")}\` — ${message}. ` +
         `Returning a synthetic failed result instead of crashing; any gate check ` +
         `depending on this call will fail-open with that result (see the gate's own ` +
@@ -313,14 +396,13 @@ function resolveGitCommand(cmd: string[]): string[] {
   return [resolveGitBinary(), ...cmd.slice(1)];
 }
 
-// Sync exec helper — returns exit code + output without throwing
-export function execSync(
-  cmd: string[],
-  options?: { cwd?: string; timeout?: number }
-): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+// Sync exec helper — returns exit code + output without throwing.
+// `spawnSyncImpl`/`onDegraded` on `options` are test-only DI (mt#3630).
+export function execSync(cmd: string[], options?: ExecOptions): ExecResult {
   return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
     timeout: options?.timeout,
+    ...execInjection(options),
   });
 }
 
@@ -352,20 +434,24 @@ export const HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC = "2";
  * a resolution strategy, see the module comment above). Used by hooks that
  * call `gh`/`git`. Never throws — spawn failures degrade to a structured
  * `ExecResult` (see `safeSpawnSync`).
+ *
+ * `spawnSyncImpl`/`onDegraded` on `options` are test-only DI (mt#3630).
  */
-export function execWithPath(
-  cmd: string[],
-  options?: { cwd?: string; timeout?: number }
-): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+export function execWithPath(cmd: string[], options?: ExecOptions): ExecResult {
   const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
   return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
+    // PRE-EXISTING default, unchanged by mt#3630 (PR #2580 R1 BLOCKING, verified false
+    // positive against `git diff main...HEAD`): `?? 10000` is a caller-overridable
+    // FALLBACK, not a forced cap, and has been this helper's default since before this
+    // refactor. `execSync` deliberately has no default — it is the plain wrapper.
     timeout: options?.timeout ?? 10000,
     env: {
       MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
       ...process.env,
       PATH: pathPrefix,
     },
+    ...execInjection(options),
   });
 }
 
@@ -445,10 +531,40 @@ export function normalizeToolResult(payload: Record<string, unknown>): void {
   }
 }
 
-// Write hook output to stdout
-export function writeOutput(output: HookOutput): void {
-  process.stdout.write(JSON.stringify(output));
-  emitHookFiredOnDeny(output);
+/** A spawned process handle — the only member `emitHookFiredOnDeny` touches. */
+export interface SpawnedProcessLike {
+  unref(): void;
+}
+
+/** Options `emitHookFiredOnDeny` hands to its spawn impl. */
+export interface SpawnCallOptions {
+  stdout: "ignore";
+  stderr: "ignore";
+  stdin: "ignore";
+  env: SpawnEnv;
+}
+
+/**
+ * An injectable stand-in for `Bun.spawn` (mt#3630) — same rationale as
+ * {@link SpawnSyncImpl}: production always uses the real one, tests pass a fake rather
+ * than patching the global.
+ */
+export type SpawnImpl = (cmd: string[], options: SpawnCallOptions) => SpawnedProcessLike;
+
+/** Test-only injection points for the stdout/telemetry side (mt#3630). */
+export interface WriteOutputInjection {
+  /** Injectable `Bun.spawn` — production defaults to the real one. */
+  spawnImpl?: SpawnImpl;
+  /** Injectable stdout writer — production defaults to `process.stdout.write`. */
+  writeImpl?: (chunk: string) => boolean;
+}
+
+// Write hook output to stdout.
+// `deps` is test-only DI (mt#3630); all ~54 production call sites pass one argument.
+export function writeOutput(output: HookOutput, deps?: WriteOutputInjection): void {
+  const write = deps?.writeImpl ?? ((chunk: string) => process.stdout.write(chunk));
+  write(JSON.stringify(output));
+  emitHookFiredOnDeny(output, deps);
 }
 
 /**
@@ -492,6 +608,58 @@ export function readPositiveIntEnv(
   return parsed;
 }
 
+/**
+ * Resolve a preference-class threshold across all three sources (mt#3581).
+ *
+ * Precedence, highest first:
+ *
+ *   1. **An explicit `MINSKY_*` env var.** A human typed a number; an
+ *      automatic tune must never silently overrule that. This is the one
+ *      ordering choice in the chain that is a real decision rather than a
+ *      consequence — the alternative (tuned value wins) would make an
+ *      operator's explicit setting quietly stop working, with no surface
+ *      that says so.
+ *   2. **A locally-tuned value** from `guard-tuning-store.ts` — applied
+ *      either by consent or by the customer's own preference expression.
+ *   3. **The shipped default** compiled into the guard.
+ *
+ * The tuned value is bounds-checked on the way OUT as well as on the way in:
+ * the store only accepts positive integers, and this re-applies the same
+ * {@link PREFERENCE_OVERRIDE_MAX_MULTIPLE} ceiling the env path enforces, so
+ * a store hand-edited past the bound degrades to the default rather than
+ * taking effect. Trusting the writer would make the ceiling advisory.
+ *
+ * Reads are fail-open by way of the store's own posture: an unreadable or
+ * malformed store yields no tuned value, and the guard runs on its default.
+ */
+export function readTunedThreshold(
+  envVarName: string,
+  defaultValue: number,
+  deps: {
+    env?: Record<string, string | undefined>;
+    readTunedValueFn?: (thresholdKey: string) => number | undefined;
+  } = {}
+): number {
+  const env = deps.env ?? process.env;
+
+  const raw = env[envVarName];
+  if (raw !== undefined && raw.trim() !== "") {
+    return readPositiveIntEnv(envVarName, defaultValue, env);
+  }
+
+  const tuned = deps.readTunedValueFn?.(envVarName);
+  if (
+    tuned !== undefined &&
+    Number.isInteger(tuned) &&
+    tuned > 0 &&
+    tuned <= defaultValue * PREFERENCE_OVERRIDE_MAX_MULTIPLE
+  ) {
+    return tuned;
+  }
+
+  return defaultValue;
+}
+
 // ---------------------------------------------------------------------------
 // hook.fired system-event bridge (mt#2537)
 // ---------------------------------------------------------------------------
@@ -516,8 +684,12 @@ export function readPositiveIntEnv(
 // it. Any failure (spawn error, `minsky` not on PATH) is swallowed — this
 // must never affect the hook's actual permission decision, which has already
 // been written to stdout by the time this runs.
-export function emitHookFiredOnDeny(output: HookOutput): void {
+export function emitHookFiredOnDeny(
+  output: HookOutput,
+  deps?: Pick<WriteOutputInjection, "spawnImpl">
+): void {
   if (output.hookSpecificOutput?.permissionDecision !== "deny") return;
+  const spawnImpl: SpawnImpl = deps?.spawnImpl ?? ((cmd, options) => Bun.spawn(cmd, options));
   try {
     const scriptPath = process.argv[1] ?? "unknown";
     const hookName = scriptPath.split(/[\\/]/).pop() || scriptPath;
@@ -527,7 +699,7 @@ export function emitHookFiredOnDeny(output: HookOutput): void {
     // only today (no Windows path-separator handling); if Windows support is
     // ever added, both helpers need updating together.
     const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-    const proc = Bun.spawn(["minsky", "events", "emit", "hook.fired", "--payload", payload], {
+    const proc = spawnImpl(["minsky", "events", "emit", "hook.fired", "--payload", payload], {
       stdout: "ignore",
       stderr: "ignore",
       stdin: "ignore",

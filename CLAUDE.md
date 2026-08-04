@@ -265,18 +265,46 @@ Routine progress compresses at the standing register everywhere else. Reporting 
 decoupled from action authority: raising or lowering the register never changes what an agent may
 do — merge gates, asks, and authorization boundaries are unaffected.
 
-**Transport binding, not just reporting (mt#3436).** Severity is not only a reporting-altitude
-concern — when a fired trigger's remediation is **operator-only** (the agent cannot resolve it;
-only the principal can act), the trigger ALSO escalates the ask's TRANSPORT: create or re-route
-the ask with `forceImmediate: true` AND send one `mcp__minsky__principal_notify` page pointing at
-it. An ask left on default routing (e.g. `serviceStrategy: deadline-bound`, `transport: inbox`) is
-not an escalation — it is scroll the principal has to go find. The ask carries the decision;
-`principal_notify` carries the attention — treating the ask alone as "having escalated" is the gap
-this closes. **Dedupe carve-out:** skip the page when the principal is already actively responding
-in the same conversation — the page exists for the walked-away case, not as a redundant ping
-mid-exchange. Originating incident: mt#3433 / mem#779 — a correctly diagnosed, correctly filed,
-correctly severity-reported incident still cost ~4h of avoidable downtime because the ask never
-left default routing and no page was sent. Full incident + the ask/notify split:
+**Transport binding, not just reporting (mt#3436; mechanized mt#3595).** Severity is not only a
+reporting-altitude concern. When a fired trigger's remediation is **operator-only** — the agent
+cannot resolve it; only the principal can act — the trigger ALSO escalates the ask's TRANSPORT.
+
+**What you do: one thing.** Create the ask with **`severity: "incident"`**. The substrate then
+sends the principal one notification on their phone pointing at that ask. **You do NOT send a
+separate `principal_notify` call for it** — that second remembered call is exactly the step that
+was dropped in both recorded occurrences, once three days after this rule shipped as
+always-loaded text with the text verbatim in context.
+
+Also pass `forceImmediate: true`, but understand it as a **separate, independent** setting: the
+two fields do different jobs and neither gates the other. `severity` controls whether the
+principal is NOTIFIED; `forceImmediate` controls whether the ask waits for the next service
+window before landing in the inbox. A severity ask without `forceImmediate` still notifies
+immediately — you just get an inbox entry that is queued when the principal goes looking for it.
+Set both: the notification should not lead to an ask that is not there yet.
+
+**What the substrate guarantees**, so you neither repeat nor second-guess it: exactly one
+notification per ask (the claim is a conditional write, so a repeat create or a later edit cannot
+re-notify); a ceiling of 3 per 24h with any suppression logged rather than silent; and a delivery
+failure recorded as an actionable `ask.page_failed` event rather than swallowed. A notification
+failure never fails ask creation — the ask is the decision record.
+
+**Both halves are required for the marker.** A severity event you can fix yourself does not
+warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
+inbox. Marking a non-operator-routed ask is inert: the notification only fires for asks routed to
+the operator, because nothing else has a human on the other end.
+
+**Dedupe carve-out — now the only transport judgment left to you.** When the principal is
+actively responding in the same conversation, a notification is redundant; omit the marker and
+say plainly in chat that this is an operator-only incident. The mechanism exists for the
+walked-away case. Do not omit it merely because the principal spoke recently — in the originating
+recurrence the last message was 39 minutes earlier, which is the walked-away case, not an active
+exchange.
+
+An ask on default routing (`serviceStrategy: deadline-bound`, `transport: inbox`) is not an
+escalation — it lands in the chat log and the inbox, both of which the principal has to go look
+at. Originating incidents: mt#3433 and mem#779 — a correctly diagnosed, correctly filed,
+correctly severity-reported incident still cost ~4h of avoidable downtime because no
+notification was sent. Full detail:
 `docs/rules-rationale/communication-contract.md §Severity transport binding`.
 
 ### Executive scheduled sampling
@@ -412,12 +440,19 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Three log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, and test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix).
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
   `MINSKY_ALLOW_SECRET_FILE_READ`.
+- **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
+  `Duplicate check:` line (either named candidates + reconciliation, or the literal
+  `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity
+  judgment — the advisory sibling in `parallel-work-guard-standalone.ts` owns that and provably
+  can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
+  `/create-task` Step 1a is skipped by calling the tool directly.
+  `MINSKY_SKIP_DUPLICATE_RECORD`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
@@ -427,7 +462,13 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 # Hook Observers
 
 NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
-decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
+decisions. Gates + compile workflow: `hook-files`.
+
+**This is an INDEX, not the narration.** Each entry gives the trigger, the enforcement status,
+and the override var. The durable detail — mechanism, incident history, design rationale,
+false-positive posture — lives in `docs/architecture/hooks/<name>.md`. Read that page before
+changing, citing, or reasoning about any observer's behavior; an entry here is deliberately too
+terse to answer "why does it work this way?"
 
 **All observers on one event share ONE injected block.** The dispatcher merges every guard's
 `additionalContext` into a single `hookSpecificOutput` — you do not get N separate injections
@@ -436,33 +477,37 @@ the registration's optional `contextPriority` (higher first; equal keeps registr
 block is capped at the exported `MERGED_CONTEXT_BUDGET_CHARS` in `.minsky/hooks/dispatcher.ts`
 (whose doc comment carries the derivation), computed from the registry's own `attentionCost`
 annotations — read the constant rather than a figure quoted here, which goes stale every time the
-corpus is trimmed (it did within a day of mt#3479's re-derivation). Over budget, the lowest-priority fragments are dropped and NAMED in
-a trailing notice — never silently — and a dropped fragment still writes its calibration record,
-so measurement is unaffected. Separate events still mean separate blocks: a `Stop` observer and a
-`UserPromptSubmit` observer firing on the same turn produce two.
+corpus is trimmed (it did within a day of mt#3479's re-derivation). Over budget, the
+lowest-priority fragments are dropped and NAMED in a trailing notice — never silently — and a
+dropped fragment still writes its calibration record, so measurement is unaffected. Separate
+events still mean separate blocks: a `Stop` observer and a `UserPromptSubmit` observer firing on
+the same turn produce two.
 
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
-- **Drive-READY-to-implementation** — READY-handoff sibling of the above (mt#3373): on `tasks_status_set` → READY, injects "invoke `/implement-task` now; the principal is not the next actor", the three legitimate halts, and the forbidden turn-closers. Fires ONLY on a real transition INTO READY (a no-op re-set is silent) and skips `state-ops` kind, whose `/plan-task` Step 4 branch walks READY → IN-PROGRESS in main-agent context instead; the kind read is a `minsky tasks get` CLI call that fails open toward firing. `MINSKY_SKIP_READY_CHAIN_WALK`.
+- **Drive-READY-to-implementation** — on `tasks_status_set` → READY, injects "invoke `/implement-task` now". Fires only on a real transition into READY; skips `state-ops` kind (mt#3373). `MINSKY_SKIP_READY_CHAIN_WALK`.
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
-- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
-- **Turn-end-untaken-action** — Stop-event scan (mt#3179): the turn's final message names a next action ("I'll implement it", "say the word") without taking it. Keys on the SURFACE phrase, not the reason, and dedups per phrase per turn. Suppressed when the same message also matches ask-routing-deferral, whose guidance is the more specific (mt#3336). `MINSKY_ACK_UNTAKEN_ACTION`.
-- **Turn-end-unwalked-task** — Stop-event scan (mt#3536): the turn minted a task id (a `tasks_create` whose result confirms `success` + `taskId`) and ended with no `tasks_status_set`/`session_start`/`tasks_dispatch`/`asks_create` naming it. Keys on tool-call STATE, not on wording — the R4 stop named no next action at all, so the phrase-keyed sibling above correctly stayed silent; the SILENT stop is the gap this closes. R4 of `family:stop-at-handoff`, after two prose fixes (mt#1478, mt#2689) both went DONE and both failed to contain it — mt#2689's lived in `/create-task`'s exit step and was bypassed by calling the tool directly. Dedups per task id. `MINSKY_ACK_UNWALKED_TASK`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. **Writing a symbol no longer backs a claim about it (mt#3489):** a write tool's `tool_result` echoes the payload the agent authored, and that echo used to land in the verification corpus — so a claim about just-written code was suppressed as `same-turn-read`, indistinguishable from one backed by an actual read (measured: 108 of 298 records carried that reason, 58 by it alone). Write-class results now route to a separate corpus and suppress under `write-echo-backed` instead. Injection behavior is UNCHANGED — both still suppress; the split makes the authorship-as-verification class countable, which is the precondition for deciding whether it should surface. A `tool_result` whose originating tool can't be identified still counts as a read. **Comments the turn ADDED are now scanned too (mt#3571):** the detector previously read assistant chat prose only (and elided fenced code even there), so a claim written into a code comment — where it reads as the justification for the code beside it — was never examined. Comment lines a write payload ADDS are now run through the same claim detection; a comment that merely MOVED (present on both sides of a search/replace) is not, since relocating a comment is not asserting it. **Log-only:** the comment pass is a separate detection that never reaches the injection branch, recorded as `commentSurfaceClaims` / `commentSurfaceClaimCount`. A record whose ONLY claims are comment-surface also carries the `comment-surface-only` suppression reason — required, not cosmetic: `isSuppressedRecord` is `suppressionReasons.length > 0`, so an unlabeled record would be counted as an operator-facing fire it never was and would drive the review cadence. Expect a higher FP rate here than on the chat surface — comments are denser in symbol names and legitimately describe mechanism — so measure before proposing to wire it. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. Full ADR-024 ladder as of mt#3652 (Rung-2 log-only, Rung-3 confirm injects). `MINSKY_ACK_RETROSPECTIVE_TRIGGER`; Rung-3 kill switch `MINSKY_DISABLE_RUNG3_CONFIRM`.
+- **Retrospective-completeness** — whether a retro that FIRED is complete: the sections its declared triage level requires, and in-turn status reads for cited fix-tasks (mt#3601). Log-only. `MINSKY_SKIP_RETRO_COMPLETENESS`.
+- **Turn-end-untaken-action** — Stop scan (mt#3179): final message names a next action without taking it. Phrase-keyed; suppressed when ask-routing-deferral also matches. `MINSKY_ACK_UNTAKEN_ACTION`.
+- **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
+- **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
-- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
-- **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
-- **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose; the reminder names the observed gap and call count. LIVE mt#3399 (ask#6536 disposition), graduated from log-only after mt#3336's tune cut the sub-5-minute burst FPs; keeps writing its calibration log so the LIVE FP rate stays measurable. Same `UserPromptSubmit` event as ask-routing-deferral/wall-of-text, so it lengthens the merged block rather than adding one. `MINSKY_SKIP_SILENT_STRETCH`.
-- **Constructed-identifier batch** — TWO passes. (1) Batch: id-minting call (tasks_create/session_start/session_pr_create/asks_create/memory_create) batched with an id-consuming call in the same parallel tool-call batch — categorical, co-occurrence-based. (2) Consume-before-mint (mt#3340): a write naming an `mt#`/`ask#`/`mem#` id that has NO source earlier in the transcript, followed LATER in the same turn by a call that mints that kind of id — EXACT (runs post-hoc, so it compares the written token against the id actually returned) and cross-message, since the batch pass's same-message-only rule assumed mint-before-consume. Consume surfaces include file writes (session_write_file/session_edit_file/Write/Edit) as well as session_commit/session_pr_create/session_pr_edit/tasks_spec_patch/memory_create — a constructed id in SOURCE CODE ships and is later read as fact. Root-tier sibling of guessed-session-path + pre-narration. Calibration-first (mt#3125, mt#3340). `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
-- **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something ("do not attempt X", "is blocked") without stating its basis or granting an explicit licence to falsify it; a wrong constraint that crosses a dispatch boundary removes the recipient's standing to correct it (mem#702). PreToolUse on the raw `Agent` tool, sharing one detector with the `tasks_dispatch` structuralCheck (mt#2488's gate, negative half). Calibration-first (mt#3162); graduation mt#3167. `MINSKY_ACK_BARE_PROHIBITION`.
+- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe. Sibling of ask-routing-deferral (which covers a DECISION). Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
+- **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
+- **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
+- **Constructed-identifier batch** — TWO passes: an id minted and consumed in the same parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes — a constructed id in source code ships. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
+- **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis or licensing falsification (mem#702). Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-creator link** — stamps workspace↔conversation link at `session_start` (mt#3120). none.
-- **Subagent model verification** — Agent-tool PostToolUse: warns when `tool_input.model` (requested tier) mismatches `tool_response.resolvedModel` (what actually ran), the mt#3151 false-provenance shape; degraded payloads log to `.minsky/subagent-model-mismatch.jsonl` instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
+- **Subagent model verification** — Agent-tool PostToolUse: warns when the requested `model` mismatches `resolvedModel` (mt#3151); degraded payloads log instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
-- **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
+- **Guard-health tracker** — guard failure streaks tagged `infra`/`logic`; escalation banner cools down per-session up to 1h (mt#3072). none.
 
 # Design Principle: Humility
 
@@ -571,6 +616,15 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 **At conversation start.** For any non-trivial conversation, call `mcp__minsky__memory_search` with a query matching the user's intent before deciding what to do. That's how relevant prior context surfaces. Trivial turns (single-word affirmatives, status checks) don't need it.
 
 **On durable findings.** Call `mcp__minsky__memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do **NOT** write to filesystem memory files — the canonical store is the DB. If you observe code paths still writing to `~/.claude/projects/.../memory/`, file separate bug tasks; the directive above is unambiguous post-deletion.
+
+**On editing an existing memory.** Use `mcp__minsky__memory_patch` — not `memory_update` — when the
+edit is confined to one markdown section, which is nearly always (appending an R-entry to a family
+root's `## Recurrences` is the canonical case). It takes `section` + `text` + `mode`
+(append/prepend/replace), leaves every other byte identical, and throws if the heading is missing or
+duplicated. `memory_update` rewrites the whole record: on a long-lived root that costs a full
+re-emission and risks silently dropping untouched sections — the reason an R5 append went undone
+for hours in mt#3602's originating incident. Reserve `memory_update` for non-content fields
+(tags, scope, description) or a genuine whole-body rewrite.
 
 **On divergence.** If you encounter old file-based memory artifacts (e.g., in stale checkouts, cached harness state, or third-party tooling), the DB wins. Do not re-save them as files.
 
