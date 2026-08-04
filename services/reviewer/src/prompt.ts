@@ -659,14 +659,16 @@ export interface ReviewPromptInput {
  * since the last review (mt#3471). Deliberately placed OUTSIDE the untrusted
  * fence — it is our instruction about the data, not part of the PR content.
  */
-export const INCREMENTAL_DIFF_SCOPE_NOTICE = ` (commits since your last review — NOT the full PR)
+export const INCREMENTAL_DIFF_SCOPE_NOTICE = ` (files touched since your last review — NOT the full PR)
 
-**This diff contains only the commits pushed since your most recent review on this PR.** Code from earlier commits is already merged into the branch and is NOT reproduced here. Your prior findings are in the "Prior Reviews" section above.
+**This diff contains only the files this PR changed that were also touched since your most recent review on this PR.** Files the PR changed in earlier commits, and did not touch again since, are NOT reproduced here. Your prior findings are in the "Prior Reviews" section above.
+
+What IS shown for each file is that file's full change **as this pull request introduces it** — measured against the branch point, not against your last review. So a hunk here may include work you already reviewed, and nothing here is code the PR did not author (mt#3663).
 
 Two consequences, both binding:
 
 1. **A file's absence from this diff is NOT evidence it was left unmodified.** It may have been changed in an earlier commit. Any rule that treats "claimed in the description but not in the diff" as a finding — including the diff-vs-description exception — does NOT apply to this diff. Resolve such a question with \`read_file\` at HEAD; if you have no file-reading tools this round, it is a \`NEEDS VERIFICATION\` question, never BLOCKING.
-2. **"Review 100% of the diff" means 100% of what is shown here.** That is the coverage obligation for this round, and it is the correct one: you already reviewed the earlier commits. Use \`read_file\` for surrounding context whenever a change here depends on code outside it.`;
+2. **"Review 100% of the diff" means 100% of what is shown here.** That is the coverage obligation for this round, and it is the correct one: the PR's other files are ones you already reviewed and nothing has touched since. Use \`read_file\` for surrounding context whenever a change here depends on code outside it.`;
 
 export const UNTRUSTED_CONTENT_OPEN = "<<<UNTRUSTED-PR-CONTENT>>>";
 export const UNTRUSTED_CONTENT_CLOSE = "<<<END-UNTRUSTED-PR-CONTENT>>>";

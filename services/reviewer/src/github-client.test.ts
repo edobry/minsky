@@ -1013,8 +1013,11 @@ describe("fetchCommitMessagesSince", () => {
 // fetchChangedFilesSince (mt#3300 SC#1)
 // ---------------------------------------------------------------------------
 
-function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
-  const compareCommitsMock = mock(async () => ({ data: { files } }));
+function buildFakeCompareOctokit(
+  files: Array<{ filename: string }>,
+  commits: Array<{ parents: Array<{ sha: string }> }> = []
+): Octokit {
+  const compareCommitsMock = mock(async () => ({ data: { files, commits } }));
   return {
     rest: {
       repos: {
@@ -1023,6 +1026,11 @@ function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
     },
   } as unknown as Octokit;
 }
+
+/** An ordinary single-parent commit in a compare range. */
+const LINEAR_COMMIT = { parents: [{ sha: "parent1" }] };
+/** A merge commit — its second parent is what drags the base branch's files into range. */
+const MERGE_COMMIT = { parents: [{ sha: "parent1" }, { sha: "parent2" }] };
 
 describe("fetchChangedFilesSince", () => {
   test("returns [] immediately when baseSha === headSha, without calling the API", async () => {
@@ -1083,6 +1091,44 @@ describe("fetchChangedFilesSince", () => {
     const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
 
     expect(result).toHaveLength(299);
+  });
+
+  test("mt#3663: returns undefined (ambiguous) when a merge commit is in range", async () => {
+    // A merge-from-main in range contributes every file the base branch
+    // touched, indistinguishably from the author's own work — so the range no
+    // longer answers "did the PR address this finding?" and the caller must
+    // record `unknown` rather than a wrong `fixed-by-code-change`.
+    const octokit = buildFakeCompareOctokit(
+      [{ filename: "src/a.ts" }, { filename: "src/from-main.ts" }],
+      [LINEAR_COMMIT, MERGE_COMMIT]
+    );
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("mt#3663: still returns the file list for a linear range", async () => {
+    // The merge check must not fire on ordinary history — that would send
+    // every classification to `unknown` and silently retire the signal.
+    const octokit = buildFakeCompareOctokit(
+      [{ filename: "src/a.ts" }],
+      [LINEAR_COMMIT, LINEAR_COMMIT]
+    );
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
+  });
+
+  test("mt#3663: treats an absent commits array as linear, not as a merge", async () => {
+    // GitHub always returns `commits`, but a degraded/partial payload must not
+    // flip every range to ambiguous.
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }]);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
   });
 });
 
