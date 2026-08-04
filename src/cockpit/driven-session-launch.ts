@@ -57,6 +57,7 @@ import {
   getServerSessionProvider,
   getServerTaskService,
   getContextInspectorDb,
+  describeServerPersistenceUnavailability,
 } from "./db-providers";
 
 /** Resolution result: the workspace a task-bound driven session will run in. */
@@ -92,7 +93,9 @@ export interface ResolvedTaskWorkspace {
 export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTaskWorkspace> {
   const sessionProvider = await getServerSessionProvider();
   if (!sessionProvider) {
-    throw new Error("Session service unavailable — persistence provider not ready");
+    throw new Error(
+      `Session service unavailable — ${await describeServerPersistenceUnavailability()}`
+    );
   }
 
   const existing = await sessionProvider.getSessionByTaskId(taskId);
@@ -109,7 +112,9 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
 
   const taskService = await getServerTaskService();
   if (!taskService) {
-    throw new Error("Task service unavailable — persistence provider not ready");
+    throw new Error(
+      `Task service unavailable — ${await describeServerPersistenceUnavailability()}`
+    );
   }
 
   // Mirror tasks_dispatch's direct SessionService construction (the

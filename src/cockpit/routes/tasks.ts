@@ -13,6 +13,7 @@ import {
   getServerTaskService,
   getServerTaskDetailDeps,
   getServerSessionProvider,
+  describeServerPersistenceUnavailability,
 } from "../db-providers";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // Static, matching `widgets/agents.ts`'s use of the same registry: the host
@@ -181,7 +182,7 @@ export function mountTaskRoutes(app: express.Express): void {
       const taskService = await getServerTaskService();
       if (!taskService) {
         res.status(503).json({
-          error: "Task service unavailable — persistence provider not ready",
+          error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -221,7 +222,7 @@ export function mountTaskRoutes(app: express.Express): void {
       const taskDetailDeps = await getServerTaskDetailDeps();
       if (!taskDetailDeps) {
         res.status(503).json({
-          error: "Task service unavailable — persistence provider not ready",
+          error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -496,7 +497,7 @@ export function mountTaskRoutes(app: express.Express): void {
       const taskService = await getServerTaskService();
       if (!taskService) {
         res.status(503).json({
-          error: "Task service unavailable — persistence provider not ready",
+          error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

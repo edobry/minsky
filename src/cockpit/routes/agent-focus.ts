@@ -23,6 +23,7 @@ import type express from "express";
 import { hostname as osHostname } from "node:os";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import { describeServerPersistenceUnavailability } from "../db-providers";
 import type { CommandExecutor } from "@minsky/domain/session/index";
 
 export interface AgentFocusRouteOptions {
@@ -64,7 +65,7 @@ export function mountAgentFocusRoutes(
       const db = await getDb();
       if (!db) {
         res.status(503).json({
-          error: "Presence service unavailable — cannot resolve stored attachments.",
+          error: `Presence service unavailable — cannot resolve stored attachments. ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -73,7 +74,7 @@ export function mountAgentFocusRoutes(
       const repo = buildPresenceClaimRepository(db);
       if (!repo) {
         res.status(503).json({
-          error: "Presence service unavailable — cannot resolve stored attachments.",
+          error: `Presence service unavailable — cannot resolve stored attachments. ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
