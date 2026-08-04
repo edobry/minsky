@@ -200,6 +200,29 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
     if (r.lowDiversity) {
       lines.push(`  ⚠  Low diversity (count bar hit but < 3 distinct phrases) — keep collecting`);
     }
+    // mt#3610: the tool's own verdict on whether these fires can be rated, so a
+    // "cannot classify" disposition has to contradict something rather than pass
+    // unchallenged. Evidence fields print WITH their level (`detectorFields.x`
+    // vs a bare top-level key) — conflating those two levels is exactly what
+    // produced the mt#3576 misread this exists to catch.
+    const classifiability = r.classifiability;
+    if (classifiability.verdict === "classifiable") {
+      lines.push(
+        `  Classifiable:           yes — ${classifiability.recordsAssessed} record(s) carry: ${classifiability.evidenceFields.join(", ")}`
+      );
+    } else if (classifiability.verdict === "not-classifiable") {
+      lines.push(
+        `  Classifiable:           NO — ${classifiability.recordsAssessed} record(s), none carrying any evidence field`
+      );
+    } else {
+      // PR #2599 R1: print `no-records` too. Omitting it made the text surface
+      // disagree with the JSON one, which carries the verdict unconditionally —
+      // and a reader of the text would see nothing where the tool has an
+      // opinion. "Nothing has fired" is a different statement from "the fires
+      // cannot be rated," which is why the verdict distinguishes them at all;
+      // showing only two of three states re-hides that distinction.
+      lines.push(`  Classifiable:           n/a — no un-reviewed records to assess`);
+    }
     if (r.atCountThreshold && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
       for (const rec of r.newRecords.slice(0, 5)) {
@@ -413,6 +436,10 @@ export function registerCalibrationCommands(): void {
               newRecordCount: r.newRecords.length,
               newRecords: r.newRecords,
               openAskId: r.openAskId,
+              // mt#3610: the JSON path is what an AGENT reads, and an agent is
+              // who misread the records in the originating incident — so the
+              // verdict has to be here, not only in the human-readable text.
+              classifiability: r.classifiability,
             })),
             reviewDue: reviewDue.map((d) => ({
               name: d.name,
