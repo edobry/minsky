@@ -308,6 +308,28 @@ export function isConfigurationInitialized(): boolean {
 }
 
 /**
+ * Clear the global configuration provider (mt#3669).
+ *
+ * `globalProvider` is process-global and `bun test` shares ONE process across
+ * test files, so a file that calls `initializeConfiguration()` leaves the real,
+ * fully-loaded configuration — including real credentials from the developer's
+ * `~/.config/minsky/config.yaml` — visible to every file that runs after it.
+ * Until this existed there was no way to un-set it, so any consumer reading the
+ * singleton ambiently inherited whichever file happened to run first. That is
+ * exactly how the mt#3606 token-refusal test passed alone and failed in a full
+ * `packages/domain` run.
+ *
+ * Test-only. Production code initializes configuration once at startup and never
+ * tears it down; calling this in production would make every subsequent
+ * `getConfiguration()` throw. Named with the `ForTests` suffix to match the
+ * existing `_resetDefaultLoggerForTests` convention.
+ */
+export function _resetConfigurationForTests(): void {
+  globalProvider = null;
+  _globalFactory = null;
+}
+
+/**
  * Get the global configuration provider
  *
  * @throws Error if configuration hasn't been initialized
