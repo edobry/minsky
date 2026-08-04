@@ -379,8 +379,9 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
   });
 
   test(
-    "mt#3432 AT1: collapses + refines a >=10k synthetic cluster population (worst-case " +
-      "shape) in bounded time — guards against a reintroduced O(n^2) blowup",
+    "mt#3432 AT1: collapses + refines a >=10k all-distinct cluster population (worst-case " +
+      "shape) and pins the exact comparison count — detects redundant scanning, not " +
+      "asymptotic regression (mt#3588)",
     () => {
       // Worst case for collapseToMaximalClusters: every cluster carries a
       // UNIQUE tool-name vocabulary per position, so essentially none
@@ -392,9 +393,15 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
       // collapse=49ms), together falsify mt#3432's hypothesis 1 as the
       // actual cause of the reported 25min+ hang — see
       // toil-miner-tick.ts's docstring for the real root cause (N
-      // sequential per-cluster ledger writes, now batched). This test
-      // still guards the O(n^2) CPU shape of collapse+refinement
-      // independently of that fix, per this task's AT1.
+      // sequential per-cluster ledger writes, now batched).
+      //
+      // What this test does NOT do (mt#3588): detect an asymptotic
+      // regression. On this shape the scan IS quadratic — the count
+      // asserted below is exactly N(N-1)/2 — so the value being pinned is
+      // the quadratic value itself, and a guard cannot detect a change
+      // into a regime it already sits in. What it DOES detect is any
+      // change to the comparison count at this input size; the assertion
+      // comment below names the regression classes that covers.
       const N = 12704;
       const clusters: MinedCluster[] = [];
       for (let i = 0; i < N; i++) {
@@ -431,7 +438,7 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
       expect(maximal.length + suppressed.length).toBe(N);
       expect(refinedCount + excludedCount).toBe(maximal.length);
 
-      // The complexity signal, asserted directly (mt#3494).
+      // The comparison count, asserted exactly (mt#3494).
       //
       // This assertion replaces `expect(elapsed).toBeLessThan(10000)`. That
       // bound measured the HOST as much as the algorithm: this exact fixture
