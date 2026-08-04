@@ -288,7 +288,6 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
     lines.push("");
   }
 
-  const pastThresholdLogs = results.filter((r) => r.pastThreshold);
   if (reviewDue.length === 0) {
     lines.push("No logs are review-due.");
   } else {
@@ -299,9 +298,7 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
       );
     }
     lines.push(
-      pastThresholdLogs.length > 0
-        ? `Re-run with --ack to advance watermarks for the ${pastThresholdLogs.length} past-threshold log(s) after review.`
-        : "Note: --ack advances past-threshold logs only; time-stale / never-reviewed ack is mt#2878."
+      `Re-run with --ack to advance watermarks for the ${reviewDue.length} review-due log(s) after review.`
     );
   }
 
@@ -326,7 +323,8 @@ export function registerCalibrationCommands(): void {
       ack: {
         schema: z.boolean(),
         description:
-          "Advance the watermark for all past-threshold logs, marking them as reviewed. " +
+          "Advance the watermark for every review-due log — any reason: past-threshold, " +
+          "time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). " +
           "Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
@@ -340,10 +338,10 @@ export function registerCalibrationCommands(): void {
       askId: {
         schema: z.string(),
         description:
-          "ID of the disposition Ask just filed for the past-threshold logs in this pass " +
+          "ID of the disposition Ask just filed for the review-due logs in this pass " +
           "(mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on " +
           "every watermark advanced by this call so the cadence-detector hook suppresses its " +
-          "per-turn warning for these logs until the ask is resolved. A past-threshold log " +
+          "per-turn warning for these logs until the ask is resolved. A review-due log " +
           "whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is " +
           "NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather " +
           "than silently advanced — per the /calibration-review skill's Step 1a, a log with a " +
@@ -359,7 +357,7 @@ export function registerCalibrationCommands(): void {
           "state (responded/closed/cancelled/expired) — clearing resumes the cadence " +
           "detector's normal per-turn warning for the affected log(s). Independent of ack; " +
           "applied before the sweep result is computed. Single ask ID (not an array) because " +
-          "one /calibration-review pass files exactly ONE ask covering all past-threshold logs " +
+          "one /calibration-review pass files exactly ONE ask covering all review-due logs " +
           "in that pass, so exactly one id is ever cleared at a time in practice — this also " +
           "sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that " +
           "the shared command-registry's CLI bridge does not currently resolve for array-typed " +
@@ -493,9 +491,9 @@ export function registerCalibrationCommands(): void {
 
         const text = formatResult(results, reviewDue);
         const suffix = watermarkAdvanced
-          ? "\nWatermarks advanced for past-threshold logs."
+          ? "\nWatermarks advanced for review-due logs."
           : params.ack && skippedOpenAskPaths.length === 0
-            ? "\nNo past-threshold logs to advance."
+            ? "\nNo review-due logs to advance."
             : "";
         const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
         const skippedSuffix =
