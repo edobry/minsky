@@ -624,6 +624,13 @@
       "when": 1785875966537,
       "tag": "0088_curved_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1785880909753,
+      "tag": "0089_productive_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

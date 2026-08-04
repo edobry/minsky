@@ -22,6 +22,51 @@ Drizzle's migration runner uses a high-water-mark model: it reads `_journal.json
 
 Originating incident: mt#2086 / mt#2070 (2026-05-24). A subagent hand-wrote `0040_memory_associations.sql` without updating the journal. The `persistence migrate --dry-run` check reported 0 pending (false-negative due to count-based clamping). The column existed in the live DB only because Railway's boot-time auto-migrate happened to apply it — but the journal tracking was out of sync, causing migration tooling errors.
 
+## Dropping a constraint: never trust drizzle-kit's name (mt#3708)
+
+`drizzle-kit generate` emits `DROP CONSTRAINT` using the name from **its own model** — the name it
+would have assigned had it created the constraint. That is not necessarily the name Postgres
+actually holds. Any constraint written inline in hand-authored DDL (`PRIMARY KEY (...)` inside a
+`CREATE TABLE`, rather than a named `CONSTRAINT x PRIMARY KEY (...)`) gets the SERVER default —
+`<table>_pkey` for a primary key — and the two names never match.
+
+Combined with the `IF EXISTS` this repo's migration guard requires, the mismatch is **silent**: the
+statement matches nothing, succeeds, and changes nothing. Every downstream check passes, including
+`cold-start-migrate`, because a no-op does not error.
+
+**Recipe — discover the name, then assert the end state:**
+
+```sql
+DO $$
+DECLARE pk_name text;
+BEGIN
+  SELECT conname INTO pk_name
+    FROM pg_constraint
+   WHERE conrelid = 'public.<table>'::regclass AND contype = 'p';
+  IF pk_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE public.<table> DROP CONSTRAINT %I', pk_name);
+  END IF;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'public.<table>'::regclass AND contype = 'p')
+  THEN RAISE EXCEPTION '<table> still has a primary key after the drop'; END IF;
+END $$;
+```
+
+The second block is the load-bearing half. A constraint drop is exactly the operation that can
+report success while doing nothing, so it must assert its intended END STATE rather than trust its
+own exit status — the general "verify outcomes, not actions" discipline, applied where the gap is
+invisible. When the drop leaves a table without an identity, assert its replacement index too.
+
+Originating incident: migration `0088` (mt#3692) dropped
+`agent_spawns_parent_agent_session_id_parent_turn_index_pk`; prod and every cold-start DB held
+`agent_spawns_pkey` (created inline by `0027`). The PK survived, so the per-Agent-call rows the
+change existed to enable could not be written for the 85 multi-spawn turns in the corpus. Review,
+CI, and a SUCCESS deploy all passed; it was caught only by querying `pg_constraint` after the
+deploy. Fix: mt#3708 / migration `0089`.
+
 ## Never hand-write migration SQL files
 
 Always use `bun run db:generate:pg`. The tool handles:
