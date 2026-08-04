@@ -3,9 +3,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectUnwalkedTasks, run, MINTING_TOOL } from "./turn-end-unwalked-task-scan";
+import {
+  detectUnwalkedTasks,
+  run,
+  MINTING_TOOL,
+  MAX_LISTED_IDS,
+} from "./turn-end-unwalked-task-scan";
 import type { TranscriptLine } from "./transcript";
 import type { DispatchContext } from "./registry";
+import { GUARD_REGISTRY } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
 
 const CREATED_ID = "mt#9999";
@@ -156,5 +162,77 @@ describe("run — phrase independence and dedup", () => {
 
   test("returns null when the transcript holds no resolvable turn", () => {
     expect(run(inputWith("hi"), ctxFor([]), storeDir)).toBeNull();
+  });
+});
+
+/** A turn that mints `n` tasks and walks none of them. */
+function turnThatFiles(n: number): TranscriptLine[] {
+  const lines: TranscriptLine[] = [userPrompt("file these")];
+  for (let i = 0; i < n; i++) {
+    lines.push(toolUse(`toolu_${i}`, MINTING_TOOL, { title: `t${i}` }));
+    lines.push(toolResult(`toolu_${i}`, { success: true, taskId: `mt#${9000 + i}` }));
+  }
+  return lines;
+}
+
+describe("the injected guidance text (mt#3699)", () => {
+  let storeDir: string;
+
+  beforeEach(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "mt3699-"));
+  });
+  afterEach(() => {
+    rmSync(storeDir, { recursive: true, force: true });
+  });
+
+  function render(taskCount: number): string {
+    const outcome = run(inputWith("filed them"), ctxFor(turnThatFiles(taskCount)), storeDir);
+    const text = outcome?.additionalContext;
+    if (typeof text !== "string") throw new Error("guard produced no advisory text");
+    return text;
+  }
+
+  /** The closing paragraph — pushed as one element, so it is the last line. */
+  function closingParagraph(taskCount: number): string {
+    return render(taskCount).split("\n").at(-1) ?? "";
+  }
+
+  // The carve-out must name the shape that caused mt#3699: the principal has
+  // claimed ROUTING of the filed work. That is not a deferral of the WORK, so
+  // it had no branch to land in before this.
+  test("names principal-claimed dispatch/routing as a valid end state", () => {
+    const text = render(1);
+    expect(text).toContain("has claimed its dispatch/routing");
+    expect(text).toContain("tell me what to farm out");
+    expect(text).toContain("I'll dispatch these");
+  });
+
+  // The walk imperative keeps full force (that is the R4 containment this guard
+  // shipped for) but must not LEAD — the agent is asked which branch holds
+  // before it is told to walk.
+  test("asks which branch holds before naming the walk action", () => {
+    const closing = closingParagraph(1);
+    expect(closing.startsWith("Say in one line which holds")).toBe(true);
+    expect(closing).toContain("continue to /plan-task now");
+    // Pins the regression directly: the pre-mt#3699 text opened with the
+    // incident-response imperative.
+    expect(closing).not.toMatch(/^If this was incident response/);
+  });
+
+  // The budget. The registry canary is a ONE-task fire, so
+  // `guard-feedback-shape.test.ts` never renders the multi-task case — which is
+  // exactly where the ceiling is tight, and where the originating incident sat
+  // (a five-id fire). Pin the worst case here, reading the declared ceiling
+  // from the registry so the number cannot drift out of sync with it.
+  test("the worst-case render stays inside the declared attentionCost ceiling", () => {
+    const declared = GUARD_REGISTRY.find((r) => r.name === "turn-end-unwalked-task-scan")
+      ?.attentionCost?.denialMessageSizeChars;
+    expect(declared).toBeGreaterThan(0);
+
+    // MAX_LISTED_IDS named ids plus the "…and N more" overflow line is the
+    // largest this message can ever be.
+    const text = render(MAX_LISTED_IDS + 2);
+    expect(text).toContain("…and 2 more");
+    expect(text.length).toBeLessThanOrEqual(declared as number);
   });
 });

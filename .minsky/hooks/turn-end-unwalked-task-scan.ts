@@ -35,9 +35,25 @@
 // beat to actually walk the task, which is the whole remedy. Filing a
 // background task by design is legitimate and stays a one-line answer.
 //
+// WHY THE TEXT ASKS BEFORE IT INSTRUCTS (mt#3699):
+//   Keying on state buys phrase-independence and costs the ability to tell a
+//   SILENT stop from an ANNOUNCED offer awaiting the principal's routing —
+//   both mint ids and make no walk call, so both land here. On 2026-08-04 an
+//   agent filed a cluster, named which were farmable and offered to dispatch
+//   them (precisely what the principal had asked for), and this guard's
+//   then-leading imperative — "filing is not the deliverable; continue to
+//   /plan-task now" — pushed it into two unrequested PLANNING transitions
+//   against that live direction. The fire was CORRECT; the text was wrong to
+//   lead with the walk. So the closing paragraph now asks which branch holds
+//   before naming an action, and the halt branch names claimed routing
+//   explicitly. Suppressing the fire instead would take semantic parsing of
+//   the final message — an ADR-024 ladder question, and a state-keyed guard
+//   that matches nothing is not on that ladder.
+//
 // @see .minsky/hooks/turn-end-untaken-action-scan.ts — phrase-keyed sibling
 // @see .minsky/hooks/turn-end-retro-scan.ts — the other Stop guard; same shape
 // @see mt#3536 — this guard; mem#610 — the family record (R1-R4)
+// @see mt#3699 — the guidance amendment; mem#865 — its over-walk incident
 
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
@@ -145,31 +161,39 @@ export function detectUnwalkedTasks(
  * Most ids to name in the reminder before collapsing the rest to a count.
  *
  * The point is that `attentionCost.denialMessageSizeChars` below is a REAL
- * bound rather than a canary-shaped guess: without a cap the message grows
- * ~55 chars per task, so a multi-task turn would silently blow past a ceiling
- * measured on a one-task canary — the understatement mt#3479 found in 14 of 26
- * guards, which the merged-context budget then inherits. Three ids is enough to
- * act on; the count carries the rest.
+ * bound rather than a canary-shaped guess: without a cap the message grows per
+ * task, so a multi-task turn would silently blow past a ceiling measured on a
+ * one-task canary — the understatement mt#3479 found in 14 of 26 guards, which
+ * the merged-context budget then inherits. Three ids is enough to act on; the
+ * count carries the rest.
+ *
+ * Per-task growth is ~11 chars since mt#3699 hoisted the repeated "no
+ * status/session/dispatch/ask call" out of each id line and into the header
+ * (it was ~55 before). That hoist is what paid for the carve-out branch below
+ * while staying inside the declared 620 — the ceiling is a budget to spend
+ * against, not a number to raise.
  */
 export const MAX_LISTED_IDS = 3;
 
 function buildReminder(unwalked: UnwalkedTask[]): string {
   const lines: string[] = [
-    "[turn-end-unwalked-task] You filed a task and ended the turn without walking it forward.",
+    "[turn-end-unwalked-task] You filed these and ended the turn with no " +
+      "status/session/dispatch/ask call:",
     "",
   ];
   for (const u of unwalked.slice(0, MAX_LISTED_IDS)) {
-    lines.push(`  - minted, no status/session/dispatch/ask call: ${u.taskId}`);
+    lines.push(`  - ${u.taskId}`);
   }
   if (unwalked.length > MAX_LISTED_IDS) {
     lines.push(`  - …and ${unwalked.length - MAX_LISTED_IDS} more`);
   }
   lines.push(
     "",
-    "If this was incident response — a problem reported in this conversation, or found " +
-      "during its work — filing is not the deliverable; continue to /plan-task now. If it " +
-      "was a background task filed for later by design, the principal deferred it, it needs " +
-      "decomposition, or another actor holds it, say which in one line and end."
+    "Say in one line which holds, then act on it: (a) incident response — a problem raised " +
+      "or found in this conversation — filing is not the deliverable, so continue to " +
+      "/plan-task now; (b) it was filed for later by design, the principal deferred it or " +
+      'has claimed its dispatch/routing ("tell me what to farm out", "I\'ll dispatch ' +
+      'these"), it needs decomposition, or another actor holds it — name which and end.'
   );
   return lines.join("\n");
 }
