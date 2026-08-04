@@ -843,6 +843,10 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
     expect(second.record).toBe(first.record);
     expect(spawns).toHaveLength(1);
     expect(sendDrivenSessionInput(second.record, "well?")).toBe(false);
+    // PR #2601 R1 BLOCKING — `seeded` claims a reachable scoped agent, and
+    // there is none here. Reporting true would mask exactly the stuck thread
+    // this task exists to end.
+    expect(second.seeded).toBe(false);
   });
 
   test("the dead record's subscribers are told to swap exactly once", async () => {

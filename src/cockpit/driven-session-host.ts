@@ -710,6 +710,21 @@ export class DrivenSessionRegistry {
     this.byLocalId.set(localId, newRecord);
     if (newRecord.harnessSessionId) this.byHarnessId.set(newRecord.harnessSessionId, newRecord);
   }
+
+  /**
+   * Install `record` under its own `localId`, choosing between the two
+   * semantics above (mt#3550, PR #2601 R1).
+   *
+   * The choice lives HERE rather than at each spawn site so a future caller
+   * cannot half-remember it: spawning over a slot that already holds a record
+   * must go through `replace`, and `register` is only correct for an empty
+   * one. Keeping the routing in the registry is what stops the two from
+   * drifting apart at call sites that never think about swaps.
+   */
+  install(record: DrivenSessionRecord, opts: { replacePrevious?: boolean } = {}): void {
+    if (opts.replacePrevious) this.replace(record.localId, record);
+    else this.register(record);
+  }
 }
 
 /**
@@ -929,10 +944,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const mcpConfig =
     opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(opts.cwd) : opts.mcpConfig;
   const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
-  const install = (record: DrivenSessionRecord): void => {
-    if (opts.replacePrevious) registry.replace(record.localId, record);
-    else registry.register(record);
-  };
+  const installOpts = { replacePrevious: opts.replacePrevious ?? false };
 
   // mt#3397 — cwd preflight. Spawning into a directory that does not exist
   // fails with an ENOENT that NAMES THE BINARY (see probeSpawnCwd), so without
@@ -955,7 +967,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       actuatorGeneration: 0,
       startedAt: new Date().toISOString(),
     });
-    install(record);
+    registry.install(record, installOpts);
     notifyStateChange(record, opts.onStateChange);
     return { record };
   }
@@ -991,7 +1003,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     costHistory: [],
     subscribers: new Set(),
   };
-  install(record);
+  registry.install(record, installOpts);
   notifyStateChange(record, opts.onStateChange);
   wireChildProcess(proc, record, registry, command, opts);
 

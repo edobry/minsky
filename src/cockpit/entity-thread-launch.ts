@@ -410,10 +410,19 @@ export interface EntityThreadSession {
    */
   spawned: boolean;
   /**
-   * True when the seed prompt was accepted by the child's stdin. False means
-   * the spawn succeeded but the child was not writable — the session exists
-   * but its agent has NOT been told what entity it is discussing, so the
-   * caller must surface that rather than treating the session as ready.
+   * True when a reachable agent is scoped to this entity — i.e. the returned
+   * record has a live actuator AND its conversation carries the seed prompt.
+   *
+   * Per branch: a fresh spawn reports whether the child's stdin actually
+   * accepted the prompt (false means the spawn succeeded but the child was not
+   * writable — the agent has NOT been told what entity it is discussing); a
+   * reused live record and a resumed conversation are both already scoped; and
+   * a record handed back with NO actuator behind it is false regardless of
+   * what its conversation once held, because nothing is reachable to have been
+   * seeded (PR #2601 R1 BLOCKING).
+   *
+   * A false here means the caller must surface the state rather than treat the
+   * session as ready.
    */
   seeded: boolean;
 }
@@ -525,7 +534,13 @@ export async function startEntityThreadSession(
       return { localId, record: respawn.record, spawned: true, seeded: true };
     }
     if (respawn.kind === "held-elsewhere") {
-      return { localId, record: existing, spawned: false, seeded: true };
+      // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
+      // record, so nothing accepted anything. The thread's conversation WAS
+      // scoped once, but reporting that as `seeded` here would tell the caller
+      // an agent is ready when none is reachable until the other process
+      // releases the lock — which is how a stuck thread gets masked, the exact
+      // failure this task exists to end.
+      return { localId, record: existing, spawned: false, seeded: false };
     }
   }
 
