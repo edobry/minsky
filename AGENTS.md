@@ -1393,6 +1393,15 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 
 **On durable findings.** Call `mcp__minsky__memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do **NOT** write to filesystem memory files — the canonical store is the DB. If you observe code paths still writing to `~/.claude/projects/.../memory/`, file separate bug tasks; the directive above is unambiguous post-deletion.
 
+**On editing an existing memory.** Use `mcp__minsky__memory_patch` — not `memory_update` — when the
+edit is confined to one markdown section, which is nearly always (appending an R-entry to a family
+root's `## Recurrences` is the canonical case). It takes `section` + `text` + `mode`
+(append/prepend/replace), leaves every other byte identical, and throws if the heading is missing or
+duplicated. `memory_update` rewrites the whole record: on a long-lived root that costs a full
+re-emission and risks silently dropping untouched sections — the reason an R5 append went undone
+for hours in mt#3602's originating incident. Reserve `memory_update` for non-content fields
+(tags, scope, description) or a genuine whole-body rewrite.
+
 **On divergence.** If you encounter old file-based memory artifacts (e.g., in stale checkouts, cached harness state, or third-party tooling), the DB wins. Do not re-save them as files.
 
 ## Bridge mechanism (Claude Code only)

@@ -34,6 +34,7 @@ const ID_TAKING_COMMANDS: Array<{ id: string; kind: "read" | "write" }> = [
   { id: "memory.similar", kind: "read" },
   { id: "memory.lineage", kind: "read" },
   { id: "memory.update", kind: "write" },
+  { id: "memory.patch", kind: "write" },
   { id: "memory.delete", kind: "write" },
   { id: "memory.supersede", kind: "write" },
 ];
