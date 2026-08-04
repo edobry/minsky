@@ -1739,6 +1739,108 @@ describe("checkAcceptanceTestCoverage", () => {
   });
 });
 
+// mt#3339 (FP-4): the absent-vs-present-elsewhere partition. These assert the CLASSIFICATION
+// only — the addressed/unaddressed verdict is deliberately unchanged in both directions, so
+// each test pins `unaddressedAts` as well. If a future widening changes that verdict, these
+// tests must be updated deliberately rather than silently passing.
+describe("checkAcceptanceTestCoverage — present-elsewhere classification (mt#3339)", () => {
+  it("classifies an AT as present-elsewhere when its number appears outside the evidence block", () => {
+    // AT3's evidence lives under a heading the extractor has no notion of — the real FP-4
+    // shape (mt#3149 / PR #2255 used `## SC3 (...)`; mt#2643 / PR #2283 used `## Testing`).
+    const body = `${PROXY_EVIDENCE_BODY}\n\n## Testing\n\nAT3 was verified by a live boot of the container.\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.number).toBe(3);
+    expect(result.presentElsewhereAts).toHaveLength(1);
+    expect(result.presentElsewhereAts[0]?.number).toBe(3);
+  });
+
+  it("classifies an AT as absent when its number appears nowhere in the PR body", () => {
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT2542_3_AT,
+      "implementation",
+      PROXY_EVIDENCE_BODY
+    );
+
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.number).toBe(3);
+    expect(result.presentElsewhereAts).toHaveLength(0);
+  });
+
+  it("never classifies an addressed AT as present-elsewhere", () => {
+    // The partition is a subset of unaddressedAts by construction; an AT referenced INSIDE
+    // the block is addressed and must not appear in either list.
+    const body = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified live boot.\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+
+    expect(result.unaddressedAts).toHaveLength(0);
+    expect(result.presentElsewhereAts).toHaveLength(0);
+  });
+
+  it("does not classify a deferred AT as present-elsewhere", () => {
+    // A `[atN-deferred:]` marker contains the AT number, so a naive full-body number probe
+    // would match it. Deferral is resolved BEFORE the partition, so the AT is addressed and
+    // appears in neither list.
+    const body = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+
+    expect(result.unaddressedAts).toHaveLength(0);
+    expect(result.presentElsewhereAts).toHaveLength(0);
+  });
+});
+
+// mt#3339 Success Criterion 5 (absorbed from mt#3277 SC3). The fence-tracking fix shipped
+// with mt#3316 in `e927edff9`; NOTHING pinned it. This does, using PR #2353's REAL body
+// (11,458 bytes on disk, fetched from GitHub) and mt#3262's REAL `## Acceptance Tests`.
+//
+// Why this body specifically: its `Execution evidence:` block is a fenced shell transcript
+// whose lines include `# AT2 …` comments. Before the fence fix, the heading scan treated
+// those `#` lines as real Markdown headings and stopped the block at the first one — the
+// extracted evidence was a 216-character fragment, and AT2-AT5 were all reported unaddressed
+// on a PR that documented every one of them.
+//
+// Both fixtures are pinned FILES, not live fetches: a unit test that reaches for a task spec
+// or a PR body over the network would silently change meaning whenever either is edited.
+describe("extractExecutionEvidenceText — PR #2353 fenced-transcript regression (mt#3339 SC5)", () => {
+  /* eslint-disable custom/no-real-fs-in-tests -- these read PINNED fixture files checked
+     into `__fixtures__/`, which is the point of the test: the regression guard is only
+     meaningful against PR #2353's REAL 11,458-byte body and mt#3262's REAL acceptance
+     tests. Inlining 11KB of Markdown as a string literal, or mocking the read, would
+     substitute a hand-summarized body for the artifact whose exact shape (a fenced shell
+     transcript with `# AT<n>` comment lines) is what triggered the bug. */
+  const PR_2353_BODY = readFileSync(join(import.meta.dir, "__fixtures__/pr-2353-body.md"), "utf-8");
+  const MT_3262_ATS = readFileSync(
+    join(import.meta.dir, "__fixtures__/mt-3262-acceptance-tests.md"),
+    "utf-8"
+  );
+  /* eslint-enable custom/no-real-fs-in-tests */
+
+  /** The pre-fix truncation length, from mt#3277's write-up — the bug's signature. */
+  const PRE_FIX_FRAGMENT_LENGTH = 216;
+
+  it("extracts the whole evidence section, not the pre-fix 216-character fragment", () => {
+    const evidence = extractExecutionEvidenceText(PR_2353_BODY);
+
+    expect(evidence.length).toBeGreaterThan(PRE_FIX_FRAGMENT_LENGTH * 4);
+    // The `# AT<n>` comment lines are INSIDE the fence — the exact content the pre-fix scan
+    // truncated at. Their presence is what distinguishes "the fence fix works" from "the
+    // block happened to be long".
+    expect(evidence).toContain("# AT2");
+    expect(evidence).toContain("# AT5");
+  });
+
+  it("resolves AT1-AT5 as referenced, reporting zero unaddressed", () => {
+    const result = checkAcceptanceTestCoverage(MT_3262_ATS, "implementation", PR_2353_BODY);
+
+    expect(result.applicable).toBe(true);
+    expect(result.executableAts).toHaveLength(5);
+    expect(result.unaddressedAts).toEqual([]);
+    // Nothing is unaddressed, so nothing can be a location gap either (mt#3339).
+    expect(result.presentElsewhereAts).toEqual([]);
+  });
+});
+
 describe("isAtCoverageSkipped", () => {
   const ORIGINAL = process.env[AT_COVERAGE_SKIP_ENV_VAR];
 
