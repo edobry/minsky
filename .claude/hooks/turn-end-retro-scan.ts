@@ -138,6 +138,10 @@ export async function run(
           matches: [],
           nominated_families: detected.nominatedFamilies,
           nomination_enforcing: detected.enforcing === true,
+          // mt#3652: the Rung-3 outcome on judged-and-rejected or degraded
+          // nominations — the confirm stage's precision signal.
+          confirmed_families: detected.confirmedFamilies,
+          ...(detected.rung3 !== undefined ? { rung3: detected.rung3 } : {}),
           ...(detected.degradedReason !== undefined
             ? { nomination_degraded: detected.degradedReason }
             : {}),
@@ -183,6 +187,10 @@ export async function run(
       stop_hook_active: input.stop_hook_active === true,
       matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       transcript_excerpt: transcriptExcerpt,
+      // mt#3652: which of this fire's families came through the Rung-3
+      // confirm rather than Rung 1.
+      confirmed_families: detected.confirmedFamilies,
+      ...(detected.rung3 !== undefined ? { rung3: detected.rung3 } : {}),
     },
     additionalContext: buildTurnEndReminder(newMatches),
   };

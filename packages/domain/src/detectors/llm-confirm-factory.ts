@@ -18,6 +18,7 @@ import "reflect-metadata";
 
 import { createCompletionService } from "../ai/service-factory";
 import { getConfiguration } from "../configuration";
+import type { ResolvedConfig, BackendConfig } from "../configuration/types";
 import type { ConfirmDeps } from "./llm-confirm";
 
 /**
@@ -30,8 +31,20 @@ import type { ConfirmDeps } from "./llm-confirm";
  */
 export async function resolveConfirmDeps(): Promise<ConfirmDeps | null> {
   try {
-    const config = await getConfiguration();
-    return { completionService: createCompletionService(config) };
+    const cfg = await getConfiguration();
+    // Projection into ResolvedConfig, mirroring memeplex-synthesizer.ts —
+    // getConfiguration()'s structural type is wider than ResolvedConfig and
+    // not directly assignable; the completion service reads only `ai` at
+    // runtime, but the factory's parameter type wants the full shape.
+    const resolvedConfig: ResolvedConfig = {
+      backendConfig: cfg.backendConfig as BackendConfig,
+      persistence: cfg.persistence,
+      github: cfg.github,
+      ai: cfg.ai,
+      logger: cfg.logger,
+      tasks: cfg.tasks as Record<string, unknown> | undefined,
+    };
+    return { completionService: createCompletionService(resolvedConfig) };
   } catch (error) {
     // intentional-swallow: an unconfigured or unconstructable provider is a
     // degraded confirm path, not a hook failure. The caller converts `null`
