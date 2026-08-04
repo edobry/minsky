@@ -644,7 +644,14 @@ export function RunDetail({
                       // the primary text, not from the UI.
                       title={c.agentSessionId}
                     >
-                      <span className="flex items-center gap-1.5">
+                      {/* `min-w-0` is load-bearing, not defensive tidying: a
+                          flex item's default `min-width: auto` refuses to
+                          shrink below its content, so the `truncate` below
+                          would never fire and a long label — the COMMON case,
+                          since tier 1 is a full task title — would push the
+                          chip and the age out of the pinned bar instead of
+                          ellipsizing. */}
+                      <span className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate">
                           {c.label ?? shortenId(c.agentSessionId)}
                         </span>
