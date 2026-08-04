@@ -26,13 +26,34 @@ const AGENT_ID = `com.anthropic.claude-code:conv:${CONV_DERIVED}`;
 /** Every value the discriminator is allowed to take. */
 const ALLOWED_SOURCES: ConversationLinkSource[] = ["link-row", "derived-agent-id"];
 
+/** A stamped `minsky_session_links` row as the resolver's join selects it. */
+function stampedRow(linkType = "subagent_spawn") {
+  return {
+    agentSessionId: CONV_STAMPED,
+    confidence: 1,
+    startedAt: null,
+    linkType,
+    cwd: "/Users/e/Projects/minsky",
+    title: null,
+  };
+}
+
 /**
  * Stub of the two query shapes the resolver issues, in order:
  *   1. the link-row join  (`select().from().innerJoin().where().orderBy()`)
  *   2. the derived existence check (`select().from().where()`)
  */
 function stubDb(opts: {
-  linkRows: Array<{ agentSessionId: string; confidence: number | null; startedAt: Date | null }>;
+  linkRows: Array<{
+    agentSessionId: string;
+    confidence: number | null;
+    startedAt: Date | null;
+    // mt#3691 — carried through to the switcher: `linkType` is the provenance
+    // it renders, `cwd`/`title` are label inputs.
+    linkType: string | null;
+    cwd: string | null;
+    title: string | null;
+  }>;
   transcriptRows: Array<{ agentSessionId: string; startedAt: Date | null }>;
 }) {
   return {
@@ -60,7 +81,7 @@ describe("GET /api/agents/:id — conversations[].source contract", () => {
   test("a stamped link row is reported as source: link-row", async () => {
     const candidates = await resolveWith(
       stubDb({
-        linkRows: [{ agentSessionId: CONV_STAMPED, confidence: 1, startedAt: null }],
+        linkRows: [stampedRow()],
         transcriptRows: [],
       }),
       AGENT_ID
@@ -76,7 +97,7 @@ describe("GET /api/agents/:id — conversations[].source contract", () => {
     // stamped row must win AND the derived candidate must not also appear.
     const candidates = await resolveWith(
       stubDb({
-        linkRows: [{ agentSessionId: CONV_STAMPED, confidence: 1, startedAt: null }],
+        linkRows: [stampedRow()],
         transcriptRows: [{ agentSessionId: CONV_DERIVED, startedAt: null }],
       }),
       AGENT_ID
@@ -117,7 +138,7 @@ describe("GET /api/agents/:id — conversations[].source contract", () => {
     // ship `undefined` to every consumer of the API.
     for (const fixture of [
       {
-        linkRows: [{ agentSessionId: CONV_STAMPED, confidence: 1, startedAt: null }],
+        linkRows: [stampedRow()],
         transcriptRows: [],
       },
       { linkRows: [], transcriptRows: [{ agentSessionId: CONV_DERIVED, startedAt: null }] },
@@ -128,6 +149,34 @@ describe("GET /api/agents/:id — conversations[].source contract", () => {
         expect(ALLOWED_SOURCES).toContain(candidate.source);
       }
     }
+  });
+
+  test("a stamped candidate carries its link_type through to the payload", async () => {
+    // mt#3691 — the switcher renders this, so a branch that dropped it would
+    // silently take the provenance chip away rather than fail a typecheck (the
+    // route spreads the resolver's rows onto the response).
+    const candidates = await resolveWith(
+      stubDb({ linkRows: [stampedRow("session_creator")], transcriptRows: [] }),
+      AGENT_ID
+    );
+
+    expect(candidates[0]?.linkType).toBe("session_creator");
+    expect(candidates[0]?.cwd).toBe("/Users/e/Projects/minsky");
+  });
+
+  test("a derived candidate reports a null link_type, not undefined", async () => {
+    // It has no link row by construction. Null is the honest value; undefined
+    // would serialize away entirely and read downstream as "field not in this
+    // API version" rather than "this candidate has no writer class".
+    const candidates = await resolveWith(
+      stubDb({
+        linkRows: [],
+        transcriptRows: [{ agentSessionId: CONV_DERIVED, startedAt: null }],
+      }),
+      AGENT_ID
+    );
+
+    expect(candidates[0]?.linkType).toBeNull();
   });
 
   test("no candidate is emitted when the DB is unavailable", async () => {
