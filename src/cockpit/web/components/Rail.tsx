@@ -32,8 +32,27 @@
  * `components/ui/dialog.tsx`) for focus-trap, Escape-to-close, and
  * click-outside-to-close, styled as a left-edge slide-in instead of a
  * centered modal.
+ *
+ * Collapse (mt#3700): at `md` and up the operator can narrow the `<aside>` from
+ * `w-60` to a `w-14` icon rail, via the header toggle or ⌘B, to give a
+ * wide-canvas surface (the conversation film view above all) back ~184px. The
+ * shared sections each take a `collapsed` prop rather than being duplicated, for
+ * the same anti-drift reason the mobile drawer reuses them; the drawer always
+ * passes the expanded form, because a slide-in that is already a deliberate
+ * gesture has no width to reclaim. Rationale for the chord, the storage key, and
+ * the icon-rail-over-hide decision: `lib/rail-collapse.ts`.
+ *
+ * Three things are deliberately dropped in the collapsed state rather than
+ * squeezed into 56px, each because it is recoverable by expanding and none is
+ * load-bearing at a glance: the wordmark's home link, `ProjectSelector`, and the
+ * footer's build-identity badge. `ProjectSelector` is the one worth naming — an
+ * active project filter is then not visible in the rail. It renders `null` below
+ * two known projects (the common deployment), and the filter's effect is legible
+ * in the filtered data itself; revisit if a multi-project operator trips on it.
+ * The new-conversation error alert is NOT dropped: it is the only surface a
+ * failed launch has, which is the mt#3464 / PR #2477 R1 lesson.
  */
-import { useState, useEffect, type ComponentType } from "react";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -54,6 +73,8 @@ import {
   Menu,
   X,
   Wrench,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -61,6 +82,13 @@ import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
 import { ProjectSelector } from "./ProjectSelector";
 import { NewConversationButton } from "./NewConversationButton";
+import {
+  RAIL_COLLAPSE_HINT,
+  loadPersistedRailCollapsed,
+  matchesRailCollapseShortcut,
+  persistRailCollapsed,
+  railToggleLabel,
+} from "../lib/rail-collapse";
 
 interface NavItem {
   to: string;
@@ -97,6 +125,14 @@ const BROWSE: NavItem[] = [
   { to: "/vitals", label: "Vitals", icon: Activity },
 ];
 
+/**
+ * The desktop `<aside>`'s DOM id — the target of the collapse toggle's
+ * `aria-controls` (PR #2629 R1). A module constant so the id and the reference
+ * cannot drift apart into a dangling IDREF, which resolves to nothing and fails
+ * silently in exactly the assistive-tech path it exists to serve.
+ */
+const RAIL_REGION_ID = "cockpit-rail";
+
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
   // Segment-aware: exact match, or a deeper path UNDER this route — but not a
@@ -109,10 +145,12 @@ function RailLink({
   item,
   pathname,
   onNavigate,
+  collapsed = false,
 }: {
   item: NavItem;
   pathname: string;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   const Icon = item.icon;
   const active = isActive(pathname, item.to);
@@ -121,14 +159,21 @@ function RailLink({
       to={item.to}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
+      // Collapsed, the visible text is gone, so the label has to come from
+      // somewhere: `aria-label` for assistive tech, `title` for the pointer.
+      // Expanded, both are omitted — the text node IS the accessible name, and
+      // duplicating it would only create a second place for a label to drift.
+      aria-label={collapsed ? item.label : undefined}
+      title={collapsed ? item.label : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+        "flex items-center rounded-md py-1.5 text-sm transition-colors",
+        collapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
         "hover:bg-muted/60",
         active ? "bg-muted text-foreground font-medium" : "text-muted-foreground"
       )}
     >
       <Icon aria-hidden className="h-4 w-4 flex-shrink-0" />
-      <span className="truncate">{item.label}</span>
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
   );
 }
@@ -148,17 +193,68 @@ function RailLink({
 function AttentionDigest({
   pathname,
   onNavigate,
+  collapsed = false,
 }: {
   pathname: string;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   const { data: count, isLoading, isError } = useOpenAskCount();
   const active = isActive(pathname, "/asks");
+
+  // The pending count is the whole point of the slot, so it rides in the
+  // accessible name in BOTH states — collapsed, the compact badge below is a
+  // glyph a screen reader would otherwise read as a bare number next to a bare
+  // "Attention", and in the loading/error cases there is no badge at all.
+  const state = isLoading
+    ? "loading"
+    : isError
+      ? "count unavailable"
+      : count != null
+        ? `${count} pending`
+        : null;
+  const label = state ? `Attention — ${state}` : "Attention";
+
+  if (collapsed) {
+    return (
+      <Link
+        to="/asks"
+        aria-current={active ? "page" : undefined}
+        aria-label={label}
+        title={label}
+        onClick={onNavigate}
+        className={cn(
+          "flex items-center justify-center gap-1 rounded-md py-2 text-sm transition-colors",
+          "border border-border/60",
+          active ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground"
+        )}
+      >
+        <Zap aria-hidden className="h-4 w-4 flex-shrink-0 text-warn-amber" />
+        {/* Count only, no "clear" word and no chrome — at 56px the number IS the
+            signal, and a zero reads fine as an absent badge beside a quiet icon.
+            `aria-hidden` because `label` above already says it. */}
+        {!isLoading && !isError && count != null && count > 0 && (
+          <span
+            aria-hidden
+            className="text-[10px] font-medium leading-none text-warn-amber tabular-nums"
+          >
+            {count}
+          </span>
+        )}
+        {isError && (
+          <span aria-hidden className="text-[10px] font-medium leading-none text-destructive">
+            !
+          </span>
+        )}
+      </Link>
+    );
+  }
+
   return (
     <Link
       to="/asks"
       aria-current={active ? "page" : undefined}
-      aria-label={`Attention${count != null ? ` — ${count} pending` : ""}`}
+      aria-label={label}
       onClick={onNavigate}
       className={cn(
         "flex items-center justify-between gap-2 rounded-md px-2.5 py-2 text-sm transition-colors",
@@ -299,11 +395,60 @@ export function describeBuildIdentity(
   };
 }
 
-/** Header row: wordmark + ⌘K hint. Desktop `<aside>` only — the mobile top
- * bar renders its own compact wordmark + hamburger trigger instead. */
-function RailHeader() {
+/**
+ * The collapse toggle (mt#3700). Lives in the rail header — the position VS
+ * Code, Linear, and Notion all put it in, so it is where a hand goes looking —
+ * and is the ONLY control that survives into the collapsed header, which is what
+ * makes the collapsed state self-reversing without a floating re-entry button.
+ *
+ * `aria-expanded` describes the rail, not the button, so it is the state; the
+ * label names the ACTION the press performs. The hint is `aria-hidden` for the
+ * same reason it is on `NewConversationButton`: it must not end up in the
+ * accessible name.
+ *
+ * `aria-controls` names the region that state is ABOUT (PR #2629 R1). Without
+ * it, `aria-expanded` sits on a control with no stated referent — a screen
+ * reader announces "collapsed" and gives the user no way to reach the thing that
+ * collapsed. The referent here is an ANCESTOR of the button, which is unusual
+ * but is what the markup actually is: the toggle lives inside the rail it
+ * controls, which is exactly what makes the collapsed state self-reversing.
+ * `RailHeader` renders only inside the desktop `<aside>` (the drawer builds its
+ * own header), so `RAIL_REGION_ID` is unique in the document.
+ */
+function RailCollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
   return (
-    <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-border px-3">
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-controls={RAIL_REGION_ID}
+      aria-label={railToggleLabel(collapsed)}
+      aria-keyshortcuts="Meta+B"
+      title={`${railToggleLabel(collapsed)} (${RAIL_COLLAPSE_HINT})`}
+      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Icon aria-hidden className="h-4 w-4" />
+    </button>
+  );
+}
+
+/** Header row: wordmark + ⌘K hint + collapse toggle. Desktop `<aside>` only —
+ * the mobile top bar renders its own compact wordmark + hamburger trigger
+ * instead. Collapsed, only the toggle remains: the wordmark and the ⌘K hint are
+ * both wider than the rail, and neither is an affordance the operator loses
+ * (⌘K still works, and home is one expand away). */
+function RailHeader({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  if (collapsed) {
+    return (
+      <div className="flex h-14 flex-shrink-0 items-center justify-center border-b border-border px-1">
+        <RailCollapseToggle collapsed={collapsed} onToggle={onToggle} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-14 flex-shrink-0 items-center justify-between gap-1 border-b border-border px-3">
       <Link
         to="/"
         aria-label="Minsky Cockpit home"
@@ -312,9 +457,12 @@ function RailHeader() {
         <span className="font-mono text-sm font-semibold text-primary">Minsky</span>
         <span className="text-sm font-medium text-muted-foreground">Cockpit</span>
       </Link>
-      <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-        ⌘K
-      </kbd>
+      <div className="flex flex-shrink-0 items-center gap-1">
+        <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          ⌘K
+        </kbd>
+        <RailCollapseToggle collapsed={collapsed} onToggle={onToggle} />
+      </div>
     </div>
   );
 }
@@ -322,29 +470,57 @@ function RailHeader() {
 /** Nav sections (attention digest, spine, divider, browse). Shared between
  * the desktop `<aside>` and the mobile drawer; `onNavigate` (present only in
  * the drawer) closes the drawer on link activation. */
-function RailNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function RailNav({
+  pathname,
+  onNavigate,
+  collapsed = false,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+  collapsed?: boolean;
+}) {
   return (
-    <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2" aria-label="Sections">
+    <nav
+      className={cn("flex flex-1 flex-col gap-1 overflow-y-auto py-2", collapsed ? "px-1" : "p-2")}
+      aria-label="Sections"
+    >
       {/* 1. Pinned attention digest */}
-      <AttentionDigest pathname={pathname} onNavigate={onNavigate} />
+      <AttentionDigest pathname={pathname} onNavigate={onNavigate} collapsed={collapsed} />
 
       {/* 2. Workstream-primary spine */}
       <div className="mt-1 flex flex-col gap-1">
         {SPINE.map((item) => (
-          <RailLink key={item.to} item={item} pathname={pathname} onNavigate={onNavigate} />
+          <RailLink
+            key={item.to}
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+            collapsed={collapsed}
+          />
         ))}
       </div>
 
       {/* 3. Divider */}
       <div className="my-2 border-t border-border/50" />
 
-      {/* 4. Browse entity entry points */}
-      <div className="px-2.5 pb-1 text-eyebrow font-mono uppercase text-muted-foreground/60">
-        Browse
-      </div>
+      {/* 4. Browse entity entry points. Collapsed, the eyebrow is dropped and the
+             divider above carries the grouping alone — a 10px uppercase word does
+             not survive 56px, and truncating it to "BRO…" would be worse than the
+             rule that already separates the two groups. */}
+      {!collapsed && (
+        <div className="px-2.5 pb-1 text-eyebrow font-mono uppercase text-muted-foreground/60">
+          Browse
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         {BROWSE.map((item) => (
-          <RailLink key={item.to} item={item} pathname={pathname} onNavigate={onNavigate} />
+          <RailLink
+            key={item.to}
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+            collapsed={collapsed}
+          />
         ))}
       </div>
     </nav>
@@ -353,12 +529,44 @@ function RailNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
 
 /** Footer: settings + running commit. Shared between the desktop `<aside>`
  * and the mobile drawer (see `RailNav` for the `onNavigate` contract). */
-function RailFooter({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function RailFooter({
+  pathname,
+  onNavigate,
+  collapsed = false,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+  collapsed?: boolean;
+}) {
   const commitQuery = useQuery({
     queryKey: ["rail", "running-commit"],
     queryFn: fetchRunningCommit,
     staleTime: 5 * 60_000,
   });
+
+  // Collapsed, the footer is the Settings icon alone. The build-identity badge
+  // is dropped rather than abbreviated: it is already a 10px badge whose meaning
+  // lives entirely in its `title`, and a hover-only tooltip on an unlabelled
+  // 3-character sha is not information, it is a puzzle. Expanding restores it.
+  if (collapsed) {
+    return (
+      <div className="flex flex-shrink-0 items-center justify-center border-t border-border px-1 py-2">
+        <Link
+          to="/settings"
+          aria-current={isActive(pathname, "/settings") ? "page" : undefined}
+          aria-label="Settings"
+          title="Settings"
+          onClick={onNavigate}
+          className={cn(
+            "flex items-center justify-center rounded-md px-2 py-1.5 transition-colors hover:bg-muted/60",
+            isActive(pathname, "/settings") ? "text-foreground" : "text-muted-foreground"
+          )}
+        >
+          <Settings aria-hidden className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-shrink-0 items-center justify-between border-t border-border px-2.5 py-2">
@@ -414,6 +622,7 @@ function RailFooter({ pathname, onNavigate }: { pathname: string; onNavigate?: (
 export function Rail() {
   const { pathname } = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(loadPersistedRailCollapsed);
 
   // Close the drawer whenever the route changes (link clicks also call
   // onNavigate directly, but this covers back/forward nav and any path we
@@ -421,6 +630,28 @@ export function Rail() {
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((current) => !current);
+  }, []);
+
+  useEffect(() => {
+    persistRailCollapsed(collapsed);
+  }, [collapsed]);
+
+  // ⌘B from anywhere. `Rail` is mounted on every route inside `Layout`, so it
+  // owns the binding directly rather than needing a `TabKeyboardNav`-style
+  // render-nothing sibling — that component exists only because it has to sit
+  // inside `TabsProvider` to reach `useTabs`, which this state does not.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!matchesRailCollapseShortcut(e)) return;
+      e.preventDefault();
+      toggleCollapsed();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleCollapsed]);
 
   return (
     <>
@@ -447,22 +678,32 @@ export function Rail() {
         </button>
       </div>
 
-      {/* Desktop persistent rail (`md` and up) — unchanged from mt#2397. */}
+      {/* Desktop persistent rail (`md` and up) — mt#2397, plus the mt#3700
+          collapse. The width animates under `motion-safe` only, so a
+          reduced-motion preference gets the instant snap rather than a JS
+          media-query hook; nothing else about the transition needs to be
+          conditional. */}
       <aside
+        id={RAIL_REGION_ID}
         aria-label="Primary navigation"
-        className="hidden h-full w-60 flex-shrink-0 flex-col border-r border-border bg-background md:flex"
+        className={cn(
+          "hidden h-full flex-shrink-0 flex-col border-r border-border bg-background md:flex",
+          "motion-safe:transition-[width] motion-safe:duration-200",
+          collapsed ? "w-14" : "w-60"
+        )}
       >
-        <RailHeader />
+        <RailHeader collapsed={collapsed} onToggle={toggleCollapsed} />
         {/* Project selector (mt#2418) — shell-level filter, shared between
             desktop and mobile (see the mirrored insertion in the drawer
             below) so the two surfaces can't drift. Renders its own wrapper
             (or null for a single-project deployment) so no empty bordered
-            strip appears when there is nothing to select. */}
-        <ProjectSelector />
+            strip appears when there is nothing to select. Hidden while
+            collapsed — see this file's header comment for that tradeoff. */}
+        {!collapsed && <ProjectSelector />}
         {/* Create action (mt#3464) — mirrored into the drawer below. */}
-        <NewConversationButton />
-        <RailNav pathname={pathname} />
-        <RailFooter pathname={pathname} />
+        <NewConversationButton collapsed={collapsed} />
+        <RailNav pathname={pathname} collapsed={collapsed} />
+        <RailFooter pathname={pathname} collapsed={collapsed} />
       </aside>
 
       {/* Mobile slide-in drawer — same nav content as the desktop rail,
