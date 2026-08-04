@@ -495,6 +495,10 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
       "I went straight to the fix without checking the cause.",
       "I defaulted to the familiar approach and didn't pause to consider it.",
       "I skipped the verification step that would have caught this.",
+      // mt#3652 pilot: the evidence-without-decision admission shape died at
+      // nomination (the "catalogued the gaps but never decided" miss). A
+      // paraphrase of the shape, deliberately not the miss verbatim.
+      "I described the problem and stopped without deciding anything.",
     ],
   },
   {
