@@ -91,6 +91,16 @@ describe("detectUnescalatedIncident", () => {
     expect(detectUnescalatedIncident(R2_MESSAGE, lines as never[])).toBeNull();
   });
 
+  it("is satisfied by severity ALONE — forceImmediate is not a prerequisite", () => {
+    // Pins the guard's contract against the amended rule: `severity` controls
+    // the NOTIFICATION, `forceImmediate` only controls whether the ask waits for
+    // a service window. Neither gates the other, so an ask carrying severity and
+    // nothing else fully discharges the obligation this guard checks.
+    const lines = [userLine("x"), askCall({ severity: "incident", title: "prod down" })];
+    expect(turnFiledSeverityAsk(lines as never[])).toBe(true);
+    expect(detectUnescalatedIncident(R2_MESSAGE, lines as never[])).toBeNull();
+  });
+
   it("AT4 — fires on the 2026-07-31 shape: an ask WITHOUT severity is not discharge", () => {
     const lines = [userLine("x"), askCall({ title: "reviewer down", forceImmediate: true })];
     expect(detectUnescalatedIncident(R1_MESSAGE, lines as never[])).not.toBeNull();

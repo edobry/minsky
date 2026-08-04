@@ -48,7 +48,9 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { extractFinalTurn, findToolUseInputs } from "./transcript";
-import { safeTruncate } from "../../src/utils/safe-truncate";
+// From @minsky/shared, not src/: hooks are self-contained by convention
+// (`.minsky/hooks/SPEC.md`) so a `src/` type-check failure cannot break them.
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNESCALATED_INCIDENT";
 
@@ -181,10 +183,11 @@ function buildReminder(found: UnescalatedIncident): string {
   for (const s of found.operatorOnly.slice(0, 2)) lines.push(`  - operator-only: "${s.phrase}"`);
   lines.push(
     "",
-    'File it now: asks_create with severity: "incident" and forceImmediate: true. That is the ' +
-      "whole remedy — the substrate sends the notification, so do NOT also send a separate one. " +
-      "If the principal is already replying in this conversation, or the remediation is actually " +
-      "yours to do, say which in one line and end."
+    'File it now: asks_create with severity: "incident" — that alone sends the notification, so ' +
+      "do NOT also send a separate one. Add forceImmediate: true for the unrelated reason that " +
+      "it stops the ask waiting for the next service window; the notification does not depend " +
+      "on it. If the principal is already replying in this conversation, or the remediation is " +
+      "actually yours to do, say which in one line and end."
   );
   return lines.join("\n");
 }
