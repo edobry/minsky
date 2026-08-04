@@ -14,6 +14,8 @@ import { describe, expect, test } from "bun:test";
 import { snapshotBlockToConversationTurn } from "./conversation-elements";
 import { findAgentToolCall, findAgentToolCalls } from "./agent-tool-call-shape";
 import { spawnChildrenFromRows } from "./session-context-snapshot";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import type { SessionContextSnapshotBlock } from "../context/types";
 
 function block(
@@ -69,6 +71,31 @@ describe("findAgentToolCalls", () => {
   test("the singular finder still returns the FIRST call, unchanged", () => {
     expect(findAgentToolCall([agentCall("toolu_1"), agentCall("toolu_2")])?.id).toBe("toolu_1");
     expect(findAgentToolCall([])).toBeNull();
+  });
+});
+
+describe("the uniqueness invariant spawnChildrenFromRows relies on", () => {
+  // `resolveSpawnChildren` deliberately imposes no ORDER BY, on the grounds that
+  // two rows can never share (parent_agent_session_id, parent_tool_use_id) — so
+  // there is nothing for a later write to clobber and row order cannot matter.
+  // PR #2634 R2 asked for that reasoning to be ASSERTED rather than only
+  // documented: if the index is ever relaxed, the reduction silently becomes
+  // order-dependent and the comment becomes a lie. This test fails first.
+  test("agent_spawns is UNIQUE on (parent_agent_session_id, parent_tool_use_id)", () => {
+    const { indexes } = getTableConfig(agentSpawnsTable);
+    const unique = indexes.filter((i) => i.config.unique);
+
+    expect(unique.length).toBe(1);
+    const columns = (unique[0]?.config.columns ?? []).map(
+      (c) => (c as { name?: string }).name ?? String(c)
+    );
+    expect(columns).toEqual(["parent_agent_session_id", "parent_tool_use_id"]);
+  });
+
+  test("the child reverse-join index is preserved", () => {
+    // Spec SC2 requires it, and `resolveSpawnParent` reads through it.
+    const { indexes } = getTableConfig(agentSpawnsTable);
+    expect(indexes.map((i) => i.config.name)).toContain("idx_agent_spawns_child_agent_session_id");
   });
 });
 
