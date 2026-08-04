@@ -55,6 +55,36 @@ type OctokitPR =
   | RestEndpointMethodTypes["pulls"]["get"]["response"]["data"];
 
 /**
+ * The slice of ambient configuration the default token resolution needs.
+ *
+ * `null` from a `GithubConfigSource` means "the global configuration provider is
+ * not initialized" — a distinct case from "initialized, but carrying no GitHub
+ * credentials", and the two resolve differently below.
+ */
+export interface GithubConfigSnapshot {
+  github?: Parameters<typeof createTokenProvider>[0];
+}
+
+/**
+ * Injectable read of the ambient configuration (mt#3669).
+ *
+ * The default implementation consults the process-global configuration
+ * singleton (`packages/domain/src/configuration/index.ts`'s `globalProvider`),
+ * which has no reset API and is set by any test file that calls
+ * `initializeConfiguration()`. Because `bun test` shares ONE process across
+ * files, that made this class's default token resolution depend on which other
+ * test files had already run: the mt#3606 refusal test passed alone and failed
+ * in a full `packages/domain` run, where an earlier file's
+ * `initializeConfiguration(new CustomConfigFactory())` exposed the developer's
+ * real config (and its real GitHub token), so the refusal never fired.
+ *
+ * Making the read injectable lets a test state its own precondition instead of
+ * inheriting whatever ran before it — the mechanism ADR-036 prescribes
+ * (inject a fake; never patch the collaborator in place).
+ */
+export type GithubConfigSource = () => GithubConfigSnapshot | null;
+
+/**
  * GitHub changeset adapter that maps GitHub PRs to changeset abstraction
  */
 @injectable()
@@ -152,31 +182,21 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   }
 
   /**
-   * Resolves the default (non-injected) TokenProvider the same way
-   * `createRepositoryBackend` does (repository/index.ts) — via
-   * `createTokenProvider(cfg.github, userToken)`, which returns a
-   * `GitHubAppTokenProvider` when `github.serviceAccount` is configured, or a
-   * `FallbackTokenProvider` otherwise (mt#3606).
+   * The default `GithubConfigSource`: reads the process-global configuration
+   * singleton, returning `null` when it is not initialized.
    *
-   * Configuration lookup is best-effort: `getConfiguration()` throws when the
-   * global configuration provider hasn't been initialized (many unit-test and
-   * standalone contexts never call `initializeConfiguration()`), so this falls
-   * back to the previous env-vars-only resolution rather than crashing
+   * Lookup is best-effort: `getConfiguration()` throws when the global provider
+   * hasn't been initialized (many unit-test and standalone contexts never call
+   * `initializeConfiguration()`), so a failure returns `null` — letting the
+   * caller fall back to env-vars-only resolution — rather than crashing
    * construction. In production, configuration is initialized before any
-   * changeset tool runs — the same precondition `createRepositoryBackend`
+   * changeset tool runs, the same precondition `createRepositoryBackend`
    * already relies on.
    */
-  private static resolveDefaultTokenProvider(configToken?: string): TokenProvider {
+  private static readAmbientGithubConfig(): GithubConfigSnapshot | null {
     try {
       if (isConfigurationInitialized()) {
-        const cfg = getConfiguration();
-        const userToken =
-          configToken ||
-          cfg.github?.token ||
-          process.env.GITHUB_TOKEN ||
-          process.env.GH_TOKEN ||
-          "";
-        return createTokenProvider(cfg.github || {}, userToken);
+        return { github: getConfiguration().github ?? {} };
       }
     } catch (error) {
       log.debug(
@@ -184,6 +204,34 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           "token provider; falling back to env-var-only resolution",
         { error: getErrorMessage(error) }
       );
+    }
+    return null;
+  }
+
+  /**
+   * Resolves the default (non-injected) TokenProvider the same way
+   * `createRepositoryBackend` does (repository/index.ts) — via
+   * `createTokenProvider(cfg.github, userToken)`, which returns a
+   * `GitHubAppTokenProvider` when `github.serviceAccount` is configured, or a
+   * `FallbackTokenProvider` otherwise (mt#3606).
+   *
+   * `readConfig` defaults to the ambient singleton read; tests inject their own
+   * so the resolution does not depend on which other test file ran first
+   * (mt#3669).
+   */
+  private static resolveDefaultTokenProvider(
+    configToken?: string,
+    readConfig: GithubConfigSource = GitHubChangesetAdapter.readAmbientGithubConfig
+  ): TokenProvider {
+    const snapshot = readConfig();
+    if (snapshot) {
+      const userToken =
+        configToken ||
+        snapshot.github?.token ||
+        process.env.GITHUB_TOKEN ||
+        process.env.GH_TOKEN ||
+        "";
+      return createTokenProvider(snapshot.github || {}, userToken);
     }
     const fallbackToken = configToken || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
     return new FallbackTokenProvider(fallbackToken);
@@ -208,6 +256,15 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
        * GitHub-backend construction so those flows can be exercised against a fake.
        */
       repositoryBackendOverride?: RepositoryBackend;
+      /**
+       * Test-only DI seam for the ambient configuration read used by the
+       * DEFAULT (non-injected) token resolution (mt#3669). Distinct from
+       * `tokenProvider` above: that one replaces the resolution entirely, so it
+       * cannot be used to test the default path itself. Pass `() => null` for
+       * "configuration not initialized", or `() => ({ github: {} })` for
+       * "initialized but carrying no GitHub credentials".
+       */
+      githubConfigSource?: GithubConfigSource;
     }
   ) {
     // Extract GitHub owner/repo from URL
@@ -234,7 +291,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     if (deps?.tokenProvider) {
       this.tokenProvider = deps.tokenProvider;
     } else {
-      this.tokenProvider = GitHubChangesetAdapter.resolveDefaultTokenProvider(config?.token);
+      this.tokenProvider = GitHubChangesetAdapter.resolveDefaultTokenProvider(
+        config?.token,
+        deps?.githubConfigSource
+      );
     }
 
     this._octokit = deps?.octokitOverride;

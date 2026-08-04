@@ -101,20 +101,50 @@ describe("GitHubChangesetAdapter empty-token refusal (mt#3606)", () => {
     delete process.env.GH_TOKEN;
 
     try {
-      const adapter = new GitHubChangesetAdapter(REPO_URL, {});
+      // mt#3669: state the configuration precondition explicitly rather than
+      // inheriting whatever this process happens to hold. `bun test` shares ONE
+      // process across files and the configuration singleton has no reset API,
+      // so ANY earlier file calling `initializeConfiguration(new
+      // CustomConfigFactory())` used to make this test observe the developer's
+      // REAL config — including a real GitHub token — which resolved a working
+      // Octokit and turned the asserted refusal into `Promise { <resolved> }`.
+      // The seam below is the injected-fake mechanism ADR-036 prescribes; it is
+      // NOT the `tokenProvider` seam, which would replace the very resolution
+      // path under test.
+      const adapter = new GitHubChangesetAdapter(
+        REPO_URL,
+        {},
+        { githubConfigSource: () => ({ github: {} }) }
+      );
 
       // Construction itself must not throw (mirrors the mt#1430 regression
       // this file's sibling test guards — construction stays deferred).
       expect(adapter.platform).toBe("github-pr");
 
-      // The first token acquisition must fail loudly — either our direct
-      // refusal (env-vars-only default resolution, the common case in a bare
-      // test process) or, if this shared bun-test process happens to have a
-      // GitHub App service account configured via some other test file's
-      // `initializeConfiguration()` call, a loud error from the App
-      // token-minting path. Either way it must NOT silently resolve to a
-      // usable (but unauthenticated) Octokit.
+      // The first token acquisition must fail loudly rather than silently
+      // resolving to a usable (but unauthenticated) Octokit.
       await expect(callGetOctokit(adapter)).rejects.toThrow(MinskyError);
+    } finally {
+      if (originalGithubToken !== undefined) process.env.GITHUB_TOKEN = originalGithubToken;
+      if (originalGhToken !== undefined) process.env.GH_TOKEN = originalGhToken;
+    }
+  });
+
+  test("refuses identically when the configuration singleton was never initialized", async () => {
+    // The other half of the `GithubConfigSource` contract: `null` means "no
+    // global configuration provider", which is the state a bare CLI process or
+    // an isolated test run is actually in. Both branches of the default
+    // resolution must refuse, so neither ordering can produce a false pass.
+    const originalGithubToken = process.env.GITHUB_TOKEN;
+    const originalGhToken = process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GH_TOKEN;
+
+    try {
+      const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { githubConfigSource: () => null });
+
+      expect(adapter.platform).toBe("github-pr");
+      await expect(callGetOctokit(adapter)).rejects.toBeInstanceOf(GitHubTokenUnavailableError);
     } finally {
       if (originalGithubToken !== undefined) process.env.GITHUB_TOKEN = originalGithubToken;
       if (originalGhToken !== undefined) process.env.GH_TOKEN = originalGhToken;
