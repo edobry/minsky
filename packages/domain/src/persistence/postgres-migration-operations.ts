@@ -198,11 +198,17 @@ export interface CheckUnmergedMigrationsDeps {
 async function getDefaultExecFileAsync(): Promise<ExecFileAsync> {
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
-  // `promisify(execFile)`'s inferred type comes from Node's `execFile` overload
-  // set (keyed on the presence/shape of an `options` argument), which doesn't
-  // structurally collapse to this file's narrower `ExecFileAsync` signature —
-  // hence the cast rather than a type mismatch TS can otherwise narrow away.
-  return promisify(execFile) as ExecFileAsync;
+  const execFileP = promisify(execFile);
+  // Force `encoding: "utf8"` explicitly rather than relying on the default.
+  // `ExecFileAsync`'s contract is `{ stdout: string; stderr: string }`; Node's
+  // documented default encoding for `execFile` IS 'utf8' (not Buffer) and this
+  // is also what's observed on Bun's `child_process` shim, but pinning it here
+  // removes any ambiguity across runtimes rather than depending on an
+  // unstated default. The cast remains for the same overload-shape reason as
+  // before — `promisify(execFile)`'s inferred type doesn't structurally
+  // collapse to this file's narrower `ExecFileAsync` signature.
+  return ((cmd, args, opts) =>
+    execFileP(cmd, args, { ...opts, encoding: "utf8" })) as ExecFileAsync;
 }
 
 /**
@@ -954,7 +960,11 @@ export async function runPostgresSchemaMigrations(
         const check = await checkUnmergedMigrations(
           migrationsFolder,
           journal.entries,
-          appliedCount
+          appliedCount,
+          process.cwd(),
+          undefined // deps: production always uses the real execFileAsync default; the
+          // seam is threaded through here explicitly so this call site names the
+          // parameter rather than silently relying on the function's own default.
         );
         if (check.skippedReason) {
           // Fail-open: the guard could not run (origin/main unresolvable). Warn
