@@ -214,6 +214,14 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
       lines.push(
         `  Classifiable:           NO — ${classifiability.recordsAssessed} record(s), none carrying any evidence field`
       );
+    } else {
+      // PR #2599 R1: print `no-records` too. Omitting it made the text surface
+      // disagree with the JSON one, which carries the verdict unconditionally —
+      // and a reader of the text would see nothing where the tool has an
+      // opinion. "Nothing has fired" is a different statement from "the fires
+      // cannot be rated," which is why the verdict distinguishes them at all;
+      // showing only two of three states re-hides that distinction.
+      lines.push(`  Classifiable:           n/a — no un-reviewed records to assess`);
     }
     if (r.atCountThreshold && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);

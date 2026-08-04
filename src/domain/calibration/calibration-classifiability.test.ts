@@ -17,7 +17,13 @@
 
 import { describe, test, expect } from "bun:test";
 import { assessClassifiability, parseCalibrationRecord } from "./calibration-sweep";
-import type { CalibrationRecord } from "./calibration-sweep";
+import type { CalibrationRecord, ClassifiabilityVerdict } from "./calibration-sweep";
+
+// Named once rather than repeated across assertions (custom/no-magic-string-duplication).
+// Typed, so a renamed verdict fails to compile here instead of silently never matching.
+const CLASSIFIABLE: ClassifiabilityVerdict = "classifiable";
+const NOT_CLASSIFIABLE: ClassifiabilityVerdict = "not-classifiable";
+const NO_RECORDS: ClassifiabilityVerdict = "no-records";
 
 /** A real wall-of-text line, verbatim from the production log. */
 const REAL_WALL_OF_TEXT_LINE = JSON.stringify({
@@ -41,7 +47,7 @@ describe("assessClassifiability (mt#3610)", () => {
     const record = parseCalibrationRecord(REAL_WALL_OF_TEXT_LINE, "wall-of-text");
     expect(record).not.toBeNull();
     const assessment = assessClassifiability([record as CalibrationRecord]);
-    expect(assessment.verdict).toBe("classifiable");
+    expect(assessment.verdict).toBe(CLASSIFIABLE);
     expect(assessment.recordsAssessed).toBe(1);
     expect(assessment.evidenceFields).toContain("wordCount");
     expect(assessment.evidenceFields).toContain("trigger");
@@ -63,7 +69,7 @@ describe("assessClassifiability (mt#3610)", () => {
       { timestamp: "2026-08-01T00:01:00Z", session_id: "s2" },
     ] as unknown as CalibrationRecord[];
     const assessment = assessClassifiability(bare);
-    expect(assessment.verdict).toBe("not-classifiable");
+    expect(assessment.verdict).toBe(NOT_CLASSIFIABLE);
     expect(assessment.evidenceFields).toEqual([]);
     expect(assessment.recordsAssessed).toBe(2);
   });
@@ -72,7 +78,7 @@ describe("assessClassifiability (mt#3610)", () => {
     // mt#3502's lesson: "nothing has fired" and "the fires cannot be reviewed"
     // demand opposite responses, so they must not collapse into one boolean.
     const assessment = assessClassifiability([]);
-    expect(assessment.verdict).toBe("no-records");
+    expect(assessment.verdict).toBe(NO_RECORDS);
     expect(assessment.recordsAssessed).toBe(0);
   });
 
@@ -97,13 +103,46 @@ describe("assessClassifiability (mt#3610)", () => {
     expect(evidenceFields).toContain("wordCount");
   });
 
+  // PR #2599 R1 regression: a key being SET is not the same as it holding
+  // evidence. Pre-fix, a record whose only non-shared fields were an empty
+  // array and an empty string returned `classifiable` and listed both — a
+  // false verdict in the permissive direction, which is the one that would tell
+  // a reviewer the fires are ratable when they are not.
+  test("empty collections and empty strings are not evidence", () => {
+    const vacuous = [
+      { timestamp: "t", session_id: "s", leadLabelHits: [], excerpt: "", extras: {} },
+    ] as unknown as CalibrationRecord[];
+    const assessment = assessClassifiability(vacuous);
+    expect(assessment.verdict).toBe(NOT_CLASSIFIABLE);
+    expect(assessment.evidenceFields).toEqual([]);
+  });
+
+  // The other half of the same rule: a zero or a false is a MEASURED value, not
+  // an absent one. Dropping these would under-report evidence and could make a
+  // genuinely-ratable log look unratable.
+  test("0 and false ARE evidence — they are measurements, not emptiness", () => {
+    const measured = [
+      { timestamp: "t", session_id: "s", deeplinkCount: 0, hadSameTurnRead: false },
+    ] as unknown as CalibrationRecord[];
+    const assessment = assessClassifiability(measured);
+    expect(assessment.verdict).toBe(CLASSIFIABLE);
+    expect(assessment.evidenceFields).toEqual(["deeplinkCount", "hadSameTurnRead"]);
+  });
+
+  test("a vacuous passthrough value is not evidence either", () => {
+    const record = [
+      { timestamp: "t", session_id: "s", detectorFields: { note: "", tags: [] } },
+    ] as unknown as CalibrationRecord[];
+    expect(assessClassifiability(record).verdict).toBe(NOT_CLASSIFIABLE);
+  });
+
   test("evidence is unioned across records and sorted", () => {
     const records = [
       { timestamp: "t1", session_id: "s", wordCount: 500 },
       { timestamp: "t2", session_id: "s", trigger: "over-budget" },
     ] as unknown as CalibrationRecord[];
     const { evidenceFields, verdict } = assessClassifiability(records);
-    expect(verdict).toBe("classifiable");
+    expect(verdict).toBe(CLASSIFIABLE);
     expect(evidenceFields).toEqual(["trigger", "wordCount"]);
   });
 });

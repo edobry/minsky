@@ -144,10 +144,15 @@ disposition MUST carry both:
    the `evidenceFields` it found. **If the verdict says `classifiable` and you
    are about to write "cannot classify", you are contradicting the tool — stop
    and re-read the records before writing anything down.**
-2. **A check against the RAW JSONL, not this command's rendering.** Run
-   `jq -c 'select(.<field> != null)' .minsky/<name>-calibration.jsonl | wc -l`
-   against the field you believe is missing, and cite the count. The log file is
-   the record; this command's output is a rendering of it.
+2. **A check against the RAW JSONL, not this command's rendering.** Name the
+   field you EXPECTED to find and did not — that expectation is yours to supply,
+   not the tool's: `classifiability` reports the evidence it FOUND, and never
+   which fields a detector ought to have written (deriving "missing" would need
+   a per-detector table that could drift from the parsers). Then check your
+   expectation against the log itself:
+   `jq -c 'select(.<field> != null)' .minsky/<name>-calibration.jsonl | wc -l`,
+   and cite the count. The log file is the record; this command's output is a
+   rendering of it.
 
 **Read the record, not one object inside it.** A parsed record has two levels:
 per-detector fields at the TOP level, and a nested `detectorFields` object

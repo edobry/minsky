@@ -1243,6 +1243,32 @@ const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "suppressionReasons",
 ]);
 
+/**
+ * True when a value is PRESENT but carries nothing to judge a fire by
+ * (PR #2599 R1).
+ *
+ * A key being set is not the same as it holding evidence: `leadLabelHits: []`
+ * and `excerpt: ""` are populated and empty. Counting them let a record whose
+ * only non-shared fields were vacuous report `classifiable` — a false verdict
+ * in the permissive direction, which is the direction this whole mechanism
+ * exists to prevent (it would tell a reviewer the fires are ratable when they
+ * are not). Verified against the pre-fix code: a record carrying only
+ * `leadLabelHits: []` and `excerpt: ""` returned `classifiable` with both
+ * listed as evidence.
+ *
+ * `0` and `false` are NOT vacuous — they are measured values. `deeplinkCount:
+ * 0` says the report contained no deeplinks, which is exactly the kind of
+ * observation a reviewer rates.
+ */
+function isVacuousEvidence(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string") return value.length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  // A plain object with no own keys carries no more than an absent one.
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
 /** Whether a log's records carry anything a reviewer could classify a fire from. */
 export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
 
@@ -1305,15 +1331,16 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
   for (const record of records) {
     for (const [key, value] of Object.entries(record)) {
       if (key === "detectorFields" || NON_EVIDENCE_KEYS.has(key)) continue;
-      // A key the per-kind branch set to `undefined` (the raw line lacked it) is
-      // present on the object but carries nothing to judge — it must not count.
-      if (value === undefined) continue;
+      // A key the per-kind branch set but left empty carries nothing to judge —
+      // see `isVacuousEvidence`. This covers the `undefined` case (the raw line
+      // lacked the key) and the empty-collection case alike.
+      if (isVacuousEvidence(value)) continue;
       fields.add(key);
     }
     const passthrough = (record as SharedCalibrationFields).detectorFields;
     if (passthrough) {
       for (const [key, value] of Object.entries(passthrough)) {
-        if (value === undefined) continue;
+        if (isVacuousEvidence(value)) continue;
         fields.add(`detectorFields.${key}`);
       }
     }
