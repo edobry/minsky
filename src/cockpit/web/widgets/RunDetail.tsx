@@ -47,6 +47,8 @@ import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
+import { formatLinkType } from "../lib/conversation-link-type";
+import { relativeTime, shortenId } from "../lib/format";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
@@ -112,6 +114,28 @@ export interface ConversationCandidate {
    * client-side, with no server round-trip to carry provenance.
    */
   source?: ConversationLinkSource;
+  /**
+   * Server-computed display label (mt#3691) — the same `computeConversationLabel`
+   * precedence `ConversationOverviewPayload.label` carries, computed per
+   * candidate so the switcher names conversations instead of listing uuids.
+   *
+   * Optional for two reasons, both of which the switcher handles by falling
+   * back to a shortened id rather than a bare uuid: a conversation-keyed
+   * arrival builds its single candidate client-side with no server round-trip,
+   * and the server omits the field when the label lookup degraded.
+   */
+  label?: string;
+  /**
+   * `minsky_session_links.link_type` (mt#3691) — which of the five writer
+   * classes stamped this link. Finer than `source`, which only separates
+   * stamped from derived: this is what lets an operator tell the conversation
+   * that CREATED the workspace from a subagent that worked in it.
+   *
+   * Null on a derived candidate (no link row exists), absent on a
+   * client-constructed one. Rendered through `formatLinkType`; no chip renders
+   * when it is missing.
+   */
+  linkType?: string | null;
 }
 
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {
@@ -576,6 +600,71 @@ export function RunDetail({
         data-testid="run-detail-chrome"
       >
         {chrome}
+        {/* mt#3691 — the multi-conversation switcher, PINNED. It used to sit in
+            the Conversation tab's scrolling body, so on the one surface an
+            operator reads it from — a transcript that auto-scrolls to its live
+            edge — it was off-screen the moment the page settled. It also
+            belongs above the presence chip rather than beside the transcript:
+            it selects the conversation that chip, the Context tab, and the Film
+            tab all key on, so its effect is chrome-wide and not tab-local.
+            Rendered on every tab for that reason; the trigger condition (>1
+            candidate) is unchanged, which keeps it hidden for the ~85% of
+            workspaces that have exactly one conversation. */}
+        {keySpace === "workspace" &&
+          conversationCandidates.length > 1 &&
+          activeConversationId && (
+            <div
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              data-testid="conversation-switcher"
+            >
+              <span className="shrink-0">Conversation</span>
+              {/* `value` must be a definite string: Radix treats a nullish
+                  `value` as UNCONTROLLED, which would let this Select's own
+                  internal state drift from `selectedConversationId`. The
+                  guard above already implies a candidate exists; narrowing
+                  on `activeConversationId` makes that explicit to the type
+                  system instead of papering over it with `?? undefined`. */}
+              <Select
+                value={activeConversationId}
+                onValueChange={(v) => setSelectedConversationId(v || null)}
+              >
+                <SelectTrigger
+                  className="h-7 max-w-[32rem] text-xs"
+                  aria-label="Conversation"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {conversationCandidates.map((c) => (
+                    <SelectItem
+                      key={c.agentSessionId}
+                      value={c.agentSessionId}
+                      // The uuid stays reachable without spending a line on it
+                      // (mt#3691 SC2) — it is the thing this task removed from
+                      // the primary text, not from the UI.
+                      title={c.agentSessionId}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate">
+                          {c.label ?? shortenId(c.agentSessionId)}
+                        </span>
+                        {c.linkType && (
+                          <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">
+                            {formatLinkType(c.linkType)}
+                          </span>
+                        )}
+                        {c.startedAt && (
+                          <span className="shrink-0 text-muted-foreground">
+                            {relativeTime(c.startedAt)}
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         {/* mt#3554 — conversation-keyed chrome (the presence value). Gated on a
             resolved conversation so an unlinked workspace renders nothing here
             rather than an empty or "unknown" chip. */}
@@ -637,34 +726,6 @@ export function RunDetail({
 
       {tab === "conversation" && (
         <div className="flex flex-col gap-2">
-          {keySpace === "workspace" &&
-            conversationCandidates.length > 1 &&
-            activeConversationId && (
-              <label className="text-xs text-muted-foreground flex items-center gap-2">
-                Conversation
-                {/* `value` must be a definite string: Radix treats a nullish
-                    `value` as UNCONTROLLED, which would let this Select's own
-                    internal state drift from `selectedConversationId`. The
-                    guard above already implies a candidate exists; narrowing
-                    on `activeConversationId` makes that explicit to the type
-                    system instead of papering over it with `?? undefined`. */}
-                <Select
-                  value={activeConversationId}
-                  onValueChange={(v) => setSelectedConversationId(v || null)}
-                >
-                  <SelectTrigger className="text-sm" aria-label="Conversation">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {conversationCandidates.map((c) => (
-                      <SelectItem key={c.agentSessionId} value={c.agentSessionId}>
-                        {c.agentSessionId}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-            )}
           {keySpace === "workspace" && workspaceQuery.isPending ? (
             <LoadingState message="Loading conversation…" />
           ) : activeConversationId ? (
