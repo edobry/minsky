@@ -1,0 +1,319 @@
+{
+  "cockpit": "http://127.0.0.1:3847",
+  "runs": 1,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "measuredAt": "2026-08-04T21:06:15.270Z",
+  "results": [
+    {
+      "label": "home",
+      "path": "/",
+      "cold": [
+        {
+          "documentTtfbMs": 0.8999996185302734,
+          "domContentLoadedMs": 66.60000038146973,
+          "loadEventEndMs": 66.70000076293945,
+          "scriptFetchWallMs": 9.200000762939453,
+          "scriptBytes": 734385,
+          "scriptCount": 5,
+          "apiWallMs": 338.5,
+          "api": [
+            {
+              "url": "/api/health",
+              "durationMs": 3.8000001907348633,
+              "transferBytes": 189033,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/asks",
+              "durationMs": 299.5,
+              "transferBytes": 44236,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widget/embeddings-health/data",
+              "durationMs": 259.69999980926514,
+              "transferBytes": 267,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widgets",
+              "durationMs": 259.80000019073486,
+              "transferBytes": 1925,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/projects",
+              "durationMs": 337.3999996185303,
+              "transferBytes": 106,
+              "serverTiming": []
+            }
+          ],
+          "settleMs": 720
+        }
+      ],
+      "warm": []
+    },
+    {
+      "label": "tasks list",
+      "path": "/tasks",
+      "cold": [
+        {
+          "documentTtfbMs": 0.6000003814697266,
+          "domContentLoadedMs": 182.60000038146973,
+          "loadEventEndMs": 182.60000038146973,
+          "scriptFetchWallMs": 384.19999980926514,
+          "scriptBytes": 768739,
+          "scriptCount": 9,
+          "apiWallMs": 965.2999992370605,
+          "api": [
+            {
+              "url": "/api/widget/attention/data",
+              "durationMs": 354.3999996185303,
+              "transferBytes": 44290,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/health",
+              "durationMs": 4.699999809265137,
+              "transferBytes": 189033,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widgets",
+              "durationMs": 185.19999980926514,
+              "transferBytes": 1925,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/projects",
+              "durationMs": 266,
+              "transferBytes": 106,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widget/task-graph/data",
+              "durationMs": 477.70000076293945,
+              "transferBytes": 120508,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widget/task-list/data",
+              "durationMs": 604.6999998092651,
+              "transferBytes": 150899,
+              "serverTiming": []
+            }
+          ],
+          "settleMs": 1333
+        }
+      ],
+      "warm": [
+        {
+          "elapsedMs": 743,
+          "apiWallMs": 1136.8999996185303,
+          "lazyChunkBytes": 21798,
+          "lazyChunkCount": 2,
+          "api": [
+            {
+              "url": "/api/widget/reviewer-bot-status/data",
+              "durationMs": 1136.8999996185303,
+              "transferBytes": 1140,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widgets",
+              "durationMs": 916.6000003814697,
+              "transferBytes": 1925,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/projects",
+              "durationMs": 990.6999998092651,
+              "transferBytes": 106,
+              "serverTiming": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "task detail",
+      "path": "/tasks/mt%233701",
+      "cold": [
+        {
+          "documentTtfbMs": 0.8000001907348633,
+          "domContentLoadedMs": 1517.1000003814697,
+          "loadEventEndMs": 1517.2000007629395,
+          "scriptFetchWallMs": 713.4000005722046,
+          "scriptBytes": 756183,
+          "scriptCount": 7,
+          "apiWallMs": 0,
+          "api": [],
+          "settleMs": 1042
+        }
+      ],
+      "warm": [
+        {
+          "elapsedMs": 465.0999994277954,
+          "apiWallMs": 481.79999923706055,
+          "lazyChunkBytes": 0,
+          "lazyChunkCount": 0,
+          "api": [
+            {
+              "url": "/api/widget/attention/data",
+              "durationMs": 469.5999994277954,
+              "transferBytes": 44290,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/health",
+              "durationMs": 481.69999980926514,
+              "transferBytes": 189033,
+              "serverTiming": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "ask detail",
+      "path": "/ask/8138b3c0-c4a2-4cba-bbdf-b4274b351f5d",
+      "cold": [
+        {
+          "documentTtfbMs": 5.800000190734863,
+          "domContentLoadedMs": 4999.299999237061,
+          "loadEventEndMs": 4999.39999961853,
+          "scriptFetchWallMs": 485.29999923706055,
+          "scriptBytes": 788726,
+          "scriptCount": 9,
+          "apiWallMs": 5.299999237060547,
+          "api": [
+            {
+              "url": "/api/health",
+              "durationMs": 5.299999237060547,
+              "transferBytes": 189124,
+              "serverTiming": []
+            }
+          ],
+          "settleMs": 823
+        }
+      ],
+      "warm": [
+        {
+          "elapsedMs": 1158.6999998092651,
+          "apiWallMs": 1143.3000001907349,
+          "lazyChunkBytes": 54341,
+          "lazyChunkCount": 4,
+          "api": [
+            {
+              "url": "/api/widget/attention/data",
+              "durationMs": 606.1999998092651,
+              "transferBytes": 44290,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/health",
+              "durationMs": 608.6000003814697,
+              "transferBytes": 189124,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/tasks",
+              "durationMs": 844,
+              "transferBytes": 72644,
+              "serverTiming": [
+                {
+                  "name": "service",
+                  "durationMs": 0.01,
+                  "description": ""
+                },
+                {
+                  "name": "list",
+                  "durationMs": 234.27,
+                  "description": ""
+                },
+                {
+                  "name": "total",
+                  "durationMs": 234.58,
+                  "description": "handler total"
+                }
+              ]
+            },
+            {
+              "url": "/api/widgets",
+              "durationMs": 632.2000007629395,
+              "transferBytes": 1925,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/projects",
+              "durationMs": 727.3000001907349,
+              "transferBytes": 106,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/asks",
+              "durationMs": 1135.9000005722046,
+              "transferBytes": 44236,
+              "serverTiming": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "agents list",
+      "path": "/agents",
+      "cold": [
+        {
+          "documentTtfbMs": 0.6999998092651367,
+          "domContentLoadedMs": 2250.8999996185303,
+          "loadEventEndMs": 2251,
+          "scriptFetchWallMs": 2113.8999996185303,
+          "scriptBytes": 950339,
+          "scriptCount": 16,
+          "apiWallMs": 77,
+          "api": [
+            {
+              "url": "/api/health",
+              "durationMs": 2.3999996185302734,
+              "transferBytes": 189147,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/widgets",
+              "durationMs": 2.5,
+              "transferBytes": 1925,
+              "serverTiming": []
+            },
+            {
+              "url": "/api/projects",
+              "durationMs": 76.10000038146973,
+              "transferBytes": 106,
+              "serverTiming": []
+            }
+          ],
+          "settleMs": 2544
+        }
+      ],
+      "warm": [
+        {
+          "elapsedMs": 339.1000003814697,
+          "apiWallMs": 0,
+          "lazyChunkBytes": 0,
+          "lazyChunkCount": 0,
+          "api": []
+        }
+      ]
+    },
+    {
+      "label": "agent detail",
+      "path": null,
+      "cold": [],
+      "warm": [],
+      "unavailable": "no agent returned by /api/widget/agents/data"
+    }
+  ]
+}
