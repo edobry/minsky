@@ -64,5 +64,16 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
+      # Guard against tag/manifest drift (PR #2593 R1): publishing vX.Y.Z must
+      # publish exactly package.json's X.Y.Z — a mismatch means the bump and
+      # the tag came apart (mt#233 owns keeping them together).
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          [ "$TAG_VERSION" = "$PKG_VERSION" ] \
+            || { echo "::error::tag $TAG_VERSION != package.json $PKG_VERSION"; exit 1; }
+
       - name: Publish
         run: npm publish
