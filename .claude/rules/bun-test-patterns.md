@@ -330,16 +330,13 @@ mockModule("./taskService", () => ({ ... }));
 
 ### Jest vs Bun:Test Compatibility
 
-`bun:test` does not support every Jest mocking API, and there is no `createSpy` wrapper in
-`src/utils/test-utils/mocking.ts` — that module exports `createMock`, `setupTestMocks`,
-`createPartialMock`, and `createMockFilesystem`, nothing that wraps `spyOn`. If you're reaching
-for `jest.spyOn(object, 'method')` because a Jest-only mocking pattern doesn't translate, that's
+`bun:test` does not support every Jest mocking API. If you're reaching for
+`jest.spyOn(object, 'method')` because a Jest-only mocking pattern doesn't translate, that's
 a sign to stop and re-derive the test rather than look for a Bun-native equivalent:
 
 ```typescript
 // ❌ Don't look for a spyOn replacement
 // const spy = jest.spyOn(object, 'method');
-// const spy = createSpy(object, 'method');  // doesn't exist — never has
 
 // ✅ Extract the decision into a function that returns the observable, and inject
 // the collaborator instead of patching it in place
@@ -349,7 +346,7 @@ function decide(input: Input, deps: { collaborator: Collaborator }) {
 ```
 
 In-place patching (`spyOn`) of a collaborator the code reaches itself is **banned** in this
-codebase — not just discouraged — per
+codebase per
 [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md), enforced
 by `custom/no-spy-patching` at ESLint `error`. See the ADR for the full mechanism hierarchy
 (real dependency > injected fake > in-place patch), why the ban applies even to code that has no
