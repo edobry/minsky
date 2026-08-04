@@ -192,6 +192,54 @@ function waitForExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promis
 }
 
 /**
+ * Readiness deadline for the shutdown-path tests (mt#3140).
+ *
+ * The previous literal 5000ms assumed an unloaded machine and failed twice in
+ * four days under the full gated suite (R1 2026-07-31: 4 tests; R2 2026-08-03:
+ * 5 tests) — each a push rejected by the fail-closed pre-push gate, while the
+ * same file passed 65/65 in isolation immediately afterwards with no code
+ * change. The default is 4x the bound that failed under load: isolation boots
+ * log the marker within a few seconds, so 4x headroom absorbs
+ * suite-saturation tail latency while a genuine hang (a child that never logs
+ * the marker) still fails within a bounded window with the descriptive error
+ * below — the mt#2764 contract ("a genuine ready-timeout still throws") is
+ * preserved, just with a load-tolerant bound.
+ *
+ * Override: MINSKY_TEST_READY_TIMEOUT_MS (registered in HOOK_ONLY_ENV_VARS
+ * per the MINSKY_TEST_WATCHDOG_MS precedent — an unregistered MINSKY_* var
+ * crashes the CLI config parser when set). Junk values — INCLUDING
+ * partial-numeric strings like "20s", which parseInt would prefix-parse into
+ * a 20ms deadline (PR #2613 R1) — fall back to the default via a strict
+ * whole-string Number() parse, mirroring PG_DRAIN_TIMEOUT_MS's
+ * junk-falls-back-to-default philosophy.
+ */
+const READY_TIMEOUT_MS = (() => {
+  const raw = process.env["MINSKY_TEST_READY_TIMEOUT_MS"];
+  const parsed = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 20000;
+})();
+
+/**
+ * Exit-wait bounds for the shutdown-path tests. These bound the SHUTDOWN
+ * phase (drain + cleanup after the signal), which is independent of the
+ * boot-under-load problem READY_TIMEOUT_MS addresses — every R1/R2 failure
+ * was in the readiness phase, none in the exit phase — so they deliberately
+ * do NOT scale with the readiness budget (PR #2613 R1 non-blocking). Named
+ * here, and reused in the per-test budget below, so the pieces cannot drift
+ * apart the way the old 5000-inside-12000 literal pair could.
+ */
+const EXIT_TIMEOUT_MS = 6000;
+const HARD_TIMEOUT_EXIT_MS = 7000;
+const SPAWN_SLACK_MS = 2000;
+
+/**
+ * Per-test budget for the shutdown-path tests: the readiness wait plus the
+ * largest exit wait plus spawn/teardown slack — derived from the named
+ * constants above rather than a second literal.
+ */
+const SHUTDOWN_TEST_TIMEOUT_MS = READY_TIMEOUT_MS + HARD_TIMEOUT_EXIT_MS + SPAWN_SLACK_MS;
+
+/**
  * Wait until the child has logged "Press Ctrl+C to stop" — the server prints
  * this AFTER registering its SIGTERM/SIGINT/SIGHUP and stdin "close" shutdown
  * handlers (mt#1417, PR #881 R2 ordering fix), so it's the deterministic
@@ -246,94 +294,114 @@ function waitForReady(child: ReturnType<typeof spawn>, timeoutMs: number): Promi
 // ---------------------------------------------------------------------------
 
 describe("mcp start — shutdown paths", () => {
-  test("exits with code 0 and runs cleanup path when stdin is closed", async () => {
-    const child = spawnMcpStart();
+  test(
+    "exits with code 0 and runs cleanup path when stdin is closed",
+    async () => {
+      const child = spawnMcpStart();
 
-    await waitForReady(child, 5000);
+      await waitForReady(child, READY_TIMEOUT_MS);
 
-    // Close stdin (simulates Claude Code closing the stdio pipe).
-    // stdin is always a Writable stream when stdio[0] is "pipe".
-    if (child.stdin) child.stdin.end();
+      // Close stdin (simulates Claude Code closing the stdio pipe).
+      // stdin is always a Writable stream when stdio[0] is "pipe".
+      if (child.stdin) child.stdin.end();
 
-    const { code, output } = await waitForExit(child, 6000);
-    expect(code).toBe(0);
-    expect(output).toContain(SHUTDOWN_MARKER);
-  }, 12000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
+      expect(code).toBe(0);
+      expect(output).toContain(SHUTDOWN_MARKER);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 
-  test("exits cleanly with code 0 and runs cleanup path when sent SIGTERM", async () => {
-    const child = spawnMcpStart();
+  test(
+    "exits cleanly with code 0 and runs cleanup path when sent SIGTERM",
+    async () => {
+      const child = spawnMcpStart();
 
-    await waitForReady(child, 5000);
+      await waitForReady(child, READY_TIMEOUT_MS);
 
-    child.kill("SIGTERM");
+      child.kill("SIGTERM");
 
-    const { code, output } = await waitForExit(child, 6000);
-    expect(code).toBe(0);
-    expect(output).toContain(SHUTDOWN_MARKER);
-  }, 12000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
+      expect(code).toBe(0);
+      expect(output).toContain(SHUTDOWN_MARKER);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 
-  test("exits cleanly with code 0 and runs cleanup path when sent SIGHUP", async () => {
-    const child = spawnMcpStart();
+  test(
+    "exits cleanly with code 0 and runs cleanup path when sent SIGHUP",
+    async () => {
+      const child = spawnMcpStart();
 
-    await waitForReady(child, 5000);
+      await waitForReady(child, READY_TIMEOUT_MS);
 
-    child.kill("SIGHUP");
+      child.kill("SIGHUP");
 
-    const { code, output } = await waitForExit(child, 6000);
-    expect(code).toBe(0);
-    expect(output).toContain(SHUTDOWN_MARKER);
-  }, 12000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
+      expect(code).toBe(0);
+      expect(output).toContain(SHUTDOWN_MARKER);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 
-  test("hard-timeout path: exits promptly within drain-timeout + cleanup buffer", async () => {
-    // Force a very short drain timeout. In test env without a real hung pool the
-    // drain typically succeeds cleanly (code 0), but the property the test
-    // protects is "exits promptly within drain_timeout + cleanup_buffer".
-    // If drain DID hang, the timeout-path log line "Shutdown timed out after"
-    // proves the forced-exit path fired.
-    const child = spawnMcpStart({ PG_DRAIN_TIMEOUT_MS: "200" });
+  test(
+    "hard-timeout path: exits promptly within drain-timeout + cleanup buffer",
+    async () => {
+      // Force a very short drain timeout. In test env without a real hung pool the
+      // drain typically succeeds cleanly (code 0), but the property the test
+      // protects is "exits promptly within drain_timeout + cleanup_buffer".
+      // If drain DID hang, the timeout-path log line "Shutdown timed out after"
+      // proves the forced-exit path fired.
+      const child = spawnMcpStart({ PG_DRAIN_TIMEOUT_MS: "200" });
 
-    await waitForReady(child, 5000);
+      await waitForReady(child, READY_TIMEOUT_MS);
 
-    const startedAt = Date.now();
+      const startedAt = Date.now();
 
-    // stdin is always a Writable stream when stdio[0] is "pipe".
-    if (child.stdin) child.stdin.end();
+      // stdin is always a Writable stream when stdio[0] is "pipe".
+      if (child.stdin) child.stdin.end();
 
-    const { code, output } = await waitForExit(child, 7000);
-    // eslint-disable-next-line custom/no-real-fs-in-tests -- timing measurement, not path creation
-    const elapsedMs = Date.now() - startedAt;
+      const { code, output } = await waitForExit(child, HARD_TIMEOUT_EXIT_MS);
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- timing measurement, not path creation
+      const elapsedMs = Date.now() - startedAt;
 
-    // Process must have exited; either path is acceptable.
-    expect(code === 0 || code === 1).toBe(true);
-    // Cleanup path log line must appear regardless of which exit fired.
-    expect(output).toContain(SHUTDOWN_MARKER);
-    // If exit was forced (code 1), the warn-log line must be present.
-    if (code === 1) {
-      expect(output).toContain("Shutdown timed out after");
-    }
-    // Promptness: even with a hung drain the timeout caps the wait. The bound
-    // is drain-timeout (200ms) + generous CI slack to absorb spawn warmup +
-    // contended-runner overhead while still failing if the process hung past
-    // the buffer window (PR #881 R2 NON-BLOCKING — was 2500ms, too tight for CI).
-    expect(elapsedMs).toBeLessThan(6000);
-  }, 12000);
+      // Process must have exited; either path is acceptable.
+      expect(code === 0 || code === 1).toBe(true);
+      // Cleanup path log line must appear regardless of which exit fired.
+      expect(output).toContain(SHUTDOWN_MARKER);
+      // If exit was forced (code 1), the warn-log line must be present.
+      if (code === 1) {
+        expect(output).toContain("Shutdown timed out after");
+      }
+      // Promptness: even with a hung drain the timeout caps the wait. The bound
+      // is drain-timeout (200ms) + generous CI slack to absorb spawn warmup +
+      // contended-runner overhead while still failing if the process hung past
+      // the buffer window (PR #881 R2 NON-BLOCKING — was 2500ms, too tight for CI).
+      expect(elapsedMs).toBeLessThan(6000);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 
-  test("PG_DRAIN_TIMEOUT_MS sanitization: junk env value falls back to default, doesn't immediately exit(1) (PR #881 R1 BLOCKING regression-protect)", async () => {
-    // Pre-fix bug: parseInt("garbage", 10) === NaN; setTimeout(NaN) coerces
-    // to 0 → hard-timeout fires immediately on shutdown, forcing exit(1) even
-    // when a clean drain would have succeeded. Post-fix: junk values fall
-    // back to the 5000ms default and the process exits cleanly via SIGTERM.
-    const child = spawnMcpStart({ PG_DRAIN_TIMEOUT_MS: "this-is-not-a-number" });
+  test(
+    "PG_DRAIN_TIMEOUT_MS sanitization: junk env value falls back to default, doesn't immediately exit(1) (PR #881 R1 BLOCKING regression-protect)",
+    async () => {
+      // Pre-fix bug: parseInt("garbage", 10) === NaN; setTimeout(NaN) coerces
+      // to 0 → hard-timeout fires immediately on shutdown, forcing exit(1) even
+      // when a clean drain would have succeeded. Post-fix: junk values fall
+      // back to the 5000ms default and the process exits cleanly via SIGTERM.
+      const child = spawnMcpStart({ PG_DRAIN_TIMEOUT_MS: "this-is-not-a-number" });
 
-    await waitForReady(child, 5000);
-    child.kill("SIGTERM");
+      await waitForReady(child, READY_TIMEOUT_MS);
+      child.kill("SIGTERM");
 
-    const { code, output } = await waitForExit(child, 6000);
-    expect(code).toBe(0);
-    expect(output).toContain(SHUTDOWN_MARKER);
-    // The forced-exit path's log line must NOT appear — the default kicked in.
-    expect(output).not.toContain("Shutdown timed out after");
-  }, 12000);
+      const { code, output } = await waitForExit(child, EXIT_TIMEOUT_MS);
+      expect(code).toBe(0);
+      expect(output).toContain(SHUTDOWN_MARKER);
+      // The forced-exit path's log line must NOT appear — the default kicked in.
+      expect(output).not.toContain("Shutdown timed out after");
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 });
 
 describe("checkBearerAuth", () => {
