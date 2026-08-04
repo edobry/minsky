@@ -15,6 +15,13 @@
  * The shortcut hint is `aria-hidden` so the button's accessible name stays
  * exactly its label; the launch semantics ride in `title` rather than in the
  * visible text.
+ *
+ * `collapsed` (mt#3700) renders the icon-rail form: the Plus alone, with the
+ * label moved into `aria-label` so the accessible name is unchanged between the
+ * two states. The error alert renders in BOTH — a failed launch has no other
+ * surface, which is the PR #2477 R1 lesson, and 56px of wrapped destructive text
+ * is a worse read than an unwrapped one but an infinitely better one than
+ * silence.
  */
 import { Plus } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -25,14 +32,22 @@ import {
   NEW_CONVERSATION_LABEL,
 } from "../lib/new-conversation";
 
-export function NewConversationButton() {
+export function NewConversationButton({ collapsed = false }: { collapsed?: boolean }) {
   const { start, isPending, isError, error } = useNewConversation();
 
   return (
-    <div className="flex flex-shrink-0 flex-col gap-1 px-2 pt-2">
+    <div className={cn("flex flex-shrink-0 flex-col gap-1 pt-2", collapsed ? "px-1" : "px-2")}>
       <button
         type="button"
-        title={NEW_CONVERSATION_DESCRIPTION}
+        title={
+          collapsed
+            ? `${NEW_CONVERSATION_LABEL} (${NEW_CONVERSATION_HINT}) — ${NEW_CONVERSATION_DESCRIPTION}`
+            : NEW_CONVERSATION_DESCRIPTION
+        }
+        // Collapsed, the visible label is gone, so the accessible name has to be
+        // supplied explicitly. Expanded it is omitted so the text node remains
+        // the single source of the name.
+        aria-label={collapsed ? NEW_CONVERSATION_LABEL : undefined}
         aria-keyshortcuts="Meta+Shift+O"
         disabled={isPending}
         // Deliberately does NOT close the mobile drawer here (PR #2477 R1).
@@ -46,7 +61,8 @@ export function NewConversationButton() {
         // to /driven/:id.
         onClick={start}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+          "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors",
+          collapsed ? "justify-center px-0" : "gap-2 px-2.5",
           // Bordered rather than a solid primary fill: a saturated create
           // button reads as the loudest thing in the rail and out-shouts the
           // Attention digest directly below it — inverting the hierarchy
@@ -58,16 +74,23 @@ export function NewConversationButton() {
         )}
       >
         <Plus aria-hidden className="h-4 w-4 flex-shrink-0 text-primary" />
-        <span className="truncate">{isPending ? "Starting…" : NEW_CONVERSATION_LABEL}</span>
-        <kbd
-          aria-hidden
-          className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-        >
-          {NEW_CONVERSATION_HINT}
-        </kbd>
+        {!collapsed && (
+          <>
+            <span className="truncate">{isPending ? "Starting…" : NEW_CONVERSATION_LABEL}</span>
+            <kbd
+              aria-hidden
+              className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+            >
+              {NEW_CONVERSATION_HINT}
+            </kbd>
+          </>
+        )}
       </button>
       {isError && (
-        <span role="alert" className="px-0.5 text-xs text-destructive">
+        <span
+          role="alert"
+          className={cn("text-xs text-destructive", collapsed ? "px-0 break-words" : "px-0.5")}
+        >
           {error?.message ?? "Failed to start a conversation"}
         </span>
       )}
