@@ -320,13 +320,20 @@ describe("detectKnowledgeAcquisition", () => {
     expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
   });
 
-  test("mt#3272: a SOURCE edit is NOT propagation — the detector's purpose survives", () => {
-    // The boundary that keeps the widening from swallowing the detector.
-    // Writing code is not capturing research about it; if session_write_file
-    // counted, almost nothing would ever fire.
+  // The boundary that keeps the widening from swallowing the detector. Writing
+  // code is not capturing research about it; if these counted, almost nothing
+  // would ever fire. Covers the CLASS, not one member (PR #2591 R1): all four
+  // source-editing tools, each of which is frequent in real transcripts —
+  // `session_edit_file` alone appears 1485 times across the local corpus.
+  test.each([
+    "mcp__minsky__session_write_file",
+    "mcp__minsky__session_edit_file",
+    "mcp__minsky__session_search_replace",
+    "Edit",
+  ])("mt#3272: a SOURCE edit (%s) is NOT propagation", (toolName) => {
     const lines = buildLines({
       fillerTurns: TRAILING_WINDOW_TURNS,
-      propagationToolName: "mcp__minsky__session_write_file",
+      propagationToolName: toolName,
       propagationInFillerIndex: 1,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
