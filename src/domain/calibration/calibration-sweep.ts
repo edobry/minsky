@@ -743,6 +743,17 @@ export interface CalibrationLogResult {
    * has no watermark to date from.
    */
   firstRecordTimestamp?: string;
+  /**
+   * Whether this log's un-reviewed records carry evidence a reviewer could
+   * classify a fire from (mt#3610).
+   *
+   * Computed over `firesSinceLastReview`'s records — the ones a review would
+   * actually rate — NOT over `newRecords`, which is empty below the count bar.
+   * A reviewer must be able to see this verdict on a log that has not yet
+   * reached threshold, since that is where a premature "cannot classify"
+   * disposition gets written.
+   */
+  classifiability: ClassifiabilityAssessment;
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,6 +1220,109 @@ export function computeLogResult(
     // empty/malformed timestamp (parseCalibrationRecord tolerates `""`) would
     // poison the min and silently disable the never-reviewed leg.
     firstRecordTimestamp: allRecords[0]?.timestamp,
+    // mt#3610: assessed over the un-reviewed records regardless of the count
+    // bar. `newRecords` above is deliberately empty below threshold; the
+    // verdict must not be, because a "cannot classify" disposition is most
+    // likely to be written about a log that has not reached threshold yet.
+    classifiability: assessClassifiability(newRecords),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Classifiability verdict (mt#3610)
+// ---------------------------------------------------------------------------
+
+/**
+ * Keys every record carries regardless of which detector wrote it. They locate
+ * a fire; they are not evidence for judging one, so they never make a log
+ * classifiable on their own.
+ */
+const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
+  "timestamp",
+  "session_id",
+  "suppressionReasons",
+]);
+
+/** Whether a log's records carry anything a reviewer could classify a fire from. */
+export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
+
+export interface ClassifiabilityAssessment {
+  verdict: ClassifiabilityVerdict;
+  /**
+   * Every evidence field observed across the assessed records, sorted. A field
+   * riding the passthrough is reported as `detectorFields.<key>` rather than
+   * bare — see `assessClassifiability`'s doc for why the level is spelled out.
+   */
+  evidenceFields: string[];
+  /** How many records the verdict was computed over. */
+  recordsAssessed: number;
+}
+
+/**
+ * Decide whether a log's records can support an FP classification, and say so
+ * in the sweep's own output (mt#3610).
+ *
+ * **Why the tool needs a verdict at all.** Before this, "can these fires be
+ * classified?" was answered only by the reviewing agent's eye, across a dozen
+ * logs, and a wrong answer contradicted nothing. On 2026-08-03 a sweep
+ * dispositioned `wall-of-text` "HOLD — cannot classify" and filed mt#3576
+ * asserting its records held only a hash — while `wordCount` and `trigger` sat
+ * at the top level of the same output, next to the nested `detectorFields`
+ * object that was quoted as proof of their absence. That false premise reached
+ * an Accepted ADR and two task specs before anyone checked it (mem#827). A
+ * verdict makes the same mistake contradict the tool instead of passing
+ * silently.
+ *
+ * **Derived, not listed.** Evidence is "every key the per-kind parse populated
+ * that isn't shared bookkeeping" — so a detector or parser that starts carrying
+ * a new field is covered with no edit here. A per-detector table of expected
+ * fields would be a second list to drift out of sync with the parsers, which is
+ * the defect `parseDetectorFields` was written to avoid; this reuses that
+ * derivation rather than reintroducing the thing it replaced.
+ *
+ * That derivation is also why the verdict reports the fields it FOUND rather
+ * than the ones it thinks are missing: naming a missing field would require
+ * knowing which fields ought to exist, i.e. exactly the list this avoids. An
+ * empty `evidenceFields` IS the not-classifiable finding.
+ *
+ * **The level is part of the answer.** A passthrough field is reported as
+ * `detectorFields.<key>`, never bare. The originating misread was precisely a
+ * confusion of those two levels, so a verdict that flattened them would answer
+ * the question while hiding the distinction that caused the incident.
+ *
+ * **`no-records` is its own verdict, not a `false`.** An empty log and a log of
+ * evidence-free records demand opposite responses — the first says "nothing has
+ * fired yet," the second "the fires that happened cannot be reviewed." Folding
+ * them into one boolean is the conflation `coverage-receipt.ts` (mt#3502) was
+ * split apart to end, so this does not repeat it.
+ */
+export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
+  if (records.length === 0) {
+    return { verdict: "no-records", evidenceFields: [], recordsAssessed: 0 };
+  }
+
+  const fields = new Set<string>();
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "detectorFields" || NON_EVIDENCE_KEYS.has(key)) continue;
+      // A key the per-kind branch set to `undefined` (the raw line lacked it) is
+      // present on the object but carries nothing to judge — it must not count.
+      if (value === undefined) continue;
+      fields.add(key);
+    }
+    const passthrough = (record as SharedCalibrationFields).detectorFields;
+    if (passthrough) {
+      for (const [key, value] of Object.entries(passthrough)) {
+        if (value === undefined) continue;
+        fields.add(`detectorFields.${key}`);
+      }
+    }
+  }
+
+  return {
+    verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
+    evidenceFields: [...fields].sort(),
+    recordsAssessed: records.length,
   };
 }
 

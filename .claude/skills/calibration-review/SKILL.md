@@ -134,6 +134,34 @@ When the record alone is ambiguous, say so and lean toward calling it
 flattering one. Compute `fpRate = falsePositives / injectedFiresSinceLastReview` per
 log.
 
+### "Cannot classify" is a claim about the corpus — it needs evidence (mt#3610)
+
+Before dispositioning any log as **cannot classify** / **HOLD — unratable**, the
+disposition MUST carry both:
+
+1. **The tool's own verdict, quoted.** Each result now reports
+   `classifiability` — `classifiable` / `not-classifiable` / `no-records`, plus
+   the `evidenceFields` it found. **If the verdict says `classifiable` and you
+   are about to write "cannot classify", you are contradicting the tool — stop
+   and re-read the records before writing anything down.**
+2. **A check against the RAW JSONL, not this command's rendering.** Run
+   `jq -c 'select(.<field> != null)' .minsky/<name>-calibration.jsonl | wc -l`
+   against the field you believe is missing, and cite the count. The log file is
+   the record; this command's output is a rendering of it.
+
+**Read the record, not one object inside it.** A parsed record has two levels:
+per-detector fields at the TOP level, and a nested `detectorFields` object
+carrying keys the per-kind parse did not consume. `detectorFields` is
+supplementary — quoting it as though it were the whole record reports the
+top-level fields as missing when they are sitting right beside it.
+
+Originating incident (2026-08-03, mem#827): a sweep dispositioned `wall-of-text`
+"HOLD — cannot classify" and filed mt#3576 asserting its records held only
+`textHash` and `suppressedByDepthRequest` — that pair being exactly its
+`detectorFields`. All 186 records carried `wordCount`, `lineCount`, and
+`trigger` at the top level of the same output. The false premise propagated into
+an Accepted ADR and two task specs before anyone checked the log.
+
 ## Step 3 — Recommendation
 
 Per log (a `pastThreshold` log already cleared BOTH the fire-count and the
