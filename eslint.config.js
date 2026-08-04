@@ -35,6 +35,7 @@ import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-boots
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
+import noSpyPatching from "./eslint-rules/no-spy-patching.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -279,6 +280,7 @@ export default [
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
           "no-silent-catch": noSilentCatch,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
+          "no-spy-patching": noSpyPatching,
         },
       },
     },
@@ -320,6 +322,11 @@ export default [
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Jest migration patterns only
+      // In-place collaborator patching (spyOn) ban + restore-protocol companion check
+      // (mt#3565 / ADR-036). Corpus verified clean (0 spyOn sites) before shipping at "error" —
+      // no warn phase, no carve-out list. Rule/messageId name is a principal-reserved working
+      // name (renameable without another ADR revision).
+      "custom/no-spy-patching": "error",
       "custom/no-real-fs-in-tests": [
         "warn", // Warn mode to prevent workflow disruption
         {

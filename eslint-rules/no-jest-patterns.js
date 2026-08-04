@@ -22,11 +22,12 @@ export default {
       jestFn: "Use Bun test patterns: import { mock } from 'bun:test'; const mockFn = mock();",
       jestMock: "Use centralized mockModule() from test-utils/mocking.ts instead of jest.mock()",
       jestSpyOn:
-        "jest.spyOn() rewritten to spyOn() — a mechanical conversion, not an endorsement. " +
-        "Default to injection: extract the decision into a function that returns the " +
-        "observable and pass the collaborator in, per testing-standards.mdc §Testable Design. " +
-        "Reach for spyOn(obj, 'method') only when patching a real collaborator is genuinely " +
-        "the right call for this case.",
+        "jest.spyOn() is not a Bun-API swap: in-place collaborator patching is banned in this " +
+        "codebase (ADR-036: docs/architecture/adr-036-testing-doubles-mechanism-and-patching-" +
+        "ban.md), and custom/no-spy-patching enforces the Bun-native spyOn() form separately. " +
+        "Not autofixed — the fix is a seam, not a s/jest.spyOn/spyOn/: extract the decision " +
+        "into a function that returns the observable and inject the collaborator instead, " +
+        "per testing-standards.mdc §Testable Design.",
       mockImplementation:
         "Use Bun mock patterns: mock(() => returnValue) or mock().mockImplementation(() => returnValue)",
       mockReturnValue:
@@ -122,15 +123,13 @@ export default {
           node.callee.object.name === "jest" &&
           node.callee.property.name === "spyOn"
         ) {
+          // Deliberately NOT autofixed (mt#3565 / ADR-036): the mechanical `jest.spyOn(x, 'y')`
+          // -> `spyOn(x, 'y')` rewrite this rule used to apply landed exactly on the now-banned
+          // form that custom/no-spy-patching flags separately. Autofixing toward a banned
+          // mechanism contradicts the ban; the correct fix is a seam, which no autofix can derive.
           context.report({
             node,
             messageId: "jestSpyOn",
-            fix(fixer) {
-              const args = node.arguments
-                .map((arg) => context.getSourceCode().getText(arg))
-                .join(", ");
-              return fixer.replaceText(node, `spyOn(${args})`);
-            },
           });
         }
 
