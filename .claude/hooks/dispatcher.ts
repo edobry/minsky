@@ -32,7 +32,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
-import { parseTranscript, resolveTranscriptCandidates } from "./transcript";
+import {
+  parseTranscript,
+  resolveParentTranscriptLines,
+  resolveTranscriptCandidates,
+} from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
 import type {
@@ -410,7 +414,27 @@ export function resolveDispatchContext(
   let transcriptLines: TranscriptLine[] = [];
   if (input.transcript_path) {
     transcriptCandidates = resolveCandidates(input.transcript_path, input.agent_id);
-    transcriptLines = transcriptCandidates.flatMap((p) => parse(p));
+    // PARENT-ONLY BY CONSTRUCTION (mt#3293). `transcriptCandidates.flatMap(parse)` — what this
+    // used to be — concatenates the parent transcript with EVERY sibling subagent transcript,
+    // subagents always ordered after the parent, with no per-line file-origin marker. Turn
+    // extraction over that array (`findRealPromptIndices`, `extractLastAssistantTurn`,
+    // `extractFinalTurn`) can anchor inside a static, already-completed subagent segment and
+    // re-measure the same frozen turn forever. mt#3003 fixed that for two detectors by having
+    // each call `resolveParentTranscriptLines` itself; this hoists it to the shared D6 field so
+    // every consumer — including ones not yet written — gets the guarantee without opting in.
+    //
+    // Only flatten when there is at most one candidate: `resolveParentTranscriptLines` discards
+    // `flatLines` entirely in the multi-candidate branch (it re-parses the parent alone), so
+    // eagerly parsing every subagent transcript would be pure wasted I/O. Mirrors
+    // `resolveParentTranscriptLinesForPath`'s own lazy-flatten for the same reason.
+    const flatLines =
+      transcriptCandidates.length > 1 ? [] : transcriptCandidates.flatMap((p) => parse(p));
+    transcriptLines = resolveParentTranscriptLines(
+      input.transcript_path,
+      transcriptCandidates,
+      flatLines,
+      parse
+    );
   }
 
   return {
