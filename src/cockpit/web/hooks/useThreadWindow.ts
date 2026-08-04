@@ -42,6 +42,8 @@ export interface ThreadWindow {
   hiddenBefore: number;
   /** True while a reveal's render is in flight. */
   isRevealing: boolean;
+  /** How many turns the in-flight reveal is mounting; `0` when none is. */
+  revealingCount: number;
   /** Mount the next chunk of older turns, holding the reader's position. */
   revealOlder: () => void;
   /** Mount the whole transcript and go to its first turn. */
@@ -87,6 +89,15 @@ export function useThreadWindow({
    */
   const [revealedFrom, setRevealedFrom] = useState<number | null>(null);
   const [isRevealing, startReveal] = useTransition();
+  /**
+   * How many turns the in-flight reveal is mounting.
+   *
+   * Set OUTSIDE the transition so it commits with the pending render rather than
+   * with the reveal it describes — the point is to name the work while it is
+   * happening, and a value that arrived with the finished result would say
+   * nothing the finished result does not already show.
+   */
+  const [revealingCount, setRevealingCount] = useState(0);
 
   // A new session in the same mounted component windows back to the tail.
   useEffect(() => {
@@ -134,6 +145,7 @@ export function useThreadWindow({
         previousScrollHeight: scrollportRef.current?.scrollHeight ?? 0,
         toStart,
       };
+      setRevealingCount(windowStateRef.current.hiddenBefore - nextHiddenBefore);
       startReveal(() => setRevealedFrom(nextHiddenBefore));
     },
     [scrollportRef]
@@ -250,6 +262,7 @@ export function useThreadWindow({
   return {
     hiddenBefore,
     isRevealing,
+    revealingCount,
     revealOlder,
     revealFromStart,
     paintPosition,

@@ -49,12 +49,14 @@ export function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
 export function ThreadStartBoundary({
   hiddenBefore,
   isRevealing,
+  revealingCount,
   firstTurnAt,
   onRevealOlder,
   onRevealFromStart,
 }: {
   hiddenBefore: number;
   isRevealing: boolean;
+  revealingCount: number;
   firstTurnAt: string | undefined;
   onRevealOlder: () => void;
   onRevealFromStart: () => void;
@@ -67,7 +69,13 @@ export function ThreadStartBoundary({
         role="status"
       >
         <span className="h-3 w-3 animate-spin rounded-full border border-border border-t-foreground/60" />
-        Revealing older turns…
+        {/* The COUNT is the informative half: it separates "one chunk is
+            mounting" from "the whole transcript is mounting", which are very
+            different waits and the reason a jump-to-the-beginning announces
+            itself at all. */}
+        <span className="tabular-nums">
+          Revealing {revealingCount} older {revealingCount === 1 ? "turn" : "turns"}…
+        </span>
       </div>
     );
   }

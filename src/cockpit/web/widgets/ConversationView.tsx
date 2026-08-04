@@ -1041,6 +1041,7 @@ function ConversationThread({
   const {
     hiddenBefore,
     isRevealing,
+    revealingCount,
     revealOlder,
     revealFromStart,
     paintPosition,
@@ -1306,6 +1307,7 @@ function ConversationThread({
       <ThreadStartBoundary
         hiddenBefore={hiddenBefore}
         isRevealing={isRevealing}
+        revealingCount={revealingCount}
         firstTurnAt={visibleTurns[0]?.timestamp}
         onRevealOlder={revealOlder}
         onRevealFromStart={revealFromStart}
