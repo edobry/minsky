@@ -111,7 +111,26 @@ const FIXTURES: Fixture[] = [
     finalMessage: "Evidence recorded. My recommendation: escalate to Rung 3.",
     expect: "silent",
   },
+  {
+    // PR #2611 R1: session_start is a discharge (walk-forward) — for the
+    // TARGET it additionally suppresses via the bound-task derivation.
+    note: "session_start for the target in the same turn",
+    full: [
+      ...bindingPrefix(),
+      ...evidenceFinalTurn(TARGET_TASK, [
+        toolUse("t_start", "mcp__minsky__session_start", { task: TARGET_TASK }),
+      ]),
+    ],
+    finalMessage: R5_FINAL_MESSAGE,
+    expect: "silent",
+  },
 ];
+
+// NOTE (PR #2611 R1): the status-open filter is deliberately NOT probed here —
+// it lives in run()'s IO shell (an injectable CLI read), not in the pure
+// detection core this parity check compares across source/generated copies.
+// Its coverage is the unit tests' "closed target suppresses / unknown fails
+// open" cases plus the live dispatcher probe in the PR body.
 
 /** The final turn is everything after the last real (string-content) user prompt. */
 function finalTurnOf(lines: TranscriptLine[]): TranscriptLine[] {

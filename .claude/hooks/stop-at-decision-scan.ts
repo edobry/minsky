@@ -74,13 +74,21 @@ export const EVIDENCE_COMPANION_TOOL = "mcp__minsky__memory_create";
  * Calls that DISCHARGE the ripe decision — any one present in the turn means
  * the stop was not silent. `tasks_create` counts: minting a follow-up task
  * routes the decision somewhere, and whether THAT id then gets walked is the
- * unwalked-task sibling's jurisdiction, not this guard's.
+ * unwalked-task sibling's jurisdiction, not this guard's. `session_start`
+ * counts for the same reason it is a WALK_FORWARD tool in the unwalked-task
+ * sibling: starting a session IS taking the work forward (PR #2611 R1).
+ * Belt-and-suspenders for the target task specifically — a same-turn
+ * `session_start(task: <target>)` ALSO suppresses via the bound-task
+ * derivation, because `collectBoundTaskIds` scans the full transcript
+ * including the firing turn; this entry makes the intent legible and covers
+ * the different-task case too.
  */
 export const DISCHARGE_TOOLS: readonly string[] = [
   "mcp__minsky__asks_create",
   "mcp__minsky__tasks_status_set",
   "mcp__minsky__tasks_dispatch",
   "mcp__minsky__tasks_create",
+  "mcp__minsky__session_start",
   "Skill",
 ];
 
