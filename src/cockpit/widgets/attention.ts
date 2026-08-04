@@ -26,6 +26,7 @@ import {
 } from "@minsky/domain/ask/pending-asks-for-window";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { getSharedPersistenceService } from "../shared-persistence";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 
 // ---------------------------------------------------------------------------
 // Public payload shapes — mirrored in Attention.tsx; keep in sync.
@@ -219,7 +220,9 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
       !("getDatabaseConnection" in provider) ||
       typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
     ) {
-      throw new Error("Persistence provider does not support SQL — AskRepository unavailable");
+      // The provider is already in hand here, so call the domain helper
+      // directly rather than db-providers' re-fetching wrapper (mt#3661).
+      throw new Error(`AskRepository unavailable — ${describePersistenceUnavailability(provider)}`);
     }
 
     const sqlProvider = provider as {

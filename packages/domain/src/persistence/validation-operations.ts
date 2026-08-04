@@ -126,11 +126,17 @@ export async function validatePostgresBackend(
       // Masking this as "initialized successfully" is exactly why
       // `persistence_check` reported SUCCESS during the 2026-07-19 outage
       // while every session tool was dead. Fail — do not mask.
+      // sql-capability-message: this IS the diagnostic report — `persistence_check`
+      // is where the cause is rendered for the operator (it reads `provider.reason`
+      // directly below, and mt#3635 added the retry state under it). Routing it
+      // through the consumer-facing helper would make the report describe itself.
       const underlyingReason =
         provider instanceof UnconfiguredPersistenceProvider
           ? provider.reason
           : "provider is not SQL-capable";
       issues.push(
+        // sql-capability-message: cause-carrying — `underlyingReason` above is
+        // interpolated directly into this sentence.
         "PostgreSQL connection is configured, but the active persistence provider is " +
           `not SQL-capable — initialization failed at boot: ${underlyingReason}`
       );

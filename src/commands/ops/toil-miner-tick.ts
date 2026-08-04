@@ -17,6 +17,7 @@
 
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import { log } from "@minsky/shared/logger";
 import { createTaskSimilarityService } from "../../adapters/shared/commands/tasks/similarity-commands";
 
@@ -59,7 +60,8 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
     typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
   ) {
     throw new Error(
-      "engprod_toil_miner: persistence provider is not SQL-capable (no getDatabaseConnection)"
+      // Provider already in hand — the domain helper directly (mt#3661).
+      `engprod_toil_miner: no getDatabaseConnection — ${describePersistenceUnavailability(persistence)}`
     );
   }
   const sqlPersistence = persistence as SqlCapablePersistenceProvider;

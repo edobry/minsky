@@ -9,7 +9,7 @@
 import type express from "express";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
-import { getServerAskRepository } from "../db-providers";
+import { getServerAskRepository, describeServerPersistenceUnavailability } from "../db-providers";
 
 /** Options accepted by {@link mountAskRoutes}. */
 export interface AskRoutesOptions {
@@ -121,7 +121,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       const repo = askRepoOverride ?? (await getServerAskRepository());
       if (!repo) {
         res.status(503).json({
-          error: "Ask repository unavailable — persistence provider does not support SQL",
+          error: `Ask repository unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -181,7 +181,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       const repo = askRepoOverride ?? (await getServerAskRepository());
       if (!repo) {
         res.status(503).json({
-          error: "Ask repository unavailable — persistence provider does not support SQL",
+          error: `Ask repository unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -281,7 +281,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       const repo = askRepoOverride ?? (await getServerAskRepository());
       if (!repo) {
         res.status(503).json({
-          error: "Ask repository unavailable — persistence provider does not support SQL",
+          error: `Ask repository unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

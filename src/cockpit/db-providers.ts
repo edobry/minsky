@@ -34,6 +34,10 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+// Static (not dynamic) per `no-dynamic-imports`: this module is types + a pure
+// string builder, so it carries none of the weight that keeps PersistenceService
+// behind the dynamic import in getCachedPersistenceProvider below.
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
@@ -60,6 +64,69 @@ export async function getCachedPersistenceProvider() {
   const { getSharedPersistenceService } = await import("./shared-persistence");
   const svc = await getSharedPersistenceService();
   return svc.getProvider();
+}
+
+/**
+ * Describe WHY a DB-backed cockpit route cannot serve this request (mt#3661).
+ *
+ * Every such route already fails LOUDLY — a 503, never a plausible-looking empty
+ * result — so this is message quality, not correctness. What the bare
+ * "provider does not support SQL" text costs is the OPERATOR'S NEXT MOVE:
+ * ADR-035 rule 3 requires "configured but failing" to stay distinguishable from
+ * "not configured", because the first is an outage to wait out and the second is
+ * a config to fix. Both produce identical capability flags, so a route that
+ * reports only the flag has erased the distinction the provider still holds.
+ *
+ * Lives here rather than at each route because `getCachedPersistenceProvider`
+ * is already the cockpit's single provider access point — the alternative was
+ * repeating a provider-fetch + describe + fallback dance at ~10 call sites.
+ *
+ * NEVER throws: a diagnosis step that fails must not replace the failure it was
+ * called to describe (the same contract `requireAskRepository` states in
+ * `src/adapters/shared/commands/asks.ts`).
+ *
+ * The catch below is NOT merely defensive — on the cockpit it is the LIVE PATH,
+ * which the mt#3661 acceptance test caught. Unlike `createDomainContainer`, which
+ * converts a failed init into an `UnconfiguredPersistenceProvider` VALUE (so the
+ * MCP/CLI adapters find the cause sitting on the provider),
+ * `getSharedPersistenceService` PROPAGATES the failure — it rejects with the init
+ * error, or `PersistenceInitTimeoutError`. So in a degraded cockpit there is no
+ * provider to interrogate and the boot error arrives HERE, as a throw. That error
+ * IS the cause; returning the generic "not SQL-capable" sentence instead would
+ * discard the one detail this task exists to surface.
+ */
+export async function describeServerPersistenceUnavailability(): Promise<string> {
+  try {
+    return describePersistenceUnavailability(await getCachedPersistenceProvider());
+  } catch (err: unknown) {
+    log.warn("cockpit: persistence unavailable", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return describeFailedPersistenceInit(err);
+  }
+}
+
+/**
+ * Render the cause when the cockpit's persistence bootstrap REJECTED (mt#3661).
+ *
+ * Split out as a pure function so the live path above is testable without
+ * patching the module-level `getCachedPersistenceProvider` import — the
+ * functional-core / imperative-shell split `testing-standards.mdc §Testable
+ * Design` asks for. This is the branch that actually runs on a degraded cockpit,
+ * so it is the one that most needs a test.
+ *
+ * Mirrors the wording `describePersistenceUnavailability` uses for the
+ * configured-but-failed case, because it describes the SAME state — the two
+ * differ only in whether the bootstrap handed back a placeholder or threw.
+ */
+export function describeFailedPersistenceInit(err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err);
+  return (
+    `Postgres IS configured, but persistence failed to initialize: ${reason}. ` +
+    "The database is unreachable — this is a degraded provider, not a missing " +
+    "configuration. Check the boot logs and restart once the database is " +
+    "reachable; `minsky persistence check` reports the same failure."
+  );
 }
 
 // ---------------------------------------------------------------------------

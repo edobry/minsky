@@ -30,7 +30,11 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
-import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
+import {
+  getContextInspectorDb,
+  getServerSessionProvider,
+  describeServerPersistenceUnavailability,
+} from "../db-providers";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
@@ -296,7 +300,7 @@ export function mountConversationRoutes(
       const db = await getDb();
       if (!db) {
         res.status(503).json({
-          error: "DB unavailable — persistence provider does not support SQL",
+          error: `DB unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
