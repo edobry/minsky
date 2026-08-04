@@ -74,8 +74,11 @@ function makeDb(opts: {
   turnRows: FakeTurnRow[];
   transcriptRows: FakeTranscriptRow[];
   spawnsStore: Map<string, FakeSpawnRow>;
+  /** Collects each `onConflictDoUpdate` argument the pipeline builds. */
+  capturedConflictOpts?: unknown[];
 }) {
   const { turnRows, transcriptRows, spawnsStore } = opts;
+  const capturedConflictOpts = opts.capturedConflictOpts ?? [];
 
   // Mirrors the REAL unique index — (parent_agent_session_id, parent_tool_use_id),
   // NOT the turn index (mt#3692). Keying this fake on the turn index would silently
@@ -157,6 +160,20 @@ function makeDb(opts: {
 
           return {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
+              // Capture what the pipeline actually built, so a test can assert on
+              // the REAL conflict clause rather than only on this fake's
+              // imitation of it (PR #2634 R1).
+              capturedConflictOpts.push(_opts);
+              // Mirrors the REAL upsert's COALESCE on child_agent_session_id
+              // (PR #2634 R1): a resolved child is never downgraded to NULL by a
+              // later sweep whose heuristic came back ambiguous. Modeled here
+              // because a fake that plain-overwrites would let the regression
+              // test below pass against the fake while production still lost
+              // the link.
+              const existing = spawnsStore.get(key);
+              if (existing && newRow.childAgentSessionId === null) {
+                newRow.childAgentSessionId = existing.childAgentSessionId;
+              }
               spawnsStore.set(key, newRow);
               return Promise.resolve();
             },
@@ -610,6 +627,37 @@ describe("AgentSpawnsPipeline", () => {
 // ── One row per Agent call, keyed by tool_use id (mt#3692) ────────────────────
 
 describe("per-Agent-call spawn rows", () => {
+  /**
+   * Flatten a drizzle `sql` template into its literal text.
+   *
+   * `JSON.stringify` cannot be used — a drizzle SQL node references Column
+   * objects that point back at their Table, which is cyclic. This walks
+   * `queryChunks`, collecting the string fragments and column names, which is
+   * enough to assert WHICH SQL the pipeline built.
+   */
+  function sqlText(node: unknown, depth = 0): string {
+    if (depth > 6 || node === null || typeof node !== "object") return "";
+    const parts: string[] = [];
+    const chunks = (node as { queryChunks?: unknown[] }).queryChunks;
+    if (!Array.isArray(chunks)) return "";
+    for (const chunk of chunks) {
+      if (typeof chunk === "string") {
+        parts.push(chunk);
+        continue;
+      }
+      if (chunk === null || typeof chunk !== "object") continue;
+      const value = (chunk as { value?: unknown }).value;
+      if (typeof value === "string") parts.push(value);
+      else if (Array.isArray(value)) {
+        parts.push(...value.filter((v): v is string => typeof v === "string"));
+      }
+      const name = (chunk as { name?: unknown }).name;
+      if (typeof name === "string") parts.push(name);
+      parts.push(sqlText(chunk, depth + 1));
+    }
+    return parts.join(" ");
+  }
+
   /** An Agent tool call with an explicit tool_use id. */
   function agentCallWithId(id: string, subagentType?: string): Record<string, unknown> {
     return {
@@ -733,6 +781,76 @@ describe("per-Agent-call spawn rows", () => {
     expect(spawnsStore.size).toBe(1);
     expect(spawnsStore.get(`${SESSION_PARENT}:toolu_ok`)).toBeDefined();
     expect(spawnsStore.get(`${SESSION_PARENT}:<null>`)).toBeUndefined();
+  });
+
+  test("the upsert's own conflict clause coalesces the child rather than overwriting", async () => {
+    // Asserts the clause the PIPELINE built, not the fake's imitation of it. The
+    // behavioral test below rides on the fake's model of this clause, so without
+    // this one, reverting the production COALESCE would leave every test green.
+    const capturedConflictOpts: unknown[] = [];
+    await makePipeline(
+      makeDb({
+        turnRows: [
+          {
+            agentSessionId: SESSION_PARENT,
+            turnIndex: 7,
+            toolCalls: [makeAgentToolCall({ id: "toolu_a" })],
+            endedAt: TS_SPAWN,
+            parentCwd: CWD,
+          },
+        ],
+        transcriptRows: [{ agentSessionId: SESSION_PARENT, cwd: CWD, startedAt: null }],
+        spawnsStore: new Map<string, FakeSpawnRow>(),
+        capturedConflictOpts,
+      })
+    ).run();
+
+    expect(capturedConflictOpts.length).toBe(1);
+    const set = (capturedConflictOpts[0] as { set: Record<string, unknown> }).set;
+    const childClause = sqlText(set.childAgentSessionId);
+    expect(childClause).toContain("COALESCE");
+    expect(childClause).toContain("child_agent_session_id");
+    // The deterministic columns stay plain overwrites — re-deriving them from the
+    // same tool call cannot weaken them.
+    expect(sqlText(set.agentKind)).not.toContain("COALESCE");
+  });
+
+  test("a resolved child survives a later sweep that resolves nothing", async () => {
+    // The cwd-time-window fallback is corpus-dependent: a spawn that resolved
+    // once can come back ambiguous later, once another transcript lands inside
+    // its window. A bare EXCLUDED in the upsert would erase the good link then,
+    // and invisibly — an unresolved spawn renders as the ordinary static badge.
+    const spawnsStore = new Map<string, FakeSpawnRow>();
+    const turnWith = (call: Record<string, unknown>): FakeTurnRow => ({
+      agentSessionId: SESSION_PARENT,
+      turnIndex: 7,
+      toolCalls: [call],
+      endedAt: TS_SPAWN,
+      parentCwd: CWD,
+    });
+    const transcriptRows = [{ agentSessionId: SESSION_PARENT, cwd: CWD, startedAt: null }];
+
+    // Sweep 1: the tool call carries the child's session id in its metadata.
+    await makePipeline(
+      makeDb({
+        turnRows: [turnWith(makeAgentToolCall({ id: "toolu_a", sessionId: SESSION_CHILD }))],
+        transcriptRows,
+        spawnsStore,
+      })
+    ).run();
+    expect(spawnsStore.get(`${SESSION_PARENT}:toolu_a`)?.childAgentSessionId).toBe(SESSION_CHILD);
+
+    // Sweep 2: same call, but nothing resolves this time.
+    await makePipeline(
+      makeDb({
+        turnRows: [turnWith(makeAgentToolCall({ id: "toolu_a" }))],
+        transcriptRows: [],
+        spawnsStore,
+      })
+    ).run();
+
+    expect(spawnsStore.get(`${SESSION_PARENT}:toolu_a`)?.childAgentSessionId).toBe(SESSION_CHILD);
+    expect(spawnsStore.size).toBe(1);
   });
 
   test("one failing call does not abort its siblings on the same turn", async () => {

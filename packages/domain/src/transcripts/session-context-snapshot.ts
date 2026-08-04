@@ -14,7 +14,7 @@
  * @see mt#2021 — cockpit context-inspector umbrella
  */
 
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
@@ -315,6 +315,15 @@ async function resolveSpawnChildren(
  *
  * Returns `undefined` rather than `{}` when nothing qualifies, so the field is
  * omitted from the snapshot instead of serialized empty.
+ *
+ * Row ORDER cannot affect the result, so the caller's query deliberately does
+ * not impose one (PR #2634 R1 raised this as a possible non-determinism).
+ * `idx_agent_spawns_parent_tool_use_id` is UNIQUE on
+ * `(parent_agent_session_id, parent_tool_use_id)`, and the caller filters to a
+ * single `parent_agent_session_id` — so two rows can never share a key here and
+ * there is nothing for a later write to clobber. Ordering by `spawned_at` would
+ * read as protection against a collision the schema already forbids. If that
+ * unique index is ever relaxed, this reduction needs a deterministic order.
  */
 export function spawnChildrenFromRows(
   rows: ReadonlyArray<{ parentToolUseId: string | null; childAgentSessionId: string | null }>
@@ -334,6 +343,13 @@ export function spawnChildrenFromRows(
  * Index-independent: `agent_spawns.child_agent_session_id` names the child
  * directly, so this direction never needed a turn index. Same shape as
  * `resolveUserTurnActor` in the session-film route.
+ *
+ * Ordered, not merely limited (PR #2634 R1). Nothing constrains
+ * `child_agent_session_id` to one row: the cwd-time-window heuristic can hand
+ * the same child to two different parents, so a bare `LIMIT 1` would return
+ * whichever row the backend happened to reach first and the backlink could
+ * point somewhere different on each page load. Newest spawn wins, with the turn
+ * index as a stable tiebreaker.
  */
 async function resolveSpawnParent(
   db: PostgresJsDatabase,
@@ -347,6 +363,10 @@ async function resolveSpawnParent(
       })
       .from(agentSpawnsTable)
       .where(eq(agentSpawnsTable.childAgentSessionId, agentSessionId))
+      .orderBy(
+        sql`${agentSpawnsTable.spawnedAt} DESC NULLS LAST`,
+        desc(agentSpawnsTable.parentTurnIndex)
+      )
       .limit(1);
 
     const parent = rows[0];

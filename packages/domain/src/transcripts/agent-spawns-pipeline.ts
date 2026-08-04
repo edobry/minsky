@@ -365,7 +365,18 @@ export class AgentSpawnsPipeline {
               // to a different index, and the row should follow it rather than
               // stranding a stale pointer (the defect that orphaned 179 rows).
               parentTurnIndex: sql`EXCLUDED.parent_turn_index`,
-              childAgentSessionId: sql`EXCLUDED.child_agent_session_id`,
+              // A resolved child is never downgraded back to NULL (PR #2634 R1).
+              // The cwd-time-window fallback is time-and-corpus dependent: the
+              // same spawn can resolve on one sweep and come back ambiguous on
+              // the next, once another transcript lands in its ±30s window. A
+              // bare EXCLUDED here would erase a good link on that later sweep,
+              // and the erasure is invisible — an unresolved spawn renders as
+              // the ordinary static badge. Resolution is monotonic instead: a
+              // link, once found, survives; mt#3702 only ever adds to it.
+              childAgentSessionId: sql`COALESCE(EXCLUDED.child_agent_session_id, ${agentSpawnsTable.childAgentSessionId})`,
+              // The remaining columns ARE safe to overwrite — each is derived
+              // deterministically from the tool call itself, so re-deriving
+              // yields the same value rather than a weaker one.
               spawnType: sql`EXCLUDED.spawn_type`,
               agentKind: sql`EXCLUDED.agent_kind`,
               spawnedAt: sql`EXCLUDED.spawned_at`,
