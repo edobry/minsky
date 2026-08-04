@@ -34,9 +34,16 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 const UNRESOLVABLE = "postgresql://nonexistent-mt3635.invalid:5432/db";
 const LIVE = process.env.INTEGRATION_POSTGRES_URL ?? "postgres://edobry@127.0.0.1:5432/postgres";
 
-/** Stands in for a service that captures a provider-derived fact at construction. */
-interface DbBackedReader {
-  canRead: boolean;
+/**
+ * The slice of the real task service this check needs. Deliberately the REAL
+ * service rather than a stand-in: the criterion is that recovery reaches the
+ * DEPENDENT, and `createConfiguredTaskService` is the dependent that was broken
+ * in the incident — it registers no `mt` backend when built against a degraded
+ * provider, which is what makes an existing task read as "not found".
+ */
+interface TaskServiceLike {
+  listBackends?: () => Array<{ name: string }>;
+  getTask(id: string): Promise<unknown>;
 }
 
 // The container's typed key space is the real AppServices map; this script
@@ -46,8 +53,17 @@ function providerOf(c: TsyringeContainer): PersistenceProvider {
   return c.get("persistence" as never) as PersistenceProvider;
 }
 
-function readerOf(c: TsyringeContainer): DbBackedReader {
-  return c.get("dbBackedReader" as never) as DbBackedReader;
+function taskServiceOf(c: TsyringeContainer): TaskServiceLike {
+  return c.get("taskService" as never) as TaskServiceLike;
+}
+
+/** Names of the backends the real task service currently has registered. */
+function backendNames(c: TsyringeContainer): string[] {
+  return (taskServiceOf(c).listBackends?.() ?? []).map((b) => b.name);
+}
+
+function hasMinskyBackend(c: TsyringeContainer): boolean {
+  return backendNames(c).some((name) => /minsky/i.test(name));
 }
 
 function fail(message: string): never {
@@ -109,13 +125,20 @@ async function main(): Promise<void> {
     }) as never
   );
 
-  // Stands in for taskService: captures a provider-derived fact at CONSTRUCTION
-  // time, which is why swapping the provider alone does not restore it.
+  // The REAL task service, registered after persistence exactly as
+  // createDomainContainer() registers it. It resolves its backends at
+  // CONSTRUCTION time, which is why swapping the provider alone does not
+  // restore it — a healed provider behind a task service with zero registered
+  // backends is precisely the shape that makes an existing task read as
+  // "not found".
   container.register(
-    "dbBackedReader" as never,
-    ((inner: TsyringeContainer) => {
-      const reader: DbBackedReader = { canRead: providerOf(inner).getCapabilities().sql };
-      return reader as never;
+    "taskService" as never,
+    (async (inner: TsyringeContainer) => {
+      const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+      return (await createConfiguredTaskService({
+        workspacePath: process.cwd(),
+        persistenceProvider: providerOf(inner),
+      })) as never;
     }) as never
   );
 
@@ -133,11 +156,15 @@ async function main(): Promise<void> {
   if (bootHealth.lastAttemptAt !== undefined) {
     fail("expected no lastAttemptAt at boot (nothing has been retried yet)");
   }
-  if (readerOf(container).canRead) {
-    fail("expected the dependent to be non-functional at boot");
+  if (hasMinskyBackend(container)) {
+    fail("expected the task service to have NO minsky backend at boot");
   }
-  console.log(`boot        : degraded (${bootProvider.reason}); dependent canRead=false`);
+  console.log(`boot        : degraded (${bootProvider.reason})`);
   console.log(`              health mode=${bootHealth.mode}, lastAttemptAt=<absent>`);
+  console.log(
+    `              taskService backends=[${backendNames(container).join(", ")}] ` +
+      "(no minsky backend — the 'not found' shape)"
+  );
 
   // --- The condition clears; a later use must recover without a restart ------
   container.get("persistence" as never);
@@ -165,16 +192,56 @@ async function main(): Promise<void> {
   let readerHealed = false;
   const readerDeadlineMs = Date.now() + 10_000;
   while (Date.now() < readerDeadlineMs) {
-    if (readerOf(container).canRead) {
+    if (hasMinskyBackend(container)) {
       readerHealed = true;
       break;
     }
     await sleep(100);
   }
   if (!readerHealed) {
-    fail("the provider recovered but its dependent was not rebuilt (criterion 2)");
+    fail("the provider recovered but its task service was not rebuilt (criterion 2)");
   }
-  console.log("dependent   : rebuilt, canRead=true");
+  console.log(
+    `dependent   : taskService rebuilt, backends=[${backendNames(container).join(", ")}]`
+  );
+
+  // Push one step further than backend registration where the environment
+  // allows: actually READ through the rebuilt service. On a scratch database
+  // Minsky's schema is absent — and it cannot be created there, because the
+  // migration tree cannot bootstrap a fresh DB (mt#2439, open). Report which
+  // of the two happened rather than claiming the stronger one.
+  try {
+    await taskServiceOf(container).getTask("mt#3635");
+    console.log("read-through: getTask() executed against the rebuilt backend (no throw)");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // The driver error is WRAPPED: drizzle surfaces "Failed query: select …"
+    // and keeps the postgres-js error underneath, so neither the SQLSTATE nor
+    // the "relation … does not exist" text is present at the top level. How
+    // deeply it nests is a detail of two libraries' error plumbing, so walk the
+    // whole `cause` chain instead of assuming a depth — an earlier version
+    // inspected only `err` and one `err.cause` typed as `Error`, and reported a
+    // schema-less database as an unexpected FAILURE rather than skipping.
+    const chain: unknown[] = [];
+    for (let node: unknown = err, depth = 0; node != null && depth < 10; depth += 1) {
+      chain.push(node);
+      node = (node as { cause?: unknown }).cause;
+    }
+    const missingTablePattern = /relation .* does not exist|no such table/i;
+    const schemaAbsent = chain.some((node) => {
+      const code = (node as { code?: unknown }).code;
+      if (code === "42P01") return true;
+      const text = node instanceof Error ? node.message : String(node);
+      return missingTablePattern.test(text);
+    });
+    if (!schemaAbsent) {
+      fail(`getTask() through the rebuilt service failed unexpectedly: ${message}`);
+    }
+    console.log(
+      "read-through: SKIPPED — this database has no Minsky schema, and a fresh DB " +
+        "cannot be migrated (mt#2439). Backend registration above is the assertion that ran."
+    );
+  }
 
   // --- The retry must be rate-limited, not fired per call --------------------
   const attemptsBefore = attempt;
