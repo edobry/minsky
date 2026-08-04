@@ -63,7 +63,6 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   measureWallOfText,
   extractFinalAssistantText,
-  resolveTurnLines,
   hashText,
   sessionHasLoggedHash,
   readCalibrationLogText,
@@ -95,7 +94,6 @@ import type { DispatchContext } from "./registry";
 
 // Shared path constants (custom/no-magic-string-duplication).
 const FAKE_TRANSCRIPT_PATH = "/tmp/fake-transcript.jsonl";
-const PARENT_TRANSCRIPT_PATH = "/tmp/parent.jsonl";
 const SUBAGENT_TRANSCRIPT_PATH = "/tmp/subagents/agent-fake.jsonl";
 // Shared generic opening-prompt text (custom/no-magic-string-duplication) — used
 // wherever a fixture's opening prompt content is not itself under test.
@@ -739,51 +737,14 @@ describe("sessionHasLoggedTextAndSuppression", () => {
 
 // ---------------------------------------------------------------------------
 // resolveTurnLines — mt#3028 fix (1): cross-transcript contamination defense
+//
+// RETIRED by mt#3293, along with the function itself. Its three cases —
+// single-candidate pass-through, absent candidates array, and re-parsing the parent
+// when a subagent transcript is present — now live in `dispatcher.test.ts`, which is
+// where the resolution happens for every guard rather than for this one. The
+// end-to-end contamination case below still runs here, against the parent-only lines
+// the dispatcher now guarantees.
 // ---------------------------------------------------------------------------
-
-describe("resolveTurnLines", () => {
-  test("<=1 transcript candidate -> trusts ctx.transcriptLines as-is (no re-parse)", () => {
-    const lines = transcriptWithFinalReport(conformingReport());
-    const ctx = makeCtxWithCandidates(lines, [FAKE_TRANSCRIPT_PATH]);
-    // The injected parse function returns something OBVIOUSLY different —
-    // if it were called, the assertion below would fail. It must NOT be
-    // called when there is only one candidate.
-    const poisoned = () => {
-      throw new Error("parseTranscriptFn must not be called for a single candidate");
-    };
-    expect(resolveTurnLines(makeInput(), ctx, poisoned)).toBe(lines);
-  });
-
-  test("undefined transcriptCandidates -> trusts ctx.transcriptLines as-is (existing-test compatibility)", () => {
-    const lines = transcriptWithFinalReport(conformingReport());
-    const ctx = makeCtx(lines); // no transcriptCandidates field at all
-    const poisoned = () => {
-      throw new Error("parseTranscriptFn must not be called with no candidates array");
-    };
-    expect(resolveTurnLines(makeInput(), ctx, poisoned)).toBe(lines);
-  });
-
-  test(">1 transcript candidates -> re-parses the PARENT candidate, ignoring the merged array", () => {
-    // Simulate the empirically-confirmed contamination: ctx.transcriptLines
-    // is "parent + subagent" concatenated, and the subagent's own final
-    // report (label-heavy, over-budget) lands last in the flat array — the
-    // exact shape that misattributed a subagent's report as the parent's
-    // turn-end report in session e1a0c941.
-    const parentLines = transcriptWithFinalReport(conformingReport());
-    const subagentLines = transcriptWithFinalReport(labelHeavyReport());
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [
-      PARENT_TRANSCRIPT_PATH,
-      SUBAGENT_TRANSCRIPT_PATH,
-    ]);
-    const parseTranscriptFn = (path: string): TranscriptLine[] => {
-      expect(path).toBe(PARENT_TRANSCRIPT_PATH); // always candidates[0] / input.transcript_path
-      return parentLines;
-    };
-    const input = makeInput({ transcript_path: PARENT_TRANSCRIPT_PATH });
-    expect(resolveTurnLines(input, ctx, parseTranscriptFn)).toBe(parentLines);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // hashText / sessionHasLoggedHash — mt#3028 fix (2): dedupe primitives
@@ -946,25 +907,19 @@ describe("run — mt#3028 regressions", () => {
     expect(outcome3).toBeNull();
   });
 
-  test("subagent-contaminated ctx (>1 candidates) does NOT fire on the subagent's report when the parent's own report is conforming", () => {
-    // End-to-end version of the resolveTurnLines contamination test, run
-    // through run() itself. The naive ctx.transcriptLines (parent + a
-    // dispatched subagent's own label-heavy final report appended after)
-    // WOULD fire if used directly; run() must measure only the parent.
+  test("does NOT fire on a subagent's label-heavy report, given the dispatcher's parent-only lines", () => {
+    // The end-to-end half of the contamination defense. Pre-mt#3293 `ctx.transcriptLines`
+    // for a session that dispatched subagents was "parent + subagent" concatenated, and the
+    // subagent's own label-heavy final report landed LAST — so a naive scan measured the
+    // subagent's report as this session's turn-end report (the misattribution observed in
+    // session e1a0c941). The dispatcher now hands over the parent's lines alone, and run()
+    // consumes them as-is; the parent's own report is conforming, so nothing fires.
     const parentLines = transcriptWithFinalReport(conformingReport());
-    const subagentLines = transcriptWithFinalReport(labelHeavyReport());
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [
+    const ctx = makeCtxWithCandidates(parentLines, [
       FAKE_TRANSCRIPT_PATH,
       SUBAGENT_TRANSCRIPT_PATH,
     ]);
-    const deps: RunDeps = {
-      parseTranscriptFn: (path) => {
-        expect(path).toBe(FAKE_TRANSCRIPT_PATH);
-        return parentLines;
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const deps: RunDeps = { readCalibrationLogTextFn: () => undefined };
     expect(run(makeInput(), ctx, deps)).toBeNull();
   });
 });

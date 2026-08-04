@@ -21,6 +21,11 @@ import {
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
+import {
+  classifyUncaughtException,
+  createSurvivedErrorLogger,
+  formatErrorForLog,
+} from "../../cockpit/daemon-error-policy";
 import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
 import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
@@ -501,10 +506,21 @@ export function createStartCommand(): Command {
       // Uncaught error paths: clean up best-effort, then exit non-zero so the
       // failure isn't silently swallowed. The `exit` listener above fires
       // after process.exit(1) and is the second line of defence.
+      //
+      // mt#3626: a failed outbound connection attempt inside the RUNTIME's own
+      // net module is not a defect in daemon state, so it no longer exits —
+      // see `daemon-error-policy.ts` for the classification and why the crash
+      // message text is not what it is matched on. The survivable branch must
+      // NOT call cleanupSync(): the daemon keeps serving, so its sweepers and
+      // its state file have to stay in place.
+      const logSurvivedError = createSurvivedErrorLogger((line) => console.error(line));
       proc.on("uncaughtException", (err: unknown) => {
+        if (classifyUncaughtException(err) === "survive") {
+          logSurvivedError(err);
+          return;
+        }
         cleanupSync();
-        const e = err instanceof Error ? err : new Error(String(err));
-        console.error(`Cockpit: uncaught exception: ${e.message}`);
+        console.error(`Cockpit: uncaught exception: ${formatErrorForLog(err)}`);
         process.exit(1);
       });
       // gh#1761: postgres-js ECIRCUITBREAKER / EDBHANDLEREXITED reach this
@@ -528,8 +544,10 @@ export function createStartCommand(): Command {
           return; // do NOT exit — daemon stays up
         }
         cleanupSync();
-        const r = reason instanceof Error ? reason.message : String(reason);
-        console.error(`Cockpit: unhandled rejection: ${r}`);
+        // mt#3626: the DB-degradation branch above keeps its message-only line
+        // (its errors are classified, and their text is the useful part); this
+        // fatal branch records the stack, same as `uncaughtException`.
+        console.error(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
         process.exit(1);
       });
 

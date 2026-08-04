@@ -113,12 +113,10 @@ import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold
 import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
   resolveCompletedTurn,
-  resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
@@ -551,8 +549,6 @@ function readEvaluationLogText(cwd: string): string | undefined {
 
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
 export interface RunDeps {
-  /** Defaults to the real `parseTranscript`. Used by `resolveParentTranscriptLines`'s multi-candidate branch. */
-  parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
   readCalibrationLogTextFn?: (cwd: string) => string | undefined;
   /** Defaults to the real `readEvaluationLogText`. Used by the evaluation-stream dedupe. */
@@ -605,15 +601,14 @@ export function run(
   }
 
   if (!input.transcript_path) return null;
-  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
   const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
 
-  const lines = resolveParentTranscriptLines(
-    input.transcript_path,
-    ctx.transcriptCandidates,
-    ctx.transcriptLines,
-    parseTranscriptFn
-  );
+  // `ctx.transcriptLines` is PARENT-ONLY by construction as of mt#3293 — the dispatcher
+  // resolves it through `resolveParentTranscriptLines` for every guard. This used to call
+  // that resolver itself (mt#3003, when only this detector and wall-of-text had the fix);
+  // doing so now would re-read and re-parse the parent transcript to arrive at the array
+  // already in hand. One mechanism, at the seam that owns it.
+  const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];
