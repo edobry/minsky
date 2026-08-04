@@ -33,6 +33,54 @@ type CollapseDetector = (
  * which differs from the file surface in one load-bearing way: a file can be
  * restored from git, a task spec cannot be restored from anything.
  */
+/**
+ * What the handler should DO with a merge result — the ordering of the collapse guard
+ * relative to the dry-run preview and the write, as DATA (mt#3674, PR #2618 R1).
+ *
+ * Extracted because the ordering was previously enforced only by statement order plus a
+ * comment: the guard sat above `if (dryRun)` and above the write, and a refactor moving it
+ * below either would have failed no test. That is the same defect class this guard exists to
+ * prevent, one level up. Modelling the outcome as a value makes "a collapse refuses BEFORE
+ * anything is written, and before a preview is returned" an asserted property rather than an
+ * invariant of line numbers. Follows the pure-decision-core pattern (mt#3629).
+ *
+ * Precedence, and the reason for it:
+ *   1. `refuse` — a collapse outranks EVERYTHING, including `dryRun`. A preview that renders a
+ *      collapsed body as a normal diff would read as an ordinary large edit.
+ *   2. `preview` — dry-run, once the content is known not to be collapsed.
+ *   3. `write`.
+ */
+export type SpecPatchOutcome =
+  | { kind: "refuse"; message: string }
+  | { kind: "preview" }
+  | { kind: "write" };
+
+export function decideSpecPatchOutcome(args: {
+  taskId: string;
+  originalContent: string;
+  finalContent: string;
+  allowShrink: boolean;
+  dryRun: boolean;
+  /** False for a brand-new spec / marker-less full replacement — the guard only covers merges. */
+  wasMarkerMerge: boolean;
+  detect: CollapseDetector;
+}): SpecPatchOutcome {
+  if (args.wasMarkerMerge) {
+    try {
+      assertNoSuspiciousSpecCollapse(
+        args.taskId,
+        args.originalContent,
+        args.finalContent,
+        args.allowShrink,
+        args.detect
+      );
+    } catch (err) {
+      return { kind: "refuse", message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return args.dryRun ? { kind: "preview" } : { kind: "write" };
+}
+
 export function assertNoSuspiciousSpecCollapse(
   taskId: string,
   originalContent: string,
@@ -242,33 +290,40 @@ COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the r
               typedArgs.content,
               typedArgs.instructions
             );
-
-            // mt#3674 collapse guard: the marker check above validates the MARKER, not the
-            // rest of the payload — and the merge itself is done by a fast-apply MODEL whose
-            // output was previously written unchecked. A patch carrying a valid marker plus
-            // malformed text passes the marker guard and can come back as anything.
-            //
-            // Originating incident (mt#3339, 2026-08-04): a stray fragment accidentally
-            // prefixed before an otherwise-correct patch body; the model returned a
-            // 7-character string; a ~26,000-character spec was destroyed with no error. A
-            // task spec has NO version history and no undo, so unlike the file surface this
-            // is unrecoverable — which is why leaving this tool the weaker one was backwards.
-            //
-            // Same predicate as `session_edit_file` (mt#2577), imported rather than
-            // re-derived: one heuristic, two surfaces.
-            assertNoSuspiciousSpecCollapse(
-              typedArgs.taskId,
-              originalContent,
-              finalContent,
-              typedArgs.allowShrink,
-              detectSuspiciousCollapse
-            );
           } else {
             // Direct write for a brand-new spec (specExists === false, no markers)
             finalContent = typedArgs.content;
           }
 
-          if (typedArgs.dryRun) {
+          // mt#3674 collapse guard. The marker check above validates the MARKER, not the rest
+          // of the payload — and the merge is performed by a fast-apply MODEL whose output was
+          // previously written unchecked, so a patch carrying a valid marker plus malformed
+          // text could come back as anything.
+          //
+          // Originating incident (mt#3339, 2026-08-04): a stray fragment accidentally prefixed
+          // before an otherwise-correct patch body; the model returned a 7-character string; a
+          // ~26,000-character spec was destroyed with no error. A task spec has NO version
+          // history and no undo, so unlike the file surface this is unrecoverable — which is
+          // why leaving this tool the weaker one was backwards.
+          //
+          // Same predicate as `session_edit_file` (mt#2577), imported rather than re-derived.
+          // The guard/preview/write ORDERING is decided as DATA (PR #2618 R1) rather than by
+          // statement order: a `refuse` outranks `dryRun`, so a collapsed merge never renders
+          // as an ordinary preview and never reaches the write below.
+          const outcome = decideSpecPatchOutcome({
+            taskId: typedArgs.taskId,
+            originalContent,
+            finalContent,
+            allowShrink: typedArgs.allowShrink,
+            dryRun: typedArgs.dryRun,
+            wasMarkerMerge: specExists && hasMarkers,
+            detect: detectSuspiciousCollapse,
+          });
+          if (outcome.kind === "refuse") {
+            throw new Error(outcome.message);
+          }
+
+          if (outcome.kind === "preview") {
             // Return preview information without making changes
             const stats = {
               originalLines: originalContent.split("\n").length,

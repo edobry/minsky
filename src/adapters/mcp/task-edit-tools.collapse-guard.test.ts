@@ -12,7 +12,7 @@
  * the mock. Injecting keeps this a pure decision over strings.
  */
 import { describe, test, expect } from "bun:test";
-import { assertNoSuspiciousSpecCollapse } from "./task-edit-tools";
+import { assertNoSuspiciousSpecCollapse, decideSpecPatchOutcome } from "./task-edit-tools";
 import { detectSuspiciousCollapse } from "@minsky/domain/ai/edit-pattern-utils";
 
 const makeLines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join("\n");
@@ -90,5 +90,79 @@ describe("assertNoSuspiciousSpecCollapse", () => {
     expect(() =>
       assertNoSuspiciousSpecCollapse("mt#1", makeLines(20), "x", false, detectSuspiciousCollapse)
     ).not.toThrow();
+  });
+});
+
+/**
+ * PR #2618 R1 (BLOCKING): "Acceptance Test 1's 'spec remains unchanged after refusal' is not
+ * asserted." Correct — it was enforced only by statement order plus a comment, which is the
+ * same defect class this guard exists to prevent, one level up.
+ *
+ * These assert the ORDERING as a property of a pure decision, so a refactor that moved the
+ * guard below the write or below the dry-run return now fails a test rather than silently
+ * shipping. `refuse` is what makes the spec unchanged: the handler's only write path is the
+ * `write` outcome, so proving a collapse never yields `write` proves the stored spec survives.
+ */
+const COLLAPSED = {
+  taskId: "mt#3339",
+  originalContent: makeLines(380),
+  finalContent: "mt#3672",
+  wasMarkerMerge: true,
+  detect: detectSuspiciousCollapse,
+};
+
+describe("decideSpecPatchOutcome — guard ordering (PR #2618 R1)", () => {
+  test("a collapse never yields write — this is what leaves the stored spec unchanged", () => {
+    const outcome = decideSpecPatchOutcome({ ...COLLAPSED, allowShrink: false, dryRun: false });
+    expect(outcome.kind).toBe("refuse");
+  });
+
+  test("a collapse outranks dryRun — it refuses rather than rendering an ordinary preview", () => {
+    // The ordering that was previously only a comment: guard BEFORE the dry-run return.
+    const outcome = decideSpecPatchOutcome({ ...COLLAPSED, allowShrink: false, dryRun: true });
+    expect(outcome.kind).toBe("refuse");
+  });
+
+  test("the refusal carries the message, so the handler has nothing to re-derive", () => {
+    const outcome = decideSpecPatchOutcome({ ...COLLAPSED, allowShrink: false, dryRun: false });
+    expect(outcome.kind === "refuse" && outcome.message).toContain("380");
+    expect(outcome.kind === "refuse" && outcome.message).toContain("allowShrink=true");
+  });
+
+  test("allowShrink restores normal precedence: write, or preview under dryRun", () => {
+    expect(decideSpecPatchOutcome({ ...COLLAPSED, allowShrink: true, dryRun: false }).kind).toBe(
+      "write"
+    );
+    expect(decideSpecPatchOutcome({ ...COLLAPSED, allowShrink: true, dryRun: true }).kind).toBe(
+      "preview"
+    );
+  });
+
+  test("an ordinary merge writes, and previews under dryRun", () => {
+    const ordinary = {
+      taskId: "mt#1",
+      originalContent: makeLines(200),
+      finalContent: `${makeLines(200)}\nnew section`,
+      wasMarkerMerge: true,
+      detect: detectSuspiciousCollapse,
+    };
+    expect(decideSpecPatchOutcome({ ...ordinary, allowShrink: false, dryRun: false }).kind).toBe(
+      "write"
+    );
+    expect(decideSpecPatchOutcome({ ...ordinary, allowShrink: false, dryRun: true }).kind).toBe(
+      "preview"
+    );
+  });
+
+  test("a non-merge write (new spec, no markers) is never guarded", () => {
+    // `wasMarkerMerge: false` is the brand-new-spec path, where `finalContent` is the caller's
+    // literal content rather than a model's output — there is no merge to have collapsed.
+    const outcome = decideSpecPatchOutcome({
+      ...COLLAPSED,
+      wasMarkerMerge: false,
+      allowShrink: false,
+      dryRun: false,
+    });
+    expect(outcome.kind).toBe("write");
   });
 });
