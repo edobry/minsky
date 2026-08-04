@@ -223,4 +223,168 @@ describe("TsyringeContainer boot-tolerant deferral (mt#2349)", () => {
       expect(c.get("neverRetryAgain" as never)).toBe("manual-override" as never);
     });
   });
+
+  // mt#3635 / ADR-035 rule 1: the self-heal above only ever fired for a factory
+  // that THREW. A composition root that CONVERTS a failed initialization into a
+  // substitute value resolves "successfully", so its key was never enrolled —
+  // which is why the persistence provider stayed degraded for the life of the
+  // process while this very mechanism sat unreachable one branch away.
+  describe("retry for a substitute that was RETURNED, not thrown (mt#3635)", () => {
+    /** The value a recovered factory returns; stands in for a live provider. */
+    const HEALTHY = "healthy-provider";
+
+    /** Minimal structural stand-in for UnconfiguredPersistenceProvider. */
+    function makeSubstitute(degraded = true): {
+      degradedSubstitute: boolean;
+      attempts: Array<{ at: Date; error: string }>;
+      noteRetryAttempt(at: Date, error: string): void;
+    } {
+      const attempts: Array<{ at: Date; error: string }> = [];
+      return {
+        degradedSubstitute: degraded,
+        attempts,
+        noteRetryAttempt(at: Date, error: string) {
+          attempts.push({ at, error });
+        },
+      };
+    }
+
+    /** Let the fire-and-forget retry / re-resolution promises settle. */
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 6; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    test("a factory that RETURNS a degraded substitute is retried and recovers", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      const substitute = makeSubstitute();
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return (calls === 1 ? substitute : HEALTHY) as never;
+      });
+
+      await c.initialize();
+
+      // initialize() kept the substitute REGISTERED (not swapped for the
+      // throws-on-access placeholder) so diagnostic surfaces keep answering.
+      expect(calls).toBe(1);
+      expect(c.get("persistence" as never)).toBe(substitute as never);
+
+      await settle();
+
+      expect(c.get("persistence" as never)).toBe(HEALTHY as never);
+    });
+
+    test("a substitute marked degradedSubstitute:false is NOT enrolled for retry", async () => {
+      // The deliberately-unconfigured local/dev boot path (ADR-035 rule 3):
+      // nothing has failed, so retrying would churn forever on a laptop with
+      // no database.
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return makeSubstitute(false) as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never);
+      c.get("persistence" as never);
+      await settle();
+
+      expect(calls).toBe(1);
+    });
+
+    test("repeated get() calls do not retry faster than the backoff floor", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return makeSubstitute() as never;
+      });
+
+      await c.initialize();
+      expect(calls).toBe(1);
+
+      // First get() is eligible (no attempt has run yet) and consumes the slot.
+      c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(2);
+
+      // Every further get() in the same instant is inside the floor. Without
+      // the gate this loop would issue 25 more re-init attempts.
+      for (let i = 0; i < 25; i += 1) c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(2);
+    });
+
+    test("a retry that returns another degraded substitute records the attempt", async () => {
+      const c = new TsyringeContainer();
+      const first = makeSubstitute();
+      const second = makeSubstitute();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return (calls === 1 ? first : second) as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never);
+      await settle();
+
+      // The attempt is recorded so `persistence_check` and `/health` can tell
+      // "stuck since boot" from "retried and still failing" (ADR-035 rule 4).
+      expect(second.attempts.length).toBe(1);
+      expect(c.get("persistence" as never)).toBe(second as never);
+    });
+
+    test("dependents registered after the recovered key are rebuilt", async () => {
+      // The criterion this test exists for: initialize() memoizes every key with
+      // useValue, so a dependent that captured the degraded substitute keeps
+      // serving it forever. Swapping only the provider restores nothing.
+      const c = new TsyringeContainer();
+      let persistenceCalls = 0;
+      const substitute = makeSubstitute();
+      c.register("persistence" as never, () => {
+        persistenceCalls += 1;
+        return (persistenceCalls === 1 ? substitute : HEALTHY) as never;
+      });
+      c.register("taskService" as never, (inner) => {
+        const provider = inner.get("persistence" as never) as unknown;
+        return {
+          backends: provider === (HEALTHY as unknown) ? ["mt"] : [],
+        } as never;
+      });
+
+      await c.initialize();
+
+      // Built against the degraded provider: no backends, the shape that makes
+      // an existing task read as "not found".
+      expect((c.get("taskService" as never) as { backends: string[] }).backends).toEqual([]);
+
+      c.get("persistence" as never);
+      await settle();
+
+      expect((c.get("taskService" as never) as { backends: string[] }).backends).toEqual(["mt"]);
+    });
+
+    test("a manually overridden dependent is not clobbered by the rebuild", async () => {
+      const c = new TsyringeContainer();
+      let persistenceCalls = 0;
+      c.register("persistence" as never, () => {
+        persistenceCalls += 1;
+        return (persistenceCalls === 1 ? makeSubstitute() : HEALTHY) as never;
+      });
+      c.register("taskService" as never, () => "factory-built" as never);
+
+      await c.initialize();
+      c.set("taskService" as never, "manual-override" as never);
+
+      c.get("persistence" as never);
+      await settle();
+
+      expect(c.get("taskService" as never)).toBe("manual-override" as never);
+    });
+  });
 });

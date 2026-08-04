@@ -43,6 +43,63 @@ function isBootDeferrable(err: unknown): boolean {
 }
 
 /**
+ * Structural view of a substitute value a factory RETURNED in place of a failed
+ * initialization (mt#3635 / ADR-035 rule 1: "a composition root must not
+ * register a substitute value for a failed initialization without also
+ * registering the retry").
+ *
+ * The mirror image of {@link isBootDeferrable}: that marks a failure that was
+ * THROWN, this marks one that was CONVERTED INTO A VALUE. A thrown failure is
+ * enrolled for retry by `initialize()`'s catch branch; before this, a returned
+ * one was indistinguishable from a successful resolution and so could never be
+ * enrolled — which is precisely why the self-heal below existed for two months
+ * without ever being reachable for the `persistence` key.
+ *
+ * Checked structurally, for the same decoupling reason `isBootDeferrable` is
+ * (see `DegradedSubstitute` in `../persistence/unconfigured-provider`, the
+ * persistence-side contract this mirrors).
+ */
+interface DegradedSubstituteLike {
+  degradedSubstitute: boolean;
+  noteRetryAttempt(at: Date, error: string): void;
+}
+
+function asDegradedSubstitute(value: unknown): DegradedSubstituteLike | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Partial<DegradedSubstituteLike>;
+  if (candidate.degradedSubstitute !== true) return null;
+  if (typeof candidate.noteRetryAttempt !== "function") return null;
+  return candidate as DegradedSubstituteLike;
+}
+
+/**
+ * Floor between re-initialization attempts for one key (mt#3635).
+ *
+ * `get()` fires a retry opportunistically, so on a busy process the only thing
+ * bounding attempt RATE would otherwise be call rate. Grounded in observed
+ * cadence per `decision-defaults.mdc §Thresholds`: the originating outage was a
+ * ~20 s DNS blip, so a 10 s floor recovers within about one blip-length of the
+ * condition clearing while capping attempts at 6/min under any call volume.
+ */
+export const RETRY_MIN_INTERVAL_MS = 10_000;
+
+/**
+ * Ceiling for the exponential backoff. Bounds a LONG outage: the 2026-07-19
+ * five-hour outage (mem#636) would see ~60 attempts at this cap rather than
+ * ~1,800 at the floor, while still recovering within 5 minutes of the database
+ * coming back.
+ */
+export const RETRY_MAX_INTERVAL_MS = 5 * 60_000;
+
+/** Per-key backoff bookkeeping for {@link TsyringeContainer.retryDeferred}. */
+interface RetryState {
+  /** Monotonic ms of the last attempt, or null when none has run yet. */
+  lastAttemptAtMs: number | null;
+  /** Delay that must elapse before the next attempt. */
+  delayMs: number;
+}
+
+/**
  * Build a placeholder for a service whose construction was deferred because a
  * required resource (Postgres) was unavailable at boot.
  *
@@ -146,6 +203,25 @@ export class TsyringeContainer implements AppContainerInterface {
   /** Guards against overlapping retry attempts for the same key. */
   private readonly retryInFlight = new Set<string>();
   /**
+   * Per-key backoff state (mt#3635). The in-flight guard above bounds
+   * CONCURRENCY but not RATE — without this, a busy process retries a dead
+   * dependency on every `get()`, which is the retry storm the spec forbids.
+   */
+  private readonly retryState = new Map<string, RetryState>();
+  /**
+   * True while `initialize()` is walking the registration order (mt#3635).
+   *
+   * Retries are suppressed for the duration. A dependent's factory calls
+   * `c.get("persistence")` DURING boot, which would otherwise kick off a retry
+   * whose success path re-resolves that same dependent concurrently with the
+   * boot loop's own resolution of it — two writers for one key, with the boot
+   * loop's `register()` landing last and silently reinstating the value built
+   * against the degraded provider. Enrollment happens at boot; retrying starts
+   * once the container is up, which is also what "re-attempts on subsequent
+   * use" means.
+   */
+  private initializing = false;
+  /**
    * Keys explicitly overridden via `set()` (PR #2113 R2 review). Once a
    * caller has manually provided an instance for a key, NOTHING should
    * silently replace it — including a background `retryDeferred()` attempt
@@ -202,7 +278,7 @@ export class TsyringeContainer implements AppContainerInterface {
     // (the retry just fails again and the placeholder stays in place), and
     // self-healing when the underlying resource has recovered since boot.
     // This call never blocks or throws; it only affects FUTURE get() calls.
-    if (this.deferredKeys.has(String(key))) {
+    if (!this.initializing && this.deferredKeys.has(String(key))) {
       this.retryDeferred(String(key));
     }
     return this.tsyringe.resolve(key) as AppServices[K];
@@ -219,6 +295,20 @@ export class TsyringeContainer implements AppContainerInterface {
     if (this.retryInFlight.has(key)) return;
     const registration = this.factories.get(key);
     if (!registration) return;
+    // Backoff gate (mt#3635). `get()` calls this opportunistically on every
+    // resolution of a deferred key, so without a floor the attempt rate is the
+    // process's call rate — a retry storm against the very dependency that is
+    // already failing. A blocked attempt costs one map lookup.
+    const state = this.retryState.get(key) ?? {
+      lastAttemptAtMs: null,
+      delayMs: RETRY_MIN_INTERVAL_MS,
+    };
+    const nowMs = Date.now();
+    if (state.lastAttemptAtMs !== null && nowMs - state.lastAttemptAtMs < state.delayMs) {
+      return;
+    }
+    state.lastAttemptAtMs = nowMs;
+    this.retryState.set(key, state);
     this.retryInFlight.add(key);
     // NOTE: the factory call MUST happen inside this async IIFE's try block,
     // not as a bare expression passed to Promise.resolve(). A factory that
@@ -250,13 +340,101 @@ export class TsyringeContainer implements AppContainerInterface {
         // passes if this second `register()` call actually wins over the
         // first.
         this.tsyringe.register(key, { useValue: instance });
+        // mt#3635: the factory may hand back ANOTHER degraded substitute —
+        // the dependency is still down. That is not a success: keep the key
+        // enrolled, record the attempt on the substitute so `persistence_check`
+        // and `/health` can distinguish "stuck since boot" from "retried at
+        // <ts> and still failing" (ADR-035 rule 4), and widen the backoff.
+        const stillDegraded = asDegradedSubstitute(instance);
+        if (stillDegraded) {
+          stillDegraded.noteRetryAttempt(new Date(), `re-initialization failed for "${key}"`);
+          this.widenBackoff(key);
+          return;
+        }
         this.deferredKeys.delete(key);
-      } catch {
-        // Still unavailable — leave the placeholder in place, try again later.
+        this.retryState.delete(key);
+        // The dependency recovered. Keys registered AFTER this one may have
+        // captured the degraded value at their own construction time and are
+        // memoized as `useValue`, so they would keep serving it forever — the
+        // reason a healed `persistence` key alone does not restore
+        // `taskService`. Rebuild them.
+        this.reresolveDependents(key);
+      } catch (err) {
+        // Still unavailable — leave the substitute in place and try again
+        // later, on a widened delay. Record the attempt against the currently
+        // registered substitute, if it is one, for the same reporting reason as
+        // the still-degraded branch above.
+        const current = this.tsyringe.isRegistered(key)
+          ? asDegradedSubstitute(this.tsyringe.resolve(key))
+          : null;
+        current?.noteRetryAttempt(new Date(), err instanceof Error ? err.message : String(err));
+        this.widenBackoff(key);
       } finally {
         this.retryInFlight.delete(key);
       }
     })();
+  }
+
+  /**
+   * Double this key's retry delay, capped (mt#3635). Called on every attempt
+   * that did not restore the dependency, so a long outage settles at the cap
+   * instead of hammering at the floor for hours.
+   */
+  private widenBackoff(key: string): void {
+    const state = this.retryState.get(key);
+    if (!state) return;
+    state.delayMs = Math.min(state.delayMs * 2, RETRY_MAX_INTERVAL_MS);
+  }
+
+  /**
+   * Rebuild every key registered AFTER `recoveredKey` (mt#3635).
+   *
+   * `initialize()` resolves each key eagerly and memoizes it with
+   * `useValue`, so a dependent that captured the degraded substitute at its own
+   * construction time keeps serving it for the life of the process even after
+   * the dependency recovers — `taskService` registers zero task backends when
+   * built against a degraded provider, and swapping the provider underneath it
+   * changes nothing. Re-running the dependents' factories is what actually
+   * restores service.
+   *
+   * Registration order is a deliberate over-approximation: this container
+   * tracks the order keys were registered but not a dependency graph, and a
+   * factory's `c.get(...)` calls are opaque to it. Rebuilding a key that did not
+   * actually depend on the recovered one is wasted work, not incorrect work.
+   * (ADR-035 names the eager-resolution design itself as a known deviation and
+   * explicitly does not authorize reworking it here.)
+   *
+   * Each key is rebuilt independently: one failing factory must not prevent the
+   * rest from recovering. A key whose rebuild fails keeps its existing value and
+   * is enrolled for its own retry if what it produced is itself degraded.
+   */
+  private reresolveDependents(recoveredKey: string): void {
+    const startIndex = this.registrationOrder.indexOf(recoveredKey);
+    if (startIndex === -1) return;
+    const dependents = this.registrationOrder.slice(startIndex + 1);
+    for (const dependentKey of dependents) {
+      // A manual override is the caller's explicit instance — never clobber it,
+      // the same contract `set()` establishes against in-flight retries.
+      if (this.manuallyOverridden.has(dependentKey)) continue;
+      const registration = this.factories.get(dependentKey);
+      if (!registration) continue;
+      void (async () => {
+        try {
+          const instance = await Promise.resolve(registration.factory(this));
+          if (this.manuallyOverridden.has(dependentKey)) return;
+          this.tsyringe.register(dependentKey, { useValue: instance });
+          if (asDegradedSubstitute(instance)) {
+            this.deferredKeys.add(dependentKey);
+          } else {
+            this.deferredKeys.delete(dependentKey);
+            this.retryState.delete(dependentKey);
+          }
+        } catch {
+          // This dependent could not be rebuilt yet. Leave its current value in
+          // place; if it is a deferred key it retries on its own schedule.
+        }
+      })();
+    }
   }
 
   has<K extends ServiceKey>(key: K): boolean {
@@ -264,6 +442,15 @@ export class TsyringeContainer implements AppContainerInterface {
   }
 
   async initialize(): Promise<void> {
+    this.initializing = true;
+    try {
+      await this.resolveAllRegistrations();
+    } finally {
+      this.initializing = false;
+    }
+  }
+
+  private async resolveAllRegistrations(): Promise<void> {
     for (const key of this.registrationOrder) {
       // Skip services already provided via set()
       if (this.tsyringe.isRegistered(key)) continue;
@@ -274,6 +461,20 @@ export class TsyringeContainer implements AppContainerInterface {
       try {
         const instance = await Promise.resolve(registration.factory(this));
         this.tsyringe.register(key, { useValue: instance });
+        // mt#3635 / ADR-035 rule 1: a factory that CONVERTED a failure into a
+        // substitute value resolved "successfully" as far as this loop is
+        // concerned, so the catch branch below never sees it and the key was
+        // never enrolled for retry. Enroll it here instead.
+        //
+        // The substitute stays REGISTERED rather than being swapped for the
+        // throw-on-access placeholder: the diagnostic surface (`/health`,
+        // `persistence_check`, `config_*`) has to keep answering while the data
+        // plane is down — that is ADR-035 rule 5, and mt#3636 owns the
+        // data-plane honesty half. Enrolling for retry and replacing the value
+        // are independent, and only the first is wanted here.
+        if (asDegradedSubstitute(instance)) {
+          this.deferredKeys.add(key);
+        }
       } catch (err) {
         // Boot-tolerant deferral (mt#2349): a factory may fail because a
         // required resource is unavailable at boot — specifically, the absence
@@ -312,6 +513,7 @@ export class TsyringeContainer implements AppContainerInterface {
     this.tsyringe.reset();
     this.deferredKeys.clear();
     this.retryInFlight.clear();
+    this.retryState.clear();
     this.manuallyOverridden.clear();
   }
 }

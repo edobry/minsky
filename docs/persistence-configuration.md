@@ -598,3 +598,77 @@ threshold was hit (~9 s later).
 | `src/cockpit/shared-persistence.ts`     | `startDbRetryBackoff`, `markDbDegraded`, `getDbStatus`, `PersistenceInitTimeoutError` |
 | `src/commands/cockpit/start-command.ts` | `isDbDegradationError`, `unhandledRejection` handler                                  |
 | `src/cockpit/server.ts`                 | `/api/health` endpoint (`db: getDbStatus()`)                                          |
+
+## Boot-time init failure: re-initialization on use (mt#3635)
+
+Applies to every process built on the DI container — the MCP server and the CLI.
+(The cockpit daemon has its own singleton and its own recovery path, documented above and in
+mt#3638; this section is not about that one.)
+
+### What happens when initialization fails at boot
+
+`createDomainContainer()`'s persistence factory is boot-tolerant: when a Postgres connection IS
+configured but `initialize()` fails — an unreachable host, bad credentials, a migration error — it
+returns `UnconfiguredPersistenceProvider` instead of throwing, so the process still starts and
+`/health`, `config_*`, and `persistence_check` keep answering.
+
+That substitute is now **enrolled for re-initialization**. On a later `container.get("persistence")`
+the container re-runs the factory in the background; if it succeeds, the real provider replaces the
+substitute AND every service registered after it is rebuilt, because services capture the provider
+at their own construction time and would otherwise keep serving the degraded one. No process
+restart or `/mcp` reconnect is required.
+
+Before mt#3635 nothing retried: a transient failure at boot — the originating case was a ~20-second
+DNS blip — left the process degraded for its entire lifetime. Per ADR-035, that is the class the
+rule "a composition root must not register a substitute value for a failed initialization without
+also registering the retry" exists to close.
+
+### Retry schedule
+
+| Property              | Value                                        |
+| --------------------- | -------------------------------------------- |
+| Trigger               | a `get()` of the affected key                |
+| Minimum interval      | 10 s (`RETRY_MIN_INTERVAL_MS`)               |
+| Backoff               | doubles per failed attempt, reset on success |
+| Ceiling               | 5 min (`RETRY_MAX_INTERVAL_MS`)              |
+| Concurrency           | at most one attempt in flight per key        |
+| During `initialize()` | suppressed                                   |
+
+Attempts are usage-gated, so there is no fixed attempt cap: a process that stops calling stops
+retrying. The 10 s floor is what prevents a busy process from re-attempting once per call.
+
+This is a **cross-call re-initialization** and is distinct from `withPgPoolRetry` (mt#1193, the
+3-attempt / 150 ms / 2 s-cap schedule documented above), which is a **within-call** retry for pool
+saturation on an already-initialized client. They compose: a re-init attempt runs a full
+`PersistenceService.initialize()`, which uses `withPgPoolRetry` internally.
+
+### Telling a stuck process from a live outage
+
+Both `persistence_check` and the persistence block of `/health` report the last re-init attempt:
+
+- **No attempt recorded** — nothing has been retried since boot. `persistence_check` says
+  "No re-initialization has been attempted since boot"; `assessPersistenceHealth` omits
+  `lastAttemptAt`.
+- **An attempt recorded** — the provider is retrying and the database is still unreachable.
+  Both surfaces name the attempt timestamp and its error, and `persistence_check` says explicitly
+  that no restart is needed.
+
+The distinction is the point: the first state calls for a restart, the second for fixing the
+database, and before mt#3635 the two produced identical output.
+
+### Verifying it
+
+`bun scripts/verify-persistence-self-heal.ts` drives the whole arc against a real Postgres —
+initialization failing with `getaddrinfo ENOTFOUND`, then recovering on a later use with no
+restart, the dependent service rebuilt, and the rate limit holding. It skips with exit 0 when no
+database is reachable; point it at one with `INTEGRATION_POSTGRES_URL`.
+
+### Related files
+
+| File                                                       | Role                                                |
+| ---------------------------------------------------------- | --------------------------------------------------- |
+| `packages/domain/src/composition/container.ts`             | enrollment, backoff, dependent rebuild              |
+| `packages/domain/src/composition/domain.ts`                | the persistence factory that returns the substitute |
+| `packages/domain/src/persistence/unconfigured-provider.ts` | `DegradedSubstitute` marker + attempt bookkeeping   |
+| `packages/domain/src/persistence/health.ts`                | `lastAttemptAt` on the liveness surface             |
+| `packages/domain/src/persistence/validation-operations.ts` | `persistence_check`'s retry-state report            |

@@ -36,6 +36,50 @@ export class PersistenceUnavailableError extends Error {
   }
 }
 
+/**
+ * Structural marker for a substitute value a composition root registered in
+ * place of a FAILED initialization (ADR-035 rule 1).
+ *
+ * A composition root "must not register a substitute value for a failed
+ * initialization without also registering the retry." The container implements
+ * that retry generically, so it needs to recognize such a substitute WITHOUT
+ * importing the persistence layer — exactly the reason `bootDeferrable` above
+ * is a structural property rather than an imported class. This is its
+ * mirror-image for the returned-value path: `bootDeferrable` marks a failure
+ * that was THROWN, this marks a failure that was CONVERTED INTO A VALUE.
+ *
+ * Deliberately NOT set for the deliberately-unconfigured boot path. ADR-035
+ * rule 3 requires "configured but failing" to stay distinguishable from "not
+ * configured": the second is a healthy, expected local/dev/offline state with
+ * nothing to retry, and enrolling it would churn re-init attempts forever on a
+ * laptop that simply has no database.
+ */
+export interface DegradedSubstitute {
+  /** True only when this stands in for a failure that could later clear. */
+  readonly degradedSubstitute: boolean;
+  /**
+   * ISO timestamp of the last re-initialization attempt, or `undefined` when
+   * none has been made since boot. The absent case is load-bearing: it is what
+   * distinguishes "stuck since boot" from "still retrying against a real
+   * outage" (ADR-035 rule 4).
+   */
+  readonly lastAttemptAt?: string;
+  /** Error from the last re-initialization attempt, when one has been made. */
+  readonly lastAttemptError?: string;
+  /** Record a re-initialization attempt that did not succeed. */
+  noteRetryAttempt(at: Date, error: string): void;
+}
+
+/**
+ * Structural type guard for {@link DegradedSubstitute}. Returns false for a
+ * substitute whose `degradedSubstitute` is false (the unconfigured path).
+ */
+export function isDegradedSubstitute(value: unknown): value is DegradedSubstitute {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<DegradedSubstitute>;
+  return candidate.degradedSubstitute === true && typeof candidate.noteRetryAttempt === "function";
+}
+
 const NO_CAPABILITIES: PersistenceCapabilities = {
   sql: false,
   transactions: false,
@@ -71,6 +115,33 @@ export class UnconfiguredPersistenceProvider extends PersistenceProvider {
     readonly configuredButUnavailable: boolean = false
   ) {
     super();
+  }
+
+  /**
+   * Enrolls this placeholder for container-driven re-initialization (mt#3635)
+   * when — and only when — it stands in for a configured backend that FAILED.
+   * See {@link DegradedSubstitute} for why the unconfigured path is excluded.
+   */
+  get degradedSubstitute(): boolean {
+    return this.configuredButUnavailable;
+  }
+
+  private _lastAttemptAt: string | undefined;
+  private _lastAttemptError: string | undefined;
+
+  /** ISO timestamp of the last re-init attempt; undefined means never retried. */
+  get lastAttemptAt(): string | undefined {
+    return this._lastAttemptAt;
+  }
+
+  /** Error from the last re-init attempt; undefined means never retried. */
+  get lastAttemptError(): string | undefined {
+    return this._lastAttemptError;
+  }
+
+  noteRetryAttempt(at: Date, error: string): void {
+    this._lastAttemptAt = at.toISOString();
+    this._lastAttemptError = error;
   }
 
   getCapabilities(): PersistenceCapabilities {
