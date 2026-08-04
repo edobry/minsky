@@ -51,6 +51,7 @@ import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 import { createHash } from "node:crypto";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
@@ -314,7 +315,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "§Escalation packaging and file it via `mcp__minsky__asks_create` (kind direction.decide) " +
         "NOW — or cite the id of an existing open ask."
     );
-    for (const m of principal) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push(...cappedEvidenceLines(principal, (m) => `  - "${m.matchedPhrase}"`));
     lines.push("");
   }
   if (menu.length > 0) {
@@ -325,7 +326,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "Class C (genuinely principal-reserved → package + asks_create). Run the lookups first; " +
         "most menus collapse to one obvious action."
     );
-    for (const m of menu) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push(...cappedEvidenceLines(menu, (m) => `  - "${m.matchedPhrase}"`));
     lines.push("");
   }
 
