@@ -16,7 +16,8 @@ the closed set of already-catalogued terms.
 
 - The family's first non-prose, non-post-hoc fix in six recurrences. Six prose fixes shipped DONE
   and it recurred; the one enforcement-tier fix is structurally post-hoc.
-- Costs a check on roughly twenty files, edited a few times a day — not a per-turn cost.
+- Costs a check on the always-loaded rule set only — a few dozen files, edited a few times a day.
+  Not a per-turn cost.
 - Fails toward false positives an author can fix in one line, never toward silent misses. This is
   the property that separates it from the allowlist ADR-034 rejected.
 - Does not touch brand, essay, or marketing surfaces: they are not always-loaded artifacts, so the
@@ -102,8 +103,18 @@ the glossary is worth having even if the gate below were never built.
 
 Fires on a write that introduces a term to an **always-loaded artifact** — a `.minsky/rules/*.mdc`
 with `alwaysApply: true`, and the `CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` outputs they compile
-to. Measured 2026-08-04: **24 source rules** carry `alwaysApply: true`, so the matched surface is
-those 24 plus their compiled outputs.
+to.
+
+**The matched set is derived, not enumerated.** The implementing guard must compute it at run time
+from the frontmatter, never from a number written here:
+
+```
+grep -l 'alwaysApply: true' .minsky/rules/*.mdc
+```
+
+That returned 24 rules on 2026-08-04 — an illustrative figure for sizing the cost, not a constant.
+It drifts every time a rule is admitted or retired, which is exactly why the predicate reads the
+frontmatter instead.
 
 The predicate is deliberately not "is this word approved?" It is: **does this write introduce a
 term that is neither defined in the write itself nor present in the glossary?** Define-at-first-use,
@@ -111,8 +122,8 @@ checked mechanically, against a registry.
 
 **Scope is by path, and that is what makes the voice-surface carve-out structural.** `pz-voice`,
 `minsky-brand`, `marketing-site-design`, and `engineering-writing` are all SKILLS
-(`.minsky/skills/<name>/`), and zero of the 24 always-loaded rules is a voice, brand, marketing, or
-writing surface — verified by grep, 2026-08-04. Essays, RFCs, and site copy are outputs of those
+(`.minsky/skills/<name>/`), and no always-loaded rule is a voice, brand, marketing, or writing
+surface — verified by grep over the derived set above, 2026-08-04. Essays, RFCs, and site copy are outputs of those
 skills and are not corpus artifacts at all. The gate never sees any of it: not by an exemption list
 someone has to remember to maintain, but because those writes are outside the matched paths.
 Skills are outside for a reason beyond convenience — a skill body is loaded when an agent is
