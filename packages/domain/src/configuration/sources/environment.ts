@@ -352,6 +352,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_UNTAKEN_ACTION", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
   "MINSKY_ACK_UNWALKED_TASK", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
   "MINSKY_ACK_UNESCALATED_INCIDENT", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
+  "MINSKY_SKIP_STOP_AT_DECISION", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
   "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 

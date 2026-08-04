@@ -92,6 +92,11 @@ export interface CalibrationLogEntry {
    *   kind rather than reusing "retrospective-trigger" because the registry
    *   invariant (PR #2263 R1) requires kind values to be unique per entry —
    *   that uniqueness is what keeps the fire-log guard-name mapping 1:1.
+   * "stop-at-decision"         → record.targets: {taskId, status}[] (mt#3653) —
+   *   the turn-end stop-at-decision scan (family:stop-at-handoff R5). NOT a
+   *   matched-phrase record: diversity is measured over distinct target task
+   *   ids — the signal is "how many different decision-owning tasks got
+   *   silently stopped at," mirroring knowledge-acquisition's non-phrase axis.
    */
   kind:
     | "causal-premise"
@@ -107,7 +112,8 @@ export interface CalibrationLogEntry {
     | "constructed-identifier-batch"
     | "operator-deferral"
     | "untaken-action"
-    | "retrospective-completeness";
+    | "retrospective-completeness"
+    | "stop-at-decision";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -364,6 +370,29 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // the shared matched-phrase fallback branch.
     kind: "retrospective-completeness",
   },
+  {
+    path: ".minsky/stop-at-decision-calibration.jsonl",
+    name: "stop-at-decision",
+    // mt#3653 — turn-end stop-at-decision scan (family:stop-at-handoff R5):
+    // an evidence-write into a non-bound open task with no discharge call in
+    // the same turn. Record shape is its own (`targets: {taskId, status}[]`),
+    // parsed by a dedicated branch; diversity is measured over distinct
+    // target task ids.
+    kind: "stop-at-decision",
+    // mt#3078 pattern: the date the detector's full invocation path —
+    // dispatcher -> registry -> run() -> transcript parse -> detection ->
+    // calibration write — was PROVEN alive via a live synthetic
+    // positive/negative-control probe (positive wrote one record with a real
+    // CLI status read; negative — same turn plus an asks_create — wrote
+    // none). The trigger is a rare COMPOUND condition (evidence-write +
+    // non-bound + open target + no discharge + no marker), so zero real
+    // fires for a stretch is plausible without the detector being broken.
+    //
+    // Evidence artifact (cite the permanent record, not just this comment):
+    // the mt#3653 PR body's "Live verification" section carries the actual
+    // positive/negative-control transcript this date is derived from.
+    liveSinceDate: "2026-08-04",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -608,6 +637,22 @@ export interface KnowledgeAcquisitionRecord {
 }
 
 /**
+ * Parsed stop-at-decision calibration record (mt#3653).
+ *
+ * NOT a matched-phrase record — a per-turn record of an evidence-write into a
+ * non-bound open task with no discharge call in the same turn. `targets` is
+ * the diversity axis (distinct task ids; see `extractDistinctPhrases` below).
+ * Mirrors the exact fields `.minsky/hooks/stop-at-decision-scan.ts` returns;
+ * the remaining bookkeeping fields (boundTaskIds, specPatchCount, ...) pass
+ * through `detectorFields`.
+ */
+export interface StopAtDecisionRecord {
+  timestamp: string;
+  session_id?: string;
+  targets: Array<{ taskId: string; status: string }>;
+}
+
+/**
  * Fields every calibration record may carry regardless of its detector
  * (mt#3197). Kept as an intersection rather than repeated on all eight member
  * types so a new record kind inherits it automatically.
@@ -676,6 +721,7 @@ export type CalibrationRecord = (
   | WallOfTextRecord
   | BuildClaimInjectionRecord
   | KnowledgeAcquisitionRecord
+  | StopAtDecisionRecord
 ) &
   SharedCalibrationFields;
 
@@ -1039,6 +1085,25 @@ function parseCalibrationRecordCore(
       } satisfies KnowledgeAcquisitionRecord;
     }
 
+    if (kind === "stop-at-decision") {
+      // Shape: { timestamp, session_id?, targets: [{taskId, status}][], ... }
+      // Mirrors the exact record `.minsky/hooks/stop-at-decision-scan.ts`
+      // returns (mt#3653). Not a matched-phrase record — `targets` is the
+      // diversity axis (see extractDistinctPhrases).
+      if (!Array.isArray(raw["targets"])) return null;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        targets: (raw["targets"] as unknown[]).map((t) => {
+          const obj = t as Record<string, unknown>;
+          return {
+            taskId: String(obj["taskId"] ?? ""),
+            status: String(obj["status"] ?? "unknown"),
+          };
+        }),
+      } satisfies StopAtDecisionRecord;
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
@@ -1131,6 +1196,13 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // silent-stretch; the fallback label's VALUE is the shared generic
       // "unknown-session" string.
       phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
+    } else if ("targets" in rec) {
+      // stop-at-decision (mt#3653): diversity axis = distinct target task
+      // ids — "how many different decision-owning tasks got silently stopped
+      // at," the same non-phrase move as knowledge-acquisition below.
+      for (const t of rec.targets) {
+        phrases.add(t.taskId);
+      }
     } else if ("loadedSkills" in rec) {
       // knowledge-acquisition (mt#2708): diversity axis = distinct loaded-
       // skill names, not matched phrases or a session/conversation id —
@@ -1780,6 +1852,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
   "retrospective-completeness": "retrospective-completeness-detector",
+  "stop-at-decision": "stop-at-decision-scan",
 };
 
 /**

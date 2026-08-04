@@ -1673,6 +1673,25 @@ const KIND_FIXTURES: Readonly<
       }),
     expectedGuardName: "retrospective-completeness-detector",
   },
+  "stop-at-decision": {
+    // mt#3653 — its OWN record shape (`targets: {taskId, status}[]`), not the
+    // matched-phrase family: an evidence-write into a non-bound open task
+    // with no discharge call in the same turn. Diversity axis = distinct
+    // target task ids.
+    line: () =>
+      JSON.stringify({
+        source: "live",
+        channel: "stop",
+        timestamp: "2026-08-04T07:00:00Z",
+        session_id: "test-session",
+        targets: [{ taskId: "mt#3521", status: "TODO" }],
+        boundTaskIds: ["mt#3639"],
+        specPatchCount: 1,
+        memoryCreateCount: 0,
+        suppressionReasons: [],
+      }),
+    expectedGuardName: "stop-at-decision-scan",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
