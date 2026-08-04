@@ -387,7 +387,7 @@ Structure source code so tests don't need complex mocking:
   value the function returns or a dependency it was handed, that's design feedback, not a
   testing problem — extract the decision into a function that returns the observable, inject the
   collaborator, and keep production code as a thin imperative shell around the pure core.
-  In-place patching (`spyOn`) is banned outright, not just discouraged — see
+  In-place patching (`spyOn`) is banned outright — see
   [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
   the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
   shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
@@ -1273,6 +1273,13 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
   `MINSKY_ALLOW_SECRET_FILE_READ`.
+- **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
+  `Duplicate check:` line (either named candidates + reconciliation, or the literal
+  `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity
+  judgment — the advisory sibling in `parallel-work-guard-standalone.ts` owns that and provably
+  can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
+  `/create-task` Step 1a is skipped by calling the tool directly.
+  `MINSKY_SKIP_DUPLICATE_RECORD`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
