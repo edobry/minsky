@@ -71,18 +71,23 @@ describe("ConversationView — driven-session variant (mt#2751)", () => {
     expect(screen.getByText("Hello")).toBeDefined();
   });
 
-  test("shared code path: ConversationThread's tail-first windowing (mt#2433) applies identically to driven blocks", () => {
+  test("shared code path: ConversationThread's tail-first windowing (mt#2433) applies identically to driven blocks", async () => {
     const blocks = Array.from({ length: 120 }, (_, i) => assistantBlock(i, `driven-turn-${i}`));
     renderDriven("driven-windowed", blocks);
 
     // Same windowing behavior as ConversationView.windowing.test.tsx's DB-snapshot
-    // case: newest 50 turns visible, oldest 70 hidden behind "Show older".
+    // case: newest 50 turns visible, oldest 70 hidden behind the start boundary.
     expect(screen.getByText("driven-turn-119")).toBeDefined();
     expect(screen.getByText("driven-turn-70")).toBeDefined();
     expect(screen.queryByText("driven-turn-0")).toBeNull();
-    expect(screen.getByText("Show older (70 more)")).toBeDefined();
+    expect(screen.getByTestId("thread-hidden-above").textContent).toContain("70 earlier turns");
 
-    fireEvent.click(screen.getByText("Show older (70 more)"));
-    expect(screen.getByText("driven-turn-0")).toBeDefined();
+    fireEvent.click(screen.getByText("show more"));
+    // AWAITED, not asserted synchronously: the reveal runs inside a React
+    // transition (mt#3688), so it is asynchronous by construction.
+    await screen.findByText("driven-turn-0");
+    // Revealing to the start replaces the boundary with the beginning marker
+    // rather than leaving blank space (mt#3688).
+    expect(screen.getByTestId("thread-start")).toBeDefined();
   });
 });
