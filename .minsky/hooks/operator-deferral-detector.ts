@@ -64,13 +64,21 @@ import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+} from "./judged-input-capture";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
 // an emoji. Same cross-tree import the standalone parallel-work guard uses.
 import { safeTruncate } from "../../src/utils/safe-truncate";
 
-/** Max chars of matched text carried into a calibration record. */
-const MATCH_EXCERPT_MAX_CHARS = 200;
+// The former `MATCH_EXCERPT_MAX_CHARS = 200` is gone (PR #2687 R1): the bound on
+// captured text is now `MATCH_CONTEXT_MAX_CHARS` inside the shared
+// `judged-input-capture` module, which is where the truncation happens. Keeping
+// a second, unused cap here would be exactly the divergence that consolidation
+// removed.
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -100,7 +108,51 @@ export type DeferralSurface =
 
 export interface DeferralMatch {
   surface: DeferralSurface;
+  /**
+   * The PATTERN text that matched — `m[0]`, not the window around it (mt#3781).
+   *
+   * This field is written to the calibration record as `phrase`, and `phrase`
+   * is what `extractDistinctPhrases` (`src/domain/calibration/calibration-sweep.ts`)
+   * uses as this log's diversity axis. `computeLogResult` gates review-due on
+   * that axis with an explicit purpose — *"Ten identical fires are NOT a review
+   * signal, they're a uniform pattern; keep collecting until diversity
+   * arrives."*
+   *
+   * Until mt#3781 this field held a ±window SNIPPET of surrounding prose. No
+   * two fires are ever byte-equal under that shape, so the diversity bar was
+   * satisfied by construction and the gate was INERT — it could never hold back
+   * the uniform pattern it exists to hold back. The pattern text restores the
+   * intended meaning: two fires on the same trigger phrase count once.
+   */
   matchedPhrase: string;
+  /**
+   * The surrounding prose the pattern was found in — what `matchedPhrase` used
+   * to hold (mt#3781).
+   *
+   * Kept because it is what makes a fire CLASSIFIABLE by a human reviewer — a
+   * bare pattern hit cannot distinguish a real deferral from a quotation of one
+   * — and because it is what the guard's advisory line renders.
+   *
+   * Extracted by the SHARED `extractMatchContext` (mt#3607), not this module's
+   * former ±20/+60 window (PR #2687 R1) — so this detector does not carry its
+   * own copy of a problem three others already solved, and the window reads as
+   * prose instead of clipping mid-word.
+   *
+   * `leadSentences: 1` on the prose surfaces, and the reason is the same one
+   * mt#3607 measured for `ask-routing-deferral`: this corpus's triggers are
+   * frequently WHOLE SENTENCES (`Deferred to operator: requires Railway
+   * access.`), and for those the containing sentence alone is byte-identical
+   * across two fires — it would carry no more information than `matchedPhrase`
+   * already does. The old ±20 window happened to include a fragment of the
+   * preceding clause; one lead sentence is that property, done deliberately.
+   * The ask-option-label surface takes the default: a label is the unit, and
+   * there is no preceding sentence to reach for.
+   *
+   * The 240-char cap is wider than the old 200, so the guard's rendered
+   * advisory was re-measured against its declared `attentionCost` ceiling
+   * rather than assumed to still fit.
+   */
+  context: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,11 +376,11 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
     const m = pattern.exec(scanned);
     if (m) {
       const idx = m.index ?? 0;
-      const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
       return [
         {
           surface: "capability-deferral-prose",
-          matchedPhrase: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
+          matchedPhrase: m[0].trim(),
+          context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
         },
       ];
     }
@@ -456,7 +508,10 @@ export function detectAskDeferral(
   for (const text of optionTexts) {
     // Match against the quote-STRIPPED form (see the doc comment above), but
     // report the ORIGINAL label — the calibration record should show what the
-    // agent actually wrote, not a normalized rewrite of it.
+    // agent actually wrote, not a normalized rewrite of it. That intent is
+    // preserved by `context` (mt#3781); `matchedPhrase` carries the pattern hit
+    // so the log's diversity axis counts trigger phrases rather than labels,
+    // which are near-unique per fire.
     const matchable = stripQuoteChars(text);
     for (const pattern of ASK_PRINCIPAL_ACTION_PATTERNS) {
       const m = pattern.exec(matchable);
@@ -464,7 +519,10 @@ export function detectAskDeferral(
         return [
           {
             surface: "ask-option-label",
-            matchedPhrase: safeTruncate(text, MATCH_EXCERPT_MAX_CHARS, "head"),
+            matchedPhrase: m[0].trim(),
+            // The option label IS the surrounding text here, so the shared
+            // helper is handed the label and the match's offset within it.
+            context: extractMatchContext(text, m.index ?? 0, m[0].length),
           },
         ];
       }
@@ -504,11 +562,11 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
     const idx = m.index ?? 0;
     const sentence = sentenceAround(scanned, idx);
     if (PERMISSION_ESCALATION_EXCLUSIONS.some((x) => x.test(sentence))) continue;
-    const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
     return [
       {
         surface: "permission-deferral-prose",
-        matchedPhrase: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
+        matchedPhrase: m[0].trim(),
+        context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
       },
     ];
   }
@@ -621,7 +679,16 @@ export function buildCalibrationRecord(
     session_id: sessionId,
     injection_enabled: INJECTION_ENABLED,
     source: "live",
-    matches: matches.map((m) => ({ category: m.surface, phrase: m.matchedPhrase })),
+    // mt#3781: `phrase` is the sweep's diversity axis, so it carries the PATTERN
+    // hit; `context` carries the surrounding prose that used to occupy `phrase`.
+    // Both, because the axis needs the first to be meaningful and a human
+    // reviewer needs the second to classify the fire at all.
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    matches: matches.map((m) => ({
+      category: m.surface,
+      phrase: m.matchedPhrase,
+      context: m.context,
+    })),
   };
 }
 
@@ -641,7 +708,12 @@ function appendCalibrationRecord(cwd: string | undefined, record: Record<string,
 export function buildReminder(matches: DeferralMatch[]): string {
   const lines = ["[operator-deferral-detector] You deferred an action to the principal.", ""];
   for (const m of matches) {
-    lines.push(`  - (${m.surface}) "${m.matchedPhrase}"`);
+    // Renders `context`, not `matchedPhrase` (mt#3781). Per
+    // `guard-feedback-authoring.md`, the quoted-evidence line exists so the
+    // agent can recognize a FALSE positive — the surrounding prose does that
+    // and a bare pattern hit does not. This is the same text the line rendered
+    // before the fix, so the guard's measured `attentionCost` is unchanged.
+    lines.push(`  - (${m.surface}) "${m.context}"`);
   }
   lines.push(
     "",
