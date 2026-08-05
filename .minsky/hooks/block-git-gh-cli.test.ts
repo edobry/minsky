@@ -11,6 +11,7 @@ import {
   splitOnShellOperators,
   splitOnShellOperatorsUnquoted,
   classifyRepoScope,
+  commandMayRelocateCwd,
   isCwdScopedInvocation,
   isMinskySessionPath,
   stripEnvVarAssignments,
@@ -1683,6 +1684,39 @@ describe("classifyRepoScope (mt#3788)", () => {
 
   it("returns indeterminate when cwd is absent (fail-closed)", () => {
     expect(classifyRepoScope(undefined, PROJECT, () => true)).toBe("indeterminate");
+  });
+});
+
+describe("commandMayRelocateCwd — vetoes the carve-out (PR #2685 R2)", () => {
+  it("fires on a chained cd, the permissive-direction bypass", () => {
+    // With input.cwd in a scratch repo the scope would be `external`, so
+    // without this veto the push would be carved out on a scope computed for
+    // a directory it never runs in.
+    expect(commandMayRelocateCwd(`cd ${FAKE_PROJECT_ROOT} && git push`)).toBe(true);
+    expect(commandMayRelocateCwd("git add -A; cd /elsewhere; git commit -m x")).toBe(true);
+  });
+
+  it("fires on pushd/popd and on env --chdir", () => {
+    expect(commandMayRelocateCwd("pushd /elsewhere && git push")).toBe(true);
+    expect(commandMayRelocateCwd("popd && git push")).toBe(true);
+    expect(commandMayRelocateCwd("env -C /elsewhere git push")).toBe(true);
+  });
+
+  it("fires on a nested shell and on subshell / command substitution", () => {
+    expect(commandMayRelocateCwd(`sh -c "cd ${FAKE_PROJECT_ROOT} && git push"`)).toBe(true);
+    expect(commandMayRelocateCwd("(cd /elsewhere; git push)")).toBe(true);
+    expect(commandMayRelocateCwd("TAG=$(cd /elsewhere && git log -1) git push")).toBe(true);
+  });
+
+  it("does not fire on an ordinary command with no relocation", () => {
+    expect(commandMayRelocateCwd("git add -A")).toBe(false);
+    expect(commandMayRelocateCwd("git add -A && git commit -m x")).toBe(false);
+    expect(commandMayRelocateCwd("ls | grep foo && git status")).toBe(false);
+  });
+
+  it("is not fooled by the word cd appearing inside a quoted argument", () => {
+    // Quote-aware splitting keeps this one segment whose binary is `git`.
+    expect(commandMayRelocateCwd(`git commit -m "cd into the thing"`)).toBe(false);
   });
 });
 

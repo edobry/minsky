@@ -122,6 +122,46 @@ export function isMinskySessionPath(path: string): boolean {
  * `indeterminate`, which callers treat as deny.
  */
 /**
+ * Whether a command string contains any construct that could move the working
+ * directory out from under `input.cwd` before a later segment runs.
+ *
+ * PR #2685 R2: the scope is resolved ONCE, from the cwd the harness reports at
+ * invocation time. That is only a true description of where a git command runs
+ * if nothing in the command relocates first. The bypass runs in the permissive
+ * direction — with `input.cwd` in a scratch repo (scope `external`),
+ * `cd /Users/edobry/Projects/minsky && git push` would be carved out on a scope
+ * computed for a directory the push never happens in.
+ *
+ * Rather than thread a simulated cwd through the segments — which would need a
+ * real shell model to get right, and would be wrong the first time it met a
+ * variable — this refuses the carve-out entirely whenever relocation is
+ * POSSIBLE. Detection is deliberately over-broad: a false hit costs the
+ * pre-mt#3788 behavior (a denial), which is the safe direction.
+ */
+export function commandMayRelocateCwd(command: string): boolean {
+  // Subshells and command substitution can carry a `cd` we never tokenize.
+  if (/[`(]/.test(command)) return true;
+
+  for (const segment of splitOnShellOperators(command)) {
+    const tokens = stripEnvVarAssignments(segment.split(/\s+/).filter((t) => t.length > 0));
+    if (tokens.length === 0) continue;
+    const [binary, ...rest] = tokens;
+    if (binary === "cd" || binary === "pushd" || binary === "popd" || binary === "chdir") {
+      return true;
+    }
+    // `env -C <dir> …` and a nested shell running an arbitrary script.
+    if (binary === "env" && rest.some((a) => a === "-C" || a.startsWith("--chdir"))) return true;
+    if (
+      (binary === "sh" || binary === "bash" || binary === "zsh" || binary === "dash") &&
+      rest.includes("-c")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Whether a parsed invocation's target repository is the one `input.cwd` names
  * — the only case the `external` scope carve-out may be applied to.
  *
@@ -918,7 +958,14 @@ if (import.meta.main) {
   // out — see `isCwdScopedInvocation` for why `gh` and path-redirecting git
   // flags never qualify. An early exit would have disabled every gh-policy
   // denial for anyone standing in a scratch directory.
-  const scope = context === "bash" ? classifyRepoScope(input.cwd) : "session";
+  //
+  // The scope is resolved ONCE from the reported cwd, so it only describes
+  // where a git command actually runs when nothing in the command relocates
+  // first (PR #2685 R2) — hence the `commandMayRelocateCwd` veto.
+  const scope =
+    context === "bash" && !commandMayRelocateCwd(command)
+      ? classifyRepoScope(input.cwd)
+      : "session";
 
   for (const parsed of parsedCommands) {
     if (scope === "external" && isCwdScopedInvocation(parsed)) {

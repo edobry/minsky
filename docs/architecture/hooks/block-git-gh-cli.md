@@ -72,6 +72,14 @@ actually IS the cwd — `isCwdScopedInvocation`. Four details are load-bearing:
 - **`session_exec` is never scoped out.** Its cwd is a session workspace by construction, and the
   `input.cwd` the hook receives for that tool is the harness shell's directory, not the session's
   — so the classification would be answering the wrong question.
+- **Any command that could relocate the cwd vetoes the carve-out entirely** —
+  `commandMayRelocateCwd`. The scope is resolved once, from the cwd reported at invocation, which
+  only describes where a git command runs if nothing moves first. The bypass is in the permissive
+  direction: with `input.cwd` in a scratch repo, `cd <project> && git push` would otherwise be
+  carved out on a scope computed for a directory the push never happens in (PR #2685 R2). The
+  detector covers `cd` / `pushd` / `popd`, `env -C`, a nested `sh -c`, and any subshell or command
+  substitution, and is deliberately over-broad — a false hit costs a denial, which is the safe
+  direction.
 
 Originating incident: a throwaway git repo in the agent scratchpad, created to reproduce a bun
 `--changed` defect in isolation for mt#3562, could not be seeded because `git add` was denied at a
