@@ -4783,7 +4783,7 @@
               "subcommands": [
                 {
                   "name": "credentials.list",
-                  "description": "List configured credentials (values never displayed)",
+                  "description": "List credential entries: managed providers plus schema-defined AI provider keys (presence only, values never displayed). Use `ai providers list` for AI provider status.",
                   "options": [
                     {
                       "flags": ["--json"],

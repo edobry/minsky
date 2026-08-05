@@ -134,6 +134,29 @@ export const aiProvidersConfigSchema = z
   .pipe(baseAiProvidersSchema);
 
 /**
+ * Every AI provider the configuration schema can hold a credential for, derived
+ * from the schema itself rather than restated (mt#3569).
+ *
+ * `aiProvidersConfigSchema` above wraps the base object in a `transform().pipe()`,
+ * which erases `.shape` — so a consumer that needs the key set cannot get it from
+ * the exported schema. That is why `config credentials list` maintained its own
+ * provider list and silently omitted `openai` and `morph`: there was no reachable
+ * derivation to use. Anything enumerating credential-bearing AI providers reads
+ * THIS, so adding a provider above is the only edit required.
+ */
+export const AI_PROVIDER_IDS: readonly string[] = Object.freeze(
+  Object.keys(baseAiProvidersSchema.shape)
+);
+
+/**
+ * Dotted config paths that hold a credential for `providerId`. Both count as
+ * "configured" — `aiValidation.hasApiKey` treats them equivalently.
+ */
+export function aiProviderCredentialPaths(providerId: string): readonly string[] {
+  return [`ai.providers.${providerId}.apiKey`, `ai.providers.${providerId}.apiKeyFile`];
+}
+
+/**
  * Complete AI configuration
  */
 export const aiConfigSchema = z

@@ -33,8 +33,24 @@ interface CredentialListing {
   displayName: string;
   configPath: string;
   configured: boolean;
+  /**
+   * "provider" — a managed credential: add/remove/recheck all work.
+   * "schema" — presence-only, derived from the config schema with no provider
+   * module behind it. `removeCredential` would throw "Unknown credential
+   * provider" for these, so the row must not offer the action (mt#3569).
+   *
+   * Optional for wire-compat with an older server that predates the field;
+   * `isManaged` treats a missing value as unmanaged, which fails safe — the
+   * worst case is a disabled button, not a throwing one.
+   */
+  source?: "provider" | "schema";
   lastValidatedAt?: string;
   lastValidationDetail?: string;
+}
+
+/** Whether this entry supports add/remove/recheck. See `source`. */
+function isManaged(listing: CredentialListing): boolean {
+  return listing.source === "provider";
 }
 
 interface CredentialCheckResult {
@@ -512,16 +528,28 @@ function CredentialRow({
         </span>
       )}
 
-      <Button
-        variant="ghost"
-        size="sm"
-        className="flex-shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
-        disabled={!listing.configured || isRemoving}
-        onClick={onRemove}
-        aria-label={`Remove ${listing.displayName} credential`}
-      >
-        {isRemoving ? "Removing..." : "Remove"}
-      </Button>
+      {isManaged(listing) ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="flex-shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
+          disabled={!listing.configured || isRemoving}
+          onClick={onRemove}
+          aria-label={`Remove ${listing.displayName} credential`}
+        >
+          {isRemoving ? "Removing..." : "Remove"}
+        </Button>
+      ) : (
+        // Presence-only row (mt#3569): no provider module backs it, so Remove
+        // would throw. Reserve the same width so rows stay aligned, and say WHY
+        // rather than rendering a mystery gap.
+        <span
+          className="flex-shrink-0 text-xs h-7 px-2 flex items-center text-muted-foreground"
+          title={`Detected from ${listing.configPath}. Managed in your config file, not through this UI.`}
+        >
+          config-only
+        </span>
+      )}
     </div>
   );
 }
