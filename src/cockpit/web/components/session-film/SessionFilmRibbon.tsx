@@ -288,13 +288,20 @@ interface ContentFetchState {
  * Always renders SOMETHING (loading / unavailable / not-recorded / no-content
  * / the real content) — never a bare loading state left hanging (mem#561).
  *
- * The `think` verb gets its own honest empty-state (mt#3276): a thinking block
- * ALWAYS arrives with empty text (the signature is kept for API replay; the
- * reasoning text is withheld server-side and never reaches the client — see
- * `event-schema.ts`'s EVENT_VERBS note for the evidence). Rendering that
- * through `ElementView` would produce a blank box, and the generic "No content
- * captured" copy would misattribute a harness limitation to a Minsky capture
- * gap. Both read as "something went wrong"; neither is true.
+ * The `think` verb gets its own honest empty-state (mt#3276, copy corrected
+ * mt#3790): on the models this project runs, a thinking block arrives with
+ * empty text because `thinking.display` defaults to `"omitted"` — the request
+ * never asks for a summary, so the API returns the signature (kept for replay)
+ * and no prose. See `event-schema.ts`'s EVENT_VERBS note for the vendor-doc
+ * citation and the dated per-model measurement, including the Haiku 4.5 case
+ * where the text IS returned and this branch correctly does not fire.
+ *
+ * Rendering an empty block through `ElementView` would produce a blank box, and
+ * the generic "No content captured" copy would read as a Minsky capture gap.
+ * Both say "something went wrong"; neither is true. The copy must also avoid
+ * the opposite error of blaming the harness or implying the reasoning is gone
+ * for good — what is permanently unavailable is the RAW chain of thought; a
+ * summary is available whenever it is requested.
  */
 function EventContentView({
   event,
@@ -340,7 +347,8 @@ function EventContentView({
           className="text-[11px] italic text-muted-foreground/60"
           data-testid="session-film-row-content-thinking-not-recorded"
         >
-          This harness does not record thinking text — only that thinking happened.
+          Thinking happened here, but its text was never requested — the API returns thinking
+          blocks empty unless a summary is asked for.
         </div>
       ) : resolved ? (
         <div className="text-[11px] text-foreground" data-testid="session-film-row-content-body">
