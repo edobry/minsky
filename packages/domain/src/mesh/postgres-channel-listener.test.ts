@@ -38,6 +38,12 @@ interface StubListenRecord {
 
 interface StubSql {
   listen(channel: string, callback: ListenCallback): Promise<ListenHandle>;
+  /** postgres-js teardown; `reconnect()` calls this on the wedged connection. */
+  end(opts?: { timeout?: number }): Promise<void>;
+  /** Internal: how many times end() was called. */
+  __endCalls: number;
+  /** Internal: make the NEXT end() call throw (a wedged conn may not close). */
+  __failNextEnd(err: Error): void;
   /** Internal: trigger a NOTIFY delivery to the channel's current callback. */
   __deliver(channel: string, raw: string): void;
   /** Internal: record of every listen() invocation in order. */
@@ -54,6 +60,8 @@ function createStubSql(): StubSql {
   let listenFailError: Error | null = null;
   let unlistensToFail = 0;
   let unlistenFailError: Error | null = null;
+  let endToFail = false;
+  let endFailError: Error | null = null;
 
   const stub: StubSql = {
     async listen(channel: string, callback: ListenCallback): Promise<ListenHandle> {
@@ -81,6 +89,21 @@ function createStubSql(): StubSql {
       };
       listens.push(record);
       return record.handle;
+    },
+
+    __endCalls: 0,
+
+    async end(): Promise<void> {
+      stub.__endCalls++;
+      if (endToFail) {
+        endToFail = false;
+        throw endFailError ?? new Error("stub: simulated end failure");
+      }
+    },
+
+    __failNextEnd(err: Error): void {
+      endToFail = true;
+      endFailError = err;
     },
 
     __deliver(channel: string, raw: string): void {
@@ -587,5 +610,222 @@ describe("createRecordingChannelListener", () => {
     listener.emit("raw", "input");
     expect(recv).toEqual(["parsed:input"]);
     expect(listener.capturedEvents).toEqual([{ channel: "raw", payload: "parsed:input" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Heartbeat / self-reconnect (mt#3497)
+// ---------------------------------------------------------------------------
+
+/**
+ * These drive `heartbeatTick()` directly rather than waiting on the interval —
+ * the tick returns its decision, so no timer and no spying is needed to observe
+ * the state machine.
+ */
+describe("PostgresChannelListener — heartbeat liveness", () => {
+  /** Wire a listener whose heartbeat emit delivers (healthy) or drops (wedged). */
+  function createHeartbeatHarness(opts?: { missesBeforeReconnect?: number }) {
+    let sql = createStubSql();
+    const reopened: StubSql[] = [];
+    /** When false, emit() is accepted but no NOTIFY comes back — a wedged conn. */
+    let delivering = true;
+    let emitShouldThrow: Error | null = null;
+
+    const listener = new PostgresChannelListener(
+      asSql(sql),
+      { initialBackoffMs: 1, maxBackoffMs: 2, maxAttempts: 3 },
+      {
+        emit: async (channel: string, payload: string) => {
+          if (emitShouldThrow) {
+            throw emitShouldThrow;
+          }
+          if (delivering) {
+            sql.__deliver(channel, payload);
+          }
+        },
+        reopen: async () => {
+          const fresh = createStubSql();
+          reopened.push(fresh);
+          sql = fresh;
+          return asSql(fresh);
+        },
+        intervalMs: 60_000,
+        missesBeforeReconnect: opts?.missesBeforeReconnect ?? 2,
+      }
+    );
+
+    return {
+      listener,
+      reopened,
+      currentSql: () => sql,
+      wedge: () => {
+        delivering = false;
+      },
+      unwedge: () => {
+        delivering = true;
+      },
+      failEmitWith: (err: Error | null) => {
+        emitShouldThrow = err;
+      },
+    };
+  }
+
+  test("a delivering connection reports alive and never reconnects", async () => {
+    const h = createHeartbeatHarness();
+    await h.listener.startHeartbeat();
+
+    // First tick has no prior beat to judge — it only publishes.
+    expect((await h.listener.heartbeatTick()).action).toBe("alive");
+    // Subsequent ticks judge the previous beat, which was delivered.
+    expect((await h.listener.heartbeatTick()).action).toBe("alive");
+    expect((await h.listener.heartbeatTick()).action).toBe("alive");
+
+    expect(h.reopened.length).toBe(0);
+    await h.listener.close();
+  });
+
+  test("silence past the miss threshold reconnects and re-establishes every channel", async () => {
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 2 });
+    await h.listener.startHeartbeat();
+    await h.listener.subscribe("mesh.a", () => {});
+    await h.listener.subscribe("mesh.b", () => {});
+
+    await h.listener.heartbeatTick(); // publishes beat 1
+    h.wedge(); // from here the connection accepts but delivers nothing
+
+    expect((await h.listener.heartbeatTick()).action).toBe("alive"); // beat 1 landed
+    expect(await h.listener.heartbeatTick()).toEqual({ action: "missed", missedBeats: 1 });
+
+    const result = await h.listener.heartbeatTick();
+    expect(result.action).toBe("reconnected");
+    if (result.action !== "reconnected") throw new Error("expected reconnected");
+
+    // Every channel is restored — including the heartbeat's own subscription.
+    expect(result.channels.sort()).toEqual(["mesh.a", "mesh.b", "minsky.mesh.heartbeat"]);
+    expect(h.reopened.length).toBe(1);
+
+    // The re-established LISTENs are on the FRESH connection, not the dead one.
+    const fresh = h.reopened[0];
+    if (!fresh) throw new Error("expected a reopened connection");
+    expect(fresh.__listens.map((r) => r.channel).sort()).toEqual([
+      "mesh.a",
+      "mesh.b",
+      "minsky.mesh.heartbeat",
+    ]);
+
+    await h.listener.close();
+  });
+
+  test("delivery resumes on the new connection after a reconnect — no restart needed", async () => {
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 1 });
+    const received: unknown[] = [];
+    await h.listener.startHeartbeat();
+    await h.listener.subscribe("mesh.a", (_c, payload) => {
+      received.push(payload);
+    });
+
+    await h.listener.heartbeatTick(); // beat 1
+    h.wedge();
+    await h.listener.heartbeatTick(); // beat 1 landed -> alive
+    const result = await h.listener.heartbeatTick(); // miss -> threshold 1 -> reconnect
+    expect(result.action).toBe("reconnected");
+
+    // A NOTIFY on the NEW connection reaches the original subscriber.
+    h.currentSql().__deliver("mesh.a", JSON.stringify({ v: 1 }));
+    expect(received).toEqual([{ v: 1 }]);
+
+    await h.listener.close();
+  });
+
+  test("the wedged connection is closed, and a close failure does not block reopening", async () => {
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 1 });
+    await h.listener.startHeartbeat();
+    const original = h.currentSql();
+    original.__failNextEnd(new Error("connection already gone"));
+
+    await h.listener.heartbeatTick();
+    h.wedge();
+    await h.listener.heartbeatTick();
+    const result = await h.listener.heartbeatTick();
+
+    expect(original.__endCalls).toBe(1);
+    expect(result.action).toBe("reconnected");
+    expect(h.reopened.length).toBe(1);
+
+    await h.listener.close();
+  });
+
+  test("a failed emit is not counted as a missed beat", async () => {
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 1 });
+    await h.listener.startHeartbeat();
+
+    await h.listener.heartbeatTick(); // beat 1 delivered
+    h.failEmitWith(new Error("pooled connection down"));
+
+    // Several ticks where publishing itself fails must NOT trigger a reconnect:
+    // we never managed to send a probe, so we cannot conclude the LISTEN side
+    // is dead.
+    for (let i = 0; i < 4; i++) {
+      const r = await h.listener.heartbeatTick();
+      expect(r.action).toBe("alive");
+    }
+    expect(h.reopened.length).toBe(0);
+
+    await h.listener.close();
+  });
+
+  test("a reconnect whose reopen fails reports the failure instead of throwing", async () => {
+    const sql = createStubSql();
+    const listener = new PostgresChannelListener(
+      asSql(sql),
+      { initialBackoffMs: 1, maxAttempts: 2 },
+      {
+        emit: async () => {
+          /* accepted, never delivered — permanently wedged */
+        },
+        reopen: async () => {
+          throw new Error("pooler refused the connection");
+        },
+        intervalMs: 60_000,
+        missesBeforeReconnect: 1,
+      }
+    );
+
+    await listener.startHeartbeat();
+    await listener.heartbeatTick(); // publishes
+    await listener.heartbeatTick(); // miss 1 -> threshold -> reconnect attempt
+    const result = await listener.heartbeatTick();
+
+    expect(result.action).toBe("reconnect-failed");
+    if (result.action !== "reconnect-failed") throw new Error("expected reconnect-failed");
+    expect(result.error).toContain("pooler refused the connection");
+
+    await listener.close();
+  });
+
+  test("without a heartbeat config the listener behaves exactly as before", async () => {
+    const sql = createStubSql();
+    const listener = new PostgresChannelListener(asSql(sql));
+
+    await listener.subscribe("mesh.a", () => {});
+    // startHeartbeat is a safe no-op, and no heartbeat channel is subscribed.
+    await listener.startHeartbeat();
+
+    expect(await listener.heartbeatTick()).toEqual({
+      action: "skipped",
+      reason: "not-configured",
+    });
+    expect(sql.__listens.map((r) => r.channel)).toEqual(["mesh.a"]);
+
+    await listener.close();
+  });
+
+  test("ticking after close is skipped rather than reconnecting a dead listener", async () => {
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 1 });
+    await h.listener.startHeartbeat();
+    await h.listener.close();
+
+    expect(await h.listener.heartbeatTick()).toEqual({ action: "skipped", reason: "closed" });
+    expect(h.reopened.length).toBe(0);
   });
 });

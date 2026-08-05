@@ -12,11 +12,30 @@
  * (Layer A of mt#1852) and pass it in. Provider tears down the connection on
  * `close()`.
  *
- * Reconnect: postgres-js auto-reconnects the underlying connection on loss
- * and re-invokes its `onlisten` callback, so LISTEN registrations re-establish
- * automatically in the typical case. This library's explicit retry loop wraps
- * the INITIAL `sql.listen()` call to absorb startup-time failures (DB unreachable
- * at boot) without forcing the caller to retry.
+ * Reconnect: do NOT rely on postgres-js to restore subscriptions. Its
+ * `onclose` handler (node_modules/postgres/src/index.js:156-161, read
+ * 2026-08-05) deletes every channel from its own map and then re-listens with
+ * the rejection swallowed:
+ *
+ *     onclose() {
+ *       Object.entries(listen.channels).forEach(([name, { listeners }]) => {
+ *         delete listen.channels[name]
+ *         Promise.all(listeners.map(l => listen(name, l.fn, l.onlisten).catch(() => {})))
+ *       })
+ *     }
+ *
+ * So a single unreachable moment during a reconnect drops every subscription
+ * permanently, with no error surfaced anywhere. The explicit retry loop below
+ * cannot see it either — that loop wraps only the INITIAL `sql.listen()`.
+ *
+ * Worse, `onclose` fires only on an OBSERVABLE close. A half-open connection
+ * (peer gone, no FIN) never triggers it at all, leaving this listener
+ * permanently deaf with zero errors — the mt#3092 failure shape, on the one
+ * connection mt#3592's bounded socket deliberately does not cover.
+ *
+ * Both are closed by the heartbeat below (mt#3497): this class detects its own
+ * silence and re-establishes every channel from ITS OWN `channels` map, which
+ * is authoritative precisely because postgres-js has already discarded its.
  *
  * Foundational for ADR-010's mesh-signal substrate. Consumers: cockpit SSE
  * broker (mt#1853), event-taxonomy emitters' downstream subscribers (mt#1854).
@@ -107,6 +126,61 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 // ---------------------------------------------------------------------------
+// Heartbeat / liveness (mt#3497)
+// ---------------------------------------------------------------------------
+
+/** Channel the liveness heartbeat is published on. */
+export const HEARTBEAT_CHANNEL = "minsky.mesh.heartbeat";
+
+/**
+ * Liveness configuration. Optional: without it the listener behaves exactly as
+ * before (no heartbeat, no self-reconnect), which is what the no-Postgres and
+ * unit-test paths want.
+ *
+ * Both collaborators are INJECTED rather than reached for, so a test can drive
+ * the whole state machine without a database (`testing-standards §Testable
+ * Design`).
+ */
+export interface HeartbeatConfig {
+  /**
+   * Publish a heartbeat. MUST go through the POOLED (transaction-mode)
+   * connection, not the session connection this listener holds — the whole
+   * point is to detect that the session connection has stopped delivering, so
+   * emitting over it would make the probe unable to fail (mem#704).
+   */
+  emit: (channel: string, payload: string) => Promise<void>;
+  /**
+   * Open a FRESH session-mode connection, replacing the one judged dead.
+   * Typically `() => provider.getListenCapableSqlConnection()` after the
+   * provider has dropped its cached handle.
+   */
+  reopen: () => Promise<Sql>;
+  /** Interval between ticks. Only used by `startHeartbeat()`'s timer. */
+  intervalMs: number;
+  /** Consecutive missed beats tolerated before reconnecting. */
+  missesBeforeReconnect: number;
+}
+
+const DEFAULT_HEARTBEAT: Pick<HeartbeatConfig, "intervalMs" | "missesBeforeReconnect"> = {
+  // 30s: fast enough that a wedged broker is caught inside a poll cycle,
+  // slow enough that the extra NOTIFY traffic is negligible. Grounded in the
+  // cockpit's existing widget-poll cadence rather than a round number.
+  intervalMs: 30_000,
+  missesBeforeReconnect: 2,
+};
+
+/**
+ * Outcome of one heartbeat tick. Returned (not just logged) so tests assert on
+ * the decision directly instead of patching a collaborator to observe it.
+ */
+export type HeartbeatTickResult =
+  | { action: "skipped"; reason: "closed" | "not-configured" }
+  | { action: "alive"; missedBeats: 0 }
+  | { action: "missed"; missedBeats: number }
+  | { action: "reconnected"; channels: string[] }
+  | { action: "reconnect-failed"; error: string };
+
+// ---------------------------------------------------------------------------
 // PostgresChannelListener — production implementation
 // ---------------------------------------------------------------------------
 
@@ -115,11 +189,37 @@ export class PostgresChannelListener implements ChannelListener {
   private closed = false;
   private readonly retryConfig: RetryConfig;
 
-  constructor(
-    private readonly sql: Sql,
-    retryConfig?: Partial<RetryConfig>
-  ) {
+  /**
+   * NOT readonly: `reconnect()` swaps in a fresh connection after the current
+   * one is judged dead. Every `sql.listen()` call below goes through this
+   * field so a swap is picked up by subsequent re-establishes.
+   */
+  private sql: Sql;
+
+  private readonly heartbeat?: HeartbeatConfig;
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  /**
+   * Beat accounting is a monotonic SEQUENCE, deliberately not a clock.
+   * Timestamps fail here: `Date.now()` has millisecond granularity, so an emit
+   * and a receipt landing in the same millisecond compare equal and a beat
+   * that was never delivered reads as "alive". A counter cannot tie.
+   */
+  private beatSeq = 0;
+  /** Highest sequence actually published. */
+  private lastEmittedSeq = 0;
+  /** Highest sequence observed coming back through the session connection. */
+  private lastReceivedSeq = 0;
+  private missedBeats = 0;
+
+  constructor(sql: Sql, retryConfig?: Partial<RetryConfig>, heartbeat?: Partial<HeartbeatConfig>) {
+    this.sql = sql;
     this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
+    // A heartbeat is only usable with BOTH collaborators; a partial config is
+    // treated as absent rather than half-armed.
+    this.heartbeat =
+      heartbeat?.emit && heartbeat?.reopen
+        ? ({ ...DEFAULT_HEARTBEAT, ...heartbeat } as HeartbeatConfig)
+        : undefined;
   }
 
   async subscribe<T = unknown>(
@@ -241,8 +341,159 @@ export class PostgresChannelListener implements ChannelListener {
     }
   }
 
+  /**
+   * Arm the liveness heartbeat. Idempotent, and a no-op when no heartbeat was
+   * configured — callers may invoke it unconditionally.
+   */
+  async startHeartbeat(): Promise<void> {
+    if (!this.heartbeat || this.heartbeatTimer || this.closed) {
+      return;
+    }
+
+    // Subscribed through the normal path so the heartbeat channel lives in
+    // `this.channels` and is itself re-established by reconnect().
+    await this.subscribe(
+      HEARTBEAT_CHANNEL,
+      (_channel: string, payload: string) => {
+        const seq = Number(payload);
+        if (Number.isFinite(seq) && seq > this.lastReceivedSeq) {
+          this.lastReceivedSeq = seq;
+        }
+      },
+      { parse: (raw: string) => raw }
+    );
+
+    this.heartbeatTimer = setInterval(() => {
+      void this.heartbeatTick();
+    }, this.heartbeat.intervalMs);
+    // A liveness timer must not be what keeps the process alive.
+    this.heartbeatTimer.unref?.();
+  }
+
+  /** Disarm the heartbeat timer. Safe to call when never armed. */
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
+  /**
+   * One liveness evaluation, exposed publicly so tests drive the state machine
+   * directly instead of waiting on wall-clock timers.
+   *
+   * Ordering is deliberate: a tick judges the PREVIOUS tick's beat and only
+   * then publishes the next one. Judging the beat it just published would race
+   * the NOTIFY round-trip and report a false miss on every tick.
+   */
+  async heartbeatTick(): Promise<HeartbeatTickResult> {
+    if (this.closed) {
+      return { action: "skipped", reason: "closed" };
+    }
+    const hb = this.heartbeat;
+    if (!hb) {
+      return { action: "skipped", reason: "not-configured" };
+    }
+
+    if (this.lastEmittedSeq > 0) {
+      if (this.lastReceivedSeq >= this.lastEmittedSeq) {
+        this.missedBeats = 0;
+      } else {
+        this.missedBeats++;
+      }
+    }
+
+    if (this.missedBeats >= hb.missesBeforeReconnect) {
+      try {
+        const channels = await this.reconnect();
+        return { action: "reconnected", channels };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        log.error(`PostgresChannelListener: heartbeat reconnect failed: ${error}`);
+        return { action: "reconnect-failed", error };
+      }
+    }
+
+    try {
+      const seq = this.beatSeq + 1;
+      await hb.emit(HEARTBEAT_CHANNEL, String(seq));
+      // Advance ONLY after a successful publish, so a failed emit leaves the
+      // next tick re-judging the last beat we actually sent.
+      this.beatSeq = seq;
+      this.lastEmittedSeq = seq;
+    } catch (err) {
+      // Deliberately does NOT count as a missed beat. A failed publish is a
+      // POOLED-connection problem; it says nothing about whether the session
+      // connection is still delivering. Counting it would let an unrelated
+      // outage tear down a healthy LISTEN. Because lastBeatEmittedAt is left
+      // unadvanced, the next tick re-judges the last beat we actually sent.
+      log.warn(
+        `PostgresChannelListener: heartbeat emit failed (not counted as a missed beat): ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+
+    return this.missedBeats === 0
+      ? { action: "alive", missedBeats: 0 }
+      : { action: "missed", missedBeats: this.missedBeats };
+  }
+
+  /**
+   * Replace the session connection and re-establish every channel from THIS
+   * class's own map.
+   *
+   * postgres-js's internal channel map is deliberately not consulted: by the
+   * time we reach here it has already deleted those entries and swallowed the
+   * re-listen failures (see the file header). Ours is the only surviving
+   * record of what was subscribed.
+   */
+  private async reconnect(): Promise<string[]> {
+    const hb = this.heartbeat;
+    if (!hb) {
+      return [];
+    }
+
+    const previous = this.sql;
+    try {
+      await previous.end({ timeout: 0 });
+    } catch (err) {
+      // A connection we have already judged dead may well fail to close
+      // cleanly; that must not block reopening.
+      log.warn(
+        `PostgresChannelListener: closing the wedged connection failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+
+    this.sql = await hb.reopen();
+
+    const channels = Array.from(this.channels.keys());
+    for (const channel of channels) {
+      const state = this.channels.get(channel);
+      if (!state) {
+        continue;
+      }
+      state.unlisten = undefined;
+      const handle = await this.listenWithRetry(channel);
+      state.unlisten = handle.unlisten;
+    }
+
+    // `beatSeq` stays monotonic across reconnects; the emitted/received marks
+    // reset so the first tick on the fresh connection has nothing to judge.
+    this.missedBeats = 0;
+    this.lastEmittedSeq = 0;
+    this.lastReceivedSeq = 0;
+    log.info(
+      `PostgresChannelListener: reconnected; re-established ${channels.length} channel(s): ${channels.join(", ")}`
+    );
+    return channels;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
+    this.stopHeartbeat();
     const channels = Array.from(this.channels.entries());
     this.channels.clear();
     for (const [channel, state] of channels) {
