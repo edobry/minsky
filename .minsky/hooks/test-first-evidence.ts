@@ -45,6 +45,8 @@
 
 import { computeFenceInternalLines, isMarkdownHeading } from "./markdown-sections";
 import { isTestFile } from "./pr-file-predicates";
+import { captureArtifact, CAPTURE_SCHEMA_VERSION } from "./judged-input-capture";
+import type { ArtifactCapture } from "./judged-input-capture";
 import type { PrFile } from "./pr-context";
 
 // ---------------------------------------------------------------------------
@@ -425,6 +427,38 @@ export type TestFirstCalibrationRecord = {
    *  `/calibration-review` sweep can now separate formatting misses from real gaps. */
   negativeControlUnmatched: boolean;
   deferralMarker: string | null;
+  /** Capture-schema marker (mt#3607) — absent on every record written before capture landed. */
+  captureSchema: number;
+  /** The PR title, one of the two signals `bugfixShaped` is derived from. */
+  prTitle: string;
+  /**
+   * The PR body this verdict was computed against (mt#3607).
+   *
+   * The reason this surface needed capture more than any other: its verdict
+   * turns on WHERE text sits, and its input is MUTABLE. mt#3584 found PR #2531
+   * recorded as a fire when the negative-control label sat above the evidence
+   * block, then edited so the label sat inside it — re-running the matchers over
+   * the CURRENT body reports it clean, and the historical false positive becomes
+   * invisible. A record that carries the body it judged is re-classifiable no
+   * matter what the body says later; `hash` makes the mutation itself visible.
+   *
+   * NOT elided, unlike the turn-text surfaces. The matchers' answers depend on
+   * fence membership — mt#3511's whole finding is that a FENCED negative-control
+   * label does not count — so blanking fenced spans would destroy exactly the
+   * structure a re-derivation needs. The exposure trade is acceptable here and
+   * not elsewhere: a PR body is already public on the forge, and this log is
+   * machine-local (`.gitignore:56`).
+   */
+  judgedPrBody: ArtifactCapture;
+  /**
+   * The bound task's spec, or null when the caller had none.
+   *
+   * Captured alongside the body because `bugfixShaped` has TWO sources — the
+   * title and the spec — so a record carrying only the body can re-derive the
+   * negative-control half of the verdict but not the trigger half. Both, and the
+   * whole verdict re-derives from the record with no fetch.
+   */
+  judgedSpec: ArtifactCapture | null;
 };
 
 export interface TestFirstCalibrationRunResult {
@@ -475,6 +509,10 @@ export function runTestFirstCalibration(
       task,
       prNumber,
       decision: "warn",
+      captureSchema: CAPTURE_SCHEMA_VERSION,
+      prTitle,
+      judgedPrBody: captureArtifact(prBody),
+      judgedSpec: typeof specContent === "string" ? captureArtifact(specContent) : null,
       modifiedTestFiles: result.modifiedTestFiles,
       bugfixShaped: result.bugfixShaped,
       negativeControlPresent: result.negativeControlPresent,

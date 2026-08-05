@@ -74,6 +74,13 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { elideQuotedContexts } from "./elision";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
+import type { ArtifactCapture } from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection (mt#3125 SC3)
@@ -253,6 +260,29 @@ export interface BatchMatch {
   consumeField: string;
   /** First 200 chars of the free-text field's value, for the calibration record. */
   excerpt: string;
+  /** The judged field value, bounded and hashed — see {@link judgedCapture}. */
+  judged: ArtifactCapture;
+}
+
+/**
+ * Snapshot the free-text field value this detector judged (mt#3607).
+ *
+ * `excerpt` above stays exactly 200 chars because it is written to the record
+ * as `phrase`, which is the calibration sweep's diversity axis. That truncation
+ * is also the whole complaint ask#6932 filed: a reviewer reading 200 characters
+ * of a PR body cannot tell whether the pairing was a real
+ * mint-then-consume dependence or two independent calls that happened to share
+ * a block, and the ask recorded its own confidence as capped by it.
+ *
+ * The value is ELIDED before capture. This detector's judged input is a
+ * tool-call field the agent authored — a PR body, a spec, a memory — and
+ * widening what reaches a log is exactly where pasted output starts travelling
+ * with it. Eliding costs nothing here because the verdict is CATEGORICAL (the
+ * co-occurrence of the two tool categories is the whole signal); the text is
+ * evidence for the human reviewer, never an input to the decision.
+ */
+function judgedCapture(rawValue: string): ArtifactCapture {
+  return captureArtifact(elideQuotedContexts(rawValue));
 }
 
 /**
@@ -304,6 +334,7 @@ export function detectBatchedMintAndConsume(turnLines: TranscriptLine[]): BatchM
           consumeTool: consumeBlock.name,
           consumeField: spec.field,
           excerpt: rawValue.slice(0, 200),
+          judged: judgedCapture(rawValue),
         });
       }
     }
@@ -324,6 +355,8 @@ export interface ConsumeBeforeMintMatch {
   /** What the later mint actually returned — best-effort, may be undefined. */
   mintedId: string | undefined;
   excerpt: string;
+  /** The judged field value, bounded and hashed — see {@link judgedCapture}. */
+  judged: ArtifactCapture;
 }
 
 /**
@@ -409,6 +442,7 @@ export function detectConsumeBeforeMint(
           mintTool: laterMint.name,
           mintedId,
           excerpt: rawValue.slice(0, 200),
+          judged: judgedCapture(rawValue),
         });
       }
     }
@@ -595,6 +629,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       // "matches"-shape family (mirrors retrospective-trigger / ask-routing-deferral /
       // pre-narration — see src/domain/calibration/calibration-sweep.ts's fallback
       // parse branch). `category` is the (mintTool, consumeTool) pair label the
@@ -634,6 +669,7 @@ function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
     mintTool: m.mintTool,
     consumeTool: m.consumeTool,
     consumeField: m.consumeField,
+    judged: m.judged,
   }));
 }
 
@@ -647,6 +683,7 @@ function orderRecords(matches: ConsumeBeforeMintMatch[]): Array<Record<string, u
     writtenId: m.writtenId,
     mintTool: m.mintTool,
     mintedId: m.mintedId ?? null,
+    judged: m.judged,
   }));
 }
 
@@ -721,6 +758,7 @@ export async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
     matches: [...batchRecords(matches), ...orderRecords(orderMatches)],
   });
 

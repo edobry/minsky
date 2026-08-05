@@ -1334,6 +1334,11 @@ const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
   "session_id",
   "suppressionReasons",
+  // mt#3607's capture-schema marker. It says the record's judged input WAS
+  // captured; it is not itself something to judge a fire by. Listing it here
+  // keeps a hypothetical record carrying the marker and nothing else from
+  // reporting `classifiable` on the strength of its own bookkeeping.
+  "captureSchema",
 ]);
 
 /**
