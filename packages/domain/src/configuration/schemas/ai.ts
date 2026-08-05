@@ -144,15 +144,42 @@ export const aiProvidersConfigSchema = z
  * derivation to use. Anything enumerating credential-bearing AI providers reads
  * THIS, so adding a provider above is the only edit required.
  */
-export const AI_PROVIDER_IDS: readonly string[] = Object.freeze(
-  Object.keys(baseAiProvidersSchema.shape)
+export type AIProviderId = keyof typeof baseAiProvidersSchema.shape;
+
+/**
+ * Compile-time proof that {@link AIProviderId} is a closed union, not `string`.
+ *
+ * This lives in SOURCE rather than in a test on purpose. `packages/**` test files
+ * are not part of any tsconfig `include` — the root project covers `src`/`types`/
+ * `tests`, and `packages/domain` has no typecheck script of its own — so a
+ * `@ts-expect-error` guard written in `schema-derived.test.ts` is never compiled and
+ * silently proves nothing. (Found by running the control: widening this type to
+ * `string` left the test-file guard green.) Source files ARE checked, because they
+ * are reachable by import from `src/`.
+ *
+ * If the union ever widens back to `string`, the conditional resolves to `never`,
+ * `true` is no longer assignable, and the build fails here.
+ */
+type AssertNotAssignable<T, U> = T extends U ? never : true;
+export const AI_PROVIDER_ID_UNION_IS_CLOSED: AssertNotAssignable<
+  "definitely-not-a-provider",
+  AIProviderId
+> = true;
+
+// `Object.keys` is typed `string[]`, which would erase the union this export
+// exists to preserve — a drift hole at the type layer in the very export added to
+// close one at the value layer (PR #2654 R1). The assertion is sound because the
+// keys come from the schema shape itself: adding a provider widens the union and
+// the array together, and removing one narrows both.
+export const AI_PROVIDER_IDS: readonly AIProviderId[] = Object.freeze(
+  Object.keys(baseAiProvidersSchema.shape) as AIProviderId[]
 );
 
 /**
  * Dotted config paths that hold a credential for `providerId`. Both count as
  * "configured" — `aiValidation.hasApiKey` treats them equivalently.
  */
-export function aiProviderCredentialPaths(providerId: string): readonly string[] {
+export function aiProviderCredentialPaths(providerId: AIProviderId): readonly string[] {
   return [`ai.providers.${providerId}.apiKey`, `ai.providers.${providerId}.apiKeyFile`];
 }
 

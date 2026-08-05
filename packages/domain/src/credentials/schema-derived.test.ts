@@ -16,7 +16,11 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { AI_PROVIDER_IDS, aiProviderCredentialPaths } from "../configuration/schemas/ai";
+import {
+  AI_PROVIDER_IDS,
+  aiProviderCredentialPaths,
+  type AIProviderId,
+} from "../configuration/schemas/ai";
 import {
   listSchemaDerivedCredentials,
   displayNameFor,
@@ -159,6 +163,24 @@ describe("drift guard: the derivation covers every schema-defined AI provider", 
     const ids = listSchemaDerivedCredentials({}).map((e) => e.provider);
     expect(ids).toContain("openai");
     expect(ids).toContain("morph");
+  });
+
+  it("exposes only real schema keys at runtime", () => {
+    // PR #2654 R1: the first version typed AI_PROVIDER_IDS as `readonly string[]`
+    // because `Object.keys` returns `string[]`, erasing the union the export exists
+    // to preserve.
+    //
+    // The TYPE-level half of that guard is NOT here. A `@ts-expect-error` in this
+    // file would be inert: `packages/**` test files are in no tsconfig `include`, so
+    // this file is never compiled — verified by widening `AIProviderId` to `string`
+    // and watching a guard written here stay green. The compile-time assertion lives
+    // in `schemas/ai.ts` as `AI_PROVIDER_ID_UNION_IS_CLOSED`, which IS compiled.
+    //
+    // What remains testable at runtime is the VALUES, which is what this asserts.
+    const valid: AIProviderId = "openai";
+    expect(AI_PROVIDER_IDS).toContain(valid);
+    expect(AI_PROVIDER_IDS).not.toContain("definitely-not-a-provider");
+    expect(AI_PROVIDER_IDS.length).toBeGreaterThan(0);
   });
 
   it("covers each schema provider's credential paths", () => {
