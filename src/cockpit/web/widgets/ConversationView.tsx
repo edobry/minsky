@@ -958,6 +958,7 @@ function ConversationThread({
 
   const {
     hiddenBefore,
+    renderEnd,
     isRevealing,
     revealingCount,
     revealOlder,
@@ -974,8 +975,8 @@ function ConversationThread({
   });
 
   const windowedTurns = useMemo(
-    () => visibleTurns.slice(hiddenBefore),
-    [visibleTurns, hiddenBefore]
+    () => visibleTurns.slice(hiddenBefore, renderEnd),
+    [visibleTurns, hiddenBefore, renderEnd]
   );
 
   // Merge call+result pairs within the rendered window (mt#2790), then drop

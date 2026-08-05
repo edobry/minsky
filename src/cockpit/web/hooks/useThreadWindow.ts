@@ -37,9 +37,40 @@ import {
 export const INITIAL_TURNS = 50;
 export const OLDER_CHUNK = 100;
 
+/**
+ * How many turns may stay mounted while the window is frozen (mt#3736).
+ *
+ * The freeze holds the window's START still so a reader who scrolled up is not
+ * moved by arriving turns. Its END has to be bounded separately, or a reader
+ * who parks in history during a long agent run accumulates mounted turns
+ * without limit — and turn nodes are not memoized, so per-commit cost grows
+ * with the count until the thread is exactly the eager-mount cost mt#2433
+ * measured, arrived at gradually instead of at once (PR #2648 R1).
+ *
+ * Bounding the END rather than the start is what makes this free of any scroll
+ * correction: turns that never mount below the reader cannot move what is above
+ * them. The reader is already told content arrived — the return-to-newest
+ * control — and taking it re-pins them, which releases the freeze and windows
+ * back to the live tail.
+ *
+ * Sized off the budget this module already commits to rather than picked round:
+ * `INITIAL_TURNS` plus two `OLDER_CHUNK` reveals is what a reader can mount by
+ * hand in a couple of deliberate clicks, so it is a cost the thread is already
+ * known to carry.
+ */
+export const MAX_FROZEN_TURNS = INITIAL_TURNS + OLDER_CHUNK * 2;
+
 export interface ThreadWindow {
   /** How many turns sit above the rendered window, unmounted. */
   hiddenBefore: number;
+  /**
+   * The turn index the rendered window ends BEFORE — `totalTurns` unless the
+   * freeze's cap is in force (mt#3736). Consumers slice
+   * `[hiddenBefore, renderEnd)`.
+   */
+  renderEnd: number;
+  /** How many turns sit below the rendered window, unmounted. */
+  hiddenAfter: number;
   /** True while a reveal's render is in flight. */
   isRevealing: boolean;
   /** How many turns the in-flight reveal is mounting; `0` when none is. */
@@ -143,6 +174,15 @@ export function useThreadWindow({
 
   const hiddenBefore = revealedFrom ?? frozenAt ?? Math.max(0, totalTurns - INITIAL_TURNS);
 
+  // The cap applies only to the FROZEN window. A reader at the tail, and a
+  // reader who deliberately revealed history, both asked to see the newest turn
+  // — truncating either would hide content they are looking at.
+  const renderEnd =
+    frozenAt !== null && revealedFrom === null
+      ? Math.min(totalTurns, frozenAt + MAX_FROZEN_TURNS)
+      : totalTurns;
+  const hiddenAfter = Math.max(0, totalTurns - renderEnd);
+
   /**
    * The reveal in flight, if any: the scroll height BEFORE it, and whether it
    * was asked to land at the start rather than hold position.
@@ -160,8 +200,8 @@ export function useThreadWindow({
    * every callback below stable, so the consumer's scroll listener can stay
    * keyed on its scrollport alone rather than re-binding on every chunk.
    */
-  const windowStateRef = useRef({ hiddenBefore, totalTurns });
-  windowStateRef.current = { hiddenBefore, totalTurns };
+  const windowStateRef = useRef({ hiddenBefore, totalTurns, renderEnd });
+  windowStateRef.current = { hiddenBefore, totalTurns, renderEnd };
 
   /**
    * Mount an earlier slice of the transcript.
@@ -290,8 +330,17 @@ export function useThreadWindow({
    * the React tree.
    */
   const paintPosition = useCallback((port: Element | null) => {
-    const { hiddenBefore: hidden, totalTurns: total } = windowStateRef.current;
-    const position = threadPositionFromScroll(scrollFraction(port), hidden, total);
+    const { hiddenBefore: hidden, totalTurns: total, renderEnd: end } = windowStateRef.current;
+    // The rendered count is passed explicitly because the freeze's cap can make
+    // it smaller than `total - hidden` (mt#3736). Deriving it would put the
+    // readout on a scale the scrollport no longer has, and a reader parked in
+    // capped history would be told they are further along than they are.
+    const position = threadPositionFromScroll(
+      scrollFraction(port),
+      hidden,
+      total,
+      Math.max(0, end - hidden)
+    );
     if (positionFillRef.current) {
       // Drawn against the WHOLE transcript, deliberately NOT against the scroll
       // range. Those are different scales, and the track already carries the
@@ -317,6 +366,8 @@ export function useThreadWindow({
 
   return {
     hiddenBefore,
+    renderEnd,
+    hiddenAfter,
     isRevealing,
     revealingCount,
     revealOlder,

@@ -19,6 +19,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationView } from "./ConversationView";
+import { MAX_FROZEN_TURNS } from "../hooks/useThreadWindow";
 import type {
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
@@ -272,6 +273,41 @@ describe("ConversationView window stability while scrolled up (mt#3736)", () => 
     // The render budget mt#2433 established is unchanged for the common case.
     expect(hiddenAboveText()).toContain("71 earlier turns");
     expect(screen.queryByText("turn-70 body")).toBeNull();
+  });
+
+  test("the frozen window is bounded: the tail stops mounting past the cap", () => {
+    // The freeze holds the window's START; without a bound on its END, a reader
+    // parked in history during a long run accumulates mounted turns until the
+    // thread costs what mt#2433 measured — arrived at gradually rather than at
+    // once (PR #2648 R1).
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    scrollTo(800);
+    rerenderCV(syntheticSnapshot(600));
+
+    // Rendered range is [70, 70 + MAX_FROZEN_TURNS).
+    expect(screen.getByText("turn-70 body")).toBeDefined();
+    expect(screen.getByText(`turn-${70 + MAX_FROZEN_TURNS - 1} body`)).toBeDefined();
+    expect(screen.queryByText(`turn-${70 + MAX_FROZEN_TURNS} body`)).toBeNull();
+    expect(screen.queryByText("turn-599 body")).toBeNull();
+  });
+
+  test("returning to the bottom un-caps and lands on the newest turn", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    scrollTo(800);
+    rerenderCV(syntheticSnapshot(600));
+    expect(screen.queryByText("turn-599 body")).toBeNull();
+
+    scrollTo(1600);
+    expect(screen.getByText("turn-599 body")).toBeDefined();
+    // …and back onto the tail-derived window, not a frozen slice of it.
+    expect(hiddenAboveText()).toContain("550 earlier turns");
+  });
+
+  test("capping never applies to a reader who is following the tail", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    rerenderCV(syntheticSnapshot(600));
+    // Never scrolled: the newest turn is mounted, cap or no cap.
+    expect(screen.getByText("turn-599 body")).toBeDefined();
   });
 
   test("an explicit reveal still wins over the freeze", async () => {
