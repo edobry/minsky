@@ -61,12 +61,23 @@ export function isProcessAlive(pid: number): boolean {
  * or if `lsof` isn't available — port-recovery degrades to the standard
  * EADDRINUSE error in that case.
  *
+ * Scoped to LOOPBACK (mt#3787). `-i :<port>` matches that port number on ANY
+ * address, and the first PID of a multi-line result wins — so any process
+ * listening on the same port on another interface could be named as the
+ * holder. On a machine where Tailscale serves the cockpit port on the tailnet
+ * addresses, `lsof -i :3737 -sTCP:LISTEN -P -n -t` returned Tailscale's PID
+ * before the cockpit daemon's, and the sole consumer
+ * (`src/commands/cockpit/start-command.ts`) then told the operator to kill it.
+ * `-i tcp@localhost:<port>` resolves through both loopback families — verified
+ * against a live IPv6-only listener, which `tcp@127.0.0.1` misses — while
+ * excluding every non-loopback address.
+ *
  * Independent re-implementation of `pid_on_port` in
  * `cockpit-tray/src-tauri/src/supervisor.rs` (mt#2629) — this side
  * additionally resolves the holder's command line for zombie-recognition
- * (see `classifyPortHolder` below) and uses `-i :<port>` instead of the
- * Rust side's `-ti tcp:<port>`, but both filter to LISTEN-state sockets only
- * and both treat "no matching PID" as "port free". Not unified: the Rust
+ * (see `classifyPortHolder` below) and spells the filter differently, but both
+ * are now loopback-scoped, both filter to LISTEN-state sockets only, and both
+ * treat "no matching PID" as "port free". Not unified: the Rust
  * supervisor must keep working with no Minsky CLI/MCP process running at
  * all. See `contract/README.md` §2 for the documented semantics both
  * implementations share.
@@ -76,7 +87,7 @@ export function findPortHolder(port: number): PortHolder | null {
 
   let pidLine: string;
   try {
-    pidLine = execSync(`lsof -i :${port} -sTCP:LISTEN -P -n -t`, {
+    pidLine = execSync(`lsof -i tcp@localhost:${port} -sTCP:LISTEN -P -n -t`, {
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 3000,
       encoding: "utf-8",
