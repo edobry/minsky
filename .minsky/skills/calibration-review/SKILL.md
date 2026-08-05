@@ -198,6 +198,29 @@ Originating incident (2026-08-03, mem#827): a sweep dispositioned `wall-of-text`
 `trigger` at the top level of the same output. The false premise propagated into
 an Accepted ADR and two task specs before anyone checked the log.
 
+### A record without `captureSchema` is un-auditable, not clean (mt#3607)
+
+Records carry a `captureSchema` field once their writer started snapshotting the
+input it judged. **Absence is not a neutral fact — it means the judged text is
+unrecoverable, so that record can never be re-classified**, and any rate computed
+over a population containing them is a rate over records you cannot check.
+
+Split the population before computing anything:
+
+```
+jq -c 'select(.captureSchema != null)' .minsky/<name>-calibration.jsonl | wc -l   # auditable
+jq -c 'select(.captureSchema == null)' .minsky/<name>-calibration.jsonl | wc -l   # not
+```
+
+Report both counts in the disposition, and bound the FP rate to the auditable
+half. The pre-capture records are not evidence of correct behavior; they are
+evidence of nothing, which is a different thing and must not be averaged in.
+
+This matters most where the judged artifact is MUTABLE. For a PR-body surface,
+re-fetching the body and re-running the matchers answers "what would the detector
+say TODAY", never "what was it judging when it fired" — mt#3584 lost a real false
+positive exactly that way, because the body had been edited in between.
+
 ## Step 3 — Recommendation
 
 Per review-due log, pick one. Note what the log's reason tells you about the

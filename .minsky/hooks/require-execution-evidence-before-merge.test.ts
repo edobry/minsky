@@ -1996,7 +1996,12 @@ describe("runAtCoverageCalibration — never emits deny, only warns/logs", () =>
     // silent breakage there rather than a test failure here. Assert the pre-existing keys are
     // intact ALONGSIDE the mt#3339 addition — the addition is only safe because it is additive.
     expect(Object.keys(record).sort()).toEqual([
+      // mt#3607's judged-input capture — added ALONGSIDE the pre-existing keys,
+      // which is what makes it safe for `scripts/at-coverage-reclassify.ts`.
+      "captureSchema",
       "executableAtCount",
+      "judgedPrBody",
+      "judgedSpec",
       "prNumber",
       "presentElsewhereAts",
       "surface",

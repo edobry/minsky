@@ -18,6 +18,10 @@ import type { FsLike } from "../../scripts/find-related-tests";
 
 const repoRoot = "/repo";
 
+// mt#3776 fixture: a source file whose related test lives inside a service
+// workspace (the partition that must NOT run under the root cwd).
+const SERVICE_SOURCE_FILE = "services/reviewer/src/alert-sink.ts";
+
 const ranLine = (n: number, files: number) =>
   `Ran ${n} tests across ${files} file${files === 1 ? "" : "s"}. [1.00s]`;
 
@@ -35,6 +39,9 @@ function buildFixtureFs() {
     [`${repoRoot}/src/cockpit/web/widgets/Widget.tsx`]: "export const Widget = 1;\n",
     [`${repoRoot}/src/cockpit/web/widgets/Widget.test.tsx`]:
       'import { Widget } from "./Widget";\ntest("Widget", () => Widget);\n',
+    [`${repoRoot}/services/reviewer/src/alert-sink.ts`]: "export const sink = 1;\n",
+    [`${repoRoot}/services/reviewer/src/alert-sink.test.ts`]:
+      'import { sink } from "./alert-sink";\ntest("sink", () => sink);\n',
   });
 }
 
@@ -157,6 +164,81 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     });
     expect(result.ok).toBe(true);
     expect(calls[0]?.ignore).toBeUndefined();
+  });
+
+  // mt#3776: services/** tests are pruned by bunfig's pathIgnorePatterns even
+  // when named explicitly on a root-cwd command line. An all-services related
+  // set therefore ran zero tests, printed no summary, and fail-closed every
+  // commit; in a mixed set the services subset was pruned SILENTLY while the
+  // root subset's summary made the gate pass. The fix runs each service's
+  // tests from that service's directory (no bunfig there), the way CI and the
+  // service's own `test` script do.
+  test("a related test under services/<svc>/ runs from the service directory (mt#3776)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: Array<{ files: string[]; preload?: string; ignore?: string; cwd?: string }> = [];
+    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: (files, preload, ignore, cwd) => {
+        calls.push({ files, preload, ignore, cwd });
+        return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      {
+        files: ["./src/alert-sink.test.ts"],
+        preload: "../../tests/setup.ts",
+        ignore: undefined,
+        cwd: `${repoRoot}/services/reviewer`,
+      },
+    ]);
+  });
+
+  test("a mixed root + services set runs BOTH partitions, each with its own cwd (mt#3776)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: Array<{ files: string[]; cwd?: string }> = [];
+    const result = runFastRelatedTestGate(["src/foo.ts", SERVICE_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: (files, _preload, _ignore, cwd) => {
+        calls.push({ files, cwd });
+        return {
+          exitCode: 0,
+          combined: [" 1 pass", " 0 fail", ranLine(1, files.length)].join("\n"),
+        };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      { files: ["./src/foo.test.ts"], cwd: undefined },
+      { files: ["./src/alert-sink.test.ts"], cwd: `${repoRoot}/services/reviewer` },
+    ]);
+  });
+
+  test("a failing services run fails the gate fail-closed with the service named (mt#3776)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: () => ({
+        exitCode: 1,
+        combined: [" 0 pass", " 1 fail", ranLine(1, 1)].join("\n"),
+      }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("services/reviewer");
+    expect(result.reason).toContain("FAILED (fail-closed, service-directory run)");
+  });
+
+  test("a truncated services run (no completion summary) also fails the gate (mt#3776)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: () => ({
+        exitCode: 0,
+        combined: "bun test v1.2.21\n", // pruned-to-nothing shape: exit 0, no summary
+      }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("no completion summary");
   });
 
   test("exceeding RELATED_TEST_CAP skips the local run instead of running everything", () => {
