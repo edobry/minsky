@@ -76,10 +76,12 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<Wry> {
 fn on_second_launch(app: &AppHandle) {
     if should_front_on_second_launch(STARTED_AT.get().map(Instant::elapsed)) {
         eprintln!("[cockpit-tray] refused a second instance; fronting the cockpit window");
-        // NOT `menu::open_cockpit_window`: this callback runs on a
-        // `tauri::async_runtime` task, and window CREATION off the main thread
-        // is the mt#2546 deadlock. The deep-link path's presenter defers
-        // creation onto the run loop for us.
+        // NOT `menu::open_cockpit_window`, which builds the window inline: this
+        // callback runs on a `tauri::async_runtime` task
+        // (`tauri-plugin-single-instance-2.4.3/src/platform_impl/macos.rs:100-111`),
+        // and creating a window from an out-of-band callback is what mt#2546
+        // got wrong. The deep-link path's presenter routes creation through the
+        // recovery loop, which is the deferral that fixed it.
         crate::deeplink::present_cockpit_window_no_link(app);
     } else {
         eprintln!(
