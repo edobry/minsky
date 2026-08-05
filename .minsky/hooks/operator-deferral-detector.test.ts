@@ -18,6 +18,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared fixture literals
@@ -367,12 +368,76 @@ const R5_ASK: Record<string, unknown> = {
   ],
 };
 
+describe("diversity axis (mt#3781)", () => {
+  const assistant = (text: string): TranscriptLine[] => [
+    userPrompt("go"),
+    { type: "assistant", message: { role: "assistant", content: text } },
+  ];
+
+  // The SAME trigger phrase in two different preceding clauses — the whole
+  // point of the fixtures is that the trigger is identical and the surrounding
+  // prose is not.
+  const TRIGGER_AFTER_MIGRATION = `The migration is written. ${DEFERRAL_PROSE}`;
+  const TRIGGER_AFTER_REVIEW = `Reviewed the diff and it looks fine. ${DEFERRAL_PROSE}`;
+
+  // AT1 — two fires on the SAME trigger phrase in different surrounding prose
+  // yield ONE distinct phrase and TWO distinct contexts. This is the property
+  // the diversity gate depends on and that a snippet-valued `phrase` destroys.
+  test("AT1: same trigger in different prose collapses to one distinct phrase", () => {
+    const first = detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION));
+    const second = detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW));
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    const distinctPhrases = new Set([first[0]?.matchedPhrase, second[0]?.matchedPhrase]);
+    const distinctContexts = new Set([first[0]?.context, second[0]?.context]);
+
+    expect(distinctPhrases.size).toBe(1);
+    expect(distinctContexts.size).toBe(2);
+  });
+
+  // AT1, through the real consumer rather than a stand-in for it: the same two
+  // fires, as calibration records, must produce ONE entry from the function the
+  // sweep actually calls.
+  test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
+    const records = [
+      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
+      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+    ];
+
+    const parsed = records.map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
+  });
+
+  // AT2 — the surrounding text is still recoverable from the record, so the
+  // classifiability the snippet provided is not lost by the fix.
+  test("AT2: the record still carries the surrounding prose", () => {
+    const record = buildCalibrationRecord(
+      "s1",
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+    ) as { matches: Array<{ phrase: string; context: string }> };
+
+    // The window starts 20 chars before the match, so it clips mid-word —
+    // asserting on the tail of the preceding clause, not the whole sentence.
+    expect(record.matches[0]?.context).toContain("is written");
+    expect(record.matches[0]?.phrase).not.toContain("is written");
+  });
+});
+
 describe("AskUserQuestion option-label surface", () => {
   test("R5 replay: fires on the option labels that hand back a fixable infra action", () => {
     const matches = detectAskDeferral(R5_ASK, []);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.surface).toBe(ASK_OPTION_LABEL);
-    expect(matches[0]?.matchedPhrase).toContain("recover the reviewer service");
+    // mt#3781 split these. `matchedPhrase` is the PATTERN hit — the sweep's
+    // diversity axis, which must be equal across two fires on the same trigger.
+    // `context` keeps the original option label, which is what the assertion
+    // below originally pinned and what a human reviewer classifies from.
+    expect(matches[0]?.context).toContain("recover the reviewer service");
+    expect(matches[0]?.matchedPhrase).toBe("You recover");
   });
 
   test("suppressed when the turn already probed", () => {

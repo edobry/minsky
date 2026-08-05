@@ -662,7 +662,14 @@ function priorTextFor(lines: TranscriptLine[], turnLines: TranscriptLine[]): str
 function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
   return matches.map((m) => ({
     category: `${m.mintTool}+${m.consumeTool}`,
-    phrase: m.excerpt,
+    // mt#3781: `phrase` is the sweep's diversity axis. It used to hold
+    // `m.excerpt` — a 200-char prefix of the judged field value — so no two
+    // fires were ever byte-equal and the diversity gate was satisfied by
+    // construction, i.e. inert. This detector is CATEGORICAL: what makes two
+    // fires "the same shape" is the (mint, consume, field) triple, which is
+    // also the key it already dedupes on. The text is not lost — mt#3607's
+    // `judged` capture below carries it, bounded and hashed.
+    phrase: `${m.mintTool}|${m.consumeTool}|${m.consumeField}`,
     mintTool: m.mintTool,
     consumeTool: m.consumeTool,
     consumeField: m.consumeField,
@@ -674,7 +681,10 @@ function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
 function orderRecords(matches: ConsumeBeforeMintMatch[]): Array<Record<string, unknown>> {
   return matches.map((m) => ({
     category: `consume-before-mint:${m.consumeTool}+${m.mintTool}`,
-    phrase: m.excerpt,
+    // mt#3781, same reasoning as `batchRecords` above. This pass's dedupe key is
+    // (consumeTool, field, token), and the written id IS the distinguishing
+    // shape here — two writes naming the same id are one pattern, not two.
+    phrase: `${m.consumeTool}|${m.consumeField}|${m.writtenId}`,
     consumeTool: m.consumeTool,
     consumeField: m.consumeField,
     writtenId: m.writtenId,
