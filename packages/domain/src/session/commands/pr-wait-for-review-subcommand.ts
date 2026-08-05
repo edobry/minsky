@@ -8,7 +8,10 @@
  *
  * Resolution criteria: a review on the PR with `submittedAt > since`
  * (strictly after — an exactly-equal `submittedAt` counts as already-seen,
- * mt#2656), optionally filtered by reviewer login.
+ * mt#2656), optionally filtered by reviewer login. When several reviews pass
+ * those filters, the one returned is the reviewer's STANDING VERDICT — their
+ * latest decision-bearing review — not the first in listing order
+ * (mt#3555); see `findMatchingReview`.
  *
  * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
  * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
@@ -40,6 +43,11 @@ import {
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
+import {
+  type ReviewVerdictFields,
+  pickLatestDecisionPerReviewer,
+  pickLatestSubmitted,
+} from "../../repository/review-verdict";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
 import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
@@ -673,11 +681,51 @@ export function explainReviewRejection(
 }
 
 /**
- * Pick the first review, in listing order, that matches the filter criteria.
+ * Projects `ReviewListEntry` onto the fields the shared ordering rule reads
+ * (`repository/review-verdict.ts`).
+ */
+const REVIEW_LIST_ENTRY_FIELDS: ReviewVerdictFields<ReviewListEntry> = {
+  reviewerLogin: (review) => review.reviewerLogin,
+  submittedAt: (review) => review.submittedAt,
+  state: (review) => review.state,
+};
+
+/**
+ * Pick the review representing the reviewer's STANDING VERDICT among those
+ * matching the filter criteria.
  *
- * Exported for unit tests — keeps the filter logic independent of the polling
- * loop so corner cases (missing submittedAt, case-sensitive reviewer match,
- * since boundary) can be exercised in isolation.
+ * Before mt#3555 this returned the FIRST match in listing order. Because
+ * `listReviews` returns GitHub's chronological (oldest-first) order, that
+ * meant the EARLIEST qualifying review won: on PR #2525 an APPROVED at
+ * 18:59:48Z beat the same reviewer's CHANGES_REQUESTED at 19:07:55Z **on the
+ * same commit**, and `/implement-task` §9 reads an APPROVED on current HEAD as
+ * the authorization to merge. `requireCurrentHead` could not disambiguate:
+ * both reviews were on HEAD, so the head filter admitted both and scan order
+ * decided. The head check answers "is this review about the current code",
+ * never "is this the reviewer's current verdict".
+ *
+ * Resolution order, applied to the reviews that pass the filters:
+ *
+ *   1. Reduce to the latest DECISION-BEARING review per reviewer
+ *      (`pickLatestDecisionPerReviewer`) — the same rule the approval path
+ *      uses, correct in both directions: a CHANGES_REQUESTED the reviewer
+ *      later resolved does not win, and an APPROVED they later retracted does
+ *      not either.
+ *   2. If any reviewer's standing verdict is CHANGES_REQUESTED, return the
+ *      latest of those. Only reachable without a `reviewer` filter (with one,
+ *      there is a single reviewer to reduce). Without it, returning a second
+ *      reviewer's later APPROVED while a first reviewer's rejection stands
+ *      would reproduce this same defect in multi-reviewer shape.
+ *   3. Otherwise return the latest standing verdict.
+ *   4. When NO candidate is decision-bearing — a COMMENTED-only wait — return
+ *      the latest candidate, so a caller waiting on a COMMENT still resolves.
+ *      COMMENTED is informational: it never supersedes a decision (step 1
+ *      filters it out), but it is still a review the wait tool must be able to
+ *      return, and `pr-drive-subcommand` branches on it.
+ *
+ * Exported for unit tests — keeps the resolution logic independent of the
+ * polling loop so corner cases (missing submittedAt, case-insensitive reviewer
+ * match, since boundary, supersession) can be exercised in isolation.
  */
 export function findMatchingReview(
   reviews: ReviewListEntry[],
@@ -685,12 +733,18 @@ export function findMatchingReview(
   reviewer: string | undefined,
   headSha?: string
 ): ReviewListEntry | undefined {
-  for (const review of reviews) {
-    if (explainReviewRejection(review, since, reviewer, headSha) === null) {
-      return review;
-    }
+  const candidates = reviews.filter(
+    (review) => explainReviewRejection(review, since, reviewer, headSha) === null
+  );
+  if (candidates.length === 0) return undefined;
+
+  const standing = pickLatestDecisionPerReviewer(candidates, REVIEW_LIST_ENTRY_FIELDS);
+  if (standing.length === 0) {
+    return pickLatestSubmitted(candidates, REVIEW_LIST_ENTRY_FIELDS);
   }
-  return undefined;
+
+  const blocking = standing.filter((review) => review.state === "CHANGES_REQUESTED");
+  return pickLatestSubmitted(blocking.length > 0 ? blocking : standing, REVIEW_LIST_ENTRY_FIELDS);
 }
 
 /**
@@ -725,7 +779,9 @@ export function annotateReviewRejections(
  * Contract:
  * - Resolves the session's PR via `resolveSessionContextWithFeedback`.
  * - Calls `backend.review.listReviews` at each poll tick.
- * - Returns the first review matching `since` and optional `reviewer` filter.
+ * - Returns the standing verdict among the reviews matching `since` and the
+ *   optional `reviewer` filter — the reviewer's latest decision-bearing
+ *   review, not the first in listing order (mt#3555).
  * - `since` default (mt#2043): when the caller does not pass `since`, the
  *   default is the PR's `created_at` timestamp (looked up via
  *   `backend.review.getPullRequestCreatedAt`). This makes pre-existing
