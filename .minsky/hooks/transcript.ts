@@ -715,8 +715,38 @@ export function resolveCompletedTurnFromAnchor(
  *
  * Returns [] when no turn can be resolved.
  */
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  return resolveCompletedTurn(lines).turnLines;
+export function extractLastAssistantTurn(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): TranscriptLine[] {
+  return resolveCompletedTurnWithAnchor(lines, recordedAnchor).turnLines;
+}
+
+/**
+ * The window resolution every prompt-time consumer should use (mt#3490).
+ *
+ * Prefers the RECORDED boundary and falls back to inferring it — the single
+ * place that precedence lives, so no caller has to remember the order. This is
+ * the "swap the shared helper underneath them" shape ADR-031's migration-cost
+ * paragraph describes: a caller opts in by passing `ctx.recordedAnchor`, and
+ * passing `undefined` is exactly the pre-mt#3490 behaviour.
+ *
+ * Falls back — rather than trusting the anchor blindly — whenever the recorded
+ * key names no real prompt in `lines`. That is a legitimate, expected state
+ * (a compacted transcript, an anchor from before a `/clear`, a subagent-scoped
+ * read), which is why {@link resolveCompletedTurnFromAnchor} reports it as
+ * `undefined` instead of returning an empty window that a caller could mistake
+ * for a genuinely empty turn.
+ */
+export function resolveCompletedTurnWithAnchor(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): CompletedTurn {
+  if (recordedAnchor) {
+    const anchored = resolveCompletedTurnFromAnchor(lines, recordedAnchor.turnKey);
+    if (anchored) return anchored;
+  }
+  return resolveCompletedTurn(lines);
 }
 
 /**

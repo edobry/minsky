@@ -22,7 +22,12 @@ import { join } from "node:path";
 
 import { readAnchor, writeAnchor, clearAnchor } from "./turn-anchor-store";
 import { turnKeyFor } from "./turn-end-scan-store";
-import { resolveCompletedTurn, resolveCompletedTurnFromAnchor } from "./transcript";
+import {
+  resolveCompletedTurn,
+  resolveCompletedTurnFromAnchor,
+  resolveCompletedTurnWithAnchor,
+  extractLastAssistantTurn,
+} from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { run as recordTurnAnchor } from "./record-turn-anchor";
 import { resolveFinalAssistantText, extractFinalAssistantText } from "./wall-of-text-detector";
@@ -188,6 +193,64 @@ describe("AT1: anchored window", () => {
     const lines = [prompt("uuid-1"), assistant("a")];
     expect(resolveCompletedTurnFromAnchor(lines, "session-start")).toBeUndefined();
     expect(resolveCompletedTurnFromAnchor(lines, "")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The WIRED precedence — what the twelve prompt-time detectors actually call.
+//
+// PR #2653 R1 (BLOCKING, correct): the first submission built the anchor
+// mechanism and consumed it nowhere — every detector still sliced via the bare
+// `extractLastAssistantTurn(lines)`, so the recorded window was inert. These
+// tests pin the precedence the shared helper now implements, which is what
+// makes the feature reachable in production.
+// ---------------------------------------------------------------------------
+
+describe("wired precedence: resolveCompletedTurnWithAnchor / extractLastAssistantTurn", () => {
+  // A transcript where the anchored window and the INFERRED window differ, so a
+  // test cannot pass by accident: the anchor names the FIRST prompt while
+  // resolveCompletedTurn (two prompts landed) infers the SECOND.
+  const lines = [
+    prompt("uuid-1"),
+    assistant("turn one"),
+    prompt("uuid-2"),
+    assistant("turn two"),
+    prompt("uuid-3"),
+  ];
+
+  test("the two windows genuinely differ — otherwise these tests prove nothing", () => {
+    const inferred = resolveCompletedTurn(lines);
+    const anchored = resolveCompletedTurnFromAnchor(lines, "uuid-1");
+    expect(inferred.openingPromptIndex).toBe(2);
+    expect(anchored?.openingPromptIndex).toBe(0);
+  });
+
+  test("an anchor is PREFERRED over the inference", () => {
+    const resolved = resolveCompletedTurnWithAnchor(lines, { turnKey: "uuid-1" });
+    expect(resolved.openingPromptIndex).toBe(0);
+    expect(resolved.turnLines).toEqual([lines[1] as TranscriptLine]);
+  });
+
+  test("no anchor falls back to the inference", () => {
+    expect(resolveCompletedTurnWithAnchor(lines, undefined)).toEqual(resolveCompletedTurn(lines));
+  });
+
+  test("an anchor naming no line falls back rather than yielding an empty window", () => {
+    // The failure mode this guards: trusting the anchor blindly would hand the
+    // detector an empty turn and silently suppress every scan.
+    expect(resolveCompletedTurnWithAnchor(lines, { turnKey: "gone" })).toEqual(
+      resolveCompletedTurn(lines)
+    );
+  });
+
+  test("extractLastAssistantTurn — the call the twelve detectors make — honors the anchor", () => {
+    expect(extractLastAssistantTurn(lines, { turnKey: "uuid-1" })).toEqual([
+      lines[1] as TranscriptLine,
+    ]);
+  });
+
+  test("extractLastAssistantTurn with no anchor is the pre-mt#3490 behaviour", () => {
+    expect(extractLastAssistantTurn(lines)).toEqual(resolveCompletedTurn(lines).turnLines);
   });
 });
 

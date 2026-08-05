@@ -1039,7 +1039,7 @@ export async function run(
 
   let runAssistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       // Assistant-side R-family scan: suppressed when a recent
@@ -1141,7 +1141,7 @@ export async function run(
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
+      const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
