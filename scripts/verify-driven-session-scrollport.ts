@@ -201,13 +201,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // --- In-page expressions -------------------------------------------------
 
 /**
- * The thread box, located the way the page identifies it rather than by a
- * test id: the `overflow-y-auto` element inside `<main>` that wraps the
- * conversation. If the page grows a second such element this becomes
- * ambiguous — at which point the right move is a `data-testid`, not a cleverer
- * selector.
+ * The thread box and the composer control, both by `data-testid` (PR #2658 R1).
+ *
+ * An earlier draft matched them structurally — `main .overflow-y-auto` and
+ * `textarea, input[type=text]` — which is exactly the brittleness this script
+ * exists to catch in the layout: the first goes ambiguous the moment the page
+ * grows a second scroll container, and the second starts measuring whatever
+ * input happens to render first. Both would fail SILENTLY and in the passing
+ * direction, since a wrong element that scrolls still satisfies the assertion.
  */
-const THREAD_SELECTOR = `main .overflow-y-auto`;
+const THREAD_SELECTOR = `[data-testid="driven-thread-scrollport"]`;
+const COMPOSER_SELECTOR = `[data-testid="driven-composer-input"]`;
 
 const INSTALL_PROBE = `(() => {
   const thread = document.querySelector(${JSON.stringify(THREAD_SELECTOR)});
@@ -263,16 +267,16 @@ type PageState = {
 };
 
 /**
- * The composer is located by its send control rather than by a wrapper class:
- * the assertion is about whether the operator can still REACH the control, and
- * a wrapper can stay in view while the control it contains is clipped.
+ * The composer is located by its INPUT rather than by its wrapper: the
+ * assertion is whether the operator can still reach the control, and a wrapper
+ * can stay in view while the control it contains is clipped.
  */
 const READ = `(() => {
   const thread = document.querySelector(${JSON.stringify(THREAD_SELECTOR)});
   const main = document.querySelector("main");
   if (!thread || !main) return JSON.stringify({ hasThread: false });
   const probe = document.getElementById(${JSON.stringify(PROBE_ID)});
-  const composer = document.querySelector("textarea, input[type=text]");
+  const composer = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
   const c = composer ? composer.getBoundingClientRect() : null;
   return JSON.stringify({
     hasThread: true,
@@ -307,6 +311,35 @@ async function waitForThreadMounted(ws: WebSocket): Promise<boolean> {
     await sleep(100);
   }
   return false;
+}
+
+/**
+ * Why the thread box was not found — the three cases are different problems and
+ * one of them is not a defect at all (PR #2658 R1).
+ *
+ * Keying on a `data-testid` bought precision and cost diagnosability: a cockpit
+ * serving a build from before mt#3737 has the thread box but not the marker, and
+ * without this the script blames the bundle for failing to boot. Measured while
+ * re-running the control against `main`, which reported exactly that.
+ */
+const DIAGNOSE_MISSING_THREAD = `(() => {
+  if (!document.querySelector("main")) return "no-shell";
+  if (document.querySelector("main .overflow-y-auto")) return "unmarked-build";
+  return "no-thread";
+})()`;
+
+function explainMissingThread(diagnosis: string): string {
+  if (diagnosis === "unmarked-build") {
+    return (
+      "the page rendered a scroll container but no [data-testid=driven-thread-scrollport] — " +
+      "this cockpit is serving a build from before mt#3737. Rebuild and restart it, or point " +
+      "MINSKY_COCKPIT_URL at the session's cockpit."
+    );
+  }
+  if (diagnosis === "no-shell") {
+    return "the SPA shell never mounted a <main> — the bundle failed to boot";
+  }
+  return "the driven page rendered no thread box at all — bad route, or the page errored";
 }
 
 /**
@@ -370,6 +403,26 @@ try {
   process.exit(1);
 }
 
+/**
+ * Enable the Runtime domain before evaluating anything (PR #2658 R1).
+ *
+ * `Runtime.evaluate` does answer without it, which is why the sibling scripts
+ * get away with omitting it — but only by falling back to whatever context the
+ * target considers default. This script navigates a React SPA and re-measures
+ * across an `Emulation.setDeviceMetricsOverride`, so it wants the context
+ * lifecycle to be explicit rather than implied. Failing here is a real failure:
+ * a target that will not enable Runtime cannot be measured at all.
+ */
+try {
+  await cdp(ws, "Runtime.enable");
+} catch (err) {
+  await teardownAll();
+  console.error(
+    `FAIL: could not enable the CDP Runtime domain: ${err instanceof Error ? err.message : String(err)}`
+  );
+  process.exit(1);
+}
+
 async function checkViewport(
   label: string,
   { width, height }: { width: number; height: number }
@@ -381,9 +434,8 @@ async function checkViewport(
     mobile: false,
   });
   if (!(await waitForThreadMounted(ws))) {
-    failures.push(
-      `${label}: the driven page never rendered its thread box within 20s — bad route, or the bundle failed to boot`
-    );
+    const diagnosis = await evaluate(ws, DIAGNOSE_MISSING_THREAD);
+    failures.push(`${label}: ${explainMissingThread(diagnosis)}`);
     return;
   }
 

@@ -99,7 +99,14 @@ export function DrivenSessionPage() {
         // column can give it would push the box past the viewport and hand the
         // overflow back to <main>, which is the bug. The floor served a
         // content-sized page that no longer exists.
-        <div className="min-h-0 flex-1 overflow-y-auto rounded border border-border bg-card p-3">
+        <div
+          // Named so the mt#3737 geometry script can identify the scrollport
+          // structurally instead of by its `overflow-y-auto` class, which would
+          // silently become ambiguous the moment this page grows a second
+          // scroll container.
+          data-testid="driven-thread-scrollport"
+          className="min-h-0 flex-1 overflow-y-auto rounded border border-border bg-card p-3"
+        >
           <ConversationView drivenSessionId={id} drivenBlocks={driven.blocks} />
         </div>
       )}
