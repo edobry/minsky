@@ -74,7 +74,14 @@ function hookThatFailsWith(failure: FakeFailure): StepSurface {
     throw err;
   }) as unknown as ConstructorParameters<typeof PreCommitHook>[1];
 
-  return new PreCommitHook(repoRoot, exec) as unknown as StepSurface;
+  // The fixture repo has no `node_modules`, and the typecheck step resolves the pinned
+  // checker before spawning anything (mt#3657). Without this stub that step would return
+  // "checker missing" and every assertion below about a SUBPROCESS failure shape would be
+  // asserting the wrong branch.
+  const resolveChecker = () =>
+    ({ kind: "resolved", binaryPath: join(repoRoot, "tsgo"), installRoot: repoRoot }) as const;
+
+  return new PreCommitHook(repoRoot, exec, resolveChecker) as unknown as StepSurface;
 }
 
 const TIMED_OUT: FakeFailure = { killed: true, signal: "SIGTERM" };

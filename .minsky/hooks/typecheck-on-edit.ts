@@ -9,7 +9,7 @@
 
 import os from "os";
 import { appendFileSync } from "fs";
-import { readInput, writeOutput, execSync } from "./types";
+import { readInput, writeOutput, execSync, resolveTsgoBinary } from "./types";
 import type { ToolHookInput } from "./types";
 
 const input = await readInput<ToolHookInput>();
@@ -50,8 +50,16 @@ const stateFile = agentId
 
 appendFileSync(stateFile, `${projectRoot}\n`);
 
-// Run tsgo (native TypeScript compiler) with --noEmit for fast feedback
-const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cwd: projectRoot });
+// Run tsgo (native TypeScript compiler) with --noEmit for fast feedback.
+// mt#3657: the PINNED local binary. `bunx @typescript/native-preview` fetched `@latest`
+// on every invocation — a different compiler from the one this repo declares, re-downloaded
+// mid-check. Nothing to run means skip: this hook is informational, and reporting a missing
+// install as type errors is worse than saying nothing.
+const tsgo = resolveTsgoBinary(projectRoot);
+if (!tsgo) {
+  process.exit(0);
+}
+const result = execSync([tsgo, "--noEmit"], { cwd: projectRoot });
 
 if (result.exitCode !== 0) {
   const output = result.stdout || result.stderr;

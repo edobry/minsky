@@ -20,6 +20,7 @@ import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
+import { resolveTsgoBinary } from "../utils/tsgo-binary";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
@@ -245,7 +246,14 @@ export class PreCommitHook {
    */
   constructor(
     private projectRoot: string = process.cwd(),
-    private exec: typeof execAsync = execAsync
+    private exec: typeof execAsync = execAsync,
+    /**
+     * Test seam for the checker resolution (mt#3657) — same convention as `exec` above.
+     * The typecheck step resolves the pinned binary BEFORE spawning anything, so a fixture
+     * repo with no `node_modules` would otherwise short-circuit every subprocess-shape test
+     * on that step into "checker missing" and assert nothing about the shape under test.
+     */
+    private resolveChecker: typeof resolveTsgoBinary = resolveTsgoBinary
   ) {}
 
   /**
@@ -1783,11 +1791,23 @@ export class PreCommitHook {
   private async runTypeCheck(): Promise<HookResult> {
     log.cli("🔎 Running TypeScript type check...");
 
+    // mt#3657: the pinned binary, never `bunx @typescript/native-preview` — that command
+    // fetches `@latest` instead of the version this repo declares, and the download racing
+    // the typecheck inside one invocation is what SIGKILLed this gate three times in five
+    // days. A missing binary fails the step by NAME rather than falling back, so a broken
+    // install can never quietly restore the drifting compiler.
+    const resolution = this.resolveChecker(this.projectRoot);
+    if (resolution.kind === "missing") {
+      log.cli(`❌ TypeScript type check skipped — ${resolution.message} Commit blocked.`);
+      return { success: false, message: resolution.message, exitCode: 1 };
+    }
+    const tsgo = resolution.binaryPath;
+
     const targets: Array<{ label: string; command: string }> = [
-      { label: "root", command: "bunx @typescript/native-preview --noEmit" },
+      { label: "root", command: `${tsgo} --noEmit` },
       {
         label: "cockpit-web",
-        command: "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
+        command: `${tsgo} --noEmit -p src/cockpit/web/tsconfig.json`,
       },
     ];
 
