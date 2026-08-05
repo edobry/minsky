@@ -40,6 +40,7 @@ import type {
   SubagentInvocationOutcome,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { DISPATCH_RECOVERY_STALE_MS } from "@minsky/domain/session/dispatch-recovery-classifier";
+import type { TaskClaimLivenessResult } from "@minsky/domain/session/task-claim-liveness";
 import {
   PROMPT_TYPE_TO_AGENT_TYPE,
   PROMPT_WATERMARK,
@@ -187,6 +188,9 @@ function makeActivityOps(
   return {
     lastPresenceActivityAtMs: async () => null,
     lastWorkspaceMtimeAtMs: async () => null,
+    // mt#3121: default to "no peer claim" so tests that don't care about the
+    // contested gate see the pre-mt#3121 recover/escalate behavior unchanged.
+    taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({ cause: "no-fresh-claim" }),
     ...overrides,
   };
 }
@@ -243,6 +247,77 @@ function makeCommand(opts: {
 }
 
 describe("tasks.dispatch-recover", () => {
+  // mt#3121: the task-grain contested gate. A stale (silent) dispatch reaches this
+  // gate; what happens next depends on whether a PEER holds a fresh task-grain claim.
+  // The self-exclusion logic itself is unit-tested in task-claim-liveness.test.ts
+  // (classifyFreshPeerClaim); here we test the command's branching on the injected
+  // taskClaimLiveness seam's four-branch `cause`.
+  describe("task-grain contested gate (mt#3121)", () => {
+    const PEER = "com.anthropic.claude-code:conv:peer-bbbb";
+
+    // A dispatch started 40 min ago with no commit/presence/workspace activity is
+    // stale (past the 30 min window), so execution reaches the contested gate.
+    function staleDispatch() {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 40 * 60 * 1000),
+      });
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      return { tracker, sessionProvider };
+    }
+
+    test("a fresh peer claim -> contested, surfacing the peer, WITHOUT consuming an attempt (SC1/SC3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "contested",
+          peerActorId: PEER,
+          peerLastRefreshedAt: "2026-07-17T11:59:50.000Z",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("contested");
+      expect(result.peerActorId).toBe(PEER);
+      expect(result.peerLastRefreshedAt).toBe("2026-07-17T11:59:50.000Z");
+      // SC3: classification must NOT consume one of the caller's two attempts.
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("a claim-store read failure -> contested (fail-closed), no attempt consumed", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "read-failure",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("read-failure");
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("no fresh peer claim -> the recover path proceeds unchanged (no over-fire, AT3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      // Default activityOps -> taskClaimLiveness returns no-fresh-claim.
+      const cmd = makeCommand({ tracker, sessionProvider });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("recover");
+      // The recover path records exactly one resumed attempt, as before.
+      expect(tracker.recordedAttempts.length).toBe(1);
+    });
+  });
+
   test("no dispatch found for the task -> no-dispatch, no error", async () => {
     const tracker = new FakeTracker();
     const sessionProvider = new FakeSessionProvider();

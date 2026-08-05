@@ -161,6 +161,10 @@ import {
 } from "@minsky/domain/session/dispatch-recovery-classifier";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
+import {
+  resolveTaskClaimLiveness,
+  type TaskClaimLivenessResult,
+} from "@minsky/domain/session/task-claim-liveness";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
@@ -222,6 +226,16 @@ export interface DispatchRecoveryActivityOps {
    * refresh on Minsky-MCP-routed tool calls).
    */
   lastWorkspaceMtimeAtMs(sessionDir: string): Promise<number | null>;
+  /**
+   * mt#3121: TASK-grain claim liveness. Does an actor OTHER THAN `callerActorId`
+   * hold a fresh presence claim on `taskId`? Distinct from the session-grain
+   * signals above: those answer "is the dispatched subagent working in THIS
+   * session"; this answers "is a PEER conversation still engaged with the TASK",
+   * which is the blind spot that let dispatch-recover green-light redispatching
+   * into a live actor's workspace. Returns a structured `cause` (never a parsed
+   * reason string) per the ask#6273 / mem#749 four-branch ruling.
+   */
+  taskClaimLiveness(taskId: string, callerActorId: string | null): Promise<TaskClaimLivenessResult>;
 }
 
 /**
@@ -256,6 +270,17 @@ export function createRealDispatchRecoveryActivityOps(
     // `lastPresenceActivityAtMs` alone leaves open.
     async lastWorkspaceMtimeAtMs(sessionDir) {
       return resolveLastWorkspaceMtimeAtMs(sessionDir, {
+        source: "tasks.dispatch-recover",
+      });
+    },
+    // mt#3121: delegates to the shared `resolveTaskClaimLiveness` helper —
+    // task-grain presence claims, excluding the caller's own, classified into
+    // the contested / read-failure / no-fresh-claim four-branch verdict.
+    async taskClaimLiveness(taskId, callerActorId) {
+      const provider = getPersistenceProvider() as
+        | { getDatabaseConnection?: () => Promise<unknown> }
+        | undefined;
+      return resolveTaskClaimLiveness(taskId, callerActorId, provider, {
         source: "tasks.dispatch-recover",
       });
     },
@@ -354,6 +379,16 @@ const tasksDispatchRecoverParams = {
       'Task ID whose most recent subagent dispatch should be probed for recovery (e.g. "mt#2831").',
     required: true,
   },
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "mt#3121: the caller's resolved agentId (ADR-006), used to EXCLUDE the caller's own " +
+      "task-grain presence claims from the contested check so a caller is never flagged as its " +
+      "own peer. Server-injected for this tool from the resolved MCP identity (src/mcp/server.ts) " +
+      "— not normally supplied by hand. Absent on the CLI path (no MCP identity), where a caller " +
+      "writes no presence claims, so there is no self to exclude.",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 export interface DispatchRecoveryEscalationAttempt {
@@ -415,8 +450,8 @@ export interface DispatchRecoveryManualFallback {
  * `status: "tracker-unavailable"` discriminant against a stable contract
  * (mt#3017 R1 NON-BLOCKING #2). Not (yet) folded into a full discriminated
  * union across every `status` value this command can return
- * (`healthy` / `recover` / `escalate` / `not-in-flight` / `no-dispatch` /
- * `tracker-unavailable`) — that broader typing pass is out of scope for
+ * (`healthy` / `recover` / `escalate` / `contested` / `not-in-flight` /
+ * `no-dispatch` / `tracker-unavailable`) — that broader typing pass is out of scope for
  * this fix, which only introduces the new shape.
  */
 export interface DispatchRecoveryTrackerUnavailableResult {
@@ -547,7 +582,10 @@ export function createTasksDispatchRecoverCommand(
       "dispatch that is quietly working (reading code, running tests, no commit yet) is " +
       "no longer misclassified as dead; see the activitySource field on a healthy result " +
       '("commit" | "presence" | "dispatch-start") for which signal decided it. Refuses a ' +
-      '3rd attempt for the same dispatch chain (returns status: "escalate"). If the ' +
+      '3rd attempt for the same dispatch chain (returns status: "escalate"). mt#3121: if a ' +
+      "DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively " +
+      'working the task), returns status: "contested" WITHOUT consuming an attempt, since ' +
+      "redispatching would collide with that live actor. If the " +
       "dispatch tracker itself is unavailable, degrades to actionable manual-recovery " +
       'guidance instead of a bare error (returns status: "tracker-unavailable"). ' +
       'An "escalate" result is NOT a finding that the dispatch is dead — it only means the ' +
@@ -728,6 +766,41 @@ export function createTasksDispatchRecoverCommand(
             `Dispatch for ${taskId} has ${activityDescription} (last activity ` +
             `${staleness.staleForMs}ms ago, below the ${staleMs}ms stale window) — treated as ` +
             `healthy, no action taken.`,
+        };
+      }
+
+      // ── Contested gate (mt#3121): a live PEER holds a fresh task-grain claim. ───────
+      // The dispatch is silent (past the stale window), but "silent subagent in THIS
+      // session" is not "nobody is working this TASK". Consult task-grain claims, excluding
+      // the caller's own, and refuse to green-light recover/redispatch when another actor is
+      // live — the double-dispatch collision this task prevents (mt#3718). A claim-store READ
+      // FAILURE fails CLOSED here (contested), unlike the session-grain presence signal above
+      // which fails open, because this gate protects the destructive redispatch decision.
+      // Checked BEFORE the probe and the attempt logic so the attempt counter is NOT consumed
+      // on the contested path (SC3).
+      const taskClaim = await activityOps.taskClaimLiveness(taskId, params.callerActorId ?? null);
+      if (taskClaim.cause === "contested" || taskClaim.cause === "read-failure") {
+        const peerNote =
+          taskClaim.cause === "contested"
+            ? `Another actor (${taskClaim.peerActorId}) holds a fresh task-grain presence claim ` +
+              `(last refreshed ${taskClaim.peerLastRefreshedAt}) — a peer conversation is actively ` +
+              `working this task.`
+            : `The task-grain presence store could not be read, so peer activity cannot be ruled ` +
+              `out; failing closed rather than risk a redispatch collision.`;
+        return {
+          success: true,
+          status: "contested" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          cause: taskClaim.cause,
+          peerActorId: taskClaim.peerActorId ?? null,
+          peerLastRefreshedAt: taskClaim.peerLastRefreshedAt ?? null,
+          message:
+            `Dispatch for ${taskId} is silent, but this is NOT a green light to recover. ${peerNote} ` +
+            `Redispatching now would put a second agent into a live actor's session workspace (the ` +
+            `mt#3086/mt#3718 double-dispatch race). No attempt was consumed. Surface this to the ` +
+            `operator: confirm the peer is genuinely done (message it via SendMessage, or check its ` +
+            `session) before any manual recovery.`,
         };
       }
 

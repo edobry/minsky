@@ -1147,6 +1147,18 @@ export class MinskyMCPServer {
             ._meta?.progressToken;
           const progress = buildProgressReporter(progressToken, extra.sendNotification);
 
+          // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
+          // arguments so its contested-check can EXCLUDE the caller's own task-grain
+          // presence claims (SC4 — a caller must never be flagged as its own peer). Scoped
+          // to that tool by name: its param schema is the only one declaring `callerActorId`,
+          // and injecting an unknown key into other tools' args would be stripped or rejected.
+          // The server overwrites any caller-supplied value, so it cannot be spoofed here.
+          if (request.params.name.includes("dispatch-recover")) {
+            const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
+            dispatchArgs.callerActorId = agentId;
+            request.params.arguments = dispatchArgs;
+          }
+
           const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
