@@ -772,10 +772,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // true maximum. Measured at 1488 with the widest realistic values — longest
     // agentType (`claude-code-guide`), a full-UUID sessionId, an `unknown` age
     // string, the longest activitySource, and a 9-char taskId — flat from 6
-    // flags to 1000. Ordinary render is 866. Declared at 1550 above that
-    // measured maximum, because this guard's annotation is the one the merged
-    // budget can least afford to understate.
-    attentionCost: { denialMessageSizeChars: 1550, optionCount: 3 },
+    // flags to 1000. Ordinary render is 866.
+    //
+    // mt#3121: the injected instruction gained a `contested` branch (a fresh
+    // task-grain peer claim / read-failure -> do NOT redispatch), re-measured at
+    // 1714 by the same structural saturation. 1550 -> 1750; optionCount 3 -> 4.
+    // Declared above the measured maximum, because this guard's annotation is the
+    // one the merged budget can least afford to understate.
+    attentionCost: { denialMessageSizeChars: 1750, optionCount: 4 },
     canary: {
       input: {},
       expects: "warn",
