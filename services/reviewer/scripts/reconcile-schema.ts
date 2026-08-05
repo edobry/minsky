@@ -62,11 +62,18 @@ import {
 import * as convergenceMetricsSchema from "../src/db/schemas/convergence-metrics-schema";
 import * as webhookEventsSchema from "../src/db/schemas/webhook-events-schema";
 import * as inflightReviewsSchema from "../src/db/schemas/inflight-reviews-schema";
+import * as reviewTimingSchema from "../src/db/schemas/review-timing-schema";
+import * as findingsSchema from "../src/db/schemas/findings-schema";
 
+// Must mirror the schema merge in ../src/db/client.ts — applyMigrations() takes a
+// ReviewerDb, and a narrower schema here is a type error (how a 2-schema drift from
+// client.ts was caught when this file entered typecheck coverage, mt#3498).
 const schema = {
   ...convergenceMetricsSchema,
   ...webhookEventsSchema,
   ...inflightReviewsSchema,
+  ...reviewTimingSchema,
+  ...findingsSchema,
 };
 
 interface ReconcileReport {

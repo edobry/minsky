@@ -224,7 +224,11 @@ interface HarnessResult {
  */
 function pickBugPattern(): BugPattern {
   const index = new Date().getUTCMinutes() % BUG_CATALOG.length;
-  return BUG_CATALOG[index];
+  const pattern = BUG_CATALOG[index];
+  if (pattern === undefined) {
+    throw new Error("BUG_CATALOG is empty — nothing to inject");
+  }
+  return pattern;
 }
 
 /**
@@ -263,7 +267,7 @@ export function checkCitation(
 
   let match: RegExpExecArray | null;
   while ((match = citationRe.exec(reviewBody)) !== null) {
-    const citedLine = parseInt(match[1], 10);
+    const citedLine = parseInt(match[1] ?? "", 10);
     if (!isNaN(citedLine) && Math.abs(citedLine - injectedLine) <= 5) {
       return citedLine;
     }

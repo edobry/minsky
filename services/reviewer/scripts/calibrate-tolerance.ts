@@ -57,10 +57,10 @@ interface BucketData {
 
 function getPrefixRange(prefixLen: number): string {
   for (let i = BUCKET_BOUNDARIES.length - 1; i >= 0; i--) {
-    if (prefixLen >= BUCKET_BOUNDARIES[i]) {
-      const lo = BUCKET_BOUNDARIES[i];
+    const lo = BUCKET_BOUNDARIES[i];
+    if (lo !== undefined && prefixLen >= lo) {
       const hi = i + 1 < BUCKET_BOUNDARIES.length ? BUCKET_BOUNDARIES[i + 1] : null;
-      return hi !== null ? `${lo}-${hi}` : `${lo}+`;
+      return hi != null ? `${lo}-${hi}` : `${lo}+`;
     }
   }
   return "0-100";
