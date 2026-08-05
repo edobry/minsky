@@ -13,6 +13,7 @@
 
 import { describe, test, expect } from "bun:test";
 import {
+  HEARTBEAT_CHANNEL,
   PostgresChannelListener,
   createNoopChannelListener,
   createRecordingChannelListener,
@@ -624,7 +625,11 @@ describe("createRecordingChannelListener", () => {
  */
 describe("PostgresChannelListener — heartbeat liveness", () => {
   /** Wire a listener whose heartbeat emit delivers (healthy) or drops (wedged). */
-  function createHeartbeatHarness(opts?: { missesBeforeReconnect?: number }) {
+  function createHeartbeatHarness(opts?: {
+    missesBeforeReconnect?: number;
+    /** Make the reopened connection's first N listen() calls fail. */
+    failListensAfterReopen?: number;
+  }) {
     let sql = createStubSql();
     const reopened: StubSql[] = [];
     /** When false, emit() is accepted but no NOTIFY comes back — a wedged conn. */
@@ -645,6 +650,12 @@ describe("PostgresChannelListener — heartbeat liveness", () => {
         },
         reopen: async () => {
           const fresh = createStubSql();
+          if (opts?.failListensAfterReopen) {
+            fresh.__failNextListens(
+              opts.failListensAfterReopen,
+              new Error("stub: database still unreachable")
+            );
+          }
           reopened.push(fresh);
           sql = fresh;
           return asSql(fresh);
@@ -701,17 +712,15 @@ describe("PostgresChannelListener — heartbeat liveness", () => {
     if (result.action !== "reconnected") throw new Error("expected reconnected");
 
     // Every channel is restored — including the heartbeat's own subscription.
-    expect(result.channels.sort()).toEqual(["mesh.a", "mesh.b", "minsky.mesh.heartbeat"]);
+    expect(result.channels.sort()).toEqual(["mesh.a", "mesh.b", HEARTBEAT_CHANNEL].sort());
     expect(h.reopened.length).toBe(1);
 
     // The re-established LISTENs are on the FRESH connection, not the dead one.
     const fresh = h.reopened[0];
     if (!fresh) throw new Error("expected a reopened connection");
-    expect(fresh.__listens.map((r) => r.channel).sort()).toEqual([
-      "mesh.a",
-      "mesh.b",
-      "minsky.mesh.heartbeat",
-    ]);
+    expect(fresh.__listens.map((r) => r.channel).sort()).toEqual(
+      ["mesh.a", "mesh.b", HEARTBEAT_CHANNEL].sort()
+    );
 
     await h.listener.close();
   });
@@ -818,6 +827,32 @@ describe("PostgresChannelListener — heartbeat liveness", () => {
     expect(sql.__listens.map((r) => r.channel)).toEqual(["mesh.a"]);
 
     await listener.close();
+  });
+
+  test("channels are still restored when the re-listen fails across the reconnect window", async () => {
+    // Spec AT2. This is the case postgres-js gets wrong: its own onclose deletes
+    // each channel, re-listens, and SWALLOWS the rejection — so one unreachable
+    // moment loses the subscription permanently. Ours retries and restores.
+    const h = createHeartbeatHarness({ missesBeforeReconnect: 1, failListensAfterReopen: 2 });
+    await h.listener.startHeartbeat();
+    await h.listener.subscribe("mesh.a", () => {});
+
+    await h.listener.heartbeatTick();
+    h.wedge();
+    await h.listener.heartbeatTick();
+    const result = await h.listener.heartbeatTick();
+
+    expect(result.action).toBe("reconnected");
+    if (result.action !== "reconnected") throw new Error("expected reconnected");
+    expect(result.channels.sort()).toEqual(["mesh.a", HEARTBEAT_CHANNEL]);
+
+    // Both channels are live on the fresh connection despite the early failures.
+    const fresh = h.reopened[0];
+    if (!fresh) throw new Error("expected a reopened connection");
+    const established = fresh.__listens.map((r) => r.channel).sort();
+    expect(established).toEqual(["mesh.a", HEARTBEAT_CHANNEL]);
+
+    await h.listener.close();
   });
 
   test("ticking after close is skipped rather than reconnecting a dead listener", async () => {
