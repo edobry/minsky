@@ -86,6 +86,8 @@ export interface ThreadWindow {
   notePinned: (pinned: boolean) => void;
   /** Mount the whole transcript and go to its first turn. */
   revealFromStart: () => void;
+  /** Mount far enough back that the turn at this index is inside the window. */
+  revealTo: (index: number) => void;
   /** Repaint the position readout against a scrollport. */
   paintPosition: (port: Element | null) => void;
   positionFillRef: RefObject<HTMLSpanElement>;
@@ -264,6 +266,23 @@ export function useThreadWindow({
   const revealFromStart = useCallback(() => reveal(0, true), [reveal]);
 
   /**
+   * Mount far enough back that the turn at `index` is inside the window.
+   *
+   * Not a reader gesture like {@link revealOlder} — this serves an ADDRESSED
+   * arrival (mt#3791), where the caller already knows the one turn it has to
+   * land on and the tail-first window may not have mounted it. Chunking would
+   * only spread that arrival over several commits, so this reveals straight to
+   * the index. It is a no-op once the turn is mounted, because `reveal` bails
+   * when the window would not move backwards.
+   *
+   * `toStart: false` — the position-holding correction is the right neighbour
+   * here rather than a jump to turn 0. The consumer's own scroll-to-target runs
+   * after it (this hook's effects are declared first), so the correction costs
+   * one superseded scroll write and never fights the landing.
+   */
+  const revealTo = useCallback((index: number) => reveal(Math.max(0, index), false), [reveal]);
+
+  /**
    * Hold the reader's position across a reveal.
    *
    * Content prepended above the viewport pushes everything below it down by its
@@ -375,6 +394,7 @@ export function useThreadWindow({
     revealOlder,
     notePinned,
     revealFromStart,
+    revealTo,
     paintPosition,
     positionFillRef,
     positionReadoutRef,
