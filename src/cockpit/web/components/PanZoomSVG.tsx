@@ -452,6 +452,30 @@ export function PanZoomSVG({
     applyFit();
     const el = containerRef.current;
     if (!el) return;
+    /**
+     * Keep the user's (or camera-follow's) framing and correct only the
+     * height to the new container aspect, so `preserveAspectRatio="none"`
+     * never distorts.
+     *
+     * Content-clamped (mt#3792 SC1): changing only `h` moves the viewBox
+     * CENTER vertically by half the height delta, so a large aspect change
+     * can walk the camera off the content the same way a drag could.
+     *
+     * Extracted (PR #2692 review, non-blocking): both branches below want
+     * exactly this, and having it written twice is how the two would drift
+     * apart — which is the same failure mode as the two independent
+     * half-board computations `STAGE_ORIGIN_X` replaced in
+     * `SessionFilmStage.tsx`.
+     */
+    const correctAspectOnly = (width: number, height: number) => {
+      setViewBox((vb) =>
+        clampViewBoxToContent(
+          { ...vb, h: vb.w * (height / width) },
+          cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
+        )
+      );
+    };
+
     const observer = new ResizeObserver(() => {
       const { width, height } = el.getBoundingClientRect();
       if (width === 0 || height === 0) return;
@@ -461,34 +485,15 @@ export function PanZoomSVG({
         // to the full-board fit here — that fought camera-follow on every
         // resize/reflow the exact same way the ambient-drift effect fought
         // it before the `growingBoundsTargetRef` fix above, producing a
-        // visible flash back to the full board. Just correct the aspect (the
-        // SAME treatment the user-interacted branch below already uses);
-        // the growing-bounds effect's own next tick re-reads the container
-        // size and re-fits at the new dimensions on its own cadence.
-        // Content-clamped (mt#3792 SC1): changing only `h` moves the viewBox
-        // CENTER vertically by half the height delta, so a large aspect change
-        // can walk the camera off the content the same way a drag could.
-        setViewBox((vb) =>
-          clampViewBoxToContent(
-            { ...vb, h: vb.w * (height / width) },
-            cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
-          )
-        );
+        // visible flash back to the full board. The growing-bounds effect's
+        // own next tick re-reads the container size and re-fits at the new
+        // dimensions on its own cadence.
+        correctAspectOnly(width, height);
       } else if (!userInteractedRef.current) {
         // Auto-refit until the user takes control.
         applyFit();
       } else {
-        // Preserve the user's framing but correct the height to the new aspect so
-        // preserveAspectRatio="none" never distorts.
-        // Content-clamped (mt#3792 SC1): changing only `h` moves the viewBox
-        // CENTER vertically by half the height delta, so a large aspect change
-        // can walk the camera off the content the same way a drag could.
-        setViewBox((vb) =>
-          clampViewBoxToContent(
-            { ...vb, h: vb.w * (height / width) },
-            cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
-          )
-        );
+        correctAspectOnly(width, height);
       }
     });
     observer.observe(el);
@@ -972,6 +977,7 @@ export function PanZoomSVG({
           type="button"
           onClick={handleZoomIn}
           aria-label="Zoom in"
+          data-testid="pan-zoom-zoom-in"
           className={cn(
             "w-7 h-7 rounded text-xs font-mono font-semibold",
             "bg-card border border-border text-foreground",
@@ -986,6 +992,7 @@ export function PanZoomSVG({
           type="button"
           onClick={handleZoomOut}
           aria-label="Zoom out"
+          data-testid="pan-zoom-zoom-out"
           className={cn(
             "w-7 h-7 rounded text-xs font-mono font-semibold",
             "bg-card border border-border text-foreground",
@@ -1000,6 +1007,7 @@ export function PanZoomSVG({
           type="button"
           onClick={handleReset}
           aria-label="Reset to fit-width view"
+          data-testid="pan-zoom-reset"
           title="Reset / fit to width"
           className={cn(
             "w-7 h-7 rounded text-[9px] font-mono font-semibold",

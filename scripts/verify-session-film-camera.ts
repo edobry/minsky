@@ -263,7 +263,11 @@ const STAGE_CENTER = `(() => {
 })()`;
 
 const RESET_BUTTON_CENTER = `(() => {
-  const btn = document.querySelector('button[aria-label="Reset to fit-width view"]');
+  // data-testid, not the aria-label (PR #2692 review, non-blocking): the label
+  // is user-facing copy that a wording change would silently break, and this
+  // script would then report "could not locate the Reset button" as though the
+  // page were broken.
+  const btn = document.querySelector('[data-testid="pan-zoom-reset"]');
   if (!btn) return "";
   const r = btn.getBoundingClientRect();
   return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
@@ -349,6 +353,14 @@ async function teardownAll(): Promise<void> {
 
 let ws: WebSocket;
 try {
+  // PUT, not GET — this is REQUIRED, not a stylistic choice, and it is the
+  // verb both sibling verify scripts use. Chrome added a verb check to the
+  // DevTools HTTP endpoint (crbug 1233826, shipped in Chrome 111) so that a
+  // hostile page cannot open tabs via a cross-origin <img>/GET; /json/new now
+  // answers a GET with `405 Using unsafe HTTP verb GET to invoke /json/new.
+  // This action supports only PUT verb.` Verified against the live canary
+  // (Chrome 151) while responding to PR #2692's review, which read the PUT as
+  // the bug.
   const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(filmUrl)}`, { method: "PUT" });
   const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
   teardown.push(() => fetch(`${CDP}/json/close/${target.id}`));
