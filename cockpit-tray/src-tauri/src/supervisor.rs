@@ -403,6 +403,39 @@ fn parse_lsof_pid(output: &str) -> Option<u32> {
         .next()
 }
 
+/// Parse the first (pid, address) pair from `lsof -F pn` field output.
+///
+/// lsof's field format emits a process block (`p<pid>`) followed by one or more
+/// file blocks, each carrying an fd (`f<n>`) and a name (`n<addr>`) line — the
+/// `f` line arrives whether or not it was requested, which is why this matches
+/// on prefixes rather than on position:
+///
+/// ```text
+/// p42516
+/// f6
+/// n127.0.0.1:3737
+/// ```
+///
+/// Takes the FIRST pid and the FIRST address after it, matching
+/// `parse_lsof_pid`'s first-wins rule. A process listening on both loopback
+/// families reports two `n` lines; either identifies the holder.
+fn parse_lsof_holder(output: &str) -> Option<(u32, String)> {
+    let mut pid = None;
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix('p') {
+            if pid.is_none() {
+                pid = rest.parse::<u32>().ok();
+            }
+        } else if let Some(addr) = line.strip_prefix('n') {
+            if let Some(pid) = pid {
+                return Some((pid, addr.to_string()));
+            }
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Process helpers (use std::process; not unit-tested — exercised live).
 // ---------------------------------------------------------------------------
@@ -622,6 +655,30 @@ fn pid_on_port(port: u16, path: &str) -> Option<u32> {
         .output()
         .ok()?;
     parse_lsof_pid(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The PID **and the address it was found on** for whatever is LISTENing on
+/// `port` on loopback (mt#3785, PR #2684 R2).
+///
+/// Same scope as `pid_on_port`; the extra field output costs a second lsof
+/// invocation, which is why only the conflict REPORT uses it — that fires on a
+/// status transition, not on the 5s poll. The hot paths that only need a PID to
+/// act on keep using `pid_on_port`.
+fn port_holder(port: u16, path: &str) -> Option<(u32, String)> {
+    let out = Command::new(lsof_bin(path))
+        .args([
+            "-nP",
+            "-a",
+            "-i",
+            &format!("tcp@localhost:{port}"),
+            "-sTCP:LISTEN",
+            "-F",
+            "pn",
+        ])
+        .env("PATH", path)
+        .output()
+        .ok()?;
+    parse_lsof_holder(&String::from_utf8_lossy(&out.stdout))
 }
 
 /// Whether `port` is unavailable to the daemon — the AVAILABILITY half of port
@@ -1599,13 +1656,17 @@ fn clear_uptime(app: &AppHandle, sup: &mut Sup) {
 /// 5 s stay quiet once a conflict is steady-state; a change of holder changes
 /// the label and is reported.
 fn report_conflict(app: &AppHandle, sup: &mut Sup, path: &str) {
-    let pid = pid_on_port(DAEMON_PORT, path);
+    let holder = port_holder(DAEMON_PORT, path);
+    let pid = holder.as_ref().map(|(pid, _)| *pid);
     let label = conflict_label_for(pid);
     if sup.last_status.as_deref() != Some(label.as_str()) {
+        // The ADDRESS is reported, not assumed (PR #2684 R2): the probe is
+        // scoped to loopback but that covers both families, and "which address"
+        // is exactly what the original incident turned on.
         eprintln!(
-            "[cockpit-tray] not spawning: 127.0.0.1:{DAEMON_PORT} is held by {}",
-            match pid {
-                Some(p) => format!("pid {p}"),
+            "[cockpit-tray] not spawning: port {DAEMON_PORT} is held by {}",
+            match &holder {
+                Some((pid, addr)) => format!("pid {pid} on {addr}"),
                 None => "a process lsof could not name".to_string(),
             }
         );
@@ -1925,6 +1986,32 @@ mod tests {
         assert_eq!(parse_lsof_pid(""), None);
         assert_eq!(parse_lsof_pid("\n\n"), None);
         assert_eq!(parse_lsof_pid("not-a-pid\n"), None);
+    }
+
+    #[test]
+    fn parse_lsof_holder_reads_the_pid_and_the_address() {
+        // Real captured output, including the `f` line lsof emits whether or
+        // not it was requested.
+        assert_eq!(
+            parse_lsof_holder("p42516\nf6\nn127.0.0.1:3737\n"),
+            Some((42516, "127.0.0.1:3737".to_string()))
+        );
+        // IPv6 loopback — the case `tcp@127.0.0.1` would have missed entirely.
+        assert_eq!(
+            parse_lsof_holder("p1465\nf3\nn[::1]:39372\n"),
+            Some((1465, "[::1]:39372".to_string()))
+        );
+        // A process listening on both families: first address wins, matching
+        // parse_lsof_pid's first-wins rule.
+        assert_eq!(
+            parse_lsof_holder("p7\nf3\nn127.0.0.1:3737\nf4\nn[::1]:3737\n"),
+            Some((7, "127.0.0.1:3737".to_string()))
+        );
+        // Nothing listening, or output with no address to report.
+        assert_eq!(parse_lsof_holder(""), None);
+        assert_eq!(parse_lsof_holder("p42516\nf6\n"), None);
+        // An address line with no preceding process line is not a holder.
+        assert_eq!(parse_lsof_holder("n127.0.0.1:3737\n"), None);
     }
 
     #[test]
