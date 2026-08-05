@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bindTelegramChannelTopicToTask,
   CREDENTIAL_RETRY_DELAYS_MS,
+  CREDENTIAL_RETRY_MIN_DELAY_MS,
   createEventLogCursor,
   createTopicActuatorResolver,
   ensureTelegramChannelTopic,
@@ -25,6 +26,11 @@ import {
 } from "./principal-channel-launch";
 import type { ChannelActuator } from "./principal-channel-poller";
 import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
+// The checked-in golden fixture both the bun and Rust sides pin (mt#2629).
+// Imported (not read from disk) for the same reason health-contract.test.ts
+// imports it: the contract IS the file's content, so no fs access is needed
+// and `custom/no-real-fs-in-tests` stays satisfied without an exception.
+import healthShapeFixture from "../../contract/cockpit-health-shape.json";
 
 describe("loadPrincipalChannelLaunchConfig (mt#3230 — config, not env)", () => {
   test("an absent section leaves the channel off", () => {
@@ -570,6 +576,139 @@ describe("resolveWithRetry (mt#3608)", () => {
     // never uncapped growth (8s, 16s, ...).
     expect(delaysSeen).toEqual([1_000, 2_000, 4_000, 4_000, 4_000]);
     expect(Math.max(...delaysSeen)).toBeLessThanOrEqual(4_000);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3689 — the backoff must not degenerate, and `attempts` must mean one
+  // thing. The tests above all seed the schedule with positive values, so the
+  // non-positive-seed path was never exercised.
+  // -------------------------------------------------------------------------
+
+  test("mt#3689 AT1 — a `[0]` seed produces POSITIVE, WIDENING waits instead of a busy loop", async () => {
+    // The defect: past the seeded schedule the delay is the previous delay
+    // DOUBLED, and 0 doubles to 0 forever — so `[0]` yielded an unbroken run of
+    // zero-length waits, a spin inside the mechanism built to stop hammering.
+    // Reachable today only through this very seam (`retryDelaysMs`) or a future
+    // edit to the shipped constant, because the invariant was held by the
+    // literal, not by the code.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 6;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    const result = await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [0],
+    });
+
+    expect(result.configured).toBe(true);
+    expect(waits).toHaveLength(FAIL_COUNT);
+    // Positive is the floor requirement; widening is what makes it a BACKOFF
+    // rather than a fixed-rate poll. Asserting the exact sequence pins both at
+    // once — a clamp applied only to the output would give [1000] * 6 here,
+    // which passes "every wait positive" and is still not a backoff.
+    expect(waits.every((w) => w >= CREDENTIAL_RETRY_MIN_DELAY_MS)).toBe(true);
+    expect(waits).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000]);
+  });
+
+  test("mt#3689 — a NEGATIVE seed is floored too, and still respects the cap", async () => {
+    // Stronger than the spec's `[0]` case: a negative delay would reach
+    // `sleep()` as a negative argument. Same clamp covers it.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 4;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [-5_000],
+      maxDelayMs: 3_000,
+    });
+
+    expect(waits.every((w) => w > 0)).toBe(true);
+    expect(Math.max(...waits)).toBeLessThanOrEqual(3_000);
+    expect(waits).toEqual([1_000, 2_000, 3_000, 3_000]);
+  });
+
+  test("mt#3689 — the clamp is INERT for the shipped schedule (no production behavior change)", async () => {
+    // The floor is below every entry in CREDENTIAL_RETRY_DELAYS_MS, so this
+    // change must be invisible in production. Asserting that explicitly keeps a
+    // future floor increase from silently altering the real backoff.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = CREDENTIAL_RETRY_DELAYS_MS.length;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: CREDENTIAL_RETRY_DELAYS_MS,
+    });
+
+    expect(waits).toEqual([...CREDENTIAL_RETRY_DELAYS_MS]);
+    expect(Math.min(...CREDENTIAL_RETRY_DELAYS_MS)).toBeGreaterThan(CREDENTIAL_RETRY_MIN_DELAY_MS);
+  });
+
+  test("mt#3689 AT3 — the two fault classes stay distinguishable, and `attempts` no longer straddles them", async () => {
+    // `attempts` used to appear on BOTH `retrying` (a real count of credential
+    // reads) and `failed` (always the literal 1, counting nothing — the failure
+    // happened once, AFTER credentials resolved). One field, two meanings,
+    // across the two classes an operator most needs to tell apart. mt#3683's
+    // own root cause was established by reading `attempts: 7` against a
+    // six-entry schedule, so this counter carries diagnostic weight exactly
+    // when someone is under pressure.
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return calls === 1 ? TRANSIENT : CONFIGURED;
+    };
+    const capturedDuringRetry: PrincipalChannelStatus[] = [];
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (): Promise<void> => {
+        capturedDuringRetry.push(getPrincipalChannelStatus());
+      },
+      delaysMs: NO_WAIT,
+    });
+
+    // The credential-exhaustion class keeps its counter — it means something there.
+    const retrying = capturedDuringRetry[0];
+    expect(retrying?.state).toBe("retrying");
+    if (retrying !== undefined && retrying.state === "retrying") {
+      expect(typeof retrying.attempts).toBe("number");
+    }
+
+    // The post-credential class no longer carries one. Asserted against the
+    // CHECKED-IN golden fixture rather than a locally-built literal: that file
+    // is the shape both the bun and Rust sides pin, and — unlike the top-level
+    // field set — this sub-object is not type-asserted by either contract test,
+    // so nothing else would catch `attempts` being reinstated here.
+    const failedVariant = (
+      healthShapeFixture as {
+        $principalChannelFieldVariants: { failedNonCredential: Record<string, unknown> };
+      }
+    ).$principalChannelFieldVariants.failedNonCredential;
+    expect(failedVariant.state).toBe("failed");
+    expect(typeof failedVariant.reason).toBe("string");
+    expect("attempts" in failedVariant).toBe(false);
   });
 
   test("AT3 — a genuinely-unconfigured channel does NOT retry", async () => {
