@@ -41,9 +41,21 @@ const BODY_LABEL_ABOVE = [
   "```",
 ].join("\n");
 
-/** The same PR after an edit that removes the label entirely — now it WOULD flag. */
+/**
+ * The same PR before the label was added — it flags.
+ *
+ * It MENTIONS a negative control in prose without a matching label, so the
+ * record carries `negativeControlUnmatched: true`. That is deliberate and
+ * load-bearing for the tests below: `flagged` alone is true for this body AND
+ * for an empty one, so a re-derivation asserting only `flagged` would pass even
+ * if the capture were broken and stored nothing. `negativeControlUnmatched`
+ * differs between the real body and an empty one, which makes the assertion
+ * actually discriminate — it fails when the capture is empty.
+ */
 const BODY_LABEL_REMOVED = [
   "## Testing",
+  "",
+  "I did not write a negative control for this one.",
   "",
   "Execution evidence:",
   "",
@@ -160,8 +172,15 @@ describe("test-first calibration record — retrospective re-derivation (mt#3607
 
     const rederived = rederiveFromRecord(record);
 
-    expect(rederived.negativeControlPresent).toBe(record.negativeControlPresent);
+    // The discriminating one: true here, false for an empty/absent capture. An
+    // assertion on `flagged` alone would pass even if the record stored nothing.
+    expect(record.negativeControlUnmatched).toBe(true);
     expect(rederived.negativeControlUnmatched).toBe(record.negativeControlUnmatched);
+    // The capture is the text that was actually judged, byte for byte.
+    expect(record.judgedPrBody.excerpt).toBe(BODY_LABEL_REMOVED);
+    expect(record.judgedPrBody.hash).toBe(hashJudgedText(BODY_LABEL_REMOVED));
+
+    expect(rederived.negativeControlPresent).toBe(record.negativeControlPresent);
     expect(rederived.bugfixShaped).toBe(record.bugfixShaped);
     expect(rederived.deferralMarker).toBe(record.deferralMarker);
     expect(rederived.modifiedTestFiles).toEqual(record.modifiedTestFiles);
@@ -194,9 +213,13 @@ describe("test-first calibration record — retrospective re-derivation (mt#3607
     // Re-checking the CURRENT artifact reports clean — this is exactly how
     // mt#3584 lost PR #2531's false positive.
     expect(fromMutatedArtifact.flagged).toBe(false);
-    // Re-deriving from the record still reports the fire it recorded.
+    // Re-deriving from the record still reports the fire it recorded — and on
+    // the DISCRIMINATING field, not just `flagged`, which stays true even for
+    // an empty capture and so cannot tell a working capture from a broken one.
     expect(fromRecord.flagged).toBe(true);
     expect(fromRecord.flagged).toBe(record.decision === "warn");
+    expect(fromRecord.negativeControlUnmatched).toBe(record.negativeControlUnmatched);
+    expect(record.negativeControlUnmatched).toBe(true);
     // And the mutation is DETECTABLE rather than merely survivable.
     expect(hashJudgedText(mutated)).not.toBe(record.judgedPrBody.hash);
   });
