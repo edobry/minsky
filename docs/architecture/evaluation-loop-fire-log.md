@@ -444,9 +444,16 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
   identity field), and `src/` is bundled into the deployed MCP server, which must not import
   `.minsky/hooks/`.
-- **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
-  `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
-  non-zero when any detector is flagged. It runs at calibration-review cadence
+- **Invocation path.** `scripts/check-coverage-receipts.ts` checks the UNION of every
+  DECLARED detector (`calibrationLog` on `GUARD_REGISTRY` plus `STANDALONE_GUARD_CANARIES`)
+  and every `.minsky/*-calibration.jsonl` on disk, prints an `[OK]`/`[DORMANT]`/`[FLAGGED]`
+  report, and exits non-zero when any detector is flagged. **The declared half is load-bearing
+  (mt#3742):** a detector that has never fired writes no file, so a disk-only scan cannot see
+  it — and "no records at all" is the dead-entry-point symptom this gate exists to catch, so
+  enumerating by presence-of-output made the check structurally blind to its own subject.
+  The "nothing to check" early exit therefore gates on whether ANY calibration log exists on
+  disk, not on the detector set: the union is never empty while any guard declares a log, and
+  calibration logs are gitignored, so gating on the set would flag everything in a fresh clone. It runs at calibration-review cadence
   (`/calibration-review` Step 1b), NOT as a merge gate — a flagged detector is a review
   signal, not a commit blocker.
 

@@ -278,7 +278,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "substrate-bypass-detector": "fixed", // excerpts, slice(0, 200)
   "turn-end-retro-scan": "capped", // cappedEvidenceLines (mt#3705)
   "turn-end-unescalated-incident-scan": "capped", // slice(0, 2)
-  "turn-end-untaken-action-scan": "capped", // cappedEvidenceLines (mt#3705)
+  // Reclassified by mt#3767. The evidence lines are still capped, but the
+  // DIRECTIVE now varies by input — a fire matching the deferral corpus selects a
+  // longer branch — so the ordinary canary (commitment-only) measures the shorter
+  // one and bounds nothing. The declared worstCaseCanary is posed at the overlap.
+  "turn-end-untaken-action-scan": WORST_CASE_CANARY, // capped lines + a branching directive
   "turn-end-unwalked-task-scan": "capped", // MAX_LISTED_IDS (mt#3536)
   "wall-of-text-detector": "fixed", // one excerpt, EXCERPT_MAX_CHARS
 };

@@ -188,8 +188,12 @@ RUN mkdir -p dist/storage/migrations && cp -r packages/domain/src/storage/migrat
 # Rationale + the size tradeoff: docs/deploy-minsky-railway.md §What ships in
 # the image.
 #
-# --preload: Bun 1.2.23's bundler reorders `import "reflect-metadata"` after
-# other init calls in the flattened bundle, causing tsyringe's polyfill check
-# to fire before the polyfill is installed. Preloading the package by name
-# ensures it runs before the bundle evaluates, regardless of bundler ordering.
-CMD bun run --preload reflect-metadata dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
+# No `--preload reflect-metadata` here, deliberately (mt#3680). This CMD carried
+# it from mt#3561 through mt#3680 because bun's bundler emitted the polyfill's
+# CommonJS require AFTER the init calls that reach tsyringe, so the bundle could
+# not boot on its own. `src/reflect-polyfill.ts` fixes that ordering inside the
+# bundle, which makes the flag redundant here — and a redundant flag is worse
+# than none, because it would leave production the one place that never
+# exercises the self-sufficient path. `bundle-boot-smoke.yml` boots this exact
+# bare form, so a regression fails at PR time rather than at container start.
+CMD bun run dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth

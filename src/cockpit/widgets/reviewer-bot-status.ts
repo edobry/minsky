@@ -23,6 +23,7 @@
 
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { log } from "@minsky/shared/logger";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -901,7 +902,6 @@ export function createUnsafeQueryRows(
 }
 
 async function defaultLoadProvider(): Promise<RawSqlProviderLike> {
-  const { getSharedPersistenceService } = await import("../shared-persistence");
   const svc = await getSharedPersistenceService();
   return svc.getProvider() as RawSqlProviderLike;
 }
@@ -920,6 +920,50 @@ async function defaultLoadProvider(): Promise<RawSqlProviderLike> {
 export async function buildQueryRows(
   loadProvider: () => Promise<RawSqlProviderLike> = defaultLoadProvider
 ): Promise<QueryRowsFn> {
+  return (await buildLiveQueryRows(loadProvider)) ?? deadConnectionQueryRows;
+}
+
+/**
+ * The `QueryRowsFn` used when no live raw-SQL connection could be obtained
+ * (mt#2758): every call reports a real failure rather than resolving silently,
+ * so a structurally dead connection degrades visibly instead of rendering as
+ * no-data.
+ *
+ * Deliberately a module-level CONSTANT rather than a value built per failed
+ * attempt — it holds no connection, so there is nothing per-attempt about it,
+ * and giving it a stable identity makes "this is the placeholder, do not cache
+ * it" checkable by reference.
+ */
+const deadConnectionQueryRows: QueryRowsFn = async (
+  _query: string,
+  _params?: unknown[],
+  onFailure?: () => void
+) => {
+  onFailure?.();
+  return [];
+};
+
+/**
+ * Resolve a queryRows fn backed by a REAL connection, or `null` when one
+ * cannot be obtained (mt#3721).
+ *
+ * Split out of `buildQueryRows` so the failure case is representable as a
+ * value the caller can refuse to cache. ADR-035 rule 1: *"A composition root
+ * must not register a substitute value for a failed initialization without
+ * also registering the retry ... Never the placeholder alone."* The previous
+ * shape returned the placeholder from `buildQueryRows`'s two failure branches
+ * and `getQueryRows` memoized it for the process lifetime, so a cockpit whose
+ * first poll of this widget happened while the DB was down rendered
+ * placeholder zeros forever — even after the DB recovered. Returning `null`
+ * lets `createEpochKeyedCache`'s successes-only rule arm the retry implicitly:
+ * nothing is stored, so the next poll rebuilds.
+ *
+ * `buildQueryRows` keeps its original always-returns-a-fn contract for its
+ * existing callers and tests; this is the variant the cache keys on.
+ */
+async function buildLiveQueryRows(
+  loadProvider: () => Promise<RawSqlProviderLike> = defaultLoadProvider
+): Promise<QueryRowsFn | null> {
   try {
     const provider = await loadProvider();
     if (typeof provider.getRawSqlConnection === "function") {
@@ -929,19 +973,10 @@ export async function buildQueryRows(
       }
     }
     log.debug("[reviewer-bot-status] provider has no raw SQL connection; DB stats disabled");
-    // mt#2758: no live connection means every query this cycle "fails" for
-    // real (it never runs) — signal that via onFailure rather than resolving
-    // silently, so this degrades visibly instead of rendering as no-data.
-    return async (_query: string, _params?: unknown[], onFailure?: () => void) => {
-      onFailure?.();
-      return [];
-    };
+    return null;
   } catch (err) {
     warnQueryFailure(err);
-    return async (_query: string, _params?: unknown[], onFailure?: () => void) => {
-      onFailure?.();
-      return [];
-    };
+    return null;
   }
 }
 
@@ -950,22 +985,36 @@ export async function buildQueryRows(
 // ---------------------------------------------------------------------------
 
 /**
- * Lazily-built queryRows dep — computed once on first fetch, then cached.
- * Avoids paying the PersistenceService init cost at import time (cockpit
- * boot doesn't know if this default-disabled widget will actually be used).
+ * Lazily-built queryRows dep — resolved on first fetch, then cached FOR THE
+ * CURRENT PERSISTENCE EPOCH ONLY (mt#3721). Still avoids paying the
+ * PersistenceService init cost at import time (cockpit boot doesn't know if
+ * this default-disabled widget will actually be used).
+ *
+ * Two properties this cache must have, each from a distinct incident:
+ *
+ * 1. **Epoch-keyed.** The resolved fn closes over a raw postgres-js `Sql`
+ *    handle. A pool recycle (`recycleSharedPersistence`, mt#3638) ends that
+ *    handle, and postgres-js rejects every subsequent query on it with
+ *    `CONNECTION_ENDED` forever — the `ending` flag is never cleared. A
+ *    lifetime cache therefore survives the recovery it should have consumed:
+ *    observed 2026-08-05, this widget reported 15/15 query failures for eight
+ *    minutes after a recycle that had already restored the pool (`/api/health`
+ *    concurrently reporting `db: "ok"` at 152ms).
+ * 2. **Successes only.** `buildLiveQueryRows` returns `null` rather than the
+ *    placeholder when no connection could be obtained, so a failed attempt
+ *    stores nothing and the next 30s poll retries — ADR-035 rule 1's "arm the
+ *    retry" half. Caching the placeholder is what made a cockpit that first
+ *    polled during an outage stay dead after the outage ended.
  */
-let _cachedQueryRows: QueryRowsFn | null = null;
-
-async function getQueryRows(): Promise<QueryRowsFn> {
-  if (_cachedQueryRows) return _cachedQueryRows;
-  _cachedQueryRows = await buildQueryRows();
-  return _cachedQueryRows;
-}
+const getQueryRows = createEpochKeyedCache(() => buildLiveQueryRows());
 
 export const reviewerBotStatusWidget: WidgetModule = createReviewerBotStatusWidget({
   probeHealth: probeReviewerHealth,
   queryRows: async (sql: string, params?: unknown[], onFailure?: () => void) => {
     const queryFn = await getQueryRows();
+    // No live connection this cycle: report a real failure (mt#2758) without
+    // memoizing anything, so the next poll re-attempts the build.
+    if (!queryFn) return deadConnectionQueryRows(sql, params, onFailure);
     return queryFn(sql, params, onFailure);
   },
   now: () => Date.now(),
