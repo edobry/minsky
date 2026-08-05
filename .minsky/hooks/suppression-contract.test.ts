@@ -37,7 +37,7 @@ import {
 } from "./knowledge-acquisition-detector";
 import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
 import { SUPPRESSION_ASKS_CREATE_THIS_TURN } from "./ask-routing-deferral-detector";
-import { SUPPRESSION_DEPTH_REQUEST } from "./wall-of-text-detector";
+import { SUPPRESSION_DEPTH_REQUEST, SUPPRESSION_QUESTION_ANSWER } from "./wall-of-text-detector";
 import type { ClaudeHookInput } from "./types";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import type { DispatchContext } from "./registry";
@@ -170,6 +170,30 @@ describe("mt#3207 — the sweep sees each detector's suppression outcome", () =>
       textHash: "abc123",
       suppressedByDepthRequest: true,
       suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+    };
+    const result = computeLogResult(
+      entryFor("wall-of-text"),
+      asLogContent([suppressed]),
+      true,
+      undefined
+    );
+    expect(result.suppressedSinceLastReview).toBe(1);
+  });
+
+  // mt#3718 — the question-answer override's records count as suppressed too,
+  // via the same `suppressionReasons` contract the depth-request override
+  // uses above (mirrors that test).
+  test("wall-of-text: the question-answer override is also measurable", () => {
+    const suppressed = {
+      timestamp: "2026-08-04T00:00:00.000Z",
+      session_id: "s1",
+      wordCount: 400,
+      lineCount: 30,
+      trigger: "over-budget",
+      textHash: "def456",
+      suppressedByDepthRequest: false,
+      suppressedByQuestionAnswer: true,
+      suppressionReasons: [SUPPRESSION_QUESTION_ANSWER],
     };
     const result = computeLogResult(
       entryFor("wall-of-text"),
