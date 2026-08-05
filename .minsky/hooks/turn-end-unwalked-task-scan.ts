@@ -104,10 +104,25 @@ const CLI_MINT_RE = /\btasks\s+create\b/;
  * would reproduce this guard's original defect one layer down — covering one
  * of two paths through the same capability.
  */
-const CLI_CREATED_ID_RE = /\bTask\s+(mt#\d+)\s+created\b/i;
+const CLI_CREATED_ID_RE = /\bTask\s+([a-z]{2,}#\d+)\s+created\b/i;
 
-/** Task-id shape, for reading ids out of CLI walk-forward command lines. */
-const TASK_ID_RE = /\bmt#\d+/g;
+/**
+ * Qualified task-id shape, for reading ids out of CLI command lines.
+ *
+ * The backend prefix is matched generically rather than pinned to `mt#`: this
+ * id-space is multi-backend (`validateQualifiedTaskId` accepts `md#283` and
+ * `gh#123` alongside `mt#`), and the MCP path already covers all of them for
+ * free because it reads ids from a PARAM rather than from text. Pinning the
+ * CLI path to one prefix would leave the two transports covering different
+ * id-spaces — a narrower version of the very defect mt#3730 exists to fix.
+ *
+ * Only the qualified form is matched because only the qualified form is
+ * accepted: a bare `3730` is rejected at the CLI boundary ("Please provide a
+ * qualified task ID"), and an uppercase `MT#3730` is normalized to the
+ * nonexistent `mt#MT#3730` and errors. Neither can be a successful walk, so
+ * neither needs matching.
+ */
+const TASK_ID_RE = /\b[a-z]{2,}#\d+/g;
 
 /**
  * CLI spellings of {@link WALK_FORWARD_TOOLS}.

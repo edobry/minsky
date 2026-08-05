@@ -25,6 +25,9 @@ const INCIDENT_PROMPT = "the cockpit isn't loading";
 /** The CLI mint invocation, in its `--json` form. */
 const CLI_CREATE_JSON = "bun src/cli.ts tasks create --title X --json";
 
+/** The same invocation without `--json`, which prints a plain success line. */
+const CLI_CREATE_BARE = "bun src/cli.ts tasks create --title X";
+
 /**
  * A real user prompt — the boundary `extractFinalTurn` slices on. Everything
  * after it is the completed turn.
@@ -304,7 +307,7 @@ describe("detectUnwalkedTasks — CLI transport", () => {
     expect(
       ids([
         userPrompt(INCIDENT_PROMPT),
-        bash("toolu_b", "bun src/cli.ts tasks create --title X"),
+        bash("toolu_b", CLI_CREATE_BARE),
         toolResultText(
           "toolu_b",
           `✅ Task ${CREATED_ID} created successfully\n  ID: ${CREATED_ID}`
@@ -373,7 +376,7 @@ describe("detectUnwalkedTasks — CLI transport", () => {
     expect(
       ids([
         userPrompt("file it"),
-        bash("toolu_j", "bun src/cli.ts tasks create --title X"),
+        bash("toolu_j", CLI_CREATE_BARE),
         toolResultText("toolu_j", "error: backend unavailable"),
       ])
     ).toEqual([]);
@@ -389,5 +392,65 @@ describe("detectUnwalkedTasks — CLI transport", () => {
         toolResult("toolu_l", { success: true, taskId: CREATED_ID }),
       ])
     ).toEqual([CREATED_ID]);
+  });
+});
+
+/**
+ * Multi-backend id coverage (PR #2645 R1).
+ *
+ * The first cut pinned both CLI regexes to `mt#`. The MCP path reads ids from a
+ * PARAM, so it covers every backend prefix for free; pinning the CLI path to
+ * one prefix would have left the two transports covering different id-spaces —
+ * a narrower instance of the defect this guard's widening exists to fix.
+ */
+describe("detectUnwalkedTasks — multi-backend ids over the CLI transport", () => {
+  function bash(id: string, command: string): TranscriptLine {
+    return toolUse(id, "Bash", { command });
+  }
+  const ids = (lines: TranscriptLine[]): string[] =>
+    detectUnwalkedTasks(lines).map((u) => u.taskId);
+
+  test.each([["md#283"], ["gh#123"]])("flags an unwalked %s minted over the CLI", (taskId) => {
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_m", CLI_CREATE_JSON),
+        toolResult("toolu_m", { success: true, taskId }),
+      ])
+    ).toEqual([taskId]);
+  });
+
+  test.each([["md#283"], ["gh#123"]])("a CLI walk on %s suppresses the fire", (taskId) => {
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_n", CLI_CREATE_JSON),
+        toolResult("toolu_n", { success: true, taskId }),
+        bash("toolu_o", `bun src/cli.ts tasks status set ${taskId} PLANNING`),
+        toolResult("toolu_o", { success: true }),
+      ])
+    ).toEqual([]);
+  });
+
+  test("the bare-output success line is read for a non-mt backend too", () => {
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_p", CLI_CREATE_BARE),
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_p",
+                content: "✅ Task gh#123 created successfully",
+              },
+            ],
+          },
+        } as TranscriptLine,
+      ])
+    ).toEqual(["gh#123"]);
   });
 });
