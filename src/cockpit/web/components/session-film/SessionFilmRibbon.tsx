@@ -345,7 +345,7 @@ function EventContentView({
       ) : isUnrecordedThinking ? (
         <div
           className="text-[11px] italic text-muted-foreground/60"
-          data-testid="session-film-row-content-thinking-not-recorded"
+          data-testid="session-film-row-content-thinking-not-requested"
         >
           Thinking happened here, but its text was never requested — the API returns thinking
           blocks empty unless a summary is asked for.

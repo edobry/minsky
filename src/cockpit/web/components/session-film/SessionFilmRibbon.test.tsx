@@ -550,7 +550,7 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
     fireEvent.click(screen.getByTestId("session-film-row-0"));
 
-    const el = await screen.findByTestId("session-film-row-content-thinking-not-recorded");
+    const el = await screen.findByTestId("session-film-row-content-thinking-not-requested");
     expect(el.textContent).toContain("its text was never requested");
     // The absence is not attributed to the harness (the pre-mt#3790 copy).
     expect(el.textContent).not.toContain("harness");
@@ -601,7 +601,7 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     const body = await screen.findByTestId("session-film-row-content-body");
     expect(body.textContent).toContain("thinking");
     expect(body.textContent).toContain("56 chars");
-    expect(screen.queryByTestId("session-film-row-content-thinking-not-recorded")).toBeNull();
+    expect(screen.queryByTestId("session-film-row-content-thinking-not-requested")).toBeNull();
     expect(screen.queryByTestId("session-film-row-content-empty")).toBeNull();
   });
 
