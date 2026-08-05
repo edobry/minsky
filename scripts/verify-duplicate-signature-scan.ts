@@ -17,6 +17,43 @@
 
 import "reflect-metadata";
 import { scanForSignatureMatches } from "../.minsky/hooks/duplicate-signature-scan";
+import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
+import { TERMINAL_TASK_STATUSES } from "../.minsky/hooks/task-statuses";
+import type { SqlCapablePersistenceProvider } from "../packages/domain/src/persistence/types";
+
+/**
+ * How many active tasks the scan actually searched.
+ *
+ * Reported so the latency figure below is interpretable: "3.1s" means nothing
+ * without the corpus size it was measured against, and mt#3722's AT6 asks for
+ * exactly that pairing. Returns null rather than throwing — a missing count
+ * must not fail a verification that is otherwise about the scan.
+ */
+async function countActiveTasks(): Promise<number | null> {
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return null;
+    const { resolvePersistenceProvider } = await import(
+      "../packages/domain/src/persistence/factory"
+    );
+    const provider = await resolvePersistenceProvider();
+    if (!provider?.capabilities.sql) return null;
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) return null;
+    const { sql } = await import("drizzle-orm");
+    const terminal = [...TERMINAL_TASK_STATUSES];
+    const rows = await db.execute(sql`
+      select count(*)::int as n
+      from tasks t join task_specs s on s.task_id = t.id
+      where t.status::text not in ${terminal}
+    `);
+    const first = Array.isArray(rows) ? rows[0] : null;
+    const n = first && typeof first === "object" ? (first as Record<string, unknown>)["n"] : null;
+    return typeof n === "number" ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The subject line of the task that was filed as a duplicate (mt#3719). */
 const TITLE =
@@ -65,7 +102,10 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  console.log(`Scan completed in ${elapsedMs}ms`);
+  const corpusSize = await countActiveTasks();
+  console.log(
+    `Scan completed in ${elapsedMs}ms over ${corpusSize ?? "unknown"} active tasks with specs`
+  );
   console.log(`Tokens tried: ${result.tokensTried.map((t) => `${t.rule}:${t.text}`).join(", ")}`);
   if (result.tokensDroppedAsUbiquitous.length > 0) {
     console.log(`Dropped as ubiquitous: ${result.tokensDroppedAsUbiquitous.join(", ")}`);
