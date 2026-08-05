@@ -284,8 +284,17 @@ function readLanding(turnIndex: number, toolUseId?: string): string {
       )}) + ']')`
     : "null";
   return `(() => {
-  const sentinel = document.querySelector('div[aria-hidden][class*="scroll-mb-8"]');
-  const thread = sentinel ? sentinel.parentElement : null;
+  // Two app-owned handles, in order of how much they promise: the thread's own
+  // testid, then the addressed element's ancestry (PR #2693 R1). Neither depends
+  // on a class fragment — the sibling scripts' \`scroll-mb-8\` sentinel selector
+  // broke silently on any unrelated markup change, and a geometry check that
+  // cannot find its scrollport reports "not in view" rather than "could not
+  // measure".
+  let thread = document.querySelector('[data-testid="conversation-thread"]');
+  if (!thread) {
+    const anyTurn = document.querySelector('[data-turn-index]');
+    thread = anyTurn ? anyTurn.parentElement : null;
+  }
   let port = thread;
   while (port) {
     const s = getComputedStyle(port);

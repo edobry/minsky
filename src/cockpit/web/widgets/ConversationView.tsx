@@ -1051,7 +1051,15 @@ function ConversationThread({
     // platform mechanism does not exist in WebKit — the engine the tray's macOS
     // window uses — and a correction competing with an anchor on the engines
     // that DO implement it would double-count the prepended height.
-    <div ref={threadRef} className={cn("flex flex-col gap-4 [overflow-anchor:none]", className)}>
+    <div
+      ref={threadRef}
+      // An app-owned marker for the out-of-process verify scripts (PR #2693 R1).
+      // They used to find this element by its `scroll-mb-8` sentinel child and a
+      // parentElement hop, so an unrelated class or wrapper change broke the
+      // geometry checks silently. A testid is a contract; a class fragment is not.
+      data-testid="conversation-thread"
+      className={cn("flex flex-col gap-4 [overflow-anchor:none]", className)}
+    >
       <SpawnParentBacklink parent={snapshot.spawnParent} />
       {/* An address that names no rendered turn says so (mt#3791). Silence here
           is the failure this task was filed on: the reader followed a link to a
@@ -1158,7 +1166,8 @@ function DrivenSessionThread({
   drivenSessionId,
   drivenBlocks,
   className,
-}: {
+  turnTarget,
+}: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
   className?: string;
@@ -1182,6 +1191,7 @@ function DrivenSessionThread({
       snapshot={baseSnapshot}
       extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
       className={className}
+      turnTarget={turnTarget}
     />
   );
 }
@@ -1362,6 +1372,7 @@ export function ConversationView(props: ConversationViewProps) {
         drivenSessionId={props.drivenSessionId}
         drivenBlocks={props.drivenBlocks}
         className={props.className}
+        turnTarget={props.turnTarget}
       />
     );
   }

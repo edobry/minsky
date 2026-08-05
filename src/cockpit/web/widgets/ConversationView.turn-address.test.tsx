@@ -209,6 +209,40 @@ describe("ConversationView — tool-grain address (mt#3791)", () => {
   });
 });
 
+// PR #2693 R1: `turnTarget` sits on the props EVERY variant carries, and the
+// driven-session branch silently dropped it — the address worked from a fetched
+// conversation and from a pre-fetched snapshot, and did nothing in the third
+// mode, which is the divergence that is hardest to diagnose from the outside.
+describe("ConversationView — an address reaches every variant (mt#3791)", () => {
+  const drivenBlock = (index: number): SessionContextSnapshotBlock => ({
+    ...textBlock(index, "assistant"),
+    id: `driven:turn:${index}`,
+  });
+
+  test("the driven-session variant honors an address", () => {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <ConversationView
+            drivenSessionId="driven-addressed"
+            drivenBlocks={[drivenBlock(0), drivenBlock(1), drivenBlock(2)]}
+            turnTarget={{ turnIndex: 1 }}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(isMarked(turnAnchor(1))).toBe(true);
+    expect(isMarked(turnAnchor(0))).toBe(false);
+  });
+
+  test("the pre-fetched-snapshot variant honors an address", () => {
+    renderCV(textSnapshot(3), { turnIndex: 1 });
+    expect(isMarked(turnAnchor(1))).toBe(true);
+  });
+});
+
 describe("ConversationView — an address that resolves to nothing (mt#3791)", () => {
   test("says so rather than silently landing on the newest exchange", () => {
     renderCV(textSnapshot(4), { turnIndex: 99 });
