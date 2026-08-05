@@ -229,6 +229,21 @@ export interface SessionFilmStageProps {
   className?: string;
 }
 
+/**
+ * Clock-time label for a touch timestamp (mt#3793). Falls back to the raw ISO
+ * string on an unparsable value rather than rendering "Invalid Date" — a wrong
+ * timestamp the operator can still read beats a word that tells them nothing.
+ */
+export function formatTouchTime(iso: string): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function outcomeClassName(outcome: EventOutcome | undefined): string {
   if (outcome === undefined) return "fill-warn-amber"; // unpaired = unresolved (never silently "ok")
   if (outcome === "error") return "fill-warn-red";
@@ -1046,6 +1061,14 @@ export function SessionFilmStage({
               {selectedEntity.realm} · touched {selectedEntity.touchCount}{" "}
               {selectedEntity.touchCount === 1 ? "time" : "times"} ·{" "}
               {selectedEntity.lastOutcome ?? UNRESOLVED_OUTCOME_LABEL}
+            </div>
+            {/* First/last touched, from the fold rather than recomputed from the
+                history above — the two must agree, and deriving both from one
+                place is what makes that structural. Clock time only: a film is
+                read within one session, so the date is noise on every line. */}
+            <div data-testid="session-film-entity-touch-span">
+              first {formatTouchTime(selectedEntity.firstTouchedAt)} · last{" "}
+              {formatTouchTime(selectedEntity.lastTouchedAt)}
             </div>
             {/* Destination, stated in every case. `none` SAYS there is no page
                 rather than rendering nothing, which is indistinguishable from a

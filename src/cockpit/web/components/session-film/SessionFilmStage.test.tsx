@@ -14,7 +14,7 @@ import { buildKeyframes, foldAtBatchIndex, foldEvents } from "../../lib/session-
 import { groupEventsIntoBatchRows } from "../../lib/session-film-batches";
 import { computeStageLayout } from "../../lib/session-film-layout";
 import { DEFAULT_SESSION_FILM_CONFIG } from "../../lib/session-film-config";
-import { SessionFilmStage } from "./SessionFilmStage";
+import { SessionFilmStage, formatTouchTime } from "./SessionFilmStage";
 
 afterEach(() => cleanup());
 
@@ -745,5 +745,47 @@ describe("SessionFilmStage — entity inspector panel (mt#3793)", () => {
     const panel = screen.getByTestId("session-film-entity-detail-panel");
     expect(panel.textContent).toContain("No recorded actions.");
     expect(panel.textContent).toContain("touched 1 time");
+  });
+});
+
+describe("formatTouchTime (mt#3793)", () => {
+  test("renders a clock time for a valid timestamp", () => {
+    // Locale-dependent formatting, so assert the SHAPE rather than a literal:
+    // hh:mm:ss with two separators, never the raw ISO string.
+    const out = formatTouchTime("2026-08-05T14:32:07.000Z");
+    expect(out).not.toContain("2026-08-05T");
+    expect(out.split(":")).toHaveLength(3);
+  });
+
+  test("falls back to the raw value rather than rendering Invalid Date", () => {
+    expect(formatTouchTime("not-a-timestamp")).toBe("not-a-timestamp");
+  });
+});
+
+describe("SessionFilmStage — touch span (mt#3793)", () => {
+  test("the panel shows first and last touched from the fold", () => {
+    const events = [
+      ev({
+        tStart: "2026-08-05T14:00:00.000Z",
+        target: { realm: "repo", id: "file:workspace:foo.ts" },
+      }),
+      ev({
+        tStart: "2026-08-05T15:30:00.000Z",
+        target: { realm: "repo", id: "file:workspace:foo.ts" },
+      }),
+    ];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+
+    const span = screen.getByTestId("session-film-entity-touch-span");
+    const entity = world.entities.get("file:workspace:foo.ts");
+    if (!entity) throw new Error("fixture entity missing — test setup bug");
+    // Assert against the FOLD's own values, so the panel cannot drift from the
+    // source it claims to read.
+    expect(span.textContent).toContain(formatTouchTime(entity.firstTouchedAt));
+    expect(span.textContent).toContain(formatTouchTime(entity.lastTouchedAt));
   });
 });
