@@ -958,9 +958,11 @@ function ConversationThread({
 
   const {
     hiddenBefore,
+    renderEnd,
     isRevealing,
     revealingCount,
     revealOlder,
+    notePinned,
     revealFromStart,
     paintPosition,
     positionFillRef,
@@ -973,8 +975,8 @@ function ConversationThread({
   });
 
   const windowedTurns = useMemo(
-    () => visibleTurns.slice(hiddenBefore),
-    [visibleTurns, hiddenBefore]
+    () => visibleTurns.slice(hiddenBefore, renderEnd),
+    [visibleTurns, hiddenBefore, renderEnd]
   );
 
   // Merge call+result pairs within the rendered window (mt#2790), then drop
@@ -1065,6 +1067,12 @@ function ConversationThread({
     const sample = () => {
       const pinned = isPinnedToBottom(scrollport);
       pinnedRef.current = pinned;
+      // The window has to hear this too, not just the live tail (mt#3736).
+      // Holding the scroll position is not enough on its own: while the window
+      // tracks the tail, every arriving turn unmounts the oldest rendered one
+      // and the reader's content slides up by that turn's height without any
+      // scroll happening at all.
+      notePinned(pinned);
       // Scrolling back down by hand dismisses the affordance too — the
       // operator has caught up, so there is nothing left to point at.
       if (pinned) setHasNewBelow(false);
@@ -1098,7 +1106,7 @@ function ConversationThread({
     // The two callbacks are stable by construction (`useCallback` over refs, not
     // over the window state), so listing them satisfies exhaustive-deps without
     // reintroducing the per-chunk re-binding this key deliberately avoids.
-  }, [scrollport, paintPosition, revealOlder]);
+  }, [scrollport, paintPosition, revealOlder, notePinned]);
 
   const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
