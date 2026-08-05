@@ -121,6 +121,36 @@ export function isMinskySessionPath(path: string): boolean {
  * returns `external`. A cwd we cannot resolve to a real repo root returns
  * `indeterminate`, which callers treat as deny.
  */
+/**
+ * Whether a parsed invocation's target repository is the one `input.cwd` names
+ * — the only case the `external` scope carve-out may be applied to.
+ *
+ * Two exclusions, both found by PR #2685 R1:
+ *
+ * - **`gh` is never cwd-scoped.** `gh api PUT /repos/edobry/minsky/pulls/N/merge`
+ *   names its target repository in the URL and runs identically from any
+ *   directory on the machine. Carving `gh` out by cwd would let every gh-policy
+ *   denial — including the merge surfaces — be bypassed by first `cd`-ing to a
+ *   scratch repo, which is a far worse hole than the false positive being fixed.
+ * - **A path-redirecting git flag is never cwd-scoped.** `git -C <path>`,
+ *   `--git-dir`, and `--work-tree` all point git at a repository other than the
+ *   one the shell is standing in, so cwd answers the wrong question. `git -C` is
+ *   additionally denied unconditionally by deliberate design (session isolation),
+ *   which mt#3788's own spec puts out of scope — the early-allow this replaces
+ *   silently overrode that.
+ */
+export function isCwdScopedInvocation(parsed: ParsedCommand): boolean {
+  if (parsed.binary !== "git") return false;
+  return !parsed.args.some(
+    (arg) =>
+      arg === "-C" ||
+      arg === "--git-dir" ||
+      arg === "--work-tree" ||
+      arg.startsWith("--git-dir=") ||
+      arg.startsWith("--work-tree=")
+  );
+}
+
 export function classifyRepoScope(
   cwd: string | undefined,
   hookRepoRoot: string = deriveHookRepoRoot(),
@@ -875,21 +905,28 @@ if (import.meta.main) {
     process.exit(0);
   };
 
-  // mt#3788: a Bash command standing in a repository Minsky does not manage
-  // has no `session_*` equivalent to be redirected to, so the denial protects
+  // mt#3788: a git command standing in a repository Minsky does not manage has
+  // no `session_*` equivalent to be redirected to, so the denial protects
   // nothing and only blocks work. Session workspaces and the project checkout
-  // itself stay fully enforced; an unresolvable cwd falls through to the
-  // denial loop below (fail-closed). `session_exec` is never scoped out — its
-  // cwd is a session workspace by construction, and `input.cwd` for that tool
-  // is the harness shell's directory, not the session's.
-  if (context === "bash" && classifyRepoScope(input.cwd) === "external") {
-    process.stderr.write(
-      `[block-git-gh-cli] scope carve-out: cwd ${input.cwd} is outside the Minsky project and its session workspaces\n`
-    );
-    recordAndExit("allow");
-  }
+  // itself stay fully enforced; an unresolvable cwd is `indeterminate` and
+  // still denies (fail-closed). `session_exec` is never scoped out — its cwd
+  // is a session workspace by construction, and `input.cwd` for that tool is
+  // the harness shell's directory, not the session's.
+  //
+  // Applied PER COMMAND, not as an early exit over the whole invocation
+  // (PR #2685 R1): only invocations whose target repo IS the cwd may be carved
+  // out — see `isCwdScopedInvocation` for why `gh` and path-redirecting git
+  // flags never qualify. An early exit would have disabled every gh-policy
+  // denial for anyone standing in a scratch directory.
+  const scope = context === "bash" ? classifyRepoScope(input.cwd) : "session";
 
   for (const parsed of parsedCommands) {
+    if (scope === "external" && isCwdScopedInvocation(parsed)) {
+      process.stderr.write(
+        `[block-git-gh-cli] scope carve-out: git ${parsed.args[0] ?? ""} in ${input.cwd}, outside the Minsky project and its session workspaces\n`
+      );
+      continue;
+    }
     const reason = checkDenial(parsed, context);
     if (reason) {
       writeOutput({

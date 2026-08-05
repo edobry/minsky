@@ -54,8 +54,17 @@ The rationale is that every denial message redirects to a Minsky operation again
 Minsky-managed repo. In a repository Minsky does not manage there is nothing to redirect to, so
 the denial blocks work while protecting nothing.
 
-Two details are load-bearing:
+The carve-out is applied **per parsed command**, and only to invocations whose target repository
+actually IS the cwd — `isCwdScopedInvocation`. Four details are load-bearing:
 
+- **`gh` is never carved out.** `gh api PUT /repos/edobry/minsky/pulls/N/merge` names its target
+  repository in the URL and behaves identically from any directory. Scoping `gh` by cwd would let
+  every gh-policy denial — including the merge surfaces — be bypassed by first `cd`-ing to a
+  scratch repo. (Caught in PR #2685 R1: the first implementation exited early over the whole
+  invocation, which had exactly this effect.)
+- **Path-redirecting git flags are never carved out.** `git -C <path>`, `--git-dir`, and
+  `--work-tree` point git at a repository other than the one the shell stands in, so cwd answers
+  the wrong question. `git -C` is separately denied unconditionally by design.
 - **Session workspaces are detected by path, not by root equality.** A session workspace is a
   CLONE, so its repo root never equals the hook installation's root. Without `isMinskySessionPath`
   every session would classify as `external` and the guard would stop enforcing exactly where

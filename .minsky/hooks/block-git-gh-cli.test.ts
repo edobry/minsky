@@ -11,6 +11,7 @@ import {
   splitOnShellOperators,
   splitOnShellOperatorsUnquoted,
   classifyRepoScope,
+  isCwdScopedInvocation,
   isMinskySessionPath,
   stripEnvVarAssignments,
   toolContextFromName,
@@ -1633,6 +1634,9 @@ describe("splitOnShellOperators — quote awareness (mt#3788)", () => {
 // mt#3788 — target-repository scope
 // ---------------------------------------------------------------------------
 
+/** Stand-in for the hook installation's own checkout in the mt#3788 scope tests. */
+const FAKE_PROJECT_ROOT = "/Users/e/Projects/minsky";
+
 describe("isMinskySessionPath (mt#3788)", () => {
   it("recognises the canonical session-workspace root", () => {
     expect(isMinskySessionPath("/Users/e/.local/state/minsky/sessions/abc-123")).toBe(true);
@@ -1643,13 +1647,13 @@ describe("isMinskySessionPath (mt#3788)", () => {
   });
 
   it("does not match the project checkout or an unrelated repo", () => {
-    expect(isMinskySessionPath("/Users/e/Projects/minsky")).toBe(false);
+    expect(isMinskySessionPath(FAKE_PROJECT_ROOT)).toBe(false);
     expect(isMinskySessionPath("/tmp/scratch/probe")).toBe(false);
   });
 });
 
 describe("classifyRepoScope (mt#3788)", () => {
-  const PROJECT = "/Users/e/Projects/minsky";
+  const PROJECT = FAKE_PROJECT_ROOT;
   const SESSION = "/Users/e/.local/state/minsky/sessions/abc-123";
   const EXTERNAL = "/tmp/scratch/probe";
 
@@ -1679,5 +1683,40 @@ describe("classifyRepoScope (mt#3788)", () => {
 
   it("returns indeterminate when cwd is absent (fail-closed)", () => {
     expect(classifyRepoScope(undefined, PROJECT, () => true)).toBe("indeterminate");
+  });
+});
+
+describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2685 R1)", () => {
+  it("covers a plain git command, whose target repo IS the cwd", () => {
+    expect(isCwdScopedInvocation({ binary: "git", args: ["add", "-A"] })).toBe(true);
+    expect(isCwdScopedInvocation({ binary: "git", args: ["commit", "-m", "x"] })).toBe(true);
+    expect(isCwdScopedInvocation({ binary: "git", args: ["push"] })).toBe(true);
+  });
+
+  it("never covers gh — it names its target repo in the args, not the cwd", () => {
+    // The hole this closes: `cd /tmp/scratch && gh api PUT
+    // /repos/edobry/minsky/pulls/N/merge` would otherwise bypass every
+    // gh-policy denial, including the merge surfaces.
+    expect(
+      isCwdScopedInvocation({
+        binary: "gh",
+        args: ["api", "-X", "PUT", "/repos/edobry/minsky/pulls/1/merge"],
+      })
+    ).toBe(false);
+    expect(isCwdScopedInvocation({ binary: "gh", args: ["pr", "merge"] })).toBe(false);
+  });
+
+  it("never covers a git command that redirects at another path", () => {
+    // `git -C` stays denied everywhere by deliberate design (session
+    // isolation), which mt#3788's spec puts explicitly out of scope.
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["-C", FAKE_PROJECT_ROOT, "commit"] })
+    ).toBe(false);
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["--git-dir=/elsewhere/.git", "commit"] })
+    ).toBe(false);
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["--work-tree", "/elsewhere", "add", "-A"] })
+    ).toBe(false);
   });
 });
