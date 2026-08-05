@@ -1,5 +1,10 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { spawn } from "child_process";
+// The mt#3771 guard at the bottom of this file reads this file's OWN source;
+// asserting on source text is the whole mechanism, and there is nothing to inject.
+// Same carve-out enum-drift.test.ts takes for reading shipped migration SQL.
+// eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "path";
 import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -794,7 +799,15 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         } | null;
         if (stdoutEmitter) stdoutEmitter.on("data", append);
         if (stderrEmitter) stderrEmitter.on("data", append);
-        timeoutId = setTimeout(() => resolve("timeout"), 15000);
+        // This is the file's OTHER readiness deadline. mt#3140 raised the first
+        // one (`waitForReady`) from a hardcoded literal to the named,
+        // env-overridable READY_TIMEOUT_MS after it failed under load; this
+        // sibling site kept its own hardcoded bound, which was both unoverridable
+        // and lower than the bound that fix concluded was needed. A cold or
+        // loaded run crosses it and rejects the fail-closed pre-push gate with a
+        // failure that clears on retry (mt#3771). Both readiness paths now share
+        // one bound.
+        timeoutId = setTimeout(() => resolve("timeout"), READY_TIMEOUT_MS);
         child.on("exit", () => resolve("exited"));
       });
       // Clear the ready-timeout in every branch so a lingering timer can never
@@ -1984,5 +1997,59 @@ describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
 
     expect(SubagentDispatchTracker.isWired()).toBe(true);
     expect(SubagentDispatchTracker.getInstance()).toBe(wiredAfterFreshAttempt);
+  });
+});
+
+describe("readiness deadlines are centralized (mt#3771)", () => {
+  /**
+   * This file carries two independent readiness deadlines — `waitForReady`'s and
+   * `spawnHttpMcp`'s. mt#3140 raised the first from a hardcoded literal to the
+   * named, env-overridable READY_TIMEOUT_MS after it failed under load; the
+   * second kept its own shorter hardcoded bound and went on failing the fail-closed
+   * pre-push gate, because nothing connected the two sites. Reading this file's
+   * own source is the only way to assert the property that actually matters —
+   * that no readiness deadline is written as a bare literal again.
+   */
+  // `.toString()` rather than an encoding argument — matches the repo's existing
+  // source-reading test (`enum-drift.test.ts`) and avoids the `string | Buffer`
+  // overload the encoding forms resolve to under this @types/node.
+  // A mocked fs would assert on fiction — reading the real file IS the guard.
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
+  const SOURCE = readFileSync(import.meta.path).toString();
+
+  test("every readiness deadline uses a named bound, not a bare literal", () => {
+    const readinessSites = SOURCE.split("\n")
+      .map((text, index) => ({ text, line: index + 1 }))
+      .filter(({ text }) => /setTimeout\(.*resolve\("timeout"\)/.test(text));
+
+    // A guard that matches nothing passes vacuously. If a refactor moves the
+    // readiness site out from under this pattern, fail here rather than go
+    // quietly green on an empty set.
+    expect(readinessSites.length).toBeGreaterThan(0);
+
+    const bareLiterals = readinessSites
+      .filter(({ text }) => /,\s*\d+\s*\)/.test(text))
+      .map(({ line, text }) => `${line}: ${text.trim()}`);
+
+    expect(bareLiterals).toEqual([]);
+  });
+
+  test("every readiness deadline names READY_TIMEOUT_MS specifically", () => {
+    // Stronger than the no-bare-literal check: a site could use some OTHER named
+    // constant and still pass that one, which would put the two readiness paths
+    // back on separate bounds — the exact condition mt#3771 exists to remove.
+    //
+    // This asserts on the deadline LINE, not the enclosing function body. An
+    // earlier draft checked the body with `toContain("READY_TIMEOUT_MS")` and
+    // passed vacuously when the fix was reverted, because the explanatory
+    // comment above the site names the constant too. The negative control
+    // caught it; a body-level check cannot distinguish a mention from a use.
+    const offenders = SOURCE.split("\n")
+      .map((text, index) => ({ text, line: index + 1 }))
+      .filter(({ text }) => /setTimeout\(.*resolve\("timeout"\)/.test(text))
+      .filter(({ text }) => !text.includes("READY_TIMEOUT_MS"))
+      .map(({ line, text }) => `${line}: ${text.trim()}`);
+
+    expect(offenders).toEqual([]);
   });
 });
