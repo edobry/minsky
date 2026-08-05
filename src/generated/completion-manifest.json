@@ -5002,6 +5002,10 @@
               "takesValue": true
             },
             {
+              "flags": ["--allow-shrink"],
+              "description": "Override the collapse guard, which refuses a fast-apply result dramatically smaller than the original file. Set true only when the large deletion is intentional."
+            },
+            {
               "flags": ["--dry-run"],
               "description": "Show the proposed changes without applying them"
             }

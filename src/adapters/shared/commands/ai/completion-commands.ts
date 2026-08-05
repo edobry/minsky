@@ -12,6 +12,7 @@ import {
 } from "../../command-registry";
 import { createCompletionService } from "@minsky/domain/ai/service-factory";
 import { executeFastApply } from "@minsky/domain/ai/fast-apply-service";
+import { detectSuspiciousCollapse } from "@minsky/domain/ai/edit-pattern-utils";
 import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig, withTimeout, DEFAULT_AI_COMPLETE_TIMEOUT_MS } from "./shared-helpers";
 import { buildCompleteResult } from "./result-builders";
@@ -68,6 +69,62 @@ const aiCompleteParams = {
 /**
  * Parameters for fast-apply command
  */
+/** Shape of the collapse detector this module consumes (mt#2577's predicate). */
+type CollapseDetector = (
+  originalContent: string,
+  finalContent: string
+) => { originalLines: number; finalLines: number } | null;
+
+/** What the fast-apply handler should DO with a model result (mt#3741). */
+export type FastApplyOutcome =
+  | { kind: "refuse"; message: string }
+  | { kind: "preview" }
+  | { kind: "write" };
+
+/**
+ * Decide whether a fast-apply result may be persisted (mt#3741).
+ *
+ * `ai fast-apply` was the last surface in the repo that wrote apply-model output to disk with
+ * no post-condition check. It is reachable by agents, not just operators: ADR-011 auto-bridges
+ * the `AI` command category to MCP, so `ai_fast-apply` is a live MCP tool.
+ *
+ * The DECISION is not defined here — `detectSuspiciousCollapse` lives in
+ * `@minsky/domain/ai/edit-pattern-utils`, shared with `session_edit_file` (mt#2577) and
+ * `tasks_spec_patch` (mt#3674). This function owns only the file-surface refusal message and
+ * the ORDERING, expressed as data so a reorder past the write fails a test rather than
+ * shipping silently (the mt#3674 lesson applied one surface over).
+ *
+ * Precedence: `refuse` outranks `dryRun` — a preview that renders a collapsed body as an
+ * ordinary diff reads as a large-but-intended edit, which is exactly the misread to avoid.
+ */
+export function decideFastApplyOutcome(args: {
+  filePath: string;
+  originalContent: string;
+  editedContent: string;
+  allowShrink: boolean;
+  dryRun: boolean;
+  detect: CollapseDetector;
+}): FastApplyOutcome {
+  if (!args.allowShrink) {
+    const collapse = args.detect(args.originalContent, args.editedContent);
+    if (collapse) {
+      const dropPct = Math.round((1 - collapse.finalLines / collapse.originalLines) * 100);
+      return {
+        kind: "refuse",
+        message:
+          `Refusing to apply fast-apply result to "${args.filePath}": the edited content is ` +
+          `dramatically smaller than the original (${collapse.originalLines} -> ` +
+          `${collapse.finalLines} lines, a ${dropPct}% drop). This is the apply-model collapse ` +
+          `failure (mt#2577/mt#3674/mt#3741) — the model likely mis-resolved a ` +
+          `'// ... existing code ...' marker and dropped content it should have preserved. ` +
+          `Re-issue with a tighter, smaller edit, or pass allowShrink=true if this large ` +
+          `deletion is intentional.`,
+      };
+    }
+  }
+  return args.dryRun ? { kind: "preview" } : { kind: "write" };
+}
+
 const aiFastApplyParams = {
   filePath: {
     schema: z.string().min(1),
@@ -92,6 +149,13 @@ const aiFastApplyParams = {
   model: {
     schema: z.string(),
     description: "Model to use for fast-apply",
+    required: false,
+  },
+  allowShrink: {
+    schema: z.boolean(),
+    description:
+      "Override the collapse guard, which refuses a fast-apply result dramatically smaller " +
+      "than the original file. Set true only when the large deletion is intentional.",
     required: false,
   },
   dryRun: {
@@ -203,7 +267,7 @@ export function registerCompletionCommands(): void {
     execute: async (params, _context) => {
       // mt#2727: return structured data; CLI diff/summary rendering lives in
       // src/adapters/cli/customizations/ai-customizations.ts.
-      const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
+      const { filePath, instructions, codeEdit, provider, model, dryRun, allowShrink } = params;
 
       if (!instructions && !codeEdit) {
         throw new Error("Either 'instructions' or 'codeEdit' parameter must be provided");
@@ -233,7 +297,25 @@ export function registerCompletionCommands(): void {
         model,
       });
 
-      if (!dryRun) {
+      // mt#3741 collapse guard — the third apply-model surface. `executeFastApply` returns a
+      // MODEL's output, and this was the last place in the repo that persisted such output
+      // with no post-condition. Same predicate as `session_edit_file` (mt#2577) and
+      // `tasks_spec_patch` (mt#3674), imported rather than re-derived: one heuristic, three
+      // surfaces. Ordering is decided as DATA so "refuse outranks dryRun, and nothing is
+      // written on a refusal" is asserted by tests rather than by statement order.
+      const outcome = decideFastApplyOutcome({
+        filePath,
+        originalContent,
+        editedContent: result.editedContent,
+        allowShrink: !!allowShrink,
+        dryRun: !!dryRun,
+        detect: detectSuspiciousCollapse,
+      });
+      if (outcome.kind === "refuse") {
+        throw new Error(outcome.message);
+      }
+
+      if (outcome.kind === "write") {
         await fs.writeFile(filePath, result.editedContent, "utf-8");
       }
 
