@@ -29,6 +29,35 @@
  * process and a dead one are indistinguishable from outside, and the wedged one
  * still holds the file.
  *
+ * ## What `IDLE` does NOT mean (mt#3656)
+ *
+ * `IDLE` means NO TURN IS IN FLIGHT. It does **not** mean no writer is
+ * attached, and this gate cannot make it mean that. An iTerm tab left open
+ * while the operator does something else reports `IDLE` — `presence.ts` is
+ * explicit that a conversation quiet for a week is still `IDLE`, because
+ * silence cannot prove an end — so admitting here can put a cockpit actuator on
+ * a file a terminal process still holds. Both then write from their own cached
+ * tip (mem#805) and one branch is silently orphaned. No simultaneity is needed:
+ * the two writers overlap in ATTACHMENT, not in time.
+ *
+ * **One presence value serves both senses deliberately**, rather than splitting
+ * `IDLE` into "quiet" and "unattached". Presence is derived from
+ * `conversation_run_state`, which records OBSERVED EVENTS, and "a terminal
+ * process is holding this file" is not an event Minsky observes: the transcript
+ * format carries no pid, no writer id, and no client-instance id (mem#805), and
+ * Claude Code's own `session_live_elsewhere` roster never fires for a terminal
+ * `claude --resume`. A seventh presence value would therefore be one nothing
+ * could ever set — the falsely-confident derived field `derivePresence` already
+ * refuses to invent when it returns `UNKNOWN` instead of guessing.
+ *
+ * So the hazard is answered AFTER the fact rather than predicted: the
+ * `last-prompt` divergence detector (`../transcripts/writer-divergence.ts`)
+ * reports a fork once it happens. Prevention is out of reach for terminal
+ * writers by construction — Minsky cannot lock against a process that takes no
+ * lock — and the structural alternative (minting a new identity at attach) is
+ * mt#3515, whose memo rejects blind forking on every idle attach as
+ * disproportionate.
+ *
  * @see ./presence.ts — `derivePresence`, the source of the value this gates on
  * @see mt#3095 — this module
  * @see mt#3038 — the cross-process advisory lock that guards the OTHER writer

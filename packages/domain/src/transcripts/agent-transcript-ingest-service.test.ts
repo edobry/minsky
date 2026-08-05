@@ -111,6 +111,9 @@ interface FakeRow {
   ingestLastError: string | null;
   ingestLastFailedAt: Date | null;
   ingestQuarantinedAt: Date | null;
+  // mt#3656 — writer-divergence verdict written by the transcript upsert.
+  divergentTipLeaves: string[] | null;
+  divergenceCheckedAt: Date | null;
 }
 
 /** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
@@ -270,6 +273,8 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
               ingestLastError: values.ingestLastError ?? null,
               ingestLastFailedAt: values.ingestLastFailedAt ?? null,
               ingestQuarantinedAt: values.ingestQuarantinedAt ?? null,
+              divergentTipLeaves: values.divergentTipLeaves ?? null,
+              divergenceCheckedAt: values.divergenceCheckedAt ?? null,
             });
             return Promise.resolve();
           };
@@ -1840,5 +1845,119 @@ describe("extractor observability — assistant-lines-present-but-no-model (mt#3
     await makeSvcWithSink(quietSource, quietDb).ingestSession(makeDiscovered(SESSION_A));
 
     expect(warnCalls).toHaveLength(0);
+  });
+});
+
+// ── mt#3656: writer-divergence detection is WIRED, not just importable ────────
+
+describe("writer-divergence verdict is persisted by ingestSession", () => {
+  /**
+   * A two-writer fork, in the shape the real specimen has: two prompts under
+   * one parent, each answered, each followed by its own `last-prompt`.
+   *
+   * The `last-prompt` rows deliberately carry NO `timestamp` — that is how the
+   * real format writes them, and it is why they must be observed before the
+   * ingest loop's `if (!tsStr) continue` gate. A test whose sidecar rows had
+   * timestamps would pass even if the scanner sat below that gate, which is
+   * precisely the wiring bug this test exists to catch.
+   */
+  const FORKED_LINES = [
+    { type: "user", timestamp: TS1, uuid: "root", message: { role: "user", content: "q" } },
+    {
+      type: "assistant",
+      timestamp: TS1,
+      uuid: "trunk",
+      parentUuid: "root",
+      message: { role: "assistant", content: "a" },
+    },
+    { type: "last-prompt", leafUuid: "trunk" },
+    {
+      type: "user",
+      timestamp: TS2,
+      uuid: "writerA",
+      parentUuid: "trunk",
+      message: { role: "user", content: "A" },
+    },
+    {
+      type: "assistant",
+      timestamp: TS2,
+      uuid: "replyA",
+      parentUuid: "writerA",
+      message: { role: "assistant", content: "a" },
+    },
+    { type: "last-prompt", leafUuid: "replyA" },
+    {
+      type: "user",
+      timestamp: TS3,
+      uuid: "writerB",
+      parentUuid: "trunk",
+      message: { role: "user", content: "B" },
+    },
+    {
+      type: "assistant",
+      timestamp: TS3,
+      uuid: "replyB",
+      parentUuid: "writerB",
+      message: { role: "assistant", content: "b" },
+    },
+    { type: "last-prompt", leafUuid: "replyB" },
+  ] as unknown as RawTurnLine[];
+
+  test("stores both divergent tips when two writers forked", async () => {
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves?.sort()).toEqual(["replyA", "replyB"]);
+    // The pre-fork `last-prompt` is an ancestor of both, so it is not a tip.
+    expect(row?.divergentTipLeaves).not.toContain("trunk");
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
+  });
+
+  test("warns through the injected sink when a fork is detected", async () => {
+    const warnCalls: string[] = [];
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source, undefined, undefined, (message) => {
+      warnCalls.push(message);
+    }).ingestSession(makeDiscovered(SESSION_A));
+
+    expect(warnCalls.some((m) => m.includes("Writer divergence"))).toBe(true);
+  });
+
+  test("records an empty verdict — not NULL — for an ordinary linear conversation", async () => {
+    // The distinction matters: NULL means "never checked", so a clean
+    // conversation must be positively marked as checked rather than left
+    // indistinguishable from one ingested before the detector existed.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+      {
+        type: "assistant",
+        timestamp: TS2,
+        uuid: "a1",
+        parentUuid: "u1",
+        message: { role: "assistant", content: "yo" },
+      },
+      { type: "last-prompt", leafUuid: "a1" },
+    ] as unknown as RawTurnLine[]);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves).toEqual([]);
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
   });
 });

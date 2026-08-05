@@ -56,6 +56,7 @@ import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcr
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
+import { WriterDivergenceScanner } from "./writer-divergence";
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import {
@@ -345,6 +346,10 @@ export class AgentTranscriptIngestService {
     // filtered out by the HWM gate — so the counter is stable across re-ingest
     // for an append-only JSONL file. Attachments use it as part of their PK.
     const newLines: RawTurnLine[] = [];
+    // mt#3656: accumulates the `last-prompt` leaves and `parentUuid` edges from
+    // the raw pass below, so a two-writer fork is detected where the raw bytes
+    // are read — the only place the signal exists.
+    const divergenceScanner = new WriterDivergenceScanner();
     const newAttachmentRows: AttachmentRow[] = [];
     let latestTs: Date | null = null;
     let lineIndex = -1;
@@ -363,6 +368,15 @@ export class AgentTranscriptIngestService {
       // resolve the id, which made `ingestAll` quadratic.
       for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
         lineIndex++;
+
+        // mt#3656: feed EVERY line to the divergence scanner before any gate
+        // below can drop it. This must precede the timestamp check: a
+        // `last-prompt` row — the only writer-identity trace the format offers
+        // — carries no `timestamp` at all, so `if (!tsStr) continue` discards
+        // it, and it is retained by neither the transcript jsonb nor the
+        // attachments table. The verdict is a whole-file property, so the
+        // scanner also wants the lines the high-water-mark gate skips.
+        divergenceScanner.observe(line);
 
         const tsStr = this.source.getJsonlTimestamp(line);
         if (!tsStr) continue;
@@ -534,6 +548,26 @@ export class AgentTranscriptIngestService {
     // projectId's precedence pattern.
     const extractedModel = extractModelFromNewLines(newLines);
 
+    // mt#3656: resolve the writer-divergence verdict over the WHOLE file the
+    // scan just walked. Logged at WARN when it fires because a fork means a
+    // branch is being silently orphaned — the failure mode has no other error
+    // surface anywhere in the system, which is the whole reason this exists.
+    const divergenceVerdict = divergenceScanner.verdict();
+    if (divergenceVerdict.divergentTips.length > 0) {
+      this.logWarn(
+        `[transcripts] Writer divergence in session ${agentSessionId}: ${divergenceVerdict.divergentTips.length} last-prompt records name leaves on different branches — two writers each held the tip`,
+        { agentSessionId, divergentTips: divergenceVerdict.divergentTips }
+      );
+    }
+    if (divergenceVerdict.unresolvedLeaves.length > 0) {
+      // Not a divergence claim — the opposite. These leaves could not be placed
+      // in the tree, so the verdict is silent about them rather than guessing.
+      log.debug(
+        `[transcripts] ${divergenceVerdict.unresolvedLeaves.length} unplaceable last-prompt leaf/leaves for session ${agentSessionId}`,
+        { agentSessionId }
+      );
+    }
+
     // mt#3089 R1 review — extractor observability: a null result is
     // unremarkable when the batch has no assistant lines at all (nothing to
     // extract from), but a GENUINE miss when assistant lines ARE present and
@@ -664,6 +698,10 @@ export class AgentTranscriptIngestService {
           projectId: resolvedProjectId ?? undefined,
           lastIngestedJsonlTimestamp: latestTs ?? undefined,
           ingestedAt: new Date(),
+          // mt#3656: an empty array is a real verdict ("the writers agreed"),
+          // distinct from NULL ("never checked") — hence the paired timestamp.
+          divergentTipLeaves: divergenceVerdict.divergentTips,
+          divergenceCheckedAt: new Date(),
         })
         .onConflictDoUpdate({
           target: agentTranscriptsTable.agentSessionId,
@@ -700,6 +738,17 @@ export class AgentTranscriptIngestService {
             lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
             projectId: sql`COALESCE(${agentTranscriptsTable.projectId}, EXCLUDED.project_id)`,
+            // mt#3656: OVERWRITE-ALWAYS, unlike the fill-if-null columns above.
+            // Those are fill-if-null because an incremental batch may simply
+            // lack the data (a later batch without the model-bearing turn must
+            // not regress a resolved model). The divergence verdict is the
+            // opposite: it is recomputed from the ENTIRE file on every pass —
+            // `last-prompt` rows are never high-water-mark filtered — so the
+            // newest computation always saw at least as much as the stored one.
+            // Overwriting is also what lets a fork that is later resolved stop
+            // being reported.
+            divergentTipLeaves: sql`EXCLUDED.divergent_tip_leaves`,
+            divergenceCheckedAt: sql`EXCLUDED.divergence_checked_at`,
             // mt#3089: never regress an already-resolved model with a later
             // batch that didn't happen to include the model-bearing turn.
             model: sql`COALESCE(${agentTranscriptsTable.model}, EXCLUDED.model)`,
