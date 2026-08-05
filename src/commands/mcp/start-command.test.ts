@@ -1,5 +1,10 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { spawn } from "child_process";
+// The mt#3771 guard at the bottom of this file reads this file's OWN source;
+// asserting on source text is the whole mechanism, and there is nothing to inject.
+// Same carve-out enum-drift.test.ts takes for reading shipped migration SQL.
+// eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "path";
 import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -794,7 +799,15 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         } | null;
         if (stdoutEmitter) stdoutEmitter.on("data", append);
         if (stderrEmitter) stderrEmitter.on("data", append);
-        timeoutId = setTimeout(() => resolve("timeout"), 15000);
+        // This is the file's OTHER readiness deadline. mt#3140 raised the first
+        // one (`waitForReady`) from a hardcoded literal to the named,
+        // env-overridable READY_TIMEOUT_MS after it failed under load; this
+        // sibling site kept its own hardcoded bound, which was both unoverridable
+        // and lower than the bound that fix concluded was needed. A cold or
+        // loaded run crosses it and rejects the fail-closed pre-push gate with a
+        // failure that clears on retry (mt#3771). Both readiness paths now share
+        // one bound.
+        timeoutId = setTimeout(() => resolve("timeout"), READY_TIMEOUT_MS);
         child.on("exit", () => resolve("exited"));
       });
       // Clear the ready-timeout in every branch so a lingering timer can never
@@ -1984,5 +1997,73 @@ describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
 
     expect(SubagentDispatchTracker.isWired()).toBe(true);
     expect(SubagentDispatchTracker.getInstance()).toBe(wiredAfterFreshAttempt);
+  });
+});
+
+describe("readiness deadlines are centralized (mt#3771)", () => {
+  /**
+   * This file carries two independent readiness deadlines — `waitForReady`'s and
+   * `spawnHttpMcp`'s. mt#3140 raised the first from a hardcoded literal to the
+   * named, env-overridable READY_TIMEOUT_MS after it failed under load; the
+   * second kept its own shorter hardcoded bound and went on failing the fail-closed
+   * pre-push gate, because nothing connected the two sites. Reading this file's
+   * own source is the only way to assert the property that actually matters —
+   * that no readiness deadline is written as a bare literal again.
+   */
+  // `.toString()` rather than an encoding argument — matches the repo's existing
+  // source-reading test (`enum-drift.test.ts`) and avoids the `string | Buffer`
+  // overload the encoding forms resolve to under this @types/node.
+  // A mocked fs would assert on fiction — reading the real file IS the guard.
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
+  const SOURCE = readFileSync(import.meta.path).toString();
+
+  /**
+   * The delay ARGUMENT of every readiness `setTimeout`, with line comments
+   * stripped before matching.
+   *
+   * Reading the argument rather than the line text is deliberate, and is the
+   * second correction this guard has needed. Draft 1 searched the enclosing
+   * function body for the constant's name, and passed vacuously when the fix was
+   * reverted — the explanatory comment above the site names it too. Draft 2
+   * narrowed to the line, and PR #2675 R1 caught that a trailing
+   * `// READY_TIMEOUT_MS` comment on that same line defeats it identically. Both
+   * drafts confused a MENTION with a USE; only the argument distinguishes them.
+   */
+  function readinessDelays(): Array<{ line: number; delay: string; source: string }> {
+    return SOURCE.split("\n").flatMap((raw, index) => {
+      const withoutComment = raw.split("//")[0] ?? "";
+      const delay = withoutComment.match(
+        /setTimeout\(.*resolve\("timeout"\)\s*,\s*([^),]+)\)/
+      )?.[1];
+      return delay ? [{ line: index + 1, delay: delay.trim(), source: raw.trim() }] : [];
+    });
+  }
+
+  test("every readiness deadline uses a named bound, not a bare literal", () => {
+    const delays = readinessDelays();
+
+    // A guard that matches nothing passes vacuously. If a refactor moves the
+    // readiness site out from under this pattern, fail here rather than go
+    // quietly green on an empty set.
+    expect(delays.length).toBeGreaterThan(0);
+
+    const bareLiterals = delays
+      .filter(({ delay }) => /^\d+$/.test(delay))
+      .map(({ line, source }) => `${line}: ${source}`);
+
+    expect(bareLiterals).toEqual([]);
+  });
+
+  test("every readiness deadline names READY_TIMEOUT_MS specifically", () => {
+    // Stronger than the no-bare-literal check: a site could use some OTHER named
+    // constant and still pass that one, which would put the two readiness paths
+    // back on separate bounds — the exact condition mt#3771 exists to remove.
+    // Exact equality, so a derived bound (`READY_TIMEOUT_MS * 2`) fails too: the
+    // point is one shared bound, not one shared base.
+    const offenders = readinessDelays()
+      .filter(({ delay }) => delay !== "READY_TIMEOUT_MS")
+      .map(({ line, source }) => `${line}: ${source}`);
+
+    expect(offenders).toEqual([]);
   });
 });

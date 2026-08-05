@@ -59,15 +59,7 @@ import {
   REVIEWER_MIGRATIONS_SCHEMA,
   REVIEWER_TABLES_SCHEMA,
 } from "../src/db/migrate";
-import * as convergenceMetricsSchema from "../src/db/schemas/convergence-metrics-schema";
-import * as webhookEventsSchema from "../src/db/schemas/webhook-events-schema";
-import * as inflightReviewsSchema from "../src/db/schemas/inflight-reviews-schema";
-
-const schema = {
-  ...convergenceMetricsSchema,
-  ...webhookEventsSchema,
-  ...inflightReviewsSchema,
-};
+import { reviewerSchema as schema } from "../src/db/schema";
 
 interface ReconcileReport {
   mode: "dry-run" | "execute";
