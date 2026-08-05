@@ -44,7 +44,17 @@ import {
   sessionFilmEventsQueryKey,
   sessionFilmRetry,
 } from "../../lib/session-film-client";
-import { deriveChapters, groupEventsIntoBatchRows } from "../../lib/session-film-batches";
+import {
+  deriveChapters,
+  findRowForTurnAddress,
+  groupEventsIntoBatchRows,
+} from "../../lib/session-film-batches";
+import {
+  TOOL_USE_PARAM,
+  TURN_PARAM,
+  parseTurnAddress,
+  type TurnAddress,
+} from "../../lib/conversation-turn-address";
 import { buildKeyframes, foldAtBatchIndex } from "../../lib/session-film-fold";
 import { computeStageLayout } from "../../lib/session-film-layout";
 import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
@@ -113,6 +123,8 @@ export function SessionFilm({
   // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6).
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [hasAppliedDeepLinkPlayhead, setHasAppliedDeepLinkPlayhead] = useState(false);
+  /** An address the URL carried that matched no event in this film (mt#3794). */
+  const [unresolvedAddress, setUnresolvedAddress] = useState<TurnAddress | null>(null);
 
   // Ribbon/stage split (mt#3701). Two values, deliberately: `storedRibbonWidth`
   // is the operator's PREFERENCE, bounded only by min/max; `ribbonWidthPx` is
@@ -218,6 +230,7 @@ export function SessionFilm({
     setSelectedRowIndex(null);
     setSelectedEntityId(null);
     setHasAppliedDeepLinkPlayhead(false);
+    setUnresolvedAddress(null);
   }, [conversationId]);
 
   // `verifiedRescrubbed` is pinned false: nothing in the UI has ever set it
@@ -242,16 +255,44 @@ export function SessionFilm({
     [events, batchRows, config]
   );
 
-  // `?t=` deep-link arrival (spec: default "snap" — instant, no catch-up
-  // replay per `config.deepLinkArrival`). Applied once, as soon as the row data
-  // needed to clamp it is available.
+  // Deep-link arrival (spec: default "snap" — instant, no catch-up replay per
+  // `config.deepLinkArrival`). Applied once, as soon as the row data needed to
+  // resolve it is available.
+  //
+  // TWO address forms, and the turn address wins. `?t=` is an ORDINAL — an
+  // index into this film's batch rows, which only this component can compute —
+  // so it is what the film writes back as receipts, and it stays exactly as it
+  // was. `?turn=`/`?toolUse=` is an IDENTITY (mt#3794), which is what a link
+  // from OUTSIDE the film can actually carry: the conversation view knows which
+  // transcript line a row came from, and knows nothing about batch grouping.
+  // When both are present the identity is the one a reader asked for.
   useEffect(() => {
     if (hasAppliedDeepLinkPlayhead || batchRows.length === 0) return;
-    setPlayheadRowIndex(parsePlayheadParam(searchParams.get(PLAYHEAD_PARAM), batchRows.length));
+    const address = parseTurnAddress(searchParams);
+    if (address) {
+      const rowIndex = findRowForTurnAddress(events, batchRows, address);
+      if (rowIndex === null) {
+        // Land at the film's start and SAY SO. Silently landing at row 0 would
+        // be indistinguishable from a film that simply opens there, so the
+        // reader would believe they were shown the moment they clicked.
+        setUnresolvedAddress(address);
+      } else {
+        setPlayheadRowIndex(rowIndex);
+        // Marks the row as well as moving to it: the ribbon's playhead follows
+        // scroll continuously, so the playhead alone does not say "this is the
+        // one you came for" once the reader nudges the wheel.
+        setSelectedRowIndex(rowIndex);
+      }
+    } else {
+      setPlayheadRowIndex(parsePlayheadParam(searchParams.get(PLAYHEAD_PARAM), batchRows.length));
+    }
     setHasAppliedDeepLinkPlayhead(true);
     // Intentionally excludes `searchParams` — this must run once per film load,
     // not on every searchParams identity change (which includes the writes the
-    // effect below makes, which would otherwise re-trigger this one).
+    // effect below makes, which would otherwise re-trigger this one). `events`
+    // is excluded for the same reason and is safe to omit: it and `batchRows`
+    // are derived from the same query result, so `batchRows.length` becoming
+    // non-zero is exactly when both are available.
   }, [batchRows.length, hasAppliedDeepLinkPlayhead]);
 
   // Reflect the playhead back into the URL — extends the receipts discipline
@@ -266,11 +307,21 @@ export function SessionFilm({
         // render scheduled the effect (PR #2269 R1 — reading the render-scope
         // variable risked overwriting a URL change made for a reason outside
         // this effect, e.g. browser back/forward).
-        if (prev.get(PLAYHEAD_PARAM) === String(playheadRowIndex)) {
+        const carriesAddress = prev.has(TURN_PARAM) || prev.has(TOOL_USE_PARAM);
+        if (prev.get(PLAYHEAD_PARAM) === String(playheadRowIndex) && !carriesAddress) {
           return prev; // no-op — avoid a redundant history write
         }
         const next = new URLSearchParams(prev);
         next.set(PLAYHEAD_PARAM, String(playheadRowIndex));
+        // CONSUME the turn address rather than leaving it beside `t` (mt#3794).
+        // `t` is rewritten on every scrub; the address is read once at load and
+        // wins over `t` when present. Leaving both means a URL copied after
+        // scrubbing carries a stale address that beats the ordinal the reader
+        // was actually looking at — they would share "here" and the recipient
+        // would land somewhere else. Consuming it keeps the URL a true
+        // statement about where the playhead is.
+        next.delete(TURN_PARAM);
+        next.delete(TOOL_USE_PARAM);
         return next;
       },
       { replace: true }
@@ -328,11 +379,22 @@ export function SessionFilm({
     // between the operator and a raw failure. Keep the message legible.
     // (mt#3268 owns the open question of whether the film's refusal or the
     // conversation view's ungated render is the right posture.)
+    // A reader who ARRIVED FROM A LINK asked for one specific moment, so the
+    // bare "no film" answers a question they did not ask and leaves the click
+    // looking broken (mt#3794, reviewer round 1). Naming the moment they wanted
+    // is the difference between a dead end and an explained one — and this is
+    // the only place that can say it, since the conversation view has no
+    // per-conversation film-availability signal to gate the link on.
+    const arrivedByAddress = parseTurnAddress(searchParams) !== null;
     return (
       <div className="p-4">
         <ErrorState
           error={eventsQuery.error}
-          prefix="This conversation has no film"
+          prefix={
+            arrivedByAddress
+              ? "That moment can't be shown — this conversation has no film"
+              : "This conversation has no film"
+          }
           variant="page"
         />
       </div>
@@ -341,6 +403,23 @@ export function SessionFilm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="session-film">
+      {unresolvedAddress && (
+        /*
+          The reader arrived from a link that named a moment this film does not
+          have — a turn whose actions produced no event (a verb the adapter does
+          not emit), or an address stale after a re-ingest reordered the
+          transcript. Not an error state: the film is fine and fully usable, the
+          landing is just the start rather than the moment asked for, which is
+          the one thing the reader cannot infer from what they see.
+        */
+        <div
+          className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
+          data-testid="session-film-unresolved-address"
+        >
+          Couldn&apos;t find that moment — nothing in this film came from turn{" "}
+          {unresolvedAddress.turnIndex}. Showing the start.
+        </div>
+      )}
       <div ref={splitRef} className="flex min-h-0 flex-1">
         {/*
           Stage-first layout (mt#3226 SC 1, narrowed by mt#3258 SC 4, made
