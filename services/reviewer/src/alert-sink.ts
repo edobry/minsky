@@ -48,8 +48,13 @@ export interface AlertSink {
   notify(severity: AlertSeverity, title: string, body: string): Promise<void>;
 }
 
-/** Injectable fetch for tests. */
-export type FetchFn = typeof fetch;
+/**
+ * Injectable fetch for tests and instrumentation. Deliberately the CALL
+ * signature only — `typeof fetch` under bun-types also carries Bun's
+ * `preconnect` property, which a plain wrapper function cannot satisfy
+ * (mt#3498; the smoke script's instrumented fetch is such a wrapper).
+ */
+export type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /** Max bytes of a non-2xx response body to include in diagnostics. */
 const MAX_BODY_SNIPPET = 1000;

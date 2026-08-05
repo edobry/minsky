@@ -339,13 +339,12 @@ async function main(): Promise<void> {
         continue;
       }
 
-      if (botReviews.length === 0) {
+      // The first bot review is the one we measure latency for.
+      const firstReview = botReviews[0];
+      if (firstReview === undefined) {
         console.log(`  Tier 3 (body marker) but no bot review found — skipping.`);
         continue;
       }
-
-      // The first bot review is the one we measure latency for.
-      const firstReview = botReviews[0];
       const reviewedAt = firstReview.submittedAt;
 
       // -----------------------------------------------------------------------
