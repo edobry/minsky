@@ -23,13 +23,25 @@ browser URL from `minsky cockpit url` is the fallback for a machine with no tray
 `cockpit status` is NOT the URL source — it reports the launchd daemon, and prints "not
 installed" while a tray-supervised cockpit is serving.
 
+Everything below prints to STDOUT and exits 0, including the failures. That is deliberate, not an
+oversight: this block's output IS the prompt you read, and a non-zero exit or a message on stderr
+would make a failure invisible here — the opposite of what an error should do on this surface.
+
 ```!
+# `open` is macOS; `xdg-open` covers Linux. The tray (and so the minsky:// handler)
+# is macOS-only, but the browser fallback is not, so route through one helper.
+launch() {
+  if command -v open >/dev/null 2>&1; then open "$1" 2>/dev/null
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1
+  else return 127
+  fi
+}
 ID="${CLAUDE_CODE_SESSION_ID:-}"
 if [ -z "$ID" ]; then
   echo 'FAILED: CLAUDE_CODE_SESSION_ID is unset — cannot identify this conversation.'
   exit 0
 fi
-if open "minsky://conversation/$ID" 2>/dev/null; then
+if launch "minsky://conversation/$ID"; then
   echo "OPENED minsky://conversation/$ID (tray cockpit window)"
   exit 0
 fi
@@ -39,7 +51,7 @@ if [ -z "$URL" ]; then
   echo 'Start one with `minsky cockpit start`, or install the tray app.'
   exit 0
 fi
-if open "$URL/conversation/$ID" 2>/dev/null; then
+if launch "$URL/conversation/$ID"; then
   echo "OPENED $URL/conversation/$ID (browser — no minsky:// handler registered)"
 else
   echo "FAILED: could not open $URL/conversation/$ID"

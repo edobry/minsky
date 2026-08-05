@@ -243,6 +243,32 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
   test("an id that is ALL percent-encoded punctuation → null", () => {
     expect(parseMinskyUri("minsky://task/%29")).toBeNull();
   });
+
+  // PR #2695 R1: the class was missing `:` (and, on the same reasoning, `>` `!` `?`).
+  // "see minsky://task/mt%232370: it explains why" decoded to the id `mt#2370:`, which
+  // then failed lookup exactly the way the mt#2549 `)` case did.
+  test("strips trailing : > ! ? — the rest of the prose-punctuation class", () => {
+    expect(minskyUriToPath(`${TASK_URI}:`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI}>`)).toBe(TASK_PATH); // <autolink> closer
+    expect(minskyUriToPath(`${TASK_URI}!`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI}?`)).toBe(TASK_PATH);
+    expect(parseMinskyUri(`${TASK_URI}:`)).toEqual({ type: "task", id: "mt#2370" });
+  });
+
+  test("strips the same characters percent-encoded (%3A %3E %21 %3F)", () => {
+    expect(minskyUriToPath(`${TASK_URI}%3A`)).toBe(TASK_PATH); // %3A = :
+    expect(minskyUriToPath(`${TASK_URI}%3E`)).toBe(TASK_PATH); // %3E = >
+    expect(minskyUriToPath(`${TASK_URI}%21`)).toBe(TASK_PATH); // %21 = !
+    expect(minskyUriToPath(`${TASK_URI}%3F`)).toBe(TASK_PATH); // %3F = ?
+  });
+
+  test("applies to uuid ids on every type, including conversation", () => {
+    expect(minskyUriToPath(`minsky://conversation/${SESSION_ID}:`)).toBe(
+      `/conversation/${SESSION_ID}`
+    );
+    expect(minskyUriToPath(`minsky://memory/${SESSION_ID}?`)).toBe(`/memory/${SESSION_ID}`);
+    expect(minskyUriToPath(`minsky://changeset/1234:`)).toBe(`/changeset/1234`);
+  });
 });
 
 describe("conversation entity type (mt#2769 route; mt#3800 made it a minsky:// URI type)", () => {
