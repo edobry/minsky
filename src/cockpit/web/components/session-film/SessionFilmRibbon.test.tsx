@@ -311,6 +311,66 @@ describe("SessionFilmRibbon — icon + text-label badges (mt#3231 SC 2 / AT 2)",
   });
 });
 
+describe("SessionFilmRibbon — mt#3795: an absent field never claims the event is still running", () => {
+  test("a completed point event (speak) reports an instant duration, never 'in-flight'", () => {
+    // speak/think/ask carry a resolved outcome and NO tEnd by construction
+    // (`event-adapter.ts`'s emitSimpleEvent) — the absent tEnd is structural,
+    // not an unfinished interval.
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "speak", tEnd: undefined, outcome: "ok" }),
+    ];
+    renderRibbon(events);
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const detail = screen.getByTestId("session-film-row-detail-0");
+    expect(detail.textContent).toContain("instant");
+    expect(detail.textContent).not.toContain("in-flight");
+    // A resolved outcome is still reported as itself.
+    expect(detail.textContent).toContain("ok");
+    expect(detail.textContent).not.toContain("unresolved");
+  });
+
+  test("an event with no outcome reads 'unresolved' for BOTH outcome and duration", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "execute", tEnd: undefined, outcome: undefined }),
+    ];
+    renderRibbon(events);
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const detail = screen.getByTestId("session-film-row-detail-0");
+    expect(detail.textContent).toContain("unresolved");
+    expect(detail.textContent).not.toContain("in-flight");
+  });
+
+  test("a resolved interval still reports its measured duration, not a placeholder", () => {
+    const events: SemanticEvent[] = [
+      ev({
+        batchId: "b1",
+        verb: "execute",
+        tStart: "2026-07-24T00:00:00.000Z",
+        tEnd: "2026-07-24T00:00:02.000Z",
+        outcome: "ok",
+      }),
+    ];
+    renderRibbon(events);
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const detail = screen.getByTestId("session-film-row-detail-0");
+    expect(detail.textContent).not.toContain("unresolved");
+    expect(detail.textContent).not.toContain("instant");
+    expect(detail.textContent).not.toContain("in-flight");
+  });
+
+  test("a batch member with no outcome reads 'unresolved' in the member list too", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "execute", target: { realm: "shell", id: "shell:ls" }, outcome: undefined, tEnd: undefined }),
+      ev({ batchId: "b1", verb: "execute", target: { realm: "shell", id: "shell:pwd" }, outcome: "ok" }),
+    ];
+    renderRibbon(events);
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const member = screen.getByTestId("session-film-row-detail-event-0");
+    expect(member.textContent).toContain("unresolved");
+    expect(member.textContent).not.toContain("in-flight");
+  });
+});
+
 describe("SessionFilmRibbon — click-to-expand inline accordion (mt#3231 SC 3 / AT 3)", () => {
   test("clicking a row flips aria-expanded and reveals its detail; clicking again collapses it", () => {
     const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "write" })];
