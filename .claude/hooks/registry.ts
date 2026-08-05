@@ -27,6 +27,7 @@
 import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
+import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -128,6 +129,25 @@ export interface DispatchContext {
    * is a pure read with no shared state) and, unlike the old default, it is explicit.
    */
   transcriptLines: TranscriptLine[];
+  /**
+   * The turn anchor recorded by the `Stop`-side recorder for THIS conversation,
+   * or `undefined` when none was recorded (mt#3490, ADR-031).
+   *
+   * Resolved once per dispatch here — the extension this interface's header
+   * already anticipated ("a new field and a new opt-in check") — so no guard
+   * reads the anchor store itself, exactly as none reads `transcript_path`
+   * itself. Populated only when the registration sets `needsTranscript`, since
+   * an anchor is only meaningful to a guard that also has lines to slice.
+   *
+   * **`undefined` is a NORMAL, expected value, not an error.** A turn that
+   * ended on an API error ran `StopFailure` instead of `Stop`; a first run
+   * after this shipped has nothing recorded yet; a compacted transcript may no
+   * longer contain the anchored line. In every such case the consumer falls
+   * back to {@link resolveCompletedTurn} — i.e. to the pre-mt#3490 behaviour —
+   * so anchor-absence degrades to today rather than to a gap. Do NOT write a
+   * guard that treats a missing anchor as a reason to skip its scan.
+   */
+  recordedAnchor?: RecordedTurnAnchor;
 }
 
 // ---------------------------------------------------------------------------
@@ -1665,6 +1685,32 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // documented literal-LAST-entry invariant; cross-event array order is
   // inert (getGuardsForEvent filters by event before running in order).
   // -------------------------------------------------------------------------
+  {
+    // mt#3490 / ADR-031 — a RECORDER, not a detector. Placed first among the
+    // Stop guards so the anchor is durable before any later Stop guard can
+    // error; nothing else reads it within this dispatch.
+    //
+    // No `canary`: `GuardCanary.expects` is `"deny" | "warn" | "calibration" |
+    // "sessionTitle"`, and this guard produces NONE of those — it always
+    // returns null and its only observable effect is a file write. There is no
+    // honest value to declare, so it is omitted deliberately rather than
+    // mis-declared to satisfy the shape test (which measures emitted feedback,
+    // and so has nothing to measure here). Its behaviour is covered by
+    // `record-turn-anchor.test.ts` against an injected store dir instead.
+    //
+    // `attentionCost` is zero because it emits nothing —
+    // `MERGED_CONTEXT_BUDGET_CHARS` is DERIVED from these annotations, so a
+    // padded number here would widen the injection budget for every turn in
+    // the repo (mem#865).
+    name: "record-turn-anchor",
+    tuningOwnership: "invariant",
+    event: "Stop",
+    module: () => import("./record-turn-anchor").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 0, optionCount: 0 },
+  },
   {
     name: "turn-end-retro-scan",
     tuningOwnership: "preference",

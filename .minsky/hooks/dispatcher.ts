@@ -34,6 +34,8 @@ import {
   resolveTranscriptCandidates,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+import { readAnchor } from "./turn-anchor-store";
+import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
 import type {
   DispatchContext,
@@ -383,6 +385,12 @@ export interface ResolveDispatchContextOptions {
   parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Injectable for tests — defaults to the real `resolveTranscriptCandidates` from `./transcript`. */
   resolveTranscriptCandidatesFn?: (transcriptPath: string, agentId?: string) => string[];
+  /**
+   * Injectable for tests — defaults to `readAnchor` from `./turn-anchor-store`
+   * (mt#3490). Injected rather than patched: ADR-036 bans in-place patching of
+   * a collaborator the code reaches itself.
+   */
+  readAnchorFn?: (sessionId: string) => RecordedTurnAnchor | undefined;
 }
 
 /**
@@ -394,7 +402,7 @@ export interface ResolveDispatchContextOptions {
  */
 export function resolveDispatchContext(
   event: LifecycleEvent,
-  input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+  input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
   options: ResolveDispatchContextOptions
 ): DispatchContext {
   const readHostCapFn = options.readHostCapFn ?? readHostCap;
@@ -433,12 +441,24 @@ export function resolveDispatchContext(
     );
   }
 
+  // The Stop-recorded turn anchor (mt#3490, ADR-031), resolved ONCE here for the
+  // same reason transcript lines are: so no guard reaches for the store itself.
+  // Only meaningful alongside lines to slice, so it is skipped when there is no
+  // transcript — an anchor with nothing to anchor INTO is not useful, and the
+  // read is not free.
+  let recordedAnchor: RecordedTurnAnchor | undefined;
+  if (input.session_id && transcriptLines.length > 0) {
+    const readAnchorFn = options.readAnchorFn ?? readAnchor;
+    recordedAnchor = readAnchorFn(input.session_id);
+  }
+
   return {
     event,
     hostCapSec: hostCap.hostCapSec,
     budgets,
     transcriptCandidates,
     transcriptLines,
+    recordedAnchor,
   };
 }
 
@@ -470,7 +490,7 @@ export interface RunDispatcherOptions {
   /** Injectable for tests — defaults to the real `resolveDispatchContext`. */
   resolveDispatchContextFn?: (
     event: LifecycleEvent,
-    input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+    input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
     opts: { hookFilename: string }
   ) => DispatchContext;
   /**
