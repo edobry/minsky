@@ -255,15 +255,40 @@ pub(crate) fn register(app: &tauri::App<Wry>, handle: &AppHandle) {
 /// hands the URL to the recovery loop, which creates a missing window,
 /// heals a dead document, and delivers the link (mt#2688).
 pub(crate) fn handle_deep_link(app: &AppHandle, url: String) {
-    // Dock presence first (mt#2675): the window may be hidden via hide-on-close
-    // with the app back in Accessory; Regular must be restored BEFORE show/focus
-    // or macOS may refuse to front the window.
+    present_cockpit_window(app, Some(url));
+}
+
+/// Bring the cockpit window to the front for an out-of-band request that
+/// carries NO deep link -- currently the mt#3770 single-instance guard, which
+/// refuses a second app launch and fronts the first instance's window instead
+/// of leaving the user's double-click with nothing to show for it.
+///
+/// Shares `present_cockpit_window`'s deferred-creation discipline for the same
+/// reason the deep-link path needs it: the single-instance callback runs on a
+/// `tauri::async_runtime` task, not the main thread, and
+/// `WebviewWindowBuilder::build()` called off the run loop is the mt#2546
+/// deadlock. Creation therefore goes through the recovery loop, which defers it
+/// onto the main thread.
+pub(crate) fn present_cockpit_window_no_link(app: &AppHandle) {
+    present_cockpit_window(app, None);
+}
+
+/// Show/focus an existing cockpit window and hand everything else -- creation,
+/// cold-start healing, and delivery of `deep_link_url` if there is one -- to the
+/// recovery loop.
+///
+/// `show()`/`set_focus()` are called directly because, unlike window CREATION
+/// (`build()`), they do not block on the run loop, so they are safe from a
+/// synchronous callback. Dock presence is restored FIRST (mt#2675): the window
+/// may be hidden via hide-on-close with the app back in Accessory, and macOS may
+/// refuse to front a window without Dock presence.
+fn present_cockpit_window(app: &AppHandle, deep_link_url: Option<String>) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         set_dock_presence(app, true);
         let _ = window.show();
         let _ = window.set_focus();
     }
-    spawn_window_recovery(app, Some(url));
+    spawn_window_recovery(app, deep_link_url);
 }
 
 /// Trigger the recovery loop (mt#2528 + mt#2688): bring the cockpit window
