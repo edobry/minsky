@@ -12,7 +12,7 @@
 
 import os from "os";
 import { appendFileSync } from "fs";
-import { readInput, writeOutput, execSync } from "./types";
+import { readInput, writeOutput, execSync, resolveTsgoBinary } from "./types";
 import type { ToolHookInput } from "./types";
 
 const input = await readInput<ToolHookInput>();
@@ -53,8 +53,30 @@ const stateFile = agentId
 
 appendFileSync(stateFile, `${projectRoot}\n`);
 
-// Run tsgo (native TypeScript compiler) with --noEmit for fast feedback
-const result = execSync(["bunx", "@typescript/native-preview", "--noEmit"], { cwd: projectRoot });
+// Run tsgo (native TypeScript compiler) with --noEmit for fast feedback.
+// mt#3657: the PINNED local binary. `bunx @typescript/native-preview` fetched `@latest`
+// on every invocation — a different compiler from the one this repo declares, re-downloaded
+// mid-check.
+//
+// A missing install skips the CHECK but not the NOTICE (PR #2657 R1 non-blocking). Reporting
+// it as type errors would be worse than saying nothing, but saying nothing is its own failure:
+// the operator would read this hook's silence as "no type errors" when nothing ran. Skipping
+// and announcing the skip are separable, and this task's whole subject is that a checker which
+// did not run must say so.
+const tsgo = resolveTsgoBinary(projectRoot);
+if (!tsgo) {
+  writeOutput({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext:
+        "[typecheck-on-edit] skipped — no tsgo binary under " +
+        `${projectRoot}/node_modules. Run \`bun install\` there. No type check ran, so this ` +
+        "is not evidence the edit is clean.",
+    },
+  });
+  process.exit(0);
+}
+const result = execSync([tsgo, "--noEmit"], { cwd: projectRoot });
 
 if (result.exitCode !== 0) {
   const output = result.stdout || result.stderr;
