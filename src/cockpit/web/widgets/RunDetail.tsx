@@ -35,7 +35,7 @@
  * still resets internal tab-adjacent state (e.g. the multi-conversation
  * switcher selection) cleanly.
  */
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -49,6 +49,7 @@ import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import { formatLinkType } from "../lib/conversation-link-type";
 import { relativeTime, shortenId } from "../lib/format";
+import { parseTurnAddress } from "../lib/conversation-turn-address";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
@@ -523,10 +524,21 @@ export function RunDetail({
   renderActiveConversationChrome,
   renderActiveConversationTail,
 }: RunDetailProps) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const base = basePathFor(keySpace, id);
   const tab = tabFromPathname(pathname, base, keySpace);
+  /**
+   * A turn the URL asked to land on (mt#3791), resolved here because this is the
+   * router-aware component — `ConversationView` is rendered by several callers
+   * that have no router at all, so it takes the address as a prop instead.
+   *
+   * Deliberately NOT scoped to one keyspace: `/agents/:id/conversation` renders
+   * the same thread as `/conversation/:id`, so an address works on both. (Per
+   * mem#811's parity gate, a keyspace-exclusive prop would need a spec criterion
+   * saying the exclusion is intended; there is no reason for one here.)
+   */
+  const turnTarget = useMemo(() => parseTurnAddress(search) ?? undefined, [search]);
   // The addressable id builds paths; this one reads data. They coincide for
   // every caller except the unified route's local-id alias (mt#3132).
   const dataId = resolvedConversationId ?? id;
@@ -740,6 +752,7 @@ export function RunDetail({
               sessionId={activeConversationId as ConversationId}
               liveByConversationId
               onNotFound={onConversationNotFound}
+              turnTarget={turnTarget}
             />
           ) : (
             <p className="text-sm text-muted-foreground">
