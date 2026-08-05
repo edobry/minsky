@@ -35,9 +35,11 @@ import {
 // (laptop MCP, Railway MCP, Railway reviewer, cockpit menu-bar app) plus
 // ephemeral probes. mt#1193 originally set this to 3 to keep the fleet under
 // the SESSION-mode pooler's hard 15-slot ceiling. After the 2026-04-24 swap to
-// the transaction-mode pooler (memory 63fbc195) that global ceiling is
-// effectively gone (practical ceiling in the thousands), so the value no longer
-// rations a scarce global budget. It now sizes per-process query FAN-OUT
+// the transaction-mode pooler (memory 63fbc195) that ceiling is far higher —
+// but NOT "in the thousands", as this comment claimed until mt#3497. Measured
+// 2026-08-05: `SHOW max_connections` = 60, i.e. the Nano/Micro tier, whose
+// documented "Connection Pooler Max Clients" is 200 (Small is 400). So the
+// value no longer rations a scarce global budget at today's fleet size, It now sizes per-process query FAN-OUT
 // concurrency: 15 lets a dashboard/handler issue ~15 parallel queries without
 // client-side queueing (the prior 3 produced gratuitous latency and starved
 // widgets that fan out, e.g. the 4-parallel-query path in mt#2183). Retuned to
@@ -414,6 +416,39 @@ export function buildPostgresClient(
  * with a regex fallback for non-URL-shaped strings (e.g. libpq key=value format
  * — rare but supported by postgres-js). PR #1135 R1 NON-BLOCKING refinement.
  */
+/**
+ * How long the LISTEN self-test waits for its own NOTIFY to come back (mt#3497).
+ * Sized against observed pooler round-trips (a healthy NOTIFY returns in
+ * single-digit milliseconds; the slowest measured cold pooler connect in
+ * mt#3092's evidence was ~12s but that is CONNECT, already covered by
+ * connect_timeout). 5s is generous for a round-trip on an established
+ * connection without stalling broker init on a genuinely dead one.
+ */
+const LISTEN_SELF_TEST_TIMEOUT_MS = 5_000;
+
+/** Makes each self-test channel unique within a process. */
+let listenSelfTestSeq = 0;
+
+/**
+ * Strip credentials from a connection string for logging.
+ *
+ * Fails CLOSED: anything that does not parse as a URL returns a constant rather
+ * than the input, because emitting an unrecognised string risks logging the very
+ * credential this exists to hide (`terminal-command-best-practices §Secret
+ * handling` — a redactor that silently passes its input through is the failure
+ * mode, not the safeguard).
+ */
+export function redactConnectionCredentials(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    return "<unparseable connection string; redacted>";
+  }
+}
+
 export function swapSupavisorPort(connectionString: string): string {
   try {
     const url = new URL(connectionString);
@@ -695,18 +730,56 @@ export class PostgresPersistenceProvider
    * The underlying Sql instance is NOT closed by this method — lifecycle is owned by
    * the caller (typically a `PostgresChannelListener`). `close()` on this provider
    * closes the listen connection as part of full teardown.
+   *
+   * WHY mt#3592's bounded socket is deliberately NOT applied here (mt#3497): this
+   * calls bare `postgres()` rather than `buildPostgresClient()` ON PURPOSE. That
+   * client's byte-counter inactivity bound would sever a LISTEN connection that is
+   * legitimately idle — which is its normal resting state — so adopting it here
+   * would break the feature it is meant to protect. Do NOT "fix" this omission by
+   * routing through `buildPostgresClient()`. The half-open case it would otherwise
+   * cover is instead handled at the application layer, by
+   * `PostgresChannelListener`'s heartbeat.
+   *
+   * The connection is self-tested before being handed out — see
+   * `verifySessionModeDelivery`. Port arithmetic can only guess whether a URL is
+   * session-capable; a transaction pooler on :5432 accepts `LISTEN` and silently
+   * never delivers, which is the worst possible failure shape (the same
+   * session-state-incompatibility class as the advisory-lock leak in mem#655).
+   * Behaviour settles what a port number cannot.
    */
-  async getListenCapableSqlConnection(): Promise<ReturnType<typeof postgres>> {
+  async getListenCapableSqlConnection(opts?: {
+    /**
+     * Discard the cached handle and build a fresh connection. Used by
+     * `PostgresChannelListener`'s reconnect after it has judged the current
+     * one dead and closed it — without this the cache would hand back the
+     * corpse. The replacement is self-tested like any other.
+     */
+    forceNew?: boolean;
+  }): Promise<ReturnType<typeof postgres>> {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
+    }
+
+    if (opts?.forceNew) {
+      // Deliberately not closed here: the caller owns the old handle's
+      // lifecycle and has already ended it.
+      this.listenSql = null;
     }
 
     if (this.listenSql) {
       return this.listenSql;
     }
 
-    const sessionUrl = this.resolveSessionConnectionString();
-    this.listenSql = postgres(sessionUrl, {
+    const { url: sessionUrl, origin } = this.resolveSessionConnectionString();
+    // mt#3497: the topology choice was previously silent. A permanently-pinned
+    // backend spent by an auto-derived URL should be visible in the log.
+    log.info(
+      `PostgresPersistenceProvider: opening session-mode LISTEN connection (${origin}) to ${redactConnectionCredentials(
+        sessionUrl
+      )}`
+    );
+
+    const candidate = postgres(sessionUrl, {
       max: 1, // listener needs one connection; LISTEN state is per-connection
       connect_timeout: this.pgConfig.connectTimeout ?? 10,
       idle_timeout: 0, // never idle out — LISTEN must persist
@@ -714,22 +787,112 @@ export class PostgresPersistenceProvider
       onnotice: logPostgresNotice,
     });
 
+    try {
+      await this.verifySessionModeDelivery(candidate);
+    } catch (err) {
+      try {
+        await candidate.end({ timeout: 0 });
+      } catch {
+        // intentional-swallow: tearing down a connection we are already
+        // rejecting; its close failure adds nothing to the error below.
+      }
+      throw new Error(
+        `PostgresPersistenceProvider: the LISTEN connection (${origin}, ${redactConnectionCredentials(
+          sessionUrl
+        )}) accepted LISTEN but no NOTIFY came back — it is not session-mode-capable, so every mesh subscription on it would be silently dead. ` +
+          `Set persistence.postgres.sessionConnectionString to a session-mode URL (:5432 on Supavisor) or the direct database URL. ` +
+          `Underlying: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    this.listenSql = candidate;
     return this.listenSql;
   }
 
   /**
-   * Resolve the session-mode connection string for LISTEN/NOTIFY.
-   * Uses the explicit sessionConnectionString config when set;
-   * otherwise auto-derives by swapping :6543 → :5432 (Supavisor port-swap).
+   * Prove end-to-end session-mode delivery on a candidate connection before it
+   * is handed to a subscriber: LISTEN a unique probe channel on the CANDIDATE,
+   * publish to it through the POOLED connection, and require the notification
+   * to arrive.
+   *
+   * Publishing through the pooled connection rather than the candidate is what
+   * makes the probe able to fail — a self-publish could be delivered by
+   * postgres-js locally and would pass even against a pooler that never
+   * round-trips a real NOTIFY (mem#704: a probe that cannot fail carries no
+   * information).
    */
-  private resolveSessionConnectionString(): string {
+  private async verifySessionModeDelivery(candidate: ReturnType<typeof postgres>): Promise<void> {
+    if (!this.sql) {
+      throw new Error("pooled connection unavailable to publish the probe NOTIFY");
+    }
+
+    const channel = `minsky.listen.selftest.${process.pid}.${++listenSelfTestSeq}`;
+    let handle: { unlisten: () => Promise<void> } | undefined;
+
+    try {
+      let signalDelivered: () => void = () => {};
+      const delivered = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(
+            new Error(
+              `no NOTIFY on ${channel} within ${LISTEN_SELF_TEST_TIMEOUT_MS}ms of publishing it`
+            )
+          );
+        }, LISTEN_SELF_TEST_TIMEOUT_MS);
+        timer.unref?.();
+        signalDelivered = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+
+      handle = (await candidate.listen(channel, () => signalDelivered())) as {
+        unlisten: () => Promise<void>;
+      };
+      await this.sql`select pg_notify(${channel}, 'selftest')`;
+      await delivered;
+    } finally {
+      if (handle) {
+        try {
+          await handle.unlisten();
+        } catch (err) {
+          log.warn(
+            `PostgresPersistenceProvider: unlisten of the self-test channel failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve the session-mode connection string for LISTEN/NOTIFY, along with
+   * WHERE it came from — the origin is logged, because an auto-derived URL is a
+   * consequential topology choice that was previously invisible.
+   *
+   * Uses the explicit sessionConnectionString config when set; otherwise
+   * auto-derives by swapping :6543 → :5432 (Supavisor port-swap).
+   */
+  private resolveSessionConnectionString(): { url: string; origin: string } {
     if (this.pgConfig.sessionConnectionString) {
-      return this.pgConfig.sessionConnectionString;
+      return {
+        url: this.pgConfig.sessionConnectionString,
+        origin: "explicit persistence.postgres.sessionConnectionString",
+      };
     }
     // Supavisor port-swap auto-derive: transaction pooler is on :6543, session
     // pooler is on :5432, same host. For non-Supavisor hosts the URL is returned
-    // unchanged (assumed already session-mode-capable).
-    return swapSupavisorPort(this.pgConfig.connectionString);
+    // unchanged (assumed already session-mode-capable) — an assumption the
+    // self-test above then actually checks.
+    const url = swapSupavisorPort(this.pgConfig.connectionString);
+    return {
+      url,
+      origin:
+        url === this.pgConfig.connectionString
+          ? "connectionString used as-is; not a Supavisor :6543 URL"
+          : "auto-derived by :6543 → :5432 port-swap",
+    };
   }
 
   /**

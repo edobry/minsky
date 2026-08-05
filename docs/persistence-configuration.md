@@ -64,8 +64,10 @@ Minsky runs as multiple concurrent processes (laptop MCP server, Railway-hosted 
 Railway reviewer service, cockpit menu-bar app) all sharing the same Supabase/Supavisor pooler.
 mt#1193 originally set this default to **3** to keep the fleet under the **session-mode** pooler's
 hard 15-slot global ceiling. After the 2026-04-24 migration to the Supavisor **transaction-mode**
-pooler (`:6543`), that global ceiling is effectively gone (practical ceiling in the thousands), so
-the per-process limit no longer rations a scarce global budget — it now sizes per-process query
+pooler (`:6543`), that ceiling is far higher — **200 client connections on this compute tier**,
+not "in the thousands" as this doc claimed until mt#3497 (measured 2026-08-05: `SHOW
+max_connections` = 60 → Nano/Micro, whose documented "Connection Pooler Max Clients" is 200;
+Small is 400). At today's fleet size the per-process limit no longer rations a scarce global budget — it now sizes per-process query
 **fan-out concurrency** (how many parallel queries one process can issue without client-side
 queueing). mt#2224 retuned the default to **15**; at 3, dashboards/handlers that fan out parallel
 queries hit gratuitous queueing latency.
@@ -118,9 +120,17 @@ the one set on the provider via the config key or env var described above.
 
 When Supavisor, PgBouncer, or Postgres itself rejects a new connection because the pool is full,
 Minsky retries the operation automatically rather than failing immediately. Under the current
-**transaction-mode** pooler (`:6543`) this rejection is unlikely (practical ceiling in the
-thousands); the policy remains as defense-in-depth and is the primary guard when running against
-the **session-mode** pooler (`:5432`, 15-slot ceiling).
+**transaction-mode** pooler (`:6543`) this rejection is unlikely — but the ceiling is **200 client
+connections on this tier**, not "in the thousands" (corrected in mt#3497; see above). The policy
+remains as defense-in-depth and is the primary guard when running against the **session-mode**
+pooler (`:5432`), whose client ceiling is the configured **Pool Size** (15 by default) — a far
+tighter limit, and the one Minsky actually reaches first.
+
+**Both modes are in use.** Normal queries go through the transaction pooler; the cockpit daemon
+additionally holds ONE permanent session-mode connection for `LISTEN` (see
+`getListenCapableSqlConnection`). That connection is pinned for the daemon's lifetime and is not
+free — Supabase's own docs disagree on whether the two ports draw server-side connections from one
+shared pool-size budget or from per-mode budgets, so budget conservatively as if it were shared.
 
 ### Conditions that trigger a retry
 

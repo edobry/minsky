@@ -5,8 +5,12 @@
  * creating their own. Avoids opening redundant postgres-js pools — each cockpit
  * process would otherwise hold its own pool of up to
  * DEFAULT_POSTGRES_MAX_CONNECTIONS sockets against the shared Supabase
- * transaction pooler (port 6543). The pooler's practical ceiling is in the
- * thousands (memory 63fbc195), so this is pool hygiene, not deadlock avoidance:
+ * transaction pooler (port 6543). That pooler's client ceiling is 200 on this
+ * compute tier — measured 2026-08-05, `SHOW max_connections` = 60 → Nano/Micro,
+ * whose documented "Connection Pooler Max Clients" is 200. (Memory 63fbc195 said
+ * "thousands"; that was an agent-authored estimate, corrected by mt#3497 — a
+ * measurement outranks it.) 200 is still far above session mode's 15, so this is
+ * pool hygiene, not deadlock avoidance:
  * the prior "max 3 per instance = deadlock risk" framing predated the
  * 2026-04-24 session->transaction pooler migration and was retired by mt#2224.
  *

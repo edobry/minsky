@@ -189,16 +189,44 @@ async function initSseBrokerOnce(): Promise<SseBroker | null> {
     }
 
     const sqlProvider = provider as {
-      getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
+      getListenCapableSqlConnection: (opts?: {
+        forceNew?: boolean;
+      }) => Promise<ReturnType<typeof import("postgres")>>;
+      getRawSqlConnection?: () => Promise<{
+        unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+      }>;
     };
     const sql = await sqlProvider.getListenCapableSqlConnection();
 
-    const listener = new PostgresChannelListener(sql);
+    // mt#3497: arm liveness on the LISTEN connection. The beat is published on
+    // the POOLED connection and watched for on the SESSION connection, so a
+    // wedged or half-open listener becomes an observable event rather than
+    // permanent silence — the one connection mt#3592's bounded socket
+    // deliberately does not cover.
+    //
+    // Publishing over the session connection instead would make the probe
+    // unable to fail, which is the whole point of putting it on the other one.
+    const getRawSql = sqlProvider.getRawSqlConnection?.bind(sqlProvider);
+    const heartbeat = getRawSql
+      ? {
+          emit: async (channel: string, payload: string): Promise<void> => {
+            const raw = await getRawSql();
+            await raw.unsafe("select pg_notify($1, $2)", [channel, payload]);
+          },
+          reopen: (): Promise<ReturnType<typeof import("postgres")>> =>
+            sqlProvider.getListenCapableSqlConnection({ forceNew: true }),
+        }
+      : undefined;
+
+    const listener = new PostgresChannelListener(sql, undefined, heartbeat);
     const broker = new SseBroker(listener);
 
     for (const channel of COCKPIT_SSE_CHANNELS) {
       await broker.ensureChannel(channel);
     }
+
+    // After the real channels, so the first reconnect re-establishes them all.
+    await listener.startHeartbeat();
 
     _cachedSseBroker = broker;
     return broker;

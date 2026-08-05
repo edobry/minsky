@@ -80,7 +80,10 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
    * whose `| null` declarations are out of mt#1852's scope but never returned null
    * in practice — alignment tracked separately as mt#1858).
    */
-  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
+  getListenCapableSqlConnection?(opts?: {
+    /** Discard any cached handle and build (and self-test) a fresh one — mt#3497. */
+    forceNew?: boolean;
+  }): Promise<ReturnType<typeof import("postgres")>>;
 }
 
 /**
@@ -108,7 +111,10 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
   /** Session-mode-capable connection for LISTEN/NOTIFY (mt#1852). */
-  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
+  getListenCapableSqlConnection?(opts?: {
+    /** Discard any cached handle and build (and self-test) a fresh one — mt#3497. */
+    forceNew?: boolean;
+  }): Promise<ReturnType<typeof import("postgres")>>;
   /** Routes to the correct embeddings table per domain */
   getVectorStorageForDomain?(domain: VectorDomain, dimension: number): VectorStorage;
 }
