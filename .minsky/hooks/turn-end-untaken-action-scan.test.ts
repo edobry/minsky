@@ -262,9 +262,18 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
       expect(ctxText).toContain("…and");
       expect(ctxText).toContain("OFFERED");
 
+      // Read the ceiling from the registry and sanity-check its PRESENCE, not
+      // its value — matching the mt#3699 sibling. Pinning the literal was the
+      // first draft's mistake (PR #2666 R1): it makes a legitimate annotation
+      // change fail here for the wrong reason, and `dispatcher.test.ts` records
+      // the design intent explicitly — reading the registry means an annotation
+      // change automatically changes what the test asserts. The "don't raise the
+      // annotation to make this pass" discipline is prose-tier
+      // (`guard-feedback-authoring.mdc`), because a raise is sometimes correct
+      // and no test can tell the two apart.
       const ceiling = GUARD_REGISTRY.find((r) => r.name === "turn-end-untaken-action-scan")
         ?.attentionCost?.denialMessageSizeChars;
-      expect(ceiling).toBe(450);
+      expect(ceiling).toBeGreaterThan(0);
       expect(ctxText.length).toBeLessThanOrEqual(ceiling as number);
     });
   });
