@@ -12,6 +12,7 @@
  */
 import type { EventVerb, SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { actorKey } from "./session-film-fold";
+import type { TurnAddress } from "./conversation-turn-address";
 
 export interface BatchRow {
   /** Index of this row within the ribbon's batch-row array — the playhead's addressing unit. */
@@ -77,6 +78,52 @@ export function groupEventsIntoBatchRows(events: readonly SemanticEvent[]): Batc
     });
   }
   return rows;
+}
+
+// ── Turn-address resolution (mt#3794) ────────────────────────────────────────
+
+/**
+ * The batch row a conversation turn address lands on, or `null` when nothing in
+ * this film came from that turn.
+ *
+ * The inverse of `resolveEventContent` (`session-film-client.ts`), which takes
+ * an event's `sourceRef` to the transcript block it came from. Same join key,
+ * read the other way: a reader looking at a transcript row asks which moment of
+ * the film it belongs to. `turnIndex` is the transcript array position stamped
+ * on both `SemanticEvent.sourceRef` and `SessionContextSnapshotBlock.turnIndex`
+ * — see `conversation-turn-address.ts` for why that key and not the message
+ * uuid.
+ *
+ * `toolUseId` is tried FIRST and ALONE, without also requiring `turnIndex` to
+ * agree: a `tool_use` id is unique across the transcript, so it is the stronger
+ * key, and pairing it with a turn index that may have shifted under a re-ingest
+ * would reject an address that is still perfectly resolvable. A tool-grain miss
+ * degrades to the turn — the address named a call this film has no event for
+ * (an elided self-target, a verb the adapter does not emit), but the turn
+ * around it is still the right moment to land on. That mirrors
+ * `findAddressedElement`'s own degrade path rather than inventing a second
+ * policy for the same situation.
+ */
+export function findRowForTurnAddress(
+  events: readonly SemanticEvent[],
+  rows: readonly BatchRow[],
+  address: TurnAddress
+): number | null {
+  const rowMatching = (predicate: (event: SemanticEvent) => boolean): number | null => {
+    for (const row of rows) {
+      for (const idx of row.eventIndices) {
+        const event = events[idx];
+        if (event && predicate(event)) return row.rowIndex;
+      }
+    }
+    return null;
+  };
+
+  if (address.toolUseId !== undefined) {
+    const toolRow = rowMatching((e) => e.sourceRef?.toolUseId === address.toolUseId);
+    if (toolRow !== null) return toolRow;
+  }
+  return rowMatching((e) => e.sourceRef?.turnIndex === address.turnIndex);
 }
 
 // ── Wait-vs-gap distinction (spec SC 4 / AT 4) ───────────────────────────────

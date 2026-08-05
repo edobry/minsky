@@ -539,6 +539,18 @@ export function RunDetail({
    * saying the exclusion is intended; there is no reason for one here.)
    */
   const turnTarget = useMemo(() => parseTurnAddress(search) ?? undefined, [search]);
+  /**
+   * Where a transcript row's "watch this moment" link goes (mt#3794) — the film
+   * tab of THIS conversation, which `FilmMomentLink` appends the row's own
+   * address to.
+   *
+   * Keyspace-scoped where `turnTarget` above deliberately is not, because the
+   * film is: `RUN_TABS_BY_KEYSPACE` offers it only under `conversation`
+   * (mt#3468). Under a workspace the same thread renders with no affordance
+   * rather than a link to a tab that is not there.
+   */
+  const filmPath =
+    keySpace === "conversation" ? pathForTab(base, keySpace, "film") : undefined;
   // The addressable id builds paths; this one reads data. They coincide for
   // every caller except the unified route's local-id alias (mt#3132).
   const dataId = resolvedConversationId ?? id;
@@ -753,6 +765,7 @@ export function RunDetail({
               liveByConversationId
               onNotFound={onConversationNotFound}
               turnTarget={turnTarget}
+              filmPath={filmPath}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

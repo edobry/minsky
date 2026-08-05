@@ -99,6 +99,7 @@ import {
   type TurnAddress,
 } from "../lib/conversation-turn-address";
 import { useTurnAddressLanding } from "../hooks/useTurnAddressLanding";
+import { FilmMomentLink } from "../components/FilmMomentLink";
 import {
   hasRenderablePreparedElement,
   mergeCommandInvocations,
@@ -132,6 +133,19 @@ type ConversationViewCommonProps = {
    * here — several existing callers render this component with no router at all.
    */
   turnTarget?: TurnAddress;
+  /**
+   * Path of the film tab showing this same conversation, WITHOUT a query string
+   * (mt#3794) — supplying it turns on the per-row "watch this moment" affordance.
+   *
+   * Same reason as `turnTarget` for arriving as a prop (callers with no router),
+   * plus one this direction has and that one does not: a film is reachable only
+   * in the conversation keyspace (mt#3468), so `/agents/:id/conversation` — the
+   * same thread, rendered under a workspace — supplies nothing and shows no
+   * affordance. That asymmetry with `turnTarget`, which is deliberately NOT
+   * keyspace-scoped, is intended: an address means the same thing wherever the
+   * thread is shown, but the film it would link to does not exist there.
+   */
+  filmPath?: string;
 };
 
 type ConversationViewProps = ConversationViewCommonProps &
@@ -347,10 +361,13 @@ function TurnView({
   expandSignal,
   turnIndex,
   address,
+  filmPath,
 }: {
   turn: PreparedTurn;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
   /**
    * The transcript position this turn came from, when known (mt#3791) — the
    * anchor a turn address resolves against. `undefined` for a live-tail block
@@ -387,6 +404,8 @@ function TurnView({
           entityIndex={entityIndex}
           expandSignal={expandSignal}
           addressedToolUseId={address?.toolUseId}
+          filmPath={filmPath}
+          turnIndex={turnIndex}
         />
       );
       return node;
@@ -404,7 +423,10 @@ function TurnView({
     <div
       {...(turnIndex === undefined ? {} : { [TURN_ANCHOR_ATTR]: turnIndex })}
       className={cn(
-        "flex flex-col gap-2 border-l-2 pl-3",
+        // NAMED group (mt#3794): a tool call inside this turn has its own
+        // hover-revealed film link, and an unnamed `group` would make hovering
+        // anywhere in the turn reveal every call's link at once.
+        "group/turn flex flex-col gap-2 border-l-2 pl-3",
         accent,
         marked && ADDRESSED_MARK_CLASS,
         // Keeps the landing clear of the sticky header a scroll-into-view would
@@ -448,6 +470,19 @@ function TurnView({
         <span className="ml-auto tabular-nums text-muted-foreground/60">
           {formatTime(turn.timestamp)}
         </span>
+        {/*
+          Turn-grain film link (mt#3794). Gated on a KNOWN `turnIndex`: a
+          live-tail block the snapshot never stamped has no address, so there is
+          no moment to link to — the same condition that makes it unaddressable
+          from the film's side.
+        */}
+        {filmPath !== undefined && turnIndex !== undefined && (
+          <FilmMomentLink
+            address={{ turnIndex }}
+            filmPath={filmPath}
+            className="group-hover/turn:opacity-100"
+          />
+        )}
       </div>
       <div className="flex flex-col gap-2">{rendered}</div>
     </div>
@@ -474,8 +509,11 @@ function buildTurnNodes({
   expandSignal,
   address,
   addressedBlockId,
+  filmPath,
 }: {
   preparedTurns: PreparedTurn[];
+  /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
+  filmPath?: string;
   supersededGroups: SupersededGroup[];
   blockIndexById: Map<string, number>;
   /**
@@ -536,6 +574,7 @@ function buildTurnNodes({
         expandSignal={expandSignal}
         turnIndex={turnIndexByBlockId.get(turn.blockId)}
         address={turn.blockId === addressedBlockId ? address : undefined}
+        filmPath={filmPath}
       />
     );
   });
@@ -555,8 +594,11 @@ function ConversationThread({
   extraBlocks,
   className,
   turnTarget,
+  filmPath,
 }: {
   snapshot: SessionContextSnapshot;
+  /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
+  filmPath?: string;
   /**
    * A turn to land on instead of the newest exchange (mt#3791) — resolved from
    * the URL by the router-aware caller, so this component stays snapshot-in.
@@ -1101,6 +1143,7 @@ function ConversationThread({
         expandSignal,
         address: addressedTurn ? turnTarget : undefined,
         addressedBlockId: addressedTurn?.blockId,
+        filmPath,
       })}
       {/* Return-to-newest (mt#3376). Rendered only while the operator is
           scrolled up AND live content has arrived since — the two conditions
@@ -1162,6 +1205,7 @@ function DrivenSessionThread({
   drivenBlocks,
   className,
   turnTarget,
+  filmPath,
 }: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
@@ -1187,6 +1231,7 @@ function DrivenSessionThread({
       extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
       className={className}
       turnTarget={turnTarget}
+      filmPath={filmPath}
     />
   );
 }
@@ -1200,6 +1245,7 @@ function ConversationFetcher({
   onNotFound,
   className,
   turnTarget,
+  filmPath,
 }: ConversationViewCommonProps & {
   sessionId: ConversationId;
   /**
@@ -1325,6 +1371,7 @@ function ConversationFetcher({
       extraBlocks={liveBlocks.length > 0 ? liveBlocks : undefined}
       className={className}
       turnTarget={turnTarget}
+      filmPath={filmPath}
     />
   );
 }
@@ -1358,6 +1405,7 @@ export function ConversationView(props: ConversationViewProps) {
         snapshot={props.snapshot}
         className={props.className}
         turnTarget={props.turnTarget}
+        filmPath={props.filmPath}
       />
     );
   }
@@ -1368,6 +1416,7 @@ export function ConversationView(props: ConversationViewProps) {
         drivenBlocks={props.drivenBlocks}
         className={props.className}
         turnTarget={props.turnTarget}
+        filmPath={props.filmPath}
       />
     );
   }
@@ -1379,6 +1428,7 @@ export function ConversationView(props: ConversationViewProps) {
       onNotFound={props.onNotFound}
       className={props.className}
       turnTarget={props.turnTarget}
+      filmPath={props.filmPath}
     />
   );
 }
