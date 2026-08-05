@@ -19,6 +19,10 @@
  * `.github/workflows/bundle-boot-smoke.yml`, which boots the built bundle bare — plus the two
  * cold-start smokes, which run it from a temp layout with no `node_modules`. Same division of
  * labor `tests/scripts/cli-entry.test.ts` documents for mt#3735's sibling import.
+ *
+ * The two text helpers below are themselves covered by fixture tests at the bottom of this file
+ * (PR #2661 R1): they are hand-rolled parsers, and a parser that silently under-matches would make
+ * every assertion above vacuously pass.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -28,6 +32,9 @@ import { join } from "path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
+/** Comment syntax of the file being scanned. YAML and Dockerfiles use `#`; TS uses `//` + `/* *\/`. */
+type CommentStyle = "ts" | "hash";
+
 function read(relativePath: string): string {
   // The cast is Bun's stricter `readFileSync` overload typing, which widens the utf8 return to
   // `string | Buffer` — `scripts/cli-entry.ts`'s FsDeps docblock records the same friction.
@@ -36,34 +43,61 @@ function read(relativePath: string): string {
 }
 
 /**
- * Lines that actually execute — comments stripped.
+ * Remove comments so assertions see executable content only.
  *
- * Every file checked here EXPLAINS the flag it must not USE, so a raw substring scan matches the
- * explanation and fails on correct code. Covers `//`, `/* … *\/` continuation lines, and the `#`
- * form used by YAML and the Dockerfile.
+ * Needed because every file checked here EXPLAINS the flag it must not USE — a raw substring scan
+ * matches the explanation and fails on correct code, which is exactly what the first draft did.
+ *
+ * The `//` rule ignores a `//` preceded by `:` so that `http://` and `postgres://` inside string
+ * literals survive. Known limit: a `//` or `#` inside a string literal in any other shape is still
+ * treated as a comment start, which can only cause a false NEGATIVE (missing a flag that appears
+ * after such a literal on the same line), never a false positive.
  */
-function codeLines(source: string): string[] {
-  return source.split("\n").filter((line) => {
-    const trimmed = line.trim();
-    if (trimmed === "") return false;
-    return !(
-      trimmed.startsWith("//") ||
-      trimmed.startsWith("#") ||
-      trimmed.startsWith("*") ||
-      trimmed.startsWith("/*")
-    );
-  });
+function stripComments(source: string, style: CommentStyle): string {
+  const withoutBlocks = style === "ts" ? source.replace(/\/\*[\s\S]*?\*\//g, "") : source;
+  return withoutBlocks
+    .split("\n")
+    .map((line) =>
+      style === "ts" ? line.replace(/(^|[^:])\/\/.*$/, "$1") : line.replace(/#.*$/, "")
+    )
+    .join("\n");
 }
 
-/** Source-order list of every `import ...` / `export ... from` specifier in a module. */
+/** Lines that actually execute, comments and blank lines removed. */
+function codeLines(source: string, style: CommentStyle): string[] {
+  return stripComments(source, style)
+    .split("\n")
+    .filter((line) => line.trim() !== "");
+}
+
+/**
+ * Source-order list of every module specifier imported or re-exported for its RUNTIME effect.
+ *
+ * Type-only imports are excluded: TypeScript erases them, so they cannot affect evaluation order
+ * and must not count as "an import before the polyfill" (PR #2661 R1).
+ *
+ * The `[^;]*?` between the keyword and `from` spans newlines but not statement boundaries, so
+ * multi-line named imports are captured while `export const x = "…";` cannot reach forward to an
+ * unrelated `from` later in the file.
+ */
 function importSpecifiers(source: string): string[] {
+  const pattern = /^[ \t]*(?:import|export)\s+(?!type\b)(?:[^;]*?\bfrom\s*)?["']([^"']+)["']/gm;
   const specifiers: string[] = [];
-  const pattern = /^\s*(?:import|export)\b[^;]*?["']([^"']+)["']/gm;
-  for (const match of source.matchAll(pattern)) {
+  for (const match of stripComments(source, "ts").matchAll(pattern)) {
     const specifier = match[1];
     if (specifier !== undefined) specifiers.push(specifier);
   }
   return specifiers;
+}
+
+function bunVersionOf(workflowPath: string): string {
+  const version = read(workflowPath).match(/bun-version:\s*"([^"]+)"/)?.[1];
+  if (version === undefined) {
+    // A workflow that stopped pinning Bun at all is the same failure this test guards against —
+    // it would silently run on whatever the runner ships. Fail loudly rather than compare undefined.
+    throw new Error(`No bun-version pin found in ${workflowPath}`);
+  }
+  return version;
 }
 
 describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
@@ -87,9 +121,7 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
   });
 
   test("the Dockerfile CMD invokes the bundle without a preload", () => {
-    const cmdLine = read("Dockerfile")
-      .split("\n")
-      .find((line) => line.startsWith("CMD "));
+    const cmdLine = codeLines(read("Dockerfile"), "hash").find((line) => line.startsWith("CMD "));
 
     expect(cmdLine).toBeDefined();
     expect(cmdLine).toContain("dist/minsky.js");
@@ -99,16 +131,16 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
   test("the bundle-boot smoke boots the bundle bare, so a regression is visible", () => {
     // A preloaded invocation boots whether or not the bundle is self-sufficient, so re-adding the
     // flag here would silently retire the gate rather than strengthen it.
-    const bootLine = read(".github/workflows/bundle-boot-smoke.yml")
-      .split("\n")
-      .find((line) => line.includes("setsid bun run") && line.includes("dist/minsky.js"));
+    const bootLine = codeLines(read(".github/workflows/bundle-boot-smoke.yml"), "hash").find(
+      (line) => line.includes("bun run") && line.includes("dist/minsky.js")
+    );
 
     expect(bootLine).toBeDefined();
     expect(bootLine).not.toContain("--preload");
   });
 
   test("the cold-start smokes run the bundle with no preload", () => {
-    // These two spawn the bundle from a temp installed layout with no `node_modules` — the closest
+    // These spawn the bundle from a temp installed layout with no `node_modules` — the closest
     // thing in CI to a real standalone install, and the reason mt#3680 existed.
     for (const script of [
       "scripts/smoke-cold-start-hooks.ts",
@@ -116,7 +148,7 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
       "scripts/smoke-cold-start-migrate.ts",
       "scripts/benchmark-cold-boot.ts",
     ]) {
-      const offenders = codeLines(read(script)).filter((line) => line.includes("--preload"));
+      const offenders = codeLines(read(script), "ts").filter((line) => line.includes("--preload"));
       expect(offenders).toEqual([]);
     }
   });
@@ -132,12 +164,66 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
   });
 });
 
-function bunVersionOf(workflowPath: string): string {
-  const version = read(workflowPath).match(/bun-version:\s*"([^"]+)"/)?.[1];
-  if (version === undefined) {
-    // A workflow that stopped pinning Bun at all is the same failure this test guards against —
-    // it would silently run on whatever the runner ships. Fail loudly rather than compare undefined.
-    throw new Error(`No bun-version pin found in ${workflowPath}`);
-  }
-  return version;
-}
+describe("text helpers (PR #2661 R1)", () => {
+  /** The line each fixture expects to survive: a side-effect-only import of a local module. */
+  const POLYFILL_IMPORT = 'import "./polyfill";';
+
+  test("importSpecifiers captures a multi-line named import in source order", () => {
+    const source = ['import "./polyfill";', "import {", "  a,", "  b,", '} from "./dep";'].join(
+      "\n"
+    );
+
+    expect(importSpecifiers(source)).toEqual(["./polyfill", "./dep"]);
+  });
+
+  test("importSpecifiers ignores type-only imports and exports", () => {
+    // Erased at runtime, so they cannot affect evaluation order — counting them would fail the
+    // first-import assertion for a change that is provably harmless.
+    const source = [
+      'import type { Foo } from "./types";',
+      'export type { Bar } from "./other-types";',
+      POLYFILL_IMPORT,
+    ].join("\n");
+
+    expect(importSpecifiers(source)).toEqual(["./polyfill"]);
+  });
+
+  test("importSpecifiers does not let a non-import statement reach a later `from`", () => {
+    const source = ['export const label = "hello";', 'import { x } from "./dep";'].join("\n");
+
+    expect(importSpecifiers(source)).toEqual(["./dep"]);
+  });
+
+  test("importSpecifiers ignores specifiers mentioned only in comments", () => {
+    const source = [
+      "/**",
+      ' * Historically this file did `import "reflect-metadata"` directly.',
+      " */",
+      '// import "./stale";',
+      POLYFILL_IMPORT,
+    ].join("\n");
+
+    expect(importSpecifiers(source)).toEqual(["./polyfill"]);
+  });
+
+  test("codeLines drops block-comment terminators and interior lines", () => {
+    const source = ["/*", " * uses --preload for a reason", " */", 'run("--flag");'].join("\n");
+
+    expect(codeLines(source, "ts")).toEqual(['run("--flag");']);
+  });
+
+  test("codeLines strips an inline comment but keeps the code before it", () => {
+    expect(codeLines('run("--flag"); // avoid --preload here', "ts")).toEqual(['run("--flag"); ']);
+    expect(codeLines("CMD bun run dist/minsky.js # no --preload", "hash")).toEqual([
+      "CMD bun run dist/minsky.js ",
+    ]);
+  });
+
+  test("codeLines keeps a URL that contains a double slash", () => {
+    // `postgres://` and `http://` appear in real invocation lines; treating them as comment starts
+    // would truncate the line and could hide a flag that follows.
+    expect(codeLines('connect("postgres://host/db", "--preload");', "ts")).toEqual([
+      'connect("postgres://host/db", "--preload");',
+    ]);
+  });
+});
