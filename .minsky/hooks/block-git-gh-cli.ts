@@ -1032,17 +1032,28 @@ if (import.meta.main) {
   // tool, so vetoing on relocation alone made the carve-out unreachable. When
   // the leading `cd` target is literally resolvable, classify THAT directory;
   // otherwise the veto stands.
-  const scope: RepoScope = ((): RepoScope => {
-    if (context !== "bash") return "session";
+  //
+  // `classifiedPath` is carried alongside the scope so the audit line can name
+  // the directory actually classified. Reporting `input.cwd` there would be
+  // wrong exactly when a leading `cd` moved the target — the case this task
+  // added (PR #2691 R1).
+  const { scope, classifiedPath }: { scope: RepoScope; classifiedPath: string | undefined } = ((): {
+    scope: RepoScope;
+    classifiedPath: string | undefined;
+  } => {
+    if (context !== "bash") return { scope: "session", classifiedPath: undefined };
     const cdTarget = resolveLeadingCdTarget(command, input.cwd);
-    if (cdTarget !== null) return classifyRepoScope(cdTarget);
-    return commandMayRelocateCwd(command) ? "session" : classifyRepoScope(input.cwd);
+    if (cdTarget !== null) {
+      return { scope: classifyRepoScope(cdTarget), classifiedPath: cdTarget };
+    }
+    if (commandMayRelocateCwd(command)) return { scope: "session", classifiedPath: undefined };
+    return { scope: classifyRepoScope(input.cwd), classifiedPath: input.cwd };
   })();
 
   for (const parsed of parsedCommands) {
     if (scope === "external" && isCwdScopedInvocation(parsed)) {
       process.stderr.write(
-        `[block-git-gh-cli] scope carve-out: git ${parsed.args[0] ?? ""} in ${input.cwd}, outside the Minsky project and its session workspaces\n`
+        `[block-git-gh-cli] scope carve-out: git ${parsed.args[0] ?? ""} in ${classifiedPath}, outside the Minsky project and its session workspaces\n`
       );
       continue;
     }
