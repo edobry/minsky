@@ -263,7 +263,7 @@ describe("adaptTranscriptToEvents — AT2: principal + policy actors", () => {
 });
 
 describe("adaptTranscriptToEvents — unpaired tool call: outcome is unresolved, not 'ok'", () => {
-  test("a tool_use with no matching tool_result in the following line has outcome undefined", () => {
+  test("a tool_use with no matching tool_result ANYWHERE in the transcript has outcome undefined", () => {
     const transcript: TranscriptMessage[] = [
       assistantMsg(
         [{ type: "tool_use", id: "call-unpaired", name: READ_FILE_TOOL, input: { path: "x.ts" } }],
@@ -294,6 +294,68 @@ describe("adaptTranscriptToEvents — unpaired tool call: outcome is unresolved,
     const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
     const read = events.find((e) => e.verb === "read");
     expect(read?.outcome).toBeUndefined();
+  });
+});
+
+describe("adaptTranscriptToEvents — mt#3795: pairing is by tool_use_id, not by position", () => {
+  test("calls on CONSECUTIVE assistant lines both resolve, though neither is followed by its own result line", () => {
+    // The shape the harness actually writes for parallel calls, and the shape
+    // the old immediately-following-line search could not pair: call A, then
+    // call B on the next ASSISTANT line, then one user line carrying both
+    // results. Under the old rule A's next line was an assistant line (no
+    // results at all) and B's next line carried A's result (wrong id), so BOTH
+    // emitted unresolved.
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-a", name: READ_FILE_TOOL, input: { path: "a.ts" } }],
+        "2026-07-24T12:00:00.000Z",
+        "line-a"
+      ),
+      assistantMsg(
+        [{ type: "tool_use", id: "call-b", name: READ_FILE_TOOL, input: { path: "b.ts" } }],
+        "2026-07-24T12:00:01.000Z",
+        "line-b"
+      ),
+      userMsg(
+        [
+          { type: "tool_result", tool_use_id: "call-a", content: "contents of a", is_error: false },
+          { type: "tool_result", tool_use_id: "call-b", content: "contents of b", is_error: false },
+        ],
+        "2026-07-24T12:00:02.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const a = events.find((e) => e.target.id.endsWith("a.ts"));
+    const b = events.find((e) => e.target.id.endsWith("b.ts"));
+    expect(a?.outcome).toBe("ok");
+    expect(b?.outcome).toBe("ok");
+    // tEnd comes from the line that CARRIED the result, not from `i + 1`.
+    expect(a?.tEnd).toBe("2026-07-24T12:00:02.000Z");
+    expect(b?.tEnd).toBe("2026-07-24T12:00:02.000Z");
+  });
+
+  test("a result several lines later still pairs, and an error result still reads as error", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-far", name: READ_FILE_TOOL, input: { path: "far.ts" } }],
+        "2026-07-24T12:10:00.000Z",
+        "line-far"
+      ),
+      assistantMsg(
+        [{ type: "text", text: "thinking out loud" }],
+        "2026-07-24T12:10:01.000Z",
+        "line-mid"
+      ),
+      userMsg([{ type: "text", text: "a genuine interjection" }], "2026-07-24T12:10:02.000Z"),
+      userMsg(
+        [{ type: "tool_result", tool_use_id: "call-far", content: "boom", is_error: true }],
+        "2026-07-24T12:10:03.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const far = events.find((e) => e.verb === "read");
+    expect(far?.outcome).toBe("error");
+    expect(far?.tEnd).toBe("2026-07-24T12:10:03.000Z");
   });
 });
 

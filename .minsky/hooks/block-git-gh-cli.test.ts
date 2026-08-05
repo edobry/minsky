@@ -9,6 +9,11 @@ import {
   parseCommands,
   parseSegment,
   splitOnShellOperators,
+  splitOnShellOperatorsUnquoted,
+  classifyRepoScope,
+  commandMayRelocateCwd,
+  isCwdScopedInvocation,
+  isMinskySessionPath,
   stripEnvVarAssignments,
   toolContextFromName,
   classifyAgentTypeObservation,
@@ -1005,26 +1010,22 @@ describe("known limitations: shell quoting is not honored", () => {
     expect(firstDenied).not.toBeNull();
   });
 
-  it("DOCUMENTS: shell operator inside a commit message can let the post-operator portion through", () => {
-    // `git commit -m "cherry-pick this"` has no operator — safe.
-    // But `git commit -m "x | cherry-pick y"` would split into:
-    //   - `git commit -m "x ` (denied as commit)
-    //   - `cherry-pick y"` (not a git/gh command — ignored)
-    // In this case the overall result is still DENIED because `git commit` fires.
+  it("a quoted operator no longer splits the argument into a phantom command (mt#3788)", () => {
+    // Was: "DOCUMENTS: shell operator inside a commit message can let the
+    // post-operator portion through". The splitter used to cut this into
+    // `echo "hi ` and `git cherry-pick abc"`, so a string ARGUMENT produced a
+    // parsed git invocation that no shell would ever run. Nothing was denied
+    // here, so the old gap read as harmless — but the same mis-split in the
+    // other direction is what denied a `grep` whose regex mentioned `git add`.
     //
-    // The pathological case that actually slips: the FIRST segment is non-git/gh
-    // and the SECOND segment (after a quoted operator) happens to look like an
-    // allowed git command. This is extremely contrived in practice.
-    //
-    // We keep this test to document the known gap; fixing it correctly requires
-    // a proper shell lexer, which is beyond scope.
+    // Now the quoted region is preserved, `echo` is the only binary, and no
+    // git command is parsed at all.
     const cmd = `echo "hi | git cherry-pick abc"`;
+    expect(splitOnShellOperators(cmd)).toEqual([cmd]);
     const parsed = parseCommands(cmd);
-    // The splitter sees `echo "hi ` and `git cherry-pick abc"` — the latter parses
-    // as git cherry-pick, which is in the allowed list.
-    expect(parsed.length).toBeGreaterThanOrEqual(1);
+    expect(parsed).toEqual([]);
     const anyDenied = parsed.map((p) => checkDenial(p)).some((r) => r !== null);
-    expect(anyDenied).toBe(false); // Known-permissive: nothing denied
+    expect(anyDenied).toBe(false);
   });
 
   it("DOCUMENTS: subshell invocations `$(git ...)` are not parsed", () => {
@@ -1568,5 +1569,188 @@ describe("checkDenial — git add conflict-resolution carve-out", () => {
       runGit
     );
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3788 — quote-aware operator splitting
+// ---------------------------------------------------------------------------
+
+describe("splitOnShellOperators — quote awareness (mt#3788)", () => {
+  it("does not split on a pipe inside single quotes — the originating case", () => {
+    // This exact command was denied before mt#3788: the `|` inside the regex
+    // split the string, producing a segment that literally read `git add`.
+    const command = "grep -rln -E 'block-git-gh-cli|git add|guard matcher' docs/architecture";
+    expect(splitOnShellOperators(command)).toEqual([command]);
+    expect(parseCommands(command)).toEqual([]);
+  });
+
+  it("does not split on a semicolon inside double quotes", () => {
+    const command = 'echo "hello; git push"';
+    expect(splitOnShellOperators(command)).toEqual([command]);
+    expect(parseCommands(command)).toEqual([]);
+  });
+
+  it("keeps a quoted commit message with a pipe in one segment, still denied", () => {
+    const command = 'git commit -m "a | b"';
+    expect(splitOnShellOperators(command)).toEqual([command]);
+    const parsed = parseCommands(command);
+    expect(parsed).toHaveLength(1);
+    expect(parsed.map((p) => checkDenial(p, "bash")).join("")).toContain("session_commit");
+  });
+
+  it("still splits on real operators outside quotes", () => {
+    expect(splitOnShellOperators("ls && git push")).toEqual(["ls", "git push"]);
+    expect(splitOnShellOperators("ls | grep x; git status")).toEqual([
+      "ls",
+      "grep x",
+      "git status",
+    ]);
+    expect(splitOnShellOperators("a || git push")).toEqual(["a", "git push"]);
+  });
+
+  it("still denies a real chained git command that follows a quoted argument", () => {
+    const command = "grep -E 'a|b' file && git push";
+    expect(splitOnShellOperators(command)).toEqual(["grep -E 'a|b' file", "git push"]);
+    const parsed = parseCommands(command);
+    expect(parsed).toHaveLength(1);
+    expect(parsed.map((p) => checkDenial(p, "bash")).join("")).toContain("git_push");
+  });
+
+  it("honours a backslash-escaped double quote inside double quotes", () => {
+    const command = 'echo "he said \\"hi\\"; git push"';
+    expect(splitOnShellOperators(command)).toEqual([command]);
+  });
+
+  it("falls back to the quote-blind split when quotes are unbalanced (fail-closed)", () => {
+    const command = "echo 'unterminated; git push";
+    // The naive split still yields a `git push` segment, so the guard denies —
+    // over-splitting is the safe direction.
+    expect(splitOnShellOperators(command)).toEqual(splitOnShellOperatorsUnquoted(command));
+    expect(parseCommands(command)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3788 — target-repository scope
+// ---------------------------------------------------------------------------
+
+/** Stand-in for the hook installation's own checkout in the mt#3788 scope tests. */
+const FAKE_PROJECT_ROOT = "/Users/e/Projects/minsky";
+
+describe("isMinskySessionPath (mt#3788)", () => {
+  it("recognises the canonical session-workspace root", () => {
+    expect(isMinskySessionPath("/Users/e/.local/state/minsky/sessions/abc-123")).toBe(true);
+  });
+
+  it("recognises a dot-prefixed .minsky/sessions root", () => {
+    expect(isMinskySessionPath("/repo/.minsky/sessions/abc-123")).toBe(true);
+  });
+
+  it("does not match the project checkout or an unrelated repo", () => {
+    expect(isMinskySessionPath(FAKE_PROJECT_ROOT)).toBe(false);
+    expect(isMinskySessionPath("/tmp/scratch/probe")).toBe(false);
+  });
+});
+
+describe("classifyRepoScope (mt#3788)", () => {
+  const PROJECT = FAKE_PROJECT_ROOT;
+  const SESSION = "/Users/e/.local/state/minsky/sessions/abc-123";
+  const EXTERNAL = "/tmp/scratch/probe";
+
+  // Every candidate below IS a repo root, so findRepoRoot's upward walk stops
+  // immediately and the classification is driven entirely by the path.
+  const existsAt = (roots: string[]) => (p: string) =>
+    roots.some((r) => p === `${r}/.git`) || roots.some((r) => p.startsWith(`${r}/.git`));
+
+  it("classifies the hook installation's own repo as project", () => {
+    expect(classifyRepoScope(PROJECT, PROJECT, existsAt([PROJECT]))).toBe("project");
+  });
+
+  it("classifies a session workspace as session, not external", () => {
+    // The regression this guards: a session clone's root never equals the
+    // project root, so without the path test it would read as external and
+    // the guard would stop enforcing where it matters most.
+    expect(classifyRepoScope(SESSION, PROJECT, existsAt([SESSION]))).toBe("session");
+  });
+
+  it("classifies an unrelated scratch repo as external", () => {
+    expect(classifyRepoScope(EXTERNAL, PROJECT, existsAt([EXTERNAL]))).toBe("external");
+  });
+
+  it("returns indeterminate when the cwd resolves to no real repo (fail-closed)", () => {
+    expect(classifyRepoScope("/tmp/not-a-repo", PROJECT, () => false)).toBe("indeterminate");
+  });
+
+  it("returns indeterminate when cwd is absent (fail-closed)", () => {
+    expect(classifyRepoScope(undefined, PROJECT, () => true)).toBe("indeterminate");
+  });
+});
+
+describe("commandMayRelocateCwd — vetoes the carve-out (PR #2685 R2)", () => {
+  it("fires on a chained cd, the permissive-direction bypass", () => {
+    // With input.cwd in a scratch repo the scope would be `external`, so
+    // without this veto the push would be carved out on a scope computed for
+    // a directory it never runs in.
+    expect(commandMayRelocateCwd(`cd ${FAKE_PROJECT_ROOT} && git push`)).toBe(true);
+    expect(commandMayRelocateCwd("git add -A; cd /elsewhere; git commit -m x")).toBe(true);
+  });
+
+  it("fires on pushd/popd and on env --chdir", () => {
+    expect(commandMayRelocateCwd("pushd /elsewhere && git push")).toBe(true);
+    expect(commandMayRelocateCwd("popd && git push")).toBe(true);
+    expect(commandMayRelocateCwd("env -C /elsewhere git push")).toBe(true);
+  });
+
+  it("fires on a nested shell and on subshell / command substitution", () => {
+    expect(commandMayRelocateCwd(`sh -c "cd ${FAKE_PROJECT_ROOT} && git push"`)).toBe(true);
+    expect(commandMayRelocateCwd("(cd /elsewhere; git push)")).toBe(true);
+    expect(commandMayRelocateCwd("TAG=$(cd /elsewhere && git log -1) git push")).toBe(true);
+  });
+
+  it("does not fire on an ordinary command with no relocation", () => {
+    expect(commandMayRelocateCwd("git add -A")).toBe(false);
+    expect(commandMayRelocateCwd("git add -A && git commit -m x")).toBe(false);
+    expect(commandMayRelocateCwd("ls | grep foo && git status")).toBe(false);
+  });
+
+  it("is not fooled by the word cd appearing inside a quoted argument", () => {
+    // Quote-aware splitting keeps this one segment whose binary is `git`.
+    expect(commandMayRelocateCwd(`git commit -m "cd into the thing"`)).toBe(false);
+  });
+});
+
+describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2685 R1)", () => {
+  it("covers a plain git command, whose target repo IS the cwd", () => {
+    expect(isCwdScopedInvocation({ binary: "git", args: ["add", "-A"] })).toBe(true);
+    expect(isCwdScopedInvocation({ binary: "git", args: ["commit", "-m", "x"] })).toBe(true);
+    expect(isCwdScopedInvocation({ binary: "git", args: ["push"] })).toBe(true);
+  });
+
+  it("never covers gh — it names its target repo in the args, not the cwd", () => {
+    // The hole this closes: `cd /tmp/scratch && gh api PUT
+    // /repos/edobry/minsky/pulls/N/merge` would otherwise bypass every
+    // gh-policy denial, including the merge surfaces.
+    expect(
+      isCwdScopedInvocation({
+        binary: "gh",
+        args: ["api", "-X", "PUT", "/repos/edobry/minsky/pulls/1/merge"],
+      })
+    ).toBe(false);
+    expect(isCwdScopedInvocation({ binary: "gh", args: ["pr", "merge"] })).toBe(false);
+  });
+
+  it("never covers a git command that redirects at another path", () => {
+    // `git -C` stays denied everywhere by deliberate design (session
+    // isolation), which mt#3788's spec puts explicitly out of scope.
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["-C", FAKE_PROJECT_ROOT, "commit"] })
+    ).toBe(false);
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["--git-dir=/elsewhere/.git", "commit"] })
+    ).toBe(false);
+    expect(
+      isCwdScopedInvocation({ binary: "git", args: ["--work-tree", "/elsewhere", "add", "-A"] })
+    ).toBe(false);
   });
 });

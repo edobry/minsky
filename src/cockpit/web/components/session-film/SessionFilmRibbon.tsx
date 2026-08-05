@@ -125,6 +125,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import { isPointEventVerb } from "@minsky/domain/transcripts/event-schema";
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import type { BatchRow, ChapterMarker } from "../../lib/session-film-batches";
 import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
@@ -143,7 +144,11 @@ import {
   verbIconFor,
   verbLabelFor,
 } from "../../lib/tool-icon";
-import { realmColorStyle } from "../../lib/session-film-config";
+import {
+  POINT_EVENT_DURATION_LABEL,
+  realmColorStyle,
+  UNRESOLVED_OUTCOME_LABEL,
+} from "../../lib/session-film-config";
 import {
   deriveFilmSubjectAgentId,
   isSelfReferenceTarget,
@@ -205,8 +210,21 @@ export interface SessionFilmRibbonProps {
   verifiedRescrubbed?: boolean;
 }
 
+/** An event's outcome as the operator reads it — see `session-film-config.ts`'s label doc (mt#3795). */
+function outcomeLabel(outcome: SemanticEvent["outcome"]): string {
+  return outcome ?? UNRESOLVED_OUTCOME_LABEL;
+}
+
+/** An event's duration, distinguishing a point event from an unresolved interval (mt#3795). */
+function durationLabel(event: SemanticEvent): string {
+  if (event.tEnd !== undefined) {
+    return formatDurationShort(Date.parse(event.tEnd) - Date.parse(event.tStart));
+  }
+  return isPointEventVerb(event.verb) ? POINT_EVENT_DURATION_LABEL : UNRESOLVED_OUTCOME_LABEL;
+}
+
 function outcomeSuffix(outcome: SemanticEvent["outcome"]): string {
-  if (outcome === undefined) return " [in-flight]";
+  if (outcome === undefined) return ` [${UNRESOLVED_OUTCOME_LABEL}]`;
   if (outcome !== "ok") return ` [${outcome}]`;
   return "";
 }
@@ -289,13 +307,20 @@ interface ContentFetchState {
  * Always renders SOMETHING (loading / unavailable / not-recorded / no-content
  * / the real content) — never a bare loading state left hanging (mem#561).
  *
- * The `think` verb gets its own honest empty-state (mt#3276): a thinking block
- * ALWAYS arrives with empty text (the signature is kept for API replay; the
- * reasoning text is withheld server-side and never reaches the client — see
- * `event-schema.ts`'s EVENT_VERBS note for the evidence). Rendering that
- * through `ElementView` would produce a blank box, and the generic "No content
- * captured" copy would misattribute a harness limitation to a Minsky capture
- * gap. Both read as "something went wrong"; neither is true.
+ * The `think` verb gets its own honest empty-state (mt#3276, copy corrected
+ * mt#3790): on the models this project runs, a thinking block arrives with
+ * empty text because `thinking.display` defaults to `"omitted"` — the request
+ * never asks for a summary, so the API returns the signature (kept for replay)
+ * and no prose. See `event-schema.ts`'s EVENT_VERBS note for the vendor-doc
+ * citation and the dated per-model measurement, including the Haiku 4.5 case
+ * where the text IS returned and this branch correctly does not fire.
+ *
+ * Rendering an empty block through `ElementView` would produce a blank box, and
+ * the generic "No content captured" copy would read as a Minsky capture gap.
+ * Both say "something went wrong"; neither is true. The copy must also avoid
+ * the opposite error of blaming the harness or implying the reasoning is gone
+ * for good — what is permanently unavailable is the RAW chain of thought; a
+ * summary is available whenever it is requested.
  */
 function EventContentView({
   event,
@@ -339,9 +364,10 @@ function EventContentView({
       ) : isUnrecordedThinking ? (
         <div
           className="text-[11px] italic text-muted-foreground/60"
-          data-testid="session-film-row-content-thinking-not-recorded"
+          data-testid="session-film-row-content-thinking-not-requested"
         >
-          This harness does not record thinking text — only that thinking happened.
+          Thinking happened here, but its text was never requested — the API returns thinking
+          blocks empty unless a summary is asked for.
         </div>
       ) : resolved ? (
         <div className="text-[11px] text-foreground" data-testid="session-film-row-content-body">
@@ -406,7 +432,7 @@ function EventDetailRow({
         <span className="min-w-0 flex-1 truncate">
           <EventTargetLabel event={event} subjectAgentId={subjectAgentId} />
         </span>
-        <span className="shrink-0">{event.outcome ?? "in-flight"}</span>
+        <span className="shrink-0">{outcomeLabel(event.outcome)}</span>
       </div>
       <EventContentView event={event} content={content} />
     </div>
@@ -448,10 +474,7 @@ function RowDetail({
   }
   const event = soleEvent(events, row);
   if (!event) return null;
-  const duration =
-    event.tEnd !== undefined
-      ? formatDurationShort(Date.parse(event.tEnd) - Date.parse(event.tStart))
-      : "in-flight";
+  const duration = durationLabel(event);
   return (
     <div
       data-testid={`session-film-row-detail-${row.rowIndex}`}
@@ -468,7 +491,7 @@ function RowDetail({
       </div>
       <div>
         <span className="font-semibold text-foreground">Outcome:</span>{" "}
-        {event.outcome ?? "in-flight"}
+        {outcomeLabel(event.outcome)}
       </div>
       <div>
         <span className="font-semibold text-foreground">Duration:</span> {duration}
