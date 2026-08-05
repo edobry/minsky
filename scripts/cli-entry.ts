@@ -45,6 +45,14 @@
 // through — including the local `minsky mcp proxy` server in `.mcp.json`.
 // `src/cli.ts` carries its own copy for the source-fallback path; importing it
 // twice is a no-op, so this is safe on both branches below.
+//
+// KEPT after mt#3680, which made the bundle self-sufficient and dropped the
+// `--preload` from every other site. This import is now redundant for the
+// `await import(bundlePath)` branch — but not for `await import(sourcePath)`,
+// and not for a published Profile D install whose bundle predates the fix. It
+// costs one already-resolved module and removes a whole class of ordering
+// dependency from this file, so the redundancy is deliberate rather than
+// oversight. mt#3735's `tests/scripts/cli-entry.test.ts` pins it in place.
 import "reflect-metadata";
 
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
