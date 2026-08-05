@@ -156,13 +156,15 @@ export function useThreadWindow({
    * history ("later appends cannot push revealed history back out of the
    * window") — scrolling up is simply the other way to ask for it.
    *
-   * The cost is bounded and deliberate: a reader who stays scrolled up through
-   * a long live session accumulates mounted turns past `INITIAL_TURNS`, since
-   * the tail keeps growing while the window's start holds still. Returning to
-   * the bottom clears this and the window snaps back to the tail — safe to do
-   * there precisely because removing height above a reader who is AT the bottom
-   * shortens the scroll range under a clamped `scrollTop`, which the browser
-   * absorbs without moving what they see.
+   * Holding the start still means the tail keeps growing under a reader who
+   * stays scrolled up, so the window's END is bounded separately by
+   * {@link MAX_FROZEN_TURNS} — see its docblock for why bounding that end, and
+   * not this start, is what keeps the whole mechanism free of scroll
+   * corrections. Returning to the bottom clears the freeze and the window snaps
+   * back to the tail, which is safe there precisely because removing height
+   * above a reader who is AT the bottom shortens the scroll range under a
+   * clamped `scrollTop`, and the browser absorbs that without moving what they
+   * see.
    */
   const [frozenAt, setFrozenAt] = useState<number | null>(null);
 
