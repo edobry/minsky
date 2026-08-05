@@ -1,0 +1,384 @@
+// Duplicate-signature corpus scan — the imperative shell (mt#3722).
+//
+// Consumes the pure token/record functions in ./duplicate-signature-tokens.ts
+// and answers ONE question against the live task corpus: does any ACTIVE task's
+// spec literally contain one of this new task's signature tokens, in a task the
+// duplicate-check record does not already concede overlaps?
+//
+// ## Why a corpus scan and not a cross-reference of the record's candidates
+//
+// mt#3719's record named five candidates and reconciled each as
+// confirm-orthogonal. The task it actually duplicated — mt#3575 — was not among
+// them, because the agent filtered it out by TITLE before writing the record.
+// A check scoped to what the record names is therefore defeated by omission,
+// which is this family's actual failure mode (mem#819 R4). So the scan reaches
+// tasks the record never mentions, and the record is used only to SUPPRESS
+// matches the author already conceded.
+//
+// ## Why SQL and not N spec fetches
+//
+// `taskService.getTaskSpecContent(id)` is one round trip per task; the active
+// corpus is in the thousands. One `ILIKE` per token over `task_specs` joined to
+// `tasks` is a single round trip that Postgres answers with a sequential scan in
+// milliseconds. That is what keeps this inside the guard's budget — the sibling
+// embedding probe's own measured cost is 2.7-6.9s (STANDALONE_DUP_PROBE_TIMEOUT_MS
+// in ./standalone-dup-probe.ts) and this must not add another multi-second leg.
+//
+// ## Posture
+//
+// Log-only and fail-open, both deliberate. Log-only because token SELECTION is
+// heuristic even though token MATCHING is exact, and mt#3673's guard was built
+// with an explicitly zero-false-positive character that this must not degrade
+// until the FP rate is measured (see that file's own carve-out comment, and
+// mt#3722's spec §Reconciling mt#3673's carve-out). Fail-open because a
+// duplicate-detection miss is cheaper than a blocked `tasks_create`.
+
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { TERMINAL_TASK_STATUSES } from "./task-statuses";
+import type { ToolHookInput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import {
+  extractSignatureTokens,
+  parseDuplicateCheckRecord,
+  concedesOverlap,
+  type SignatureToken,
+} from "./duplicate-signature-tokens";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+
+/**
+ * Overall scan deadline.
+ *
+ * Deliberately a fraction of the sibling embedding probe's 20s
+ * (STANDALONE_DUP_PROBE_TIMEOUT_MS): this scan issues plain `ILIKE` queries with
+ * no embedding round trip, so its healthy path is a DB connect plus a handful of
+ * sequential scans. If it is not done in 5s something is wrong upstream and the
+ * right move is to fail open rather than hold up the create — the same reasoning
+ * that sizes DB_REACHABILITY_PROBE_TIMEOUT_MS at 5s in
+ * src/cockpit/shared-persistence.ts.
+ */
+export const SCAN_TIMEOUT_MS = 5_000;
+
+/**
+ * A token matching more tasks than this is not distinctive, whatever the rules
+ * thought — it is repo vocabulary, not a subject.
+ *
+ * This is the reason the module needs no maintained stoplist: ubiquity is
+ * MEASURED per query rather than predicted, so a token that becomes common as
+ * the corpus grows stops being reported without anyone editing a list. Set at 5
+ * because a genuine duplicate pair is 1-2 matches; by 5 the token is describing
+ * an area (`src/cockpit`) rather than a thing.
+ */
+export const MAX_TASKS_PER_TOKEN = 5;
+
+/**
+ * Cap on matches RENDERED into the warning.
+ *
+ * Without it the message is growth-shaped on two axes at once — up to
+ * {@link MAX_TOKENS} tokens x {@link MAX_TASKS_PER_TOKEN} tasks, each carrying a
+ * 200-char excerpt — which tops out around 15KB of injected context. Five named
+ * tasks is already more than an agent will open; past that the list stops being
+ * a prompt to look and becomes noise that buries the first entry. The overflow
+ * count is always stated (never a silent truncation, per `hook-observers.mdc`'s
+ * no-silent-caps discipline), and the calibration record keeps ALL matches so
+ * measurement is unaffected by the display cap.
+ */
+export const MAX_REPORTED_MATCHES = 5;
+
+/** One task whose spec literally contains one of the new task's tokens. */
+export interface SignatureMatch {
+  taskId: string;
+  title: string | null;
+  status: string | null;
+  /** The token that matched, and which rule produced it. */
+  token: SignatureToken;
+  /** The matched line from the candidate's spec, for the WARN and the log. */
+  excerpt: string;
+}
+
+export interface ScanResult {
+  matches: SignatureMatch[];
+  /** Tokens considered, for the calibration record. */
+  tokensTried: SignatureToken[];
+  /** Tokens dropped for exceeding MAX_TASKS_PER_TOKEN — never silent (mt#3722). */
+  tokensDroppedAsUbiquitous: string[];
+  /** Populated instead of matches when the scan could not run. */
+  failed?: string;
+}
+
+/**
+ * One row of the scan query, after runtime narrowing.
+ *
+ * A `type` alias rather than an `interface` on purpose: the driver's row type
+ * carries an index signature, and an interface has no implicit one — so
+ * `rows.filter(isSpecRow)` silently selects the NON-predicate `filter` overload
+ * and yields the unnarrowed element type. Every field read then types as
+ * `unknown` at the use site, which is how this was caught.
+ */
+type SpecRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  content: string;
+};
+
+/**
+ * Runtime guard for a scan-query row.
+ *
+ * `id` and `content` are the two fields the loop cannot proceed without; `title`
+ * and `status` are nullable in the schema and are normalized at the use site
+ * rather than required here. A row failing this is DROPPED, not defaulted — a
+ * malformed row is evidence the query or schema changed, and inventing values
+ * for it would let that change ship silently.
+ */
+function isSpecRow(row: unknown): row is SpecRow {
+  if (typeof row !== "object" || row === null) return false;
+  const r = row as Record<string, unknown>;
+  return typeof r["id"] === "string" && typeof r["content"] === "string";
+}
+
+/**
+ * LIKE metacharacters must be escaped or a token containing `_` over-matches.
+ * @internal Exported for unit testing the escape rules.
+ */
+export function escapeLike(token: string): string {
+  return token.replace(/([\\%_])/g, "\\$1");
+}
+
+/**
+ * The candidate spec line containing the token — the evidence a reader needs.
+ * @internal Exported for unit testing the excerpt bounds.
+ */
+export function excerptAround(content: string, token: string): string {
+  const idx = content.toLowerCase().indexOf(token.toLowerCase());
+  if (idx === -1) return "";
+  const lineStart = content.lastIndexOf("\n", idx) + 1;
+  const lineEndRaw = content.indexOf("\n", idx);
+  const lineEnd = lineEndRaw === -1 ? content.length : lineEndRaw;
+  const line = content.slice(lineStart, lineEnd).trim();
+  return line.length > 200 ? `${line.slice(0, 197)}...` : line;
+}
+
+/**
+ * Scan the active task corpus for this create's signature tokens.
+ *
+ * Never throws and never blocks past {@link SCAN_TIMEOUT_MS}; every failure
+ * becomes `{ failed }` so the caller logs a skip rather than denying a create on
+ * an infrastructure problem.
+ */
+export async function scanForSignatureMatches(title: string, spec: string): Promise<ScanResult> {
+  const tokens = extractSignatureTokens(title, spec);
+  const empty: ScanResult = { matches: [], tokensTried: tokens, tokensDroppedAsUbiquitous: [] };
+  if (tokens.length === 0) return empty;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const TIMED_OUT = Symbol("duplicate-signature-scan-timeout");
+  const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), SCAN_TIMEOUT_MS);
+  });
+  // Rejection sink: runScan converts every failure to a value, but an
+  // after-deadline rejection would otherwise surface as an unhandled rejection.
+  const scan = runScan(tokens, spec).catch(
+    (err): ScanResult => ({
+      ...empty,
+      failed: `scan rejected: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  );
+
+  try {
+    const outcome = await Promise.race([scan, deadline]);
+    if (outcome === TIMED_OUT) {
+      return { ...empty, failed: `scan exceeded the ${SCAN_TIMEOUT_MS}ms deadline` };
+    }
+    return outcome;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The un-raced scan body. Never rejects — converts every failure to a value. */
+async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResult> {
+  const empty: ScanResult = { matches: [], tokensTried: tokens, tokensDroppedAsUbiquitous: [] };
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return { ...empty, failed: `domain bootstrap failed: ${bootstrap.error}` };
+
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const provider = await resolvePersistenceProvider();
+    if (!provider) {
+      // The same condition the sibling probe reports; see mt#3019 for the class.
+      return { ...empty, failed: "persistence provider unavailable" };
+    }
+    if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+      return { ...empty, failed: `provider ${provider.constructor.name} is not SQL-capable` };
+    }
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) return { ...empty, failed: "no database connection" };
+
+    const { sql } = await import("drizzle-orm");
+    const conceded = parseDuplicateCheckRecord(spec);
+    const terminal = [...TERMINAL_TASK_STATUSES];
+
+    const matches: SignatureMatch[] = [];
+    const dropped: string[] = [];
+    const seenTaskIds = new Set<string>();
+
+    for (const token of tokens) {
+      const pattern = `%${escapeLike(token.text)}%`;
+      // One round trip per token. Fetching one row more than the ceiling is what
+      // lets ubiquity be DETECTED rather than silently truncated.
+      const rows = await db.execute(sql`
+        select t.id as id, t.title as title, t.status::text as status, s.content as content
+        from tasks t
+        join task_specs s on s.task_id = t.id
+        where s.content ilike ${pattern} escape '\\'
+          and t.status::text <> all(${terminal})
+        limit ${MAX_TASKS_PER_TOKEN + 1}
+      `);
+
+      // A driver result is external input at a trust boundary, so it is
+      // narrowed by runtime guards rather than asserted into shape — a blanket
+      // `as unknown as Row[]` would make a driver or schema change surface as an
+      // undefined field deep in the loop instead of here.
+      const list = Array.isArray(rows) ? rows.filter(isSpecRow) : [];
+      if (list.length > MAX_TASKS_PER_TOKEN) {
+        dropped.push(token.text);
+        continue;
+      }
+
+      for (const row of list) {
+        // A verdict of subsume/supersede already concedes the overlap, so a
+        // match there confirms the author rather than contradicting them.
+        if (concedesOverlap(conceded.get(row.id))) continue;
+        // One report per task: the first (highest-precedence) token that hits it
+        // is the most informative, and repeating a task per token is noise.
+        if (seenTaskIds.has(row.id)) continue;
+        seenTaskIds.add(row.id);
+        matches.push({
+          taskId: row.id,
+          // Normalized here rather than required by the guard: both are nullable
+          // in the schema, and a null title is not a reason to drop a real match.
+          title: typeof row.title === "string" ? row.title : null,
+          status: typeof row.status === "string" ? row.status : null,
+          token,
+          excerpt: excerptAround(row.content, token.text),
+        });
+      }
+    }
+
+    return { matches, tokensTried: tokens, tokensDroppedAsUbiquitous: dropped };
+  } catch (err) {
+    return { ...empty, failed: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Agent-facing WARN text for a scan that found something.
+ *
+ * Shaped per `guard-feedback-authoring.mdc`: guard-id header, the quoted
+ * evidence that tripped it, an imperative directive, and the branch under which
+ * NOT acting is correct. No incident provenance, no override advertisement —
+ * those belong in this module's doc comment and in CLAUDE.md respectively.
+ */
+export function buildSignatureWarning(result: ScanResult): string {
+  const lines = [
+    "[duplicate-signature-scan] An active task's spec already contains this task's subject.",
+    "",
+  ];
+  for (const m of result.matches.slice(0, MAX_REPORTED_MATCHES)) {
+    lines.push(`  - ${m.taskId} (${m.status ?? "unknown"}) matched "${m.token.text}"`);
+    if (m.excerpt) lines.push(`      ${m.excerpt}`);
+  }
+  const overflow = result.matches.length - MAX_REPORTED_MATCHES;
+  if (overflow > 0) {
+    lines.push(`  ... and ${overflow} more (all recorded in the calibration log)`);
+  }
+  lines.push(
+    "",
+    "Open each task above and read its spec before continuing — a title-level judgment is",
+    "what this check exists to catch. If it genuinely does not overlap, say so in the",
+    "duplicate-check record naming the task and why; if it does, subsume or supersede instead."
+  );
+  if (result.tokensDroppedAsUbiquitous.length > 0) {
+    lines.push(
+      "",
+      `Not searched (too common to be distinctive): ${result.tokensDroppedAsUbiquitous.join(", ")}`
+    );
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher entry point (ADR-028 D1/D2)
+// ---------------------------------------------------------------------------
+
+/** Override env var: set to "1"/"true"/"yes" to skip the scan entirely. */
+export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN";
+
+function isOverridden(): boolean {
+  const v = process.env[OVERRIDE_ENV_VAR];
+  return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/**
+ * Pure-function entry point invoked in-process by `./dispatch-pretooluse.ts`.
+ * Returns `null` for silent allow, matching the dispatcher's contract.
+ *
+ * NEVER denies. The presence half of this concern — did the agent look at all —
+ * is `require-duplicate-check-record.ts`, which denies and is deliberately
+ * kept zero-false-positive. This guard answers the different, harder question
+ * of whether the recorded verdicts are TRUE, using a heuristic token selection
+ * whose FP rate is unmeasured. Registered separately rather than folded into
+ * that guard's `run()` so its deny path keeps its character while this one
+ * accumulates calibration data; graduation to deny is a separate decision the
+ * data exists to inform.
+ */
+export async function run(
+  input: ToolHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  if (isOverridden()) return null;
+
+  const toolInput = input.tool_input ?? {};
+  const spec = typeof toolInput["spec"] === "string" ? (toolInput["spec"] as string) : "";
+  const title = typeof toolInput["title"] === "string" ? (toolInput["title"] as string) : "";
+  if (!spec && !title) return null;
+
+  const result = await scanForSignatureMatches(title, spec);
+
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    title,
+    tokensTried: result.tokensTried.map((t) => `${t.rule}:${t.text}`),
+    tokensDroppedAsUbiquitous: result.tokensDroppedAsUbiquitous,
+  };
+
+  if (result.failed) {
+    // A scan that could not run is recorded so a sustained infra outage is
+    // visible in the calibration data rather than reading as a clean pass —
+    // the sibling probe's 22-failure streak was invisible for exactly this
+    // reason until guard-health surfaced it.
+    return { calibration: { ...base, outcome: "skipped", reason: result.failed } };
+  }
+
+  if (result.matches.length === 0) {
+    return { calibration: { ...base, outcome: "clean" } };
+  }
+
+  return {
+    additionalContext: buildSignatureWarning(result),
+    calibration: {
+      ...base,
+      outcome: "matched",
+      matches: result.matches.map((m) => ({
+        taskId: m.taskId,
+        status: m.status,
+        token: m.token.text,
+        rule: m.token.rule,
+        excerpt: m.excerpt,
+      })),
+    },
+  };
+}

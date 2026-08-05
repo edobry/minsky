@@ -616,6 +616,43 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
+    name: "duplicate-signature-scan",
+    // `advisory`: unlike its sibling above — where the record is either present
+    // or it is not — this guard's token SELECTION is a heuristic with a real
+    // false-positive surface, and the calibration log exists to size it.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-signature-scan").then((m) => ({ run: m.run })),
+    // Above the scan's own 5s deadline so the guard's internal timeout is what
+    // fires, returning a recorded `skipped` outcome, rather than the dispatcher
+    // killing it and recording nothing.
+    timeoutMs: 8000,
+    calibrationLog: "duplicate-signature-scan",
+    // NEVER denies — the deny half of this concern is the sibling above, which
+    // is deliberately zero-false-positive. See this module's `run()` doc.
+    denyCapable: false,
+    // MEASURED against the worst-case canary below, not estimated: the message
+    // is bounded by MAX_REPORTED_MATCHES (5) x one 200-char excerpt plus a
+    // ~380-char header/footer, which renders at ~1.7KB. 2000 leaves headroom
+    // without widening the merged-context budget more than the shape needs.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 1 },
+    // The scan needs a live database, which a canary process does not have, so
+    // the healthy canary outcome is a RECORDED skip — `calibration`, not
+    // `warn`. That is the honest assertion for this guard: it verifies the
+    // module loads, reads its input, and reports rather than throwing.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "GET /api/canary signature scan",
+          spec: "## Summary\n\nA spec citing `src/cockpit/routes/sweeps.test.ts`.\n\nDuplicate check: no candidates found.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
     name: "block-secret-file-read",
     // `invariant`: the set of files whose content is credential material is not
     // an operator preference to tune. Widening the path list is a code change
