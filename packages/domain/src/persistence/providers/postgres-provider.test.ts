@@ -8,6 +8,7 @@ import {
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
   createBoundedSocket,
+  redactConnectionCredentials,
   resolveMigrationsFolder,
   resolveSocketTimeoutMs,
   shouldAutoMigrate,
@@ -961,5 +962,36 @@ describe("buildPostgresClient socket wiring (mt#3592)", () => {
     );
     expect(typeof disableArgs()?.[1].socket).toBe("function");
     expect(warnCalls.some((msg) => msg.includes("mt#3603"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactConnectionCredentials (mt#3497)
+// ---------------------------------------------------------------------------
+
+describe("redactConnectionCredentials", () => {
+  test("strips the password while keeping host and port readable", () => {
+    const out = redactConnectionCredentials(
+      "postgresql://postgres.abcdef:sup3rs3cret@aws-0-us-west-2.pooler.supabase.com:5432/postgres" // gitleaks:allow — synthetic
+    );
+    expect(out).not.toContain("sup3rs3cret");
+    expect(out).toContain("aws-0-us-west-2.pooler.supabase.com:5432");
+  });
+
+  test("strips the username too", () => {
+    const out = redactConnectionCredentials(
+      "postgresql://postgres.abcdef:pw@db.example.supabase.co:5432/postgres" // gitleaks:allow — synthetic
+    );
+    expect(out).not.toContain("postgres.abcdef");
+    expect(out).not.toContain("pw@");
+  });
+
+  test("fails CLOSED on an unparseable string rather than echoing it", () => {
+    // The dangerous case: a redactor that cannot parse its input and passes it
+    // through is indistinguishable from one that redacted successfully, and
+    // leaks exactly what it exists to hide.
+    const out = redactConnectionCredentials("host=db.example.com password=hunter2"); // gitleaks:allow — synthetic
+    expect(out).not.toContain("hunter2");
+    expect(out).toBe("<unparseable connection string; redacted>");
   });
 });
