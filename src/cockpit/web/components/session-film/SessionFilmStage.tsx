@@ -4,7 +4,7 @@
  *
  * SVG scene: the collapsed world-forest (via `computeStageLayout`), avatar
  * figures making excursions from home to their current target, outcome
- * physics per node (in-flight/ok/error/denied), and a policy-actor marker
+ * physics per node (unresolved/ok/error/denied), and a policy-actor marker
  * for guard denials. Pan/zoom is its OWN input channel (`PanZoomSVG`,
  * mt#2380) — page scroll stays reserved for the playhead (spec SC 6).
  *
@@ -117,7 +117,11 @@ import {
   computeTouchedSetContourPath,
   touchedSetContourColorClass,
 } from "../../lib/session-film-contour";
-import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
+import {
+  DEFAULT_SESSION_FILM_CONFIG,
+  type SessionFilmConfig,
+  UNRESOLVED_OUTCOME_LABEL,
+} from "../../lib/session-film-config";
 import { bloomOpacity, bloomStdDeviation, computeGlowBrightness } from "../../lib/session-film-aliveness";
 import {
   beamClassName,
@@ -194,7 +198,7 @@ export interface SessionFilmStageProps {
 }
 
 function outcomeClassName(outcome: EventOutcome | undefined): string {
-  if (outcome === undefined) return "fill-warn-amber"; // unpaired = in-flight (never silently "ok")
+  if (outcome === undefined) return "fill-warn-amber"; // unpaired = unresolved (never silently "ok")
   if (outcome === "error") return "fill-warn-red";
   if (outcome === "denied") return "fill-warn-red";
   return "fill-signal-cyan";
@@ -233,7 +237,7 @@ function spawnKindLabel(raw: unknown): string {
  */
 function nodeTooltipText(label: string, realm: string, entity: EntityFoldState | undefined): string {
   if (!entity) return label;
-  const outcome = entity.lastOutcome ?? "in-flight";
+  const outcome = entity.lastOutcome ?? UNRESOLVED_OUTCOME_LABEL;
   return `${label} (${realm}) — ${entity.lastVerb} · ${outcome}`;
 }
 
@@ -960,7 +964,7 @@ export function SessionFilmStage({
           </div>
           <div className="text-muted-foreground">
             {selectedEntity.realm} · {selectedEntity.lastVerb} ·{" "}
-            {selectedEntity.lastOutcome ?? "in-flight"}
+            {selectedEntity.lastOutcome ?? UNRESOLVED_OUTCOME_LABEL}
           </div>
           {selectedRoutable ? (
             <div className="mt-1">

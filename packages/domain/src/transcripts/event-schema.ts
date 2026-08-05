@@ -143,6 +143,25 @@ export const PATH_BEARING_VERBS: readonly EventVerb[] = [
   "clone",
 ];
 
+/**
+ * Verbs whose events are POINT events, not intervals: `tStart === tEnd`
+ * implicitly, `tEnd` omitted, and never refined (see the module doc comment's
+ * monotone-fold obligation). An absent `tEnd` on one of these is the
+ * structural case — the event took no measurable time — NOT an unresolved
+ * interval, and a consumer that renders duration must distinguish the two
+ * (mt#3795).
+ *
+ * `wait` and `respond` are conversational but are NOT here: they are derived
+ * from tool calls (`event-adapter.ts`'s tool mapping), so they carry a real
+ * interval whenever their call resolves.
+ */
+export const POINT_EVENT_VERBS: readonly EventVerb[] = ["speak", "think", "ask"];
+
+/** True when `verb` names a point event — see {@link POINT_EVENT_VERBS}. */
+export function isPointEventVerb(verb: EventVerb): boolean {
+  return POINT_EVENT_VERBS.includes(verb);
+}
+
 /** True iff `verb` is eligible for Gource export (see {@link PATH_BEARING_VERBS}). */
 export function isPathBearingVerb(verb: EventVerb): boolean {
   return (PATH_BEARING_VERBS as readonly string[]).includes(verb);
