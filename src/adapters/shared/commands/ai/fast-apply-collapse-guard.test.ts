@@ -13,7 +13,7 @@
  * The detector is injected rather than module-mocked so this stays a pure decision over
  * strings; same shape as `task-edit-tools.collapse-guard.test.ts`.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { decideFastApplyOutcome } from "./completion-commands";
 import { detectSuspiciousCollapse } from "@minsky/domain/ai/edit-pattern-utils";
 
@@ -45,7 +45,7 @@ describe("decideFastApplyOutcome — collapse guard (mt#3741)", () => {
 
     expect(message).toContain("src/example.ts");
     expect(message).toContain("400");
-    expect(message).toContain("1 lines");
+    expect(message).toContain("1 line,");
     expect(message).toContain("100% drop");
     expect(message).toContain("allowShrink=true");
   });
@@ -100,3 +100,148 @@ describe("decideFastApplyOutcome — collapse guard (mt#3741)", () => {
     );
   });
 });
+
+/**
+ * PR #2650 R1 (BLOCKING): "no command-level test verifies non-zero exit and file unchanged per
+ * spec AT1/AT4." Correct — asserting the DECISION does not demonstrate the file survives.
+ *
+ * These exercise the ACT half against a REAL file with the REAL `fs.writeFile`, so
+ * "byte-for-byte unchanged after a refusal" is observed rather than argued. The exit-code half
+ * belongs to the shared-command layer, which maps a thrown error to a non-zero exit; what this
+ * code owns is the throw, asserted below.
+ */
+/* eslint-disable custom/no-real-fs-in-tests -- the point of this suite is a real filesystem
+   round-trip: the criterion is about the bytes on disk after a refusal, which an in-memory
+   fake cannot evidence. Mirrors the rationale in require-execution-evidence-before-merge.test.ts. */
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { writeFile as realWriteFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyFastApplyOutcome } from "./completion-commands";
+
+describe("applyFastApplyOutcome — real-file behavior (PR #2650 R1)", () => {
+  let dir: string;
+  let filePath: string;
+  const ORIGINAL = `${makeLines(400)}\n`;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "mt3741-"));
+    filePath = join(dir, "example.ts");
+    writeFileSync(filePath, ORIGINAL, "utf-8");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a refusal throws AND leaves the file byte-for-byte unchanged", async () => {
+    const outcome = decideFastApplyOutcome({
+      filePath,
+      originalContent: ORIGINAL,
+      editedContent: "export {};",
+      allowShrink: false,
+      dryRun: false,
+      detect: detectSuspiciousCollapse,
+    });
+
+    await expect(
+      applyFastApplyOutcome({
+        outcome,
+        filePath,
+        editedContent: "export {};",
+        writeFile: realWriteFile,
+      })
+    ).rejects.toThrow(/Refusing to apply fast-apply result/);
+
+    expect(readFileSync(filePath, "utf-8")).toBe(ORIGINAL);
+  });
+
+  test("a dry-run on a collapsed result also leaves the file unchanged", async () => {
+    // AT4: dryRun must not launder a collapse into a clean preview. It refuses, and the file
+    // is untouched either way — both halves asserted here.
+    const outcome = decideFastApplyOutcome({
+      filePath,
+      originalContent: ORIGINAL,
+      editedContent: "export {};",
+      allowShrink: false,
+      dryRun: true,
+      detect: detectSuspiciousCollapse,
+    });
+    expect(outcome.kind).toBe("refuse");
+
+    await expect(
+      applyFastApplyOutcome({
+        outcome,
+        filePath,
+        editedContent: "export {};",
+        writeFile: realWriteFile,
+      })
+    ).rejects.toThrow();
+
+    expect(readFileSync(filePath, "utf-8")).toBe(ORIGINAL);
+  });
+
+  test("an ordinary edit is written through to disk", async () => {
+    // The positive control: without it, a guard that refused EVERYTHING would pass the two
+    // tests above.
+    const edited = `${makeLines(398)}\n`;
+    const outcome = decideFastApplyOutcome({
+      filePath,
+      originalContent: ORIGINAL,
+      editedContent: edited,
+      allowShrink: false,
+      dryRun: false,
+      detect: detectSuspiciousCollapse,
+    });
+    expect(outcome.kind).toBe("write");
+
+    await applyFastApplyOutcome({
+      outcome,
+      filePath,
+      editedContent: edited,
+      writeFile: realWriteFile,
+    });
+
+    expect(readFileSync(filePath, "utf-8")).toBe(edited);
+  });
+
+  test("a dry-run on an ordinary edit previews without writing", async () => {
+    const edited = `${makeLines(398)}\n`;
+    const outcome = decideFastApplyOutcome({
+      filePath,
+      originalContent: ORIGINAL,
+      editedContent: edited,
+      allowShrink: false,
+      dryRun: true,
+      detect: detectSuspiciousCollapse,
+    });
+    expect(outcome.kind).toBe("preview");
+
+    await applyFastApplyOutcome({
+      outcome,
+      filePath,
+      editedContent: edited,
+      writeFile: realWriteFile,
+    });
+
+    expect(readFileSync(filePath, "utf-8")).toBe(ORIGINAL);
+  });
+
+  test("the refusal message pluralizes a single line correctly", async () => {
+    // R1 non-blocking: "1 lines". Shared with the sibling surfaces via formatLineCount.
+    const outcome = decideFastApplyOutcome({
+      filePath,
+      originalContent: ORIGINAL,
+      editedContent: "x",
+      allowShrink: false,
+      dryRun: false,
+      detect: detectSuspiciousCollapse,
+    });
+    const message = outcome.kind === "refuse" ? outcome.message : "";
+
+    expect(message).toContain("400 lines -> 1 line,");
+    expect(message).not.toContain("1 lines");
+  });
+});
+
+/* eslint-enable custom/no-real-fs-in-tests */

@@ -12,7 +12,7 @@ import {
 } from "../../command-registry";
 import { createCompletionService } from "@minsky/domain/ai/service-factory";
 import { executeFastApply } from "@minsky/domain/ai/fast-apply-service";
-import { detectSuspiciousCollapse } from "@minsky/domain/ai/edit-pattern-utils";
+import { detectSuspiciousCollapse, formatLineCount } from "@minsky/domain/ai/edit-pattern-utils";
 import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig, withTimeout, DEFAULT_AI_COMPLETE_TIMEOUT_MS } from "./shared-helpers";
 import { buildCompleteResult } from "./result-builders";
@@ -113,8 +113,8 @@ export function decideFastApplyOutcome(args: {
         kind: "refuse",
         message:
           `Refusing to apply fast-apply result to "${args.filePath}": the edited content is ` +
-          `dramatically smaller than the original (${collapse.originalLines} -> ` +
-          `${collapse.finalLines} lines, a ${dropPct}% drop). This is the apply-model collapse ` +
+          `dramatically smaller than the original (${formatLineCount(collapse.originalLines)} -> ` +
+          `${formatLineCount(collapse.finalLines)}, a ${dropPct}% drop). This is the apply-model collapse ` +
           `failure (mt#2577/mt#3674/mt#3741) — the model likely mis-resolved a ` +
           `'// ... existing code ...' marker and dropped content it should have preserved. ` +
           `Re-issue with a tighter, smaller edit, or pass allowShrink=true if this large ` +
@@ -123,6 +123,31 @@ export function decideFastApplyOutcome(args: {
     }
   }
   return args.dryRun ? { kind: "preview" } : { kind: "write" };
+}
+
+/**
+ * Execute a {@link FastApplyOutcome} (PR #2650 R1).
+ *
+ * Split out from the handler so the ACT half is testable against a real file: the reviewer
+ * correctly noted that asserting the decision does not by itself demonstrate the file on disk
+ * survives a refusal. The write is injected so a test can use the real `fs.writeFile` against a
+ * temp file, and the handler passes its own dynamically-imported one.
+ *
+ * Throws on `refuse` — the shared-command layer maps a thrown error to a non-zero CLI exit, so
+ * the exit-code half of the criterion belongs to that framework rather than to this function.
+ */
+export async function applyFastApplyOutcome(args: {
+  outcome: FastApplyOutcome;
+  filePath: string;
+  editedContent: string;
+  writeFile: (path: string, content: string, encoding: "utf-8") => Promise<void>;
+}): Promise<void> {
+  if (args.outcome.kind === "refuse") {
+    throw new Error(args.outcome.message);
+  }
+  if (args.outcome.kind === "write") {
+    await args.writeFile(args.filePath, args.editedContent, "utf-8");
+  }
 }
 
 const aiFastApplyParams = {
@@ -311,13 +336,12 @@ export function registerCompletionCommands(): void {
         dryRun: !!dryRun,
         detect: detectSuspiciousCollapse,
       });
-      if (outcome.kind === "refuse") {
-        throw new Error(outcome.message);
-      }
-
-      if (outcome.kind === "write") {
-        await fs.writeFile(filePath, result.editedContent, "utf-8");
-      }
+      await applyFastApplyOutcome({
+        outcome,
+        filePath,
+        editedContent: result.editedContent,
+        writeFile: fs.writeFile,
+      });
 
       return {
         success: true,
