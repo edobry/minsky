@@ -20,6 +20,7 @@ import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
+import { resolveTsgoBinary } from "../utils/tsgo-binary";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
@@ -245,7 +246,14 @@ export class PreCommitHook {
    */
   constructor(
     private projectRoot: string = process.cwd(),
-    private exec: typeof execAsync = execAsync
+    private exec: typeof execAsync = execAsync,
+    /**
+     * Test seam for the checker resolution (mt#3657) — same convention as `exec` above.
+     * The typecheck step resolves the pinned binary BEFORE spawning anything, so a fixture
+     * repo with no `node_modules` would otherwise short-circuit every subprocess-shape test
+     * on that step into "checker missing" and assert nothing about the shape under test.
+     */
+    private resolveChecker: typeof resolveTsgoBinary = resolveTsgoBinary
   ) {}
 
   /**
@@ -1783,11 +1791,23 @@ export class PreCommitHook {
   private async runTypeCheck(): Promise<HookResult> {
     log.cli("🔎 Running TypeScript type check...");
 
+    // mt#3657: the pinned binary, never `bunx @typescript/native-preview` — that command
+    // fetches `@latest` instead of the version this repo declares, and the download racing
+    // the typecheck inside one invocation is what SIGKILLed this gate three times in five
+    // days. A missing binary fails the step by NAME rather than falling back, so a broken
+    // install can never quietly restore the drifting compiler.
+    const resolution = this.resolveChecker(this.projectRoot);
+    if (resolution.kind === "missing") {
+      log.cli(`❌ TypeScript type check skipped — ${resolution.message} Commit blocked.`);
+      return { success: false, message: resolution.message, exitCode: 1 };
+    }
+    const tsgo = resolution.binaryPath;
+
     const targets: Array<{ label: string; command: string }> = [
-      { label: "root", command: "bunx @typescript/native-preview --noEmit" },
+      { label: "root", command: `${tsgo} --noEmit` },
       {
         label: "cockpit-web",
-        command: "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
+        command: `${tsgo} --noEmit -p src/cockpit/web/tsconfig.json`,
       },
     ];
 
@@ -2167,6 +2187,38 @@ export class PreCommitHook {
       } catch (error) {
         const result = classifyCompileCheckError(error, target, "compile");
 
+        // mt#3676: a PER-RULE ceiling breach is priced to the author. If this
+        // commit stages none of the offending rules, it did not cause the
+        // breach and must not pay for it — log and continue WITHOUT requiring
+        // the override. Before this, the cost landed on whichever agent
+        // committed next: three sessions paid MINSKY_SKIP_SIZE_BUDGET in one
+        // morning for a `hook-observers` breach none of them authored.
+        //
+        // The AGGREGATE budget deliberately keeps its old blast radius — it is
+        // already priced at the authoring PR by mt#2874's merge gate, and is
+        // out of scope here.
+        if (result.errorKind === "budget-exceeded" && result.budgetKind === "per-rule") {
+          const offenders = result.perRuleViolationIds ?? [];
+          const stagedForScope = await execGitWithTimeout(
+            "diff",
+            "diff --cached --name-only --diff-filter=ACM",
+            { workdir: this.projectRoot, timeout: 5000 }
+          );
+          const stagedForScopeFiles = stagedForScope.stdout
+            .toString()
+            .trim()
+            .split("\n")
+            .filter(Boolean);
+          if (!perRuleBreachIsStaged(offenders, stagedForScopeFiles)) {
+            log.cli(
+              `⚠️  [pre-commit:per-rule-ceiling] ${offenders.join(", ")} exceed(s) the per-rule ` +
+                `ceiling on this tree, but this commit stages none of them — not blocking (mt#3676). ` +
+                `The PR that grows a rule past the ceiling is gated at merge instead.`
+            );
+            continue;
+          }
+        }
+
         // mt#2802/mt#3058: MINSKY_SKIP_SIZE_BUDGET overrides ONLY the
         // size-budget failure class — a genuinely stale target still blocks the
         // commit even with the override set. Mirrors runRulesCompileCheck.
@@ -2354,6 +2406,79 @@ export {
  *
  * Exported for unit testing; not part of the public hook API.
  */
+/**
+ * Pull the rule ids over the per-rule ceiling out of a compile command's stdout
+ * (mt#3676).
+ *
+ * The command prints a human line and then a JSON payload, so the payload is
+ * located by its first `{` through its last `}` rather than by assuming the
+ * whole of stdout parses. Reading `perRuleViolations` from that payload —
+ * rather than measuring the `.mdc` sources — is deliberate: a rule's COMPILED
+ * contribution is what the ceiling is enforced against, and it differs from the
+ * source body (measured: `hook-observers` 6060 chars at source, 5983 compiled).
+ * A source-side approximation would be wrong by ~1%, which decides the verdict
+ * for any rule sitting near the line.
+ *
+ * Returns `[]` on ANY parse failure. Callers must read that as "cannot scope
+ * this failure" and keep blocking — never as "no rules are over."
+ */
+export function extractPerRuleViolationIds(stdout: string): string[] {
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  if (parsed === null || typeof parsed !== "object") return [];
+  const violations = (parsed as { perRuleViolations?: unknown }).perRuleViolations;
+  if (!Array.isArray(violations)) return [];
+  return violations
+    .map((v) => (v !== null && typeof v === "object" ? (v as { id?: unknown }).id : undefined))
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/**
+ * A rule source file, captured to its rule id (PR #2652 R1).
+ *
+ * The id segment is `[^/]+`, NOT `.+`: the rules directory is read by a
+ * NON-RECURSIVE `readdir` filtered on `.endsWith(".mdc")`
+ * (`packages/domain/src/rules/operations/file-operations.ts`), so a nested
+ * `.minsky/rules/sub/foo.mdc` is never loaded as a rule and can never appear in
+ * `perRuleViolations`. Treating it as one would invent an id (`sub/foo`) that
+ * matches no violation — silently failing to bill a real offender, or billing
+ * the wrong file. A greedy `.+` did exactly that.
+ */
+const RULE_FILE_RE = /^\.minsky\/rules\/([^/]+)\.mdc$/;
+
+/**
+ * Whether a per-rule ceiling breach should block THIS commit (mt#3676).
+ *
+ * The ceiling is enforced at pre-commit, so before this change the failure
+ * landed on whichever agent committed next, regardless of what they touched —
+ * three separate sessions paid `MINSKY_SKIP_SIZE_BUDGET=1` in one morning for a
+ * `hook-observers` breach none of them caused. Growth is now priced to the
+ * author: a commit blocks only when it stages a rule that is itself over.
+ *
+ * Fail-CLOSED on ambiguity. An empty `violationIds` means the offender list
+ * could not be parsed, and blocks — otherwise a parse bug silently disables the
+ * ceiling repo-wide, which is strictly worse than the mispricing being fixed.
+ */
+export function perRuleBreachIsStaged(
+  violationIds: readonly string[],
+  stagedFiles: readonly string[]
+): boolean {
+  if (violationIds.length === 0) return true;
+  const stagedRuleIds = new Set(
+    stagedFiles
+      .map((f) => RULE_FILE_RE.exec(f)?.[1])
+      .filter((id): id is string => typeof id === "string")
+  );
+  return violationIds.some((id) => stagedRuleIds.has(id));
+}
+
 export function classifyCompileCheckError(
   error: unknown,
   target: string,
@@ -2373,6 +2498,28 @@ export function classifyCompileCheckError(
    * compile --check failure".
    */
   errorKind: "stale" | "budget-exceeded" | "setup-incomplete" | "other";
+  /**
+   * Which size check failed, when `errorKind` is `"budget-exceeded"` (mt#3676).
+   * Both checks deliberately share ONE errorKind and therefore one audited
+   * override (mt#2874) — this discriminates them WITHOUT splitting that escape
+   * hatch, so a caller can scope the per-rule case to the staged diff while
+   * leaving the aggregate case's blast radius untouched (the aggregate budget
+   * is already priced at the authoring PR by mt#2874's merge gate, and is
+   * explicitly out of scope for mt#3676).
+   */
+  budgetKind?: "aggregate" | "per-rule";
+  /**
+   * Rule ids over the per-rule ceiling, parsed from the compile command's own
+   * JSON payload (`perRuleViolations`) rather than re-derived — the compiler is
+   * the only thing that knows a rule's COMPILED contribution, which differs
+   * from its source size.
+   *
+   * Empty when the payload could not be parsed. Callers MUST treat empty as
+   * "cannot scope this failure" and keep blocking: silently allowing a commit
+   * because the offender list failed to parse would convert a parse bug into a
+   * disabled ceiling.
+   */
+  perRuleViolationIds?: string[];
 } {
   const execError = error as { stdout?: string; stderr?: string };
   const stdout = execError.stdout ?? "";
@@ -2423,6 +2570,7 @@ export function classifyCompileCheckError(
       ],
       message: `Compile output for target "${target}" exceeds its size budget`,
       errorKind: "budget-exceeded",
+      budgetKind: "aggregate",
     };
   }
 
@@ -2450,6 +2598,8 @@ export function classifyCompileCheckError(
       ],
       message: `Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling`,
       errorKind: "budget-exceeded",
+      budgetKind: "per-rule",
+      perRuleViolationIds: extractPerRuleViolationIds(stdout),
     };
   }
 

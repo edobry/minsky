@@ -82,14 +82,16 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
 | `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                 |
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
+| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)  |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 | `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
-`verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`, and
-`verify-conversation-orientation.ts`, and `verify-session-film-panes.ts` are the scripts here that
+`verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`,
+`verify-conversation-orientation.ts`, `verify-driven-session-scrollport.ts`, and
+`verify-session-film-panes.ts` are the scripts here that
 drive a real browser, so their shared prerequisites are worth stating (everything below is checked
 at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
 absent).
@@ -121,6 +123,8 @@ than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Ope
    driven-session API calls) and by `verify-conversation-orientation.ts` (which reads the agents
    widget and a snapshot to find a long enough transcript); `verify-cockpit-shell-scroll.ts` and
    `verify-session-film-panes.ts` make no authed request and do not require it.
+   `verify-driven-session-scrollport.ts` reads `GET /api/driven-session` only to pick an id for the
+   route, and skips when that list is empty.
 
 `verify-conversation-orientation.ts` additionally needs some ingested conversation longer than 150
 turns, which it discovers from the agents widget — `MINSKY_CONVERSATION_ID` names one explicitly.

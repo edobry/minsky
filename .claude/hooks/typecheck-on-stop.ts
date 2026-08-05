@@ -10,8 +10,7 @@
 // Consolidates: typecheck-on-stop.sh, typecheck-on-subagent-stop.sh, typecheck-tracked-roots.sh
 
 import { existsSync, readFileSync, unlinkSync } from "fs";
-import { join } from "path";
-import { readInput, execSync } from "./types";
+import { readInput, execSync, resolveTsgoBinary } from "./types";
 import type { StopHookInput } from "./types";
 
 const input = await readInput<StopHookInput>();
@@ -51,12 +50,17 @@ for (const root of roots) {
 
   // Use the local tsgo binary directly to avoid bunx package resolution overhead
   // and nested process spawning (bunx → node → native binary).
-  const localBinary = join(root, "node_modules", ".bin", "tsgo");
-  const cmd = existsSync(localBinary)
-    ? [localBinary, "--noEmit"]
-    : ["bunx", "@typescript/native-preview", "--noEmit"];
+  //
+  // mt#3657 moved the resolution into `./types` (shared with typecheck-on-edit) and DROPPED
+  // the `bunx` fallback this site used to carry. That fallback looked harmless and was not:
+  // bunx does not resolve the pinned dependency at all — it fetches `@latest`, a compiler
+  // three months newer than the pin as measured on 2026-08-04 — so falling back silently
+  // reintroduced the drift this whole task exists to remove, on the one path where the local
+  // install was already known to be missing. Nothing to run now means skip the root.
+  const localBinary = resolveTsgoBinary(root);
+  if (!localBinary) continue;
 
-  const result = execSync(cmd, { cwd: root, timeout: PER_ROOT_TIMEOUT_MS });
+  const result = execSync([localBinary, "--noEmit"], { cwd: root, timeout: PER_ROOT_TIMEOUT_MS });
 
   if (result.timedOut) {
     // Skip this root — don't block the hook on a hung check
