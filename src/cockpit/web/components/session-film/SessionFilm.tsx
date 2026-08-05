@@ -379,11 +379,22 @@ export function SessionFilm({
     // between the operator and a raw failure. Keep the message legible.
     // (mt#3268 owns the open question of whether the film's refusal or the
     // conversation view's ungated render is the right posture.)
+    // A reader who ARRIVED FROM A LINK asked for one specific moment, so the
+    // bare "no film" answers a question they did not ask and leaves the click
+    // looking broken (mt#3794, reviewer round 1). Naming the moment they wanted
+    // is the difference between a dead end and an explained one — and this is
+    // the only place that can say it, since the conversation view has no
+    // per-conversation film-availability signal to gate the link on.
+    const arrivedByAddress = parseTurnAddress(searchParams) !== null;
     return (
       <div className="p-4">
         <ErrorState
           error={eventsQuery.error}
-          prefix="This conversation has no film"
+          prefix={
+            arrivedByAddress
+              ? "That moment can't be shown — this conversation has no film"
+              : "This conversation has no film"
+          }
           variant="page"
         />
       </div>

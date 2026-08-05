@@ -492,6 +492,19 @@ describe("SessionFilm — ?turn= address arrival (mt#3794)", () => {
 });
 
 describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
+  test("a reader who arrived from a link is told the MOMENT can't be shown (mt#3794)", async () => {
+    // The link is deliberately not gated on film availability — no
+    // per-conversation signal exists to gate it on (see RunDetail's filmPath
+    // docblock) — so this message is what keeps such a click explained rather
+    // than dead.
+    mockEvents({ status: 422 });
+    renderFilm(`${FILM_PATH}?turn=101`);
+
+    await waitFor(() => {
+      expect(screen.getByText(/That moment can't be shown/i)).toBeDefined();
+    });
+  });
+
   test("reports no film instead of surfacing a raw failure", async () => {
     // The picker used to keep `scrubGateOk: false` conversations unreachable by
     // disabling their row. Reachable-from-its-own-page means this error branch
