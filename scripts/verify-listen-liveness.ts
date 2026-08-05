@@ -115,6 +115,35 @@ try {
   process.exit(1);
 }
 
+// ---------------------------------------------------------------------------
+// 1b. NEGATIVE CONTROL for the self-test (spec AT3): pointed at a TRANSACTION
+// -mode URL, the self-test must FAIL loudly rather than hand back a connection
+// that accepts LISTEN and silently never delivers. A probe that cannot fail
+// carries no information, so this is what makes check 1 above meaningful.
+// ---------------------------------------------------------------------------
+{
+  const txProvider = new PostgresPersistenceProvider({
+    backend: "postgres",
+    // Force the session URL to the transaction pooler, defeating the port-swap.
+    postgres: { connectionString, sessionConnectionString: connectionString },
+  });
+  await txProvider.initialize();
+  let threw: string | null = null;
+  try {
+    await txProvider.getListenCapableSqlConnection();
+  } catch (err) {
+    threw = err instanceof Error ? err.message : String(err);
+  }
+  record(
+    "self-test NEGATIVE control: transaction-mode URL is rejected",
+    threw !== null,
+    threw === null
+      ? "the self-test PASSED against a transaction-mode URL — it cannot detect a non-delivering pooler"
+      : `rejected as expected: ${threw.slice(0, 160)}…`
+  );
+  await txProvider.close();
+}
+
 const rawSql = await provider.getRawSqlConnection();
 
 // ---------------------------------------------------------------------------
@@ -166,10 +195,15 @@ try {
 // And do NOT match on channel name alone: a running cockpit daemon holds its
 // own LISTEN backend on the same database, and killing THAT would take out the
 // operator's live cockpit. Scope to backends started after this script did.
+// Discriminate on query_start, NOT backend_start: Supavisor hands a client an
+// EXISTING pooled backend, so backend_start can predate this script by hours
+// and filtering on it misses our own connection (observed). query_start is when
+// the `listen` actually ran, which is ours — and which also excludes a running
+// cockpit daemon's LISTEN backend, established long before this script.
 const backends = (await rawSql.unsafe(
   `select pid from pg_stat_activity
     where query ilike 'listen%'
-      and backend_start >= $1
+      and query_start >= $1
       and pid <> pg_backend_pid()`,
   [scriptStartedAt]
 )) as Array<{ pid: number }>;
@@ -193,30 +227,49 @@ process.stdout.write(`      terminated backend pid(s): ${backends.map((b) => b.p
 // ---------------------------------------------------------------------------
 // 4. Drive heartbeat ticks; the listener must notice and reconnect itself.
 // ---------------------------------------------------------------------------
-let reconnected = false;
-for (let tick = 0; tick < 8 && !reconnected; tick++) {
+// Assert the OUTCOME (delivery resumes), not the mechanism. Against a REACHABLE
+// database, postgres-js's own onclose reconnect often restores the channels
+// before the heartbeat's miss threshold is reached — and that is a correct
+// outcome, so demanding `action === "reconnected"` would make this check fail
+// on the healthy path. The heartbeat exists for the case postgres-js does NOT
+// recover (its re-listen failure is swallowed, or onclose never fires at all);
+// the unit tests cover that, because the stub never self-heals.
+let recoveredVia: string | null = null;
+for (let tick = 0; tick < 10 && !recoveredVia; tick++) {
   const result = await listener.heartbeatTick();
   process.stdout.write(`      tick ${tick + 1}: ${result.action}\n`);
+
   if (result.action === "reconnected") {
-    reconnected = true;
-    record(
-      "heartbeat detected the dead connection and reconnected",
-      true,
-      `re-established: ${result.channels.join(", ")}`
-    );
-  } else if (result.action === "reconnect-failed") {
-    record("heartbeat detected the dead connection and reconnected", false, result.error);
+    recoveredVia = `heartbeat-owned reconnect (re-established: ${result.channels.join(", ")})`;
     break;
+  }
+  if (result.action === "reconnect-failed") {
+    record("broker recovers after the backend is killed", false, result.error);
+    break;
+  }
+
+  // Probe whether delivery is working again by whatever path.
+  const marker = `probe-${tick}`;
+  await rawSql.unsafe("select pg_notify($1, $2)", [PROBE_CHANNEL, marker]);
+  try {
+    await waitFor(() => received.includes(marker), 1_500, "recovery probe");
+    recoveredVia = "postgres-js self-heal (its own onclose re-listen succeeded)";
+  } catch {
+    // intentional-swallow: not recovered yet on this tick; keep ticking.
   }
   await new Promise((r) => setTimeout(r, 500));
 }
-if (!reconnected) {
+
+if (recoveredVia) {
+  record("broker recovers after the backend is killed", true, `recovered via ${recoveredVia}`);
+} else {
   record(
-    "heartbeat detected the dead connection and reconnected",
+    "broker recovers after the backend is killed",
     false,
-    "no reconnect within 8 ticks"
+    "no delivery and no heartbeat reconnect within 10 ticks"
   );
 }
+const reconnected = recoveredVia !== null;
 
 // ---------------------------------------------------------------------------
 // 5. Delivery must resume — with no process restart.
