@@ -83,6 +83,20 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
 
   // --- Infrastructure (async) ---
 
+  // mt#3751: ONE PersistenceService instance, held in this closure for the
+  // life of the container (not recreated per retry) — Step 1's trace found
+  // that the pre-mt#3751 shape recreated a fresh `PersistenceService` on
+  // EVERY retryDeferred() invocation (container.ts re-invokes this whole
+  // factory function), discarding whatever retry bookkeeping the previous
+  // attempt accumulated. `getProviderWithRetry()` (added this task, see
+  // `persistence/service.ts`) needs a STABLE instance to track attempt
+  // count / backoff / last-error against; a fresh instance every retry
+  // always looks like "never attempted" to the reporting surface below,
+  // which is the concrete mechanism behind the observed 2026-08-05 latch
+  // (`persistence_check` showing "no re-initialization attempted since
+  // boot" no matter how long the outage ran).
+  let sharedPersistenceService: import("../persistence/service").PersistenceService | undefined;
+
   container.register(
     "persistence",
     async () => {
@@ -113,10 +127,18 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
       }
 
       const { PersistenceService } = await import("../persistence/service");
-      const service = new PersistenceService();
+      // mt#3751: reuse the closure-scoped instance rather than constructing a
+      // fresh one — see the comment above this factory's registration.
+      sharedPersistenceService ??= new PersistenceService();
+      const service = sharedPersistenceService;
       try {
-        await service.initialize();
-        return service.getProvider();
+        // mt#3751 / ADR-035 rule 1: retry-aware accessor. On the first call
+        // this behaves exactly like the pre-mt#3751 initialize()+getProvider()
+        // pair (attemptCount 0 -> always attempts). On a LATER call against an
+        // already-degraded `service`, this transparently re-attempts
+        // initialize() when backoff allows, instead of unconditionally
+        // failing again — the self-heal this task adds.
+        return await service.getProviderWithRetry();
       } catch (err) {
         // Boot-tolerant fallback (mt#2349): a connection WAS configured but
         // initialize() failed (DB unreachable, bad credentials, etc.). Still
@@ -135,7 +157,21 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
           "Persistence initialization failed — booting without a database " +
             `connection. DB-backed operations will fail. Reason: ${reason}`
         );
-        return new UnconfiguredPersistenceProvider(reason, true);
+        const substitute = new UnconfiguredPersistenceProvider(reason, true);
+        // mt#3751 amended SC4: populate the SAME retry-state contract
+        // `validatePostgresBackend` already reads (ADR-035 rule 4), sourced
+        // from the persistent `service` above rather than left empty. Only
+        // when this failure came from an actual RETRY (attemptCount > 1) —
+        // the very first (boot) failure must still render "no
+        // re-initialization has been attempted since boot", exactly as
+        // before this task.
+        if (service.retryAttemptCount > 1 && service.lastRetryAttemptAt) {
+          substitute.noteRetryAttempt(
+            new Date(service.lastRetryAttemptAt),
+            service.lastAttemptError ?? reason
+          );
+        }
+        return substitute;
       }
     },
     {

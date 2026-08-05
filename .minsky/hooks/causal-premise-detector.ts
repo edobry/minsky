@@ -467,7 +467,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }

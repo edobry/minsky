@@ -34,6 +34,8 @@ import {
   resolveTranscriptCandidates,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+import { readAnchor } from "./turn-anchor-store";
+import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
 import type {
   DispatchContext,
@@ -364,6 +366,70 @@ export function logCalibrationRecord(
   }
 }
 
+/**
+ * Resolve an evaluation stream's path — the D4 sibling of `calibrationLogPath`
+ * for the "every evaluated turn, fired or not" streams (ADR-024's 2026-08-03
+ * amendment).
+ *
+ * **The two roots are NOT interchangeable, and conflating them is the defect
+ * this helper exists to prevent (mt#3745).** `projectDir` is an ALREADY-RESOLVED
+ * authoritative directory — the dispatcher has one, and it outranks everything.
+ * `fallbackCwd` is a guard's raw `input.cwd`, which is routinely a session
+ * workspace or a repo subdirectory, so it ranks BELOW `CLAUDE_PROJECT_DIR`.
+ *
+ * Two of the three hand-rolled writers passed the raw cwd as though it were
+ * authoritative (`resolve(findRepoRoot(cwd), …)`), which scattered 12 stray
+ * `.minsky/*-evaluations.jsonl` files across 6 session workspaces while the
+ * calibration log — routed through `calibrationLogPath` — landed correctly in
+ * the repo. Same failure `calibrationLogPath`'s own docblock describes for the
+ * D4 write path, on the stream that did not exist when that fix shipped.
+ *
+ * Separate parameters rather than one `root` argument on purpose: a single
+ * parameter is exactly what let the raw cwd be supplied where an authoritative
+ * dir was meant, and nothing in the type system objected.
+ */
+export function evaluationLogPath(
+  evaluationLogName: string,
+  options?: { projectDir?: string; fallbackCwd?: string }
+): string {
+  const root =
+    options?.projectDir ??
+    process.env["CLAUDE_PROJECT_DIR"] ??
+    options?.fallbackCwd ??
+    process.cwd();
+  return join(findRepoRoot(root), ".minsky", `${evaluationLogName}-evaluations.jsonl`);
+}
+
+/**
+ * Append one evaluation record for `evaluationLogName`, replacing the three
+ * hand-rolled `appendEvaluationRecord()` implementations (mt#3745) the way D4's
+ * `logCalibrationRecord` replaced the hand-rolled calibration writers.
+ *
+ * Fail-open like its calibration sibling — a measurement stream must never break
+ * the guard whose behavior it measures — but unlike `logCalibrationRecord` the
+ * failure is REPORTED to stderr rather than swallowed, preserving the posture
+ * every existing evaluation writer already had.
+ */
+export function logEvaluationRecord(
+  evaluationLogName: string,
+  record: Record<string, unknown>,
+  options?: { projectDir?: string; fallbackCwd?: string; deps?: CalibrationWriteDeps }
+): void {
+  try {
+    const deps = options?.deps ?? defaultCalibrationDeps;
+    const logPath = evaluationLogPath(evaluationLogName, {
+      projectDir: options?.projectDir,
+      fallbackCwd: options?.fallbackCwd,
+    });
+    const dir = dirname(logPath);
+    if (!deps.existsSync(dir)) deps.mkdirSync(dir, { recursive: true });
+    deps.appendFileSync(logPath, `${JSON.stringify(record)}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[${evaluationLogName}] Failed to write evaluation log: ${msg}\n`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // D6 — transcript + host-cap resolution at the dispatcher boundary
 // ---------------------------------------------------------------------------
@@ -383,6 +449,12 @@ export interface ResolveDispatchContextOptions {
   parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Injectable for tests — defaults to the real `resolveTranscriptCandidates` from `./transcript`. */
   resolveTranscriptCandidatesFn?: (transcriptPath: string, agentId?: string) => string[];
+  /**
+   * Injectable for tests — defaults to `readAnchor` from `./turn-anchor-store`
+   * (mt#3490). Injected rather than patched: ADR-036 bans in-place patching of
+   * a collaborator the code reaches itself.
+   */
+  readAnchorFn?: (sessionId: string) => RecordedTurnAnchor | undefined;
 }
 
 /**
@@ -394,7 +466,7 @@ export interface ResolveDispatchContextOptions {
  */
 export function resolveDispatchContext(
   event: LifecycleEvent,
-  input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+  input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
   options: ResolveDispatchContextOptions
 ): DispatchContext {
   const readHostCapFn = options.readHostCapFn ?? readHostCap;
@@ -433,12 +505,24 @@ export function resolveDispatchContext(
     );
   }
 
+  // The Stop-recorded turn anchor (mt#3490, ADR-031), resolved ONCE here for the
+  // same reason transcript lines are: so no guard reaches for the store itself.
+  // Only meaningful alongside lines to slice, so it is skipped when there is no
+  // transcript — an anchor with nothing to anchor INTO is not useful, and the
+  // read is not free.
+  let recordedAnchor: RecordedTurnAnchor | undefined;
+  if (input.session_id && transcriptLines.length > 0) {
+    const readAnchorFn = options.readAnchorFn ?? readAnchor;
+    recordedAnchor = readAnchorFn(input.session_id);
+  }
+
   return {
     event,
     hostCapSec: hostCap.hostCapSec,
     budgets,
     transcriptCandidates,
     transcriptLines,
+    recordedAnchor,
   };
 }
 
@@ -470,7 +554,7 @@ export interface RunDispatcherOptions {
   /** Injectable for tests — defaults to the real `resolveDispatchContext`. */
   resolveDispatchContextFn?: (
     event: LifecycleEvent,
-    input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+    input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
     opts: { hookFilename: string }
   ) => DispatchContext;
   /**

@@ -279,7 +279,7 @@ export async function run(
     const lines = ctx.transcriptLines;
     if (lines.length === 0) return null;
 
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
 
     const text = extractAssistantText(turnLines);
