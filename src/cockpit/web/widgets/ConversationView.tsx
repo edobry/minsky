@@ -94,11 +94,6 @@ import {
   snapshotRetry,
 } from "../lib/conversation-snapshot";
 import {
-  splitInjectedContent,
-  type InjectedContentKind,
-  type InjectedSpan,
-} from "../lib/injected-content";
-import {
   ADDRESSED_MARK_CLASS,
   TURN_ANCHOR_ATTR,
   type TurnAddress,
