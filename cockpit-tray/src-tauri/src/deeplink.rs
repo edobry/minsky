@@ -255,15 +255,48 @@ pub(crate) fn register(app: &tauri::App<Wry>, handle: &AppHandle) {
 /// hands the URL to the recovery loop, which creates a missing window,
 /// heals a dead document, and delivers the link (mt#2688).
 pub(crate) fn handle_deep_link(app: &AppHandle, url: String) {
-    // Dock presence first (mt#2675): the window may be hidden via hide-on-close
-    // with the app back in Accessory; Regular must be restored BEFORE show/focus
-    // or macOS may refuse to front the window.
+    present_cockpit_window(app, Some(url));
+}
+
+/// Bring the cockpit window to the front for an out-of-band request that
+/// carries NO deep link -- currently the mt#3770 single-instance guard, which
+/// refuses a second app launch and fronts the first instance's window instead
+/// of leaving the user's double-click with nothing to show for it.
+///
+/// Shares `present_cockpit_window`'s deferred-creation discipline rather than
+/// calling `WebviewWindowBuilder::build()` inline: creation from an out-of-band
+/// callback is precisely what mt#2546 got wrong, and the recovery loop is the
+/// path that fixed it. Showing an EXISTING window is the cheap case and is safe
+/// from any thread -- see `present_cockpit_window`.
+pub(crate) fn present_cockpit_window_no_link(app: &AppHandle) {
+    present_cockpit_window(app, None);
+}
+
+/// Show/focus an existing cockpit window and hand everything else -- creation,
+/// cold-start healing, and delivery of `deep_link_url` if there is one -- to the
+/// recovery loop.
+///
+/// `show()`/`set_focus()` are called directly from whatever thread the caller is
+/// on, which is safe by the runtime's own construction rather than by assumption
+/// (PR #2668 R1): every `WindowMessage` goes through
+/// `tauri-runtime-wry-2.11.2/src/lib.rs:235-255` `send_user_message`, which
+/// branches on `current_thread().id() == context.main_thread_id` -- handling the
+/// message inline on the main thread, and otherwise posting it to the event-loop
+/// proxy so the AppKit work still lands on the main thread when the loop drains.
+/// There is no main-thread affinity at the call site. Window CREATION is the
+/// different case and stays with the recovery loop, which defers it the way
+/// mt#2546 established.
+///
+/// Dock presence is restored FIRST (mt#2675): the window may be hidden via
+/// hide-on-close with the app back in Accessory, and macOS may refuse to front a
+/// window without Dock presence.
+fn present_cockpit_window(app: &AppHandle, deep_link_url: Option<String>) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         set_dock_presence(app, true);
         let _ = window.show();
         let _ = window.set_focus();
     }
-    spawn_window_recovery(app, Some(url));
+    spawn_window_recovery(app, deep_link_url);
 }
 
 /// Trigger the recovery loop (mt#2528 + mt#2688): bring the cockpit window

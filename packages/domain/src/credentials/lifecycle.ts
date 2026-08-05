@@ -18,6 +18,7 @@ import { join } from "path";
 import { createConfigWriter } from "../configuration/config-writer";
 import { getUserConfigDir } from "../configuration/sources/user";
 import { getCredentialProvider, listCredentialProviders } from "./providers";
+import { listSchemaDerivedCredentials, mergeCredentialListings } from "./schema-derived";
 import type { CredentialCheckResult, CredentialProvider } from "./types";
 import { clearInvalidation, notifyCredentialInvalidated } from "./invalidations";
 
@@ -166,6 +167,23 @@ export async function addCredential(
   };
 }
 
+/**
+ * Where a listing entry came from (mt#3569).
+ *
+ * - `provider` — a registered {@link CredentialProvider}. Fully manageable:
+ *   `credentials add` / `remove` / `recheck` all work.
+ * - `schema` — derived from the configuration schema because a credential-bearing
+ *   config path exists, with no provider module behind it. **Presence-only.** There
+ *   is nothing to validate against and nothing to add or remove through this flow,
+ *   so callers MUST NOT offer those actions on these rows.
+ *
+ * The distinction exists because the listing previously reported only the first
+ * kind while reading as an exhaustive answer to "what credentials exist?" — an
+ * agent took `openai`'s absence as proof no OpenAI key was configured (twice), once
+ * escalating a request to move a production credential on that false premise.
+ */
+export type CredentialListingSource = "provider" | "schema";
+
 /** Listing entry for `listCredentials` — never includes the token value. */
 export interface CredentialListing {
   provider: string;
@@ -173,6 +191,12 @@ export interface CredentialListing {
   configPath: string;
   /** True when a value is present at configPath in config.yaml. */
   configured: boolean;
+  /**
+   * Whether this entry is manageable or presence-only. See
+   * {@link CredentialListingSource}. Absent-as-`"provider"` is NOT assumed —
+   * every entry carries it explicitly so no consumer has to infer manageability.
+   */
+  source: CredentialListingSource;
   /** ISO-8601 timestamp of the most recent successful validate; undefined if never. */
   lastValidatedAt?: string;
   /** Last successful-check detail line. */
@@ -197,7 +221,7 @@ export async function listCredentials(
 ): Promise<CredentialListing[]> {
   const meta = await readMetaFile();
   const userConfig = await readUserConfigFile();
-  return Promise.all(
+  const fromProviders = await Promise.all(
     providers.map(async (provider) => {
       const metaEntry = meta.credentials.find((c) => c.provider === provider.id);
       // Providers with provider-owned storage (mt#2419) report configured-ness
@@ -210,11 +234,16 @@ export async function listCredentials(
         displayName: provider.displayName,
         configPath: provider.configPath,
         configured,
+        source: "provider" as const,
         lastValidatedAt: metaEntry?.lastValidatedAt,
         lastValidationDetail: metaEntry?.lastValidationDetail,
       };
     })
   );
+
+  // mt#3569: the second half of the listing — credential-bearing config paths with
+  // no provider module behind them. The merge rule lives in `mergeCredentialListings`.
+  return mergeCredentialListings(fromProviders, listSchemaDerivedCredentials(userConfig));
 }
 
 async function readUserConfigFile(): Promise<Record<string, unknown>> {
