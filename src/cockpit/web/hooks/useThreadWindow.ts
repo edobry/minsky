@@ -37,15 +37,53 @@ import {
 export const INITIAL_TURNS = 50;
 export const OLDER_CHUNK = 100;
 
+/**
+ * How many turns may stay mounted while the window is frozen (mt#3736).
+ *
+ * The freeze holds the window's START still so a reader who scrolled up is not
+ * moved by arriving turns. Its END has to be bounded separately, or a reader
+ * who parks in history during a long agent run accumulates mounted turns
+ * without limit — and turn nodes are not memoized, so per-commit cost grows
+ * with the count until the thread is exactly the eager-mount cost mt#2433
+ * measured, arrived at gradually instead of at once (PR #2648 R1).
+ *
+ * Bounding the END rather than the start is what makes this free of any scroll
+ * correction: turns that never mount below the reader cannot move what is above
+ * them. The reader is already told content arrived — the return-to-newest
+ * control — and taking it re-pins them, which releases the freeze and windows
+ * back to the live tail.
+ *
+ * Sized off the budget this module already commits to rather than picked round:
+ * `INITIAL_TURNS` plus two `OLDER_CHUNK` reveals is what a reader can mount by
+ * hand in a couple of deliberate clicks, so it is a cost the thread is already
+ * known to carry.
+ */
+export const MAX_FROZEN_TURNS = INITIAL_TURNS + OLDER_CHUNK * 2;
+
 export interface ThreadWindow {
   /** How many turns sit above the rendered window, unmounted. */
   hiddenBefore: number;
+  /**
+   * The turn index the rendered window ends BEFORE — `totalTurns` unless the
+   * freeze's cap is in force (mt#3736). Consumers slice
+   * `[hiddenBefore, renderEnd)`.
+   */
+  renderEnd: number;
+  /** How many turns sit below the rendered window, unmounted. */
+  hiddenAfter: number;
   /** True while a reveal's render is in flight. */
   isRevealing: boolean;
   /** How many turns the in-flight reveal is mounting; `0` when none is. */
   revealingCount: number;
   /** Mount the next chunk of older turns, holding the reader's position. */
   revealOlder: () => void;
+  /**
+   * Tell the window whether the reader is pinned to the live tail (mt#3736).
+   *
+   * Called from the consumer's scroll sampler on every scroll frame; safe at
+   * that rate because it bails out of the state update when nothing changes.
+   */
+  notePinned: (pinned: boolean) => void;
   /** Mount the whole transcript and go to its first turn. */
   revealFromStart: () => void;
   /** Repaint the position readout against a scrollport. */
@@ -99,12 +137,53 @@ export function useThreadWindow({
    */
   const [revealingCount, setRevealingCount] = useState(0);
 
+  /**
+   * Where the window was standing when the reader scrolled up — `null` while
+   * they are pinned to the tail (mt#3736).
+   *
+   * The tail-derived window below tracks the newest turns, which means each
+   * arriving turn UNMOUNTS the oldest rendered one. That is right for a reader
+   * at the bottom and wrong for everyone else: removing a turn's DOM takes its
+   * height out from ABOVE the reader's scroll position, so the content under
+   * their eyes slides up by that much. Nothing puts it back — the thread sets
+   * `[overflow-anchor:none]` (see the correction below for why), and WebKit,
+   * which the tray's window renders in, has no scroll anchoring to disable in
+   * the first place.
+   *
+   * Freezing is the whole fix: while the reader is unpinned the window stops
+   * moving, so no mounted turn is ever removed above them. It is the same
+   * invariant `revealedFrom` already gives a reader who explicitly revealed
+   * history ("later appends cannot push revealed history back out of the
+   * window") — scrolling up is simply the other way to ask for it.
+   *
+   * Holding the start still means the tail keeps growing under a reader who
+   * stays scrolled up, so the window's END is bounded separately by
+   * {@link MAX_FROZEN_TURNS} — see its docblock for why bounding that end, and
+   * not this start, is what keeps the whole mechanism free of scroll
+   * corrections. Returning to the bottom clears the freeze and the window snaps
+   * back to the tail, which is safe there precisely because removing height
+   * above a reader who is AT the bottom shortens the scroll range under a
+   * clamped `scrollTop`, and the browser absorbs that without moving what they
+   * see.
+   */
+  const [frozenAt, setFrozenAt] = useState<number | null>(null);
+
   // A new session in the same mounted component windows back to the tail.
   useEffect(() => {
     setRevealedFrom(null);
+    setFrozenAt(null);
   }, [sessionKey]);
 
-  const hiddenBefore = revealedFrom ?? Math.max(0, totalTurns - INITIAL_TURNS);
+  const hiddenBefore = revealedFrom ?? frozenAt ?? Math.max(0, totalTurns - INITIAL_TURNS);
+
+  // The cap applies only to the FROZEN window. A reader at the tail, and a
+  // reader who deliberately revealed history, both asked to see the newest turn
+  // — truncating either would hide content they are looking at.
+  const renderEnd =
+    frozenAt !== null && revealedFrom === null
+      ? Math.min(totalTurns, frozenAt + MAX_FROZEN_TURNS)
+      : totalTurns;
+  const hiddenAfter = Math.max(0, totalTurns - renderEnd);
 
   /**
    * The reveal in flight, if any: the scroll height BEFORE it, and whether it
@@ -123,8 +202,8 @@ export function useThreadWindow({
    * every callback below stable, so the consumer's scroll listener can stay
    * keyed on its scrollport alone rather than re-binding on every chunk.
    */
-  const windowStateRef = useRef({ hiddenBefore, totalTurns });
-  windowStateRef.current = { hiddenBefore, totalTurns };
+  const windowStateRef = useRef({ hiddenBefore, totalTurns, renderEnd });
+  windowStateRef.current = { hiddenBefore, totalTurns, renderEnd };
 
   /**
    * Mount an earlier slice of the transcript.
@@ -154,6 +233,25 @@ export function useThreadWindow({
   const revealOlder = useCallback(() => {
     reveal(Math.max(0, windowStateRef.current.hiddenBefore - OLDER_CHUNK), false);
   }, [reveal]);
+
+  /**
+   * Freeze the window on the way up, release it on the way back down.
+   *
+   * Reads `windowStateRef` rather than `hiddenBefore` so the callback stays
+   * stable — the consumer keys its scroll listener on the scrollport alone and
+   * must not re-bind per chunk. The updater form makes the no-change case a
+   * genuine bail-out (React compares with `Object.is`), which matters because
+   * this runs once per scroll frame: pinned-and-already-null returns `null`,
+   * unpinned-and-already-frozen returns the same number, and neither
+   * re-renders.
+   *
+   * `current ?? …` rather than an unconditional capture: the freeze point is
+   * where the reader LEFT the tail, not wherever the window happened to be on
+   * the most recent frame of their scrolling.
+   */
+  const notePinned = useCallback((pinned: boolean) => {
+    setFrozenAt((current) => (pinned ? null : (current ?? windowStateRef.current.hiddenBefore)));
+  }, []);
 
   /**
    * Mount the whole transcript and go to its first turn.
@@ -234,8 +332,17 @@ export function useThreadWindow({
    * the React tree.
    */
   const paintPosition = useCallback((port: Element | null) => {
-    const { hiddenBefore: hidden, totalTurns: total } = windowStateRef.current;
-    const position = threadPositionFromScroll(scrollFraction(port), hidden, total);
+    const { hiddenBefore: hidden, totalTurns: total, renderEnd: end } = windowStateRef.current;
+    // The rendered count is passed explicitly because the freeze's cap can make
+    // it smaller than `total - hidden` (mt#3736). Deriving it would put the
+    // readout on a scale the scrollport no longer has, and a reader parked in
+    // capped history would be told they are further along than they are.
+    const position = threadPositionFromScroll(
+      scrollFraction(port),
+      hidden,
+      total,
+      Math.max(0, end - hidden)
+    );
     if (positionFillRef.current) {
       // Drawn against the WHOLE transcript, deliberately NOT against the scroll
       // range. Those are different scales, and the track already carries the
@@ -261,9 +368,12 @@ export function useThreadWindow({
 
   return {
     hiddenBefore,
+    renderEnd,
+    hiddenAfter,
     isRevealing,
     revealingCount,
     revealOlder,
+    notePinned,
     revealFromStart,
     paintPosition,
     positionFillRef,

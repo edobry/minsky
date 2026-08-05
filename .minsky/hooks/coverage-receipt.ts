@@ -98,6 +98,34 @@ export function resolveCalibrationLogPath(
   return join(findRepoRoot(cwd), ".minsky", `${detectorName}-calibration.jsonl`);
 }
 
+/**
+ * The detector set a coverage sweep must examine (mt#3742).
+ *
+ * Enumerating from disk alone cannot see a DECLARED detector that has never
+ * fired: with no `<name>-calibration.jsonl` written there is no file to
+ * discover, so the detector is never checked and can never be `[FLAGGED]` —
+ * even though "no records at all" is precisely the dead-entry-point symptom
+ * this gate exists to catch. That is the check's own purpose inverted: absence
+ * of output is what it hunts, and absence of output is what made a detector
+ * invisible to it.
+ *
+ * Unioning the DECLARED names in closes that blind spot, and needs no
+ * downstream change: `checkDetectorCoverage` already handles a detector with
+ * no records, and the dormant-vs-dead call is made from fire-log invocation
+ * evidence rather than from the records — so a declared-but-never-fired
+ * detector resolves to DORMANT (its entry point ran, nothing to report) or
+ * FLAGGED (nothing invoked it) on the same evidence as any other.
+ *
+ * Sorted and de-duplicated, so report order does not depend on which source a
+ * name arrived from.
+ */
+export function resolveDetectorsToCheck(
+  declaredNames: Iterable<string>,
+  discoveredNames: readonly string[]
+): string[] {
+  return [...new Set([...declaredNames, ...discoveredNames])].sort();
+}
+
 // ---------------------------------------------------------------------------
 // Reading (pure read of the on-disk JSONL — fail-safe, never throws)
 // ---------------------------------------------------------------------------

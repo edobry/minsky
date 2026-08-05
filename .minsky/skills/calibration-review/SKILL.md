@@ -23,10 +23,16 @@ positives, and packaging the decision as an Ask.
 
 ## Step 1 — Run the sweep (read-only)
 
-Call the command in JSON mode, read-only (do NOT pass `--ack` yet):
+Call the command read-only (do NOT pass `--ack` yet):
 
-- MCP: `mcp__minsky__observability_calibration-review` with `json: true`
-- CLI: `minsky observability calibration-review --json`
+- MCP: `mcp__minsky__observability_calibration-review` with NO arguments. It
+  returns JSON already; the tool declares only `ack`, `askId` and `clearAskId`,
+  and undeclared params are rejected at the MCP boundary (mt#2778). Passing
+  `json: true` here fails — the rejection reads `expected boolean, received
+string`, which points at a type, not at the real cause, so it costs a
+  round-trip to diagnose.
+- CLI: `minsky observability calibration-review --json` (`--json` is a CLI flag,
+  which is where the MCP form's phantom parameter came from).
 
 It returns, per registered log: `totalFires`, `firesSinceLastReview`,
 `suppressedSinceLastReview`, `injectedFiresSinceLastReview` (mt#3197 — the
@@ -47,10 +53,12 @@ set:
    `expired`) — the operator has already decided. Clear the stale reference so
    the cadence detector resumes normal per-turn warnings for this log:
    `mcp__minsky__observability_calibration-review` with `clearAskId: "<id>"`
-   (a single ask id, not an array — one review pass always files exactly one
-   ask covering every review-due log in that pass, so there is only ever
-   one id to clear at a time). Then proceed to classify this log's NEW fires
-   (if any) normally in Step 2 onward.
+   (a single ask id, not an array). One pass files one ask, but that ask covers
+   only the logs that pass actually REVIEWED — a mixed pass excludes whatever it
+   skipped here — so several distinct open ask ids can coexist across the
+   corpus, each stamped by a different pass. Clear them one call at a time,
+   checking each id's state on its own. Then proceed to classify this log's NEW
+   fires (if any) normally in Step 2 onward.
 3. If the ask's `state` is still open (`detected`, `classified`, `routed`,
    `suspended`) — the operator hasn't responded yet. **Skip this log entirely**
    for this pass: do not classify its new fires, do not emit a second Ask for
@@ -61,6 +69,11 @@ set:
    step 2 above) continue to Step 2. (The command itself also refuses to
    silently `--ack` a still-open-ask log when `askId` isn't supplied — see
    Step 5 — so skipping here is belt-and-suspenders, not the only guard.)
+
+   **If you skip anything here, remember it — it changes Step 5's arguments.**
+   A pass that skips one log and reviews another is a MIXED pass, and passing
+   `askId` on its ack call would advance the skipped log too, undoing this
+   step. Step 5's "Which ack call to make" has the branch.
 
 If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
 3 above), stop — nothing to review. Do not emit an Ask, do not advance
@@ -335,31 +348,73 @@ avoids repeating that search-miss.
 ## Step 5 — Record the ask id and advance the watermark
 
 After the Ask is created, capture its `id` from the `asks_create` response.
-Re-run the command WITH `ack: true` AND the new id in `askId`, so the
-cadence-detector hook (mt#2659) knows to suppress its per-turn warning for
-these logs until the ask resolves:
+Then re-run the command with `ack: true` — but **whether you also pass `askId`
+depends on whether this pass skipped anything under Step 1a.** Check that first;
+the two cases take different arguments and the wrong one destroys data.
 
-- MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
-  `askId: "<id from asks_create>"`
-- CLI: `minsky observability calibration-review --ack` plus the CLI's
-  generated flag for `askId` — check `--help` for the exact flag spelling
+### Which ack call to make
 
-This marks the reviewed fires so the next sweep only considers new ones AND
-records `openAskId` on every review-due log's watermark — including a
-`never-reviewed` log that had no watermark at all, for which the entry is
-CREATED (mt#2878). This makes the loop idempotent: a re-run with no new fires
-emits no Ask, and a re-run while the ask is still open (Step 1a) skips straight
-past without re-asking.
+**Was any review-due log skipped under Step 1a (still-open `openAskId`)?**
 
-**Command-level guard (belt-and-suspenders).** If Step 1a's skip is ever
-missed, the command itself refuses to help: `--ack` WITHOUT `askId` never
-silently advances the watermark of a review-due log whose watermark
-already carries an `openAskId` — that log is left untouched (surfaced in the
-result as `skippedOpenAskPaths`) instead of being marked reviewed. Passing
-`askId` on the ack call always advances every review-due log regardless
-of any pre-existing `openAskId` (an explicit reaffirmation), and an `--ack`
-call that omits `askId` entirely never drops a pre-existing `openAskId` on
-the logs it DOES advance — only `clearAskId` clears it.
+- **No — every review-due log was reviewed this pass.** Pass BOTH `ack: true`
+  and `askId`. This advances the watermarks and records `openAskId` on each, so
+  the cadence hook (mt#2659) suppresses its per-turn warning until the ask
+  resolves.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `askId: "<id from asks_create>"`
+  - CLI: `minsky observability calibration-review --ack` plus the CLI's
+    generated flag for `askId` — check `--help` for the exact flag spelling
+
+- **Yes — this is a MIXED pass.** Pass `ack: true` and **NOT** `askId`.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`
+  - CLI: `minsky observability calibration-review --ack`
+
+  Confirm afterwards that the result's `skippedOpenAskPaths` names every log you
+  skipped, and say in your pass output that you acked without `askId` and why.
+
+**Why `askId` is unsafe on a mixed pass.** `askId` is a deliberate
+REAFFIRMATION: `selectAckablePaths` skips a log only when `askId` is ABSENT
+(`if (!askId && r.openAskId)` —
+`src/domain/calibration/calibration-sweep.ts`). Supplying it therefore advances
+EVERY review-due log, including the one Step 1a told you to leave alone —
+marking its unreviewed fires as reviewed under an ask that does not cover them,
+and overwriting its link to the ask that does. Live instance (2026-08-05,
+mt#3707): `retrospective-trigger` was review-due with an open ask and **29**
+unreviewed fires while two other logs were reviewable; acking with `askId` would
+have silently erased that backlog.
+
+**The cost of the mixed-pass form, so you don't go looking for it later.** The
+logs you DO advance come out without `openAskId`. That is fine: advancing their
+watermark removes them from `reviewDue` outright, so the cadence hook stops
+warning about them anyway — `openAskId` only suppresses warnings for a log that
+is STILL review-due. What you lose is the recorded link from those logs to the
+ask deciding them; cite the ask id in the task record instead.
+
+Mixed passes are the normal case, not an edge: four disposition asks were open
+simultaneously on 2026-08-04. If you find yourself wanting an ack that both
+preserves the skip AND records `openAskId`, that is a change to the command, not
+a judgment call to make here — file it (mt#3727 carries the history).
+
+Either form marks the reviewed fires, so the next sweep considers only new ones.
+A watermark entry is CREATED where none existed — that is how a
+`never-reviewed` log gets its first one (mt#2878). Both forms keep the loop
+idempotent: a re-run with no new fires emits no Ask, and a re-run while the ask
+is still open (Step 1a) skips straight past without re-asking.
+
+`openAskId` is the part that differs, and only the no-skip form records it. See
+the branch above for why that is the right trade on a mixed pass.
+
+**What the command guarantees, in both forms.** `--ack` WITHOUT `askId` never
+advances the watermark of a review-due log that already carries an `openAskId`;
+that log is left untouched and named in `skippedOpenAskPaths`. This is the
+MECHANISM the mixed-pass branch relies on — not merely a backstop for a missed
+Step 1a skip, though it serves as that too. Passing `askId` advances every
+review-due log regardless of any pre-existing `openAskId`, which is what makes
+it an explicit reaffirmation and what makes it unsafe on a mixed pass. An
+`--ack` call that omits `askId` never DROPS a pre-existing `openAskId` on the
+logs it does advance — only `clearAskId` clears it.
 
 ## Cross-references
 

@@ -516,6 +516,23 @@ itself.
   migrated (Phase 6) — debugging a single guard in isolation requires either keeping a thin
   dev-only CLI wrapper or invoking it through a small in-repo test harness. A CLI wrapper is a
   cheap, explicit Phase 6 deliverable if this friction proves real in practice.
+
+  **The friction proved real, and the harness shipped: `scripts/run-dispatcher-scenario.ts`
+  (mt#3756).** On 2026-08-03 three separate hand-rolled harnesses were built in one day to
+  verify dispatcher behavior end to end — twice for mt#3612's `updatedInput`, once for
+  mt#3625's stdout-swallowing. Each registered fixture guards into the LIVE dispatcher on the
+  operator's real state dir, because no contained way to do it existed. That wrote 19 records
+  into the production fire-log and ran an unreviewed guard returning `deny` against real
+  `Bash` calls in the operator's own conversation. The harness runs the real `runDispatcher`
+  with synthetic registrations inside an isolated `MINSKY_STATE_DIR` / `CLAUDE_PROJECT_DIR`,
+  and ships both of those verifications as named scenarios. Use it rather than hand-rolling;
+  `scripts/audit-fire-log.ts` is the read-side check that catches it when someone doesn't.
+
+  Note this is NOT the same need as a unit test: `dispatcher.test.ts` injects
+  `recordFireLogFn` and `resolveDispatchContextFn`, so it never exercises the real writer or
+  the real context resolution — which is why those three verifications reached for the live
+  dispatcher in the first place.
+
 - The registry is a new artifact that must itself compile correctly (mt#2304 dependency) —
   Phase 1 cannot land independently of a working `.minsky/hooks/` → `.claude/hooks/` compile
   target for at least the dispatcher + framework files, even if individual guard migration is

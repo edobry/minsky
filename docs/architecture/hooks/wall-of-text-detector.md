@@ -40,20 +40,35 @@ the register by design — calibration data will show how often that happens).
   "namedRefCount": 7,
   "textHash": "…",
   "suppressedByDepthRequest": false,
+  "suppressedByQuestionAnswer": false,
   "suppressionReasons": []
 }
 ```
 
-`textHash` and `suppressedByDepthRequest` are the dedupe key's two dimensions (mt#3028 fix (2),
-extended by mt#3112): an unchanged report is re-logged only when its suppression state changed.
+`textHash` and the COMBINED suppression verdict (either gate below) are the dedupe key's two
+dimensions (mt#3028 fix (2), extended by mt#3112 and mt#3718): an unchanged report is re-logged
+only when its suppression state changed.
 
 `suppressionReasons` (mt#3207) is the SHARED contract every calibration record carries —
-`["depth-request-override"]` when the depth-request override withheld the reminder, `[]` when it
-was injected. It duplicates `suppressedByDepthRequest`'s verdict on purpose: `isSuppressedRecord`
-in the sweep reads only `suppressionReasons`, so the detector-specific boolean alone left the
-override's real-world fire rate — ask#5425's stated payoff for flipping this detector live —
-invisible to the review cadence. An ABSENT field is not the same as `[]`: records written before
-mt#3207 carry no field and count as injected.
+`["depth-request-override"]` when the depth-request override withheld the reminder,
+`["question-answer-override"]` when the mt#3718 question-answer override did (see below), `[]`
+when the fire was injected. It duplicates `suppressedByDepthRequest` /
+`suppressedByQuestionAnswer`'s verdicts on purpose: `isSuppressedRecord` in the sweep reads only
+`suppressionReasons`, so the detector-specific booleans alone left the overrides' real-world fire
+rates — ask#5425's stated payoff for flipping this detector live, and ask#6891's for the second
+gate — invisible to the review cadence. An ABSENT field is not the same as `[]`: records written
+before mt#3207 carry no field and count as injected.
+
+**mt#3718 — question-answer override.** A SECOND, independent suppression gate alongside the
+depth-request override: when the opening prompt of the measured turn itself reads as a
+substantive question (`detectSubstantiveQuestion` — non-empty, contains `?`, at least
+`QUESTION_MIN_WORDS` words), a report answering it is suppressed but still logged
+(`suppressedByQuestionAnswer: true`, `suppressionReasons: ["question-answer-override"]`). Two
+differences from the depth-request override: (1) it anchors on the single OPENING prompt only
+(`resolveQuestionAnswerCheck`), not a multi-turn lookback; (2) it applies ONLY to the pure
+`over-budget` trigger — a label-led report (`lead-labels` or `both`) is never excused by a
+preceding question. Approved by the 2026-08-04 calibration review (ask#6891, "Approve: keep 1,
+file tunes for 2 and 3").
 
 Diversity axis for the calibration-review cadence machinery: distinct `session_id` values
 (like silent-stretch — there is no matched-phrase concept).

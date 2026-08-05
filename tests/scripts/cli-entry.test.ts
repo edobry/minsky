@@ -11,6 +11,9 @@
  */
 
 import { describe, test, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- reads the real committed source of the file under test (mt#3735's import-ordering check), not test-state faking; same exemption shape as tests/integration/short-id-conflict-inference reading the committed migration journal
+import { readFileSync } from "fs";
+import { join } from "path";
 import { computeBundleDecision, bunBuildArgs, bunBuildCommand } from "../../scripts/cli-entry";
 import type { FsDeps, ExecDeps, StderrDeps } from "../../scripts/cli-entry";
 
@@ -507,5 +510,45 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
     const args = bunBuildArgs();
     expect(args).toContain("--outdir=dist");
     expect(args.some((a) => a.startsWith("--outfile"))).toBe(false);
+  });
+});
+
+describe("reflect-metadata polyfill ordering (mt#3735)", () => {
+  /**
+   * Reads the file's SOURCE rather than importing it, because the thing under
+   * test is import ORDER within this module — and by the time the test module
+   * has imported `cli-entry`, whatever order it used has already happened and
+   * left no observable trace. Importing it also cannot reproduce the failure:
+   * `bun:test` has its own preload chain, and the bundle the ordering protects
+   * is never loaded here (the entry point is guarded by `import.meta.main`).
+   *
+   * So this is a presence check, and it is honest about being one: it pins the
+   * INTENT (the polyfill is imported, and imported statically ahead of the
+   * dynamic bundle import) and will catch a refactor that drops the line or
+   * converts it to a lazy import. It cannot catch a runtime regression where
+   * the import is present and no longer sufficient. The behavioral gate for
+   * that is the `Boot via the installed-CLI shim` step in
+   * `.github/workflows/bundle-boot-smoke.yml`, which actually runs the shim
+   * against a freshly built bundle.
+   */
+  // `.toString()` on the Buffer rather than the "utf8" encoding argument: Bun's
+  // overloads for the latter resolve to `string & Buffer` here, which makes
+  // `indexOf` unusable (its parameter narrows to `never`).
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import above: the committed source IS the subject under test here
+  const source = readFileSync(join(import.meta.dir, "../../scripts/cli-entry.ts")).toString();
+
+  test("imports reflect-metadata statically", () => {
+    expect(source).toMatch(/^import "reflect-metadata";$/m);
+  });
+
+  test("the polyfill import precedes the dynamic bundle import", () => {
+    // Both patterns are anchored to the start of a line so they match the CODE
+    // and not the docblock, which discusses `await import(bundlePath)` in prose
+    // ~1.7k characters ahead of the statement it describes.
+    const polyfillAt = source.search(/^import "reflect-metadata";$/m);
+    const dynamicImportAt = source.search(/^\s*await import\(bundlePath\);$/m);
+    expect(polyfillAt).toBeGreaterThanOrEqual(0);
+    expect(dynamicImportAt).toBeGreaterThanOrEqual(0);
+    expect(polyfillAt).toBeLessThan(dynamicImportAt);
   });
 });

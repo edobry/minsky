@@ -11,6 +11,7 @@ import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import { readPinnedTsgoVersion, resolveTsgoBinary } from "../../../utils/tsgo-binary";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SessionProviderInterface } from "@minsky/domain/session";
 
@@ -118,6 +119,22 @@ interface TypecheckResult {
   workspaces: string[];
   /** The base directory that was actually validated — prevents silent main-repo checks. */
   validatedWorkspace: string;
+  /**
+   * The checker version that ACTUALLY ran (mt#3657), or null when the checker could not be
+   * resolved or would not report one.
+   *
+   * Recorded because for three months it was not what this repo pinned, and nothing in any
+   * result said so: `bunx @typescript/native-preview` fetched `@latest` while `package.json`
+   * declared a version three months older. An anomaly can now be attributed to a compiler
+   * rather than re-litigated as a code problem.
+   */
+  checkerVersion: string | null;
+  /**
+   * What `package.json` DECLARES the checker version should be. Reported beside
+   * `checkerVersion` so the two can be compared without reading the manifest — if they ever
+   * diverge again, the result itself says so.
+   */
+  pinnedCheckerVersion: string | null;
 }
 
 /**
@@ -168,19 +185,50 @@ export async function resolveValidateWorkspace(
 }
 
 /**
+ * The version string `tsgo --version` reports, e.g. `7.0.0-dev.20260419.1`.
+ *
+ * Null when the checker cannot be asked (spawn failure, unexpected output). A missing version
+ * never fails the run: it degrades the ATTRIBUTION of a future anomaly, not the typecheck.
+ */
+export function parseTsgoVersionOutput(output: string): string | null {
+  const match = /Version\s+(\S+)/i.exec(output);
+  return match?.[1] ?? null;
+}
+
+/** {@link parseTsgoVersionOutput} against a real checker binary. */
+async function readTsgoVersion(binaryPath: string): Promise<string | null> {
+  try {
+    const proc = Bun.spawn([binaryPath, "--version"], { stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    await proc.exited;
+    return parseTsgoVersionOutput(stdout) ?? parseTsgoVersionOutput(stderr);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Run `tsgo --noEmit` for one target and parse its errors.
  *
  * @param cwd            Directory to spawn the checker in.
  * @param workspaceLabel Label attributed to every error produced (e.g. "." or "services/reviewer").
+ * @param binaryPath     The checker binary, resolved ONCE by the caller (mt#3657). Passing it in
+ *                       rather than resolving per target is what makes every project in a run use
+ *                       the same compiler — the property the `bunx` path could not offer, since
+ *                       each invocation re-resolved `@latest` independently.
  * @param projectPath    Optional `-p <tsconfig>` path (relative to `cwd`). When omitted, the
  *                       checker uses `cwd`'s own `tsconfig.json`.
  */
 async function runTypecheckTarget(
   cwd: string,
   workspaceLabel: string,
+  binaryPath: string,
   projectPath?: string
 ): Promise<TypecheckError[]> {
-  const args = ["bunx", "@typescript/native-preview", "--noEmit"];
+  const args = [binaryPath, "--noEmit"];
   if (projectPath) {
     args.push("-p", projectPath);
   }
@@ -222,13 +270,23 @@ async function runTypecheckTarget(
   // (When type errors WERE parsed, tsgo's non-zero exit is the normal "found errors" path.)
   if (exitCode !== 0 && errors.length === 0) {
     const diagnostic = (stderr.trim() || stdout.trim() || "no output").slice(0, 2000);
+    // Name the SIGNAL when there is one (mt#3657). A killed checker and a checker that
+    // exited with a config error are both "the check did not run", but only the first is
+    // worth retrying, and reading `code null` left that undiagnosable — the mt#1383 →
+    // mt#3546 → mt#3657 chain spent three months on "likely OOM" partly for want of this.
+    const cause = proc.signalCode
+      ? `was killed by ${proc.signalCode}`
+      : `exited with code ${exitCode}`;
     errors.push({
       workspace: workspaceLabel,
       file: projectPath ?? cwd,
       line: 0,
       column: 0,
       code: "TSGO_RUNNER",
-      message: `Type checker exited with code ${exitCode} and produced no parseable errors: ${diagnostic}`,
+      message:
+        `The type checker did not run: it ${cause} and produced no parseable errors. ` +
+        `This is a TOOL failure — it says nothing about whether the code has type errors. ` +
+        `Diagnostic: ${diagnostic}`,
     });
   }
 
@@ -588,6 +646,40 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           )
         );
 
+        // Resolve the checker ONCE for the whole run (mt#3657). Every target below shares
+        // this binary, so a multi-project run can no longer typecheck project A with one
+        // compiler and project B with another — which is what `bunx @latest` per target
+        // allowed, and what produced a 4260-error `lib` explosion in one project beside
+        // clean results in the rest.
+        const resolution = resolveTsgoBinary(rootDir);
+        if (resolution.kind === "missing") {
+          return {
+            success: false,
+            errorCount: 1,
+            errors: [
+              {
+                workspace: ".",
+                file: resolution.searchedPaths[0] ?? rootDir,
+                line: 0,
+                column: 0,
+                code: "TSGO_MISSING",
+                message: resolution.message,
+              },
+            ],
+            status: "fail",
+            workspaces: [],
+            validatedWorkspace: rootDir,
+            checkerVersion: null,
+            pinnedCheckerVersion: readPinnedTsgoVersion(rootDir),
+          };
+        }
+        const binaryPath = resolution.binaryPath;
+        // The pin is read from the directory that actually PROVIDED the binary, not from the
+        // target — a workspace like `services/reviewer` declares no checker of its own and
+        // uses the hoisted root install, so reading its package.json would report "no pin"
+        // for a checker that is very much pinned.
+        const installRoot = resolution.installRoot;
+
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
 
@@ -595,21 +687,23 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           // Single-workspace mode (backward compatible). `rootDir` (now guaranteed
           // absolute, see above) already IS the target workspace directory itself — no
           // `-p` needed, tsgo picks up that directory's own tsconfig.json, mirroring the
-          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".")`)
+          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".", binaryPath)`)
           // below.
           checked.push(explicitWorkspace);
-          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace)));
+          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace, binaryPath)));
         } else {
           // Multi-workspace mode: root tsconfig + every workspace with its own `typecheck`
           // script. When task/sessionId was given, rootDir is the session workspace; otherwise
           // it is process.cwd() (the main repo).
           checked.push(".");
-          errors.push(...(await runTypecheckTarget(rootDir, ".")));
+          errors.push(...(await runTypecheckTarget(rootDir, ".", binaryPath)));
 
           const workspaces = await discoverTypecheckWorkspaces(rootDir);
           for (const ws of workspaces) {
             checked.push(ws);
-            errors.push(...(await runTypecheckTarget(rootDir, ws, `${ws}/tsconfig.json`)));
+            errors.push(
+              ...(await runTypecheckTarget(rootDir, ws, binaryPath, `${ws}/tsconfig.json`))
+            );
           }
 
           // src/cockpit/web (mt#2424) is a dedicated typecheck project but NOT a
@@ -626,6 +720,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
               ...(await runTypecheckTarget(
                 rootDir,
                 COCKPIT_WEB_TSCONFIG_REL,
+                binaryPath,
                 `${COCKPIT_WEB_TSCONFIG_REL}/tsconfig.json`
               ))
             );
@@ -650,7 +745,9 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
             if (alreadyCheckedProjects.has(projectPath)) continue;
             alreadyCheckedProjects.add(projectPath);
             checked.push(projectPath);
-            errors.push(...(await runTypecheckTarget(rootDir, projectPath, projectPath)));
+            errors.push(
+              ...(await runTypecheckTarget(rootDir, projectPath, binaryPath, projectPath))
+            );
           }
         }
 
@@ -663,6 +760,8 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           status,
           workspaces: checked,
           validatedWorkspace: rootDir,
+          checkerVersion: await readTsgoVersion(binaryPath),
+          pinnedCheckerVersion: readPinnedTsgoVersion(installRoot),
         };
       },
     })

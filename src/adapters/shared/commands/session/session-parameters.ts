@@ -865,7 +865,12 @@ export const sessionPrWaitForReviewCommandParams = {
       "When true (default), only a review whose commit SHA matches the PR's current HEAD " +
       "counts as a match, so a stale review of a superseded commit no longer resolves a " +
       "re-review wait (mt#2586). Set false to accept any review regardless of commit " +
-      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
+      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. " +
+      "NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself " +
+      "mean the returned review is the reviewer's STANDING VERDICT. Several reviews from " +
+      "one reviewer can sit on the same HEAD, in which case this filter admits all of " +
+      "them; the tool separately resolves the reviewer's latest decision-bearing review " +
+      "and returns that, whatever its state.",
     required: false,
     defaultValue: true,
   },
