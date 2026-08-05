@@ -384,6 +384,35 @@ export function __resetGitBinaryCacheForTests(): void {
 }
 
 /**
+ * Resolve the pinned TypeScript checker for a project root (mt#3657).
+ *
+ * Returns the local `node_modules/.bin/tsgo` when it exists, else null. There is deliberately
+ * NO `bunx @typescript/native-preview` fallback: that command does not run the pinned
+ * dependency — the package's bin is `tsgo`, so bunx's package-name lookup misses and it
+ * fetches `@latest` into a temp dir instead. Measured 2026-08-04: pinned
+ * `7.0.0-dev.20260419.1` vs bunx's `7.0.0-dev.20260707.2`, three months apart, and the
+ * download racing the check in one invocation is what produced the SIGKILLs.
+ *
+ * Null means the caller should SKIP rather than substitute — these hooks are informational,
+ * so a missing install must not become a wall of phantom errors about the operator's code.
+ *
+ * Mirrors {@link resolveGitBinary}'s shape (resolution + injectable existence check). The
+ * src-side sibling is `src/utils/tsgo-binary.ts`; the two are stated separately because hook
+ * files cannot import from `src/`.
+ */
+export function resolveTsgoBinary(
+  projectRoot: string,
+  existsSyncFn: (path: string) => boolean = existsSync
+): string | null {
+  const candidate = `${projectRoot}/node_modules/.bin/tsgo`;
+  try {
+    return existsSyncFn(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Substitute `cmd[0]` with the resolved absolute git path when the command
  * invokes `git` by bare name. No-op for any other command (e.g. `gh`).
  */
@@ -604,6 +633,58 @@ export function readPositiveIntEnv(
   return parsed;
 }
 
+/**
+ * Resolve a preference-class threshold across all three sources (mt#3581).
+ *
+ * Precedence, highest first:
+ *
+ *   1. **An explicit `MINSKY_*` env var.** A human typed a number; an
+ *      automatic tune must never silently overrule that. This is the one
+ *      ordering choice in the chain that is a real decision rather than a
+ *      consequence — the alternative (tuned value wins) would make an
+ *      operator's explicit setting quietly stop working, with no surface
+ *      that says so.
+ *   2. **A locally-tuned value** from `guard-tuning-store.ts` — applied
+ *      either by consent or by the customer's own preference expression.
+ *   3. **The shipped default** compiled into the guard.
+ *
+ * The tuned value is bounds-checked on the way OUT as well as on the way in:
+ * the store only accepts positive integers, and this re-applies the same
+ * {@link PREFERENCE_OVERRIDE_MAX_MULTIPLE} ceiling the env path enforces, so
+ * a store hand-edited past the bound degrades to the default rather than
+ * taking effect. Trusting the writer would make the ceiling advisory.
+ *
+ * Reads are fail-open by way of the store's own posture: an unreadable or
+ * malformed store yields no tuned value, and the guard runs on its default.
+ */
+export function readTunedThreshold(
+  envVarName: string,
+  defaultValue: number,
+  deps: {
+    env?: Record<string, string | undefined>;
+    readTunedValueFn?: (thresholdKey: string) => number | undefined;
+  } = {}
+): number {
+  const env = deps.env ?? process.env;
+
+  const raw = env[envVarName];
+  if (raw !== undefined && raw.trim() !== "") {
+    return readPositiveIntEnv(envVarName, defaultValue, env);
+  }
+
+  const tuned = deps.readTunedValueFn?.(envVarName);
+  if (
+    tuned !== undefined &&
+    Number.isInteger(tuned) &&
+    tuned > 0 &&
+    tuned <= defaultValue * PREFERENCE_OVERRIDE_MAX_MULTIPLE
+  ) {
+    return tuned;
+  }
+
+  return defaultValue;
+}
+
 // ---------------------------------------------------------------------------
 // hook.fired system-event bridge (mt#2537)
 // ---------------------------------------------------------------------------
@@ -616,10 +697,14 @@ export function readPositiveIntEnv(
 //
 // Scope: only `decision: "blocked"` (a `permissionDecision: "deny"`) is
 // covered in v1. "overridden" decisions (MINSKY_FORCE_*/MINSKY_SKIP_* env-var
-// bypasses) are logged by each hook as its own free-text audit line to stdout
-// (e.g. "[parallel-work-guard] override active: ...") — there is no shared
-// choke point for those the way there is for `writeOutput`'s JSON contract,
-// and retrofitting every override call site would violate the
+// bypasses) are surfaced by each guard as its own free-text audit line on
+// `GuardOutcome.auditLines` (e.g. "[block-secret-file-read] OVERRIDE: ..."),
+// which the dispatcher writes to STDERR (dispatcher.ts's `stderrWrite` loop).
+// A guard must never write to stdout: Claude Code discards a hook's ENTIRE
+// output when stdout carries anything besides the single JSON object, which
+// silently voids even a different guard's `deny` (mt#3625). There is still no
+// shared choke point for override lines the way there is for `writeOutput`'s
+// JSON contract, and retrofitting every override call site would violate the
 // touch-few-hooks design preference. Deferred; see mt#2537 PR body.
 //
 // Invocation path: fire-and-forget, detached `minsky events emit hook.fired`

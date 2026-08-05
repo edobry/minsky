@@ -57,6 +57,14 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       pastThreshold: false,
       newRecords: [],
       watermarkCount: 0,
+      // mt#3610: every result carries a classifiability verdict. These fixtures
+      // exercise the review-due legs, which don't consult it, so the empty-log
+      // verdict is the honest default — a fixture with no records.
+      classifiability: {
+        verdict: "no-records" as const,
+        evidenceFields: [],
+        recordsAssessed: 0,
+      },
       ...overrides,
     };
     return {

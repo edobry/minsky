@@ -27,6 +27,7 @@ import { existsSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { registerValidateCommands } from "../src/adapters/shared/commands/validate";
 import { sharedCommandRegistry } from "../src/adapters/shared/command-registry";
+import { resolveTsgoBinary } from "../src/utils/tsgo-binary";
 
 const ROOT = process.cwd();
 const PROBE_REL = "services/reviewer/src/__mt2256_probe.ts";
@@ -80,11 +81,16 @@ async function main(): Promise<void> {
     console.log("SKIP: services/reviewer/tsconfig.json not found (not the minsky repo root?)");
     process.exit(0);
   }
-  // Gate on the SAME package the runner invokes (`bunx @typescript/native-preview`), not a
-  // `tsgo` binary path — otherwise a layout where bunx resolves the package without a
-  // preinstalled `.bin/tsgo` would falsely SKIP and mask a regression.
-  if (!existsSync(join(ROOT, "node_modules/@typescript/native-preview"))) {
-    console.log("SKIP: @typescript/native-preview not installed (run `bun install` first)");
+  // Gate on exactly what the runner resolves. This used to gate on the PACKAGE directory,
+  // deliberately, because the runner invoked `bunx @typescript/native-preview` and a layout
+  // where bunx resolved the package without a preinstalled `.bin/tsgo` would have falsely
+  // SKIPped. mt#3657 inverted that: the runner now spawns `node_modules/.bin/tsgo` and never
+  // consults bunx, so gating on the package directory is the shape that would falsely
+  // proceed — the smoke would fail on a missing binary instead of skipping on a missing
+  // install. Sharing the runner's own resolver keeps the two from drifting apart again.
+  const checker = resolveTsgoBinary(ROOT);
+  if (checker.kind === "missing") {
+    console.log(`SKIP: ${checker.message}`);
     process.exit(0);
   }
 
@@ -103,6 +109,8 @@ async function main(): Promise<void> {
     errorCount: number;
     errors: Array<{ workspace: string; file: string; code: string }>;
     workspaces: string[];
+    checkerVersion: string | null;
+    pinnedCheckerVersion: string | null;
   }> => {
     const params = workspace ? { workspace } : {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -224,7 +232,52 @@ async function main(): Promise<void> {
   }
 
   cleanup();
-  console.log("PASS: AT-1, AT-2, AT-3 and the mt#3183 standalone-project coverage all verified.");
+
+  // --- mt#3657: the checker is pinned, reported, and deterministic across runs ---
+  //
+  // These three assertions are the spec's own acceptance tests. They belong here rather than
+  // in a unit test because each is a claim about the REAL install: which binary got spawned,
+  // what version it reports, and whether two consecutive runs of the actual command agree.
+  const runA = await run();
+  const runB = await run();
+
+  console.log(
+    `mt#3657 checker: ran=${runA.checkerVersion} pinned=${runA.pinnedCheckerVersion} ` +
+      `(second run: ran=${runB.checkerVersion})`
+  );
+
+  if (!runA.checkerVersion) {
+    fail("mt#3657: the result did not report the checker version that ran");
+  }
+  if (!runA.pinnedCheckerVersion) {
+    fail("mt#3657: the result did not report the pinned checker version");
+  }
+  // THE invariant. For three months this was false and nothing said so: `bunx` fetched
+  // `@latest` while package.json declared a version months older.
+  if (runA.checkerVersion !== runA.pinnedCheckerVersion) {
+    fail(
+      `mt#3657: the checker that RAN (${runA.checkerVersion}) is not the one this repo PINS ` +
+        `(${runA.pinnedCheckerVersion}) — the drift this task exists to remove`
+    );
+  }
+  // Two consecutive runs on an unchanged tree must agree, including on the projects checked.
+  // The `bunx` path could not promise this: each invocation re-resolved `@latest` on its own.
+  if (
+    runA.errorCount !== runB.errorCount ||
+    JSON.stringify(runA.workspaces) !== JSON.stringify(runB.workspaces) ||
+    runA.checkerVersion !== runB.checkerVersion
+  ) {
+    fail(
+      `mt#3657: two runs on an unchanged tree disagreed — ` +
+        `A=${JSON.stringify({ e: runA.errorCount, w: runA.workspaces, v: runA.checkerVersion })} ` +
+        `B=${JSON.stringify({ e: runB.errorCount, w: runB.workspaces, v: runB.checkerVersion })}`
+    );
+  }
+
+  console.log(
+    "PASS: AT-1, AT-2, AT-3, the mt#3183 standalone-project coverage, and mt#3657's " +
+      "pinned/reported/deterministic checker all verified."
+  );
   process.exit(0);
 }
 

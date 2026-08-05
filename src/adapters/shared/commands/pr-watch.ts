@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import {
   DrizzlePrWatchRepository,
   type PrWatchRepository,
@@ -278,7 +279,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         const prWatchRepository = await buildPrWatchRepository(container);
         if (!prWatchRepository) {
           throw new Error(
-            "pr.watch.create: PrWatchRepository unavailable — persistence provider does not support SQL"
+            `pr.watch.create: PrWatchRepository unavailable — ${await describeContainerPersistenceUnavailability(container, "pr-watch")}`
           );
         }
 
@@ -334,7 +335,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         const prWatchRepository = await buildPrWatchRepository(container);
         if (!prWatchRepository) {
           throw new Error(
-            "pr.watch.list: PrWatchRepository unavailable — persistence provider does not support SQL"
+            `pr.watch.list: PrWatchRepository unavailable — ${await describeContainerPersistenceUnavailability(container, "pr-watch")}`
           );
         }
 
@@ -363,7 +364,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         const prWatchRepository = await buildPrWatchRepository(container);
         if (!prWatchRepository) {
           throw new Error(
-            "pr.watch.cancel: PrWatchRepository unavailable — persistence provider does not support SQL"
+            `pr.watch.cancel: PrWatchRepository unavailable — ${await describeContainerPersistenceUnavailability(container, "pr-watch")}`
           );
         }
 
@@ -391,7 +392,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         const prWatchRepository = await buildPrWatchRepository(container);
         if (!prWatchRepository) {
           throw new Error(
-            "pr.watch.run: PrWatchRepository unavailable — persistence provider does not support SQL"
+            `pr.watch.run: PrWatchRepository unavailable — ${await describeContainerPersistenceUnavailability(container, "pr-watch")}`
           );
         }
 

@@ -9,6 +9,10 @@
 
 import { describe, test, expect } from "bun:test";
 import { TsyringeContainer } from "./container";
+// Imported for the drift guard only (PR #2603 R1): container.ts detects a
+// degraded substitute STRUCTURALLY and deliberately does not import this class,
+// so these tests are what pin the two definitions together.
+import { UnconfiguredPersistenceProvider } from "../persistence/unconfigured-provider";
 
 function bootDeferrableError(message: string): Error {
   const err = new Error(message) as Error & { bootDeferrable: boolean };
@@ -221,6 +225,286 @@ describe("TsyringeContainer boot-tolerant deferral (mt#2349)", () => {
 
       expect(factoryCalls).toBe(1);
       expect(c.get("neverRetryAgain" as never)).toBe("manual-override" as never);
+    });
+  });
+
+  // mt#3635 / ADR-035 rule 1: the self-heal above only ever fired for a factory
+  // that THREW. A composition root that CONVERTS a failed initialization into a
+  // substitute value resolves "successfully", so its key was never enrolled —
+  // which is why the persistence provider stayed degraded for the life of the
+  // process while this very mechanism sat unreachable one branch away.
+  describe("retry for a substitute that was RETURNED, not thrown (mt#3635)", () => {
+    /** The value a recovered factory returns; stands in for a live provider. */
+    const HEALTHY = "healthy-provider";
+
+    /** Minimal structural stand-in for UnconfiguredPersistenceProvider. */
+    function makeSubstitute(degraded = true): {
+      degradedSubstitute: boolean;
+      attempts: Array<{ at: Date; error: string }>;
+      noteRetryAttempt(at: Date, error: string): void;
+    } {
+      const attempts: Array<{ at: Date; error: string }> = [];
+      return {
+        degradedSubstitute: degraded,
+        attempts,
+        noteRetryAttempt(at: Date, error: string) {
+          attempts.push({ at, error });
+        },
+      };
+    }
+
+    /** Let the fire-and-forget retry / re-resolution promises settle. */
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 6; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    test("a factory that RETURNS a degraded substitute is retried and recovers", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      const substitute = makeSubstitute();
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return (calls === 1 ? substitute : HEALTHY) as never;
+      });
+
+      await c.initialize();
+
+      // initialize() kept the substitute REGISTERED (not swapped for the
+      // throws-on-access placeholder) so diagnostic surfaces keep answering.
+      expect(calls).toBe(1);
+      expect(c.get("persistence" as never)).toBe(substitute as never);
+
+      await settle();
+
+      expect(c.get("persistence" as never)).toBe(HEALTHY as never);
+    });
+
+    test("a substitute marked degradedSubstitute:false is NOT enrolled for retry", async () => {
+      // The deliberately-unconfigured local/dev boot path (ADR-035 rule 3):
+      // nothing has failed, so retrying would churn forever on a laptop with
+      // no database.
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return makeSubstitute(false) as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never);
+      c.get("persistence" as never);
+      await settle();
+
+      expect(calls).toBe(1);
+    });
+
+    test("repeated get() calls do not retry faster than the backoff floor", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return makeSubstitute() as never;
+      });
+
+      await c.initialize();
+      expect(calls).toBe(1);
+
+      // First get() is eligible (no attempt has run yet) and consumes the slot.
+      c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(2);
+
+      // Every further get() in the same instant is inside the floor. Without
+      // the gate this loop would issue 25 more re-init attempts.
+      for (let i = 0; i < 25; i += 1) c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(2);
+    });
+
+    test("a retry that returns another degraded substitute records the attempt", async () => {
+      const c = new TsyringeContainer();
+      const first = makeSubstitute();
+      const second = makeSubstitute();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return (calls === 1 ? first : second) as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never);
+      await settle();
+
+      // The attempt is recorded so `persistence_check` and `/health` can tell
+      // "stuck since boot" from "retried and still failing" (ADR-035 rule 4).
+      expect(second.attempts.length).toBe(1);
+      expect(c.get("persistence" as never)).toBe(second as never);
+    });
+
+    test("dependents registered after the recovered key are rebuilt", async () => {
+      // The criterion this test exists for: initialize() memoizes every key with
+      // useValue, so a dependent that captured the degraded substitute keeps
+      // serving it forever. Swapping only the provider restores nothing.
+      const c = new TsyringeContainer();
+      let persistenceCalls = 0;
+      const substitute = makeSubstitute();
+      c.register("persistence" as never, () => {
+        persistenceCalls += 1;
+        return (persistenceCalls === 1 ? substitute : HEALTHY) as never;
+      });
+      c.register("taskService" as never, (inner) => {
+        const provider = inner.get("persistence" as never) as unknown;
+        return {
+          backends: provider === (HEALTHY as unknown) ? ["mt"] : [],
+        } as never;
+      });
+
+      await c.initialize();
+
+      // Built against the degraded provider: no backends, the shape that makes
+      // an existing task read as "not found".
+      expect((c.get("taskService" as never) as { backends: string[] }).backends).toEqual([]);
+
+      c.get("persistence" as never);
+      await settle();
+
+      expect((c.get("taskService" as never) as { backends: string[] }).backends).toEqual(["mt"]);
+    });
+
+    // PR #2603 R1, BLOCKING: both the retry and the dependent rebuild register
+    // an instance AFTER awaiting a factory, and neither coordinated with
+    // teardown — a task that settled after close() would re-register onto a
+    // container whose tsyringe had already been reset.
+    test("close() during an in-flight rebuild does not resurrect a dependent", async () => {
+      const c = new TsyringeContainer();
+      let persistenceCalls = 0;
+      c.register("persistence" as never, () => {
+        persistenceCalls += 1;
+        return (persistenceCalls === 1 ? makeSubstitute() : HEALTHY) as never;
+      });
+      // Rebuilt only via the post-recovery path, and slowly enough that close()
+      // lands while its factory is still awaiting.
+      let dependentBuilds = 0;
+      c.register("taskService" as never, async () => {
+        dependentBuilds += 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return `built-${dependentBuilds}` as never;
+      });
+
+      await c.initialize();
+      expect(dependentBuilds).toBe(1);
+
+      c.get("persistence" as never);
+      // Close while the recovery-triggered rebuild is mid-flight.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await c.close();
+      await settle();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // The rebuild ran, but its result must NOT have been registered onto the
+      // torn-down container.
+      expect(c.has("taskService" as never)).toBe(false);
+    });
+
+    // PR #2603 R1: the in-flight claim is now taken BEFORE the backoff gate, so
+    // the gate's early return has to release it. Holding it would wedge the key
+    // in-flight forever and stop it retrying at all — a worse failure than the
+    // storm the gate prevents.
+    test("a backoff-blocked attempt releases the in-flight claim", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return makeSubstitute() as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never); // consumes the first slot
+      await settle();
+      expect(calls).toBe(2);
+
+      // Blocked by the floor — must not leave the key claimed.
+      c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(2);
+
+      // With the claim leaked, this attempt could never run again even once the
+      // floor elapsed. Simulate the floor elapsing rather than sleeping 10s.
+      const state = (
+        c as unknown as {
+          retryState: Map<string, { lastAttemptAtMs: number | null; delayMs: number }>;
+        }
+      ).retryState.get("persistence");
+      expect(state).toBeDefined();
+      // Epoch 0 is unambiguously outside any backoff window, so the gate lets
+      // the next attempt through — no wall-clock arithmetic needed.
+      if (state) state.lastAttemptAtMs = 0;
+
+      c.get("persistence" as never);
+      await settle();
+      expect(calls).toBe(3);
+    });
+
+    // PR #2603 R1, NON-BLOCKING: container.ts checks the degraded-substitute
+    // shape structurally rather than importing the persistence class, so the
+    // two definitions could drift apart silently. Pin the real class against
+    // the container's guard so a rename on either side fails here.
+    test("the container enrolls a REAL UnconfiguredPersistenceProvider", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return (
+          calls === 1 ? new UnconfiguredPersistenceProvider("getaddrinfo ENOTFOUND", true) : HEALTHY
+        ) as never;
+      });
+
+      await c.initialize();
+      expect(calls).toBe(1);
+
+      // The get() is what arms the retry — settling alone would prove nothing.
+      c.get("persistence" as never);
+      await settle();
+
+      expect(c.get("persistence" as never)).toBe(HEALTHY as never);
+    });
+
+    // The mirror of the above: the deliberately-unconfigured provider carries
+    // the same class but must NOT be enrolled (ADR-035 rule 3).
+    test("a REAL unconfigured (not failed) provider is not enrolled", async () => {
+      const c = new TsyringeContainer();
+      let calls = 0;
+      c.register("persistence" as never, () => {
+        calls += 1;
+        return new UnconfiguredPersistenceProvider("no connection string", false) as never;
+      });
+
+      await c.initialize();
+      c.get("persistence" as never);
+      c.get("persistence" as never);
+      await settle();
+
+      expect(calls).toBe(1);
+    });
+
+    test("a manually overridden dependent is not clobbered by the rebuild", async () => {
+      const c = new TsyringeContainer();
+      let persistenceCalls = 0;
+      c.register("persistence" as never, () => {
+        persistenceCalls += 1;
+        return (persistenceCalls === 1 ? makeSubstitute() : HEALTHY) as never;
+      });
+      c.register("taskService" as never, () => "factory-built" as never);
+
+      await c.initialize();
+      c.set("taskService" as never, "manual-override" as never);
+
+      c.get("persistence" as never);
+      await settle();
+
+      expect(c.get("taskService" as never)).toBe("manual-override" as never);
     });
   });
 });

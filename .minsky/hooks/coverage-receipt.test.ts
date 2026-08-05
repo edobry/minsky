@@ -16,6 +16,7 @@ import {
   summarizeCoverage,
   formatCoverageResult,
   countInvocationsPerLog,
+  resolveDetectorsToCheck,
   DEFAULT_COVERAGE_WINDOW_DAYS,
   type CoverageCalibrationEntry,
   type CoverageFsDeps,
@@ -417,5 +418,64 @@ describe("countInvocationsPerLog (mt#3519)", () => {
     );
     expect(evidence.get("declared-log")).toEqual({ count: 0, lastAt: null });
     expect(evidence.has("some-other-guard")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDetectorsToCheck (mt#3742)
+//
+// The defect this closes: enumerating detectors from the on-disk calibration
+// logs alone cannot see a DECLARED detector that has never fired, because a
+// never-fired detector writes no file. Observed live 2026-08-05 — the sweep
+// reported `Checked: 19 ... PASS` while `stop-at-decision` and
+// `build-claim-injection`, both declared, appeared nowhere in its output.
+// ---------------------------------------------------------------------------
+
+describe("resolveDetectorsToCheck (mt#3742)", () => {
+  // The two real detectors the live 2026-08-05 sweep could not see, plus one
+  // that is only ever on disk — named once so the cases below read as the
+  // scenarios they are rather than as repeated literals.
+  const DECLARED_NEVER_FIRED = "stop-at-decision";
+  const ON_DISK_UNDECLARED = "ask-form-lint";
+
+  test("includes a declared detector that has written no log", () => {
+    const result = resolveDetectorsToCheck([DECLARED_NEVER_FIRED], []);
+    expect(result).toEqual([DECLARED_NEVER_FIRED]);
+  });
+
+  test("includes an on-disk log that no guard declares", () => {
+    // The inverse direction, owned by mt#3716 — this function must not drop it.
+    const result = resolveDetectorsToCheck([], [ON_DISK_UNDECLARED]);
+    expect(result).toEqual([ON_DISK_UNDECLARED]);
+  });
+
+  test("unions both sources without duplicating the overlap", () => {
+    const declared = ["wall-of-text", DECLARED_NEVER_FIRED, "pre-narration"];
+    const onDisk = ["wall-of-text", "pre-narration", ON_DISK_UNDECLARED];
+    expect(resolveDetectorsToCheck(declared, onDisk)).toEqual([
+      ON_DISK_UNDECLARED,
+      "pre-narration",
+      DECLARED_NEVER_FIRED,
+      "wall-of-text",
+    ]);
+  });
+
+  test("sorts, so report order does not depend on which source a name came from", () => {
+    expect(resolveDetectorsToCheck(["zulu", "alpha"], ["mike"])).toEqual(["alpha", "mike", "zulu"]);
+  });
+
+  test("accepts a Map's keys iterator, which is what the caller passes", () => {
+    const logToGuards = new Map([
+      [DECLARED_NEVER_FIRED, ["stop-at-decision-scan"]],
+      ["wall-of-text", ["wall-of-text-scan"]],
+    ]);
+    expect(resolveDetectorsToCheck(logToGuards.keys(), [])).toEqual([
+      DECLARED_NEVER_FIRED,
+      "wall-of-text",
+    ]);
+  });
+
+  test("returns empty only when both sources are empty", () => {
+    expect(resolveDetectorsToCheck([], [])).toEqual([]);
   });
 });

@@ -10,7 +10,52 @@
  * by `../task-title-cache.test.ts`'s `getTaskMeta` suite.
  */
 import { describe, test, expect } from "bun:test";
-import { parseTaskMetaIds, selectLiveDrivenSession } from "./tasks";
+import { collectReferencedTaskIds, parseTaskMetaIds, selectLiveDrivenSession } from "./tasks";
+
+describe("collectReferencedTaskIds", () => {
+  const ok = <T>(value: T): PromiseSettledResult<T> => ({ status: "fulfilled", value });
+  const failed = <T>(): PromiseSettledResult<T> => ({
+    status: "rejected",
+    reason: new Error("graph read failed"),
+  });
+  const none = ok<readonly string[] | undefined>(undefined);
+
+  test("collects parent, children, outgoing and incoming ids", () => {
+    expect(collectReferencedTaskIds(ok("mt#1"), ok(["mt#2"]), ok(["mt#3"]), ok(["mt#4"]))).toEqual([
+      "mt#1",
+      "mt#2",
+      "mt#3",
+      "mt#4",
+    ]);
+  });
+
+  test("deduplicates an id reachable by more than one edge", () => {
+    // A task can be both a dependency and a child; the batch fetch must not
+    // request it twice.
+    expect(collectReferencedTaskIds(ok("mt#1"), ok(["mt#1", "mt#2"]), ok(["mt#2"]), none)).toEqual([
+      "mt#1",
+      "mt#2",
+    ]);
+  });
+
+  test("returns an empty list for a task with no neighbors", () => {
+    expect(collectReferencedTaskIds(ok(null), none, none, none)).toEqual([]);
+  });
+
+  test("skips a rejected edge instead of failing the whole collection", () => {
+    // One graph read failing must degrade that edge to "no neighbors" — the
+    // detail page still renders, minus that section.
+    expect(collectReferencedTaskIds(failed(), ok(["mt#2"]), failed(), ok(["mt#4"]))).toEqual([
+      "mt#2",
+      "mt#4",
+    ]);
+  });
+
+  test("treats a null or undefined parent as absent", () => {
+    expect(collectReferencedTaskIds(ok(undefined), ok(["mt#2"]), none, none)).toEqual(["mt#2"]);
+    expect(collectReferencedTaskIds(ok(null), ok(["mt#2"]), none, none)).toEqual(["mt#2"]);
+  });
+});
 
 describe("parseTaskMetaIds", () => {
   test("splits a comma-separated ids param", () => {

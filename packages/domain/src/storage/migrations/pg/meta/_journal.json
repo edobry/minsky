@@ -617,6 +617,20 @@
       "when": 1785789775678,
       "tag": "0087_fine_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1785875966537,
+      "tag": "0088_curved_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1785881813739,
+      "tag": "0089_productive_infant_terrible",
+      "breakpoints": true
     }
   ]
 }

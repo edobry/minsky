@@ -129,8 +129,21 @@ export interface ReviewUsage {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
-  /** Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721. */
-  cachedTokens?: number;
+  /**
+   * Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721.
+   *
+   * REQUIRED, unlike its siblings (mt#3665). Cached input is billed at 0.1x, so
+   * an omitted count is not a harmless gap — `computeCostUsd` has to price the
+   * whole prompt at the full rate, overstating the call ~4x. While this was
+   * optional, `buildChunkedReview` silently omitted it for 25 days and roughly
+   * half of all recorded reviewer spend was attributed to calls priced as
+   * 0%-cached whose non-chunked neighbours ran 77-92% cached.
+   *
+   * A provider with no prompt caching sets 0 — that is a real observation and
+   * prices correctly. Requiredness is what makes the distinction between "no
+   * cache" and "forgot to thread it" a compile error rather than a billing one.
+   */
+  cachedTokens: number;
   totalTokens?: number;
 }
 
@@ -1020,7 +1033,10 @@ export async function callOpenAIWithClient(
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
-        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
+        // `?? 0` (mt#3665): an absent prompt_tokens_details means the response
+        // reported no cache read, which is 0 cached — not "unknown". Without it
+        // this path was the one OpenAI site that could emit undefined.
+        cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
         totalTokens: usage?.total_tokens,
       },
       provider: "openai",
@@ -1659,6 +1675,10 @@ async function callGoogle(
     usage: {
       promptTokens: usage?.promptTokenCount,
       completionTokens: usage?.candidatesTokenCount,
+      // mt#3665: the reviewer wires no prompt caching on the Google path, so 0
+      // is the real observation, not a placeholder. If implicit/explicit Gemini
+      // caching is ever enabled here, read usageMetadata.cachedContentTokenCount.
+      cachedTokens: 0,
       totalTokens: usage?.totalTokenCount,
     },
     provider: "google",
@@ -1713,6 +1733,11 @@ async function callAnthropic(
     usage: {
       promptTokens: response.usage.input_tokens,
       completionTokens: response.usage.output_tokens,
+      // mt#3665, carrying mt#2721's decision forward: the reviewer's Anthropic
+      // path sends no cache_control breakpoints, so nothing is cached and 0 is
+      // the real observation. The installed SDK's usage type does not expose
+      // cache_read_input_tokens; read it here if caching is ever enabled.
+      cachedTokens: 0,
       totalTokens,
     },
     provider: "anthropic",

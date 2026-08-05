@@ -8,7 +8,7 @@
 # builds the SPA; the second stage installs production deps only and copies
 # the pre-built SPA assets.
 
-FROM oven/bun:1.2-slim AS builder
+FROM oven/bun:1.3-slim AS builder
 
 WORKDIR /app
 
@@ -61,7 +61,7 @@ RUN bunx vite build --config vite.config.ts
 
 # ---------------------------------------------------------------------------
 
-FROM oven/bun:1.2-slim AS runtime
+FROM oven/bun:1.3-slim AS runtime
 
 WORKDIR /app
 

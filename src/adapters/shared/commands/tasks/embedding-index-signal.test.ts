@@ -9,102 +9,130 @@
  * event anywhere.
  *
  * Both files under test had NO test file before this one.
+ *
+ * mt#3629 / mt#3565 §Reframe: the degraded-path signal decisions are pure
+ * functions (`classify*` below), asserted directly by return value. The
+ * behavioral tests that follow use an injected `warn` collector instead of a
+ * `log.warn` spy to verify the shell forwards them.
  */
-import { describe, test, expect, spyOn, afterEach } from "bun:test";
-import { log } from "@minsky/shared/logger";
-import { autoIndexTaskEmbedding, type AutoIndexDeps } from "./auto-index-embedding";
-import { triggerStartupEmbeddingSweep } from "./startup-embedding-sweep";
+import { describe, test, expect } from "bun:test";
+import {
+  autoIndexTaskEmbedding,
+  classifyAutoIndexFailure,
+  type AutoIndexDeps,
+} from "./auto-index-embedding";
+import {
+  triggerStartupEmbeddingSweep,
+  classifyNoSqlCapability,
+  classifyNoRawConnection,
+  classifyQuotaExhausted,
+  classifyTaskIndexFailed,
+  classifyResidualMeasurementFailed,
+  classifySweepFinish,
+} from "./startup-embedding-sweep";
 
 /** Let the floating async IIFE inside autoIndexTaskEmbedding settle. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const spies: Array<{ mockRestore: () => void }> = [];
-function captureWarn() {
-  const spy = spyOn(log, "warn").mockImplementation(() => {});
-  spies.push(spy);
-  return spy;
-}
-function captureDebug() {
-  const spy = spyOn(log, "debug").mockImplementation(() => {});
-  spies.push(spy);
-  return spy;
+// Shared fixture strings — extracted to satisfy `custom/no-magic-string-duplication`.
+const EMBEDDING_PROVIDER_UNAVAILABLE = "embedding provider unavailable";
+const NETWORK_UNREACHABLE = "network unreachable";
+
+/** Collects (message, context) pairs from an injected warn sink. */
+function collectingWarn() {
+  const calls: Array<{ message: string; context?: Record<string, unknown> }> = [];
+  const warn = (message: string, context?: Record<string, unknown>) => {
+    calls.push({ message, context });
+  };
+  return { warn, calls };
 }
 
-afterEach(() => {
-  while (spies.length > 0) spies.pop()?.mockRestore();
+// ---------------------------------------------------------------------------
+// Pure-core tests: classifyAutoIndexFailure
+// ---------------------------------------------------------------------------
+
+describe("classifyAutoIndexFailure (pure core)", () => {
+  test("names the task id in both the message and the context", () => {
+    const signal = classifyAutoIndexFailure("mt#3459", new Error(EMBEDDING_PROVIDER_UNAVAILABLE));
+    expect(signal.message).toContain("mt#3459");
+    expect(signal.context).toEqual({ taskId: "mt#3459", error: EMBEDDING_PROVIDER_UNAVAILABLE });
+  });
+
+  test("coerces a non-Error throw to a string", () => {
+    const signal = classifyAutoIndexFailure("mt#1", "boom");
+    expect(signal.context.error).toBe("boom");
+  });
 });
 
 // ---------------------------------------------------------------------------
 // On-write path
 // ---------------------------------------------------------------------------
 
-function autoIndexDeps(indexTask: (id: string) => Promise<boolean>, autoIndex = true) {
+function autoIndexDeps(
+  indexTask: (id: string) => Promise<boolean>,
+  autoIndex = true,
+  warn?: AutoIndexDeps["warn"]
+) {
   return {
     getConfiguration: () => ({ embeddings: { autoIndex } }),
     createTaskSimilarityService: async () => ({ indexTask }),
     getPersistenceProvider: () => ({}) as never,
     getTaskService: () => ({}) as never,
+    warn,
   } satisfies AutoIndexDeps;
 }
 
 describe("mt#3370 — autoIndexTaskEmbedding reports a failed index", () => {
-  test("warns, and names the task, when indexing throws", async () => {
-    const warn = captureWarn();
-    autoIndexTaskEmbedding("mt#3459", {
-      ...autoIndexDeps(async () => {
-        throw new Error("embedding provider unavailable");
-      }),
-    });
+  test("wiring: warns, and names the task, when indexing throws", async () => {
+    const { warn, calls } = collectingWarn();
+    autoIndexTaskEmbedding(
+      "mt#3459",
+      autoIndexDeps(
+        async () => {
+          throw new Error(EMBEDDING_PROVIDER_UNAVAILABLE);
+        },
+        true,
+        warn
+      )
+    );
     await flush();
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    const [message, context] = warn.mock.calls[0] as [string, Record<string, unknown>];
+    expect(calls).toHaveLength(1);
     // The task id must be recoverable from the log, otherwise the operator
     // learns that "something" failed to index and cannot act on it.
-    expect(message).toContain("mt#3459");
-    expect(context).toMatchObject({ taskId: "mt#3459" });
-    expect(String(context["error"])).toContain("embedding provider unavailable");
-  });
-
-  test("the failure is NOT reported at debug — that is the bug being fixed", async () => {
-    const debug = captureDebug();
-    const warn = captureWarn();
-    autoIndexTaskEmbedding("mt#2861", {
-      ...autoIndexDeps(async () => {
-        throw new Error("boom");
-      }),
-    });
-    await flush();
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    // Before mt#3370 this exact failure produced a debug line and nothing else.
-    const debugMentionsFailure = debug.mock.calls.some((args) =>
-      String(args[0] ?? "").includes("mt#2861")
-    );
-    expect(debugMentionsFailure).toBe(false);
+    expect(calls[0]?.message).toContain("mt#3459");
+    expect(calls[0]?.context).toMatchObject({ taskId: "mt#3459" });
+    expect(String(calls[0]?.context?.["error"])).toContain(EMBEDDING_PROVIDER_UNAVAILABLE);
   });
 
   test("a successful index stays quiet", async () => {
-    const warn = captureWarn();
-    autoIndexTaskEmbedding("mt#1", { ...autoIndexDeps(async () => true) });
+    const { warn, calls } = collectingWarn();
+    autoIndexTaskEmbedding(
+      "mt#1",
+      autoIndexDeps(async () => true, true, warn)
+    );
     await flush();
-    expect(warn).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   test("a deliberate autoIndex opt-out stays quiet", async () => {
-    const warn = captureWarn();
+    const { warn, calls } = collectingWarn();
     autoIndexTaskEmbedding(
       "mt#1",
-      autoIndexDeps(async () => {
-        throw new Error("should never be called");
-      }, false)
+      autoIndexDeps(
+        async () => {
+          throw new Error("should never be called");
+        },
+        false,
+        warn
+      )
     );
     await flush();
-    expect(warn).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   test("never throws into the caller, even when the deps themselves blow up", async () => {
-    const warn = captureWarn();
+    const { warn, calls } = collectingWarn();
     expect(() =>
       autoIndexTaskEmbedding("mt#1", {
         getConfiguration: () => {
@@ -112,15 +140,82 @@ describe("mt#3370 — autoIndexTaskEmbedding reports a failed index", () => {
         },
         getPersistenceProvider: () => ({}) as never,
         getTaskService: () => ({}) as never,
+        warn,
       } satisfies AutoIndexDeps)
     ).not.toThrow();
     await flush();
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Recovery layer
+// Recovery layer — pure-core tests for the sweep's degraded-path signals
+// ---------------------------------------------------------------------------
+
+describe("classifyNoSqlCapability / classifyNoRawConnection / classifyQuotaExhausted (pure cores)", () => {
+  test("each names the mechanism that's unavailable", () => {
+    expect(classifyNoSqlCapability().message).toContain("no SQL capability");
+    expect(classifyNoRawConnection().message).toContain("no raw SQL connection");
+    expect(classifyQuotaExhausted().message).toContain("insufficient_quota");
+  });
+});
+
+describe("classifyTaskIndexFailed (pure core)", () => {
+  test("names the task and carries the error message", () => {
+    const signal = classifyTaskIndexFailed("mt#7", new Error(NETWORK_UNREACHABLE));
+    expect(signal.message).toContain("mt#7");
+    expect(signal.context).toEqual({ error: NETWORK_UNREACHABLE });
+  });
+});
+
+describe("classifyResidualMeasurementFailed (pure core)", () => {
+  test("carries the underlying error", () => {
+    const signal = classifyResidualMeasurementFailed(new Error("driver shape changed"));
+    expect(signal.message).toContain("could not re-measure residual");
+    expect(signal.context).toEqual({ error: "driver shape changed" });
+  });
+});
+
+describe("classifySweepFinish (pure core)", () => {
+  test("a clean run (no failures, no quota stop, nothing still missing) stays quiet", () => {
+    const result = classifySweepFinish({
+      indexed: 2,
+      failed: 0,
+      stillMissing: 0,
+      hitScanLimit: false,
+      quotaExhausted: false,
+    });
+    expect(result).toBeNull();
+  });
+
+  test("reports the MEASURED residual, not initial-minus-indexed", () => {
+    // PR #2473 R1: the caller passes the re-measured `stillMissing`, not an
+    // inferred count — this function just has to report whatever it's given.
+    const result = classifySweepFinish({
+      indexed: 0,
+      failed: 1,
+      stillMissing: 7,
+      hitScanLimit: false,
+      quotaExhausted: false,
+    });
+    expect(result?.message).toContain("still missing 7");
+  });
+
+  test("names the scan limit and the quota stop when both apply", () => {
+    const result = classifySweepFinish({
+      indexed: 1,
+      failed: 0,
+      stillMissing: 19,
+      hitScanLimit: true,
+      quotaExhausted: true,
+    });
+    expect(result?.message).toContain("hit the 50-task scan limit");
+    expect(result?.message).toContain("stopped early on OpenAI quota exhaustion");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recovery layer — wiring tests: the shell forwards the classify* decisions
 // ---------------------------------------------------------------------------
 
 /**
@@ -153,39 +248,49 @@ function provider(opts: {
 
 const sweepDeps = { getConfiguration: () => ({ embeddings: { autoIndex: true } }) };
 
-describe("mt#3370 — the startup sweep reports when it cannot run", () => {
+describe("mt#3370 — the startup sweep reports when it cannot run (wiring)", () => {
   test("warns when the provider has no SQL capability", async () => {
-    const warn = captureWarn();
-    await triggerStartupEmbeddingSweep(provider({ sql: false }), {} as never, sweepDeps);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("no SQL capability");
+    const { warn, calls } = collectingWarn();
+    await triggerStartupEmbeddingSweep(provider({ sql: false }), {} as never, {
+      ...sweepDeps,
+      warn,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.message).toContain("no SQL capability");
   });
 
   test("warns when no raw SQL connection is available", async () => {
-    const warn = captureWarn();
-    await triggerStartupEmbeddingSweep(provider({ rawRows: null }), {} as never, sweepDeps);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("no raw SQL connection");
+    const { warn, calls } = collectingWarn();
+    await triggerStartupEmbeddingSweep(provider({ rawRows: null }), {} as never, {
+      ...sweepDeps,
+      warn,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.message).toContain("no raw SQL connection");
   });
 
   test("a sweep with nothing to do stays quiet", async () => {
-    const warn = captureWarn();
-    await triggerStartupEmbeddingSweep(provider({ rawRows: [] }), {} as never, sweepDeps);
-    expect(warn).not.toHaveBeenCalled();
+    const { warn, calls } = collectingWarn();
+    await triggerStartupEmbeddingSweep(provider({ rawRows: [] }), {} as never, {
+      ...sweepDeps,
+      warn,
+    });
+    expect(calls).toHaveLength(0);
   });
 
   test("a deliberate autoIndex opt-out returns without inspecting the provider", async () => {
-    const warn = captureWarn();
+    const { warn, calls } = collectingWarn();
     // `sql: false` would warn if the gate did not short-circuit first.
     await triggerStartupEmbeddingSweep(provider({ sql: false }), {} as never, {
       getConfiguration: () => ({ embeddings: { autoIndex: false } }),
+      warn,
     });
-    expect(warn).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// PR #2473 R1 — the sweep's own bookkeeping
+// PR #2473 R1 — the sweep's own bookkeeping (wiring)
 // ---------------------------------------------------------------------------
 
 /** A task-service stand-in whose indexTask behavior the test controls. */
@@ -199,10 +304,10 @@ function svcThatThrows(msg: string) {
   };
 }
 
-describe("PR #2473 R1 — quota exhaustion stops every worker, not just one", () => {
+describe("PR #2473 R1 — quota exhaustion stops every worker, not just one (wiring)", () => {
   test("a quota error stops the sweep rather than letting siblings keep calling", async () => {
-    const warn = captureWarn();
-    let calls = 0;
+    const { warn, calls } = collectingWarn();
+    let indexCalls = 0;
     const rows = Array.from({ length: 20 }, (_, n) => ({ id: `mt#${n}` }));
 
     // ONLY the first call reports quota exhaustion; every later call would
@@ -216,10 +321,11 @@ describe("PR #2473 R1 — quota exhaustion stops every worker, not just one", ()
       {} as never,
       {
         ...sweepDeps,
+        warn,
         createTaskSimilarityService: async () => ({
           indexTask: async () => {
-            calls += 1;
-            if (calls === 1) {
+            indexCalls += 1;
+            if (indexCalls === 1) {
               throw new Error("insufficient_quota: you exceeded your current quota");
             }
             return true;
@@ -230,16 +336,16 @@ describe("PR #2473 R1 — quota exhaustion stops every worker, not just one", ()
 
     // Concurrency is 2, so the sibling may already have one call in flight.
     // Without the fix this reaches 20.
-    expect(calls).toBeLessThanOrEqual(2);
-    const messages = warn.mock.calls.map((c) => String(c[0]));
+    expect(indexCalls).toBeLessThanOrEqual(2);
+    const messages = calls.map((c) => c.message);
     expect(messages.some((m) => m.includes("quota exhausted"))).toBe(true);
     expect(messages.some((m) => m.includes("stopped early on OpenAI quota exhaustion"))).toBe(true);
   });
 });
 
-describe("PR #2473 R1 — the residual count is measured, not inferred", () => {
+describe("PR #2473 R1 — the residual count is measured, not inferred (wiring)", () => {
   test("reports the re-measured residual, not initial-minus-indexed", async () => {
-    const warn = captureWarn();
+    const { warn, calls } = collectingWarn();
     const rows = [{ id: "mt#1" }, { id: "mt#2" }];
 
     // Both indexTask calls return FALSE (an up-to-date skip), so `indexed`
@@ -250,29 +356,29 @@ describe("PR #2473 R1 — the residual count is measured, not inferred", () => {
       {} as never,
       {
         ...sweepDeps,
+        warn,
         createTaskSimilarityService: async () => ({ indexTask: async () => false }),
       } as never
     );
 
     // Residual 0 and no failures => nothing to warn about at all.
-    expect(warn).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   test("a real residual is reported, and reports the measured number", async () => {
-    const warn = captureWarn();
+    const { warn, calls } = collectingWarn();
     const rows = [{ id: "mt#1" }];
     await triggerStartupEmbeddingSweep(
       provider({ rawRows: rows, residual: 7 }),
       {} as never,
       {
         ...sweepDeps,
-        ...svcThatThrows("network unreachable"),
+        warn,
+        ...svcThatThrows(NETWORK_UNREACHABLE),
       } as never
     );
 
-    const summary = warn.mock.calls
-      .map((c) => String(c[0]))
-      .find((m) => m.includes("still missing"));
+    const summary = calls.map((c) => c.message).find((m) => m.includes("still missing"));
     expect(summary).toBeDefined();
     // 7 is the measured residual; initial(1) - indexed(0) would have said 1.
     expect(summary).toContain("still missing 7");

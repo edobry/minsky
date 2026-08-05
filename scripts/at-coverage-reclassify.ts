@@ -28,7 +28,12 @@
  * classification reflects the CURRENT spec content, not necessarily the spec as it read at
  * fire time. This is the best available proxy without archived historical spec snapshots.
  *
- * Usage: bun scripts/at-coverage-reclassify.ts [--json]
+ * Usage: bun scripts/at-coverage-reclassify.ts [--json] [--full]
+ *
+ * `--full` (mt#3316) additionally re-runs the EVIDENCE side against each flagged PR's real
+ * body, and (mt#3339) partitions the still-flagged ATs into absent vs present-elsewhere.
+ * Requires network access to fetch PR bodies; without it those pairs report UNDETERMINED
+ * rather than being miscounted as unaddressed.
  * Exit code: always 0 (this is a report, not a pass/fail gate). Env: none required beyond
  * what the `minsky` CLI itself needs (DB connectivity) — see
  * `fetchTaskSpecForAtCoverage` in the hook module for the shell-out contract.
@@ -228,6 +233,15 @@ interface FullPrReclassification {
   /** Flagged ATs STILL unaddressed under the fully fixed pipeline — a real fire, or an FP with a different root cause. Empty when `status !== "ok"` — see `undetermined`. */
   stillUnaddressed: FlaggedAt[];
   /**
+   * mt#3339 (FP-4): the SUBSET of `stillUnaddressed` whose AT number DOES appear somewhere
+   * in the PR body, outside the block the scanner reads — a LOCATION gap rather than a
+   * missing test. This is the partition that makes the still-flagged count interpretable:
+   * without it, "N pairs still flagged" mixes real coverage gaps with evidence the author
+   * did write but filed under a heading the extractor has no notion of. Empty when
+   * `status !== "ok"`.
+   */
+  presentElsewhere: FlaggedAt[];
+  /**
    * Flagged ATs whose true/false-positive status could NOT be determined this run because
    * the spec or PR-body fetch failed. NEVER populated together with `stillUnaddressed` for
    * the same pair — exactly one of the two carries `originallyFlagged`'s contents, so a
@@ -282,6 +296,7 @@ function reclassifyFull(
         originallyFlagged,
         resolvedByFix: [],
         stillUnaddressed: [],
+        presentElsewhere: [],
         undetermined: originallyFlagged,
       });
       continue;
@@ -299,6 +314,7 @@ function reclassifyFull(
         originallyFlagged,
         resolvedByFix: [],
         stillUnaddressed: [],
+        presentElsewhere: [],
         undetermined: originallyFlagged,
       });
       continue;
@@ -306,12 +322,20 @@ function reclassifyFull(
 
     const coverage = checkAcceptanceTestCoverage(specFetch.content, specFetch.kind, prMeta.body);
     const stillUnaddressedTexts = new Set(coverage.unaddressedAts.map((at) => at.text));
+    const presentElsewhereTexts = new Set(coverage.presentElsewhereAts.map((at) => at.text));
 
     const resolvedByFix: FlaggedAt[] = [];
     const stillUnaddressed: FlaggedAt[] = [];
+    const presentElsewhere: FlaggedAt[] = [];
     for (const at of originallyFlagged) {
-      if (stillUnaddressedTexts.has(at.text)) stillUnaddressed.push(at);
-      else resolvedByFix.push(at);
+      if (stillUnaddressedTexts.has(at.text)) {
+        stillUnaddressed.push(at);
+        // mt#3339: partition the still-flagged population. `presentElsewhere` is a SUBSET
+        // of `stillUnaddressed`, not a sibling bucket — the AT is still unaddressed by the
+        // gate's own definition; this only records that its evidence exists somewhere the
+        // scanner does not read.
+        if (presentElsewhereTexts.has(at.text)) presentElsewhere.push(at);
+      } else resolvedByFix.push(at);
     }
 
     results.push({
@@ -324,6 +348,7 @@ function reclassifyFull(
       originallyFlagged,
       resolvedByFix,
       stillUnaddressed,
+      presentElsewhere,
       undetermined: [],
     });
   }
@@ -348,6 +373,19 @@ function printFullReport(results: FullPrReclassification[]): void {
   console.log(
     `Pairs whose status could NOT be determined this run (spec or PR-body fetch failed — NOT counted as unaddressed): ${undeterminedPairs.length}`
   );
+
+  // mt#3339 (FP-4): the absent-vs-present-elsewhere partition. Reported as counts of ATs,
+  // not pairs, because a single pair can mix both kinds — and mixing them is precisely
+  // what made the headline pair count uninterpretable before this split existed.
+  const stillUnaddressedAtCount = determined.reduce((n, r) => n + r.stillUnaddressed.length, 0);
+  const presentElsewhereAtCount = determined.reduce((n, r) => n + r.presentElsewhere.length, 0);
+  const pairsWithPresentElsewhere = determined.filter((r) => r.presentElsewhere.length > 0);
+  console.log(
+    `Still-unaddressed ATs: ${stillUnaddressedAtCount}, of which ${presentElsewhereAtCount} are ` +
+      `PRESENT-ELSEWHERE (referenced by number in the PR body, outside the scanned block — a ` +
+      `location gap) across ${pairsWithPresentElsewhere.length} pair(s); the remaining ` +
+      `${stillUnaddressedAtCount - presentElsewhereAtCount} are ABSENT (no reference anywhere).`
+  );
   console.log("");
 
   for (const r of results) {
@@ -358,9 +396,11 @@ function printFullReport(results: FullPrReclassification[]): void {
       continue;
     }
     if (r.stillUnaddressed.length === 0) continue;
+    const presentElsewhereTexts = new Set(r.presentElsewhere.map((at) => at.text));
     console.log(`  ${r.task} (PR #${r.prNumber}) — ${r.stillUnaddressed.length} still unaddressed`);
     for (const at of r.stillUnaddressed) {
-      console.log(`      [still-unaddressed] AT${at.number}: ${at.text.slice(0, 120)}`);
+      const label = presentElsewhereTexts.has(at.text) ? "present-elsewhere" : "absent";
+      console.log(`      [${label}] AT${at.number}: ${at.text.slice(0, 120)}`);
     }
   }
 }

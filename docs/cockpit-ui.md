@@ -5,6 +5,52 @@ Operator-facing reference for Cockpit's web surfaces. The architecture reference
 [`docs/architecture/cockpit.md`](architecture/cockpit.md); this guide documents
 what each surface is for and how to read it.
 
+## The rail
+
+The persistent left navigation spine (mt#2397). Top to bottom: the New
+conversation action, the pinned Attention digest, the workstream spine
+(Workstreams / Digest), then the Browse entity entry points, with Settings and
+the build identity in the footer.
+
+Below the `md` breakpoint (768px) the rail is replaced by a slim top bar and a
+hamburger-triggered drawer carrying the same nav (mt#2604). The drawer is always
+full-width — the collapse below applies to the desktop rail only.
+
+### Collapsing it (mt#3700)
+
+The rail collapses from 240px to a 56px **icon rail**, to give a wide-canvas
+surface — the conversation film view above all, also the plant board and the
+task graph — back ~184px of content width.
+
+- **Toggle:** the panel icon at the right of the rail header (its only remaining
+  control once collapsed, so the collapsed state is always self-reversing).
+- **Shortcut:** `⌘B`. Suppressed while focus is in a text field, so it never
+  fires out from under you mid-compose.
+- **Collapsed, you keep:** every destination, as a centered icon whose tooltip
+  and accessible name are still its label; the Attention digest's pending count;
+  the New conversation action; Settings; and any failed-launch error.
+- **Collapsed, you lose** (all restored by expanding): the wordmark's home link,
+  the project filter, and the footer's build-identity sha. Note the project
+  filter in particular — if you have scoped the cockpit to one project, that
+  scope is still in force but is not visible in a collapsed rail.
+- **Persistence:** stored per browser origin in `localStorage`, so it survives
+  navigation and reload. If storage is unavailable the preference simply becomes
+  session-ephemeral and the rail opens expanded.
+
+### Keyboard shortcuts
+
+| Chord            | Does                                  |
+| ---------------- | ------------------------------------- |
+| `⌘K` / `Ctrl+K`  | Open the command palette              |
+| `⌘B`             | Collapse / expand the rail            |
+| `⌘⇧O`            | Start a new conversation              |
+| `⌘⇧[` / `⌘⇧]`    | Previous / next tab, in strip order   |
+| `⌃Tab` / `⌃⇧Tab` | Previous / next tab, in recency order |
+
+All of them yield to text entry. The two tab chords are reserved by browsers for
+their own tab switching, so they fire only inside the cockpit tray window and are
+simply inert in a browser tab.
+
 ## Plant Board (`/plant`)
 
 A single whole-system view: all of Minsky on one board, laid out on the VSM
@@ -386,5 +432,7 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
 - mt#2230 / mt#2237 / mt#2750 / mt#2751 / mt#2752 / mt#2753 — harness-host ladder:
   driven-session host, drive view, task-bound launch, cost/usage readout (the
   §Driven sessions surface)
+- mt#2397 / mt#2604 / mt#3700 — the rail: persistent spine, mobile drawer, desktop collapse
+  (the §The rail surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

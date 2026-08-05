@@ -8,6 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   bindTelegramChannelTopicToTask,
+  CREDENTIAL_RETRY_DELAYS_MS,
+  CREDENTIAL_RETRY_MIN_DELAY_MS,
   createEventLogCursor,
   createTopicActuatorResolver,
   ensureTelegramChannelTopic,
@@ -20,9 +22,15 @@ import {
   startPrincipalChannel,
   telegramTopicLocalId,
   type DbLike,
+  type PrincipalChannelStatus,
 } from "./principal-channel-launch";
 import type { ChannelActuator } from "./principal-channel-poller";
 import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
+// The checked-in golden fixture both the bun and Rust sides pin (mt#2629).
+// Imported (not read from disk) for the same reason health-contract.test.ts
+// imports it: the contract IS the file's content, so no fs access is needed
+// and `custom/no-real-fs-in-tests` stays satisfied without an exception.
+import healthShapeFixture from "../../contract/cockpit-health-shape.json";
 
 describe("loadPrincipalChannelLaunchConfig (mt#3230 — config, not env)", () => {
   test("an absent section leaves the channel off", () => {
@@ -482,25 +490,251 @@ describe("resolveWithRetry (mt#3608)", () => {
     expect(getPrincipalChannelStatus().state).toBe("starting");
   });
 
-  test("AT2 — a permanently failing read gives up as `failed`, NOT as `unconfigured`", async () => {
+  test("mt#3683 — a read failing WELL past the old 6-entry ceiling keeps RETRYING, never `failed` (negative control: this test fails against the pre-mt#3683 code, which gives up as `failed` after exactly 4 calls)", async () => {
+    // Beyond NO_WAIT.length (3) — the old code gave up here. The new code
+    // must not: it should still be asking, and eventually succeed, which is
+    // this task's AT1 and SC5 ("a test drives the arc: credential read fails
+    // past the current 6-attempt window, then succeeds, and the channel
+    // reaches `running` with no process restart" — exercised here at the
+    // resolveWithRetry level, the same unit `startPrincipalChannel` awaits).
+    let calls = 0;
+    const FAIL_COUNT = 9;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+    const statusesObservedDuringRetry: string[] = [];
+    const recordingSleep = async (): Promise<void> => {
+      statusesObservedDuringRetry.push(getPrincipalChannelStatus().state);
+    };
+
+    const result = await resolveWithRetry({ resolve, sleep: recordingSleep, delaysMs: NO_WAIT });
+
+    expect(result.configured).toBe(true);
+    expect(calls).toBe(FAIL_COUNT + 1);
+    // No restart happened — this is one continuous resolveWithRetry call.
+    // Every observed intermediate status was "retrying", never "failed",
+    // even well past the point the old schedule would have given up.
+    expect(statusesObservedDuringRetry).toHaveLength(FAIL_COUNT);
+    expect(statusesObservedDuringRetry.every((s) => s === "retrying")).toBe(true);
+  });
+
+  test("mt#3683 SC3 — a retrying status carries `lastAttemptAt` and a `nextAttemptAt` strictly later, distinguishing 'still retrying' from 'gave up'", async () => {
     let calls = 0;
     const resolve = async () => {
       calls += 1;
-      return TRANSIENT;
+      return calls === 1 ? TRANSIENT : CONFIGURED;
+    };
+    let clockMs = 1_700_000_000_000;
+    const now = () => clockMs;
+    // A `const` array pushed-to from the injected `sleep`, not a reassigned
+    // `let` — reassigning a captured `let` from a nested closure defeats
+    // TypeScript's discriminant narrowing on that variable at the read site.
+    const capturedDuringRetry: PrincipalChannelStatus[] = [];
+    const capturingSleep = async (ms: number): Promise<void> => {
+      capturedDuringRetry.push(getPrincipalChannelStatus());
+      clockMs += ms;
     };
 
-    const result = await resolveWithRetry({ resolve, sleep, delaysMs: NO_WAIT });
+    await resolveWithRetry({
+      resolve,
+      sleep: capturingSleep,
+      delaysMs: CREDENTIAL_RETRY_DELAYS_MS,
+      now,
+    });
 
-    expect(result.configured).toBe(false);
-    // Every delay is consumed, then one final attempt — the loop must not give
-    // up before it has actually used its budget.
-    expect(calls).toBe(NO_WAIT.length + 1);
+    const status = capturedDuringRetry[0];
+    expect(status?.state).toBe("retrying");
+    if (status !== undefined && status.state === "retrying") {
+      expect(status.lastAttemptAt).toBe(new Date(1_700_000_000_000).toISOString());
+      expect(new Date(status.nextAttemptAt).getTime()).toBeGreaterThan(
+        new Date(status.lastAttemptAt).getTime()
+      );
+    }
+  });
 
-    const status = getPrincipalChannelStatus();
-    expect(status.state).toBe("failed");
-    // `failed` carries the reason so the health surface can say WHY, and is a
-    // different state from `unconfigured` — that is the whole point.
-    expect(status.state === "failed" && status.reason).toContain("ENOTFOUND");
+  test("mt#3683 SC1 — past the seeded schedule, backoff keeps widening but is CAPPED, not uncapped exponential", async () => {
+    const delaysSeen: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 5;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+    const recordingSleep = async (ms: number): Promise<void> => {
+      delaysSeen.push(ms);
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: recordingSleep,
+      delaysMs: [1_000],
+      maxDelayMs: 4_000,
+    });
+
+    // Seeded once at 1s, then doubles (2s, 4s), then holds at the 4s cap —
+    // never uncapped growth (8s, 16s, ...).
+    expect(delaysSeen).toEqual([1_000, 2_000, 4_000, 4_000, 4_000]);
+    expect(Math.max(...delaysSeen)).toBeLessThanOrEqual(4_000);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3689 — the backoff must not degenerate, and `attempts` must mean one
+  // thing. The tests above all seed the schedule with positive values, so the
+  // non-positive-seed path was never exercised.
+  // -------------------------------------------------------------------------
+
+  test("mt#3689 AT1 — a `[0]` seed produces POSITIVE, WIDENING waits instead of a busy loop", async () => {
+    // The defect: past the seeded schedule the delay is the previous delay
+    // DOUBLED, and 0 doubles to 0 forever — so `[0]` yielded an unbroken run of
+    // zero-length waits, a spin inside the mechanism built to stop hammering.
+    // Reachable today only through this very seam (`retryDelaysMs`) or a future
+    // edit to the shipped constant, because the invariant was held by the
+    // literal, not by the code.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 6;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    const result = await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [0],
+    });
+
+    expect(result.configured).toBe(true);
+    expect(waits).toHaveLength(FAIL_COUNT);
+    // Positive is the floor requirement; widening is what makes it a BACKOFF
+    // rather than a fixed-rate poll. Asserting the exact sequence pins both at
+    // once — a clamp applied only to the output would give [1000] * 6 here,
+    // which passes "every wait positive" and is still not a backoff.
+    expect(waits.every((w) => w >= CREDENTIAL_RETRY_MIN_DELAY_MS)).toBe(true);
+    expect(waits).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000]);
+  });
+
+  test("mt#3689 — a NEGATIVE seed is floored too, and still respects the cap", async () => {
+    // Stronger than the spec's `[0]` case: a negative delay would reach
+    // `sleep()` as a negative argument. Same clamp covers it.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 4;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [-5_000],
+      maxDelayMs: 3_000,
+    });
+
+    expect(waits.every((w) => w > 0)).toBe(true);
+    expect(Math.max(...waits)).toBeLessThanOrEqual(3_000);
+    expect(waits).toEqual([1_000, 2_000, 3_000, 3_000]);
+  });
+
+  test("mt#3689 PR #2662 R1 — a cap BELOW the floor still never yields a sub-floor wait", async () => {
+    // The two bounds can be set to ask for incompatible things. Applying the
+    // cap last returned `maxDelayMs` — below the floor — which made the clamp's
+    // own contract false and reopened the spin it exists to close. The floor
+    // wins: it is a correctness property, the cap is a rate preference.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 3;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [0],
+      maxDelayMs: 10,
+    });
+
+    expect(waits).toHaveLength(FAIL_COUNT);
+    expect(waits.every((w) => w >= CREDENTIAL_RETRY_MIN_DELAY_MS)).toBe(true);
+  });
+
+  test("mt#3689 — the clamp is INERT for the shipped schedule (no production behavior change)", async () => {
+    // The floor is below every entry in CREDENTIAL_RETRY_DELAYS_MS, so this
+    // change must be invisible in production. Asserting that explicitly keeps a
+    // future floor increase from silently altering the real backoff.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = CREDENTIAL_RETRY_DELAYS_MS.length;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: CREDENTIAL_RETRY_DELAYS_MS,
+    });
+
+    expect(waits).toEqual([...CREDENTIAL_RETRY_DELAYS_MS]);
+    expect(Math.min(...CREDENTIAL_RETRY_DELAYS_MS)).toBeGreaterThan(CREDENTIAL_RETRY_MIN_DELAY_MS);
+  });
+
+  test("mt#3689 AT3 — the two fault classes stay distinguishable, and `attempts` no longer straddles them", async () => {
+    // `attempts` used to appear on BOTH `retrying` (a real count of credential
+    // reads) and `failed` (always the literal 1, counting nothing — the failure
+    // happened once, AFTER credentials resolved). One field, two meanings,
+    // across the two classes an operator most needs to tell apart. mt#3683's
+    // own root cause was established by reading `attempts: 7` against a
+    // six-entry schedule, so this counter carries diagnostic weight exactly
+    // when someone is under pressure.
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return calls === 1 ? TRANSIENT : CONFIGURED;
+    };
+    const capturedDuringRetry: PrincipalChannelStatus[] = [];
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (): Promise<void> => {
+        capturedDuringRetry.push(getPrincipalChannelStatus());
+      },
+      delaysMs: NO_WAIT,
+    });
+
+    // The credential-exhaustion class keeps its counter — it means something there.
+    const retrying = capturedDuringRetry[0];
+    expect(retrying?.state).toBe("retrying");
+    if (retrying !== undefined && retrying.state === "retrying") {
+      expect(typeof retrying.attempts).toBe("number");
+    }
+
+    // The post-credential class no longer carries one. Asserted against the
+    // CHECKED-IN golden fixture rather than a locally-built literal: that file
+    // is the shape both the bun and Rust sides pin, and — unlike the top-level
+    // field set — this sub-object is not type-asserted by either contract test,
+    // so nothing else would catch `attempts` being reinstated here.
+    const failedVariant = (
+      healthShapeFixture as {
+        $principalChannelFieldVariants: { failedNonCredential: Record<string, unknown> };
+      }
+    ).$principalChannelFieldVariants.failedNonCredential;
+    expect(failedVariant.state).toBe("failed");
+    expect(typeof failedVariant.reason).toBe("string");
+    expect("attempts" in failedVariant).toBe(false);
   });
 
   test("AT3 — a genuinely-unconfigured channel does NOT retry", async () => {
@@ -516,18 +750,6 @@ describe("resolveWithRetry (mt#3608)", () => {
     // Exactly one attempt: retrying an absent credential only delays a message
     // the operator needs to see, and burns the Pulumi backend for nothing.
     expect(calls).toBe(1);
-  });
-
-  test("a resolution that fails permanently leaves `failed`, not a stale `retrying`", async () => {
-    // The sibling of AT1's fix: whichever way the loop exits, the status it
-    // leaves behind must describe the state the channel is ACTUALLY in.
-    await resolveWithRetry({
-      resolve: async () => TRANSIENT,
-      sleep,
-      delaysMs: NO_WAIT,
-    });
-
-    expect(getPrincipalChannelStatus().state).toBe("failed");
   });
 
   test("an unconfigured verdict mid-retry clears the stale `retrying`", async () => {

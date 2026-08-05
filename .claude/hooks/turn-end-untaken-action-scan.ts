@@ -42,6 +42,7 @@ import {
   writeFlagged,
 } from "./turn-end-scan-store";
 import { createHash } from "node:crypto";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
 
@@ -157,9 +158,7 @@ function buildReminder(matches: UntakenActionMatch[]): string {
     "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
     "",
   ];
-  for (const m of matches) {
-    lines.push(`  - ${m.family}: "${m.matchedPhrase}"`);
-  }
+  lines.push(...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${m.matchedPhrase}"`));
   lines.push(
     "",
     "Take it now in this continuation, then report the result. If it genuinely cannot " +

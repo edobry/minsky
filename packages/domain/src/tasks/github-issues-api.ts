@@ -409,6 +409,11 @@ export async function deleteIssue(
           log.debug(`No database connection available for task ${taskId} deletion`);
         }
       } else {
+        // sql-capability-message: a debug LOG on a best-effort DB mirror, not an
+        // operator-facing error. The GitHub issue is the source of truth here and
+        // the deletion already succeeded there; enriching this would change
+        // nothing an operator acts on. Deliberate degrade, per this task's
+        // Out-of-scope ("changing whether a site throws vs. returns/degrades").
         log.debug(`Database provider does not support SQL for task ${taskId} deletion`);
       }
     } catch (dbError) {

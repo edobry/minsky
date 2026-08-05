@@ -76,4 +76,40 @@ describe("assessPersistenceHealth", () => {
     expect(result.mode).toBe("unavailable");
     expect(result.reason).toContain("Unrecognized non-SQL persistence provider");
   });
+
+  // mt#3635 / ADR-035 rule 4: `mode` and `reason` alone cannot tell an operator
+  // whether the process is STUCK in its boot-time failure or actively retrying
+  // against a real outage — the two produced byte-identical payloads before.
+  describe("retry reporting (mt#3635)", () => {
+    /** The originating incident's boot-time failure (2026-08-03). */
+    const ENOTFOUND = "getaddrinfo ENOTFOUND";
+
+    test("a provider that has never retried since boot reports no lastAttemptAt", () => {
+      const provider = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+      const result = assessPersistenceHealth(provider);
+      expect(result.lastAttemptAt).toBeUndefined();
+      expect(result.reason).toContain("No re-initialization has been attempted since boot");
+    });
+
+    test("a provider that retried and still failed reports the attempt timestamp", () => {
+      const provider = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+      const at = new Date("2026-08-04T07:00:00.000Z");
+      provider.noteRetryAttempt(at, ENOTFOUND);
+
+      const result = assessPersistenceHealth(provider);
+      expect(result.lastAttemptAt).toBe("2026-08-04T07:00:00.000Z");
+      expect(result.reason).toContain("Last re-initialization attempt 2026-08-04T07:00:00.000Z");
+      expect(result.reason).not.toContain("No re-initialization has been attempted");
+    });
+
+    test("the stuck and still-retrying states are distinguishable", () => {
+      const stuck = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+      const retrying = new UnconfiguredPersistenceProvider(ENOTFOUND, true);
+      retrying.noteRetryAttempt(new Date("2026-08-04T07:00:00.000Z"), "still failing");
+
+      expect(assessPersistenceHealth(stuck).reason).not.toBe(
+        assessPersistenceHealth(retrying).reason
+      );
+    });
+  });
 });

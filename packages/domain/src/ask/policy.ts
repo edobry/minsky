@@ -186,18 +186,17 @@ function checkTokensAgainstSource(actionTokens: string[], source: PolicyText): C
   for (const { text, startLine } of statements) {
     const lowerText = text.toLowerCase();
 
-    // Signal 1: an explicit action token from the ask's title appears.
-    if (!actionTokens.some((t) => lowerText.includes(t))) {
-      continue;
-    }
-
-    // Signal 2: an authority keyword appears in the same statement.
-    const authorityMatch = AUTHORITY_KEYWORDS.find((kw) => lowerText.includes(kw));
+    // A statement covers the ask only if an action token and an AFFIRMATIVE
+    // authority keyword sit near each other. Mere co-occurrence anywhere in the
+    // statement is not enough: statements in this corpus run well over a
+    // hundred words, so an unrelated grant and an unrelated action name land in
+    // the same paragraph constantly (mt#3714).
+    const authorityMatch = findGrantNearAction(lowerText, actionTokens);
     if (!authorityMatch) {
       continue;
     }
 
-    // Both signals present — covered.
+    // All signals present — covered.
     const endLine = startLine + text.split("\n").length - 1;
     const quote = truncateQuote(text);
     return {
@@ -211,6 +210,161 @@ function checkTokensAgainstSource(actionTokens: string[], source: PolicyText): C
   }
 
   return { covered: false };
+}
+
+/**
+ * Negation cues that invert an authority keyword's meaning (mt#3714).
+ *
+ * Deliberately narrow — these are the forms that appear in this corpus's own
+ * prose ("no override", "not permitted", "never auto-approved"). A cue is only
+ * consulted immediately before the matched keyword, so it cannot reach across
+ * a whole paragraph and suppress an unrelated grant.
+ */
+const NEGATION_CUES = [
+  "no",
+  "not",
+  "never",
+  "cannot",
+  "can't",
+  "without",
+  "denies",
+  "deny",
+  "denied",
+  "refuses",
+  "refuse",
+  "refused",
+  "disallow",
+  "disallowed",
+  "prohibited",
+  "forbidden",
+  // Contractions — "the spec hasn't authorized" was an observed false grant.
+  "hasn't",
+  "haven't",
+  "doesn't",
+  "don't",
+  "isn't",
+  "aren't",
+  "won't",
+  "shouldn't",
+  "unless",
+] as const;
+
+/** Words skipped when looking back from a keyword for a negation cue. */
+const NEGATION_SKIP_WORDS = new Set(["is", "are", "was", "were", "be", "been", "being", "it"]);
+
+/** How many words before the keyword a negation cue may sit. */
+const NEGATION_LOOKBACK_WORDS = 4;
+
+/**
+ * Whether `needle` occurs in `haystack` as a whole word (mt#3714).
+ *
+ * Both coverage signals used bare `includes`, so `allow` matched inside
+ * `intentional-swallow` and closed an authorization ask against a paragraph
+ * about ESLint error handling. Word characters are letters, digits and `_`;
+ * `-` is treated as a boundary so `auto-approve` still matches inside a
+ * hyphenated phrase.
+ */
+function containsWord(haystack: string, needle: string): boolean {
+  if (needle === "") return false;
+
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "u").test(haystack);
+}
+
+/**
+ * Maximum word distance between an action token and the authority keyword
+ * granting it.
+ *
+ * Grants in this corpus read like "commits to the session branch are
+ * auto-approved" — subject and authority within a clause. Ten words spans a
+ * generous clause while excluding the far ends of a 150-word paragraph, which
+ * is where every observed false match came from.
+ */
+const GRANT_PROXIMITY_WORDS = 10;
+
+/** Split text into lowercase words, preserving order. */
+function toWords(lowerText: string): string[] {
+  return lowerText.split(/[^\p{L}\p{N}'_-]+/u).filter((w) => w !== "");
+}
+
+/**
+ * Whether a word matches a needle exactly, treating `-` as a boundary.
+ *
+ * Used for AUTHORITY keywords, which must be strict: the originating defect was
+ * a SUFFIX match, `allow` inside `intentional-swallow`.
+ */
+function wordMatches(word: string, needle: string): boolean {
+  return word === needle || containsWord(word, needle);
+}
+
+/**
+ * Whether a word begins with the needle, treating `-` as a boundary.
+ *
+ * Used for ACTION tokens, which must still match inflections — policy prose
+ * says "rebasing" and "commits" where an ask says "rebase" and "commit". The
+ * pre-mt#3714 matcher got this free from bare `includes`; tightening both
+ * signals to exact words broke it (a synthetic "Rebasing … is auto-approved"
+ * grant stopped resolving), so only the authority side is strict.
+ *
+ * A prefix match is the safe half of the old behavior: `allow` inside
+ * `swallow` was a suffix, which this still rejects.
+ */
+function wordStartsWith(word: string, needle: string): boolean {
+  if (needle === "") return false;
+  if (word.startsWith(needle)) return true;
+
+  // Also allow a match starting after a hyphen, so `commit` matches
+  // `auto-commit` the way the substring matcher did.
+  return word.split("-").some((part) => part.startsWith(needle));
+}
+
+/**
+ * Find an affirmative authority keyword sitting near an action token.
+ *
+ * Returns the matched keyword, or undefined when the statement carries no
+ * un-negated grant within {@link GRANT_PROXIMITY_WORDS} of an action token.
+ *
+ * Three defects this replaced, all observed against this repo's own CLAUDE.md
+ * (mt#3714):
+ *
+ *  - **Substring matching.** `allow` matched inside `intentional-swallow`.
+ *  - **Negation blindness.** `override` matched inside "no override" — a
+ *    statement denying the very thing being asked read as a grant.
+ *  - **Paragraph-wide co-occurrence.** With those two fixed, the same ask then
+ *    matched a different paragraph whose "the spec hasn't authorized" sat ~40
+ *    words from an unrelated action word.
+ */
+function findGrantNearAction(
+  lowerText: string,
+  actionTokens: string[]
+): (typeof AUTHORITY_KEYWORDS)[number] | undefined {
+  const words = toWords(lowerText);
+
+  const actionPositions: number[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? "";
+    if (actionTokens.some((t) => wordStartsWith(word, t))) actionPositions.push(i);
+  }
+  if (actionPositions.length === 0) return undefined;
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? "";
+    const keyword = AUTHORITY_KEYWORDS.find((kw) => wordMatches(word, kw));
+    if (!keyword) continue;
+
+    // A cue immediately before the keyword inverts it: "not permitted",
+    // "hasn't authorized", "no override is allowed".
+    const lookback = words
+      .slice(Math.max(0, i - NEGATION_LOOKBACK_WORDS), i)
+      .filter((w) => !NEGATION_SKIP_WORDS.has(w));
+    if (lookback.some((w) => (NEGATION_CUES as readonly string[]).includes(w))) continue;
+
+    if (actionPositions.some((p) => Math.abs(p - i) <= GRANT_PROXIMITY_WORDS)) {
+      return keyword;
+    }
+  }
+
+  return undefined;
 }
 
 /** A parsed statement block with its start line (0-indexed). */

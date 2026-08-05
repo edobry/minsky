@@ -62,7 +62,11 @@
 import type express from "express";
 import { eq, and, desc } from "drizzle-orm";
 import { log } from "@minsky/shared/logger";
-import { getServerTaskService, getServerEngprodDb } from "../db-providers";
+import {
+  getServerTaskService,
+  getServerEngprodDb,
+  describeServerPersistenceUnavailability,
+} from "../db-providers";
 import { ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
 import { ProposalLedgerService } from "@minsky/domain/engprod/ledger-service";
 import {
@@ -102,14 +106,14 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
       const taskService = await getServerTaskService();
       if (!taskService) {
         res.status(503).json({
-          error: "Task service unavailable — persistence provider not ready",
+          error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
       const db = await getServerEngprodDb();
       if (!db) {
         res.status(503).json({
-          error: "EngProd ledger unavailable — SQL persistence provider not ready",
+          error: `EngProd ledger unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -299,7 +303,7 @@ async function handleDecision(
     const db = await getServerEngprodDb();
     if (!db) {
       res.status(503).json({
-        error: "EngProd ledger unavailable — SQL persistence provider not ready",
+        error: `EngProd ledger unavailable — ${await describeServerPersistenceUnavailability()}`,
       });
       return;
     }

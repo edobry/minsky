@@ -41,7 +41,8 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, "..");
-const DISPATCHER_PATH = join(REPO_ROOT, ".minsky", "hooks", "dispatch-userpromptsubmit.ts");
+// mt#3720: the guard moved from the UserPromptSubmit dispatcher to the Stop one.
+const DISPATCHER_PATH = join(REPO_ROOT, ".minsky", "hooks", "dispatch-stop.ts");
 const REAL_SKILL_MD_PATH = join(REPO_ROOT, ".claude", "skills", "engineering-writing", "SKILL.md");
 const CALIBRATION_LOG_RELATIVE = join(".minsky", "knowledge-acquisition-calibration.jsonl");
 
@@ -137,6 +138,43 @@ function buildNegativeTranscript(): Record<string, unknown>[] {
   return lines;
 }
 
+/**
+ * mt#3720's originating shape (session `aecd65f4`, ask#6891): research early,
+ * the durable write MUCH later than the grace period. Under the per-call v1
+ * this produced a miss per research call, because each was judged the moment
+ * its own grace elapsed — long before the memory_create existed. The session
+ * verdict must call this propagated.
+ */
+const LATE_PROPAGATION_GAP_TURNS = 18;
+
+function buildLatePropagationTranscript(): Record<string, unknown>[] {
+  const lines: Record<string, unknown>[] = [
+    userPrompt("please write an essay about AI writing tells"),
+    skillLoad("engineering-writing"),
+    userPrompt("go ahead and research it"),
+    assistant([
+      toolUse("WebSearch", { query: "argumentative prose AI writing tells overused phrases" }),
+    ]),
+    toolResult("toolu_verify_3", "Common AI tells: em dashes, tricolons, hedging phrases."),
+    assistant([text("Found several AI-writing tells to avoid in the essay.")]),
+  ];
+  // Far beyond TRAILING_WINDOW_TURNS: v1's grace elapsed around turn 8 and it
+  // judged then, with none of what follows yet visible.
+  for (let i = 0; i < LATE_PROPAGATION_GAP_TURNS; i++) {
+    lines.push(...filler(`turn ${i + 3}`, `drafting (${i})`));
+  }
+  lines.push(userPrompt("now capture what you learned"));
+  lines.push(
+    assistant([
+      toolUse("mcp__minsky__memory_create", { content: "AI writing tells to avoid" }),
+      text("Saved a memory about this."),
+    ])
+  );
+  lines.push(...filler("wrap up", "done"));
+  lines.push(userPrompt("current turn (triggers the hook) — LATE-PROPAGATION CONTROL"));
+  return lines;
+}
+
 // ---------------------------------------------------------------------------
 // Real-dispatcher subprocess invocation
 // ---------------------------------------------------------------------------
@@ -168,7 +206,7 @@ async function runDispatcher(
     session_id: sessionId,
     transcript_path: transcriptPath,
     cwd: scratchDir,
-    hook_event_name: "UserPromptSubmit",
+    hook_event_name: "Stop",
   };
   proc.stdin.write(JSON.stringify(input));
   proc.stdin.end();
@@ -274,14 +312,55 @@ async function main(): Promise<void> {
       negResult.exitCode === 0,
       `exitCode=${negResult.exitCode} stderr=${negResult.stderr.slice(0, 300)}`
     );
+    // mt#3207 census semantics: a propagated verdict is RECORDED (suppressed),
+    // not dropped — that is what makes the propagation rate measurable. So the
+    // log grows by exactly one, and that record must carry the reason.
+    const negRecord = afterNegative[afterNegative.length - 1];
     record(
-      "negative control: calibration log unchanged (propagation suppressed the fire)",
-      afterNegative.length === afterPositive.length,
-      `before=${afterPositive.length} after=${afterNegative.length}`
+      "negative control: one SUPPRESSED record written (mt#3207 census, not a silent drop)",
+      afterNegative.length === afterPositive.length + 1 &&
+        negRecord?.["hadPropagation"] === true &&
+        Array.isArray(negRecord?.["suppressionReasons"]) &&
+        (negRecord["suppressionReasons"] as unknown[]).includes("propagation-in-window"),
+      `before=${afterPositive.length} after=${afterNegative.length} record=${JSON.stringify(negRecord)}`
     );
 
-    process.stdout.write("\nObserved calibration records after both controls:\n");
-    process.stdout.write(`${JSON.stringify(afterNegative, null, 2)}\n`);
+    // --- Late-propagation control (mt#3720's originating shape) ---------------
+    const latePropagationTranscriptPath = join(scratchDir, "late-propagation-transcript.jsonl");
+    writeFileSync(
+      latePropagationTranscriptPath,
+      `${buildLatePropagationTranscript()
+        .map((l) => JSON.stringify(l))
+        .join("\n")}\n`
+    );
+    const lateResult = await runDispatcher(
+      scratchDir,
+      latePropagationTranscriptPath,
+      "verify-kad-late-propagation-control"
+    );
+    const afterLate = readCalibrationLines(scratchDir);
+    const lateRecord = afterLate[afterLate.length - 1];
+    record(
+      "late-propagation control: dispatcher exits 0",
+      lateResult.exitCode === 0,
+      `exitCode=${lateResult.exitCode} stderr=${lateResult.stderr.slice(0, 300)}`
+    );
+    record(
+      `late-propagation control: a save ${LATE_PROPAGATION_GAP_TURNS} turns after the research reads as PROPAGATED (the mt#3720 fix)`,
+      afterLate.length === afterNegative.length + 1 &&
+        lateRecord?.["hadPropagation"] === true &&
+        Array.isArray(lateRecord?.["suppressionReasons"]) &&
+        (lateRecord["suppressionReasons"] as unknown[]).includes("propagation-in-window"),
+      `before=${afterNegative.length} after=${afterLate.length} record=${JSON.stringify(lateRecord)}`
+    );
+    record(
+      "late-propagation control: the record is session-grain (dedupeKey is the fixed constant)",
+      lateRecord?.["dedupeKey"] === "session-verdict",
+      `dedupeKey=${JSON.stringify(lateRecord?.["dedupeKey"])}`
+    );
+
+    process.stdout.write("\nObserved calibration records after all three controls:\n");
+    process.stdout.write(`${JSON.stringify(afterLate, null, 2)}\n`);
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
   }

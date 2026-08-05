@@ -40,6 +40,7 @@ import {
   createCachedSqlDbGetter,
   getServerAskRepository,
   getServerTaskService,
+  describeServerPersistenceUnavailability,
 } from "./db-providers";
 import {
   createDrivenSessionActuator,
@@ -456,24 +457,58 @@ export async function logTopicModeCapability(
 }
 
 /**
- * What the channel is actually doing, for the `/api/health` surface (mt#3608).
+ * What the channel is actually doing, for the `/api/health` surface (mt#3608,
+ * retry ceiling removed mt#3683).
  *
  * Mirrors {@link getDbStatus}'s shape deliberately: a module-level last-known
  * state a health endpoint can read on every request without probing anything.
  *
  * The states an operator needs to tell apart:
  * - `unconfigured` — the credentials are genuinely absent. Operator action.
- * - `failed` — they exist (probably) but could not be READ, and retries are
- *   exhausted. NOT the same as unconfigured, which is the conflation that let
- *   five occurrences of this go unexamined in a day.
+ * - `retrying` — a read failed and the fault is classified TRANSIENT. Per
+ *   ADR-035 rule 1, this never gives up on its own: past mt#3608's original
+ *   ~2-minute/6-attempt schedule it keeps retrying on a widening, capped
+ *   backoff (see {@link resolveWithRetry}) rather than settling into
+ *   `failed`. `lastAttemptAt`/`nextAttemptAt` (ADR-035 rule 4) are what make
+ *   "still actively retrying" legible against "gave up" without reading the
+ *   reason prose.
+ * - `failed` — a DIFFERENT fault class: an exception raised AFTER
+ *   credentials resolved (poller/actuator construction — see
+ *   {@link startPrincipalChannel}'s catch block). No longer reachable from a
+ *   credential-read failure, since that path no longer exhausts.
+ *
+ * `attempts` belongs to `retrying` ONLY (mt#3689). It used to appear on
+ * `failed` too, always as the literal `1`, which made one field carry two
+ * meanings across two fault classes: on `retrying` it is a live count of
+ * credential reads, on `failed` it counted nothing — the failure happened once,
+ * after credentials had already resolved. That is an invitation to misread, and
+ * the misreading is not hypothetical: mt#3683's root cause was established by
+ * reading `attempts: 7` against a six-entry schedule, so this counter is
+ * load-bearing for diagnosis precisely when an operator is under pressure.
+ * `state` already separates the two classes, so dropping the field loses no
+ * information. ADR-035 rule 4 requires `mode`/`reason`/`lastAttemptAt` at
+ * MINIMUM and does not name `attempts`, so omitting it here stays within the
+ * rule — which sets a floor on the status shape, not a ceiling.
  */
 export type PrincipalChannelStatus =
   | { state: "disabled" }
   | { state: "starting" }
   | { state: "running"; chatId: string }
   | { state: "unconfigured"; reason: string }
-  | { state: "retrying"; reason: string; attempts: number }
-  | { state: "failed"; reason: string; attempts: number };
+  | {
+      state: "retrying";
+      reason: string;
+      attempts: number;
+      /** ISO timestamp of the attempt that just failed. */
+      lastAttemptAt: string;
+      /**
+       * ISO timestamp of the next scheduled attempt (mt#3683 SC3) — the
+       * field that makes "actively retrying" distinguishable from "gave
+       * up" without inferring it from `attempts` alone.
+       */
+      nextAttemptAt: string;
+    }
+  | { state: "failed"; reason: string };
 
 let channelStatus: PrincipalChannelStatus = { state: "disabled" };
 
@@ -491,29 +526,129 @@ export function resetPrincipalChannelStatus(): void {
 }
 
 /**
- * How long to keep retrying a FAILED credential read, and how far apart.
+ * Seed schedule for a FAILED credential read's backoff (mt#3608, revised
+ * mt#3683 — the ceiling this schedule used to impose is gone).
  *
- * Grounded in the observed fault rather than a round number: every occurrence
- * on 2026-08-03 was a transient resolver failure that cleared within seconds —
- * verified by hand minutes later, when the same read succeeded. Six attempts on
- * a doubling backoff from 2s spans ~2 minutes, which covers that class without
- * hammering the Pulumi backend. Exhausting them means the fault is not the
- * transient class this exists for, so it stops and says so.
+ * Six attempts on a doubling backoff from 2s spans ~2 minutes. mt#3608 read
+ * exhausting this schedule as proof the fault was not the transient class it
+ * exists for, and gave up permanently. That premise did not hold: the
+ * 2026-08-04 outage stayed down for ~5 hours and cleared on its own at the
+ * next daemon restart with NO environment change — a fault a fixed schedule
+ * cannot outlast is not evidence it was never transient, only that the
+ * schedule was too short. (Its `exit null` signature was checked directly
+ * against this runtime — see {@link resolvePrincipalChannel}'s caller,
+ * `readPulumiChatId` in `packages/domain/src/notify/principal-channel.ts` —
+ * and reproduces the Pulumi subprocess's 5s `timeout` firing, not a
+ * PATH/spawn failure: `Bun.spawnSync` throws synchronously with a distinct
+ * `ENOENT`/"Executable not found in $PATH" message when the binary itself is
+ * unresolvable, verified live in this Bun runtime, so a killed-by-timeout
+ * process — which DOES produce `exitCode: null` with empty stderr, also
+ * verified live — is the only way this exact reason string is produced. No
+ * binary-resolution fix is warranted.)
+ *
+ * This array is now only the SEED: {@link resolveWithRetry} never stops
+ * retrying on its own while the failure stays classified `transient` — past
+ * this schedule it keeps doubling the last delay, capped at
+ * {@link CREDENTIAL_RETRY_MAX_DELAY_MS}, per ADR-035 rule 1 ("register the
+ * retry", not "bound the attempt count") and mirroring mt#3635's
+ * container-retry cap (`packages/domain/src/composition/container.ts`'s
+ * `RETRY_MAX_INTERVAL_MS`).
  */
 export const CREDENTIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
+
+/**
+ * Ceiling for the backoff once the seed schedule above is exhausted
+ * (mt#3683). Bounds the RATE of a long outage, not the attempt COUNT: a
+ * multi-hour fault settles at one attempt per 5 minutes instead of doubling
+ * into hour-long gaps, while a restart-recovering fault (this task's
+ * originating incident) is still retried well within the window an operator
+ * would notice. Mirrors mt#3635's `RETRY_MAX_INTERVAL_MS` — the same class of
+ * transient Pulumi/network fault, the same chosen cap.
+ */
+export const CREDENTIAL_RETRY_MAX_DELAY_MS = 5 * 60_000;
+
+/**
+ * Floor for any retry wait (mt#3689).
+ *
+ * The backoff past the seed schedule widens by MULTIPLYING the previous delay,
+ * so a non-positive seed multiplies to itself forever: a `[0]` schedule yields
+ * an unbroken run of zero-length waits — a busy loop inside the mechanism that
+ * exists to stop hammering a failing dependency. The invariant was held only by
+ * the literal value of {@link CREDENTIAL_RETRY_DELAYS_MS}, not by the code, so
+ * any future edit to that array (or the injected `retryDelaysMs` test seam)
+ * could reintroduce it silently.
+ *
+ * Applied at BOTH ends, which is what makes it hold: as a floor on the base
+ * {@link nextRetryDelayMs} doubles from (so the sequence actually widens rather
+ * than pinning at the floor), and as a floor on the delay finally slept
+ * (so a non-positive entry read straight out of the seed schedule, which never
+ * reaches `nextRetryDelayMs`, cannot produce a zero wait either).
+ *
+ * Inert for production: every entry in the shipped schedule is >= 2000ms, so
+ * this clamp never binds there. The value is bounded from below by what it is
+ * protecting against — a spin — and from above by not wanting to slow a real
+ * recovery: each attempt already costs up to the 5s Pulumi spawn timeout in
+ * `packages/domain/src/notify/principal-channel.ts`, so a 1s floor is small
+ * against the work an attempt does while still guaranteeing forward progress.
+ */
+export const CREDENTIAL_RETRY_MIN_DELAY_MS = 1_000;
+
+/**
+ * Clamp a retry wait into `[CREDENTIAL_RETRY_MIN_DELAY_MS, maxDelayMs]`.
+ *
+ * Non-finite input resolves to `maxDelayMs` rather than propagating: `NaN`
+ * would survive `Math.max`/`Math.min` unchanged and reach `sleep()` as a wait
+ * of unspecified length, which is the failure this guard exists to rule out.
+ *
+ * **The floor is applied LAST, and wins when the interval is empty** (PR #2662
+ * R1). A caller may set `maxDelayMs` BELOW the floor, which asks for two
+ * incompatible things; applying the cap last would return a sub-floor delay and
+ * make this function's own contract false. The floor wins because the two
+ * bounds are not the same kind of constraint: the floor rules out a spin, which
+ * is a correctness property of the retry, while the cap expresses a preferred
+ * rate for a long outage. Losing the preference is survivable; reintroducing
+ * the busy loop this guard exists to prevent is not.
+ */
+function clampRetryDelayMs(delayMs: number, maxDelayMs: number): number {
+  if (!Number.isFinite(delayMs)) return Math.max(maxDelayMs, CREDENTIAL_RETRY_MIN_DELAY_MS);
+  return Math.max(Math.min(delayMs, maxDelayMs), CREDENTIAL_RETRY_MIN_DELAY_MS);
+}
 
 /**
  * Resolve credentials, retrying only while the failure is one a retry can fix.
  *
  * A genuinely-unconfigured channel returns immediately: retrying an absent
  * credential just delays a message the operator needs to see.
+ *
+ * No attempt ceiling (mt#3683 / ADR-035 rule 1). While the failure stays
+ * classified `transient`, this loop never gives up on its own — the only way
+ * out besides success is a definitive non-transient verdict (checked above)
+ * or a process restart. `delaysMs` seeds the schedule; {@link nextRetryDelayMs}
+ * takes over once it's exhausted, so the return type stays a plain
+ * {@link PrincipalChannelResolution} with `configured: false, transient: true`
+ * now structurally unreachable in practice rather than a state callers have
+ * to keep handling (see the defensive comment on that branch in
+ * {@link startPrincipalChannel}).
  */
 export async function resolveWithRetry(deps: {
   resolve: typeof resolvePrincipalChannel;
   sleep: (ms: number) => Promise<void>;
   delaysMs: readonly number[];
+  /** Ceiling once `delaysMs` is exhausted. Defaults to {@link CREDENTIAL_RETRY_MAX_DELAY_MS}; overridable for tests. */
+  maxDelayMs?: number;
+  /** Injected clock for `lastAttemptAt`/`nextAttemptAt` so tests don't depend on wall time. */
+  now?: () => number;
 }): Promise<PrincipalChannelResolution> {
+  const maxDelayMs = deps.maxDelayMs ?? CREDENTIAL_RETRY_MAX_DELAY_MS;
+  const now = deps.now ?? Date.now;
   let attempt = 0;
+  // Fires once, the moment an outage crosses what mt#3608's schedule used to
+  // treat as "exhausted" — an elevated, self-driven signal (mt#3683 SC4) that
+  // does not depend on anyone polling /api/health: the ordinary per-attempt
+  // log.warn below already fires at every interval regardless of whether
+  // anyone is watching, but this marks the specific moment worth a louder
+  // line in any log-based alerting.
+  let loggedPastOriginalWindow = false;
   for (;;) {
     const resolution = await deps.resolve();
     if (resolution.configured || !resolution.transient) {
@@ -526,13 +661,32 @@ export async function resolveWithRetry(deps: {
       return resolution;
     }
 
-    if (attempt >= deps.delaysMs.length) {
-      channelStatus = { state: "failed", reason: resolution.reason, attempts: attempt + 1 };
-      return resolution;
+    const scheduled = deps.delaysMs[attempt];
+    // mt#3689: the clamp wraps BOTH paths. A seeded entry is read straight out
+    // of `delaysMs` and never reaches `nextRetryDelayMs`, so flooring only the
+    // computed path would still sleep 0ms for a `[0]` schedule's first attempt.
+    const delayMs = clampRetryDelayMs(
+      scheduled !== undefined ? scheduled : nextRetryDelayMs(attempt, deps.delaysMs, maxDelayMs),
+      maxDelayMs
+    );
+
+    if (scheduled === undefined && !loggedPastOriginalWindow) {
+      loggedPastOriginalWindow = true;
+      log.error(
+        "[principal-channel] credential read still failing past the original ~2-minute " +
+          "retry window; continuing on a widening, capped backoff rather than giving up",
+        { reason: resolution.reason, attempt: attempt + 1 }
+      );
     }
 
-    const delayMs = deps.delaysMs[attempt] ?? 0;
-    channelStatus = { state: "retrying", reason: resolution.reason, attempts: attempt + 1 };
+    const nowMs = now();
+    channelStatus = {
+      state: "retrying",
+      reason: resolution.reason,
+      attempts: attempt + 1,
+      lastAttemptAt: new Date(nowMs).toISOString(),
+      nextAttemptAt: new Date(nowMs + delayMs).toISOString(),
+    };
     log.warn("[principal-channel] credential read failed; retrying", {
       reason: resolution.reason,
       attempt: attempt + 1,
@@ -541,6 +695,33 @@ export async function resolveWithRetry(deps: {
     await deps.sleep(delayMs);
     attempt += 1;
   }
+}
+
+/**
+ * Delay for an attempt past the end of the seeded schedule (mt#3683).
+ *
+ * Keeps doubling the schedule's LAST entry rather than restarting the
+ * doubling from scratch, so the transition out of the seed schedule is
+ * continuous (no downward jump back to a short delay) — capped at
+ * `maxDelayMs` so a long outage settles at a fixed rate instead of doubling
+ * into ever-longer gaps. `2 ** n` growing past `Number.MAX_VALUE` for an
+ * extremely long outage safely evaluates to `Infinity`, and `Math.min` still
+ * clamps that to `maxDelayMs` — no overflow, no special-case needed.
+ */
+function nextRetryDelayMs(
+  attempt: number,
+  delaysMs: readonly number[],
+  maxDelayMs: number
+): number {
+  // mt#3689: floor the BASE, not just the result. Doubling a non-positive base
+  // yields that base forever, so clamping only the output would pin every wait
+  // at the floor instead of widening — positive, but still not a backoff.
+  const lastSeeded = Math.max(
+    delaysMs[delaysMs.length - 1] ?? maxDelayMs,
+    CREDENTIAL_RETRY_MIN_DELAY_MS
+  );
+  const doublingsPastSchedule = attempt - delaysMs.length + 1;
+  return Math.min(lastSeeded * 2 ** doublingsPastSchedule, maxDelayMs);
 }
 
 /**
@@ -579,11 +760,17 @@ export async function startPrincipalChannel(opts: {
     // old single warn said "enabled but not configured" for both, which reads
     // as an operator oversight and is why a repeating fault looked like a
     // settled config state.
+    //
+    // The `transient` branch is now DEFENSIVE, not a live path (mt#3683):
+    // resolveWithRetry never returns while `transient` is true — it retries
+    // indefinitely instead (see its own docblock). Kept because the return
+    // type still expresses `{configured: false, transient: true}` as a value
+    // TypeScript can't statically rule out here, and a silent behavior change
+    // if that contract is ever loosened is worse than one unreachable branch.
     if (resolution.transient) {
-      log.error(
-        "[principal-channel] credentials could not be read after retries; channel NOT running",
-        { reason: resolution.reason }
-      );
+      log.error("[principal-channel] credentials could not be read; channel NOT running", {
+        reason: resolution.reason,
+      });
     } else {
       channelStatus = { state: "unconfigured", reason: resolution.reason };
       log.warn("[principal-channel] enabled but not configured; not starting", {
@@ -604,7 +791,7 @@ export async function startPrincipalChannel(opts: {
     return await startResolvedChannel({ opts, config, token, chatId });
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
-    channelStatus = { state: "failed", reason, attempts: 1 };
+    channelStatus = { state: "failed", reason };
     throw err;
   }
 }
@@ -738,7 +925,11 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
 export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorder {
   return async (eventType, payload: PrincipalMessageEventPayload) => {
     const db = await getDb();
-    if (!db) throw new Error("persistence unavailable — cannot record the inbound audit event");
+    if (!db) {
+      throw new Error(
+        `persistence unavailable — cannot record the inbound audit event. ${await describeServerPersistenceUnavailability()}`
+      );
+    }
 
     const { sql } = await import("drizzle-orm");
     // The payload's own token, not one derived from the update id: the

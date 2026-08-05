@@ -43,16 +43,22 @@ import type { MemoryRecord } from "@minsky/domain/memory/types";
 beforeAll(() => setHostedMode(true));
 afterAll(() => setHostedMode(false));
 
-// registerMemoryCommands registers all 9 memory.* commands each call; track
+// registerMemoryCommands registers all 10 memory.* commands each call; track
 // every id so a clean slate can be guaranteed regardless of registration
 // order or prior test-file state (allowOverwrite: true is not part of the
 // production registration call, so a stale duplicate would throw).
+//
+// This list must be kept in step with the registrations in ./index.ts — a
+// command missing from it survives the reset and then collides on the next
+// registration, failing an unrelated test with "already registered" (which is
+// exactly what adding memory.patch in mt#3602 did).
 const MEMORY_COMMAND_IDS = [
   "memory.search",
   "memory.get",
   "memory.list",
   "memory.create",
   "memory.update",
+  "memory.patch",
   "memory.delete",
   "memory.similar",
   "memory.supersede",

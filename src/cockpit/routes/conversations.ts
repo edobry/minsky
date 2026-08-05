@@ -30,10 +30,15 @@
 import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
-import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
+import {
+  getContextInspectorDb,
+  getServerSessionProvider,
+  describeServerPersistenceUnavailability,
+} from "../db-providers";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
+import { ServerTimingRecorder } from "../server-timing";
 
 /**
  * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
@@ -44,40 +49,19 @@ import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-
 const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 /**
- * Shared task-title cache for the overview route's label computation (mt#3343).
+ * Task-title cache for the overview route's label computation (mt#3343).
  *
- * Lazily constructed so a cockpit boot with no SQL-capable persistence provider
- * never pays for it, and module-level so repeated overview polls reuse one
- * cache rather than re-hitting the task backend per request — the same posture
- * `widgets/context-inspector.ts` takes for the picker's labels. A null task
- * service degrades tier-1/tier-3 task-title resolution to "not found" rather
- * than throwing; `fetchEnrichment` already treats that as a tier miss.
+ * The singleton itself moved to `../shared-task-title-cache` (mt#3691) once
+ * `routes/agents.ts` began labeling its conversation candidates through the
+ * same precedence: two module-private caches would be two caches over one task
+ * backend, warming and expiring independently. This thin alias keeps the
+ * call site below reading the same way it did.
  */
-let overviewTitleCache: import("../task-title-cache").TaskTitleCache | null = null;
 async function getOverviewTitleCache(): Promise<
   import("../task-title-cache").TaskTitleCache | null
 > {
-  if (overviewTitleCache) return overviewTitleCache;
-  try {
-    const { TaskTitleCache } = await import("../task-title-cache");
-    const { getServerTaskService } = await import("../db-providers");
-    overviewTitleCache = new TaskTitleCache(async () => {
-      const taskService = await getServerTaskService();
-      return (
-        taskService ?? {
-          async getTask() {
-            return null;
-          },
-          async getTasks() {
-            return [];
-          },
-        }
-      );
-    });
-    return overviewTitleCache;
-  } catch {
-    return null;
-  }
+  const { getSharedTaskTitleCache } = await import("../shared-task-title-cache");
+  return getSharedTaskTitleCache();
 }
 
 /**
@@ -292,11 +276,16 @@ export function mountConversationRoutes(
     }
     const agentSessionId = decodeURIComponent(rawId) as ConversationId;
 
+    // mt#3710 — per-phase attribution for the conversation overview, matching
+    // the task-detail route mt#3696 instrumented.
+    const timing = new ServerTimingRecorder();
+    timing.attachTo(res);
+
     try {
-      const db = await getDb();
+      const db = await timing.time("db", () => getDb());
       if (!db) {
         res.status(503).json({
-          error: "DB unavailable — persistence provider does not support SQL",
+          error: `DB unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -330,28 +319,30 @@ export function mountConversationRoutes(
       // mt#3131 (D3): bound the lookup — a DB pool under contention (e.g. a
       // live conversation's own polling load) must not leave this response
       // pending indefinitely.
-      const transcriptRows = await withBoundedTimeout(
-        db
-          .select({
-            harness: agentTranscriptsTable.harness,
-            cwd: agentTranscriptsTable.cwd,
-            startedAt: agentTranscriptsTable.startedAt,
-            endedAt: agentTranscriptsTable.endedAt,
-            // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
-            // metadata-extractor) and the incremental-ingest high-water-mark
-            // (used as the duration fallback for a conversation with no
-            // endedAt yet, i.e. one still in progress).
-            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-            lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
-            // mt#3321 generated title — tier 2 of the label precedence, read
-            // off the row already being selected here (no extra query).
-            title: agentTranscriptsTable.title,
-          })
-          .from(agentTranscriptsTable)
-          .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-          .limit(1),
-        OVERVIEW_QUERY_TIMEOUT_MS
+      const transcriptRows = await timing.time("transcript", () =>
+        withBoundedTimeout(
+          db
+            .select({
+              harness: agentTranscriptsTable.harness,
+              cwd: agentTranscriptsTable.cwd,
+              startedAt: agentTranscriptsTable.startedAt,
+              endedAt: agentTranscriptsTable.endedAt,
+              // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
+              // metadata-extractor) and the incremental-ingest high-water-mark
+              // (used as the duration fallback for a conversation with no
+              // endedAt yet, i.e. one still in progress).
+              relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+              relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+              lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
+              // mt#3321 generated title — tier 2 of the label precedence, read
+              // off the row already being selected here (no extra query).
+              title: agentTranscriptsTable.title,
+            })
+            .from(agentTranscriptsTable)
+            .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+            .limit(1),
+          OVERVIEW_QUERY_TIMEOUT_MS
+        )
       );
 
       const transcript = transcriptRows[0];
@@ -359,6 +350,28 @@ export function mountConversationRoutes(
         res.status(404).json({ error: `Conversation ${agentSessionId} not found` });
         return;
       }
+
+      // mt#3710 — the label's DB enrichment needs only `db` and
+      // `agentSessionId`, both known here, so it starts alongside the two reads
+      // below instead of after them. Only the final `computeConversationLabel`
+      // needs the workspace title, and that is pure computation.
+      //
+      // Measured before this change: transcript 153ms -> turns+workspace 940ms
+      // -> label 630ms, serialized into a ~1710ms handler. The enrichment query
+      // was the whole of that last phase and overlaps the 940ms completely.
+      const enrichmentPromise = timing.time("enrichment", async () => {
+        try {
+          const { fetchEnrichment } = await import("../conversation-label-enrichment");
+          return await fetchEnrichment(db, [agentSessionId], await getOverviewTitleCache());
+        } catch (enrichErr) {
+          // Resolve to null rather than reject: a label is chrome, not data,
+          // and the caller below falls back exactly as it did when the whole
+          // block was one try/catch.
+          const msg = enrichErr instanceof Error ? enrichErr.message : String(enrichErr);
+          log.debug(`[conversation] label enrichment degraded: ${msg}`);
+          return null;
+        }
+      });
 
       const turnCountPromise: Promise<number> = (async () => {
         try {
@@ -414,7 +427,9 @@ export function mountConversationRoutes(
         }
       })();
 
-      const [turnCount, workspace] = await Promise.all([turnCountPromise, workspacePromise]);
+      const [turnCount, workspace] = await timing.time("turns+workspace", () =>
+        Promise.all([turnCountPromise, workspacePromise])
+      );
 
       // mt#3343 — the page must be able to name ITSELF. Before this,
       // `/conversation/:id` derived its heading by searching the
@@ -429,19 +444,20 @@ export function mountConversationRoutes(
       // route already built it, so reusing it costs nothing and stays correct
       // even if the `minsky_session_links` lookup inside `fetchEnrichment`
       // resolves a different (weaker) link.
-      const label = await (async () => {
+      // Awaited BEFORE the `label` timer starts, not inside it (PR #2639 R1).
+      // Awaiting it within the timed block would let any residual enrichment
+      // wait land in `label`, so a phase whose whole point is to show that the
+      // query left the critical path would quietly absorb the query again —
+      // the metric would stop being able to report its own failure.
+      const enrichmentMap = await enrichmentPromise;
+
+      const label = await timing.time("label", async () => {
         try {
-          const { fetchEnrichment, EMPTY_ENRICHMENT } = await import(
-            "../conversation-label-enrichment"
-          );
+          const { EMPTY_ENRICHMENT } = await import("../conversation-label-enrichment");
           const { computeConversationLabel } = await import(
             "@minsky/domain/transcripts/conversation-label"
           );
-          const enrichmentMap = await fetchEnrichment(
-            db,
-            [agentSessionId],
-            await getOverviewTitleCache()
-          );
+          if (!enrichmentMap) throw new Error("enrichment unavailable");
           const enrichment = enrichmentMap.get(agentSessionId) ?? EMPTY_ENRICHMENT;
           return computeConversationLabel({
             agentSessionId,
@@ -467,7 +483,7 @@ export function mountConversationRoutes(
             transcript.startedAt instanceof Date ? transcript.startedAt : null
           );
         }
-      })();
+      });
 
       res.json({
         agentSessionId,

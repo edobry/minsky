@@ -148,18 +148,52 @@ describe("findPortHolder", () => {
     expect(holder).toBeNull();
   });
 
+  // mt#3524: same TOCTOU family as the sibling test above, one step further out.
+  //
+  // `bindListener` binds 127.0.0.1 ONLY, but `findPortHolder` shells out to
+  // `lsof -i :<port> -sTCP:LISTEN`, which matches that PORT NUMBER on ANY
+  // address, and then takes the FIRST pid of a possibly multi-line result. So
+  // when an unrelated process happens to be listening on the same port number
+  // on a different interface — plausible under full-suite parallelism, where
+  // many test processes bind OS-assigned ports at once — lsof reports both and
+  // findPortHolder can legitimately return the other one. Observed exactly
+  // that way (expected 62950, received 58788) during a full-suite run whose
+  // diff touched nothing near this path; the isolated re-run passed 17/17.
+  //
+  // Retrying with a freshly OS-assigned port keeps the assertion at full
+  // strength — we still require the holder to be THIS process — and only
+  // re-rolls when someone else is genuinely sharing the port number. Weakening
+  // it to "some holder exists" would drop the property the test is for: that
+  // findPortHolder attributes a listening port to its actual owner.
   skipOnWindows("returns this process's PID when we hold the port", async () => {
-    const { server, port } = await bindListener();
-    try {
-      const holder = findPortHolder(port);
-      expect(holder).not.toBeNull();
-      if (!holder) return;
-      expect(holder.pid).toBe(process.pid);
-      expect(typeof holder.command).toBe("string");
-      expect(holder.command.length).toBeGreaterThan(0);
-    } finally {
-      await closeListener(server);
+    let lastHolder: PortHolder | null = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+      const { server, port } = await bindListener();
+      try {
+        lastHolder = findPortHolder(port);
+        // Break ONLY on the outcome we are asserting. Both other outcomes are
+        // transient and get a fresh port:
+        //   - another pid: someone else holds this port number too and lsof
+        //     listed them first;
+        //   - null: `lsof` is a subprocess and does not always observe a
+        //     just-completed bind immediately, so a null here is visibility
+        //     lag rather than a real absence (PR #2598 R1 — breaking on null
+        //     re-introduced exactly the flake this retry exists to remove).
+        if (lastHolder?.pid === process.pid) break;
+      } finally {
+        await closeListener(server);
+      }
     }
+
+    expect(lastHolder).not.toBeNull();
+    if (!lastHolder) return;
+    expect(lastHolder.pid).toBe(process.pid);
+    expect(typeof lastHolder.command).toBe("string");
+    expect(lastHolder.command.length).toBeGreaterThan(0);
   });
 });
 

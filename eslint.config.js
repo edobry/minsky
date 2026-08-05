@@ -35,6 +35,7 @@ import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-boots
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
+import noSpyPatching from "./eslint-rules/no-spy-patching.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -85,6 +86,12 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // module so the session-film ribbon can reuse them without forking. Same
   // exemption rationale, same code, new file.
   "src/cockpit/web/components/ConversationElementRenderers.tsx",
+  // mt#3692: the "Spawned by" backlink is the ascent half of the same
+  // subagent-spawn affordance the violet badge marks above, so it carries the
+  // same violet to read as one pair. Extracted into its own file because
+  // ConversationView.tsx had grown past the 1500-line max-lines limit — same
+  // exemption rationale, same code, new file, exactly as mt#3262 above.
+  "src/cockpit/web/components/SpawnParentBacklink.tsx",
   // Command-palette entity-type badges (memory=emerald, conversation=sky) —
   // categorical entity-type coloring, not health status. Unifying with the
   // signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already uses for
@@ -148,6 +155,7 @@ const TSX_CUSTOM_PLUGIN = {
     "no-raw-console": noRawConsole,
     "no-raw-colors-in-cockpit": noRawColorsInCockpit,
     "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+    "no-spy-patching": noSpyPatching,
   },
 };
 
@@ -279,6 +287,7 @@ export default [
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
           "no-silent-catch": noSilentCatch,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
+          "no-spy-patching": noSpyPatching,
         },
       },
     },
@@ -320,6 +329,11 @@ export default [
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Jest migration patterns only
+      // In-place collaborator patching (spyOn) ban + restore-protocol companion check
+      // (mt#3565 / ADR-036). Corpus verified clean (0 spyOn sites) before shipping at "error" —
+      // no warn phase, no carve-out list. Rule/messageId name is a principal-reserved working
+      // name (renameable without another ADR revision).
+      "custom/no-spy-patching": "error",
       "custom/no-real-fs-in-tests": [
         "warn", // Warn mode to prevent workflow disruption
         {
@@ -982,6 +996,33 @@ export default [
     files: ["**/*.test.ts", "**/*.spec.ts"],
     rules: {
       "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
+    },
+  },
+  // === no-spy-patching — TSX/JSX test-file coverage parity (mt#3565 PR #2608 R1) ===
+  // The main `**/*.ts`/`**/*.js` block registers `custom/no-spy-patching`, but React
+  // component tests (e.g. src/cockpit/web/components/CopyId.test.tsx — a direct-spyOn
+  // migration target under mt#3629) are `.tsx` and therefore invisible to it: the
+  // `custom` plugin is registered separately for TSX/JSX (see TSX_CUSTOM_PLUGIN above),
+  // scoped narrowly per the mt#2916/mt#1960 "no unrelated scope creep into TSX" precedent
+  // set elsewhere in this file. Scoped to test files only (not all `.tsx`/`.jsx`, unlike
+  // the broader no-raw-console block) since spyOn is a test-only concern.
+  {
+    files: ["**/*.test.tsx", "**/*.spec.tsx", "**/*.test.jsx", "**/*.spec.jsx"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      custom: TSX_CUSTOM_PLUGIN,
+    },
+    rules: {
+      "custom/no-spy-patching": "error",
     },
   },
   // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) ===

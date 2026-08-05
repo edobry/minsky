@@ -7,9 +7,13 @@
 import { describe, test, expect } from "bun:test";
 import {
   findScrollParent,
+  formatThreadPosition,
   hasGrown,
+  isNearTop,
   isPinnedToBottom,
   PINNED_THRESHOLD_PX,
+  scrollFraction,
+  threadPositionFromScroll,
 } from "./scroll-pinning";
 
 /** A minimal stand-in for the scroll geometry the helper reads. */
@@ -125,5 +129,97 @@ describe("findScrollParent", () => {
     } finally {
       container.remove();
     }
+  });
+});
+
+describe("isNearTop (mt#3688)", () => {
+  test("at the very top is near the top", () => {
+    expect(isNearTop(scrollport(0, 5000, 400))).toBe(true);
+  });
+
+  test("the runway is one viewport, so it scales with the viewport", () => {
+    // Same scrollTop, two window sizes: the tall one still has a screenful of
+    // warning left and the short one does not. A fixed pixel threshold would
+    // answer the same for both, which is the reason this is measured in
+    // clientHeight.
+    expect(isNearTop(scrollport(500, 5000, 800))).toBe(true);
+    expect(isNearTop(scrollport(500, 5000, 400))).toBe(false);
+  });
+
+  test("exactly one viewport up is still within the runway", () => {
+    expect(isNearTop(scrollport(400, 5000, 400))).toBe(true);
+    expect(isNearTop(scrollport(401, 5000, 400))).toBe(false);
+  });
+
+  test("scrolled to the bottom of a long thread is not near the top", () => {
+    expect(isNearTop(scrollport(4600, 5000, 400))).toBe(false);
+  });
+
+  test("a scrollport with nothing to scroll has no top to be near", () => {
+    // The consumer primes its scroll listener with a direct call at scrollTop 0.
+    // Answering `true` here would fire a reveal on mount for a thread the
+    // operator never touched — the exact cost the render window exists to avoid.
+    expect(isNearTop(scrollport(0, 300, 400))).toBe(false);
+    expect(isNearTop(null)).toBe(false);
+  });
+});
+
+describe("scrollFraction (mt#3688)", () => {
+  test("top is 0 and bottom is 1", () => {
+    expect(scrollFraction(scrollport(0, 1400, 400))).toBe(0);
+    expect(scrollFraction(scrollport(1000, 1400, 400))).toBe(1);
+  });
+
+  test("halfway through the scrollable range is 0.5", () => {
+    expect(scrollFraction(scrollport(500, 1400, 400))).toBe(0.5);
+  });
+
+  test("a scrollport with nothing to scroll reads as the end, not the start", () => {
+    // The whole thread is visible, and the thread's resting position is its
+    // newest turn — reporting 0 would render a short conversation as "you are
+    // at the beginning" when the reader is equally at the end.
+    expect(scrollFraction(scrollport(0, 300, 400))).toBe(1);
+    expect(scrollFraction(null)).toBe(1);
+  });
+
+  test("overscroll is clamped rather than reported past the ends", () => {
+    expect(scrollFraction(scrollport(-50, 1400, 400))).toBe(0);
+    expect(scrollFraction(scrollport(9999, 1400, 400))).toBe(1);
+  });
+});
+
+describe("threadPositionFromScroll (mt#3688)", () => {
+  test("the top of the rendered content IS the first rendered turn", () => {
+    // 250 hidden of 300: at the top of what is mounted the operator is at turn
+    // 250, not turn 0 — which is the whole point of counting the hidden turns.
+    expect(threadPositionFromScroll(0, 250, 300)).toBe(250);
+  });
+
+  test("the bottom is the last turn of the whole transcript", () => {
+    expect(threadPositionFromScroll(1, 250, 300)).toBe(300);
+  });
+
+  test("the middle interpolates across the RENDERED turns only", () => {
+    // 50 rendered turns spanning the scroll range: halfway is 25 in.
+    expect(threadPositionFromScroll(0.5, 250, 300)).toBe(275);
+  });
+
+  test("a fully revealed transcript spans the whole range", () => {
+    expect(threadPositionFromScroll(0, 0, 300)).toBe(0);
+    expect(threadPositionFromScroll(0.5, 0, 300)).toBe(150);
+    expect(threadPositionFromScroll(1, 0, 300)).toBe(300);
+  });
+
+  test("an empty transcript has no position", () => {
+    expect(threadPositionFromScroll(0.5, 0, 0)).toBe(0);
+  });
+});
+
+describe("formatThreadPosition (mt#3688)", () => {
+  test("carries the tilde, because the middle of the range is an estimate", () => {
+    // Turns are wildly different heights — a one-line prompt and an expanded
+    // tool block are both one turn — so the readout must not present itself as
+    // exact.
+    expect(formatThreadPosition(275, 300)).toBe("~275 / 300");
   });
 });

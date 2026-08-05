@@ -3574,7 +3574,7 @@
                 },
                 {
                   "flags": ["--require-current-head"],
-                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself mean the returned review is the reviewer's STANDING VERDICT. Several reviews from one reviewer can sit on the same HEAD, in which case this filter admits all of them; the tool separately resolves the reviewer's latest decision-bearing review and returns that, whatever its state."
                 },
                 {
                   "flags": ["--full-body"],
@@ -5854,7 +5854,7 @@
           "options": [
             {
               "flags": ["--ack"],
-              "description": "Advance the watermark for all past-threshold logs, marking them as reviewed. Without this flag the command is read-only."
+              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). Without this flag the command is read-only."
             },
             {
               "flags": ["--json"],
@@ -5862,12 +5862,12 @@
             },
             {
               "flags": ["--ask-id"],
-              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A past-threshold log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
+              "description": "ID of the disposition Ask just filed for the review-due logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A review-due log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
               "takesValue": true
             },
             {
               "flags": ["--clear-ask-id"],
-              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all past-threshold logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
+              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all review-due logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
               "takesValue": true
             }
           ]
@@ -6212,6 +6212,35 @@
               "name": "id",
               "required": true,
               "description": "Memory record identifier to update"
+            }
+          ]
+        },
+        {
+          "name": "patch",
+          "description": "Append to, prepend to, or replace ONE markdown section of a memory's content, leaving every other byte unchanged (mt#3602). Use this instead of `memory.update` when adding an entry to a long-lived record — appending an R-entry to a family root's `## Recurrences` is the canonical case. Fails loudly when the section is missing or appears more than once; never falls back to a wholesale write. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
+          "options": [
+            {
+              "flags": ["--section"],
+              "description": "Markdown section heading to target, with or without leading hashes (e.g. \"## Recurrences\"). Matched case-insensitively against the whole heading text — a prefix does not match.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--text"],
+              "description": "Text to insert (append/prepend), or the section's new body (replace). May span multiple lines.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "append (default) inserts after the section's last content line; prepend inserts directly under the heading; replace swaps the section body.",
+              "takesValue": true,
+              "values": ["append", "prepend", "replace"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
             }
           ]
         },
@@ -6580,7 +6609,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -6612,6 +6641,16 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "How the query is matched. 'websearch' (default) supports \"quoted phrases\", or, and -negation; 'plain' ANDs the words with no adjacency; 'exact' matches a literal substring without stemming.",
+              "takesValue": true,
+              "values": ["websearch", "plain", "exact"]
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ],
           "arguments": [
