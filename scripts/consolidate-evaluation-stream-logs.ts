@@ -35,9 +35,10 @@ import {
   copyFileSync,
   readdirSync,
   rmSync,
+  mkdirSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const { deriveHookRepoRoot } = await import("../.minsky/hooks/types");
 
@@ -143,6 +144,79 @@ export function parseArgs(argv: string[]): { execute: boolean; limit?: number } 
   return { execute, limit };
 }
 
+/** One stream's before/after accounting, returned so callers can assert on it. */
+export interface StreamResult {
+  streamName: string;
+  repoRecords: number;
+  strayFiles: number;
+  recovered: number;
+  afterMerge: number;
+  strayPaths: string[];
+}
+
+/**
+ * The consolidation itself, with its roots INJECTED rather than derived.
+ *
+ * Split out from `main()` so the `--execute` path — backup, merged write, stray
+ * removal, idempotency — is testable end-to-end against fixture directories
+ * instead of only through the process's own repo. `main()` is the imperative
+ * shell that resolves the roots and prints; this is the part with the behavior.
+ */
+export function consolidateStreams(options: {
+  repoRoot: string;
+  sessionsRoot: string;
+  execute: boolean;
+  limit?: number;
+  log?: (line: string) => void;
+}): StreamResult[] {
+  const { repoRoot, sessionsRoot, execute, limit } = options;
+  const log = options.log ?? (() => undefined);
+  const results: StreamResult[] = [];
+
+  for (const streamName of STREAM_NAMES) {
+    const mainLog = join(repoRoot, ".minsky", logFilename(streamName));
+    const existing = existsSync(mainLog) ? readLines(mainLog) : [];
+    const strays = discoverStrayLogs(sessionsRoot, streamName, limit);
+
+    const merged = mergeStreamLines(
+      existing,
+      strays.flatMap((s) => s.lines)
+    );
+    const result: StreamResult = {
+      streamName,
+      repoRecords: existing.length,
+      strayFiles: strays.length,
+      recovered: merged.length - existing.length,
+      afterMerge: merged.length,
+      strayPaths: strays.map((s) => s.path),
+    };
+    results.push(result);
+
+    log(`[${streamName}]`);
+    log(`  repo records:    ${result.repoRecords}`);
+    log(`  stray files:     ${result.strayFiles}`);
+    log(`  recovered:       ${result.recovered}`);
+    log(`  after merge:     ${result.afterMerge}`);
+    for (const s of strays) log(`    - ${s.path} (${s.lines.length})`);
+
+    if (!execute || strays.length === 0) continue;
+
+    if (existsSync(mainLog)) {
+      copyFileSync(mainLog, `${mainLog}.bak`);
+      log(`  backup:          ${mainLog}.bak`);
+    }
+    mkdirSync(dirname(mainLog), { recursive: true });
+    writeFileSync(mainLog, merged.length > 0 ? `${merged.join("\n")}\n` : "", "utf-8");
+    log(`  wrote:           ${mainLog} (sorted by timestamp)`);
+    for (const s of strays) {
+      rmSync(s.path, { force: true });
+      log(`  removed stray:   ${s.path}`);
+    }
+  }
+
+  return results;
+}
+
 async function main(): Promise<void> {
   const { execute, limit } = parseArgs(process.argv.slice(2));
   const repoRoot = deriveHookRepoRoot();
@@ -171,42 +245,16 @@ async function main(): Promise<void> {
     console.error("");
   }
 
-  let totalRecovered = 0;
-  let totalStrayFiles = 0;
+  const results = consolidateStreams({
+    repoRoot,
+    sessionsRoot,
+    execute,
+    limit,
+    log: (line) => console.log(line),
+  });
 
-  for (const streamName of STREAM_NAMES) {
-    const mainLog = join(repoRoot, ".minsky", logFilename(streamName));
-    const existing = existsSync(mainLog) ? readLines(mainLog) : [];
-    const strays = discoverStrayLogs(sessionsRoot, streamName, limit);
-
-    const merged = mergeStreamLines(
-      existing,
-      strays.flatMap((s) => s.lines)
-    );
-    const recovered = merged.length - existing.length;
-    totalRecovered += recovered;
-    totalStrayFiles += strays.length;
-
-    console.log(`[${streamName}]`);
-    console.log(`  repo records:    ${existing.length}`);
-    console.log(`  stray files:     ${strays.length}`);
-    console.log(`  recovered:       ${recovered}`);
-    console.log(`  after merge:     ${merged.length}`);
-    for (const s of strays) console.log(`    - ${s.path} (${s.lines.length})`);
-
-    if (!execute || strays.length === 0) continue;
-
-    if (existsSync(mainLog)) {
-      copyFileSync(mainLog, `${mainLog}.bak`);
-      console.log(`  backup:          ${mainLog}.bak`);
-    }
-    writeFileSync(mainLog, merged.length > 0 ? `${merged.join("\n")}\n` : "", "utf-8");
-    console.log(`  wrote:           ${mainLog} (sorted by timestamp)`);
-    for (const s of strays) {
-      rmSync(s.path, { force: true });
-      console.log(`  removed stray:   ${s.path}`);
-    }
-  }
+  const totalStrayFiles = results.reduce((n, r) => n + r.strayFiles, 0);
+  const totalRecovered = results.reduce((n, r) => n + r.recovered, 0);
 
   console.log("");
   console.log(`Total stray files: ${totalStrayFiles}`);

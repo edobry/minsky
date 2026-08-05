@@ -171,7 +171,7 @@ const EVALUATION_LOG_NAME = "stop-at-decision";
  * That precedence now lives in the shared helper instead of here, so the next
  * stream inherits it rather than re-deriving it.
  */
-function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
   logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 

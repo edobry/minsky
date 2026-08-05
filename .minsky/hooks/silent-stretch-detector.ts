@@ -532,7 +532,7 @@ const EVALUATION_LOG_NAME = "silent-stretch";
  * `appendCalibrationRecord` above: a measurement stream must never be able to
  * break the guard whose behavior it measures.
  */
-function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
   // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
   logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
@@ -545,7 +545,7 @@ function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): v
  * dedupes against the wrong (usually empty) log, so the dedupe silently stops
  * deduping exactly where the stray writes were landing.
  */
-function readEvaluationLogText(cwd: string): string | undefined {
+export function readEvaluationLogText(cwd: string): string | undefined {
   return readLogTailText(evaluationLogPath(EVALUATION_LOG_NAME, { fallbackCwd: cwd }));
 }
 
