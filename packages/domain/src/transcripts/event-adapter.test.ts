@@ -74,6 +74,11 @@ describe("adaptTranscriptToEvents — mt#3262 AT1: sourceRef.turnIndex round-tri
       // returns verbatim. If this identity does NOT hold, the adapter's loop
       // index and the snapshot's turnIndex have diverged and the join key
       // this task's design rests on is broken.
+      // Guard rather than optional-chain the assertions below: comparing two
+      // `undefined`s would pass vacuously if the index ran off the array.
+      if (!sourceLine?.timestamp) {
+        throw new Error(`no source line (or timestamp) at turnIndex ${turnIndex}`);
+      }
       const block = turnLineToBlock(AGENT_SESSION_ID, turnIndex, sourceLine);
       expect(block).not.toBeNull();
       expect(block?.turnIndex).toBe(turnIndex);

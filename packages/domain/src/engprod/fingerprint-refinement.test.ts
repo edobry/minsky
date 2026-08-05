@@ -74,7 +74,10 @@ describe("refineCluster", () => {
 
     const outcome = refineCluster(c);
 
-    expect(outcome.kind).toBe("excluded");
+    // Narrow on `kind` rather than merely asserting it: `concentration` exists
+    // only on the `refined`/`excluded` arms, so reading it off the bare union
+    // is what the previous form did.
+    if (outcome.kind !== "excluded") throw new Error(`expected excluded, got ${outcome.kind}`);
     expect(outcome.concentration).toBeCloseTo(0.05);
   });
 

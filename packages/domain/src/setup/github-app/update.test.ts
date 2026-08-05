@@ -90,7 +90,10 @@ describe("updateGithubApp", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     const result = await updateGithubApp({
       name: "test-app",
@@ -130,7 +133,10 @@ describe("updateGithubApp", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     const result = await updateGithubApp({
       name: "test-app",
@@ -165,7 +171,10 @@ describe("updateGithubApp", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     const result = await updateGithubApp({
       name: "test-app",
@@ -199,7 +208,10 @@ describe("updateGithubApp", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     const result = await updateGithubApp({
       name: "test-app",
@@ -224,7 +236,10 @@ describe("updateGithubApp", () => {
 
     globalThis.fetch = mock(async () => {
       return new Response("Unauthorized", { status: 401 });
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     const result = await updateGithubApp({
       name: "test-app",
@@ -255,7 +270,10 @@ describe("updateGithubApp", () => {
         }),
         { status: 200 }
       );
-    }) as typeof fetch;
+      // `as unknown as`: bun-types' global `fetch` carries `preconnect`, which
+      // a `mock(...)` wrapper cannot supply, and this assigns to the GLOBAL so
+      // the full shape is genuinely required.
+    }) as unknown as typeof fetch;
 
     await updateGithubApp({
       name: "test-app",

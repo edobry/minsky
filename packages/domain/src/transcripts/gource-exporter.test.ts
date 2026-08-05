@@ -184,9 +184,12 @@ describe("eventsToGourceLines — actor label rendering", () => {
       event({
         actor: { kind: "agent", agentSessionId: SAMPLE_CONVERSATION_ID },
       });
-    const first = eventsToGourceLines([makeEvent()])[0]?.actor;
-    const second = eventsToGourceLines([makeEvent()])[0]?.actor;
-    expect(first).toBe(second);
+    const [firstLine] = eventsToGourceLines([makeEvent()]);
+    const [secondLine] = eventsToGourceLines([makeEvent()]);
+    // Assert presence separately — comparing two `undefined`s would pass
+    // vacuously if the exporter stopped emitting a line per event.
+    if (!firstLine || !secondLine) throw new Error("expected one gource line per event");
+    expect(firstLine.actor).toBe(secondLine.actor);
   });
 });
 

@@ -4,6 +4,9 @@
   "description": "Shared utilities used across Minsky packages and separately-deployed services.",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./safe-truncate": "./src/safe-truncate.ts",

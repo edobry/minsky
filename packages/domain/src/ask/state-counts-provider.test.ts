@@ -48,7 +48,10 @@ describe("getAskStateCounts per-call repo fallback (mt#2568 regression)", () => 
     // - Post-fix code: per-call fallback invokes the registered builder →
     //   real counts returned even though the one-shot setter never fired.
 
-    const countByStateMock = mock(async () => fakeCounts({ detected: 3, resolved: 2 }));
+    // `closed`, not `resolved`: there is no `resolved` AskState (ask/types.ts).
+    // The old key just rode along on the object spread, so the assertion below
+    // read back a state the system never produces.
+    const countByStateMock = mock(async () => fakeCounts({ detected: 3, closed: 2 }));
     const fakeRepo = { countByState: countByStateMock } as unknown as AskRepository;
 
     let builderCallCount = 0;
@@ -69,7 +72,7 @@ describe("getAskStateCounts per-call repo fallback (mt#2568 regression)", () => 
     expect(snapshot.available).toBe(true);
     expect(snapshot.total).toBe(5);
     expect(snapshot.byState.detected).toBe(3);
-    expect(snapshot.byState.resolved).toBe(2);
+    expect(snapshot.byState.closed).toBe(2);
   });
 
   test("fast-path: uses pre-set repo without going through the builder", async () => {

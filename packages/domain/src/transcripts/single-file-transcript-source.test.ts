@@ -8,8 +8,12 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ConversationId } from "../ids";
 import { SingleFileTranscriptSource } from "./single-file-transcript-source";
 import type { RawTurnLine } from "./transcript-source";
+
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
 
 const USER_LINE = JSON.stringify({
   type: "user",
@@ -54,7 +58,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const d = await src.discovered();
-    expect(d.agentSessionId).toBe("abc-123");
+    expect(d.agentSessionId).toBe(conv("abc-123"));
     expect(d.jsonlPath).toBe(file);
     expect(d.harness).toBe("claude_code");
     expect(d.isSubagent).toBe(false);
@@ -70,7 +74,7 @@ describe("SingleFileTranscriptSource", () => {
 
     const d = await new SingleFileTranscriptSource(subFile).discovered();
     expect(d.isSubagent).toBe(true);
-    expect(d.agentSessionId).toBe("agent-deadbeef");
+    expect(d.agentSessionId).toBe(conv("agent-deadbeef"));
   });
 
   test("readSession yields only retained line types", async () => {
@@ -78,7 +82,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("ignored-id")) lines.push(line);
+    for await (const line of src.readSession(conv("ignored-id"))) lines.push(line);
 
     expect(lines.map((l) => l.type)).toEqual(["user", "assistant"]);
   });
@@ -88,7 +92,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("ignored-id")) lines.push(line);
+    for await (const line of src.readSession(conv("ignored-id"))) lines.push(line);
 
     // Before mt#3260 this line was dropped and queued-message state was
     // unrecoverable downstream.
@@ -100,7 +104,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("ignored-id")) lines.push(line);
+    for await (const line of src.readSession(conv("ignored-id"))) lines.push(line);
 
     expect(lines).toHaveLength(1);
     expect(lines[0]?.message).toBeUndefined();
@@ -114,7 +118,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("ignored-id")) lines.push(line);
+    for await (const line of src.readSession(conv("ignored-id"))) lines.push(line);
 
     expect(lines.map((l) => l.type)).toEqual(["queue-operation"]);
   });
@@ -124,7 +128,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("a-totally-different-id")) lines.push(line);
+    for await (const line of src.readSession(conv("a-totally-different-id"))) lines.push(line);
     expect(lines).toHaveLength(1);
   });
 
@@ -148,7 +152,7 @@ describe("SingleFileTranscriptSource", () => {
     const src = new SingleFileTranscriptSource(file);
 
     const lines: RawTurnLine[] = [];
-    for await (const line of src.readSession("id")) lines.push(line);
+    for await (const line of src.readSession(conv("id"))) lines.push(line);
     expect(lines.map((l) => l.type)).toEqual(["user", "assistant"]);
   });
 

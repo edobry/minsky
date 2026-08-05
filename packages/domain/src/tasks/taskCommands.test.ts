@@ -1076,7 +1076,7 @@ describe("createTaskFromTitleAndSpec command — mt#2572 Bug 4 (backend forwardi
     } as unknown as TaskServiceInterface;
 
     await createTaskFromTitleAndSpec(
-      { title: "Test", spec: "spec body", backend: "minsky" },
+      { title: "Test", spec: "spec body", backend: "minsky", force: false },
       { taskService: mockTaskService }
     );
 
