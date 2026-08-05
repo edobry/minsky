@@ -2017,19 +2017,39 @@ describe("readiness deadlines are centralized (mt#3771)", () => {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
   const SOURCE = readFileSync(import.meta.path).toString();
 
+  /**
+   * The delay ARGUMENT of every readiness `setTimeout`, with line comments
+   * stripped before matching.
+   *
+   * Reading the argument rather than the line text is deliberate, and is the
+   * second correction this guard has needed. Draft 1 searched the enclosing
+   * function body for the constant's name, and passed vacuously when the fix was
+   * reverted — the explanatory comment above the site names it too. Draft 2
+   * narrowed to the line, and PR #2675 R1 caught that a trailing
+   * `// READY_TIMEOUT_MS` comment on that same line defeats it identically. Both
+   * drafts confused a MENTION with a USE; only the argument distinguishes them.
+   */
+  function readinessDelays(): Array<{ line: number; delay: string; source: string }> {
+    return SOURCE.split("\n").flatMap((raw, index) => {
+      const withoutComment = raw.split("//")[0] ?? "";
+      const delay = withoutComment.match(
+        /setTimeout\(.*resolve\("timeout"\)\s*,\s*([^),]+)\)/
+      )?.[1];
+      return delay ? [{ line: index + 1, delay: delay.trim(), source: raw.trim() }] : [];
+    });
+  }
+
   test("every readiness deadline uses a named bound, not a bare literal", () => {
-    const readinessSites = SOURCE.split("\n")
-      .map((text, index) => ({ text, line: index + 1 }))
-      .filter(({ text }) => /setTimeout\(.*resolve\("timeout"\)/.test(text));
+    const delays = readinessDelays();
 
     // A guard that matches nothing passes vacuously. If a refactor moves the
     // readiness site out from under this pattern, fail here rather than go
     // quietly green on an empty set.
-    expect(readinessSites.length).toBeGreaterThan(0);
+    expect(delays.length).toBeGreaterThan(0);
 
-    const bareLiterals = readinessSites
-      .filter(({ text }) => /,\s*\d+\s*\)/.test(text))
-      .map(({ line, text }) => `${line}: ${text.trim()}`);
+    const bareLiterals = delays
+      .filter(({ delay }) => /^\d+$/.test(delay))
+      .map(({ line, source }) => `${line}: ${source}`);
 
     expect(bareLiterals).toEqual([]);
   });
@@ -2038,17 +2058,11 @@ describe("readiness deadlines are centralized (mt#3771)", () => {
     // Stronger than the no-bare-literal check: a site could use some OTHER named
     // constant and still pass that one, which would put the two readiness paths
     // back on separate bounds — the exact condition mt#3771 exists to remove.
-    //
-    // This asserts on the deadline LINE, not the enclosing function body. An
-    // earlier draft checked the body with `toContain("READY_TIMEOUT_MS")` and
-    // passed vacuously when the fix was reverted, because the explanatory
-    // comment above the site names the constant too. The negative control
-    // caught it; a body-level check cannot distinguish a mention from a use.
-    const offenders = SOURCE.split("\n")
-      .map((text, index) => ({ text, line: index + 1 }))
-      .filter(({ text }) => /setTimeout\(.*resolve\("timeout"\)/.test(text))
-      .filter(({ text }) => !text.includes("READY_TIMEOUT_MS"))
-      .map(({ line, text }) => `${line}: ${text.trim()}`);
+    // Exact equality, so a derived bound (`READY_TIMEOUT_MS * 2`) fails too: the
+    // point is one shared bound, not one shared base.
+    const offenders = readinessDelays()
+      .filter(({ delay }) => delay !== "READY_TIMEOUT_MS")
+      .map(({ line, source }) => `${line}: ${source}`);
 
     expect(offenders).toEqual([]);
   });
