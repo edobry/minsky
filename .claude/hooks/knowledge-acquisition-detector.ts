@@ -786,7 +786,7 @@ export async function detectKnowledgeAcquisition(
   skillKeywordsByName: ReadonlyMap<string, string[]>,
   alreadyLoggedDedupeKeys: ReadonlySet<string>,
   windowTurns: number = TRAILING_WINDOW_TURNS,
-  nominate?: SkillNominator
+  nominateSkill?: SkillNominator
 ): Promise<KnowledgeAcquisitionDetection | null> {
   // mt#3720: session-grain dedupe — at most one verdict per session, ever.
   if (alreadyLoggedDedupeKeys.has(SESSION_VERDICT_DEDUPE_KEY)) return null;
@@ -817,7 +817,7 @@ export async function detectKnowledgeAcquisition(
   // so the lexical match is tautological rather than evidence of topical
   // relevance. Rung 2 asks the question the gate is actually for — is this
   // research ABOUT the skill's domain?
-  if (nominate) {
+  if (nominateSkill) {
     const nominated: MatchedResearchOccurrence[] = [];
     // Session-wide wall-clock bound. Each nomination is individually race-bound
     // at DEFAULT_NOMINATION_TIMEOUT_MS (2000ms), but this loop is serial and
@@ -836,7 +836,7 @@ export async function detectKnowledgeAcquisition(
         degradedReason = "session-nomination-budget-exceeded";
         break;
       }
-      const outcome = await nominate(candidateTexts, loadedSkills);
+      const outcome = await nominateSkill(candidateTexts, loadedSkills);
       if (outcome.kind === "degraded") {
         degradedReason = outcome.reason;
         break;
@@ -861,7 +861,7 @@ export async function detectKnowledgeAcquisition(
   // re-runs every occurrence lexically, so one session's verdict is never half
   // embedding-nominated and half keyword-matched — which would make the
   // recorded `detectionRung` a lie about how the verdict was reached.
-  if (nominate === undefined || degradedReason !== undefined) {
+  if (nominateSkill === undefined || degradedReason !== undefined) {
     matchedOccurrences = [];
     for (const { occ, candidateTexts } of candidates) {
       let matchedSkill: string | undefined;
@@ -921,7 +921,7 @@ export async function detectKnowledgeAcquisition(
       // mt#3772: no longer a hardcoded constant. It now records which rung
       // ACTUALLY produced the verdict, which is what mt#3199's criterion 5
       // flagged as unreachable-by-construction on the old literal.
-      detectionRung: degradedReason === undefined && nominate ? "2-embedding" : "1-lexical",
+      detectionRung: degradedReason === undefined && nominateSkill ? "2-embedding" : "1-lexical",
       researchTools,
       loadedSkills,
       matchedSkill: firstMatch.matchedSkill,
