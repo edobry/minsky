@@ -10,7 +10,11 @@
  *      shows the staleness message and the regenerate command.
  */
 import { describe, test, expect } from "bun:test";
-import { classifyCompileCheckError } from "./pre-commit";
+import {
+  classifyCompileCheckError,
+  extractPerRuleViolationIds,
+  perRuleBreachIsStaged,
+} from "./pre-commit";
 
 /** Substring emitted by classifyCompileCheckError for non-staleness compile failures. */
 const NOT_STALENESS_MARKER = "not a staleness issue";
@@ -443,5 +447,126 @@ describe("classifyCompileCheckError — mt#2874 per-rule-ceiling-exceeded classi
     const result = classifyCompileCheckError(error, "claude.md");
     expect(result.errorKind).toBe("budget-exceeded");
     expect(result.logLines.join("\n")).toContain(EXCEEDS_SIZE_BUDGET_PHRASE);
+  });
+});
+
+describe("per-rule ceiling is priced to the author (mt#3676)", () => {
+  /** The rule whose real breach caused this task; used as the primary offender. */
+  const OVER_RULE = "hook-observers";
+  /** A second offender, for the multi-violation cases. */
+  const OTHER_OVER_RULE = "decision-defaults";
+  /** A rule that is UNDER the ceiling — staging it must not pay for someone else's breach. */
+  const UNDER_RULE = "code-style";
+  const rulePath = (id: string): string => `.minsky/rules/${id}.mdc`;
+
+  /** A realistic compile payload: a human line, then the JSON the CLI emits. */
+  function compilePayload(violations: Array<{ id: string; size: number }>): string {
+    return [
+      `[compile] Target "claude.md" output size: 90505 chars`,
+      JSON.stringify({ target: "claude.md", perRuleViolations: violations, check: true }),
+    ].join("\n");
+  }
+
+  describe("extractPerRuleViolationIds", () => {
+    test("reads the offending rule ids out of the JSON payload", () => {
+      const stdout = compilePayload([
+        { id: OVER_RULE, size: 15170 },
+        { id: OTHER_OVER_RULE, size: 15004 },
+      ]);
+      expect(extractPerRuleViolationIds(stdout)).toEqual([OVER_RULE, OTHER_OVER_RULE]);
+    });
+
+    test("returns empty for a payload with no violations", () => {
+      expect(extractPerRuleViolationIds(compilePayload([]))).toEqual([]);
+    });
+
+    test("returns empty — not a throw — on unparseable stdout", () => {
+      expect(extractPerRuleViolationIds("no json here at all")).toEqual([]);
+      expect(extractPerRuleViolationIds("{ not valid json")).toEqual([]);
+      expect(extractPerRuleViolationIds("")).toEqual([]);
+    });
+
+    test("ignores malformed entries rather than emitting undefined ids", () => {
+      const stdout = [
+        `[compile] noise`,
+        JSON.stringify({
+          perRuleViolations: [{ id: "ok", size: 1 }, { size: 2 }, null, { id: 5 }],
+        }),
+      ].join("\n");
+      expect(extractPerRuleViolationIds(stdout)).toEqual(["ok"]);
+    });
+  });
+
+  describe("perRuleBreachIsStaged", () => {
+    test("blocks when the commit stages the offending rule — the author pays", () => {
+      expect(perRuleBreachIsStaged([OVER_RULE], [rulePath(OVER_RULE)])).toBe(true);
+    });
+
+    test("does NOT block a commit that stages no rule file — the originating incident", () => {
+      // Three sessions paid MINSKY_SKIP_SIZE_BUDGET for a hook-observers breach
+      // none of them authored; this is the case that stops costing them.
+      expect(perRuleBreachIsStaged([OVER_RULE], ["src/hooks/pre-commit.ts"])).toBe(false);
+    });
+
+    test("does NOT block a commit staging a DIFFERENT, under-ceiling rule", () => {
+      expect(perRuleBreachIsStaged([OVER_RULE], [rulePath(UNDER_RULE)])).toBe(false);
+    });
+
+    test("blocks when any one of several offenders is staged", () => {
+      expect(
+        perRuleBreachIsStaged(
+          [OVER_RULE, OTHER_OVER_RULE],
+          ["README.md", rulePath(OTHER_OVER_RULE)]
+        )
+      ).toBe(true);
+    });
+
+    test("fail-CLOSED: an unparseable offender list still blocks", () => {
+      // Empty means "could not determine", never "nothing is over" — otherwise a
+      // parse bug silently disables the ceiling repo-wide.
+      expect(perRuleBreachIsStaged([], ["src/hooks/pre-commit.ts"])).toBe(true);
+    });
+
+    test("does not match a rules path outside .minsky/rules or a non-.mdc file", () => {
+      expect(perRuleBreachIsStaged([OVER_RULE], [`docs/${OVER_RULE}.mdc`])).toBe(false);
+      expect(perRuleBreachIsStaged([OVER_RULE], [`.minsky/rules/${OVER_RULE}.md`])).toBe(false);
+    });
+  });
+
+  describe("classifyCompileCheckError carries the discriminator", () => {
+    test("a per-rule breach is labelled per-rule and names the offenders", () => {
+      const error = makeExecError({
+        stdout: [
+          perRuleCeilingExceededMarker("claude.md"),
+          JSON.stringify({ perRuleViolations: [{ id: "hook-observers", size: 15170 }] }),
+        ].join("\n"),
+        stderr: "",
+      });
+      const result = classifyCompileCheckError(error, "claude.md");
+      expect(result.errorKind).toBe("budget-exceeded");
+      expect(result.budgetKind).toBe("per-rule");
+      expect(result.perRuleViolationIds).toEqual(["hook-observers"]);
+    });
+
+    test("an aggregate breach is labelled aggregate and keeps its blast radius", () => {
+      const error = makeExecError({ stdout: budgetExceededMarker("claude.md"), stderr: "" });
+      const result = classifyCompileCheckError(error, "claude.md");
+      expect(result.errorKind).toBe("budget-exceeded");
+      expect(result.budgetKind).toBe("aggregate");
+      // No offender list: the aggregate case is not scoped to the staged diff.
+      expect(result.perRuleViolationIds).toBeUndefined();
+    });
+
+    test("both breaches keep the SAME errorKind, so one override still covers both", () => {
+      const perRule = classifyCompileCheckError(
+        makeExecError({ stdout: perRuleCeilingExceededMarker("claude.md"), stderr: "" }),
+        "claude.md"
+      );
+      const aggregate = classifyCompileCheckError(
+        makeExecError({ stdout: budgetExceededMarker("claude.md"), stderr: "" }),
+        "claude.md"
+      );
+      expect(perRule.errorKind).toBe(aggregate.errorKind);
+    });
   });
 });
