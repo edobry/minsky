@@ -46,8 +46,18 @@ export interface SignatureToken {
   text: string;
   /** Which rule produced it. Recorded in the calibration log so the FP review
    *  can size each rule's contribution separately rather than the whole scan's. */
-  rule: "route" | "path" | "identifier" | "task-ref";
+  rule: "route" | "path" | "identifier";
 }
+
+// A FOURTH rule — cited task refs (`mt#3575`) — was implemented and then
+// REMOVED before ship, on measurement rather than taste. Replaying mt#3719
+// against the live corpus, it contributed 4 of 9 matches and every one was a
+// false positive: mt#3711, mt#2841, mt#2607 and mt#3627 each merely LIST the
+// cited id among unrelated tasks. That is the common shape here — duplicate-check
+// records, "related tasks" sections, and burndown tables all enumerate ids, so a
+// shared citation carries no subject overlap. Kept out rather than shipped for
+// the calibration log to rediscover; `TASK_REF_RE` below survives because
+// parseDuplicateCheckRecord still needs it.
 
 /**
  * Minimum token length. Below this a token is too likely to collide by
@@ -132,36 +142,25 @@ function stripCallSuffix(span: string): string {
 function push(out: Map<string, SignatureToken>, text: string, rule: SignatureToken["rule"]): void {
   const trimmed = text.trim();
   if (!trimmed || KNOWN_UBIQUITOUS.has(trimmed)) return;
-  // Route and task-ref tokens carry their own shape constraint — an HTTP verb
-  // plus a path, and the literal `mt#NNNN` form — so both are exempt from the
-  // length floor, which exists only to stop SHAPELESS short tokens colliding.
-  // `mt#3673` is 7 chars and is unambiguous; the floor would drop every
-  // 4-digit task ref in the corpus.
-  const shapeConstrained = rule === "route" || rule === "task-ref";
-  if (!shapeConstrained && trimmed.length < MIN_TOKEN_LENGTH) return;
+  // A route token carries its own shape constraint — an HTTP verb plus a path —
+  // so it is exempt from the length floor, which exists only to stop SHAPELESS
+  // short tokens colliding.
+  if (rule !== "route" && trimmed.length < MIN_TOKEN_LENGTH) return;
   if (!out.has(trimmed)) out.set(trimmed, { text: trimmed, rule });
 }
 
 /**
  * Extract signature tokens from a new task's title and spec.
  *
- * Ordered by rule precedence — route, path, identifier, task-ref — so that
- * truncating at {@link MAX_TOKENS} drops the weakest evidence first rather than
- * whatever the text happened to mention last.
- *
- * `selfTaskId`, when given, is excluded from the task-ref rule: a spec citing
- * its own id is not evidence of overlap with anything.
+ * Ordered by rule precedence — route, path, identifier — so that truncating at
+ * {@link MAX_TOKENS} drops the weakest evidence first rather than whatever the
+ * text happened to mention last.
  */
-export function extractSignatureTokens(
-  title: string,
-  spec: string,
-  selfTaskId?: string
-): SignatureToken[] {
+export function extractSignatureTokens(title: string, spec: string): SignatureToken[] {
   const haystack = `${title}\n${spec}`;
   const routes = new Map<string, SignatureToken>();
   const paths = new Map<string, SignatureToken>();
   const identifiers = new Map<string, SignatureToken>();
-  const taskRefs = new Map<string, SignatureToken>();
 
   for (const m of haystack.matchAll(ROUTE_RE)) {
     push(routes, `${m[1]} ${m[2]}`, "route");
@@ -175,17 +174,7 @@ export function extractSignatureTokens(
     const span = stripCallSuffix((m[1] ?? "").trim());
     if (looksLikeIdentifier(span)) push(identifiers, span, "identifier");
   }
-  for (const m of haystack.matchAll(TASK_REF_RE)) {
-    if (selfTaskId && m[0] === selfTaskId) continue;
-    push(taskRefs, m[0], "task-ref");
-  }
-
-  return [
-    ...routes.values(),
-    ...paths.values(),
-    ...identifiers.values(),
-    ...taskRefs.values(),
-  ].slice(0, MAX_TOKENS);
+  return [...routes.values(), ...paths.values(), ...identifiers.values()].slice(0, MAX_TOKENS);
 }
 
 /** How a duplicate-check record reconciled one named candidate. */

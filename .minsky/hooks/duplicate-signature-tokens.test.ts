@@ -69,7 +69,7 @@ const MT3575_SPEC = `## Evidence there is a population, not a defect list
 
 describe("extractSignatureTokens", () => {
   test("R4 replay: extracts the token that links mt#3719 to mt#3575", () => {
-    const tokens = extractSignatureTokens(MT3719_TITLE, MT3719_SPEC, "mt#3722");
+    const tokens = extractSignatureTokens(MT3719_TITLE, MT3719_SPEC);
     const texts = tokens.map((t) => t.text);
 
     // This is the whole incident in one assertion: `GET /api/sweeps` is present
@@ -125,17 +125,20 @@ describe("extractSignatureTokens", () => {
     expect(texts).not.toContain("package.json");
   });
 
-  test("excludes the task's own id from task-refs", () => {
-    const texts = extractSignatureTokens("t", "relates to mt#3722 and mt#3673", "mt#3722").map(
-      (t) => t.text
-    );
+  test("does NOT emit cited task refs as tokens", () => {
+    // Removed on measurement, not taste: replaying mt#3719 against the live
+    // corpus, this rule produced 4 of 9 matches and every one was a false
+    // positive — each candidate merely LISTED the cited id among unrelated
+    // tasks, which is the common shape in duplicate-check records and
+    // "related tasks" sections. See the note in the source module.
+    const texts = extractSignatureTokens("t", "relates to mt#3722 and mt#3673").map((t) => t.text);
     expect(texts).not.toContain("mt#3722");
-    expect(texts).toContain("mt#3673");
+    expect(texts).not.toContain("mt#3673");
   });
 
   test("orders by rule precedence so truncation drops the weakest evidence", () => {
     const tokens = extractSignatureTokens(MT3719_TITLE, MT3719_SPEC);
-    const ruleOrder = ["route", "path", "identifier", "task-ref"];
+    const ruleOrder = ["route", "path", "identifier"];
     const seen = tokens.map((t) => ruleOrder.indexOf(t.rule));
     expect(seen).toEqual([...seen].sort((a, b) => a - b));
   });

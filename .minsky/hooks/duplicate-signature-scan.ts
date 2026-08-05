@@ -15,14 +15,15 @@
 // tasks the record never mentions, and the record is used only to SUPPRESS
 // matches the author already conceded.
 //
-// ## Why SQL and not N spec fetches
+// ## Why SQL, and why ONE query
 //
-// `taskService.getTaskSpecContent(id)` is one round trip per task; the active
-// corpus is in the thousands. One `ILIKE` per token over `task_specs` joined to
-// `tasks` is a single round trip that Postgres answers with a sequential scan in
-// milliseconds. That is what keeps this inside the guard's budget — the sibling
-// embedding probe's own measured cost is 2.7-6.9s (STANDALONE_DUP_PROBE_TIMEOUT_MS
-// in ./standalone-dup-probe.ts) and this must not add another multi-second leg.
+// `taskService.getTaskSpecContent(id)` is one round trip per task and the active
+// corpus is in the thousands, so fetching specs to search them in JS is not an
+// option. The first cut then went too far the other way — one `ILIKE` per token,
+// twelve full scans of `task_specs` — and blew its budget on the real corpus
+// before returning anything. What ships is a SINGLE query OR-ing every token's
+// pattern, with per-token attribution recovered in JS from the spec content the
+// query already returns. Measured end to end at ~3.1s including cold boot.
 //
 // ## Posture
 //
@@ -41,6 +42,7 @@ import {
   extractSignatureTokens,
   parseDuplicateCheckRecord,
   concedesOverlap,
+  MAX_TOKENS,
   type SignatureToken,
 } from "./duplicate-signature-tokens";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
@@ -48,15 +50,23 @@ import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/pe
 /**
  * Overall scan deadline.
  *
- * Deliberately a fraction of the sibling embedding probe's 20s
- * (STANDALONE_DUP_PROBE_TIMEOUT_MS): this scan issues plain `ILIKE` queries with
- * no embedding round trip, so its healthy path is a DB connect plus a handful of
- * sequential scans. If it is not done in 5s something is wrong upstream and the
- * right move is to fail open rather than hold up the create — the same reasoning
- * that sizes DB_REACHABILITY_PROBE_TIMEOUT_MS at 5s in
- * src/cockpit/shared-persistence.ts.
+ * GROUNDED IN MEASUREMENT, after an initial 5s guess failed on the real corpus.
+ * A PreToolUse hook is its own short-lived process, so every run pays full cold
+ * boot — domain bootstrap, config init, persistence connect — before any query
+ * runs. The sibling `standalone-dup-probe.ts` measured that same boot at
+ * 2.7-6.9s (its own comment carries the six samples); this scan skips the
+ * embedding round trip that probe also pays, but inherits the rest.
+ *
+ * 5s did not cover boot plus one scan and the first live run died on the
+ * deadline with the query already fixed. 15s sits above the observed boot with
+ * room for a cold buffer cache, and stays under the 30s per-hook-entry cap that
+ * `.claude/settings.json` sets for `mcp__minsky__tasks_create`.
+ *
+ * The scan's own cost past boot is one `ILIKE` pass, not one per token — see
+ * the single-query note in `runScan`, which is the change that made this budget
+ * reachable at all.
  */
-export const SCAN_TIMEOUT_MS = 5_000;
+export const SCAN_TIMEOUT_MS = 15_000;
 
 /**
  * A token matching more tasks than this is not distinctive, whatever the rules
@@ -220,34 +230,77 @@ async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResu
     const conceded = parseDuplicateCheckRecord(spec);
     const terminal = [...TERMINAL_TASK_STATUSES];
 
+    // `not in ${array}`, NOT `<> all(${array})`. Drizzle expands a JS array in a
+    // template hole to a parenthesized param TUPLE — `($2, $3)` — which is what
+    // `in`/`not in` takes and what `all()` cannot, so the `all()` form fails at
+    // execution with a Postgres syntax error. Typecheck and the unit tests are
+    // both blind to that; only the live run surfaced it.
+    //
+    // Built conditionally because `not in ()` is itself a syntax error: the
+    // terminal set is non-empty today, but it is sourced from the domain
+    // registry and a future edit emptying it must not turn every scan into a
+    // failed query.
+    const statusClause = terminal.length > 0 ? sql`and t.status::text not in ${terminal}` : sql``;
+
+    // ONE query for every token, not one per token.
+    //
+    // `ilike '%x%'` cannot use an index, so each token costs a full scan of
+    // `task_specs`. The first cut issued one query per token and blew a 5s budget
+    // on the real corpus before returning anything — measured, not predicted.
+    // OR-ing the patterns lets Postgres answer all of them in a single pass,
+    // and which token hit which row is then recoverable in JS from the spec
+    // content the query already returns.
+    const orClause = sql.join(
+      tokens.map((t) => sql`s.content ilike ${`%${escapeLike(t.text)}%`} escape '\\'`),
+      sql` or `
+    );
+
+    // Bounded so that per-token ubiquity is still DETECTABLE after the fact: a
+    // token at its ceiling contributes at most MAX_TASKS_PER_TOKEN rows, so a
+    // full token set cannot legitimately exceed this. Overshooting by one row
+    // distinguishes "at the bound" from "truncated".
+    const rowLimit = MAX_TOKENS * MAX_TASKS_PER_TOKEN + 1;
+
+    const rows = await db.execute(sql`
+      select t.id as id, t.title as title, t.status::text as status, s.content as content
+      from tasks t
+      join task_specs s on s.task_id = t.id
+      where (${orClause})
+        ${statusClause}
+      limit ${rowLimit}
+    `);
+
+    // A driver result is external input at a trust boundary, so it is narrowed
+    // by runtime guards rather than asserted into shape — a blanket
+    // `as unknown as Row[]` would make a driver or schema change surface as an
+    // undefined field deep in the loop instead of here.
+    const list = Array.isArray(rows) ? rows.filter(isSpecRow) : [];
+
+    // Attribute each row to the tokens it actually contains. `tokens` is already
+    // in rule-precedence order, so the first hit is the strongest evidence.
+    const hitsByToken = new Map<string, SpecRow[]>();
+    for (const row of list) {
+      const haystack = row.content.toLowerCase();
+      for (const token of tokens) {
+        if (!haystack.includes(token.text.toLowerCase())) continue;
+        const bucket = hitsByToken.get(token.text);
+        if (bucket) bucket.push(row);
+        else hitsByToken.set(token.text, [row]);
+      }
+    }
+
     const matches: SignatureMatch[] = [];
     const dropped: string[] = [];
     const seenTaskIds = new Set<string>();
 
     for (const token of tokens) {
-      const pattern = `%${escapeLike(token.text)}%`;
-      // One round trip per token. Fetching one row more than the ceiling is what
-      // lets ubiquity be DETECTED rather than silently truncated.
-      const rows = await db.execute(sql`
-        select t.id as id, t.title as title, t.status::text as status, s.content as content
-        from tasks t
-        join task_specs s on s.task_id = t.id
-        where s.content ilike ${pattern} escape '\\'
-          and t.status::text <> all(${terminal})
-        limit ${MAX_TASKS_PER_TOKEN + 1}
-      `);
-
-      // A driver result is external input at a trust boundary, so it is
-      // narrowed by runtime guards rather than asserted into shape — a blanket
-      // `as unknown as Row[]` would make a driver or schema change surface as an
-      // undefined field deep in the loop instead of here.
-      const list = Array.isArray(rows) ? rows.filter(isSpecRow) : [];
-      if (list.length > MAX_TASKS_PER_TOKEN) {
+      const hits = hitsByToken.get(token.text) ?? [];
+      // Ubiquity is MEASURED here rather than predicted by a stoplist.
+      if (hits.length > MAX_TASKS_PER_TOKEN) {
         dropped.push(token.text);
         continue;
       }
-
-      for (const row of list) {
+      for (const row of hits) {
         // A verdict of subsume/supersede already concedes the overlap, so a
         // match there confirms the author rather than contradicting them.
         if (concedesOverlap(conceded.get(row.id))) continue;
