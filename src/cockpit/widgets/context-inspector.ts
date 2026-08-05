@@ -54,6 +54,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 // mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
 // shared command import the SAME mt#2770 precedence decision.
 import {
@@ -220,12 +221,16 @@ export function createContextInspectorWidget(
 // here is the established pattern.
 // ---------------------------------------------------------------------------
 
-let _cachedDb: PostgresJsDatabase | null = null;
-
-async function defaultDbFactory(): Promise<PostgresJsDatabase> {
-  if (_cachedDb) return _cachedDb;
-
-  const { getSharedPersistenceService } = await import("../shared-persistence");
+/**
+ * DB handle cached per persistence epoch (mt#3721).
+ *
+ * A pool recycle (`recycleSharedPersistence`, mt#3638) ends the underlying
+ * postgres-js connection, and every query on an ended handle is rejected
+ * forever with `CONNECTION_ENDED` — the `ending` flag is never cleared. Before
+ * mt#3721 this cache had no epoch check and this widget served `degraded`
+ * indefinitely after a recycle that had already restored the pool.
+ */
+const defaultDbFactory = createEpochKeyedCache(async (): Promise<PostgresJsDatabase> => {
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
@@ -239,9 +244,8 @@ async function defaultDbFactory(): Promise<PostgresJsDatabase> {
   const sqlProvider = provider as {
     getDatabaseConnection: () => Promise<PostgresJsDatabase>;
   };
-  _cachedDb = await sqlProvider.getDatabaseConnection();
-  return _cachedDb;
-}
+  return sqlProvider.getDatabaseConnection();
+});
 
 // ---------------------------------------------------------------------------
 // Default task provider — lazy singleton via the cockpit-wide

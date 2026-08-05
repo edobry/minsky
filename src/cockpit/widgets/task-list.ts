@@ -11,6 +11,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored in TaskList.tsx (no server imports on frontend)
@@ -113,12 +114,17 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
 // Default production widget — lazy singleton
 // ---------------------------------------------------------------------------
 
-let _cachedDeps: TaskListDeps | null = null;
-
-async function defaultDepsFactory(): Promise<TaskListDeps> {
-  if (_cachedDeps) return _cachedDeps;
-
-  const { getSharedPersistenceService } = await import("../shared-persistence");
+/**
+ * Deps cached per persistence epoch (mt#3721).
+ *
+ * `taskService` closes over the provider it was built from, so a pool recycle
+ * (`recycleSharedPersistence`, mt#3638) leaves it querying a torn-down pool —
+ * which postgres-js rejects forever, since `CONNECTION_ENDED` is raised off an
+ * `ending` flag nothing clears. Before mt#3721 this cache had no epoch check
+ * and this widget served `degraded` indefinitely after a recycle that had
+ * already restored the pool.
+ */
+const defaultDepsFactory = createEpochKeyedCache(async (): Promise<TaskListDeps> => {
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
   const svc = await getSharedPersistenceService();
@@ -129,8 +135,7 @@ async function defaultDepsFactory(): Promise<TaskListDeps> {
     persistenceProvider: provider,
   });
 
-  _cachedDeps = { taskService };
-  return _cachedDeps;
-}
+  return { taskService };
+});
 
 export const taskListWidget: WidgetModule = createTaskListWidget(defaultDepsFactory);

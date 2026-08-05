@@ -22,6 +22,7 @@ import * as path from "path";
 import { log } from "@minsky/shared/logger";
 import { findRepoRoot } from "./web-dist";
 import { githubRepoWebBase } from "./session-detail";
+import { createEpochKeyedCache, getSharedPersistenceService } from "./shared-persistence";
 import {
   deriveHookRegistry,
   parseHookInstallLog,
@@ -135,31 +136,36 @@ async function readGitRemoteUrl(repoRoot: string): Promise<string | null> {
 
 const RETROSPECTIVE_FETCH_LIMIT = 500;
 
-let _cachedTopologyDb: import("drizzle-orm/postgres-js").PostgresJsDatabase | null = null;
-
-async function getTopologyDb(): Promise<
-  import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-> {
-  if (_cachedTopologyDb) return _cachedTopologyDb;
-  try {
-    const { getSharedPersistenceService } = await import("./shared-persistence");
-    const svc = await getSharedPersistenceService();
-    const provider = svc.getProvider();
-    if (
-      !("getDatabaseConnection" in provider) ||
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-    ) {
+/**
+ * DB handle cached per persistence epoch (mt#3721).
+ *
+ * A pool recycle (`recycleSharedPersistence`, mt#3638) ends the underlying
+ * postgres-js connection, after which every query on this handle is rejected
+ * forever with `CONNECTION_ENDED`. A `null` result is not cached, preserving
+ * the previous retry-on-every-call behavior for a provider without SQL
+ * capability.
+ */
+const getTopologyDb = createEpochKeyedCache(
+  async (): Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase | null> => {
+    try {
+      const svc = await getSharedPersistenceService();
+      const provider = svc.getProvider();
+      if (
+        !("getDatabaseConnection" in provider) ||
+        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+          "function"
+      ) {
+        return null;
+      }
+      const sqlProvider = provider as {
+        getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
+      };
+      return await sqlProvider.getDatabaseConnection();
+    } catch {
       return null;
     }
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-    };
-    _cachedTopologyDb = await sqlProvider.getDatabaseConnection();
-    return _cachedTopologyDb;
-  } catch {
-    return null;
   }
-}
+);
 
 async function fetchRetrospectiveEvents(): Promise<RetrospectiveEventInput[]> {
   try {

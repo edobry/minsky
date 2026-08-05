@@ -63,12 +63,6 @@ const PACKAGE_ROOT = join(SCRIPT_DIR, "..");
 const SOURCE_PATH = join(PACKAGE_ROOT, "src", "cli.ts");
 const DEFAULT_BUNDLE = join(PACKAGE_ROOT, "dist", "minsky.js");
 const RESULTS_PATH = join(SCRIPT_DIR, "cold-boot-benchmark-results.json");
-// Absolute, matching `smoke-cold-start-migrate.ts` (PR #2551 R5). The bare
-// specifier `reflect-metadata` resolves against the CALLER's node_modules, so
-// it silently depends on where the benchmark is invoked from; this path is
-// anchored to the repo the script lives in. mt#3680 tracks removing the
-// preload entirely by making the bundle self-sufficient.
-const REFLECT_POLYFILL = join(PACKAGE_ROOT, "node_modules", "reflect-metadata", "Reflect.js");
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -253,15 +247,15 @@ function buildBinInvocation(
   useSource: boolean,
   trailing: string[]
 ): { cmd: string; args: string[] } {
-  // Source: `bun run src/cli.ts <args>`; bundle: `bun run --preload reflect-metadata <bundle> <args>`.
+  // Source: `bun run src/cli.ts <args>`; bundle: `bun run <bundle> <args>`.
   //
-  // The bundle path mirrors `Dockerfile`'s CMD (mt#3561). Without the preload the bundle dies at
-  // startup with "tsyringe requires a reflect polyfill" on Bun 1.3.x, which no longer evaluates
-  // reflect-metadata's CommonJS body before tsyringe's ESM body. Measuring WITH the preload is also
-  // the more honest benchmark: it is what production actually pays on every cold boot.
+  // The bundle form mirrors `Dockerfile`'s CMD, which dropped its `--preload reflect-metadata` in
+  // mt#3680 once the bundle began installing the polyfill itself. Measuring the bare form is what
+  // keeps this benchmark honest: it is the invocation production actually pays on every cold boot,
+  // and it no longer charges the bundle tier for a preload resolution the source tier never paid.
   return useSource
     ? { cmd: "bun", args: ["run", SOURCE_PATH, ...trailing] }
-    : { cmd: "bun", args: ["run", "--preload", REFLECT_POLYFILL, bin, ...trailing] };
+    : { cmd: "bun", args: ["run", bin, ...trailing] };
 }
 
 const TIERS: TierSpec[] = [

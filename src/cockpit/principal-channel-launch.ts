@@ -476,6 +476,19 @@ export async function logTopicModeCapability(
  *   credentials resolved (poller/actuator construction — see
  *   {@link startPrincipalChannel}'s catch block). No longer reachable from a
  *   credential-read failure, since that path no longer exhausts.
+ *
+ * `attempts` belongs to `retrying` ONLY (mt#3689). It used to appear on
+ * `failed` too, always as the literal `1`, which made one field carry two
+ * meanings across two fault classes: on `retrying` it is a live count of
+ * credential reads, on `failed` it counted nothing — the failure happened once,
+ * after credentials had already resolved. That is an invitation to misread, and
+ * the misreading is not hypothetical: mt#3683's root cause was established by
+ * reading `attempts: 7` against a six-entry schedule, so this counter is
+ * load-bearing for diagnosis precisely when an operator is under pressure.
+ * `state` already separates the two classes, so dropping the field loses no
+ * information. ADR-035 rule 4 requires `mode`/`reason`/`lastAttemptAt` at
+ * MINIMUM and does not name `attempts`, so omitting it here stays within the
+ * rule — which sets a floor on the status shape, not a ceiling.
  */
 export type PrincipalChannelStatus =
   | { state: "disabled" }
@@ -495,7 +508,7 @@ export type PrincipalChannelStatus =
        */
       nextAttemptAt: string;
     }
-  | { state: "failed"; reason: string; attempts: number };
+  | { state: "failed"; reason: string };
 
 let channelStatus: PrincipalChannelStatus = { state: "disabled" };
 
@@ -555,6 +568,53 @@ export const CREDENTIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 
 export const CREDENTIAL_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 /**
+ * Floor for any retry wait (mt#3689).
+ *
+ * The backoff past the seed schedule widens by MULTIPLYING the previous delay,
+ * so a non-positive seed multiplies to itself forever: a `[0]` schedule yields
+ * an unbroken run of zero-length waits — a busy loop inside the mechanism that
+ * exists to stop hammering a failing dependency. The invariant was held only by
+ * the literal value of {@link CREDENTIAL_RETRY_DELAYS_MS}, not by the code, so
+ * any future edit to that array (or the injected `retryDelaysMs` test seam)
+ * could reintroduce it silently.
+ *
+ * Applied at BOTH ends, which is what makes it hold: as a floor on the base
+ * {@link nextRetryDelayMs} doubles from (so the sequence actually widens rather
+ * than pinning at the floor), and as a floor on the delay finally slept
+ * (so a non-positive entry read straight out of the seed schedule, which never
+ * reaches `nextRetryDelayMs`, cannot produce a zero wait either).
+ *
+ * Inert for production: every entry in the shipped schedule is >= 2000ms, so
+ * this clamp never binds there. The value is bounded from below by what it is
+ * protecting against — a spin — and from above by not wanting to slow a real
+ * recovery: each attempt already costs up to the 5s Pulumi spawn timeout in
+ * `packages/domain/src/notify/principal-channel.ts`, so a 1s floor is small
+ * against the work an attempt does while still guaranteeing forward progress.
+ */
+export const CREDENTIAL_RETRY_MIN_DELAY_MS = 1_000;
+
+/**
+ * Clamp a retry wait into `[CREDENTIAL_RETRY_MIN_DELAY_MS, maxDelayMs]`.
+ *
+ * Non-finite input resolves to `maxDelayMs` rather than propagating: `NaN`
+ * would survive `Math.max`/`Math.min` unchanged and reach `sleep()` as a wait
+ * of unspecified length, which is the failure this guard exists to rule out.
+ *
+ * **The floor is applied LAST, and wins when the interval is empty** (PR #2662
+ * R1). A caller may set `maxDelayMs` BELOW the floor, which asks for two
+ * incompatible things; applying the cap last would return a sub-floor delay and
+ * make this function's own contract false. The floor wins because the two
+ * bounds are not the same kind of constraint: the floor rules out a spin, which
+ * is a correctness property of the retry, while the cap expresses a preferred
+ * rate for a long outage. Losing the preference is survivable; reintroducing
+ * the busy loop this guard exists to prevent is not.
+ */
+function clampRetryDelayMs(delayMs: number, maxDelayMs: number): number {
+  if (!Number.isFinite(delayMs)) return Math.max(maxDelayMs, CREDENTIAL_RETRY_MIN_DELAY_MS);
+  return Math.max(Math.min(delayMs, maxDelayMs), CREDENTIAL_RETRY_MIN_DELAY_MS);
+}
+
+/**
  * Resolve credentials, retrying only while the failure is one a retry can fix.
  *
  * A genuinely-unconfigured channel returns immediately: retrying an absent
@@ -602,8 +662,13 @@ export async function resolveWithRetry(deps: {
     }
 
     const scheduled = deps.delaysMs[attempt];
-    const delayMs =
-      scheduled !== undefined ? scheduled : nextRetryDelayMs(attempt, deps.delaysMs, maxDelayMs);
+    // mt#3689: the clamp wraps BOTH paths. A seeded entry is read straight out
+    // of `delaysMs` and never reaches `nextRetryDelayMs`, so flooring only the
+    // computed path would still sleep 0ms for a `[0]` schedule's first attempt.
+    const delayMs = clampRetryDelayMs(
+      scheduled !== undefined ? scheduled : nextRetryDelayMs(attempt, deps.delaysMs, maxDelayMs),
+      maxDelayMs
+    );
 
     if (scheduled === undefined && !loggedPastOriginalWindow) {
       loggedPastOriginalWindow = true;
@@ -648,7 +713,13 @@ function nextRetryDelayMs(
   delaysMs: readonly number[],
   maxDelayMs: number
 ): number {
-  const lastSeeded = delaysMs[delaysMs.length - 1] ?? maxDelayMs;
+  // mt#3689: floor the BASE, not just the result. Doubling a non-positive base
+  // yields that base forever, so clamping only the output would pin every wait
+  // at the floor instead of widening — positive, but still not a backoff.
+  const lastSeeded = Math.max(
+    delaysMs[delaysMs.length - 1] ?? maxDelayMs,
+    CREDENTIAL_RETRY_MIN_DELAY_MS
+  );
   const doublingsPastSchedule = attempt - delaysMs.length + 1;
   return Math.min(lastSeeded * 2 ** doublingsPastSchedule, maxDelayMs);
 }
@@ -720,7 +791,7 @@ export async function startPrincipalChannel(opts: {
     return await startResolvedChannel({ opts, config, token, chatId });
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
-    channelStatus = { state: "failed", reason, attempts: 1 };
+    channelStatus = { state: "failed", reason };
     throw err;
   }
 }
