@@ -8,10 +8,12 @@
  * and are hard to observe from a single-component test.
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { act, render, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EntityRef } from "../components/EntityRef";
+import { useEntityIndex } from "./use-entity-index";
+import { Prose } from "../components/Prose";
 
 const originalFetch = global.fetch;
 
@@ -102,5 +104,145 @@ describe("Task label channel — batching (mt#3174 acceptance test)", () => {
     expect(anchors.length).toBe(2);
     const texts = Array.from(anchors).map((a) => a.textContent);
     expect(texts).toEqual(["mt#10", "mt#11"]);
+  });
+});
+
+/**
+ * Freshness of the id-set (mt#3732).
+ *
+ * The bug these cover: the id-set was fetched once at mount and never
+ * revalidated, so an entity created AFTER the view mounted was permanently
+ * unlinkable there. Linkification is id-set gated, so "the id isn't in the set"
+ * and "this isn't an entity" are indistinguishable at the render site — the ref
+ * silently renders as plain text.
+ *
+ * The first test asserts on the options the running React tree actually
+ * REGISTERED, read back off the query cache, rather than on the exported
+ * constant — a constant can be correct while an entry that forgot to spread it
+ * stays broken, which is the shape of the original defect.
+ */
+
+/** Renders `useEntityIndex` and hands the built index to `<Prose>`. */
+function IndexProbe({ text }: { text: string }) {
+  const entityIndex = useEntityIndex();
+  return <Prose entityIndex={entityIndex}>{text}</Prose>;
+}
+
+/** Every query key `useEntityIndex` composes, in registration order. */
+const ENTITY_INDEX_KEYS: unknown[][] = [
+  ["entity-index", "tasks"],
+  ["agents"],
+  ["attention"],
+  ["widget", "memories-list", "", "", true],
+  ["entity-index", "changesets"],
+  ["context-inspector", "sessions"],
+];
+
+/** Stubs every endpoint the index touches; `taskIds` drives /api/tasks/ids. */
+function stubIndexFetch(taskIds: string[]): void {
+  global.fetch = mock(async (url: string) => {
+    if (String(url).startsWith("/api/tasks/ids")) return jsonResponse({ ids: taskIds });
+    if (String(url).startsWith("/api/changesets")) return jsonResponse({ changesets: [] });
+    return jsonResponse({ state: "degraded", reason: "not mocked" });
+  }) as unknown as typeof fetch;
+}
+
+describe("useEntityIndex — id-set freshness (mt#3732)", () => {
+  test("every composed query registers a 60s refetchInterval, and none polls a hidden tab", async () => {
+    stubIndexFetch(["mt#1"]);
+    const client = createTestQueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <IndexProbe text="hello" />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(client.getQueryCache().getAll().length).toBeGreaterThanOrEqual(
+        ENTITY_INDEX_KEYS.length
+      );
+    });
+
+    for (const key of ENTITY_INDEX_KEYS) {
+      const query = client
+        .getQueryCache()
+        .getAll()
+        .find((q) => JSON.stringify(q.queryKey) === JSON.stringify(key));
+      expect(query, `no query registered for key ${JSON.stringify(key)}`).toBeDefined();
+
+      const observers = query!.observers;
+      expect(observers.length, `no observer for ${JSON.stringify(key)}`).toBeGreaterThan(0);
+      // At least one observer must carry the interval — the entity-index one.
+      // (A key shared with a widget that polls faster keeps its own shorter
+      // interval; TanStack takes the shortest across observers, so this is a
+      // floor on freshness, not an exact-equality claim about the key.)
+      const intervals = observers.map((o) => o.options.refetchInterval);
+      expect(intervals, `${JSON.stringify(key)} registered no refetchInterval`).toContain(60_000);
+      // A hidden tab must stop polling: the default is false, and nothing here
+      // may opt into background polling.
+      for (const o of observers) {
+        expect(o.options.refetchIntervalInBackground).not.toBe(true);
+      }
+    }
+  });
+
+  test("an already-rendered ref becomes a link when the refreshed id-set arrives — no remount", async () => {
+    // The id-set as of mount does NOT know about mt#9999 (the entity is
+    // created later, which is the driven-session case).
+    stubIndexFetch(["mt#1"]);
+    const client = createTestQueryClient();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <IndexProbe text="Moving mt#9999 to READY." />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    // Before the refresh: gated off, so it renders as plain text.
+    await waitFor(() => {
+      expect(container.textContent).toContain("mt#9999");
+    });
+    expect(container.querySelector('a[href="/tasks/mt%239999"]')).toBeNull();
+
+    // The next revalidation returns an id-set that now contains it. Writing
+    // the fresh data straight into the cache is what a refetch does on
+    // arrival; this asserts the already-mounted tree reacts to it.
+    act(() => {
+      client.setQueryData(["entity-index", "tasks"], ["mt#1", "mt#9999"]);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('a[href="/tasks/mt%239999"]')).not.toBeNull();
+    });
+    const anchor = container.querySelector('a[href="/tasks/mt%239999"]');
+    expect(anchor?.textContent).toBe("mt#9999");
+  });
+
+  test("the zero-false-positive gate survives: an id that never joins the set stays plain text", async () => {
+    stubIndexFetch(["mt#1"]);
+    const client = createTestQueryClient();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <IndexProbe text="Moving mt#9999 to READY." />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("mt#9999");
+    });
+
+    // A refresh that still does not contain it must NOT produce a link.
+    act(() => {
+      client.setQueryData(["entity-index", "tasks"], ["mt#1", "mt#2"]);
+    });
+    await waitFor(() => {
+      expect(container.textContent).toContain("mt#9999");
+    });
+    expect(container.querySelector('a[href="/tasks/mt%239999"]')).toBeNull();
   });
 });
