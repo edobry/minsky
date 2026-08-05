@@ -16,7 +16,10 @@
 // Usage: bun scripts/verify-duplicate-signature-scan.ts
 
 import "reflect-metadata";
-import { scanForSignatureMatches } from "../.minsky/hooks/duplicate-signature-scan";
+import {
+  scanForSignatureMatches,
+  SCAN_TIMEOUT_MS,
+} from "../.minsky/hooks/duplicate-signature-scan";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import { TERMINAL_TASK_STATUSES } from "../.minsky/hooks/task-statuses";
 import type { SqlCapablePersistenceProvider } from "../packages/domain/src/persistence/types";
@@ -42,10 +45,15 @@ async function countActiveTasks(): Promise<number | null> {
     if (!db) return null;
     const { sql } = await import("drizzle-orm");
     const terminal = [...TERMINAL_TASK_STATUSES];
+    // Guarded exactly as the scan module guards its own: `not in ()` is a
+    // Postgres syntax error, so an empty terminal set must drop the clause
+    // rather than emit it. Same class as the scan's `statusClause`; missing it
+    // here was the second half of that fix (PR #2676 R1).
+    const statusClause = terminal.length > 0 ? sql`and t.status::text not in ${terminal}` : sql``;
     const rows = await db.execute(sql`
       select count(*)::int as n
       from tasks t join task_specs s on s.task_id = t.id
-      where t.status::text not in ${terminal}
+      where true ${statusClause}
     `);
     const first = Array.isArray(rows) ? rows[0] : null;
     const n = first && typeof first === "object" ? (first as Record<string, unknown>)["n"] : null;
@@ -132,9 +140,13 @@ async function main(): Promise<number> {
   );
 
   // The scan must also stay inside its budget on the real corpus, not just in
-  // principle: a correct result that takes 5s is a timeout in production.
-  if (elapsedMs > 5000) {
-    console.error(`FAIL: scan took ${elapsedMs}ms, at or past its own SCAN_TIMEOUT_MS budget`);
+  // principle: a correct result that arrives past the deadline is a timeout in
+  // production. Compared against the IMPORTED constant, not a copy — the literal
+  // 5000 here survived the deadline being re-based to 15s while the error
+  // message still cited SCAN_TIMEOUT_MS, so the check and its own message
+  // disagreed (PR #2676 R1).
+  if (elapsedMs > SCAN_TIMEOUT_MS) {
+    console.error(`FAIL: scan took ${elapsedMs}ms, past its ${SCAN_TIMEOUT_MS}ms budget`);
     return 1;
   }
   return 0;

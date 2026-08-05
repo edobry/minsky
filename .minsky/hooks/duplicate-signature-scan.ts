@@ -64,7 +64,6 @@ import {
   extractSignatureTokens,
   parseDuplicateCheckRecord,
   concedesOverlap,
-  MAX_TOKENS,
   type SignatureToken,
 } from "./duplicate-signature-tokens";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
@@ -106,7 +105,7 @@ export const MAX_TASKS_PER_TOKEN = 5;
  * Cap on matches RENDERED into the warning.
  *
  * Without it the message is growth-shaped on two axes at once — up to
- * {@link MAX_TOKENS} tokens x {@link MAX_TASKS_PER_TOKEN} tasks, each carrying a
+ * `MAX_TOKENS` tokens x {@link MAX_TASKS_PER_TOKEN} tasks, each carrying a
  * 200-char excerpt — which tops out around 15KB of injected context. Five named
  * tasks is already more than an agent will open; past that the list stops being
  * a prompt to look and becomes noise that buries the first entry. The overflow
@@ -264,24 +263,67 @@ async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResu
     // failed query.
     const statusClause = terminal.length > 0 ? sql`and t.status::text not in ${terminal}` : sql``;
 
-    // ONE query for every token, not one per token.
+    const patternFor = (t: SignatureToken): string => `%${escapeLike(t.text)}%`;
+
+    // PASS 1 — exact per-token counts, no content transferred.
     //
-    // `ilike '%x%'` cannot use an index, so each token costs a full scan of
-    // `task_specs`. The first cut issued one query per token and blew a 5s budget
-    // on the real corpus before returning anything — measured, not predicted.
-    // OR-ing the patterns lets Postgres answer all of them in a single pass,
-    // and which token hit which row is then recoverable in JS from the spec
-    // content the query already returns.
+    // Ubiquity must be decided on TRUE counts. An earlier cut used a single
+    // content query with a global `limit`, which let one ubiquitous token consume
+    // the whole budget and truncate another token's rows — that token then read
+    // as UNDER its ceiling and was reported as distinctive, the exact inversion
+    // of what the ceiling exists to do, and silently (PR #2676 R1). A row cap
+    // cannot be made safe by raising it; the count has to be unbounded, which is
+    // affordable precisely because `count(*) filter (...)` returns one row and no
+    // spec bodies. Same single pass over `task_specs` as before.
+    const countCols = sql.join(
+      tokens.map(
+        (t, i) =>
+          sql`count(*) filter (where s.content ilike ${patternFor(t)} escape '\\') as ${sql.raw(`c${i}`)}`
+      ),
+      sql`, `
+    );
+    const countRows = await db.execute(sql`
+      select ${countCols}
+      from tasks t
+      join task_specs s on s.task_id = t.id
+      where true ${statusClause}
+    `);
+    const countRow = Array.isArray(countRows) ? countRows[0] : null;
+    const counts = tokens.map((_t, i) => {
+      const raw =
+        countRow && typeof countRow === "object"
+          ? (countRow as Record<string, unknown>)[`c${i}`]
+          : null;
+      // Postgres `count(*)` is bigint; the driver may hand it back as a string.
+      const n = typeof raw === "string" ? Number.parseInt(raw, 10) : raw;
+      return typeof n === "number" && Number.isFinite(n) ? n : 0;
+    });
+
+    const dropped: string[] = [];
+    const surviving: SignatureToken[] = [];
+    tokens.forEach((token, i) => {
+      const n = counts[i] ?? 0;
+      if (n === 0) return;
+      // Ubiquity is MEASURED, not predicted by a stoplist — and now measured on
+      // a count that no row cap can distort.
+      if (n > MAX_TASKS_PER_TOKEN) dropped.push(token.text);
+      else surviving.push(token);
+    });
+
+    if (surviving.length === 0) {
+      return { matches: [], tokensTried: tokens, tokensDroppedAsUbiquitous: dropped };
+    }
+
+    // PASS 2 — content, for the surviving tokens only.
+    //
+    // Each survivor is known to match at most MAX_TASKS_PER_TOKEN tasks, so this
+    // bound is a CONSEQUENCE of pass 1 rather than a policy that could truncate:
+    // the query cannot return more rows than the counts already permit.
     const orClause = sql.join(
-      tokens.map((t) => sql`s.content ilike ${`%${escapeLike(t.text)}%`} escape '\\'`),
+      surviving.map((t) => sql`s.content ilike ${patternFor(t)} escape '\\'`),
       sql` or `
     );
-
-    // Bounded so that per-token ubiquity is still DETECTABLE after the fact: a
-    // token at its ceiling contributes at most MAX_TASKS_PER_TOKEN rows, so a
-    // full token set cannot legitimately exceed this. Overshooting by one row
-    // distinguishes "at the bound" from "truncated".
-    const rowLimit = MAX_TOKENS * MAX_TASKS_PER_TOKEN + 1;
+    const rowLimit = surviving.length * MAX_TASKS_PER_TOKEN;
 
     const rows = await db.execute(sql`
       select t.id as id, t.title as title, t.status::text as status, s.content as content
@@ -298,12 +340,13 @@ async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResu
     // undefined field deep in the loop instead of here.
     const list = Array.isArray(rows) ? rows.filter(isSpecRow) : [];
 
-    // Attribute each row to the tokens it actually contains. `tokens` is already
-    // in rule-precedence order, so the first hit is the strongest evidence.
+    // Attribute each row to the SURVIVING tokens it actually contains.
+    // `surviving` preserves rule-precedence order, so the first hit on a task is
+    // its strongest evidence.
     const hitsByToken = new Map<string, SpecRow[]>();
     for (const row of list) {
       const haystack = row.content.toLowerCase();
-      for (const token of tokens) {
+      for (const token of surviving) {
         if (!haystack.includes(token.text.toLowerCase())) continue;
         const bucket = hitsByToken.get(token.text);
         if (bucket) bucket.push(row);
@@ -312,16 +355,13 @@ async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResu
     }
 
     const matches: SignatureMatch[] = [];
-    const dropped: string[] = [];
     const seenTaskIds = new Set<string>();
 
-    for (const token of tokens) {
+    // No ubiquity check here: pass 1 already decided it on exact counts, and
+    // re-deriving it from this bounded row set is what let a truncated token read
+    // as distinctive.
+    for (const token of surviving) {
       const hits = hitsByToken.get(token.text) ?? [];
-      // Ubiquity is MEASURED here rather than predicted by a stoplist.
-      if (hits.length > MAX_TASKS_PER_TOKEN) {
-        dropped.push(token.text);
-        continue;
-      }
       for (const row of hits) {
         // A verdict of subsume/supersede already concedes the overlap, so a
         // match there confirms the author rather than contradicting them.

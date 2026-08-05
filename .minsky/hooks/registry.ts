@@ -644,10 +644,15 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     event: "PreToolUse",
     matcher: "mcp__minsky__tasks_create",
     module: () => import("./duplicate-signature-scan").then((m) => ({ run: m.run })),
-    // Above the scan's own 5s deadline so the guard's internal timeout is what
-    // fires, returning a recorded `skipped` outcome, rather than the dispatcher
-    // killing it and recording nothing.
-    timeoutMs: 8000,
+    // MUST stay above the module's SCAN_TIMEOUT_MS (15s), so the guard's OWN
+    // deadline is what fires: that path returns a recorded `skipped` calibration
+    // outcome, whereas a dispatcher kill records nothing and a sustained infra
+    // outage would then read as a clean pass. This was 8000 against a 5s scan
+    // and stayed 8000 when the scan's deadline was re-based to 15s on
+    // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
+    // margin over the scan and sits under the 30s per-hook-entry cap that
+    // `.claude/settings.json` sets for `mcp__minsky__tasks_create`.
+    timeoutMs: 18000,
     calibrationLog: "duplicate-signature-scan",
     // NEVER denies — the deny half of this concern is the sibling above, which
     // is deliberately zero-false-positive. See this module's `run()` doc.
@@ -2153,6 +2158,16 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // one for a constructed session path, one for a secret-bearing file read.
   // Independent checks, independent overrides; running both is the point.
   ["check-guessed-session-path", "block-secret-file-read"],
+  // Both inspect a `tasks_create` spec, at DIFFERENT tiers of the same concern
+  // (mt#3722). The first asks whether a duplicate check was RECORDED and denies
+  // when it was not — a literal-form presence test with no false-positive
+  // surface, which is why it can deny. The second asks whether that record's
+  // verdicts are TRUE, using heuristic token selection, and only ever warns.
+  // Deliberately NOT folded into one guard: a single registration would put the
+  // denying check and the calibration-first one behind one `denyCapable` flag,
+  // one attentionCost budget and one canary, making the deny path's
+  // zero-false-positive character depend on the scan's unmeasured one.
+  ["require-duplicate-check-record", "duplicate-signature-scan"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
