@@ -237,6 +237,11 @@ describe("findPortHolder", () => {
     const { server, port } = await bindListenerOn(host);
     try {
       expect(findPortHolder(port)).toBeNull();
+      // And the classification the CLI actually branches on (PR #2688 R1):
+      // `free`, not `unrecognized`. This is the assertion that ties the probe
+      // to the user-visible behavior — `unrecognized` is the branch that tells
+      // the operator to kill the named PID.
+      expect(classifyPortHolder(port)).toEqual({ kind: "free" });
     } finally {
       await closeListener(server);
     }
