@@ -36,6 +36,11 @@
 // @see mem#736 — "a spec you authored yourself this session is the one you're least likely to re-read"
 
 import { computeFenceInternalLines, isMarkdownHeading } from "./markdown-sections";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
 
 /** One item parsed from a task spec's `## Success Criteria` section. */
 export interface SuccessCriterionItem {
@@ -420,6 +425,15 @@ export function runScCoverageCalibration(
       task,
       prNumber,
       surface: "execution-evidence-sc-coverage",
+      // mt#3607: same capture as the AT sibling, and for the same reason — the
+      // verdict is computed from a mutable spec and a mutable PR body. This log
+      // held ZERO records at capture time, so every record it ever accumulates
+      // is auditable; that is the cheapest moment this fix will ever be
+      // available, not a reason to skip it.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedPrBody: captureArtifact(prBody),
+      judgedSpec: captureArtifact(specContent),
+      judgedEvidenceText: captureArtifact(evidenceText),
       executableCriterionCount: coverage.executableCriteria.length,
       unaddressedCriteria: coverage.unaddressedCriteria.map((c) => ({
         number: c.number,
