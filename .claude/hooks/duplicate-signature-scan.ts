@@ -37,6 +37,28 @@
 // until the FP rate is measured (see that file's own carve-out comment, and
 // mt#3722's spec §Reconciling mt#3673's carve-out). Fail-open because a
 // duplicate-detection miss is cheaper than a blocked `tasks_create`.
+//
+// ## Graduation
+//
+// Review at the FIRST of **20 matched records or 5 days** of data, via
+// `/calibration-review`. The 5-day bound is the corpus's budget-window default
+// (`decision-defaults.mdc §Thresholds`); the count bound exists because
+// `tasks_create` fires irregularly and a slow week should not delay a verdict
+// that 20 samples can already support.
+//
+// **Score the FP rate PER RULE, not for the scan as a whole.** The rules do not
+// share a false-positive profile: a fourth rule (cited `mt#NNNN` refs) was
+// implemented and cut before ship after measuring 4 false positives out of 4 on
+// the R4 replay, while `route` produced only true positives on the same sample.
+// A single blended number would have hidden both facts.
+//
+// **A deny flip needs an operator disposition, not a threshold alone.** The
+// sibling `require-duplicate-check-record` denies and is documented as
+// zero-false-positive; promoting this one changes the cost of being wrong on a
+// tool call an agent cannot route around, which is a posture change rather than
+// a tuning change (`/calibration-review` routes exactly that split — it files
+// tune tasks directly but Asks for enforcement-posture changes). Flipping to
+// deny is explicitly NOT in mt#3722.
 
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
