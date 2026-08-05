@@ -71,6 +71,19 @@ describe("pickLatestReviewPerReviewer", () => {
     expect(result[0]).toEqual(later);
   });
 
+  // PR #2655 R1: GitHub logins are case-insensitive at the platform level, so
+  // `Bot` and `bot` are ONE reviewer. Keying the reduction on the raw string
+  // split their history in two, leaving a superseded verdict alive as if it
+  // belonged to a second reviewer. Pre-existing since mt#1830; corrected in
+  // the shared reducer, which both the approval and wait paths now call.
+  test("keys reviewers case-insensitively so one reviewer is not split in two", () => {
+    const earlier = review("Bot", STATE_APPROVED, "2026-05-13T10:00:00Z");
+    const later = review("bot", STATE_CHANGES_REQUESTED, "2026-05-13T11:00:00Z");
+    const result = pickLatestReviewPerReviewer([earlier, later]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(later);
+  });
+
   test("AT2: different reviewers do not supersede each other", () => {
     const alice = review("alice", STATE_CHANGES_REQUESTED, "2026-05-13T10:00:00Z");
     const bob = review("bob", STATE_APPROVED, "2026-05-13T11:00:00Z");
