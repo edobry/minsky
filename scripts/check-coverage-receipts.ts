@@ -62,6 +62,7 @@ const {
   summarizeCoverage,
   formatCoverageResult,
   countInvocationsPerLog,
+  resolveDetectorsToCheck,
   DEFAULT_COVERAGE_WINDOW_DAYS,
 } = await import("../.minsky/hooks/coverage-receipt");
 const { readFireLogEntries } = await import("../.minsky/hooks/fire-log");
@@ -194,9 +195,23 @@ function parseArgs(argv: string[]): { detectors: string[]; windowDays: number; j
 async function main(): Promise<void> {
   const { detectors: requested, windowDays, json } = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
-  const detectors = requested.length > 0 ? requested : discoverDetectors(cwd);
+  const logToGuards = buildCalibrationLogToGuards();
+  // mt#3742: enumerate the DECLARED detectors as well as the on-disk logs. A
+  // detector that has never fired writes no calibration file, so a disk-only
+  // scan cannot see it — and "no records at all" is the very symptom this gate
+  // exists to catch. An explicit CLI detector list still wins: that is the
+  // deliberate-override path.
+  const discovered = discoverDetectors(cwd);
+  const detectors =
+    requested.length > 0 ? requested : resolveDetectorsToCheck(logToGuards.keys(), discovered);
 
-  if (detectors.length === 0) {
+  // The "nothing to check" exit gates on TELEMETRY PRESENCE, not on the
+  // detector set (mt#3742). Calibration logs are gitignored, so a fresh clone
+  // has none — and since the union above is never empty while any guard
+  // declares a log, gating on `detectors` would turn every fresh checkout into
+  // a wall of FLAGGED. Absence of ALL telemetry means the sweep has nothing to
+  // reason from; absence of ONE declared detector's log is the real finding.
+  if (requested.length === 0 && discovered.length === 0) {
     if (json) {
       // Same key set as the populated path below — a JSON consumer must not
       // see a different schema just because the repo has no calibration logs.
@@ -221,7 +236,6 @@ async function main(): Promise<void> {
   }
 
   const now = new Date();
-  const logToGuards = buildCalibrationLogToGuards();
   const invocations = buildInvocationEvidence(logToGuards, windowDays, now);
 
   // A detector whose log maps to no guard gets NO invocation evidence, which
