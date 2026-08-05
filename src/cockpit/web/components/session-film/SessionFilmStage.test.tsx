@@ -64,7 +64,7 @@ describe("SessionFilmStage — realm roots + entity nodes", () => {
     expect(screen.getByTestId("session-film-node-notion:__root__")).toBeDefined();
   });
 
-  test("an in-flight (unpaired) touch renders the amber in-flight fill, not ok", () => {
+  test("an unresolved (unpaired) touch renders the amber fill, not ok", () => {
     const { world, layout } = buildFixture([ev({ outcome: undefined })]);
     render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
     const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
@@ -564,7 +564,9 @@ describe("SessionFilmStage — real IMMEDIATE hover tooltip (mt#3258 SC 2, TOP p
     fireEvent.mouseEnter(screen.getByTestId(`session-film-node-${node.id}`), { clientX: 100, clientY: 200 });
     const tooltip = screen.getByTestId("session-film-hover-tooltip");
     expect(tooltip.textContent).toContain("write");
-    expect(tooltip.textContent).toContain("in-flight");
+    // mt#3795: an absent outcome reads "unresolved" — it never claims the event is still running.
+    expect(tooltip.textContent).toContain("unresolved");
+    expect(tooltip.textContent).not.toContain("in-flight");
     expect(tooltip.getAttribute("role")).toBe("tooltip");
   });
 

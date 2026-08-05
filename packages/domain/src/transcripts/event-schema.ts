@@ -52,31 +52,75 @@ export type EventSchemaVersion = typeof EVENT_SCHEMA_VERSION;
  * the Gource export (RFC revision 3, Amendment 3 — no stable file-system-like
  * path to visualize).
  *
- * ## `think` events can never carry text (mt#3276 — read this before building
- * any thinking-surfacing feature)
+ * ## `think` events usually carry no text (mt#3276, refined mt#3790 — read this
+ * before building any thinking-surfacing feature)
  *
- * A `think` event's source block is ALWAYS empty. Claude Code records
+ * On the models this project runs, a `think` event's source block arrives
+ * empty: Claude Code records
  * `{"type":"thinking","thinking":"","signature":"<~400-1300 chars>"}` — the
  * signature is retained so the block can be replayed to the API for
  * continuity; the reasoning text is not present.
  *
- * This is NOT a Minsky ingest or storage gap, and no change here, in
- * `event-adapter.ts`, in the transcript ingest pipeline, or in a Claude Code
- * hook can recover it — the text never reaches the client at all. Evidence
- * (mt#3276, 2026-07-28, Claude Code 2.1.220): all 23 local project corpora
- * measured `29280 EMPTY / 0 NONEMPTY`; a fresh conversation reproduces it; the
- * `alwaysThinkingEnabled` setting makes thinking RUN but not be retained; and
- * running a forced-thinking probe under `--output-format stream-json` — the
- * client-visible stream, upstream of any transcript write — shows the block
- * arriving as `keys: ["signature","thinking","type"]` with `thinking` empty and
- * no reasoning prose anywhere in the payload. The text is withheld
- * server-side.
+ * ### Why (the mechanism, not the symptom)
  *
- * Consumers should therefore render the absence HONESTLY ("this harness does
- * not record thinking text") rather than as a load failure or a generic
- * "no content captured" — see `SessionFilmRibbon.tsx`'s `EventContentView`.
- * Re-run mt#3276's probe rather than assuming this still holds if a future
- * model or API tier begins returning visible thinking.
+ * This is a REQUEST-PARAMETER DEFAULT, not an ingest gap, a storage gap, or a
+ * harness property. Anthropic's extended-thinking documentation
+ * (platform.claude.com/docs/en/build-with-claude/extended-thinking.md;
+ * bundled locally as the `claude-api` skill, §Thinking & Effort) states:
+ * `thinking.display` defaults to `"omitted"` on Fable 5 / Mythos 5 / Opus 5 /
+ * 4.8 / 4.7 / Sonnet 5, which "streams `thinking` blocks with empty text",
+ * while `display: "summarized"` returns a readable summary; `display` controls
+ * visibility only — thinking runs and is billed identically under every
+ * setting, and the RAW chain of thought is never exposed on any model.
+ *
+ * Claude Code does not send `display: "summarized"`, so it receives empty
+ * blocks and records exactly what it received. Keep the two apart: the raw
+ * chain of thought is unavailable everywhere and always; a SUMMARY is
+ * available whenever it is requested. Nothing in this file, in
+ * `event-adapter.ts`, in the ingest pipeline, or in a hook can recover text
+ * the request never asked for — but that is a statement about the request, not
+ * about an inherent limit.
+ *
+ * ### Measurement (dated — re-run it, do not trust it)
+ *
+ * 2026-08-05, all local `~/.claude/projects/**` corpora newer than 2026-07-25,
+ * counting `content[].type === "thinking"` blocks by model:
+ *
+ * ```
+ * 23036 claude-opus-5              EMPTY
+ *  6740 claude-fable-5             EMPTY
+ *  5858 claude-sonnet-5            EMPTY
+ *  2829 claude-opus-4-8            EMPTY
+ *   144 claude-opus-4-7            EMPTY
+ *    18 claude-haiku-4-5-20251001  EMPTY
+ *     5 claude-haiku-4-5-20251001  NONEMPTY
+ * ```
+ *
+ * The five wholly-empty models are exactly the docs' `"omitted"`-default set
+ * (minus Mythos 5, absent from the corpus). **Haiku 4.5 is the exception** — it
+ * predates the `display` parameter and DOES return thinking prose (verified by
+ * reading one: 111 chars of text beside a 484-char signature, Claude Code
+ * 2.1.222). So a `think` event CAN carry text; do not write code that assumes
+ * otherwise. This supersedes mt#3276's 2026-07-28 reading of `29280 EMPTY /
+ * 0 NONEMPTY`, which sampled no Haiku sessions.
+ *
+ * The block above is a MEASUREMENT WITH A DATE, not a constant. Re-run it
+ * before relying on it — the recipe is in mem#889:
+ *
+ * ```
+ * find ~/.claude/projects -name '*.jsonl' -newermt '<date>' -print0 | xargs -0 cat \
+ *   | jq -r 'select(.message.content|type=="array") | .message.model as $m
+ *       | .message.content[] | select(.type=="thinking")
+ *       | "\($m)\t\(if (.thinking//""|length)>0 then "NONEMPTY" else "EMPTY" end)"' \
+ *   | sort | uniq -c | sort -rn
+ * ```
+ *
+ * ### For consumers
+ *
+ * Render an empty thinking block HONESTLY — naming the request default, not a
+ * harness limitation — rather than as a load failure or a generic "no content
+ * captured"; see `SessionFilmRibbon.tsx`'s `EventContentView`. A NON-empty one
+ * needs no special casing: render it like any other text.
  */
 export const EVENT_VERBS = [
   "read",
@@ -142,6 +186,25 @@ export const PATH_BEARING_VERBS: readonly EventVerb[] = [
   "delete",
   "clone",
 ];
+
+/**
+ * Verbs whose events are POINT events, not intervals: `tStart === tEnd`
+ * implicitly, `tEnd` omitted, and never refined (see the module doc comment's
+ * monotone-fold obligation). An absent `tEnd` on one of these is the
+ * structural case — the event took no measurable time — NOT an unresolved
+ * interval, and a consumer that renders duration must distinguish the two
+ * (mt#3795).
+ *
+ * `wait` and `respond` are conversational but are NOT here: they are derived
+ * from tool calls (`event-adapter.ts`'s tool mapping), so they carry a real
+ * interval whenever their call resolves.
+ */
+export const POINT_EVENT_VERBS: readonly EventVerb[] = ["speak", "think", "ask"];
+
+/** True when `verb` names a point event — see {@link POINT_EVENT_VERBS}. */
+export function isPointEventVerb(verb: EventVerb): boolean {
+  return POINT_EVENT_VERBS.includes(verb);
+}
 
 /** True iff `verb` is eligible for Gource export (see {@link PATH_BEARING_VERBS}). */
 export function isPathBearingVerb(verb: EventVerb): boolean {

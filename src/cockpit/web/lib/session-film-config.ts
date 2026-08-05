@@ -54,6 +54,28 @@ export const REALM_DISPLAY_LABEL: Record<EventRealm, string> = {
 };
 
 /**
+ * How an absent field reads to the operator (mt#3795). Every session-film
+ * surface used to render BOTH an absent `outcome` and an absent `tEnd` as the
+ * single word "in-flight" — a claim that the event is STILL RUNNING, which
+ * neither absence supports and which is false for every event in a completed
+ * film. The two absences mean different things and now read differently:
+ *
+ * - absent `outcome` is UNRESOLVED per `event-schema.ts`'s own words ("an
+ *   unpaired call is unknown, not successful") — the adapter never found the
+ *   call's result. After mt#3795's identifier-based pairing this is rare and
+ *   genuinely means the result is missing from the transcript;
+ * - absent `tEnd` on a POINT event (`speak`/`think`/`ask`, per the schema's
+ *   `POINT_EVENT_VERBS`) is STRUCTURAL — the event took no measurable time,
+ *   not an unfinished interval.
+ *
+ * Both live here, with the realm labels, because they are operator-facing
+ * display strings shared by the ribbon and the stage; a surface that renders
+ * one of these states must not coin its own wording.
+ */
+export const UNRESOLVED_OUTCOME_LABEL = "unresolved";
+export const POINT_EVENT_DURATION_LABEL = "instant";
+
+/**
  * Realm color accent, expressed as the SAME `oklch(var(--token) / alpha)`
  * pattern `status-colors.ts` uses for inline-style consumers (mt#3226 SC 2).
  * Reuses the existing VSM-organ brand tokens (`docs/brand-system.md` §7)
