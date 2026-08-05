@@ -87,17 +87,38 @@ export function formatActorLabel(
 }
 
 /**
- * Every action taken on `entityId`, in event order, with the batch row each
- * one belongs to. Returns an empty array for an entity nothing has touched
- * (an id not present in the stream) rather than throwing — the panel renders
- * whatever it gets, and an empty history is a legitimate state during the
- * frame after a selection changes.
+ * Every action taken on `entityId` UP TO `throughRowIndex`, in event order,
+ * with the batch row each one belongs to. Returns an empty array for an entity
+ * nothing has touched (an id not present in the stream) rather than throwing —
+ * the panel renders whatever it gets, and an empty history is a legitimate
+ * state during the frame after a selection changes.
+ *
+ * ## Why this is bounded by the playhead
+ *
+ * The obvious implementation scans the whole array, and it is wrong in a way
+ * only visible on a running film: the fold's `touchCount` counts touches up to
+ * the PLAYHEAD (`foldAtBatchIndex`), so an unbounded history renders four lines
+ * under the words "touched 3 times" — the fourth being an action that, in the
+ * replay the operator is watching, has not happened yet. (Observed live at
+ * `?t=90` on a real conversation before this bound existed.)
+ *
+ * Bounding here rather than reconciling the count is deliberate. The film's
+ * model is growth-as-discovery: the stage draws the world AS OF the playhead,
+ * and a panel that leaks future actions contradicts the surface it annotates.
+ * The cost is real and accepted — the panel cannot say "this file gets touched
+ * again later," and every seek from a history line goes backward or stays put.
+ * Showing future actions in a distinct style would preserve both; it needs a
+ * visual treatment nobody has designed, so the consistent answer ships first.
+ *
+ * `throughRowIndex` defaults to `Infinity` so a caller with no playhead (a
+ * standalone render, a test asserting pure derivation) gets the whole history.
  */
 export function buildEntityHistory(
   events: readonly SemanticEvent[],
   batchRows: readonly BatchRow[],
   entityId: string,
-  subjectAgentId: string | null = null
+  subjectAgentId: string | null = null,
+  throughRowIndex: number = Number.POSITIVE_INFINITY
 ): EntityHistoryEntry[] {
   const rowByEventIndex = buildEventIndexToRowIndex(batchRows);
   const entries: EntityHistoryEntry[] = [];
@@ -109,6 +130,7 @@ export function buildEntityHistory(
     // whole array, so this is unreachable for rows derived from the same
     // events — it guards the case where a caller passes mismatched inputs.
     if (rowIndex === undefined) return;
+    if (rowIndex > throughRowIndex) return;
     entries.push({
       eventIndex,
       rowIndex,

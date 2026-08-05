@@ -7,6 +7,8 @@
 import { describe, test, expect } from "bun:test";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { groupEventsIntoBatchRows } from "./session-film-batches";
+import { buildKeyframes, foldAtBatchIndex } from "./session-film-fold";
+import { DEFAULT_SESSION_FILM_CONFIG } from "./session-film-config";
 import { buildEntityHistory, formatActorLabel } from "./session-film-entity-history";
 
 /** The one entity every case here touches — named once so the assertions read against a single subject. */
@@ -82,6 +84,44 @@ describe("buildEntityHistory", () => {
     const history = buildEntityHistory(events, rows, FOO);
 
     expect(history[0]?.outcome).toBeUndefined();
+  });
+
+  test("stops at the playhead row, so it never lists an action that has not happened yet", () => {
+    // Regression: found live at ?t=90, NOT by any test here. Unbounded, the
+    // panel rendered four lines under the fold's "touched 3 times" — the fold
+    // counts to the playhead, the history was counting the whole film.
+    const events = [
+      ev({ target: { realm: "repo", id: FOO } }),
+      ev({ target: { realm: "repo", id: FOO } }),
+      ev({ target: { realm: "repo", id: FOO } }),
+      ev({ target: { realm: "repo", id: FOO } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+
+    expect(buildEntityHistory(events, rows, FOO, null, 2)).toHaveLength(3);
+    expect(buildEntityHistory(events, rows, FOO, null, 0)).toHaveLength(1);
+    // Unbounded stays the default, for callers with no playhead at all.
+    expect(buildEntityHistory(events, rows, FOO)).toHaveLength(4);
+  });
+
+  test("the bounded count matches what the fold reports at the same playhead", () => {
+    // The two numbers the panel prints side by side. This is the invariant the
+    // live defect broke; assert it against the fold itself, not a literal.
+    const events = [
+      ev({ target: { realm: "repo", id: FOO } }),
+      ev({ target: { realm: "web", id: "web:example.com" } }),
+      ev({ target: { realm: "repo", id: FOO } }),
+      ev({ target: { realm: "repo", id: FOO } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    const keyframes = buildKeyframes(events, rows, DEFAULT_SESSION_FILM_CONFIG);
+
+    for (const playhead of [0, 1, 2, 3]) {
+      const world = foldAtBatchIndex(events, rows, keyframes, playhead);
+      const touchCount = world.entities.get(FOO)?.touchCount ?? 0;
+      const history = buildEntityHistory(events, rows, FOO, null, playhead);
+      expect(history).toHaveLength(touchCount);
+    }
   });
 
   test("returns an empty array for an entity nothing touched", () => {

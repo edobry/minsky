@@ -211,6 +211,14 @@ export interface SessionFilmStageProps {
   events?: readonly SemanticEvent[];
   batchRows?: readonly BatchRow[];
   /**
+   * The playhead's current row, which BOUNDS the panel's history (mt#3793).
+   * Without it the panel lists actions from later in the film than the world
+   * the stage is drawing — and contradicts the fold's `touchCount` beside them.
+   * See `buildEntityHistory`'s doc for why the bound lives here rather than the
+   * count being widened.
+   */
+  playheadRowIndex?: number;
+  /**
    * Move the playhead to a batch row — how a history line becomes clickable
    * (mt#3793). Owned by the parent because the playhead is the parent's state
    * (`SessionFilm.tsx`); the stage only names a destination row. Absent means
@@ -313,6 +321,7 @@ export function SessionFilmStage({
   scrollSuppressed = false,
   events,
   batchRows,
+  playheadRowIndex,
   onSeekToRow,
   className,
 }: SessionFilmStageProps) {
@@ -369,8 +378,14 @@ export function SessionFilmStage({
   // usually closed.
   const selectedHistory = useMemo(() => {
     if (!selectedEntity || !events || !batchRows) return [];
-    return buildEntityHistory(events, batchRows, selectedEntity.id, subjectAgentId);
-  }, [selectedEntity, events, batchRows, subjectAgentId]);
+    return buildEntityHistory(
+      events,
+      batchRows,
+      selectedEntity.id,
+      subjectAgentId,
+      playheadRowIndex
+    );
+  }, [selectedEntity, events, batchRows, subjectAgentId, playheadRowIndex]);
 
   // Esc + click-outside dismissal (mt#3231 review R1, BLOCKING — "add a
   // working close (X / Esc / click-outside)"). Scoped to a `pointerdown`
@@ -1002,8 +1017,15 @@ export function SessionFilmStage({
                   and WRAPS rather than truncating. A truncated `file:src/…`
                   answers neither "what is this?" nor "which one?" — the two
                   questions a click is asking. */}
+              {/* A routable entity's readable name is its own ref (`mt#3795`),
+                  not the composite `minsky:task:mt#3795` the display-label
+                  fallback yields for this realm — which printed the same ugly
+                  string twice, once as the heading and once as the id beneath
+                  (seen live before this). */}
               <div className="truncate font-semibold text-foreground">
-                {targetDisplayLabel(selectedEntity)}
+                {selectedDestination.kind === "entity"
+                  ? selectedDestination.id
+                  : targetDisplayLabel(selectedEntity)}
               </div>
               <div className="break-all font-mono text-[10px] text-muted-foreground">
                 {selectedEntity.id}

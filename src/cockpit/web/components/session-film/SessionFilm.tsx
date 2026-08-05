@@ -394,6 +394,7 @@ export function SessionFilm({
           // including the `?t=` write that follows it.
           events={events}
           batchRows={batchRows}
+          playheadRowIndex={playheadRowIndex}
           onSeekToRow={setPlayheadRowIndex}
           className="min-w-0 flex-1"
         />
