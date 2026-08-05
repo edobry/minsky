@@ -9,8 +9,10 @@
  * with zero live fires in the window is FLAGGED — "shipped is not firing"
  * (memory fc8c66e7 / the mt#2057 9-day dead-hook incident).
  *
- * Read-only: reads `.minsky/*-calibration.jsonl` and reports. It writes no
- * state, so (unlike the canary runner) it needs no temp-dir isolation.
+ * Read-only: reads `.minsky/*-calibration.jsonl` plus the guard registries'
+ * DECLARED detector names (mt#3742 — a never-fired detector has no file, so
+ * the disk scan alone cannot see it) and reports. It writes no state, so
+ * (unlike the canary runner) it needs no temp-dir isolation.
  *
  * Usage:
  *   bun scripts/check-coverage-receipts.ts                       # all detectors, 7d window
@@ -36,7 +38,9 @@
  *     nonGuard: string[]    // logs with a declared NON-guard producer
  *   }
  *
- * `results` covers the discovered calibration logs MINUS `nonGuard` — a
+ * `results` covers the UNION of the DECLARED detectors and the calibration
+ * logs discovered on disk, MINUS `nonGuard` (mt#3742 widened this from
+ * discovered-only; see `resolveDetectorsToCheck`) — a
  * non-guard producer has no entry point to instrument, so a coverage verdict
  * on it would be a claim about something that does not exist. `Checked:` in
  * the textual summary is `results.length` and therefore excludes them too;
@@ -45,7 +49,7 @@
  * output, `.minsky/skills/calibration-review/SKILL.md` Step 1b, and
  * `docs/architecture/evaluation-loop-fire-log.md` — no CI job or script parses
  * the JSON. Anything added later should read `results` + `nonGuard` together
- * if it needs the full discovered set.
+ * if it needs the full checked set.
  *
  * @see .minsky/hooks/coverage-receipt.ts — core check logic this wraps
  * @see scripts/run-guard-canaries.ts — the synthetic-input sibling (mt#2889)
