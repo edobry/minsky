@@ -1565,6 +1565,10 @@ describe("Cockpit server", () => {
         displayName: string;
         configPath: string;
         configured: boolean;
+        // mt#3569: required on the domain type — a listing entry must always say
+        // whether it is manageable. Defaulted in the mapping below so existing
+        // fixtures keep their meaning (they were all provider-backed).
+        source?: "provider" | "schema";
         lastValidatedAt?: string;
         lastValidationDetail?: string;
       }>;
@@ -1604,7 +1608,8 @@ describe("Cockpit server", () => {
             stored: validateOk ? { configFilePath: `/mock/config.yaml` } : undefined,
             test: validateOk ? { ok: true, detail: "smoke ok" } : undefined,
           }),
-      listCredentials: async () => listResult,
+      listCredentials: async () =>
+        listResult.map((entry) => ({ source: "provider" as const, ...entry })),
       removeCredential: async (_provider: string) => removeResult,
       listCredentialProviders: () => [
         {

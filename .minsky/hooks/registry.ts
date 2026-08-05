@@ -162,6 +162,14 @@ export interface GuardOutcome {
    * JSON was found to be discarded wholesale by Claude Code whenever stdout
    * carried anything else — so an audit line could silently void a later
    * guard's deny on the same call.
+   *
+   * That behavior is reproducible on demand: `bun
+   * scripts/run-dispatcher-scenario.ts --scenario override-deny-precedence`
+   * (mt#3756). It is deliberately NOT a unit test — `dispatcher.test.ts`
+   * injects `recordFireLogFn`/`resolveDispatchContextFn`, so it cannot observe
+   * the real write path this bug lived on, which is why the original
+   * measurement was taken against the live dispatcher and left 19 fixture
+   * records in the production fire-log.
    */
   auditLines?: string[];
   /**
@@ -1664,6 +1672,30 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       setup: async () => {
         const store = await import("./turn-end-scan-store");
         store.clearFlagged("mt3179-untaken-action-canary");
+      },
+    },
+    // mt#3767 — the SATURATING input for this guard, on BOTH axes at once:
+    // enough commitment families to drive the evidence list to its cap of 3 plus
+    // the "…and N more" line, AND a deferral phrase, which selects the longer of
+    // the two directive branches. Posing it at only one axis is what hid the
+    // overflow: the originating single-match sentence renders 339, this renders
+    // 430, and the ceiling is 450. (mem#865 predicted this blind spot for guards
+    // whose output varies by input, after mt#3699 hit it on the sibling — and the
+    // commitment branch turned out to be over the ceiling at cap ALREADY, which
+    // the previous "capped" classification meant nothing ever rendered.)
+    worstCaseCanary: {
+      input: {
+        session_id: "mt3767-untaken-action-worstcase-canary",
+        transcript_path: "/nonexistent/mt3767-worstcase-canary.jsonl",
+        last_assistant_message:
+          "I'm taking it forward — that's the next step. Next step: I'll proceed ahead " +
+          "with the cleanup, then moving on to the rest. Say the word if you'd rather " +
+          "I file it.",
+      },
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3767-untaken-action-worstcase-canary");
       },
     },
   },

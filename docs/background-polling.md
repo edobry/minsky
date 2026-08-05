@@ -206,6 +206,16 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
   `pull_request_read get_reviews` round-trip. Backends that don't implement
   `ReviewOperations.getPullRequestCreatedAt` fall back to call-start (the pre-mt#2043
   default) for the `since` threshold.
+- **Which review it returns (mt#3555):** when several reviews pass the filters, the tool
+  returns the reviewer's **standing verdict** — their latest decision-bearing review
+  (APPROVED / CHANGES_REQUESTED / DISMISSED) — not the first in listing order. Since
+  `listReviews` returns GitHub's chronological order, first-match previously meant the
+  EARLIEST match: an APPROVED could be returned while a newer CHANGES_REQUESTED from the
+  same reviewer sat on the SAME commit, which `/implement-task §9` reads as merge
+  authorization. `requireCurrentHead` does not disambiguate this — it bounds a review to
+  the current CODE, not to the reviewer's current VERDICT, and admits every review on
+  HEAD. A COMMENTED review still matches (`session_pr_drive` branches on it) but never
+  supersedes a decision.
 - **Fit:** **today's correct answer for "babysit a PR through reviewer-bot iteration."**
   See worked example §6.
 - **Latency:** typical 30s–2min after push; bounded by the call's `timeoutSeconds`

@@ -388,6 +388,35 @@ export function __resetGitBinaryCacheForTests(): void {
 }
 
 /**
+ * Resolve the pinned TypeScript checker for a project root (mt#3657).
+ *
+ * Returns the local `node_modules/.bin/tsgo` when it exists, else null. There is deliberately
+ * NO `bunx @typescript/native-preview` fallback: that command does not run the pinned
+ * dependency — the package's bin is `tsgo`, so bunx's package-name lookup misses and it
+ * fetches `@latest` into a temp dir instead. Measured 2026-08-04: pinned
+ * `7.0.0-dev.20260419.1` vs bunx's `7.0.0-dev.20260707.2`, three months apart, and the
+ * download racing the check in one invocation is what produced the SIGKILLs.
+ *
+ * Null means the caller should SKIP rather than substitute — these hooks are informational,
+ * so a missing install must not become a wall of phantom errors about the operator's code.
+ *
+ * Mirrors {@link resolveGitBinary}'s shape (resolution + injectable existence check). The
+ * src-side sibling is `src/utils/tsgo-binary.ts`; the two are stated separately because hook
+ * files cannot import from `src/`.
+ */
+export function resolveTsgoBinary(
+  projectRoot: string,
+  existsSyncFn: (path: string) => boolean = existsSync
+): string | null {
+  const candidate = `${projectRoot}/node_modules/.bin/tsgo`;
+  try {
+    return existsSyncFn(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Substitute `cmd[0]` with the resolved absolute git path when the command
  * invokes `git` by bare name. No-op for any other command (e.g. `gh`).
  */

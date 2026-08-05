@@ -45,21 +45,14 @@ if (!DATABASE_URL) {
 const repoRoot = resolve(import.meta.dir, "..");
 const bundlePath = join(repoRoot, "dist", "minsky.js");
 
-// Mirror the production invocation. `Dockerfile`'s CMD is
-// `bun run --preload reflect-metadata dist/minsky.js ...`; without the preload the bundle dies at
-// startup with "tsyringe requires a reflect polyfill" on Bun 1.3.x, which no longer evaluates
-// reflect-metadata's CommonJS body before tsyringe's ESM body (mt#3561).
+// Mirror the production invocation: `Dockerfile`'s CMD is `bun run dist/minsky.js ...`, with no
+// `--preload reflect-metadata` since mt#3680 made the bundle install the polyfill itself.
 //
-// An ABSOLUTE path, not the bare module name: this smoke deliberately runs the bundle from a temp
-// dir simulating an external project, which has no `node_modules` for a bare specifier to resolve
-// against. The container can use the bare name because its cwd is `/app`.
-const reflectPolyfill = join(repoRoot, "node_modules", "reflect-metadata", "Reflect.js");
-if (!existsSync(reflectPolyfill)) {
-  console.error(`ERROR: reflect-metadata polyfill not found at ${reflectPolyfill}`);
-  console.error("Run 'bun install' first — the bundle cannot boot without it.");
-  process.exit(1);
-}
-const bundleArgs = ["run", "--preload", reflectPolyfill, bundlePath];
+// The bare form is also the strongest check available here. This smoke deliberately runs the bundle
+// from a temp dir simulating an external project, with no `node_modules` — the exact layout in
+// which a preload by bare specifier could not have resolved. If the bundle were still dependent on
+// an externally supplied polyfill, this invocation is where that would surface.
+const bundleArgs = ["run", bundlePath];
 
 if (!existsSync(bundlePath)) {
   console.error(`ERROR: dist/minsky.js not found at ${bundlePath}`);
