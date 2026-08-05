@@ -92,6 +92,32 @@ async function findFreePort(): Promise<number> {
   return port;
 }
 
+/** Bind a real TCP listener on a specific address (mt#3787). */
+async function bindListenerOn(host: string): Promise<{ server: net.Server; port: number }> {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, host, () => resolve());
+  });
+  const addr = server.address();
+  if (!addr || typeof addr === "string") throw new Error("listener has no address");
+  return { server, port: addr.port };
+}
+
+/**
+ * First non-loopback IPv4 address on this host, or null where there is none
+ * (a loopback-only machine, e.g. some CI runners) — the mt#3787 test that uses
+ * it has nothing to assert there and skips.
+ */
+function nonLoopbackIpv4(): string | null {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === "IPv4" && !addr.internal) return addr.address;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // isProcessAlive
 // ---------------------------------------------------------------------------
@@ -148,23 +174,22 @@ describe("findPortHolder", () => {
     expect(holder).toBeNull();
   });
 
-  // mt#3524: same TOCTOU family as the sibling test above, one step further out.
+  // mt#3524 recorded a THIRD reason this test could flap: `findPortHolder` ran
+  // `lsof -i :<port>`, which matches that port number on ANY address, so an
+  // unrelated process listening on the same port number on a different
+  // interface could be returned instead — observed exactly that way (expected
+  // 62950, received 58788). That reason is GONE as of mt#3787: the probe is now
+  // scoped to loopback, and `bindListener` binds loopback, so a listener on
+  // another interface can no longer be mistaken for this process. The comment
+  // survives as the record of what the retry loop used to also be covering.
   //
-  // `bindListener` binds 127.0.0.1 ONLY, but `findPortHolder` shells out to
-  // `lsof -i :<port> -sTCP:LISTEN`, which matches that PORT NUMBER on ANY
-  // address, and then takes the FIRST pid of a possibly multi-line result. So
-  // when an unrelated process happens to be listening on the same port number
-  // on a different interface — plausible under full-suite parallelism, where
-  // many test processes bind OS-assigned ports at once — lsof reports both and
-  // findPortHolder can legitimately return the other one. Observed exactly
-  // that way (expected 62950, received 58788) during a full-suite run whose
-  // diff touched nothing near this path; the isolated re-run passed 17/17.
-  //
-  // Retrying with a freshly OS-assigned port keeps the assertion at full
-  // strength — we still require the holder to be THIS process — and only
-  // re-rolls when someone else is genuinely sharing the port number. Weakening
-  // it to "some holder exists" would drop the property the test is for: that
-  // findPortHolder attributes a listening port to its actual owner.
+  // What it still covers, and why the retry stays: the two TOCTOU cases below
+  // (a genuine loopback collision on an OS-assigned port, and lsof's visibility
+  // lag behind a just-completed bind). Retrying with a freshly OS-assigned port
+  // keeps the assertion at full strength — we still require the holder to be
+  // THIS process. Weakening it to "some holder exists" would drop the property
+  // the test is for: that findPortHolder attributes a listening port to its
+  // actual owner.
   skipOnWindows("returns this process's PID when we hold the port", async () => {
     let lastHolder: PortHolder | null = null;
 
@@ -194,6 +219,27 @@ describe("findPortHolder", () => {
     expect(lastHolder.pid).toBe(process.pid);
     expect(typeof lastHolder.command).toBe("string");
     expect(lastHolder.command.length).toBeGreaterThan(0);
+  });
+
+  // mt#3787: the defect this scoping fixes. A listener on a non-loopback
+  // address does not hold the cockpit's address, so it must not be reported as
+  // the holder — on the machine where this was found, `lsof -i :3737` returned
+  // Tailscale's tailnet listener ahead of the actual daemon and `cockpit start`
+  // told the operator to kill it.
+  //
+  // A null here is the assertion, and the sibling test above is its control:
+  // that one proves the same probe DOES find a loopback holder, so a null in
+  // this test is the scoping working rather than lsof failing to answer.
+  skipOnWindows("ignores a listener on a non-loopback address", async () => {
+    const host = nonLoopbackIpv4();
+    if (!host) return; // loopback-only host: nothing to assert
+
+    const { server, port } = await bindListenerOn(host);
+    try {
+      expect(findPortHolder(port)).toBeNull();
+    } finally {
+      await closeListener(server);
+    }
   });
 });
 
