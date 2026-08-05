@@ -863,6 +863,7 @@ export function findCreatedResourceIds(
   input: Record<string, unknown>;
   createdId: string | undefined;
   result: Record<string, unknown> | undefined;
+  resultText: string | undefined;
 }> {
   // Pass 1: tool_use_id -> concatenated result text, from every tool_result
   // block anywhere in the transcript (not scoped to toolName — a tool_result
@@ -885,6 +886,7 @@ export function findCreatedResourceIds(
     input: Record<string, unknown>;
     createdId: string | undefined;
     result: Record<string, unknown> | undefined;
+    resultText: string | undefined;
   }> = [];
   const pushResult = (id: unknown, rawInput: unknown): void => {
     const input =
@@ -893,7 +895,13 @@ export function findCreatedResourceIds(
     const result = parseResultJson(resultText);
     const idValue = result?.[idField];
     const createdId = typeof idValue === "string" && idValue.length > 0 ? idValue : undefined;
-    results.push({ input, createdId, result });
+    // `resultText` is surfaced alongside the parsed form (mt#3730) because not
+    // every id-minting call answers in JSON: the Minsky CLI prints
+    // `Task mt#NNNN created successfully` unless given `--json`, and
+    // `parseResultJson` correctly returns undefined for that, leaving a caller
+    // with no way to reach an id that is plainly present in the text. Callers
+    // that only want structured results keep ignoring this field.
+    results.push({ input, createdId, result, resultText });
   };
   for (const line of lines) {
     if (line.type === "tool_use") {
