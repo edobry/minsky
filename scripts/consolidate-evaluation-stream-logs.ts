@@ -47,7 +47,16 @@ const { deriveHookRepoRoot } = await import("../.minsky/hooks/types");
  * skipped rather than treated as an error — a detector that has never fired in
  * this checkout legitimately has no log.
  */
-const STREAM_NAMES = ["retrospective-trigger", "silent-stretch", "stop-at-decision"] as const;
+const STREAM_NAMES = [
+  "retrospective-trigger",
+  "silent-stretch",
+  "stop-at-decision",
+  // mt#3782: the fourth writer. mt#3745 enumerated the streams by listing
+  // `.minsky/*-evaluations.jsonl` in the repo and got three — enumeration
+  // against the artifact a cwd-rooting writer prevents from existing. The
+  // authoritative enumeration greps the hook sources for the write call.
+  "operator-deferral",
+] as const;
 
 function logFilename(streamName: string): string {
   return `${streamName}-evaluations.jsonl`;

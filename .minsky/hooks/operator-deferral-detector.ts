@@ -62,6 +62,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
@@ -545,8 +546,15 @@ function sentenceAround(text: string, idx: number): string {
  *
  * A bounded tail of the scanned text is stored deliberately: classifying a MISS
  * later requires seeing what was not matched.
+ *
+ * mt#3782: the logical stream NAME, not a path — `logEvaluationRecord` derives
+ * `.minsky/<name>-evaluations.jsonl` from it, the same name/path split the
+ * registry's `calibrationLog` uses. This detector was the fourth writer, and
+ * the one mt#3745 missed: it enumerated the streams by listing
+ * `.minsky/*-evaluations.jsonl` in the repo, which is the artifact a
+ * cwd-rooting writer prevents from existing.
  */
-const EVALUATION_LOG = ".minsky/operator-deferral-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "operator-deferral";
 const EVALUATION_TAIL_CHARS = 400;
 
 /**
@@ -585,19 +593,15 @@ export function buildEvaluationRecord(
   };
 }
 
-function appendEvaluationRecord(cwd: string | undefined, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd ?? process.cwd()), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    // Best-effort: the evaluation stream is measurement, never a gate. A write
-    // failure must not suppress the detection it was recording.
-    process.stderr.write(
-      `[operator-deferral-detector] Failed to write evaluation log: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-  }
+export function appendEvaluationRecord(
+  cwd: string | undefined,
+  record: Record<string, unknown>
+): void {
+  // mt#3782: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  // This used to be `resolve(findRepoRoot(cwd ?? process.cwd()), EVALUATION_LOG)`,
+  // which scattered the stream into session workspaces. `logEvaluationRecord`
+  // keeps the fail-open-and-report posture this had.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
