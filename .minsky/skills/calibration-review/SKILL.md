@@ -23,10 +23,16 @@ positives, and packaging the decision as an Ask.
 
 ## Step 1 — Run the sweep (read-only)
 
-Call the command in JSON mode, read-only (do NOT pass `--ack` yet):
+Call the command read-only (do NOT pass `--ack` yet):
 
-- MCP: `mcp__minsky__observability_calibration-review` with `json: true`
-- CLI: `minsky observability calibration-review --json`
+- MCP: `mcp__minsky__observability_calibration-review` with NO arguments. It
+  returns JSON already; the tool declares only `ack`, `askId` and `clearAskId`,
+  and undeclared params are rejected at the MCP boundary (mt#2778). Passing
+  `json: true` here fails — the rejection reads `expected boolean, received
+string`, which points at a type, not at the real cause, so it costs a
+  round-trip to diagnose.
+- CLI: `minsky observability calibration-review --json` (`--json` is a CLI flag,
+  which is where the MCP form's phantom parameter came from).
 
 It returns, per registered log: `totalFires`, `firesSinceLastReview`,
 `suppressedSinceLastReview`, `injectedFiresSinceLastReview` (mt#3197 — the
@@ -61,6 +67,11 @@ set:
    step 2 above) continue to Step 2. (The command itself also refuses to
    silently `--ack` a still-open-ask log when `askId` isn't supplied — see
    Step 5 — so skipping here is belt-and-suspenders, not the only guard.)
+
+   **If you skip anything here, remember it — it changes Step 5's arguments.**
+   A pass that skips one log and reviews another is a MIXED pass, and passing
+   `askId` on its ack call would advance the skipped log too, undoing this
+   step. Step 5's "Which ack call to make" has the branch.
 
 If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
 3 above), stop — nothing to review. Do not emit an Ask, do not advance
@@ -335,14 +346,54 @@ avoids repeating that search-miss.
 ## Step 5 — Record the ask id and advance the watermark
 
 After the Ask is created, capture its `id` from the `asks_create` response.
-Re-run the command WITH `ack: true` AND the new id in `askId`, so the
-cadence-detector hook (mt#2659) knows to suppress its per-turn warning for
-these logs until the ask resolves:
+Then re-run the command with `ack: true` — but **whether you also pass `askId`
+depends on whether this pass skipped anything under Step 1a.** Check that first;
+the two cases take different arguments and the wrong one destroys data.
 
-- MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
-  `askId: "<id from asks_create>"`
-- CLI: `minsky observability calibration-review --ack` plus the CLI's
-  generated flag for `askId` — check `--help` for the exact flag spelling
+### Which ack call to make
+
+**Was any review-due log skipped under Step 1a (still-open `openAskId`)?**
+
+- **No — every review-due log was reviewed this pass.** Pass BOTH `ack: true`
+  and `askId`. This advances the watermarks and records `openAskId` on each, so
+  the cadence hook (mt#2659) suppresses its per-turn warning until the ask
+  resolves.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `askId: "<id from asks_create>"`
+  - CLI: `minsky observability calibration-review --ack` plus the CLI's
+    generated flag for `askId` — check `--help` for the exact flag spelling
+
+- **Yes — this is a MIXED pass.** Pass `ack: true` and **NOT** `askId`.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`
+  - CLI: `minsky observability calibration-review --ack`
+
+  Confirm afterwards that the result's `skippedOpenAskPaths` names every log you
+  skipped, and say in your pass output that you acked without `askId` and why.
+
+**Why `askId` is unsafe on a mixed pass.** `askId` is a deliberate
+REAFFIRMATION: `selectAckablePaths` skips a log only when `askId` is ABSENT
+(`if (!askId && r.openAskId)` —
+`src/domain/calibration/calibration-sweep.ts`). Supplying it therefore advances
+EVERY review-due log, including the one Step 1a told you to leave alone —
+marking its unreviewed fires as reviewed under an ask that does not cover them,
+and overwriting its link to the ask that does. Live instance (2026-08-05,
+mt#3707): `retrospective-trigger` was review-due with an open ask and **29**
+unreviewed fires while two other logs were reviewable; acking with `askId` would
+have silently erased that backlog.
+
+**The cost of the mixed-pass form, so you don't go looking for it later.** The
+logs you DO advance come out without `openAskId`. That is fine: advancing their
+watermark removes them from `reviewDue` outright, so the cadence hook stops
+warning about them anyway — `openAskId` only suppresses warnings for a log that
+is STILL review-due. What you lose is the recorded link from those logs to the
+ask deciding them; cite the ask id in the task record instead.
+
+Mixed passes are the normal case, not an edge: four disposition asks were open
+simultaneously on 2026-08-04. If you find yourself wanting an ack that both
+preserves the skip AND records `openAskId`, that is a change to the command, not
+a judgment call to make here — file it (mt#3727 carries the history).
 
 This marks the reviewed fires so the next sweep only considers new ones AND
 records `openAskId` on every review-due log's watermark — including a
