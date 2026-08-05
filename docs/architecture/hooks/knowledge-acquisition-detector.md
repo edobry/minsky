@@ -1,7 +1,8 @@
 # knowledge-acquisition-detector
 
-**Event:** `UserPromptSubmit` (guard-dispatcher, `GUARD_REGISTRY`)
-**Task:** mt#2708 (mt#2707-RFC's (B) proactive-trigger half of the learn-capture primitive)
+**Event:** `Stop` (guard-dispatcher, `GUARD_REGISTRY`) — was `UserPromptSubmit` until mt#3720
+**Task:** mt#2708 (mt#2707-RFC's (B) proactive-trigger half of the learn-capture primitive);
+re-grained to one verdict per session by mt#3720
 **Mode:** calibration-first (mt#2263 / ADR-024 ladder) — log-only, `INJECTION_ENABLED = false`
 **Log:** `.minsky/knowledge-acquisition-calibration.jsonl` (registered in `CALIBRATION_LOG_REGISTRY`,
 `reviewByDays: 14`, `liveSinceDate: 2026-07-23`)
@@ -13,7 +14,10 @@
 The (B) proactive-trigger half of the mt#2707 learn-capture primitive: in-task research
 (WebSearch / WebFetch / knowledge tools) that surfaces knowledge relevant to a currently-loaded
 skill, with no propagation action (`memory_create`, the `/learn` routing skill, or a filed task
-targeting the artifact) in a **trailing window** of turns after the research.
+targeting the artifact) **anywhere in the session**.
+
+Since mt#3720 the unit of judgment is the SESSION, not the individual research call. A session
+produces at most one calibration record, ever.
 
 ## Detection mechanism constraint (mt#2263 ladder)
 
@@ -33,28 +37,77 @@ v1 ships **rung 1 fused with a rung-2-lite skill-keyword-overlap gate** — not 
 
 This stays rung-1-cheap — no LLM call.
 
-## Propagation: a trailing window, not same-turn equality (mt#2671 pattern)
+## The session verdict (mt#3720, extending the mt#2671 grace-period pattern)
 
 An agent that recognizes the acquisition and says "I'll capture this after finishing the current
-edit," then does so a few turns later, is a TRUE NEGATIVE that a same-turn gate would flag as a
-miss. Because a `UserPromptSubmit` hook only ever sees what has ALREADY happened, a candidate
-research event is evaluated only once `TRAILING_WINDOW_TURNS` (5) turns have elapsed since it
-occurred — the agent gets a grace period before the absence of propagation is treated as a miss.
-Once due, if a propagation call (`mcp__minsky__memory_create`, `mcp__minsky__tasks_create`, or a
-`Skill` invocation whose name contains "learn") appears anywhere after the research call, the
-event is a true negative — since mt#3207 it is still LOGGED, as a suppressed record carrying
-`suppressionReasons: ["propagation-in-window"]`, and never injects. If not, the event fires
-exactly once (a stable `${lineIdx}:${toolName}` dedupe key, checked against the calibration
-log's own tail, prevents a matured-but-unresolved event from re-firing on every subsequent turn).
+edit," then does so later, is a TRUE NEGATIVE that a same-turn gate would flag as a miss. The
+detector therefore collects every research occurrence that clears the rung-1+2-lite gate and
+judges them together:
+
+1. **Eligibility.** The session is not judged until `TRAILING_WINDOW_TURNS` (5) turns have
+   elapsed since the MOST RECENT matched occurrence. A session with continuing matched research
+   keeps re-extending its own clock. Not-yet-eligible is a deferral, not a suppression: nothing
+   is recorded, and it is re-evaluated on the next `Stop`.
+2. **Verdict.** Once eligible, `hadPropagation` is true iff EVERY matched occurrence has a
+   propagation call somewhere after it. One uncaptured occurrence makes the whole session a
+   miss — the detector is looking for knowledge that was never captured anywhere, not merely the
+   first thing researched.
+
+   The propagation channel set itself is **unchanged by mt#3720** and is not this section's to
+   define: `PROPAGATION_TOOL_NAMES` is `memory_create`, `tasks_create`, `tasks_spec_patch`,
+   `tasks_spec_search_replace` and `memory_update`, plus a `Skill` invocation whose name contains
+   "learn". The spec-writing and `memory_update` entries were added by **mt#3272** ("Count a spec
+   edit as capture, not as a miss") under dispositions ask#6136 and ask#6817, and are covered by
+   that task's tests — the six `suppressed (mt#3272): …` cases plus the `test.each` boundary case
+   asserting that source edits are NOT propagation. This doc previously listed only
+   `memory_create` / `tasks_create` / `/learn`, which had been stale since mt#3272 merged; naming
+   the full set here is a documentation correction, not a semantics change.
+
+3. **Bound.** The record carries the fixed `SESSION_VERDICT_DEDUPE_KEY` (`"session-verdict"`),
+   checked against the calibration log's own tail. `loadAlreadyLoggedDedupeKeys` filters that
+   tail by `session_id`, which is what makes a shared constant safe across sessions.
+
+**Why v1 was wrong, precisely.** The propagation SCAN was never the problem —
+`hasPropagationAfter` was already unbounded, scanning to the end of whatever transcript is
+visible. The problem was WHEN evaluation happened. v1 judged each research call the moment its
+own grace elapsed, using only the transcript visible at that moment, and its per-occurrence
+dedupe key made that verdict permanent. For the `aecd65f4` session (research early, durable
+write ~17 turns later) grace elapsed around turn 8 — long before the save existed — and each of
+the session's research calls repeated the mistake independently, producing 13 of the 17 fires
+reviewed at ask#6891.
+
+**What this does NOT fix (mt#3740).** `Stop` fires once per TURN, so the detector still sees a
+growing transcript rather than a finished one. A session that goes quiet past the grace period
+and only then propagates can have a miss recorded first, and the one dedupe key makes that
+verdict permanent. mt#3740 owns the residual; a test in
+`knowledge-acquisition-detector.test.ts` asserts the current wrong behavior deliberately so the
+fix must invert it rather than delete it. What holds unconditionally is the BOUND: one record
+per session, which is what retires the 13-from-one-session shape.
 
 Recording the true negative is what makes the propagation gate's own fire rate measurable; the
 sweep excludes suppressed records from the injected count (mt#3197), so it does not distort FP
-math. It is safe to burn the dedupe key on it because the gate is TERMINAL — propagation is in
-the past and cannot un-happen. The other two skip legs are deliberately NOT recorded for the
-opposite reason: the grace period is a deferral (re-evaluated next invocation, so a record would
-fire every turn and consume the key the eventual real fire needs), and the missing loaded-skill
-keyword overlap is part of the rung-2-lite detection criterion rather than a gate over a
-completed detection.
+math. It is safe to burn the dedupe key on a propagated verdict because it is TERMINAL —
+propagation is in the past and cannot un-happen. The other skip legs are deliberately NOT
+recorded for the opposite reason: the grace period is a deferral (a record would fire every turn
+and consume the key the eventual real fire needs), and the missing loaded-skill keyword overlap
+is part of the rung-2-lite detection criterion rather than a gate over a completed detection.
+
+## Why `Stop`, not `SessionEnd`
+
+Session grain invites a session-end seam, and `SessionEnd` was evaluated and rejected at mt#3720:
+
+- `SessionEnd` has **zero** guards wired through `GUARD_REGISTRY`. The repo's one `SessionEnd`
+  hook (`transcript-ingest-on-session-end.ts`) is wired directly in `.claude/settings.json`,
+  bypassing the calibration-log, canary, and override plumbing this detector depends on. Building
+  a `SessionEnd` dispatcher entrypoint is a larger change than a detector re-grain.
+- Per ADR-017, `/exit` and `/clear` do not fire `SessionEnd` at all, so its absence proves
+  nothing — it is not a reliable end-of-session signal in this harness either way.
+- `Stop` already hosts five other guards on the same dispatcher, including a directly-analogous
+  calibration-first, log-only sibling (`stop-at-decision-scan`, mt#3653), and firing once per
+  turn means at least one invocation sees a killed session where `SessionEnd` would see none.
+
+The cost is that per-session dedupe becomes load-bearing, since `Stop` — unlike `SessionEnd` —
+fires repeatedly across one session. That is the mt#3740 residual above.
 
 ## Whole-session scan
 
@@ -83,7 +136,7 @@ helpers (`findRealPromptIndices`, `isRealUserPrompt`, `extractAssistantText`,
   "hadPropagation": false,
   "matchedSkill": "engineering-writing",
   "matchedKeyword": "argumentative",
-  "dedupeKey": "3:WebSearch",
+  "dedupeKey": "session-verdict",
   "suppressionReasons": []
 }
 ```
