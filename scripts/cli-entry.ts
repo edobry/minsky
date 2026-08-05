@@ -34,6 +34,19 @@
  *      by design — the stamp tracks the last-built HEAD; staleness is the test.
  */
 
+// Must precede the `await import(bundlePath)` at the bottom of this file, and
+// stay a STATIC import so it is fully evaluated before any dynamic import runs
+// (mt#3735). Bun 1.3.x no longer evaluates reflect-metadata's CommonJS body
+// before tsyringe's ESM body inside the bundle, so a bundle imported without
+// the polyfill already in place dies at startup with "tsyringe requires a
+// reflect polyfill" (mt#3561). `Dockerfile`'s CMD solves the same problem with
+// `--preload reflect-metadata`; this file is the other site that executes
+// `dist/minsky.js`, and it is the one every installed `minsky` invocation goes
+// through — including the local `minsky mcp proxy` server in `.mcp.json`.
+// `src/cli.ts` carries its own copy for the source-fallback path; importing it
+// twice is a no-op, so this is safe on both branches below.
+import "reflect-metadata";
+
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, basename } from "path";
 import { fileURLToPath } from "url";

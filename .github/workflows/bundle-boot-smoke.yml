@@ -66,6 +66,27 @@ jobs:
             || { echo "::error::bun run build did not populate dist/storage/migrations/pg (mt#1961 regression)"; exit 1; }
           ls dist/storage/migrations/pg/ | head -3
 
+      # mt#3735 — the OTHER site that executes this bundle. The step below boots
+      # it the way Railway does (`--preload reflect-metadata`); this one boots it
+      # the way every installed `minsky` invocation does, through
+      # `scripts/cli-entry.ts`'s `await import(dist/minsky.js)`. Those are
+      # different code paths and only the first was gated: on the Bun 1.3.14
+      # upgrade (mt#3561) the production form was fixed and the shim was not, so
+      # the installed CLI died with "tsyringe requires a reflect polyfill" —
+      # which took the local `minsky mcp proxy` server in `.mcp.json` down with
+      # it, silently removing every `mcp__minsky__*` tool from agent sessions.
+      # Runs before the boot step because it is the cheaper failure to read.
+      # Note this may trigger one more `bun build`: `bun run build` does not
+      # write `dist/.build-stamp` (cli-entry owns the stamp), so the freshness
+      # check treats the bundle as stale. That rebuild is ~0.4s and exercises
+      # the same import path either way.
+      - name: Boot via the installed-CLI shim
+        run: |
+          set -euo pipefail
+          VERSION=$(bun scripts/cli-entry.ts --version)
+          echo "cli-entry reported: $VERSION"
+          test -n "$VERSION" || { echo "::error::scripts/cli-entry.ts produced no version output (mt#3735 regression)"; exit 1; }
+
       - name: Boot bundled binary and probe /health
         run: |
           set -euo pipefail
