@@ -384,6 +384,18 @@ export function SessionFilm({
           selectedEntityId={selectedEntityId}
           scrollSuppressed={isScrolling}
           config={config}
+          // The detail panel's inspector inputs (mt#3793). `events` and
+          // `batchRows` let it show an entity's action HISTORY rather than only
+          // the fold's latest verb; `onSeekToRow` is what makes a history line
+          // clickable — the playhead is THIS component's state, so the stage can
+          // only name a destination row and ask for the move. Reusing
+          // `setPlayheadRowIndex` (not a bespoke handler) means a seek from the
+          // panel is the same operation as a keyboard step or a minimap jump,
+          // including the `?t=` write that follows it.
+          events={events}
+          batchRows={batchRows}
+          playheadRowIndex={playheadRowIndex}
+          onSeekToRow={setPlayheadRowIndex}
           className="min-w-0 flex-1"
         />
       </div>
