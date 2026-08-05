@@ -520,12 +520,13 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     );
   });
 
-  // mt#3276: a thinking block ALWAYS arrives with empty text (the signature is
-  // kept for API replay; the reasoning text is withheld server-side and never
-  // reaches the client). The row must say so, rather than showing the generic
-  // "No content captured" copy — which would blame a Minsky capture gap for a
-  // harness limitation — or an empty ElementView box.
-  test("expanding a THINK row whose thinking text is empty says the harness does not record it", async () => {
+  // mt#3276, copy corrected mt#3790: on the models this project runs a thinking
+  // block arrives with empty text, because `thinking.display` defaults to
+  // "omitted" and the request never asks for a summary. The row must say that,
+  // rather than showing the generic "No content captured" copy (which would read
+  // as a Minsky capture gap), an empty ElementView box, or the pre-mt#3790 copy
+  // that blamed the harness.
+  test("expanding a THINK row whose thinking text is empty explains the text was not requested", async () => {
     const thinkEvent = selfEvent({
       verb: "think",
       weight: 0,
@@ -549,11 +550,59 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
     fireEvent.click(screen.getByTestId("session-film-row-0"));
 
-    const el = await screen.findByTestId("session-film-row-content-thinking-not-recorded");
-    expect(el.textContent).toContain("does not record thinking text");
+    const el = await screen.findByTestId("session-film-row-content-thinking-not-requested");
+    expect(el.textContent).toContain("its text was never requested");
+    // The absence is not attributed to the harness (the pre-mt#3790 copy).
+    expect(el.textContent).not.toContain("harness");
     // Neither of the two misleading states is used for this case.
     expect(screen.queryByTestId("session-film-row-content-empty")).toBeNull();
     expect(screen.queryByTestId("session-film-row-content-body")).toBeNull();
+  });
+
+  // mt#3790 AT3 / SC5: the empty-state fires on EMPTINESS, not on the `think`
+  // verb. A model that does return thinking prose (Haiku 4.5 predates the
+  // `thinking.display` parameter and returns it — see event-schema.ts's
+  // EVENT_VERBS note) must render normally through ElementView. This guards the
+  // branch condition against being "simplified" to a verb check.
+  test("expanding a THINK row whose thinking text is NON-empty renders it, not the empty-state", async () => {
+    const thinkEvent = selfEvent({
+      verb: "think",
+      weight: 0,
+      sourceRef: { turnIndex: 4, messageUuid: "line-4" },
+    });
+    const blocks = [
+      {
+        id: "a1:turn:4",
+        type: "assistant-thinking",
+        source: "observed",
+        content: {
+          role: "assistant",
+          content: [
+            {
+              type: "thinking",
+              thinking: "The user is asking me to reply with exactly: LONGLIVED_A",
+              signature: "abc123",
+            },
+          ],
+        },
+        timestamp: "2026-07-24T00:00:00.000Z",
+        turnIndex: 4,
+        rawJsonlType: "assistant",
+      },
+    ];
+    renderRibbon([thinkEvent]);
+    mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+
+    // ElementView collapses a thinking block behind a char-count affordance
+    // rather than rendering the prose inline, so assert on the count: 56 is the
+    // exact length of the thinking string above, which proves the real payload
+    // reached the renderer rather than an empty or truncated one.
+    const body = await screen.findByTestId("session-film-row-content-body");
+    expect(body.textContent).toContain("thinking");
+    expect(body.textContent).toContain("56 chars");
+    expect(screen.queryByTestId("session-film-row-content-thinking-not-requested")).toBeNull();
+    expect(screen.queryByTestId("session-film-row-content-empty")).toBeNull();
   });
 
   test("expanding a tool-call (WRITE) row renders the call's params+result via ToolInvocation", async () => {
