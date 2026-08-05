@@ -60,9 +60,34 @@ export function recordAttemptStart(state: RetryBackoffState, nowMs: number = Dat
   state.lastAttemptAtMs = nowMs;
 }
 
-/** Double the delay, capped at {@link RETRY_MAX_INTERVAL_MS}. Call after a FAILED attempt. */
-export function widenBackoff(state: RetryBackoffState): void {
-  state.delayMs = Math.min(state.delayMs * 2, RETRY_MAX_INTERVAL_MS);
+/**
+ * Double the delay, capped at {@link RETRY_MAX_INTERVAL_MS}, THEN apply
+ * jitter (also re-clamped to the cap — see below). Call after a FAILED
+ * attempt.
+ *
+ * R1 fix (mt#3751 PR #2672): `applyJitter()` existed from the first commit
+ * of this PR but nothing ever called it — the gate computed a strictly
+ * doubled, unjittered `delayMs`, which is exactly the lockstep-retry risk
+ * SC3 exists to prevent. Jitter is applied HERE, at the single place a
+ * schedule is ever advanced (`canAttempt`/`recordAttemptStart` only READ
+ * `state.delayMs`), so every caller of this module gets it for free — no
+ * caller-side wiring to forget.
+ *
+ * `rand` is injectable (default `Math.random`) so callers — and their tests
+ * — can make the jittered value deterministic. Two same-input calls with
+ * DIFFERENT injected `rand` functions must diverge; that divergence is what
+ * `service.test.ts` pins as the negative-control-backed regression guard.
+ *
+ * The second `Math.min` matters: jitter's upper multiplier bound (1.2) can
+ * push a delay that was ALREADY at the doubled cap past
+ * {@link RETRY_MAX_INTERVAL_MS} (e.g. 300_000ms -> up to 360_000ms) if left
+ * unclamped — re-clamping after jitter is what keeps "capped at
+ * RETRY_MAX_INTERVAL_MS" true even once jitter can also push the value
+ * DOWN below the un-jittered doubling.
+ */
+export function widenBackoff(state: RetryBackoffState, rand: () => number = Math.random): void {
+  const doubled = Math.min(state.delayMs * 2, RETRY_MAX_INTERVAL_MS);
+  state.delayMs = Math.min(applyJitter(doubled, rand), RETRY_MAX_INTERVAL_MS);
 }
 
 /** Reset to the floor and clear the attempt timestamp. Call after a SUCCESSFUL attempt. */

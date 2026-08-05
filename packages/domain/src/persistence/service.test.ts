@@ -314,20 +314,101 @@ describe("PersistenceService (instance)", () => {
         expect(retryStateOf(service).delayMs).toBe(RETRY_MIN_INTERVAL_MS);
 
         // Force each subsequent attempt through by simulating the floor
-        // elapsing, and assert the delay strictly doubles until the cap.
-        let previousDelay = retryStateOf(service).delayMs;
+        // elapsing. With jitter applied (mt#3751 R1 fix), the delay no
+        // longer doubles *strictly* monotonically near the cap — jitter's
+        // upper multiplier (1.2) can push an already-capped delay's
+        // PRE-jitter value past RETRY_MAX_INTERVAL_MS, and its lower
+        // multiplier (0.8) can then land the jittered result below a
+        // previous jittered-and-capped value (e.g. 300_000 -> re-doubled+
+        // re-capped-at-300_000 -> jittered down to 285_100, as this test
+        // observed before this comment was written). The invariant that
+        // MUST hold regardless of jitter draw is the bound, not strict
+        // growth — see the dedicated determinism tests below for the
+        // jitter-is-actually-applied assertion.
+        let delay = retryStateOf(service).delayMs;
         for (let i = 0; i < 8; i += 1) {
           retryStateOf(service).lastAttemptAtMs = 0;
           await expect(service.getProviderWithRetry()).rejects.toThrow();
-          const delay = retryStateOf(service).delayMs;
-          expect(delay).toBeGreaterThanOrEqual(previousDelay);
+          delay = retryStateOf(service).delayMs;
+          expect(delay).toBeGreaterThanOrEqual(RETRY_MIN_INTERVAL_MS);
           expect(delay).toBeLessThanOrEqual(RETRY_MAX_INTERVAL_MS);
-          previousDelay = delay;
         }
-        expect(previousDelay).toBe(RETRY_MAX_INTERVAL_MS);
+        // After 8 doublings from the floor (10s -> ~2560s pre-cap), the
+        // schedule has been pinned at the cap (± jitter) for several
+        // iterations — the jittered value must be within the jitter spread
+        // of the cap, not just "some value under it".
+        expect(delay).toBeGreaterThanOrEqual(RETRY_MAX_INTERVAL_MS * 0.8);
       } finally {
         PersistenceProviderFactory.create = origCreate;
       }
+    });
+
+    // mt#3751 PR #2672 R1 BLOCKING fix: the reviewer's finding was that
+    // `applyJitter()` existed but nothing in the retry GATE ever called it —
+    // a probe that only unit-tests `applyJitter()` in isolation cannot fail
+    // on that unwired state, which is exactly why R1 caught it and a prior
+    // isolated-function test would not have. These two tests instead observe
+    // the GATE's own computed `delayMs` (the value `canAttempt()` actually
+    // gates on), with an injected deterministic `rand`, so they can only pass
+    // if `widenBackoff()` is actually invoked WITH that `rand` from inside
+    // `getProviderWithRetry()`.
+    describe("R1 fix: the retry gate actually applies jitter (not pure doubling)", () => {
+      async function bootThenOneRetry(rand: () => number): Promise<PersistenceService> {
+        const service = new PersistenceService(rand);
+        const { PersistenceProviderFactory } = await import("./factory");
+        const origCreate = PersistenceProviderFactory.create;
+        PersistenceProviderFactory.create = mock(async () => ({
+          initialize: mock(() => Promise.reject(new Error(DB_UNAVAILABLE))),
+          getStorage: mock(() => ({})),
+          getCapabilities: mock(() => ({})),
+          close: mock(() => Promise.resolve()),
+        })) as any;
+        try {
+          await expect(
+            service.initialize({
+              backend: "postgres",
+              postgres: { connectionString: FAKE_CONNECTION_STRING },
+            })
+          ).rejects.toThrow();
+          (
+            service as unknown as {
+              retryState: { lastAttemptAtMs: number | null; delayMs: number };
+            }
+          ).retryState.lastAttemptAtMs = 0;
+          await expect(service.getProviderWithRetry()).rejects.toThrow();
+        } finally {
+          PersistenceProviderFactory.create = origCreate;
+        }
+        return service;
+      }
+
+      test("a seeded rand produces the EXACT jittered value the gate is documented to compute", async () => {
+        // rand() = 0 -> jitter multiplier = JITTER_FLOOR (0.8) exactly, per
+        // retry-backoff.ts's applyJitter(). The un-jittered doubling from the
+        // floor (10_000ms) is 20_000ms; this pins the gate's ACTUAL computed
+        // value against that known-different jittered figure — if
+        // `getProviderWithRetry()` stopped passing `rand` through to
+        // `widenBackoff()`, this test would observe 20_000 (unjittered) and
+        // fail, which is the negative control for this fix (verified below).
+        const service = await bootThenOneRetry(() => 0);
+        const delayMs = (service as unknown as { retryState: { delayMs: number } }).retryState
+          .delayMs;
+        const unjitteredDoubling = 20_000;
+        expect(delayMs).not.toBe(unjitteredDoubling);
+        expect(delayMs).toBe(16_000); // 20_000 * 0.8
+      });
+
+      test("two same-input retries with different injected randoms produce different delays", async () => {
+        const [low, high] = await Promise.all([
+          bootThenOneRetry(() => 0), // multiplier 0.8 (floor)
+          bootThenOneRetry(() => 0.999999), // multiplier ~1.2 (ceiling)
+        ]);
+        const lowDelay = (low as unknown as { retryState: { delayMs: number } }).retryState.delayMs;
+        const highDelay = (high as unknown as { retryState: { delayMs: number } }).retryState
+          .delayMs;
+        expect(lowDelay).not.toBe(highDelay);
+        expect(highDelay).toBeGreaterThan(lowDelay);
+      });
     });
 
     test("a healthy service is never retried (no attempt beyond the successful one)", async () => {
@@ -391,6 +472,84 @@ describe("PersistenceService (instance)", () => {
         await expect(service.getProviderWithRetry()).rejects.toThrow();
         expect(service.retryAttemptCount).toBe(2);
         expect(service.lastRetryAttemptAt).toBeDefined();
+      } finally {
+        PersistenceProviderFactory.create = origCreate;
+      }
+    });
+
+    // Coordinator R1 non-blocking follow-up fixture: pins the ACTUAL
+    // persistence_check-style rendered text for both branches, mirroring
+    // domain.ts's exact wiring (an UnconfiguredPersistenceProvider, with
+    // `noteRetryAttempt()` invoked only when `retryAttemptCount > 1`) rather
+    // than asserting only the service's own getters in isolation.
+    test("fixture: boot-only renders the stuck-since-boot branch; one retry flips it to the live-outage branch", async () => {
+      const service = new PersistenceService();
+      const { PersistenceProviderFactory } = await import("./factory");
+      const origCreate = PersistenceProviderFactory.create;
+      PersistenceProviderFactory.create = mock(async () => ({
+        initialize: mock(() => Promise.reject(new Error(DB_UNAVAILABLE))),
+        getStorage: mock(() => ({})),
+        getCapabilities: mock(() => ({})),
+        close: mock(() => Promise.resolve()),
+      })) as any;
+
+      const { UnconfiguredPersistenceProvider } = await import("./unconfigured-provider");
+      const { validatePostgresBackend } = await import("./validation-operations");
+      const fakeGetConfiguration = () =>
+        ({
+          persistence: {
+            backend: "postgres",
+            postgres: { connectionString: FAKE_CONNECTION_STRING },
+          },
+        }) as any;
+
+      // Mirrors domain.ts's persistence factory catch branch line for line:
+      // construct the substitute, and only call noteRetryAttempt() when this
+      // failure came from a genuine retry (retryAttemptCount > 1).
+      const buildSubstituteAsDomainTsWould = (
+        reason: string
+      ): InstanceType<typeof UnconfiguredPersistenceProvider> => {
+        const substitute = new UnconfiguredPersistenceProvider(reason, true);
+        if (service.retryAttemptCount > 1 && service.lastRetryAttemptAt) {
+          substitute.noteRetryAttempt(
+            new Date(service.lastRetryAttemptAt),
+            service.lastAttemptError ?? reason
+          );
+        }
+        return substitute;
+      };
+
+      try {
+        await expect(
+          service.initialize({
+            backend: "postgres",
+            postgres: { connectionString: FAKE_CONNECTION_STRING },
+          })
+        ).rejects.toThrow();
+
+        const bootOnlySubstitute = buildSubstituteAsDomainTsWould(
+          service.lastAttemptError ?? DB_UNAVAILABLE
+        );
+        const bootOnlyResult = await validatePostgresBackend(bootOnlySubstitute, {
+          getConfiguration: fakeGetConfiguration,
+        });
+        const bootOnlyText = (bootOnlyResult.issues ?? []).join(" ");
+        expect(bootOnlyText).toContain("No re-initialization has been attempted since boot");
+        expect(bootOnlyText).not.toContain("also failed");
+
+        retryStateOf(service).lastAttemptAtMs = 0;
+        await expect(service.getProviderWithRetry()).rejects.toThrow();
+
+        const retriedSubstitute = buildSubstituteAsDomainTsWould(
+          service.lastAttemptError ?? DB_UNAVAILABLE
+        );
+        const retriedResult = await validatePostgresBackend(retriedSubstitute, {
+          getConfiguration: fakeGetConfiguration,
+        });
+        const retriedText = (retriedResult.issues ?? []).join(" ");
+        expect(retriedText).toContain("also failed");
+        expect(retriedText).toContain("retrying on use");
+        expect(retriedText).not.toContain("No re-initialization has been attempted since boot");
       } finally {
         PersistenceProviderFactory.create = origCreate;
       }

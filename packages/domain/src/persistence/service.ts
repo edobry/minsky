@@ -85,8 +85,42 @@ export class PersistenceService {
    * next succeeds.
    */
   private degradedSinceMs: number | undefined;
-  /** Total `performInitialization()` invocations — distinguishes "boot" (1) from "retry" (>1). */
+  /** Total `performInitialization()` invocations, for diagnostics/reporting. */
   private attemptCount = 0;
+  /**
+   * True once this instance's FIRST `performInitialization()` call has
+   * completed (success or failure) — the explicit boot/retry boundary
+   * (mt#3751 PR #2672 R1 NON-BLOCKING fix, replacing an `attemptCount <= 1`
+   * comparison the reviewer flagged as an implicit encoding of this rule).
+   *
+   * The semantic this exists to pin down: **attempt #1 on a fresh instance
+   * is ALWAYS the "boot attempt"** — whether it was triggered by an
+   * explicit `initialize()` call or implicitly by `getProviderWithRetry()`
+   * finding `attemptCount === 0`. Every attempt after that is a "retry
+   * attempt". `lastRetryAttemptAt` below reads `lastAttemptWasRetry`
+   * (captured per-attempt from this flag's value BEFORE the attempt) rather
+   * than re-deriving the boundary from a raw count, so the rule has exactly
+   * one place it's decided.
+   */
+  private bootAttemptCompleted = false;
+  /**
+   * Whether the MOST RECENT `performInitialization()` call was a retry
+   * (true) or the boot attempt (false) — see {@link bootAttemptCompleted}.
+   * ADR-035 rule 4: a boot-only failure must render `persistence_check`'s
+   * "stuck since boot" branch; the first retry onward must render "retrying
+   * since <ts>, live outage". This flag is what `lastRetryAttemptAt`
+   * consults to pick the branch.
+   */
+  private lastAttemptWasRetry = false;
+
+  /**
+   * @param rand Injectable jitter source (mt#3751 PR #2672 R1 fix), default
+   *   `Math.random`. Passed through to `widenBackoff()` on every retry so
+   *   the backoff schedule is actually jittered (SC3) rather than pure
+   *   doubling — tests inject a deterministic function to pin the jittered
+   *   value or to prove two different `rand`s produce different schedules.
+   */
+  constructor(private readonly rand: () => number = Math.random) {}
 
   /**
    * Initialize the persistence service with configuration.
@@ -110,6 +144,11 @@ export class PersistenceService {
   }
 
   private async performInitialization(config?: PersistenceConfig): Promise<void> {
+    // Captured BEFORE this attempt mutates state — see `bootAttemptCompleted`'s
+    // doc comment for why this ordering is what makes the boot/retry boundary
+    // unambiguous rather than re-derived from a count after the fact.
+    this.lastAttemptWasRetry = this.bootAttemptCompleted;
+    this.bootAttemptCompleted = true;
     this.attemptCount += 1;
     recordAttemptStart(this.retryState);
     try {
@@ -176,8 +215,12 @@ export class PersistenceService {
         await this.initialize(this.lastConfig);
       } catch {
         // performInitialization() already recorded the failure; widen the
-        // backoff so the NEXT call doesn't hammer immediately behind this one.
-        widenBackoff(this.retryState);
+        // backoff (WITH jitter — mt#3751 PR #2672 R1 fix: this call used to
+        // omit `this.rand`, so the schedule doubled deterministically and
+        // never actually spread the 70+-process fleet's retries, silently
+        // missing SC3 despite `applyJitter()` existing in retry-backoff.ts)
+        // so the NEXT call doesn't hammer immediately behind this one.
+        widenBackoff(this.retryState, this.rand);
       } finally {
         this.retryInFlight = false;
       }
@@ -195,10 +238,12 @@ export class PersistenceService {
    * `undefined` when either nothing has been attempted yet, or the LAST
    * attempt this instance made was the original boot attempt (not a retry)
    * — `persistence_check`-style consumers use the undefined case to render
-   * "stuck since boot" vs "retrying since <ts>" (ADR-035 rule 4).
+   * "stuck since boot" vs "retrying since <ts>" (ADR-035 rule 4). The
+   * boot-vs-retry decision is `lastAttemptWasRetry`, not a count comparison
+   * — see that field's doc comment for the exact rule.
    */
   get lastRetryAttemptAt(): string | undefined {
-    if (this.attemptCount <= 1) return undefined;
+    if (!this.lastAttemptWasRetry) return undefined;
     return this.retryState.lastAttemptAtMs !== null
       ? new Date(this.retryState.lastAttemptAtMs).toISOString()
       : undefined;
