@@ -37,9 +37,9 @@ describe("branded id types (mt#2524)", () => {
     needsWorkspaceId(mcp);
 
     // The correct kinds compile cleanly and round-trip the value unchanged.
-    expect(needsWorkspaceId(ws)).toBe("ws-uuid");
-    expect(needsConversationId(conv)).toBe("conv-uuid");
-    expect(needsMcpSessionId(mcp)).toBe("mcp-token");
+    expect(needsWorkspaceId(ws)).toBe("ws-uuid" as WorkspaceId);
+    expect(needsConversationId(conv)).toBe("conv-uuid" as ConversationId);
+    expect(needsMcpSessionId(mcp)).toBe("mcp-token" as McpSessionId);
   });
 
   test("a plain string cannot be passed where a branded id is expected", () => {
@@ -48,7 +48,7 @@ describe("branded id types (mt#2524)", () => {
 
     // Minting requires an explicit cast (the boundary's job); then it compiles.
     const minted = "explicit-uuid" as WorkspaceId;
-    expect(needsWorkspaceId(minted)).toBe("explicit-uuid");
+    expect(needsWorkspaceId(minted)).toBe("explicit-uuid" as WorkspaceId);
   });
 
   test("brands erase at runtime — a branded id is a plain string on the wire", () => {

@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import type { ConversationId } from "../ids";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import {
   AgentTranscriptIngestService,
@@ -29,9 +30,12 @@ import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
-const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002";
-const SESSION_C = "cccccccc-0000-0000-0000-000000000003";
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
+
+const SESSION_A = conv("aaaaaaaa-0000-0000-0000-000000000001");
+const SESSION_B = conv("bbbbbbbb-0000-0000-0000-000000000002");
+const SESSION_C = conv("cccccccc-0000-0000-0000-000000000003");
 const TS1 = "2026-01-01T10:00:00.000Z";
 const TS2 = "2026-01-01T11:00:00.000Z";
 const TS3 = "2026-01-01T12:00:00.000Z";
@@ -53,7 +57,7 @@ class FakeTranscriptSource implements TranscriptSource {
   /** mt#3288: the `jsonlPath` each `readSession` call received (undefined = none). */
   readSessionPaths: (string | undefined)[] = [];
 
-  addSession(sessionId: string, lines: RawTurnLine[], mtime?: Date): void {
+  addSession(sessionId: ConversationId, lines: RawTurnLine[], mtime?: Date): void {
     this.sessionsMap.set(sessionId, lines);
     this.discoveredMap.set(sessionId, {
       agentSessionId: sessionId,
@@ -201,7 +205,12 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
     insert(_table: unknown) {
       return {
         values(
-          values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow | readonly unknown[]
+          // NOT `readonly unknown[]`: `Array.isArray` narrows to `any[]`, which
+          // cannot remove a READONLY array from the union in the false branch,
+          // so every `values.<field>` read below the guard would still see the
+          // array arm. The fake is reached only through `asPgDb`'s cast, so the
+          // mutable-array signature is never checked against a real call site.
+          values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow | unknown[]
         ) {
           // mt#3482: the attachment insert passes an ARRAY of rows (one per
           // attachment line) — every other table's insert here passes a single
@@ -426,7 +435,7 @@ function makeAttachmentLine(ts: string): RawTurnLine {
   } as unknown as RawTurnLine;
 }
 
-function makeDiscovered(sessionId: string): DiscoveredSession {
+function makeDiscovered(sessionId: ConversationId): DiscoveredSession {
   return {
     agentSessionId: sessionId,
     jsonlPath: `/fake/projects/proj/${sessionId}.jsonl`,
@@ -448,6 +457,29 @@ function asPgDb(db: FakeDbType): PostgresJsDatabase {
   return db as unknown as PostgresJsDatabase;
 }
 
+/** The union `makeDb`'s `insert(...).values(...)` can return. */
+type FakeInsertChain = ReturnType<ReturnType<FakeDbType["insert"]>["values"]>;
+
+/**
+ * Narrow a fake insert chain to its thenable object-values branch.
+ *
+ * `.values()` returns a UNION: the ARRAY branch deliberately omits `then`
+ * (PR #2503 R1), so `then`/`onConflictDoUpdate` are optional across the union.
+ * The tests below only wrap OBJECT-valued inserts, for which the thenable
+ * branch is the only reachable one — assert that rather than optional-chaining,
+ * so a future change to the fake fails loudly here instead of silently turning
+ * the wrapper into a no-op.
+ */
+function thenableChain(chain: FakeInsertChain) {
+  if (typeof chain.then !== "function" || typeof chain.onConflictDoUpdate !== "function") {
+    throw new Error("fake insert chain: expected the thenable object-values branch");
+  }
+  return chain as FakeInsertChain & {
+    then: NonNullable<FakeInsertChain["then"]>;
+    onConflictDoUpdate: NonNullable<FakeInsertChain["onConflictDoUpdate"]>;
+  };
+}
+
 /** A zeroed `SpawnsPipelineRunResult` — nothing scanned, nothing written. */
 const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   spawnsScanned: 0,
@@ -458,6 +490,7 @@ const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   spawnsErrored: 0,
   spawnLinksWritten: 0,
   spawnLinksSkippedNoPromptMatch: 0,
+  spawnsSkippedNoToolUseId: 0,
   spawnLinksErrored: 0,
 };
 
@@ -486,7 +519,12 @@ function makeNoopSpawnsExtractor(): SpawnsExtractor {
  */
 function makeNoopToolCallProjector(): ToolCallProjector {
   return {
-    runForSession: async () => ({ turnsScanned: 0, toolCallsProjected: 0, turnsErrored: 0 }),
+    runForSession: async () => ({
+      turnsScanned: 0,
+      toolCallsProjected: 0,
+      turnsErrored: 0,
+      skippedNonArray: 0,
+    }),
   };
 }
 
@@ -705,6 +743,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // Source now has all three lines (JSONL grew).
@@ -737,6 +780,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       const source = new FakeTranscriptSource();
@@ -874,6 +922,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS3),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // A slow racing actor's own JSONL snapshot only went up to TS2 (it read
@@ -918,6 +971,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: null,
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       const source = new FakeTranscriptSource();
@@ -945,6 +1003,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // Force the HWM read stale (null) so the actor re-collects; its batch
@@ -1101,6 +1164,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS1),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
       const linkState = new Map<string, FakeLinkRow>();
       const db = makeDb(state, linkState);
@@ -1193,8 +1261,9 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(table).values(values);
-          if (!("transcript" in values)) return realChain;
+          const rawChain = origInsert(table).values(values);
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (): Promise<void> => {
@@ -1302,13 +1371,14 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(_table).values(values);
+          const rawChain = origInsert(_table).values(values);
           // Only the TRANSCRIPT upsert is being intercepted; every other write
           // (attachments, turns, the failure record) passes straight through,
           // mirroring the guard the sibling override above already uses. The
           // array-valued chain has no `then` by design (PR #2503 R1), so
           // re-wrapping it unconditionally would throw here.
-          if (!("transcript" in values)) return realChain;
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (opts: unknown): Promise<void> => {
@@ -1350,11 +1420,12 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(_table).values(values);
+          const rawChain = origInsert(_table).values(values);
           // Same guard as the sibling overrides: pass non-transcript writes
           // straight through. The array-valued chain (attachments, turns) has
           // no `then` by design (PR #2503 R1), so re-wrapping it would throw.
-          if (!("transcript" in values)) return realChain;
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           const isSessionBTranscriptUpsert =
             values.agentSessionId === SESSION_B && "transcript" in values;
           return {

@@ -251,7 +251,7 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
       ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
   });
 
-  const expectNoForwardedFilter = (calls: Array<Record<string, unknown> | undefined>): void => {
+  const expectNoForwardedFilter = (calls: Array<SearchOptions | undefined>): void => {
     expect(calls.length).toBeGreaterThan(0);
     for (const opts of calls) {
       // `embeddings-backend.ts` always sets `filters: query.filters`; the contract is that

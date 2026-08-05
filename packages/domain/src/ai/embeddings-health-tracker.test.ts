@@ -126,8 +126,8 @@ describe("EmbeddingsHealthTracker", () => {
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
 
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
-    expect(emitter.emitted[0].payload).toMatchObject({
+    expect(emitter.emitted[0]?.eventType).toBe(DEGRADED_EVENT_TYPE);
+    expect(emitter.emitted[0]?.payload).toMatchObject({
       provider: PROVIDER,
       errorCode: QUOTA_CODE,
       status: "exhausted",
@@ -227,8 +227,8 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
 
     expect(builderCallCount).toBeGreaterThanOrEqual(1);
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
-    expect(emitter.emitted[0].payload).toMatchObject({
+    expect(emitter.emitted[0]?.eventType).toBe(DEGRADED_EVENT_TYPE);
+    expect(emitter.emitted[0]?.payload).toMatchObject({
       provider: PROVIDER,
       errorCode: QUOTA_CODE,
       status: "exhausted",
@@ -306,7 +306,7 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
     await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
     expect(callCount).toBe(2);
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+    expect(emitter.emitted[0]?.eventType).toBe(DEGRADED_EVENT_TYPE);
   });
 
   test("REGRESSION (PR #2284 R2): a real tryEmit persistence failure (DB insert failed) does not latch either -- retries on the next call", async () => {
@@ -331,7 +331,7 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
     await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
     expect(emitter.callCount).toBe(2);
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+    expect(emitter.emitted[0]?.eventType).toBe(DEGRADED_EVENT_TYPE);
   });
 
   test("resetForTest clears a registered builder", async () => {
