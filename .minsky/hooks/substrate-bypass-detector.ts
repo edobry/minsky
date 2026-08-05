@@ -800,7 +800,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch (err) {
     process.stderr.write(
       `[substrate-bypass-detector] Failed to extract assistant turn: ${err instanceof Error ? err.message : String(err)}\n`

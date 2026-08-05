@@ -18,6 +18,8 @@ import {
   buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
+  evaluationLogPath,
+  logEvaluationRecord,
   resolveDispatchContext,
   runDispatcher,
   composeAdditionalContext,
@@ -420,6 +422,128 @@ describe("calibrationLogPath", () => {
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evaluationLogPath / logEvaluationRecord (mt#3745)
+// ---------------------------------------------------------------------------
+
+describe("evaluationLogPath", () => {
+  test("uses the -evaluations.jsonl filename convention", () => {
+    expect(evaluationLogPath("silent-stretch", { projectDir: "/repo" })).toBe(
+      "/repo/.minsky/silent-stretch-evaluations.jsonl"
+    );
+  });
+
+  // AT1 — the regression this task exists to pin. Two of the three hand-rolled
+  // writers resolved `findRepoRoot(cwd)` directly, so with cwd pointing at a
+  // session workspace the stream landed THERE while the calibration log —
+  // routed through `calibrationLogPath` — landed in the repo. 12 stray files
+  // across 6 workspaces; the one detector that already preferred
+  // CLAUDE_PROJECT_DIR had zero.
+  test("CLAUDE_PROJECT_DIR outranks a guard's raw cwd (mt#3745 acceptance test)", () => {
+    const projectRepo = mkdtempSync(join(tmpdir(), "mt3745-project-"));
+    const strayRepo = mkdtempSync(join(tmpdir(), "mt3745-stray-"));
+    try {
+      mkdirSync(join(projectRepo, ".git"));
+      mkdirSync(join(strayRepo, ".git"));
+
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      process.env.CLAUDE_PROJECT_DIR = projectRepo;
+      try {
+        // `fallbackCwd` is what a guard passes from `input.cwd` — it must NOT win.
+        const result = evaluationLogPath("silent-stretch", { fallbackCwd: strayRepo });
+        expect(result).toBe(join(projectRepo, ".minsky", "silent-stretch-evaluations.jsonl"));
+        expect(result.startsWith(strayRepo)).toBe(false);
+      } finally {
+        if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(projectRepo, { recursive: true, force: true });
+      rmSync(strayRepo, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to the guard's cwd when CLAUDE_PROJECT_DIR is unset", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt3745-fallback-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      delete process.env.CLAUDE_PROJECT_DIR;
+      try {
+        expect(evaluationLogPath("stop-at-decision", { fallbackCwd: repoRoot })).toBe(
+          join(repoRoot, ".minsky", "stop-at-decision-evaluations.jsonl")
+        );
+      } finally {
+        if (prevProjectDir !== undefined) process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit projectDir outranks CLAUDE_PROJECT_DIR", () => {
+    const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = "/env-dir";
+    try {
+      expect(evaluationLogPath("retrospective-trigger", { projectDir: "/explicit" })).toBe(
+        "/explicit/.minsky/retrospective-trigger-evaluations.jsonl"
+      );
+    } finally {
+      if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+    }
+  });
+});
+
+describe("logEvaluationRecord", () => {
+  test("writes one JSONL record to the resolved path", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt3745-write-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      logEvaluationRecord("silent-stretch", { hook: "x", fired: false }, { projectDir: repoRoot });
+      const written = readFileSync(
+        join(repoRoot, ".minsky", "silent-stretch-evaluations.jsonl"),
+        "utf-8"
+      );
+      expect(JSON.parse(written.trim())).toEqual({ hook: "x", fired: false });
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  // The measurement stream must never be able to break the guard it measures.
+  test("fails open when the write throws, and reports rather than swallowing", () => {
+    const messages: string[] = [];
+    const prevWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (chunk: string) => {
+      messages.push(String(chunk));
+      return true;
+    };
+    try {
+      expect(() =>
+        logEvaluationRecord(
+          "silent-stretch",
+          { hook: "x" },
+          {
+            projectDir: "/repo",
+            deps: {
+              existsSync: () => false,
+              mkdirSync: () => {
+                throw new Error("EROFS: read-only file system");
+              },
+              appendFileSync: () => undefined,
+            },
+          }
+        )
+      ).not.toThrow();
+    } finally {
+      (process.stderr as any).write = prevWrite;
+    }
+    expect(messages.join("")).toContain("EROFS");
+    expect(messages.join("")).toContain("silent-stretch");
   });
 });
 

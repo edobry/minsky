@@ -16,6 +16,19 @@ import { log } from "@minsky/shared/logger";
  * DB access (e.g., to record subagent invocations) but run outside the MCP server
  * process.
  *
+ * Deliberately NOT process-lifetime-cached (mt#3751 Planning Audit): the
+ * 2026-08-05 audit measured this function's lack of positive caching as a
+ * real cost for hook processes (3 sequential resolves cost 5s+ combined), but
+ * the Planning Audit explicitly severed that fix from this task — "the
+ * hook-layer timeout/memoization is therefore a separate decision with its
+ * own evidence, not a rider on this task." This function is shared by hooks
+ * AND non-hook callers (`session start`, `asks.ts`), so caching it here would
+ * change hook-process behavior too, which is exactly what was ruled out. The
+ * one-shot-per-call shape stays as-is; `PersistenceService.getProviderWithRetry()`
+ * (added this task) is available for a FUTURE caller that wants the cached,
+ * backoff-gated behavior — see `packages/domain/src/composition/domain.ts`'s
+ * persistence factory for the CLI/MCP-server consumer that now uses it.
+ *
  * The caller is responsible for calling `provider.close()` when done.
  *
  * Returns `null` on any initialization error — callers should treat null as

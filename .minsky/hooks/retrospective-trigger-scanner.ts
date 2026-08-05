@@ -56,6 +56,7 @@ const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedAndCodeContexts } from "./elision";
 import {
   nominate,
@@ -93,6 +94,13 @@ const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
  * (mt#3521's corrected measurement premise).
  */
 export const EVALUATION_LOG = ".minsky/retrospective-trigger-evaluations.jsonl";
+
+/**
+ * Logical stream name for `logEvaluationRecord` (mt#3745) — the same
+ * name/path split `calibrationLog` uses in the registry. `EVALUATION_LOG`
+ * above stays as the repo-relative path the docblocks and readers refer to.
+ */
+const EVALUATION_LOG_NAME = "retrospective-trigger";
 
 // ---------------------------------------------------------------------------
 // Trigger family types
@@ -890,24 +898,17 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 
 /**
  * Evaluation-stream writer (mt#3652) — one record per EVALUATED turn, fired
- * or not. Direct append, same posture as `appendCalibrationRecord`; a write
- * failure degrades to stderr, never blocks the guard. See EVALUATION_LOG's
- * docblock for why this is a separate file from the calibration log.
+ * or not. Thin wrapper over the shared `logEvaluationRecord` (mt#3745); kept as
+ * a named export because the `appendEvaluationRecordFn` deps seam and the
+ * `run()` default bind to this signature. See EVALUATION_LOG's docblock for why
+ * this is a separate file from the calibration log.
  */
 export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[retrospective-trigger-scanner] Failed to write evaluation log: ${msg}\n`
-    );
-  }
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  // This used to be `resolve(findRepoRoot(cwd), EVALUATION_LOG)`, which
+  // scattered the stream into session workspaces while the calibration log —
+  // routed through the dispatcher — landed correctly in the repo.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,7 +1040,7 @@ export async function run(
 
   let runAssistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       // Assistant-side R-family scan: suppressed when a recent
@@ -1141,7 +1142,7 @@ export async function run(
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
+      const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)

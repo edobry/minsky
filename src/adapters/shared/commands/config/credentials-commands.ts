@@ -136,7 +136,14 @@ export const configCredentialsListRegistration = defineCommand({
   id: "config.credentials.list",
   category: CommandCategory.CONFIG,
   name: "credentials.list",
-  description: "List configured credentials (values never displayed)",
+  // mt#3569: the description states what this command ENUMERATES, not "what
+  // exists". The previous wording ("List configured credentials") read as an
+  // exhaustive presence check; twice, an agent took a provider's absence from the
+  // output as proof no such credential was configured. A listing answers "what I
+  // enumerate" — saying so is what stops absence being read as non-existence.
+  description:
+    "List credential entries: managed providers plus schema-defined AI provider keys " +
+    "(presence only, values never displayed). Use `ai providers list` for AI provider status.",
   requiresSetup: false,
   parameters: composeParams(sharedParams, {}),
   execute: async (params, _ctx) => {

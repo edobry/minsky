@@ -608,7 +608,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   let matches: BatchMatch[];
   let orderMatches: ConsumeBeforeMintMatch[];
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     matches = detectBatchedMintAndConsume(turnLines);
     orderMatches = detectConsumeBeforeMint(turnLines, priorTextFor(lines, turnLines));

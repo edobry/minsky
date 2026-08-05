@@ -481,7 +481,7 @@ export function run(
   // text after detection.
   let assistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // mt#3207: detect FIRST, suppress SECOND. This gate used to return before
     // detection ran, so a deferral phrase in a turn that also routed an ask

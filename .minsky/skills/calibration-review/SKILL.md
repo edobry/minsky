@@ -2,9 +2,9 @@
 name: calibration-review
 description: >-
   Review hook-calibration logs past their review threshold: false-positive-classify the
-  matched records, emit ONE operator-routed Ask with the FP rate and a flip/tune/keep
-  recommendation, then advance the watermark. Use for the periodic calibration sweep, or
-  when asked to review the calibration data for a detector hook.
+  matched records, file tune tasks directly, Ask only for enforcement-posture changes,
+  then advance the watermark. Use for the periodic calibration sweep, or when asked to
+  review the calibration data for a detector hook.
 user-invocable: true
 ---
 
@@ -19,7 +19,8 @@ triggers a review — this skill is the review.
 The mechanical part (enumerate logs, count fires, watermark, diversity
 threshold) is the `calibration.review` command. **This skill does the
 judgment** the command can't: deciding which fires are real positives vs false
-positives, and packaging the decision as an Ask.
+positives, and disposing of the verdict — filing a tune task directly, or
+packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 ## Step 1 — Run the sweep (read-only)
 
@@ -243,11 +244,38 @@ evidence you are reasoning from (mt#2878):
 - **tune** — FP rate is high: recommend tightening the detector's patterns
   (name the phrases driving the false positives).
 
-## Step 4 — Emit ONE Ask (do not flip anything yourself)
+## Step 4 — Dispose: file tune tasks yourself, Ask for posture changes
+
+**First decide which half of the split each disposition falls in (mt#3769).** The
+principal granted this in ask#7031 on 2026-08-05; before that, every disposition
+was routed to an Ask, and five passes in two days left six suspended asks whose
+routine half was approved as recommended 3 for 3.
+
+- **File it yourself — no Ask.** A **tune**, or a **keep** that wants a
+  supporting task (e.g. "keep, but capture context so the next pass can rate
+  it"). Create the task with `mcp__minsky__tasks_create` and **name the task id
+  in your pass output**. Creating a durable task is routine under
+  `decision-defaults.mdc`; it changes no agent's behavior and is visible and
+  closable if unwanted.
+- **Ask — always.** Anything that changes **enforcement posture**: log-only →
+  live, live → blocking, retiring a detector or one of its match categories, or
+  changing a threshold. These change whether a detector interrupts agents, which
+  is the thing the principal reserves.
+
+The line is _whether a detector interrupts agents_, not _whether someone writes a
+task about one_. When a pass produces only file-it-yourself dispositions, it emits
+NO Ask — go straight to Step 5 and read its no-Ask case.
+
+A disposition that is BOTH (e.g. "flip to live, and file a tune for the phrases
+driving the remaining FPs") files the task AND asks about the flip; do not fold
+the flip into the task to avoid the Ask.
+
+### When an Ask IS required
 
 Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 **kind `direction.decide`** (mt#2659 — corrected from `quality.review`; see
-"Why `direction.decide`, not `quality.review`" below).
+"Why `direction.decide`, not `quality.review`" below). Do not flip anything
+yourself — the Ask decides it, not you.
 
 **Acceptance bar (mt#3326): the ask must pass the cold-reader test.** Before
 calling `asks_create`, read your drafted body as a fresh, minimal-context
@@ -351,8 +379,10 @@ detail Step 4a's template attaches after the plain-language clause:
   line of rationale
 
 **You MUST NOT** edit any hook file, flip `INJECTION_ENABLED`, or change any
-detector pattern. The flip is the principal's decision; the Ask surfaces it.
-The skill's job ends at the Ask.
+detector pattern — not even one you filed a tune task for. The split in Step 4
+moved who may FILE A TASK, not who may change a detector: the flip is still the
+principal's decision and the Ask still surfaces it. The skill's job ends at the
+task or the Ask, never at an edit.
 
 **Why `direction.decide`, not `quality.review` (mt#2659 regression fix).**
 Per `packages/domain/src/ask/types.ts`'s AskKind table, `direction.decide` is
@@ -370,14 +400,32 @@ avoids repeating that search-miss.
 
 ## Step 5 — Record the ask id and advance the watermark
 
-After the Ask is created, capture its `id` from the `asks_create` response.
-Then re-run the command with `ack: true` — but **whether you also pass `askId`
-depends on whether this pass skipped anything under Step 1a.** Check that first;
-the two cases take different arguments and the wrong one destroys data.
+**If** an Ask was created, capture its `id` from the `asks_create` response —
+under Step 4's split a pass may legitimately create none. Either way, re-run the
+command with `ack: true`; **whether you also pass `askId` depends on whether an
+Ask exists at all, and on whether this pass skipped anything under Step 1a.**
+Check both first — the cases take different arguments and the wrong one destroys
+data.
 
 ### Which ack call to make
 
-**Was any review-due log skipped under Step 1a (still-open `openAskId`)?**
+**First: did this pass emit an Ask at all?** Under Step 4's split a pass whose
+dispositions are all file-it-yourself emits none, and then there is no id to pass.
+
+- **No Ask emitted (mt#3769).** Pass `ack: true` and **NOT** `askId` — the same
+  call shape as a mixed pass below, for a different reason: there is no ask to
+  record rather than one you must not over-apply. **This does not leave the
+  cadence hook nagging.** Advancing a watermark removes the log from `reviewDue`
+  outright, and `openAskId` only suppresses warnings for a log that is STILL
+  review-due — so a log you advanced is quiet either way. Name the filed task ids
+  in your pass output; that is what replaces the ask link.
+
+  Note this composes with the skip rule: if a review-due log was ALSO skipped
+  under Step 1a, the same `ack: true` (no `askId`) call is still correct, and
+  `skippedOpenAskPaths` should name it.
+
+**If an Ask WAS emitted — was any review-due log skipped under Step 1a
+(still-open `openAskId`)?**
 
 - **No — every review-due log was reviewed this pass.** Pass BOTH `ack: true`
   and `askId`. This advances the watermarks and records `openAskId` on each, so

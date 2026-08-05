@@ -669,7 +669,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (lines.length === 0) return null;
 
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // Surface A then Surface C (mt#3463). Both are prose surfaces over the same
     // turn; each returns at most one match, and a turn that trips both is
