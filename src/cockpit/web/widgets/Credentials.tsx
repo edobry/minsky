@@ -39,18 +39,25 @@ interface CredentialListing {
    * module behind it. `removeCredential` would throw "Unknown credential
    * provider" for these, so the row must not offer the action (mt#3569).
    *
-   * Optional for wire-compat with an older server that predates the field;
-   * `isManaged` treats a missing value as unmanaged, which fails safe — the
-   * worst case is a disabled button, not a throwing one.
+   * Optional only for wire-compat with a server that predates the field. Absence
+   * means "provider", not "unknown": a server without this field also has no
+   * schema-derived rows, so everything it sends IS manageable. Treating absence as
+   * unmanaged would strip Remove from every row against such a server — which is
+   * how the first draft broke an existing widget test.
    */
   source?: "provider" | "schema";
   lastValidatedAt?: string;
   lastValidationDetail?: string;
 }
 
-/** Whether this entry supports add/remove/recheck. See `source`. */
+/**
+ * Whether this entry supports add/remove/recheck. See `source`.
+ *
+ * Keyed on the presence of "schema" rather than the presence of "provider" so an
+ * absent field keeps the pre-mt#3569 behavior exactly.
+ */
 function isManaged(listing: CredentialListing): boolean {
-  return listing.source === "provider";
+  return listing.source !== "schema";
 }
 
 interface CredentialCheckResult {
