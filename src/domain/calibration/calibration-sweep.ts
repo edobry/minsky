@@ -690,7 +690,7 @@ export interface SharedCalibrationFields {
    * | detector | reasons |
    * | --- | --- |
    * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
-   * | `wall-of-text` | `depth-request-override` |
+   * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
    * | `untaken-action` | (none — see below) |
    * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
    * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
