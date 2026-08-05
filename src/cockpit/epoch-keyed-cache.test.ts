@@ -124,6 +124,76 @@ describe("createEpochKeyedCache (mt#3721)", () => {
     expect((await get()).id).toBe(2);
   });
 
+  test("concurrent callers on a cold cache share ONE build (PR #2663 R1)", async () => {
+    // Without single-flight each concurrent caller runs `resolve()` and each
+    // publishes its own instance, so one epoch yields several distinct "the"
+    // values. When the resolver opens a connection — the SSE broker's LISTEN
+    // socket is the live case — every loser is a live resource nothing closes.
+    let builds = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const get = createEpochKeyedCache(
+      async () => {
+        builds++;
+        await gate;
+        return { id: builds };
+      },
+      { getEpoch: () => 1 }
+    );
+
+    const all = Promise.all([get(), get(), get(), get()]);
+    release();
+    const results = await all;
+
+    expect(builds).toBe(1);
+    // All four callers must receive the SAME instance, not four siblings.
+    const [first] = results;
+    for (const r of results) expect(r).toBe(first);
+  });
+
+  test("concurrent callers after a recycle share one REBUILD, not one each", async () => {
+    let builds = 0;
+    let epoch = 1;
+    const get = createEpochKeyedCache(
+      async () => {
+        builds++;
+        await Promise.resolve();
+        return { id: builds };
+      },
+      { getEpoch: () => epoch }
+    );
+
+    await get();
+    expect(builds).toBe(1);
+
+    epoch = 2;
+    const results = await Promise.all([get(), get(), get()]);
+
+    expect(builds).toBe(2);
+    const [first] = results;
+    for (const r of results) expect(r).toBe(first);
+  });
+
+  test("a failed build does not pin later callers to the rejected promise", async () => {
+    // The in-flight slot must clear on failure too, or one transient error
+    // becomes permanent for every subsequent caller.
+    let calls = 0;
+    const get = createEpochKeyedCache(
+      async () => {
+        calls++;
+        if (calls === 1) throw new Error("transient");
+        return "live";
+      },
+      { getEpoch: () => 1 }
+    );
+
+    await expect(get()).rejects.toThrow("transient");
+    expect(await get()).toBe("live");
+    expect(calls).toBe(2);
+  });
+
   test("independent caches keep independent values under a shared epoch", async () => {
     let epoch = 1;
     const getA = createEpochKeyedCache(async () => "A1", { getEpoch: () => epoch });

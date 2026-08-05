@@ -435,10 +435,9 @@ export function createEpochKeyedCache<T>(
   const getEpoch = options?.getEpoch ?? getPersistenceEpoch;
   let cached: T | null = null;
   let cachedAtEpoch = -1;
+  let inflight: Promise<T> | null = null;
 
-  return async function getEpochKeyedValue(): Promise<T> {
-    if (cached !== null && cachedAtEpoch === getEpoch()) return cached;
-
+  async function build(): Promise<T> {
     // Rebuild until the epoch is STABLE ACROSS CONSTRUCTION — the discipline
     // PR #2586 R1 added by hand to `widgets/agents.ts`, generalized here so
     // every consumer inherits it. Checking the epoch only on entry is not
@@ -456,6 +455,31 @@ export function createEpochKeyedCache<T>(
         cachedAtEpoch = epochAtBuild;
       }
       return value;
+    }
+  }
+
+  return async function getEpochKeyedValue(): Promise<T> {
+    if (cached !== null && cachedAtEpoch === getEpoch()) return cached;
+
+    // Single-flight (PR #2663 R1): concurrent callers arriving on a cold or
+    // just-invalidated cache share ONE build. Without this, N simultaneous
+    // callers each run `resolve()` and each publishes its own instance, so a
+    // single epoch can yield several distinct "the" values — and for a resolver
+    // that opens a connection (the SSE broker's LISTEN socket, a pool handle)
+    // every loser is a live resource nothing subsequently closes. This is the
+    // same hazard mt#2699 fixed by hand in `routes/events.ts`; since the point
+    // of this helper is that consumers inherit the discipline instead of
+    // re-deriving it, it belongs here.
+    if (inflight) return inflight;
+
+    inflight = build();
+    try {
+      return await inflight;
+    } finally {
+      // Cleared on settle, success or failure: a failed build must not pin
+      // every later caller to the same rejected promise, and a successful one
+      // is already served by the `cached` short-circuit above.
+      inflight = null;
     }
   };
 }

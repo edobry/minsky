@@ -132,7 +132,14 @@ function dropSseBrokerOnEpochChange(): void {
   _sseBrokerEpoch = epoch;
   const stale = _cachedSseBroker;
   _cachedSseBroker = null;
-  _sseBrokerInitPromise = null;
+  // Deliberately does NOT clear `_sseBrokerInitPromise` (PR #2663 R1). That
+  // promise is mt#2699's single-init invariant: callers share ONE init so the
+  // losers cannot each leak a Postgres LISTEN connection. Nulling it here would
+  // let a caller arriving mid-init start a SECOND init alongside the first —
+  // reintroducing exactly the leak mt#2699 fixed, on the recycle path. The
+  // in-flight init is already epoch-guarded where it publishes (`adoptSseBroker`),
+  // so if it lands stale it closes its own broker and resolves null; the promise
+  // clears on settle and the next caller re-inits against the current epoch.
   if (stale) {
     void stale.close().catch((err: unknown) => {
       log.warn(
@@ -199,10 +206,13 @@ function getServerSseBroker(): Promise<SseBroker | null> {
   if (_cachedSseBroker) return Promise.resolve(_cachedSseBroker);
   if (_sseBrokerInitPromise) return _sseBrokerInitPromise;
   _sseBrokerInitPromise = initSseBrokerOnce().then((broker) => {
-    if (broker === null) {
-      // Failed init: clear the slot so the next caller retries.
-      _sseBrokerInitPromise = null;
-    }
+    // Cleared on EVERY settle, not just failure (PR #2663 R1). A success is now
+    // served by the `_cachedSseBroker` short-circuit above, so retaining the
+    // promise buys nothing — and it would strand every later caller on a
+    // resolved-but-stale value after a recycle, since a build that lost the
+    // epoch race resolves null by design (`adoptSseBroker`). Clearing it keeps
+    // "at most one init in flight" while still letting the next caller re-init.
+    _sseBrokerInitPromise = null;
     return broker;
   });
   return _sseBrokerInitPromise;
