@@ -132,8 +132,50 @@ const NEGATIVE_CONTROL_HEADING =
  * against the un-fixed tree):`. `[^:\n]*?` permits that without letting the match
  * wander across lines.
  */
-const NEGATIVE_CONTROL_LABEL =
-  /^ {0,3}(?:negative control|failing[- ]first(?:\s+run)?)\b([^:\n]*?)(?::|\s[—–]\s)(.*)$/i;
+/**
+ * How much text may precede the phrase on a label line (mt#3778).
+ *
+ * The anchor is relaxed, NOT removed. Writers tie each control to the criterion
+ * it belongs to — `sc3 — negative control:`, `AT4: negative control — …`,
+ * `sc2/sc3 negative control:` — and the strictly-anchored pattern rejected every
+ * one of those, which is how a PR body carrying a real control logged as
+ * carrying none.
+ *
+ * A BOUND is kept because this pattern's two failure directions are not
+ * symmetric. Failing to match a real control is noise: the author sees a warning
+ * they can dismiss. Matching prose that is NOT a control is worse — it records a
+ * control that does not exist, and the whole point of the check is that a test
+ * which cannot fail looks exactly like one that can. So the prefix is capped at
+ * a label-sized span rather than opened to arbitrary prose, and the delimiter
+ * after the phrase is still required.
+ */
+const LABEL_PREFIX_MAX_CHARS = 24;
+
+const NEGATIVE_CONTROL_LABEL = new RegExp(
+  `^ {0,3}(?:[^\\n]{0,${LABEL_PREFIX_MAX_CHARS}}?[\\s:—–)]\\s*)?(?:negative control|failing[- ]first(?:\\s+run)?)\\b([^:\\n]*?)(?::|\\s[—–]\\s)(.*)$`,
+  "i"
+);
+
+/**
+ * Form C — the phrase introduced by a PREFIX separator and terminated by the end
+ * of the line: `sc3 — negative control.`, `AT4: failing-first run`.
+ *
+ * Forms A/B both assume the delimiter FOLLOWS the phrase. This shape puts it
+ * BEFORE — the dash separates the criterion from the label — and then the line
+ * simply ends, with the evidence on the lines beneath. It is what PR #2565
+ * actually wrote, and neither existing form can match it however far the prefix
+ * allowance is widened, because there is no trailing delimiter to find.
+ *
+ * Treated exactly like a heading: no inline content is captured, so the
+ * content-beneath requirement in {@link hasNegativeControlEvidence} still has to
+ * be satisfied. A bare `sc3 — negative control.` with nothing under it is not a
+ * record, which is what keeps this from becoming a way to claim a control by
+ * writing its name.
+ */
+const NEGATIVE_CONTROL_PREFIXED_LABEL = new RegExp(
+  `^ {0,3}[^\\n]{1,${LABEL_PREFIX_MAX_CHARS}}?[\\s:—–)]\\s*(?:negative control|failing[- ]first(?:\\s+run)?)\\b[.:]?\\s*$`,
+  "i"
+);
 
 /**
  * Strip decoration a writer puts AROUND the label, so the matcher sees the label.
@@ -147,11 +189,19 @@ const NEGATIVE_CONTROL_LABEL =
  * which is harmless: it is content either way.
  */
 function stripLabelDecoration(line: string): string {
+  // Emphasis is stripped from BOTH ends (mt#3778). Leading-only was enough while
+  // every accepted form ended in a delimiter mid-line; Form C ends AT the line
+  // end, so a closing `**` sits exactly where the pattern looks for the end and
+  // silently defeats it — `**sc3 — negative control.**` is the shape PR #2565
+  // wrote and the reason this stripper is symmetric now.
+  const stripTrailingEmphasis = (s: string): string => s.replace(/(?:\*\*|__|\*|_)+\s*$/, "");
   const heading = line.match(/^( {0,3}#{1,6}\s+)([\s\S]*)$/);
   if (heading) {
-    return `${heading[1] ?? ""}${(heading[2] ?? "").replace(/^(?:\*\*|__|\*|_)+/, "")}`;
+    return `${heading[1] ?? ""}${stripTrailingEmphasis((heading[2] ?? "").replace(/^(?:\*\*|__|\*|_)+/, ""))}`;
   }
-  return line.replace(/^ {0,3}(?:[-*+]|\d+\.)\s+/, "").replace(/^ {0,3}(?:\*\*|__|\*|_)+/, "");
+  return stripTrailingEmphasis(
+    line.replace(/^ {0,3}(?:[-*+]|\d+\.)\s+/, "").replace(/^ {0,3}(?:\*\*|__|\*|_)+/, "")
+  );
 }
 
 /**
@@ -194,17 +244,26 @@ export function hasNegativeControlEvidence(text: string): boolean {
     if (fenceInternal[i]) continue;
 
     const line = stripLabelDecoration(raw);
-    const headingMatch = line.match(NEGATIVE_CONTROL_HEADING);
+    // Form C is checked alongside the heading, not the label: like a heading it
+    // captures no inline content, so it falls through to the content-beneath
+    // scan below rather than being satisfied by the line itself.
+    const headingMatch =
+      line.match(NEGATIVE_CONTROL_HEADING) ?? line.match(NEGATIVE_CONTROL_PREFIXED_LABEL);
     const labelMatch = headingMatch ? null : line.match(NEGATIVE_CONTROL_LABEL);
     if (!headingMatch && !labelMatch) continue;
 
-    // Negation guard — "No negative control: n/a" must not count as a record. Both
-    // patterns anchor the phrase at line start, so a preceding "No" already fails to
-    // match; this stays as defense-in-depth against a future loosening of the anchor.
+    // Negation guard — "No negative control: n/a" must not count as a record.
+    //
+    // mt#3778 promoted this from defence-in-depth to load-bearing. It used to be
+    // belt-and-braces: the pattern anchored the phrase at line start, so nothing
+    // could precede it and a leading "No" already failed to match. Now that a
+    // label-sized prefix IS allowed, this guard is the thing standing between
+    // `sc3 — negative control:` (a record) and `sc3 — no negative control:` (the
+    // opposite claim), so it also covers the other ways a writer says absent.
     const lower = line.toLowerCase();
     const phraseIdx = Math.max(lower.indexOf("negative control"), lower.indexOf("failing"));
     const beforeMarker = phraseIdx > 0 ? lower.slice(0, phraseIdx) : "";
-    if (/\bno\b/.test(beforeMarker)) continue;
+    if (/\b(no|not|without|missing|skipped?|lacks?|omitted)\b/.test(beforeMarker)) continue;
 
     const inlineContent = (labelMatch?.[2] ?? "").trim();
     if (inlineContent.length > 0) return true;
@@ -365,6 +424,8 @@ export function checkTestFirstEvidence(
       `  - \`Negative control: <what you reverted and what failed>\`\n` +
       `  - \`Negative control — <subject>\` (em or en dash; use this when a PR has several)\n` +
       `  - \`Failing-first:\` in either form, or a Markdown heading naming either.\n` +
+      `  - A criterion prefix is fine: \`sc3 — negative control:\`, \`AT4: negative control — <subject>\`, ` +
+      `or \`sc3 — negative control.\` with the run beneath it (mt#3778).\n` +
       `Surrounding \`**bold**\` and a leading \`-\` bullet are fine. The failing run itself ` +
       `MAY be fenced beneath the label — only the label line has to be outside.\n` +
       `If it genuinely cannot be run pre-merge, use ` +
