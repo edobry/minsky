@@ -601,7 +601,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let detection: PreNarrationDetection;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
