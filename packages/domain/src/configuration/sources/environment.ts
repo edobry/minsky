@@ -266,6 +266,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_RETRO_COMPLETENESS", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
   "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
   "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
+  "MINSKY_KA_RUNG2_NOMINATION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
   "MINSKY_DISABLE_RUNG3_CONFIRM", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
