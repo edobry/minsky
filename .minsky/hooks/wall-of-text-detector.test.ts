@@ -81,6 +81,10 @@ import {
   resolveDepthCheck,
   sessionHasLoggedTextAndSuppression,
   SUPPRESSION_DEPTH_REQUEST,
+  SUPPRESSION_QUESTION_ANSWER,
+  QUESTION_MIN_WORDS,
+  detectSubstantiveQuestion,
+  resolveQuestionAnswerCheck,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
@@ -101,6 +105,12 @@ const OPENING_PROMPT_TEXT = "please do the thing";
 // Shared depth-request phrase fixtures (custom/no-magic-string-duplication).
 const DEPTH_REQUEST_PHRASE = "walk me through everything in detail";
 const DEPTH_REQUEST_PHRASE_BARE = "walk me through everything";
+// Shared question-answer phrase fixtures (custom/no-magic-string-duplication) —
+// mt#3718. The two ask#6891 FP shapes: a plain interrogative and a
+// multi-question prompt.
+const QUESTION_ANSWER_PHRASE = "what happened with the deploy?";
+const QUESTION_ANSWER_PHRASE_BUN_BUG =
+  "Is this a known, reported Bun bug, or something specific to our setup?";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -509,8 +519,14 @@ describe("run — mt#3112 depth-request override", () => {
   });
 
   test("(mt#3207) an INJECTED report records an empty suppressionReasons, not an absent one", () => {
+    // mt#3718: the opening prompt here MUST NOT be a substantive question —
+    // it would then trip the new question-answer override and suppress the
+    // fire, defeating this test's purpose (demonstrating the UNSUPPRESSED,
+    // injected shape). "what happened with the deploy?" (the original
+    // fixture) is itself a substantive question under the new logic, so a
+    // plain non-question opening prompt is used instead.
     const lines = transcriptWithFinalReportAndOpeningPrompt(
-      "what happened with the deploy?",
+      OPENING_PROMPT_TEXT,
       pointerFreeOverBudgetReport()
     );
     const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
@@ -615,6 +631,166 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
 
   test("empty input -> not matched", () => {
     expect(detectDepthRequest([]).matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3718 — question-answer override widening
+// ---------------------------------------------------------------------------
+
+describe("detectSubstantiveQuestion", () => {
+  test("matches a plain interrogative", () => {
+    expect(detectSubstantiveQuestion(QUESTION_ANSWER_PHRASE).matched).toBe(true);
+  });
+
+  test("matches a multi-question prompt", () => {
+    expect(
+      detectSubstantiveQuestion(
+        "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?"
+      ).matched
+    ).toBe(true);
+  });
+
+  test("does not match a brief affirmative with no question mark", () => {
+    expect(detectSubstantiveQuestion("proceed").matched).toBe(false);
+  });
+
+  test("does not match a bare 'ok?' below the word floor", () => {
+    expect(detectSubstantiveQuestion("ok?").matched).toBe(false);
+  });
+
+  test("does not match an empty string", () => {
+    expect(detectSubstantiveQuestion("").matched).toBe(false);
+    expect(detectSubstantiveQuestion("   ").matched).toBe(false);
+  });
+
+  test("QUESTION_MIN_WORDS is the floor separating 'ok?' from a real question", () => {
+    const belowFloor = Array.from({ length: QUESTION_MIN_WORDS - 1 }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${belowFloor}?`).matched).toBe(false);
+    const atFloor = Array.from({ length: QUESTION_MIN_WORDS }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${atFloor}?`).matched).toBe(true);
+  });
+});
+
+describe("resolveQuestionAnswerCheck", () => {
+  test("anchors on the OPENING prompt only — a question outside the opening does not suppress", () => {
+    // Contrast with the depth-request override's multi-turn lookback: this
+    // gate has no lookback window at all. A question several turns back
+    // (not the opening prompt of the measured turn) must NOT suppress.
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, OPENING_PROMPT_TEXT),
+      assistantToolUseLine(4),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+
+  test("matches when the OPENING prompt itself is a substantive question", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("fails CLOSED when findOpeningPromptIndex cannot anchor", () => {
+    expect(resolveQuestionAnswerCheck([userPromptLine(0, "only one prompt?")]).matched).toBe(false);
+  });
+});
+
+describe("run — mt#3718 question-answer override", () => {
+  // AT1 — the 2026-08-03T21:48Z FP shape (ask#6891).
+  test("(AT1) over-budget report answering a substantive opening question -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressedByDepthRequest).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // AT2 — the 2026-08-03T22:38Z FP shape (multi-question Telegram reply).
+  test("(AT2) over-budget report answering a multi-question opening prompt -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  test("a brief affirmative opening prompt ('proceed') -> fires as today, not suppressed", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "proceed",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3 — a label-led report is never excused by a preceding question, even
+  // though the trigger is "both" (over-budget AND lead-labels).
+  test("a label-led report preceded by a substantive question -> STILL fires (SC3)", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      labelHeavyReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("both");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3, pure lead-labels leg (under budget, label hit only) — extra
+  // coverage that the question-answer gate never applies outside the pure
+  // over-budget trigger.
+  test("a PURE lead-labels report (under budget) preceded by a substantive question -> still fires", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      `Gate (l) blocked promotion. ${words(150)}`
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("lead-labels");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  test("both gates can suppress independently: a depth-request opening prompt is unaffected", () => {
+    // Regression guard: the question-answer gate is ADDITIVE, not a
+    // replacement — a depth-request phrase (no "?") still suppresses via
+    // suppressedByDepthRequest, with suppressedByQuestionAnswer false.
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      DEPTH_REQUEST_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByDepthRequest).toBe(true);
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
   });
 });
 

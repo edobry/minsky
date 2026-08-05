@@ -100,6 +100,27 @@
 // still logs its own record, instead of silently inheriting a stale
 // suppression verdict from an unrelated earlier turn (PR #2228 R1 BLOCKING).
 //
+// **mt#3718 — question-answer override widening (2026-08-04 calibration
+// review, ask#6891, "Approve: keep 1, file tunes for 2 and 3").** The
+// review found the residual FP shape shared one property: each flagged turn
+// directly ANSWERED a substantive question the principal had just asked
+// (depth was solicited, not volunteered) — distinct from mt#3112's
+// depth-request phrases, which are explicit imperative requests ("walk me
+// through everything"). Two confirmed FPs from the live calibration log:
+// the Bun-bug research answer (2026-08-03T21:48:54Z) and the Telegram
+// three-questions reply (2026-08-03T22:38:07Z), both opened by an
+// interrogative. `detectSubstantiveQuestion` / `resolveQuestionAnswerCheck`
+// add a SECOND, independent suppression gate (`SUPPRESSION_QUESTION_ANSWER`)
+// alongside the depth-request override: unlike the depth-request lookback,
+// it anchors on the single OPENING prompt of the measured turn only, and it
+// is gated to the PURE `over-budget` trigger — a label-led report
+// (`lead-labels` or `both`) is NEVER excused by a preceding question, per
+// the spec's SC3. Every matched fire still logs (now via
+// `suppressedByQuestionAnswer` alongside `suppressedByDepthRequest`), and
+// `sessionHasLoggedTextAndSuppression`'s dedupe check now compares the
+// COMBINED suppression verdict across both gates via the generalized
+// `isRecordSuppressed` helper.
+//
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured; its
 //   rationale doc (docs/rules-rationale/communication-contract.md §Override) names the
@@ -116,6 +137,7 @@
 // @see mt#3028 — the two fixes above
 // @see mt#3112 — this task (live-injection flip + depth-request override); mt#2838 — the
 //   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
+// @see mt#3718 — question-answer override widening (ask#6891 disposition)
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
@@ -176,6 +198,17 @@ const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
  * reviewer must be able to tell WHICH gate fired from the record alone.
  */
 export const SUPPRESSION_DEPTH_REQUEST = "depth-request-override";
+
+/**
+ * Reason string for this detector's SECOND suppression gate — the mt#3718
+ * question-answer override (see the section below). Distinct from
+ * {@link SUPPRESSION_DEPTH_REQUEST} because a calibration reviewer must be
+ * able to tell WHICH gate suppressed a given fire from the record alone —
+ * an explicit depth request ("walk me through everything") and a report
+ * that merely ANSWERED a substantive question the principal just asked are
+ * different phenomena with different false-positive risk profiles.
+ */
+export const SUPPRESSION_QUESTION_ANSWER = "question-answer-override";
 
 // ---------------------------------------------------------------------------
 // Thresholds (grounded in the contract — see header comment)
@@ -535,6 +568,62 @@ export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
 }
 
 // ---------------------------------------------------------------------------
+// mt#3718 — question-answer override widening
+// ---------------------------------------------------------------------------
+
+/**
+ * Word-count floor for {@link detectSubstantiveQuestion} — a bare "ok?" or
+ * "?" is not a substantive question soliciting depth, it's a throwaway
+ * confirmation. Mirrors {@link LEAD_LABELS_MIN_WORDS}'s role: a floor that
+ * separates the population this gate is calibrated on (multi-clause
+ * research/status questions) from noise that happens to contain "?".
+ */
+export const QUESTION_MIN_WORDS = 3;
+
+export interface QuestionAnswerResult {
+  /** true iff the opening prompt reads as a substantive question. */
+  matched: boolean;
+}
+
+/**
+ * A prompt counts as a "substantive question" when it is non-empty, contains
+ * at least one "?", and clears {@link QUESTION_MIN_WORDS}. Deliberately
+ * simple (no NLP, no LLM — same calibration-first posture as
+ * `DEPTH_REQUEST_PATTERNS`): the ask#6891 FP shapes were both plain
+ * interrogatives ("Is this a known, reported Bun bug...?", a three-question
+ * Telegram reply), not edge cases needing finer classification.
+ */
+export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return { matched: false };
+  if (!trimmed.includes("?")) return { matched: false };
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  if (wordCount < QUESTION_MIN_WORDS) return { matched: false };
+  return { matched: true };
+}
+
+/**
+ * mt#3718 — the question-answer override's anchor. Unlike
+ * {@link resolveDepthCheck}'s multi-turn `DEPTH_REQUEST_LOOKBACK_TURNS`
+ * lookback, this gate anchors on the single OPENING prompt of the measured
+ * turn ONLY (via {@link findOpeningPromptIndex}) — deliberately narrower.
+ * The ask#6891 disposition's shape is "the turn directly answers the
+ * question that opened it," not "a question was asked at some point in the
+ * recent conversation"; widening this to a lookback window would risk
+ * excusing a report that runs long for reasons unrelated to the question
+ * that actually triggered it. Fails CLOSED (treats the fire as unsuppressed)
+ * when no opening-prompt index can be resolved, matching
+ * `resolveDepthCheck`'s fail-closed posture.
+ */
+export function resolveQuestionAnswerCheck(lines: TranscriptLine[]): QuestionAnswerResult {
+  const openingPromptIdx = findOpeningPromptIndex(lines);
+  if (openingPromptIdx === undefined) return { matched: false };
+  const line = lines[openingPromptIdx];
+  if (!line) return { matched: false };
+  return detectSubstantiveQuestion(extractUserPromptText(line));
+}
+
+// ---------------------------------------------------------------------------
 // mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
 //
 // RETIRED by mt#3293. This file's `resolveTurnLines` was the original fix: it
@@ -615,6 +704,16 @@ export function sessionHasLoggedHash(
  * as `suppressed: false` for this comparison, matching its actual observed
  * behavior; this keeps mt#3028/PR #2165's original dedupe tests
  * (hand-built log fixtures with a bare `textHash` field) passing unchanged.
+ *
+ * **mt#3718:** `suppressed` is now a COMBINED verdict across every
+ * suppression gate this detector has (depth-request override, then the
+ * question-answer override) — the dedupe check only needs "was this fire
+ * suppressed at all," not which gate did it. Per-record suppression state is
+ * read via {@link isRecordSuppressed} below, which prefers the shared
+ * `suppressionReasons` array (mt#3207) when present and falls back to the
+ * legacy `suppressedByDepthRequest` boolean for pre-mt#3207 records — so a
+ * record suppressed by EITHER gate still dedupes correctly against a fresh
+ * combined verdict.
  */
 export function sessionHasLoggedTextAndSuppression(
   logText: string | undefined,
@@ -633,10 +732,23 @@ export function sessionHasLoggedTextAndSuppression(
       continue;
     }
     if (rec["session_id"] !== sessionId || rec["textHash"] !== textHash) continue;
-    const recSuppressed = rec["suppressedByDepthRequest"] === true;
+    const recSuppressed = isRecordSuppressed(rec);
     if (recSuppressed === suppressed) return true;
   }
   return false;
+}
+
+/**
+ * mt#3718: per-record suppression verdict, generalized across every
+ * suppression gate. Prefers the shared `suppressionReasons` array (mt#3207)
+ * — present on every record written by this detector since that task — and
+ * falls back to the legacy `suppressedByDepthRequest` boolean only for
+ * records written before mt#3207 introduced the shared field.
+ */
+function isRecordSuppressed(rec: Record<string, unknown>): boolean {
+  const reasons = rec["suppressionReasons"];
+  if (Array.isArray(reasons)) return reasons.length > 0;
+  return rec["suppressedByDepthRequest"] === true;
 }
 
 /**
@@ -680,7 +792,8 @@ function buildCalibrationRecord(
   input: ClaudeHookInput,
   m: WallOfTextMeasurement,
   textHash: string,
-  suppressedByDepthRequest: boolean
+  suppressedByDepthRequest: boolean,
+  suppressedByQuestionAnswer: boolean
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -707,12 +820,25 @@ function buildCalibrationRecord(
     // so this field is what lets a future calibration pass measure the
     // override's OWN accuracy (recorded on every fire, live or suppressed).
     suppressedByDepthRequest,
+    // mt#3718: true when the opening prompt of the measured turn read as a
+    // substantive question (see `resolveQuestionAnswerCheck`) — mirrors
+    // `suppressedByDepthRequest`'s role for the SECOND suppression gate, so
+    // the override's own accuracy is separately reviewable from the first.
+    suppressedByQuestionAnswer,
     // mt#3207: the SHARED suppression contract (ADR-028 §D4, generalized by
-    // mt#3197). `suppressedByDepthRequest` above is detector-specific detail
-    // that `isSuppressedRecord` cannot see; this field is what the sweep reads
+    // mt#3197). The two detector-specific booleans above are detail that
+    // `isSuppressedRecord` cannot see; this field is what the sweep reads
     // to keep a suppressed fire out of the injected count. Empty (not absent)
     // when the fire was injected — absent means "does not record the outcome".
-    suppressionReasons: suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : [],
+    // mt#3718: now built from BOTH gates — a fire can only ever be suppressed
+    // by one of them in practice (question-answer never applies when the
+    // depth-request override already matched, and vice versa is possible but
+    // both reasons are recorded when it happens), so this stays a plain
+    // concatenation rather than a mutually-exclusive branch.
+    suppressionReasons: [
+      ...(suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : []),
+      ...(suppressedByQuestionAnswer ? [SUPPRESSION_QUESTION_ANSWER] : []),
+    ],
   };
 }
 
@@ -799,6 +925,13 @@ export function run(
   // `resolveDepthCheck` fails CLOSED (treats the fire as unsuppressed) when
   // fewer than 2 real prompts anchor the measured turn.
   const depthCheck = resolveDepthCheck(lines);
+  // mt#3718: the question-answer override only ever excuses the pure
+  // OVER-BUDGET leg — label-leading is never excused by a preceding
+  // question (spec SC3). Computed here, also before the dedupe check, for
+  // the same reason as `depthCheck`.
+  const questionCheck =
+    measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
+  const suppressed = depthCheck.matched || questionCheck.matched;
 
   const textHash = hashText(finalText);
   if (
@@ -806,23 +939,29 @@ export function run(
       readCalibrationLogTextFn(input.cwd),
       input.session_id,
       textHash,
-      depthCheck.matched
+      suppressed
     )
   ) {
-    // mt#3028 fix (2), extended by mt#3112: a record for this session
-    // already carries this exact measured text AND the same suppression
-    // state (within the bounded lookback window) — an unchanged report
-    // already logged; skip re-logging. A textHash match with a DIFFERENT
-    // suppression state is treated as new — see
+    // mt#3028 fix (2), extended by mt#3112 and mt#3718: a record for this
+    // session already carries this exact measured text AND the same
+    // combined suppression state (within the bounded lookback window) — an
+    // unchanged report already logged; skip re-logging. A textHash match
+    // with a DIFFERENT suppression state is treated as new — see
     // `sessionHasLoggedTextAndSuppression`'s doc comment.
     return null;
   }
 
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(input, measurement, textHash, depthCheck.matched),
+    calibration: buildCalibrationRecord(
+      input,
+      measurement,
+      textHash,
+      depthCheck.matched,
+      questionCheck.matched
+    ),
   };
 
-  if (INJECTION_ENABLED && !depthCheck.matched) {
+  if (INJECTION_ENABLED && !suppressed) {
     outcome.additionalContext = buildInjectionReminder(measurement);
   }
 
@@ -936,27 +1075,38 @@ export async function main(): Promise<void> {
   // Computed BEFORE the dedupe check — the dedupe key needs the suppression
   // verdict to key on (PR #2228 R1 BLOCKING).
   const depthCheck = resolveDepthCheck(lines);
+  // mt#3718: the question-answer override only ever excuses the pure
+  // OVER-BUDGET leg (see run()'s equivalent check).
+  const questionCheck =
+    measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
+  const suppressed = depthCheck.matched || questionCheck.matched;
 
   const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    // mt#3028 fix (2), extended by mt#3112: skip re-logging an unchanged
-    // report + suppression state already recorded for this session (see the
-    // header comment + run()'s equivalent check).
+    // mt#3028 fix (2), extended by mt#3112 and mt#3718: skip re-logging an
+    // unchanged report + suppression state already recorded for this
+    // session (see the header comment + run()'s equivalent check).
     const alreadyLogged = sessionHasLoggedTextAndSuppression(
       readCalibrationLogText(input.cwd),
       input.session_id,
       textHash,
-      depthCheck.matched
+      suppressed
     );
     if (!alreadyLogged) {
       appendCalibrationRecord(
         input.cwd,
-        buildCalibrationRecord(input, measurement, textHash, depthCheck.matched)
+        buildCalibrationRecord(
+          input,
+          measurement,
+          textHash,
+          depthCheck.matched,
+          questionCheck.matched
+        )
       );
     }
   }
 
-  if (!INJECTION_ENABLED || depthCheck.matched) {
+  if (!INJECTION_ENABLED || suppressed) {
     process.exit(0);
   }
 
