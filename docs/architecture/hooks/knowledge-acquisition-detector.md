@@ -49,11 +49,20 @@ judges them together:
    keeps re-extending its own clock. Not-yet-eligible is a deferral, not a suppression: nothing
    is recorded, and it is re-evaluated on the next `Stop`.
 2. **Verdict.** Once eligible, `hadPropagation` is true iff EVERY matched occurrence has a
-   propagation call (`mcp__minsky__memory_create`, `mcp__minsky__tasks_create`, the spec-writing
-   tools, `mcp__minsky__memory_update`, or a `Skill` invocation whose name contains "learn")
-   somewhere after it. One uncaptured occurrence makes the whole session a miss — the detector
-   is looking for knowledge that was never captured anywhere, not merely the first thing
-   researched.
+   propagation call somewhere after it. One uncaptured occurrence makes the whole session a
+   miss — the detector is looking for knowledge that was never captured anywhere, not merely the
+   first thing researched.
+
+   The propagation channel set itself is **unchanged by mt#3720** and is not this section's to
+   define: `PROPAGATION_TOOL_NAMES` is `memory_create`, `tasks_create`, `tasks_spec_patch`,
+   `tasks_spec_search_replace` and `memory_update`, plus a `Skill` invocation whose name contains
+   "learn". The spec-writing and `memory_update` entries were added by **mt#3272** ("Count a spec
+   edit as capture, not as a miss") under dispositions ask#6136 and ask#6817, and are covered by
+   that task's tests — the six `suppressed (mt#3272): …` cases plus the `test.each` boundary case
+   asserting that source edits are NOT propagation. This doc previously listed only
+   `memory_create` / `tasks_create` / `/learn`, which had been stale since mt#3272 merged; naming
+   the full set here is a documentation correction, not a semantics change.
+
 3. **Bound.** The record carries the fixed `SESSION_VERDICT_DEDUPE_KEY` (`"session-verdict"`),
    checked against the calibration log's own tail. `loadAlreadyLoggedDedupeKeys` filters that
    tail by `session_id`, which is what makes a shared constant safe across sessions.

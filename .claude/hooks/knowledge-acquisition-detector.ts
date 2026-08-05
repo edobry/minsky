@@ -887,7 +887,7 @@ function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
   return [
     "[knowledge-acquisition-detector] Research surfaced knowledge relevant to a",
     `loaded skill (\`${result.matchedSkill}\`, keyword "${result.matchedKeyword}"),`,
-    "with no propagation in the trailing window (mt#2708).",
+    "with no propagation anywhere in this session (mt#2708, mt#3720).",
     `Research tools: ${result.researchTools.join(", ")}.`,
     "If this should update the skill/rule, capture it now: memory_create, the",
     "/learn routing skill, or a filed task targeting the artifact.",
