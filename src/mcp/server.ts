@@ -141,6 +141,14 @@ export interface MinskyMCPServerOptions {
  * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
  * underscore names — `debug_echo` — and the allowlist never matched.)
  */
+/**
+ * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
+ * The request handler injects the resolved caller agentId into ONLY this tool's
+ * args (matched exactly against this name and its `toClaudeDesktopName` underscore
+ * alias) so its contested-check can exclude the caller's own task-grain claims.
+ */
+const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -1159,11 +1167,15 @@ export class MinskyMCPServer {
 
           // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
           // arguments so its contested-check can EXCLUDE the caller's own task-grain
-          // presence claims (SC4 — a caller must never be flagged as its own peer). Scoped
-          // to that tool by name: its param schema is the only one declaring `callerActorId`,
-          // and injecting an unknown key into other tools' args would be stripped or rejected.
-          // The server overwrites any caller-supplied value, so it cannot be spoofed here.
-          if (request.params.name.includes("dispatch-recover")) {
+          // presence claims (SC4 — a caller must never be flagged as its own peer). Matched
+          // EXACTLY against this tool's canonical dotted name and its Claude-Desktop underscore
+          // alias (both registered) — never a substring, so no other tool whose name merely
+          // contains "dispatch-recover" can receive the param. The server overwrites any
+          // caller-supplied value, so it cannot be spoofed here.
+          if (
+            request.params.name === DISPATCH_RECOVER_TOOL_NAME ||
+            request.params.name === toClaudeDesktopName(DISPATCH_RECOVER_TOOL_NAME)
+          ) {
             const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
             dispatchArgs.callerActorId = agentId;
             request.params.arguments = dispatchArgs;

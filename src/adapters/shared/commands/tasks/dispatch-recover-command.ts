@@ -388,6 +388,9 @@ const tasksDispatchRecoverParams = {
       "— not normally supplied by hand. Absent on the CLI path (no MCP identity), where a caller " +
       "writes no presence claims, so there is no self to exclude.",
     required: false,
+    // Server-injected only (src/mcp/server.ts) — hide it from the CLI surface so it
+    // is not advertised as a hand-passable flag (reviewer PR #2683 R1 non-blocking).
+    cliHidden: true,
   },
 } satisfies CommandParameterMap;
 
