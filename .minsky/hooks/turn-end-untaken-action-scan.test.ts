@@ -11,7 +11,7 @@ import {
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
 } from "./turn-end-untaken-action-scan";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import type { DispatchContext } from "./registry";
+import { GUARD_REGISTRY, type DispatchContext } from "./registry";
 import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
@@ -89,7 +89,9 @@ describe("run (mt#3179)", () => {
     expect(outcome).not.toBeNull();
     expect(outcome?.deny).toBeUndefined();
     expect(outcome?.additionalContext).toContain(
-      "named a next action and ended the turn without taking it"
+      // Trimmed by mt#3767 to buy ceiling headroom; the guard is Stop-keyed, so
+      // "ended the turn" was already implied by when it fires.
+      "named a next action and did not take it"
     );
   });
 
@@ -219,5 +221,51 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
     const cal = outcome?.calibration as Record<string, unknown>;
     expect(cal.suppressionReasons).toEqual([]);
     expect(Object.keys(cal)).toContain("suppressionReasons");
+  });
+
+  // mt#3767. mt#3620 gave this guard the speaking slot on an overlap and
+  // silenced the prompt-time sibling; the DIRECTIVE stayed commitment-only, so
+  // an offer-shaped closing sentence was told to "take it now" when the correct
+  // disposition is usually to retract the sentence. These pin the two branches
+  // apart — asserting on the directive's MEANING, not on its exact wording,
+  // which is trimmed whenever the ceiling binds.
+  describe("mt#3767: the directive matches the shape of the fire", () => {
+    test("an overlap fire gets the retract-or-classify directive, not 'take it now'", () => {
+      const ctxText = run(inputFor(OVERLAPPING_MESSAGE), ctx, storeDir)?.additionalContext ?? "";
+      expect(ctxText).toContain("OFFERED");
+      expect(ctxText).toContain("drop the offer");
+      // The commitment directive's imperative must NOT be what an offer is told.
+      expect(ctxText).not.toContain("Take it now");
+    });
+
+    test("a commitment-only fire is UNCHANGED — it still gets 'take it now'", () => {
+      const ctxText = run(inputFor(R3_FINAL_MESSAGE), ctx, storeDir)?.additionalContext ?? "";
+      expect(ctxText).toContain("Take it now");
+      expect(ctxText).not.toContain("OFFERED");
+    });
+
+    // The ceiling is enforced corpus-wide by guard-feedback-shape.test.ts against
+    // the registry's worstCaseCanary. This asserts the SATURATING shape locally,
+    // so a future edit to either directive fails here — next to the text — rather
+    // than only in the corpus-wide test. Both axes at once: the evidence list at
+    // its cap AND the longer directive selected.
+    test("the saturating render stays under the declared ceiling", () => {
+      const saturating =
+        "I'm taking it forward — that's the next step. Next step: I'll proceed ahead " +
+        "with the cleanup, then moving on to the rest. Say the word if you'd rather " +
+        "I file it.";
+      const ctxText = run(inputFor(saturating), ctx, storeDir)?.additionalContext ?? "";
+
+      // Confirms this input really is saturating on both axes — without these the
+      // length assertion below could pass on an under-posed input, which is the
+      // exact defect this test exists to prevent.
+      expect(ctxText).toContain("…and");
+      expect(ctxText).toContain("OFFERED");
+
+      const ceiling = GUARD_REGISTRY.find((r) => r.name === "turn-end-untaken-action-scan")
+        ?.attentionCost?.denialMessageSizeChars;
+      expect(ceiling).toBe(450);
+      expect(ctxText.length).toBeLessThanOrEqual(ceiling as number);
+    });
   });
 });
