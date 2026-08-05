@@ -16,6 +16,15 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 
 const CREATED_ID = "mt#9999";
 
+/** A walk-forward tool named by more than one case. */
+const SESSION_START_TOOL = "mcp__minsky__session_start";
+
+/** The operator prompt the CLI-transport cases open on. */
+const INCIDENT_PROMPT = "the cockpit isn't loading";
+
+/** The CLI mint invocation, in its `--json` form. */
+const CLI_CREATE_JSON = "bun src/cli.ts tasks create --title X --json";
+
 /**
  * A real user prompt — the boundary `extractFinalTurn` slices on. Everything
  * after it is the completed turn.
@@ -49,7 +58,7 @@ function toolResult(useId: string, payload: unknown): TranscriptLine {
 /** A turn that mints a task id and does nothing further with it. */
 function turnThatFilesATask(): TranscriptLine[] {
   return [
-    userPrompt("the cockpit isn't loading"),
+    userPrompt(INCIDENT_PROMPT),
     toolUse("toolu_mint", MINTING_TOOL, { title: "Cockpit daemon crash-loops" }),
     toolResult("toolu_mint", { success: true, taskId: CREATED_ID }),
   ];
@@ -76,7 +85,7 @@ describe("detectUnwalkedTasks", () => {
   // AT2 — the same turn, walked. Must be silent.
   test.each([
     ["mcp__minsky__tasks_status_set", { taskId: CREATED_ID, status: "PLANNING" }],
-    ["mcp__minsky__session_start", { task: CREATED_ID }],
+    [SESSION_START_TOOL, { task: CREATED_ID }],
     ["mcp__minsky__tasks_dispatch", { taskId: CREATED_ID }],
     ["mcp__minsky__asks_create", { parentTaskId: CREATED_ID, question: "which approach?" }],
   ])("stays silent when the turn walked the task via %s", (tool, input) => {
@@ -114,7 +123,7 @@ describe("detectUnwalkedTasks", () => {
       toolResult("toolu_a", { success: true, taskId: "mt#1" }),
       toolUse("toolu_b", MINTING_TOOL, { title: "b" }),
       toolResult("toolu_b", { success: true, taskId: "mt#2" }),
-      toolUse("toolu_walk", "mcp__minsky__session_start", { task: "mt#1" }),
+      toolUse("toolu_walk", SESSION_START_TOOL, { task: "mt#1" }),
     ];
     expect(detectUnwalkedTasks(lines)).toEqual([{ taskId: "mt#2" }]);
   });
@@ -244,5 +253,141 @@ describe("the injected guidance text (mt#3699)", () => {
     const text = render(MAX_LISTED_IDS + 2);
     expect(text).toContain("…and 2 more");
     expect(text.length).toBeLessThanOrEqual(declared as number);
+  });
+});
+
+/**
+ * CLI-transport coverage (mt#3730).
+ *
+ * The guard originally keyed on `MINTING_TOOL` alone, so a task filed with
+ * `bun src/cli.ts tasks create` — a `Bash` tool_use — was invisible to it.
+ * That is the path an agent takes when the MCP daemon is down, which made the
+ * blind spot anti-correlated with the risk: R5 of `family:stop-at-handoff`
+ * ran it one day after mt#3536 shipped as the family's R4 fix.
+ */
+describe("detectUnwalkedTasks — CLI transport", () => {
+  /** A `Bash` tool_use, the shape a CLI invocation actually arrives as. */
+  function bash(id: string, command: string): TranscriptLine {
+    return toolUse(id, "Bash", { command });
+  }
+
+  /**
+   * A tool_result carrying RAW text rather than JSON — what the CLI prints
+   * without `--json`. Distinct from `toolResult`, which stringifies a payload.
+   */
+  function toolResultText(useId: string, text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: useId, content: text }],
+      },
+    };
+  }
+
+  const ids = (lines: TranscriptLine[]): string[] =>
+    detectUnwalkedTasks(lines).map((u) => u.taskId);
+
+  test("a CLI mint with --json is detected", () => {
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_a", CLI_CREATE_JSON),
+        toolResult("toolu_a", { success: true, taskId: CREATED_ID }),
+      ])
+    ).toEqual([CREATED_ID]);
+  });
+
+  test("a CLI mint WITHOUT --json is detected from its success line", () => {
+    // Both output shapes occur in real turns; reading only the JSON one would
+    // reproduce this guard's original defect one layer down.
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_b", "bun src/cli.ts tasks create --title X"),
+        toolResultText(
+          "toolu_b",
+          `✅ Task ${CREATED_ID} created successfully\n  ID: ${CREATED_ID}`
+        ),
+      ])
+    ).toEqual([CREATED_ID]);
+  });
+
+  test("a CLI walk on the minted id suppresses the fire", () => {
+    // Shipping the mint half alone would make the guard fire on tasks that
+    // WERE walked — a false-positive class it does not have today.
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_c", CLI_CREATE_JSON),
+        toolResult("toolu_c", { success: true, taskId: CREATED_ID }),
+        bash("toolu_d", `bun src/cli.ts tasks status set ${CREATED_ID} PLANNING`),
+        toolResult("toolu_d", { success: true }),
+      ])
+    ).toEqual([]);
+  });
+
+  test("the two transports interoperate: a CLI mint walked via MCP is suppressed", () => {
+    expect(
+      ids([
+        userPrompt(INCIDENT_PROMPT),
+        bash("toolu_e", CLI_CREATE_JSON),
+        toolResult("toolu_e", { success: true, taskId: CREATED_ID }),
+        toolUse("toolu_f", SESSION_START_TOOL, { task: CREATED_ID }),
+        toolResult("toolu_f", { success: true }),
+      ])
+    ).toEqual([]);
+  });
+
+  test("a read that merely NAMES a task id is not a mint", () => {
+    expect(
+      ids([
+        userPrompt("what's the status"),
+        bash("toolu_g", `bun src/cli.ts tasks get ${CREATED_ID}`),
+        toolResult("toolu_g", { success: true, taskId: CREATED_ID }),
+      ])
+    ).toEqual([]);
+  });
+
+  test("a git commit naming a task id is not a mint", () => {
+    expect(
+      ids([
+        userPrompt("commit that"),
+        bash("toolu_h", `git commit -m "fix(${CREATED_ID}): widen the detector"`),
+        toolResultText("toolu_h", "[main abc1234] fix"),
+      ])
+    ).toEqual([]);
+  });
+
+  test("a FAILED CLI mint minted nothing, so there is nothing to walk", () => {
+    expect(
+      ids([
+        userPrompt("file it"),
+        bash("toolu_i", CLI_CREATE_JSON),
+        toolResult("toolu_i", { success: false, error: "backend unavailable" }),
+      ])
+    ).toEqual([]);
+  });
+
+  test("a failed bare-output CLI mint prints no success line, so nothing is read", () => {
+    expect(
+      ids([
+        userPrompt("file it"),
+        bash("toolu_j", "bun src/cli.ts tasks create --title X"),
+        toolResultText("toolu_j", "error: backend unavailable"),
+      ])
+    ).toEqual([]);
+  });
+
+  test("the same id minted on both transports is reported once", () => {
+    expect(
+      ids([
+        userPrompt("file it"),
+        toolUse("toolu_k", MINTING_TOOL, { title: "X" }),
+        toolResult("toolu_k", { success: true, taskId: CREATED_ID }),
+        bash("toolu_l", CLI_CREATE_JSON),
+        toolResult("toolu_l", { success: true, taskId: CREATED_ID }),
+      ])
+    ).toEqual([CREATED_ID]);
   });
 });
