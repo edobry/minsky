@@ -531,6 +531,18 @@ describe("per-rule ceiling is priced to the author (mt#3676)", () => {
       expect(perRuleBreachIsStaged([OVER_RULE], [`docs/${OVER_RULE}.mdc`])).toBe(false);
       expect(perRuleBreachIsStaged([OVER_RULE], [`.minsky/rules/${OVER_RULE}.md`])).toBe(false);
     });
+
+    test("a NESTED path is not a rule, so it never matches an id (PR #2652 R1)", () => {
+      // The loader reads .minsky/rules with a NON-recursive readdir, so a nested
+      // file is never a rule and can never be in perRuleViolations. A greedy
+      // capture minted "sub/hook-observers" here, which matches no violation.
+      expect(perRuleBreachIsStaged([OVER_RULE], [`.minsky/rules/sub/${OVER_RULE}.mdc`])).toBe(
+        false
+      );
+      expect(
+        perRuleBreachIsStaged([`sub/${OVER_RULE}`], [`.minsky/rules/sub/${OVER_RULE}.mdc`])
+      ).toBe(false);
+    });
   });
 
   describe("classifyCompileCheckError carries the discriminator", () => {

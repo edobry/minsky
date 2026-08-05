@@ -2421,6 +2421,19 @@ export function extractPerRuleViolationIds(stdout: string): string[] {
 }
 
 /**
+ * A rule source file, captured to its rule id (PR #2652 R1).
+ *
+ * The id segment is `[^/]+`, NOT `.+`: the rules directory is read by a
+ * NON-RECURSIVE `readdir` filtered on `.endsWith(".mdc")`
+ * (`packages/domain/src/rules/operations/file-operations.ts`), so a nested
+ * `.minsky/rules/sub/foo.mdc` is never loaded as a rule and can never appear in
+ * `perRuleViolations`. Treating it as one would invent an id (`sub/foo`) that
+ * matches no violation — silently failing to bill a real offender, or billing
+ * the wrong file. A greedy `.+` did exactly that.
+ */
+const RULE_FILE_RE = /^\.minsky\/rules\/([^/]+)\.mdc$/;
+
+/**
  * Whether a per-rule ceiling breach should block THIS commit (mt#3676).
  *
  * The ceiling is enforced at pre-commit, so before this change the failure
@@ -2440,7 +2453,7 @@ export function perRuleBreachIsStaged(
   if (violationIds.length === 0) return true;
   const stagedRuleIds = new Set(
     stagedFiles
-      .map((f) => /^\.minsky\/rules\/(.+)\.mdc$/.exec(f)?.[1])
+      .map((f) => RULE_FILE_RE.exec(f)?.[1])
       .filter((id): id is string => typeof id === "string")
   );
   return violationIds.some((id) => stagedRuleIds.has(id));

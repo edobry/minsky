@@ -121,9 +121,19 @@ export interface PerRuleViolation {
   size: number;
 }
 
-/** Map `.minsky/rules/<id>.mdc` to `<id>`; null for anything else. */
+/**
+ * Map `.minsky/rules/<id>.mdc` to `<id>`; null for anything else.
+ *
+ * The id segment is `[^/]+`, NOT `.+` (PR #2652 R1). The rules directory is
+ * read by a NON-RECURSIVE `readdir` filtered on `.endsWith(".mdc")`
+ * (`packages/domain/src/rules/operations/file-operations.ts`), so a nested
+ * `.minsky/rules/sub/foo.mdc` is never loaded as a rule and can never appear in
+ * `perRuleViolations`. A greedy capture would mint an id (`sub/foo`) that
+ * matches no violation, so the PR would silently escape being billed for a real
+ * breach — the exact mis-attribution this gate exists to prevent, inverted.
+ */
 export function ruleIdFromRulesPath(filename: string): string | null {
-  const m = /^\.minsky\/rules\/(.+)\.mdc$/.exec(filename);
+  const m = /^\.minsky\/rules\/([^/]+)\.mdc$/.exec(filename);
   return m?.[1] ?? null;
 }
 

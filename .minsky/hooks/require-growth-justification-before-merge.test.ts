@@ -351,6 +351,22 @@ describe("per-rule ceiling priced at the authoring PR (mt#3676)", () => {
       expect(ruleIdFromRulesPath(`${RULES_DIR_PREFIX}${OVER_RULE}.md`)).toBeNull();
       expect(ruleIdFromRulesPath(NON_RULE_FILE)).toBeNull();
     });
+
+    test("returns null for a NESTED path — it is not a rule (PR #2652 R1)", () => {
+      // The loader reads .minsky/rules non-recursively, so nothing under a
+      // subdirectory is a rule. A greedy capture returned "sub/hook-observers",
+      // an id no violation can carry — so a real breach would go unbilled.
+      expect(ruleIdFromRulesPath(`${RULES_DIR_PREFIX}sub/${OVER_RULE}.mdc`)).toBeNull();
+    });
+
+    test("a nested file does not bill the PR for the same-named top-level rule", () => {
+      expect(
+        findTouchedCeilingBreaches(
+          [{ id: OVER_RULE, size: 15170 }],
+          [makeFile(`${RULES_DIR_PREFIX}sub/${OVER_RULE}.mdc`)]
+        )
+      ).toEqual([]);
+    });
   });
 
   describe("findTouchedCeilingBreaches", () => {
