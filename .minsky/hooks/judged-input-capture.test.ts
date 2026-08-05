@@ -88,7 +88,8 @@ describe("captureArtifact", () => {
     expect(capture.hash).toBe(hashJudgedText("a short body"));
   });
 
-  // AT4 — capture is truncated at the documented cap.
+  // Criterion 1/2 — the capture is BOUNDED, and the bound is the documented one.
+  // (Not this task's AT4, which is the written cross-surface census.)
   it("truncates at the documented cap and says so, hashing the FULL text", () => {
     const long = "x".repeat(ARTIFACT_CAPTURE_MAX_CHARS + 500);
     const capture = captureArtifact(long);
