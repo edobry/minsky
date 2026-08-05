@@ -89,7 +89,10 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_OPERATOR_DEFERRAL";
 
 const CALIBRATION_LOG = ".minsky/operator-deferral-calibration.jsonl";
 
-export type DeferralSurface = "capability-deferral-prose" | "ask-option-label";
+export type DeferralSurface =
+  | "capability-deferral-prose"
+  | "permission-deferral-prose"
+  | "ask-option-label";
 
 export interface DeferralMatch {
   surface: DeferralSurface;
@@ -118,6 +121,72 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
   /\b(user|operator|you)\s+must\s+(do|run|handle|perform|fix|restart|deploy)\b/i,
   /\bI\s+(don'?t|do\s+not|cannot|can'?t)\s+have\s+(access|permission|credentials?)\b/i,
   /\b(this|that|it)\s+(is|'s)\s+(on|for)\s+(you|the\s+operator|the\s+principal)\s+to\s+(do|run|fix)\b/i,
+];
+
+// ---------------------------------------------------------------------------
+// Surface C — permission-deferral prose (mt#3463)
+// ---------------------------------------------------------------------------
+
+/**
+ * Permission-deferral phrasings: the agent concedes it CAN do the thing and
+ * asks anyway. The opposite claim from Surface A — "I can, shall I?" rather
+ * than "I can't" — and the same cost to the principal: a round-trip for work
+ * that was already in-authority.
+ *
+ * **Why this needs its own surface rather than a wider Surface A.** Surface A's
+ * patterns are uniformly capability/credential/ownership-shaped, so none of
+ * these match (verified 2026-08-04; the probe and its positive controls are in
+ * mt#3463's spec). The shapes are also differently falsifiable: a capability
+ * claim can be checked by running the probe `§Probe before deferring` demands,
+ * whereas a permission offer concedes capability, so that probe never engages —
+ * there is nothing for it to check. That asymmetry is why the permission shape
+ * is the more expensive of the two to miss.
+ *
+ * LOG-ONLY, like the rest of this detector. Deliberately broad for calibration;
+ * {@link PERMISSION_ESCALATION_EXCLUSIONS} carries the one narrowing that is
+ * NOT tuning — see there.
+ */
+export const PERMISSION_DEFERRAL_PATTERNS: RegExp[] = [
+  /\bsay\s+the\s+word\s+and\s+(I|we)('?ll|\s+will|\s+can)\b/i,
+  /\b(want|would\s+you\s+like)\s+me\s+to\b/i,
+  /\b(shall|should)\s+I\b/i,
+  /\bdo\s+you\s+want\s+me\s+to\b/i,
+  /\blet\s+me\s+know\s+if\s+you('?d|\s+would)?\s*(like|want)\s+(me\s+to|that)\b/i,
+  /\bI\s+can\s+(?:\w+[\s-]){0,6}if\s+you('?d|\s+would)?\s*(like|want|prefer)\b/i,
+  /\b(happy|glad)\s+to\s+(?:\w+[\s-]){0,6}if\s+you\b/i,
+  /\bjust\s+say\s+(the\s+word|so)\b/i,
+];
+
+/**
+ * Escalations that SHOULD be routed to the principal — the permission-ask is
+ * correct here and must not fire.
+ *
+ * This is not false-positive tuning, and it is the load-bearing half of this
+ * surface: the patterns above match the SHAPE of a permission-ask, which is
+ * identical whether the underlying action is in-authority or genuinely
+ * reserved. Only the action discriminates. Firing on a legitimate escalation
+ * would train exactly the wrong behaviour — it would push the agent to act
+ * unilaterally on destructive or principal-reserved work, which is a far worse
+ * failure than the round-trip this surface exists to prevent.
+ *
+ * Two classes, both drawn from existing corpus rules rather than invented here:
+ *   - **Destructive / irreversible** — `git-safety.mdc`'s operation list plus
+ *     shared/production state changes.
+ *   - **Principal-reserved** — the closed category list in
+ *     `principal-context.mdc §Decisions Eugene reserves`.
+ */
+export const PERMISSION_ESCALATION_EXCLUSIONS: RegExp[] = [
+  // Destructive / irreversible (git-safety.mdc + shared/prod state)
+  // `drop` takes an optional article — "drop the table" is the natural phrasing
+  // and an adjacency-only pattern misses it (caught by the drop-table fixture).
+  /\b(force[\s-]?push|--force|reset\s+--hard|rm\s+-rf|truncate|revert|rollback|delete|destroy|wipe|purge)\b/i,
+  /\bdrop\s+(the\s+|a\s+|this\s+)?(table|database|schema|column|index)\b/i,
+  /\b(deploy|push|ship|release|merge)\b[^.!?]{0,40}\b(to\s+)?(prod|production|main|master|live)\b/i,
+  /\bproduction\b/i,
+  // Principal-reserved categories (principal-context.mdc)
+  /\b(name|naming|call\s+it|rename)\b[^.!?]{0,30}\?/i,
+  /\b(vendor|pricing|paid\s+plan|upgrade\s+the\s+plan|sign\s+up)\b/i,
+  /\b(scope|architecture|framework)\b[^.!?]{0,30}\b(change|choice|decision)\b/i,
 ];
 
 /**
@@ -410,6 +479,103 @@ function isOverridden(): boolean {
 }
 
 /**
+ * Detect a permission-ask for an action the agent could have just taken
+ * (mt#3463, Surface C).
+ *
+ * Same suppression as Surface A: a turn that ran the capability probe and then
+ * asked is not this failure. Sentence-scoped exclusion — the destructive /
+ * principal-reserved check runs against the SENTENCE the match sits in, not the
+ * whole turn, so an unrelated mention of "production" three paragraphs away
+ * cannot mask a real permission-ask about something else.
+ */
+export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const text = extractAssistantText(turnLines);
+  if (!text) return [];
+  if (hasProbeEvidence(turnLines)) return [];
+
+  const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
+  for (const pattern of PERMISSION_DEFERRAL_PATTERNS) {
+    const m = pattern.exec(scanned);
+    if (!m) continue;
+    const idx = m.index ?? 0;
+    const sentence = sentenceAround(scanned, idx);
+    if (PERMISSION_ESCALATION_EXCLUSIONS.some((x) => x.test(sentence))) continue;
+    const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
+    return [
+      {
+        surface: "permission-deferral-prose",
+        matchedPhrase: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
+      },
+    ];
+  }
+  return [];
+}
+
+/** The sentence containing `idx`, bounded by terminal punctuation or newline. */
+function sentenceAround(text: string, idx: number): string {
+  // Not a display truncation: this slice is only scanned for punctuation
+  // indices and is never emitted, so a split surrogate pair cannot affect the
+  // boundary it computes.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation
+  const before = text.slice(0, idx);
+  const start = Math.max(
+    before.lastIndexOf("."),
+    before.lastIndexOf("!"),
+    before.lastIndexOf("?"),
+    before.lastIndexOf("\n")
+  );
+  const rest = text.slice(idx);
+  const endRel = rest.search(/[.!?\n]/);
+  return text.slice(start + 1, endRel === -1 ? text.length : idx + endRel + 1);
+}
+
+/**
+ * Per-turn evaluation stream (mt#3463, per ask#6982's disposition).
+ *
+ * The calibration log records FIRES. A fire-only log can measure precision and
+ * cannot measure RECALL — the misses leave no trace, so "how often does this
+ * detector miss?" is unanswerable from it, and the next rung decision under
+ * ADR-024 would rest on a task count rather than a rate. This records every
+ * evaluated turn, fired or not, which is the substrate that question needs.
+ * Mirrors the retrospective-trigger evaluation stream ADR-024's 2026-08-03
+ * amendment added for exactly this reason.
+ *
+ * A bounded tail of the scanned text is stored deliberately: classifying a MISS
+ * later requires seeing what was not matched.
+ */
+const EVALUATION_LOG = ".minsky/operator-deferral-evaluations.jsonl";
+const EVALUATION_TAIL_CHARS = 400;
+
+export function buildEvaluationRecord(
+  sessionId: string | undefined,
+  matches: DeferralMatch[],
+  scannedText: string
+): Record<string, unknown> {
+  return {
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    fired: matches.length > 0,
+    surfaces: matches.map((m) => m.surface),
+    text_tail: safeTruncate(scannedText, EVALUATION_TAIL_CHARS, "tail"),
+  };
+}
+
+function appendEvaluationRecord(cwd: string | undefined, record: Record<string, unknown>): void {
+  try {
+    const logPath = resolve(findRepoRoot(cwd ?? process.cwd()), EVALUATION_LOG);
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+  } catch (err) {
+    // Best-effort: the evaluation stream is measurement, never a gate. A write
+    // failure must not suppress the detection it was recording.
+    process.stderr.write(
+      `[operator-deferral-detector] Failed to write evaluation log: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+}
+
+/**
  * Build the calibration record. `matches`-shape family (mirrors
  * ask-routing-deferral / constructed-identifier-batch) so the shared sweep
  * parser in `src/domain/calibration/calibration-sweep.ts` reads it without a
@@ -480,7 +646,20 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
-    return toOutcome(detectCapabilityDeferral(turnLines), input.session_id);
+    // Surface A then Surface C (mt#3463). Both are prose surfaces over the same
+    // turn; each returns at most one match, and a turn that trips both is
+    // reported as both — they are different failures, not two names for one.
+    const matches = [
+      ...detectCapabilityDeferral(turnLines),
+      ...detectPermissionDeferral(turnLines),
+    ];
+    // Recorded for EVERY evaluated turn, including the no-match case — that is
+    // the half the calibration log cannot provide (see buildEvaluationRecord).
+    appendEvaluationRecord(
+      input.cwd,
+      buildEvaluationRecord(input.session_id, matches, extractAssistantText(turnLines) ?? "")
+    );
+    return toOutcome(matches, input.session_id);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -547,7 +726,15 @@ export async function main(): Promise<void> {
       matches = detectAskDeferral(input.tool_input, extractFinalTurn(lines).turnLines);
     } else {
       const turnLines = extractLastAssistantTurn(lines);
-      if (turnLines.length > 0) matches = detectCapabilityDeferral(turnLines);
+      if (turnLines.length > 0) {
+        // Same two prose surfaces as `run()` (mt#3463). Wiring one entrypoint
+        // and not the other is the mt#3270 R1 shape.
+        matches = [...detectCapabilityDeferral(turnLines), ...detectPermissionDeferral(turnLines)];
+        appendEvaluationRecord(
+          input.cwd,
+          buildEvaluationRecord(input.session_id, matches, extractAssistantText(turnLines) ?? "")
+        );
+      }
     }
   } catch (err) {
     process.stderr.write(

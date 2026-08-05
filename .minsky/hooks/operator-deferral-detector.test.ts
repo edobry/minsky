@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectCapabilityDeferral,
+  detectPermissionDeferral,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
   isProbeSkill,
   stripQuoteChars,
   buildCalibrationRecord,
+  buildEvaluationRecord,
   buildReminder,
   run,
   runAskSurface,
@@ -63,6 +65,118 @@ const ctxWith = (lines: TranscriptLine[]): DispatchContext =>
     transcriptCandidates: [FIXTURE_PATH],
     transcriptLines: lines,
   }) as unknown as DispatchContext;
+
+// ---------------------------------------------------------------------------
+// Surface C — permission-deferral prose (mt#3463)
+// ---------------------------------------------------------------------------
+
+const PERMISSION_PROSE = "permission-deferral-prose";
+
+/**
+ * Seed corpus (spec criterion 5). Drawn from real turns, not invented shapes:
+ * the first is the mt#3621 originating incident verbatim, and the R5 entry is
+ * the fabricated-authority-boundary case mt#3463's own `## Recurrence` records.
+ *
+ * TRUE POSITIVES — an action the agent could simply have taken.
+ */
+const PERMISSION_TRUE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  ["mt#3621 origin", "The daemon needs a restart. Say the word and I'll do it."],
+  ["want-me-to", "I can restart the daemon. Want me to?"],
+  ["shall-I", "The task is planned and READY. Shall I implement it?"],
+  ["should-I", "Everything is green. Should I merge it?"],
+  ["do-you-want", "The fix is ready. Do you want me to push it?"],
+  ["let-me-know", "It's a one-line change. Let me know if you want me to apply it."],
+  ["if-you-like", "I can file that follow-up task if you'd like."],
+  ["happy-to", "Happy to rerun the suite if you want."],
+  ["just-say-so", "The branch is ready to go — just say the word."],
+  ["would-you-like", "Would you like me to update the spec too?"],
+];
+
+/**
+ * WOULD-BE FALSE POSITIVES — the same permission-ask SHAPE wrapped around an
+ * action that SHOULD be escalated. These must stay silent; firing on them would
+ * train the agent to act unilaterally on exactly the work it must not, which is
+ * strictly worse than the round-trip this surface prevents.
+ */
+const PERMISSION_LEGITIMATE_ESCALATIONS: ReadonlyArray<readonly [string, string]> = [
+  ["force-push", "The history diverged. Should I force-push over it?"],
+  ["prod-deploy", "Want me to deploy this to production?"],
+  ["delete", "Do you want me to delete the stale branch and its data?"],
+  ["revert-prod", "Should I revert the production release?"],
+  ["naming", "Should I call it Attention or Inbox?"],
+  ["vendor", "Do you want me to sign up for the paid plan?"],
+  ["scope-change", "Want me to expand the scope decision to cover the tray too?"],
+  ["drop-table", "Shall I drop the table and re-migrate?"],
+];
+
+describe("Surface C — permission-deferral prose (mt#3463)", () => {
+  test.each(PERMISSION_TRUE_POSITIVES)("fires on %s", (_label, prose) => {
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(PERMISSION_PROSE);
+  });
+
+  test.each(PERMISSION_LEGITIMATE_ESCALATIONS)(
+    "stays silent on a legitimate escalation: %s",
+    (_label, prose) => {
+      expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+    }
+  );
+
+  test("the exclusion is SENTENCE-scoped, not turn-scoped", () => {
+    // An unrelated mention of a reserved word elsewhere in the turn must not
+    // mask a real permission-ask about something else.
+    const prose =
+      "I checked the production logs earlier and they were clean.\n" +
+      "The changelog entry is drafted. Want me to commit it?";
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("probe evidence suppresses it, like Surface A", () => {
+    const lines = [
+      assistantToolUse("Bash", { command: "which railway" }),
+      toolResult("/opt/homebrew/bin/railway"),
+      assistantText("Probed: railway CLI present. Want me to redeploy?"),
+    ];
+    expect(detectPermissionDeferral(lines)).toEqual([]);
+  });
+
+  test("a quoted trigger phrase does not fire (mt#3273 elision parity)", () => {
+    const prose = 'The detector matches phrases like "want me to" in agent prose.';
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("capability prose does NOT fire this surface (the two are disjoint)", () => {
+    expect(detectPermissionDeferral([assistantText(DEFERRAL_PROSE)])).toEqual([]);
+  });
+
+  test("permission prose does NOT fire the capability surface (the gap this closes)", () => {
+    const prose = "The daemon needs a restart. Say the word and I'll do it.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+});
+
+describe("evaluation stream records misses, not just fires (mt#3463)", () => {
+  test("a no-match turn still produces a record — the half a fire-only log cannot give", () => {
+    const record = buildEvaluationRecord("s-1", [], "Nothing deferral-shaped here.");
+    expect(record.fired).toBe(false);
+    expect(record.surfaces).toEqual([]);
+    // The tail is what makes a MISS classifiable later.
+    expect(record.text_tail).toContain("Nothing deferral-shaped");
+  });
+
+  test("a fired turn names its surfaces", () => {
+    const record = buildEvaluationRecord(
+      "s-1",
+      [{ surface: PERMISSION_PROSE, matchedPhrase: "Want me to?" }],
+      "Want me to?"
+    );
+    expect(record.fired).toBe(true);
+    expect(record.surfaces).toEqual([PERMISSION_PROSE]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Surface A — capability-deferral prose (the family's R1/R3/R5 prose shapes)
