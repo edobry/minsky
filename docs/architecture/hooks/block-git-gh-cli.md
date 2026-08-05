@@ -72,14 +72,27 @@ actually IS the cwd — `isCwdScopedInvocation`. Four details are load-bearing:
 - **`session_exec` is never scoped out.** Its cwd is a session workspace by construction, and the
   `input.cwd` the hook receives for that tool is the harness shell's directory, not the session's
   — so the classification would be answering the wrong question.
-- **Any command that could relocate the cwd vetoes the carve-out entirely** —
-  `commandMayRelocateCwd`. The scope is resolved once, from the cwd reported at invocation, which
-  only describes where a git command runs if nothing moves first. The bypass is in the permissive
-  direction: with `input.cwd` in a scratch repo, `cd <project> && git push` would otherwise be
-  carved out on a scope computed for a directory the push never happens in (PR #2685 R2). The
-  detector covers `cd` / `pushd` / `popd`, `env -C`, a nested `sh -c`, and any subshell or command
-  substitution, and is deliberately over-broad — a false hit costs a denial, which is the safe
-  direction.
+- **A command that could relocate the cwd vetoes the carve-out, UNLESS the destination is
+  literally readable.** Two functions split this:
+
+  - `commandMayRelocateCwd` is the veto. The scope is resolved once, from the cwd reported at
+    invocation, which only describes where a git command runs if nothing moves first. The bypass is
+    in the permissive direction: with `input.cwd` in a scratch repo, `cd <project> && git push`
+    would otherwise be carved out on a scope computed for a directory the push never happens in
+    (PR #2685 R2). It covers `cd` / `pushd` / `popd` / `chdir`, `env -C`, a nested `sh -c`, and any
+    subshell or command substitution.
+  - `resolveLeadingCdTarget` is the narrow exemption (mt#3798). Vetoing on relocation ALONE made
+    the carve-out unreachable in practice: in the Bash tool `cd` is the only way to reach a foreign
+    directory at all, so every invocation the carve-out existed for necessarily contained the
+    construct that disabled it — mt#3788's Acceptance Test 1 was unmet by what merged. So when the
+    FIRST segment is exactly `cd <literal-path>` and nothing relocates again, the scope is
+    classified against THAT path instead of `input.cwd`. It returns null — keeping the veto — for a
+    variable, a substitution, a glob, a `~`, a `cd` with flags, a `cd` that is not first, a second
+    relocation, or any subshell. The resolved path is only a CANDIDATE: `classifyRepoScope` still
+    has to find a real repo root there, so a `cd` into a nonexistent or non-repo directory lands on
+    `indeterminate` and denies.
+
+  Both remain deliberately conservative — a false veto costs a denial, which is the safe direction.
 
 Originating incident: a throwaway git repo in the agent scratchpad, created to reproduce a bun
 `--changed` defect in isolation for mt#3562, could not be seeded because `git add` was denied at a

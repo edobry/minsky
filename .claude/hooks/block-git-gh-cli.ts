@@ -141,27 +141,92 @@ export function isMinskySessionPath(path: string): boolean {
  * POSSIBLE. Detection is deliberately over-broad: a false hit costs the
  * pre-mt#3788 behavior (a denial), which is the safe direction.
  */
+/** Does THIS segment, on its own, move the working directory? */
+function segmentRelocates(segment: string): boolean {
+  const tokens = stripEnvVarAssignments(segment.split(/\s+/).filter((t) => t.length > 0));
+  if (tokens.length === 0) return false;
+  const [binary, ...rest] = tokens;
+  if (binary === "cd" || binary === "pushd" || binary === "popd" || binary === "chdir") return true;
+  // `env -C <dir> …` and a nested shell running an arbitrary script.
+  if (binary === "env" && rest.some((a) => a === "-C" || a.startsWith("--chdir"))) return true;
+  if (
+    (binary === "sh" || binary === "bash" || binary === "zsh" || binary === "dash") &&
+    rest.includes("-c")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function commandMayRelocateCwd(command: string): boolean {
   // Subshells and command substitution can carry a `cd` we never tokenize.
   if (/[`(]/.test(command)) return true;
+  return splitOnShellOperators(command).some(segmentRelocates);
+}
 
-  for (const segment of splitOnShellOperators(command)) {
-    const tokens = stripEnvVarAssignments(segment.split(/\s+/).filter((t) => t.length > 0));
-    if (tokens.length === 0) continue;
-    const [binary, ...rest] = tokens;
-    if (binary === "cd" || binary === "pushd" || binary === "popd" || binary === "chdir") {
-      return true;
-    }
-    // `env -C <dir> …` and a nested shell running an arbitrary script.
-    if (binary === "env" && rest.some((a) => a === "-C" || a.startsWith("--chdir"))) return true;
-    if (
-      (binary === "sh" || binary === "bash" || binary === "zsh" || binary === "dash") &&
-      rest.includes("-c")
-    ) {
-      return true;
-    }
-  }
-  return false;
+/**
+ * A path argument this hook can resolve WITHOUT running a shell: no variable
+ * expansion, no command substitution, no glob, no `~` (whose expansion depends
+ * on the invoking user's environment, which the hook does not model).
+ *
+ * Anything outside that set returns false and the caller falls back to the
+ * relocation veto — the narrowness is the point, not a limitation to grow out
+ * of casually.
+ */
+export function isLiterallyResolvablePath(token: string): boolean {
+  if (token.length === 0) return false;
+  return !/[$`~*?[\]{}]/.test(token);
+}
+
+/**
+ * Resolve the directory a command relocates to, for the ONE shape this hook can
+ * read with certainty: a command whose FIRST segment is exactly
+ * `cd <literal-path>` and which relocates nowhere else.
+ *
+ * mt#3798: mt#3788 shipped a carve-out for git commands in repositories Minsky
+ * does not manage, and PR #2685 R2 then correctly vetoed it whenever a command
+ * could relocate — because the scope was computed once from `input.cwd`. But in
+ * the Bash tool `cd` is the ONLY way to reach a foreign directory at all, so
+ * every invocation the carve-out was built for necessarily contained the
+ * construct that disabled it. The carve-out could never fire; mt#3788's own
+ * Acceptance Test 1 was unmet by what merged.
+ *
+ * This resolves the target instead of guessing, for the narrow decidable case,
+ * and leaves the veto untouched everywhere else. Returns null — meaning "keep
+ * the veto" — for a variable, a substitution, a glob, a `~`, a second
+ * relocation later in the command, or any subshell.
+ *
+ * A relative target resolves against `baseCwd`; the RESULT is only a candidate
+ * path, and `classifyRepoScope` still has to find a real repo root there, so a
+ * `cd` to a nonexistent or non-repo directory lands on `indeterminate` and
+ * denies.
+ */
+export function resolveLeadingCdTarget(
+  command: string,
+  baseCwd: string | undefined
+): string | null {
+  if (!baseCwd) return null;
+  // A subshell or substitution anywhere means the tokenization is unreliable.
+  if (/[`(]/.test(command)) return null;
+
+  const segments = splitOnShellOperators(command);
+  const firstSegment = segments[0];
+  // Need the leading `cd` AND at least one command after it to scope.
+  if (segments.length < 2 || firstSegment === undefined) return null;
+
+  const firstTokens = stripEnvVarAssignments(firstSegment.split(/\s+/).filter((t) => t.length > 0));
+  const targetToken = firstTokens[1];
+  // Exactly `cd <one-arg>` — a flagged form (`cd -P …`) is not this shape.
+  if (firstTokens.length !== 2 || firstTokens[0] !== "cd" || targetToken === undefined) return null;
+
+  // Nothing AFTER the leading cd may relocate again, or the target is stale by
+  // the time the git command runs.
+  if (segments.slice(1).some(segmentRelocates)) return null;
+
+  const target = stripSurroundingQuotes(targetToken);
+  if (!isLiterallyResolvablePath(target)) return null;
+
+  return resolve(baseCwd, target);
 }
 
 /**
@@ -965,10 +1030,17 @@ if (import.meta.main) {
   // The scope is resolved ONCE from the reported cwd, so it only describes
   // where a git command actually runs when nothing in the command relocates
   // first (PR #2685 R2) — hence the `commandMayRelocateCwd` veto.
-  const scope =
-    context === "bash" && !commandMayRelocateCwd(command)
-      ? classifyRepoScope(input.cwd)
-      : "session";
+  //
+  // mt#3798: `cd` is the only way to reach a foreign directory from the Bash
+  // tool, so vetoing on relocation alone made the carve-out unreachable. When
+  // the leading `cd` target is literally resolvable, classify THAT directory;
+  // otherwise the veto stands.
+  const scope: RepoScope = ((): RepoScope => {
+    if (context !== "bash") return "session";
+    const cdTarget = resolveLeadingCdTarget(command, input.cwd);
+    if (cdTarget !== null) return classifyRepoScope(cdTarget);
+    return commandMayRelocateCwd(command) ? "session" : classifyRepoScope(input.cwd);
+  })();
 
   for (const parsed of parsedCommands) {
     if (scope === "external" && isCwdScopedInvocation(parsed)) {
