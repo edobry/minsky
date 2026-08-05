@@ -44,6 +44,30 @@ Additional standalone hooks beyond the original two subsystems (e.g.,
 `transcript-ingest-on-session-end.ts`) are documented in their own sections
 below; the guard/detector hooks live in `.minsky/rules/hook-files.mdc`.
 
+### Verifying dispatcher behavior end to end (mt#3756)
+
+**Do not register fixture guards into the live dispatcher to test it.** Use
+`scripts/run-dispatcher-scenario.ts`, which runs the real `runDispatcher`
+against synthetic registrations inside an isolated `MINSKY_STATE_DIR` /
+`CLAUDE_PROJECT_DIR`.
+
+This exists because the obvious alternatives each fail in a specific way:
+
+- **A unit test in `dispatcher.test.ts`** injects `recordFireLogFn` and
+  `resolveDispatchContextFn`, so it never exercises the real fire-log writer or
+  the real context resolution. Correct for a unit test; useless for the
+  questions that need the real path.
+- **Hand-rolling a harness against the live dispatcher** writes into the
+  operator's production `fire-log.jsonl` and — if any fixture guard is
+  `denyCapable` — runs an unreviewed deny against the operator's real tool
+  calls. This happened three times in one day on 2026-08-03 (mt#3756) before
+  the harness existed.
+
+Add a scenario to that script rather than writing a new harness; two ship with
+it, covering `updatedInput` precedence (mt#3612) and audit-line/deny
+interaction (mt#3625). `scripts/audit-fire-log.ts` is the read-side check that
+catches fixture names reaching the real log.
+
 ## `session-start.ts`
 
 ### Interface
