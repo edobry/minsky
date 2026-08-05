@@ -455,7 +455,7 @@ async function enumerateTrivialCorpus(octokit: Octokit): Promise<TrivialCorpusRe
     const maxPages = 5;
 
     while (candidates.length < 20 && pagesFetched < maxPages) {
-      const response = await octokit.graphql<GraphqlResponse>(graphqlQuery, {
+      const response: GraphqlResponse = await octokit.graphql<GraphqlResponse>(graphqlQuery, {
         owner: OWNER,
         repo: REPO,
         cursor,
