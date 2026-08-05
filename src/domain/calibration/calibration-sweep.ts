@@ -1438,6 +1438,14 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     const passthrough = (record as SharedCalibrationFields).detectorFields;
     if (passthrough) {
       for (const [key, value] of Object.entries(passthrough)) {
+        // NON_EVIDENCE_KEYS applies on BOTH levels (PR #2679 R1). The top-level
+        // check alone is not enough, and for a NEW bookkeeping key it is not
+        // even the path that runs: `parseDetectorFields` treats every key no
+        // per-kind branch named as passthrough, so a key like `captureSchema`
+        // reaches this loop rather than the one above — for every log at once.
+        // Excluding it in only one place would have left the marker counted as
+        // evidence everywhere it actually appears.
+        if (NON_EVIDENCE_KEYS.has(key)) continue;
         if (isVacuousEvidence(value)) continue;
         fields.add(`detectorFields.${key}`);
       }

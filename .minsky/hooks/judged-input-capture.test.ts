@@ -313,6 +313,34 @@ describe("the marker is bookkeeping, not evidence", () => {
     expect(withCapture.verdict).toBe("classifiable");
     expect(withCapture.evidenceFields).toContain("judgedPrBody");
   });
+
+  // PR #2679 R1. The top-level exclusion above is not the path that actually
+  // runs for this marker: `parseDetectorFields` treats every key no per-kind
+  // branch named as passthrough, and `captureSchema` is named by none of them,
+  // so a parsed record carries it under `detectorFields` — for every log.
+  it("is excluded on the detectorFields path too, which is where it really lands", () => {
+    const nested = assessClassifiability([
+      {
+        timestamp: "2026-08-05T00:00:00.000Z",
+        session_id: "s1",
+        detectorFields: { captureSchema: CAPTURE_SCHEMA_VERSION },
+      } as unknown as Parameters<typeof assessClassifiability>[0][number],
+    ]);
+    expect(nested.verdict).toBe("not-classifiable");
+    expect(nested.evidenceFields).toEqual([]);
+
+    // A real passthrough field beside it still counts — the exclusion is
+    // keyed to the marker, not a blanket suppression of the nested level.
+    const nestedWithEvidence = assessClassifiability([
+      {
+        timestamp: "2026-08-05T00:00:00.000Z",
+        session_id: "s1",
+        detectorFields: { captureSchema: CAPTURE_SCHEMA_VERSION, wordCount: 412 },
+      } as unknown as Parameters<typeof assessClassifiability>[0][number],
+    ]);
+    expect(nestedWithEvidence.verdict).toBe("classifiable");
+    expect(nestedWithEvidence.evidenceFields).toEqual(["detectorFields.wordCount"]);
+  });
 });
 
 describe("ask-routing-deferral context capture (ask#7052)", () => {
