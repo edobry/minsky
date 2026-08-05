@@ -636,6 +636,48 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
+    name: "duplicate-signature-scan",
+    // `advisory`: unlike its sibling above — where the record is either present
+    // or it is not — this guard's token SELECTION is a heuristic with a real
+    // false-positive surface, and the calibration log exists to size it.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-signature-scan").then((m) => ({ run: m.run })),
+    // MUST stay above the module's SCAN_TIMEOUT_MS (15s), so the guard's OWN
+    // deadline is what fires: that path returns a recorded `skipped` calibration
+    // outcome, whereas a dispatcher kill records nothing and a sustained infra
+    // outage would then read as a clean pass. This was 8000 against a 5s scan
+    // and stayed 8000 when the scan's deadline was re-based to 15s on
+    // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
+    // margin over the scan and sits under the 30s per-hook-entry cap that
+    // `.claude/settings.json` sets for `mcp__minsky__tasks_create`.
+    timeoutMs: 18000,
+    calibrationLog: "duplicate-signature-scan",
+    // NEVER denies — the deny half of this concern is the sibling above, which
+    // is deliberately zero-false-positive. See this module's `run()` doc.
+    denyCapable: false,
+    // MEASURED against the worst-case canary below, not estimated: the message
+    // is bounded by MAX_REPORTED_MATCHES (5) x one 200-char excerpt plus a
+    // ~380-char header/footer, which renders at ~1.7KB. 2000 leaves headroom
+    // without widening the merged-context budget more than the shape needs.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 1 },
+    // The scan needs a live database, which a canary process does not have, so
+    // the healthy canary outcome is a RECORDED skip — `calibration`, not
+    // `warn`. That is the honest assertion for this guard: it verifies the
+    // module loads, reads its input, and reports rather than throwing.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "GET /api/canary signature scan",
+          spec: "## Summary\n\nA spec citing `src/cockpit/routes/sweeps.test.ts`.\n\nDuplicate check: no candidates found.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
     name: "block-secret-file-read",
     // `invariant`: the set of files whose content is credential material is not
     // an operator preference to tune. Widening the path list is a code change
@@ -2116,6 +2158,16 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // one for a constructed session path, one for a secret-bearing file read.
   // Independent checks, independent overrides; running both is the point.
   ["check-guessed-session-path", "block-secret-file-read"],
+  // Both inspect a `tasks_create` spec, at DIFFERENT tiers of the same concern
+  // (mt#3722). The first asks whether a duplicate check was RECORDED and denies
+  // when it was not — a literal-form presence test with no false-positive
+  // surface, which is why it can deny. The second asks whether that record's
+  // verdicts are TRUE, using heuristic token selection, and only ever warns.
+  // Deliberately NOT folded into one guard: a single registration would put the
+  // denying check and the calibration-first one behind one `denyCapable` flag,
+  // one attentionCost budget and one canary, making the deny path's
+  // zero-false-positive character depend on the scan's unmeasured one.
+  ["require-duplicate-check-record", "duplicate-signature-scan"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
