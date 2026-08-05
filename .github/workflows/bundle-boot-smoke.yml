@@ -83,9 +83,23 @@ jobs:
       - name: Boot via the installed-CLI shim
         run: |
           set -euo pipefail
-          VERSION=$(bun scripts/cli-entry.ts --version)
+          # `set -e` already fails the step if the shim exits non-zero, which is
+          # the crash this gate exists for. The parsing below is for the quieter
+          # failure: a shim that exits 0 having printed something that is not a
+          # version.
+          #
+          # Take the LAST line rather than the whole capture. The shim rebuilds
+          # when `dist/.build-stamp` does not match HEAD — which is always, here,
+          # since `bun run build` above does not write the stamp — and that build
+          # log goes to stdout ahead of the CLI's own output. (PR #2646 R1)
+          OUTPUT=$(bun scripts/cli-entry.ts --version)
+          VERSION=$(printf '%s\n' "$OUTPUT" | tail -n 1)
           echo "cli-entry reported: $VERSION"
-          test -n "$VERSION" || { echo "::error::scripts/cli-entry.ts produced no version output (mt#3735 regression)"; exit 1; }
+          printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' || {
+            echo "::error::scripts/cli-entry.ts did not print a version (mt#3735 regression). Full output follows:"
+            printf '%s\n' "$OUTPUT"
+            exit 1
+          }
 
       - name: Boot bundled binary and probe /health
         run: |
