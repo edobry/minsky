@@ -38,6 +38,7 @@ import {
   OVERRIDE_ENV_VAR,
   TRAILING_WINDOW_TURNS,
   RESEARCH_TOOL_NAMES,
+  SESSION_VERDICT_DEDUPE_KEY,
   SUPPRESSION_PROPAGATION_IN_WINDOW,
   run,
 } from "./knowledge-acquisition-detector";
@@ -114,6 +115,12 @@ const FAKE_HOOK_INPUT: ClaudeHookInput = {
 
 /** The real, on-disk skill this file's originating-incident replay tests exercise. */
 const ENGINEERING_WRITING_SKILL = "engineering-writing";
+
+/** The opening prompt every fixture session starts from. */
+const OPENING_PROMPT = "please write an essay about AI writing tells";
+
+/** The canonical propagation call — the destination a captured acquisition lands in. */
+const MEMORY_CREATE_TOOL = "mcp__minsky__memory_create";
 
 // ---------------------------------------------------------------------------
 // extractFrontmatterDescription
@@ -210,7 +217,7 @@ describe("detectKnowledgeAcquisition", () => {
     learnSkillInFillerIndex?: number;
   }): TranscriptLine[] {
     const lines: TranscriptLine[] = [
-      userPromptLine("please write an essay about AI writing tells"),
+      userPromptLine(OPENING_PROMPT),
       skillLoadLine(SKILL),
       userPromptLine("go ahead and research it"),
       assistantLine([
@@ -276,7 +283,7 @@ describe("detectKnowledgeAcquisition", () => {
   test("mt#3617: a suppressed (propagation-in-window) record carries the hits too", () => {
     const lines = buildLines({
       fillerTurns: TRAILING_WINDOW_TURNS,
-      propagationToolName: "mcp__minsky__memory_create",
+      propagationToolName: MEMORY_CREATE_TOOL,
       propagationInFillerIndex: 0,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
@@ -301,7 +308,7 @@ describe("detectKnowledgeAcquisition", () => {
   test("suppressed (true negative): memory_create in the trailing window", () => {
     const lines = buildLines({
       fillerTurns: TRAILING_WINDOW_TURNS,
-      propagationToolName: "mcp__minsky__memory_create",
+      propagationToolName: MEMORY_CREATE_TOOL,
       propagationInFillerIndex: 1,
     });
     const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
@@ -407,11 +414,14 @@ describe("detectKnowledgeAcquisition", () => {
     expect(detection).toBeNull();
   });
 
-  test("dedupe: an already-logged occurrence never re-fires", () => {
+  test("dedupe (mt#3720): a session that already recorded a verdict never re-fires", () => {
     const lines = buildLines({ fillerTurns: TRAILING_WINDOW_TURNS });
-    // Research WebSearch tool_use is the 4th line (index 3) in buildLines' fixed prefix.
-    const dedupeKey = "3:WebSearch";
-    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set([dedupeKey]));
+    const detection = detectKnowledgeAcquisition(
+      lines,
+      [SKILL],
+      KEYWORDS,
+      new Set([SESSION_VERDICT_DEDUPE_KEY])
+    );
     expect(detection).toBeNull();
   });
 
@@ -434,6 +444,201 @@ describe("detectKnowledgeAcquisition", () => {
     expect(RESEARCH_TOOL_NAMES).toContain("WebFetch");
     expect(RESEARCH_TOOL_NAMES).toContain("mcp__minsky__knowledge_fetch");
     expect(RESEARCH_TOOL_NAMES).toContain("mcp__minsky__knowledge_search");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session-grain verdict (mt#3720)
+//
+// The block above uses single-occurrence fixtures, where session grain and the
+// old per-occurrence grain coincide. These tests cover what only session grain
+// can express: multiple research calls in one session, a propagation that lands
+// far beyond the grace period, and the once-per-session record bound.
+// ---------------------------------------------------------------------------
+
+describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
+  const SKILL = ENGINEERING_WRITING_SKILL;
+  const KEYWORDS = new Map<string, string[]>([[SKILL, ["argumentative", "prose"]]]);
+
+  type SessionEvent = "research" | "propagate" | "filler";
+
+  /**
+   * Builds a session transcript: the skill loads first, then one turn per entry
+   * in `events`, then a final real user prompt. Every entry is its own turn, so
+   * the count of entries after an event is also the count of turn boundaries
+   * after it.
+   */
+  function buildSession(events: SessionEvent[]): TranscriptLine[] {
+    const lines: TranscriptLine[] = [userPromptLine(OPENING_PROMPT), skillLoadLine(SKILL)];
+    events.forEach((event, i) => {
+      lines.push(userPromptLine(`turn ${i}`));
+      if (event === "research") {
+        lines.push(
+          assistantLine([toolUseBlock("WebSearch", { query: `argumentative prose pass ${i}` })])
+        );
+      } else if (event === "propagate") {
+        lines.push(assistantLine([toolUseBlock(MEMORY_CREATE_TOOL, {})]));
+      } else {
+        lines.push(assistantLine([textBlock(`filler ${i}`)]));
+      }
+    });
+    lines.push(userPromptLine("current turn"));
+    return lines;
+  }
+
+  const filler = (n: number): SessionEvent[] => Array.from({ length: n }, () => "filler" as const);
+
+  test("AT1: research early, the durable write ~18 turns later -> propagated, not a miss", () => {
+    // The originating false-positive shape (session aecd65f4, ask#6891): the
+    // save lands FAR beyond the 5-turn grace. v1 judged the research call the
+    // moment grace elapsed — 13 turns before this memory_create existed — and
+    // its per-occurrence dedupe made that wrong verdict permanent.
+    const lines = buildSession(["research", ...filler(18), "propagate", ...filler(2)]);
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+    expect(detection).not.toBeNull();
+    expect(detection?.result.hadPropagation).toBe(true);
+    expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    expect(detection?.dedupeKey).toBe(SESSION_VERDICT_DEDUPE_KEY);
+  });
+
+  test("AT2: research with no propagation records exactly one verdict per session", () => {
+    const lines = buildSession(["research", ...filler(6)]);
+
+    const first = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(first).not.toBeNull();
+    expect(first?.result.hadPropagation).toBe(false);
+    expect(first?.suppressionReasons).toEqual([]);
+    expect(first?.dedupeKey).toBe(SESSION_VERDICT_DEDUPE_KEY);
+
+    // A later Stop invocation on the same session, with that verdict now in the
+    // log. Asserting the second call is silent is what makes "exactly once" a
+    // tested invariant rather than an assumption about how often Stop fires.
+    const second = detectKnowledgeAcquisition(
+      lines,
+      [SKILL],
+      KEYWORDS,
+      new Set([SESSION_VERDICT_DEDUPE_KEY])
+    );
+    expect(second).toBeNull();
+  });
+
+  test("AT3: six research calls in one session collapse to a single verdict", () => {
+    // The `aecd65f4` cluster's shape: repeated research, one eventual save. v1
+    // keyed dedupe per occurrence, so each of these fired independently.
+    const lines = buildSession([
+      "research",
+      "research",
+      "research",
+      "research",
+      "research",
+      "research",
+      ...filler(12),
+      "propagate",
+      ...filler(2),
+    ]);
+
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+    expect(detection?.dedupeKey).toBe(SESSION_VERDICT_DEDUPE_KEY);
+    expect(detection?.result.hadPropagation).toBe(true);
+    expect(
+      detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set([SESSION_VERDICT_DEDUPE_KEY]))
+    ).toBeNull();
+  });
+
+  test("one uncaptured occurrence makes the whole session's verdict a miss", () => {
+    // The propagation sits BETWEEN the two research calls, so the first is
+    // captured and the second never is. The session's purpose is catching
+    // knowledge that was never captured anywhere, so this is a miss.
+    const lines = buildSession(["research", "propagate", "research", ...filler(6)]);
+    const detection = detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+    expect(detection?.result.hadPropagation).toBe(false);
+    expect(detection?.suppressionReasons).toEqual([]);
+  });
+
+  test("the grace period runs against the LATEST matched occurrence, not the first", () => {
+    // The first research call's own grace elapsed long ago; the second's has
+    // not, so the session is not yet eligible and nothing is recorded. This is
+    // the clock-extension that stops a still-working session being judged.
+    const lines = buildSession(["research", ...filler(10), "research", "filler"]);
+    expect(detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set())).toBeNull();
+  });
+
+  // Stop fires once per TURN, so the detector sees a GROWING transcript, not
+  // the finished one. These two tests pin what that costs — the residual this
+  // re-grain accepts rather than removes, and the reason mt#3740 exists. The
+  // first asserts the CURRENT wrong behavior deliberately: mt#3740 must invert
+  // it, not delete it.
+  test("known limitation: a miss recorded before a late propagation stays permanent", () => {
+    const full: SessionEvent[] = ["research", ...filler(18), "propagate", ...filler(2)];
+
+    // Stop invocation at turn ~8: grace has elapsed, the save does not exist
+    // yet, so the session records a miss and burns its one dedupe key.
+    const early = detectKnowledgeAcquisition(
+      buildSession(full.slice(0, 8)),
+      [SKILL],
+      KEYWORDS,
+      new Set()
+    );
+    expect(early?.result.hadPropagation).toBe(false);
+    expect(early?.suppressionReasons).toEqual([]);
+
+    // A later Stop invocation, now seeing the memory_create. The verdict it
+    // would produce is correct — but the burned key means it is never recorded,
+    // so the log keeps the earlier wrong answer.
+    const late = detectKnowledgeAcquisition(
+      buildSession(full),
+      [SKILL],
+      KEYWORDS,
+      new Set([SESSION_VERDICT_DEDUPE_KEY])
+    );
+    expect(late).toBeNull();
+  });
+
+  test("a session that goes quiet before propagating is still bounded to ONE record", () => {
+    // The bound is what this re-grain buys unconditionally: whatever the
+    // verdict's accuracy, the 13-records-from-one-session shape cannot recur.
+    const full: SessionEvent[] = ["research", "research", "research", ...filler(9)];
+    const logged = new Set<string>();
+    let records = 0;
+
+    for (let turn = 6; turn <= full.length; turn++) {
+      const detection = detectKnowledgeAcquisition(
+        buildSession(full.slice(0, turn)),
+        [SKILL],
+        KEYWORDS,
+        logged
+      );
+      if (detection) {
+        records++;
+        logged.add(detection.dedupeKey);
+      }
+    }
+
+    expect(records).toBe(1);
+  });
+
+  test("mt#3207 census semantics survive the re-grain: both verdicts emit a record", () => {
+    const missed = detectKnowledgeAcquisition(
+      buildSession(["research", ...filler(6)]),
+      [SKILL],
+      KEYWORDS,
+      new Set()
+    );
+    const propagated = detectKnowledgeAcquisition(
+      buildSession(["research", ...filler(6), "propagate", ...filler(2)]),
+      [SKILL],
+      KEYWORDS,
+      new Set()
+    );
+
+    // Both paths emit — the propagation RATE stays measurable from the log
+    // alone, which a miss-only record shape would regress.
+    expect(missed?.result.hadPropagation).toBe(false);
+    expect(missed?.suppressionReasons).toEqual([]);
+    expect(propagated?.result.hadPropagation).toBe(true);
+    expect(propagated?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
   });
 });
 
@@ -515,7 +720,7 @@ describe("run() against the real engineering-writing skill (mt#2708 originating-
   test("tool-interleaved fixture (research -> tool_result[user-role] -> assistant text -> real prompt) produces a match", () => {
     const lines: TranscriptLine[] = [
       // Turn 0: skill loaded.
-      userPromptLine("please write an essay about AI writing tells"),
+      userPromptLine(OPENING_PROMPT),
       skillLoadLine(ENGINEERING_WRITING_SKILL),
       // Turn 1: research call, tool_result interleaved (the mandatory shape),
       // then assistant follow-up TEXT in the SAME turn.
