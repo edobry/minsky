@@ -151,8 +151,25 @@ const NEGATIVE_CONTROL_HEADING =
  */
 const LABEL_PREFIX_MAX_CHARS = 24;
 
+/**
+ * What may sit between the start of the line and the phrase (PR #2680 R1).
+ *
+ * Two shapes only, because a bare whitespace separator admitted ordinary prose:
+ * `Consider a negative control: maybe later` and `TODO add negative control`
+ * both matched, which is the dangerous direction — recording a control that
+ * does not exist.
+ *
+ *   - a STRUCTURAL separator: `AT4:`, `sc3 —`, `Step 2 —`, `(3)`
+ *   - a SINGLE bare token: `sc2/sc3 `, `sc3 ` — one word, no spaces inside, so
+ *     `Consider a ` and `I ran a ` cannot qualify
+ *
+ * A criterion reference is a token or a token plus a separator. A sentence is
+ * neither.
+ */
+const LABEL_PREFIX = `(?:[^\\s\\n]{1,${LABEL_PREFIX_MAX_CHARS}}\\s+|[^\\n]{0,${LABEL_PREFIX_MAX_CHARS}}?[:—–)]\\s*)`;
+
 const NEGATIVE_CONTROL_LABEL = new RegExp(
-  `^ {0,3}(?:[^\\n]{0,${LABEL_PREFIX_MAX_CHARS}}?[\\s:—–)]\\s*)?(?:negative control|failing[- ]first(?:\\s+run)?)\\b([^:\\n]*?)(?::|\\s[—–]\\s)(.*)$`,
+  `^ {0,3}(?:${LABEL_PREFIX})?(?:negative control|failing[- ]first(?:\\s+run)?)\\b([^:\\n]*?)(?::|\\s[—–]\\s)(.*)$`,
   "i"
 );
 
@@ -172,8 +189,19 @@ const NEGATIVE_CONTROL_LABEL = new RegExp(
  * record, which is what keeps this from becoming a way to claim a control by
  * writing its name.
  */
+/**
+ * Inline content that ASSERTS ABSENCE rather than describing a run (PR #2680 R1).
+ *
+ * Anchored to the whole trimmed content, not a substring search: `none` alone
+ * means no control, while `none of the three retries fired` is a real
+ * description of what failed. Matching the former and not the latter is the
+ * entire distinction.
+ */
+const ABSENCE_ONLY_CONTENT =
+  /^(?:none|n\/?a|nil|no|not\s+run|not\s+applicable|skipped?|omitted|absent|todo|tbd|pending)\b(?:\s+(?:recorded|needed|required|applicable|available|yet|here|this\s+time))?[\s.!—–-]*$/i;
+
 const NEGATIVE_CONTROL_PREFIXED_LABEL = new RegExp(
-  `^ {0,3}[^\\n]{1,${LABEL_PREFIX_MAX_CHARS}}?[\\s:—–)]\\s*(?:negative control|failing[- ]first(?:\\s+run)?)\\b[.:]?\\s*$`,
+  `^ {0,3}${LABEL_PREFIX}(?:negative control|failing[- ]first(?:\\s+run)?)\\b[.:]?\\s*$`,
   "i"
 );
 
@@ -266,7 +294,17 @@ export function hasNegativeControlEvidence(text: string): boolean {
     if (/\b(no|not|without|missing|skipped?|lacks?|omitted)\b/.test(beforeMarker)) continue;
 
     const inlineContent = (labelMatch?.[2] ?? "").trim();
-    if (inlineContent.length > 0) return true;
+    // The inline content must SAY something, not say there is nothing (PR #2680
+    // R1). The guard above reads only the text BEFORE the phrase, so it catches
+    // `No negative control: …` and misses `Negative control: none` — the same
+    // claim with the negation on the other side of the delimiter. This hole
+    // predates the prefix work; it is fixed here because it is the same class,
+    // and because an absence marker recorded as a present control is precisely
+    // the reading this whole check exists to prevent.
+    if (inlineContent.length > 0) {
+      if (ABSENCE_ONLY_CONTENT.test(inlineContent)) continue;
+      return true;
+    }
 
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
