@@ -290,6 +290,7 @@ describe("buildInjectedBugCorpusRows", () => {
     const offByOne = rows.find((r) => r.id === "injected-off-by-one");
     const catalogEntry = BUG_CATALOG.find((b) => b.name === "off-by-one");
     expect(catalogEntry).toBeDefined();
-    expect(offByOne?.finding.line).toBe(catalogEntry?.injectedLine);
+    if (!catalogEntry) throw new Error("off-by-one missing from BUG_CATALOG");
+    expect(offByOne?.finding.line).toBe(catalogEntry.injectedLine);
   });
 });

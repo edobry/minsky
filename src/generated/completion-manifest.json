@@ -4790,7 +4790,7 @@
               "subcommands": [
                 {
                   "name": "credentials.list",
-                  "description": "List configured credentials (values never displayed)",
+                  "description": "List credential entries: managed providers plus schema-defined AI provider keys (presence only, values never displayed). Use `ai providers list` for AI provider status.",
                   "options": [
                     {
                       "flags": ["--json"],
@@ -5007,6 +5007,10 @@
               "flags": ["--model"],
               "description": "Model to use for fast-apply",
               "takesValue": true
+            },
+            {
+              "flags": ["--allow-shrink"],
+              "description": "Override the collapse guard, which refuses a fast-apply result dramatically smaller than the original file. Set true only when the large deletion is intentional."
             },
             {
               "flags": ["--dry-run"],
