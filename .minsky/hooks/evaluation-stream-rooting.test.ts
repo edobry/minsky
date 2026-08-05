@@ -14,6 +14,7 @@ import {
   readEvaluationLogText as readSilentStretch,
 } from "./silent-stretch-detector";
 import { appendEvaluationRecord as appendStopAtDecision } from "./stop-at-decision-scan";
+import { appendEvaluationRecord as appendOperatorDeferral } from "./operator-deferral-detector";
 
 /**
  * mt#3745 — per-DETECTOR rooting, not just the shared helper.
@@ -80,6 +81,12 @@ const DETECTORS: ReadonlyArray<{
     label: "stop-at-decision",
     streamFile: "stop-at-decision-evaluations.jsonl",
     append: appendStopAtDecision,
+  },
+  // mt#3782 — the fourth writer, missed by mt#3745's enumeration.
+  {
+    label: "operator-deferral",
+    streamFile: "operator-deferral-evaluations.jsonl",
+    append: appendOperatorDeferral,
   },
 ];
 
