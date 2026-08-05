@@ -140,6 +140,35 @@ describe("findMatchingReview — standing verdict resolution (mt#3555)", () => {
     expect(match?.state).toBe(CHANGES_REQUESTED_STATE);
   });
 
+  // PR #2655 R1: the wait path's reviewer FILTER already normalizes case
+  // (`normalizeReviewerLogin`), so mixed-case logins reach the reducer — which
+  // must not treat them as two reviewers.
+  //
+  // The discriminating direction is a RESOLVED rejection: with case-sensitive
+  // keys the reviewer splits in two, the withdrawn CHANGES_REQUESTED survives
+  // as a second "reviewer's" standing verdict, and step 2 returns it forever —
+  // stalling a merge on a verdict the reviewer has already lifted. (The
+  // opposite order is not discriminating: step 2 returns the blocking verdict
+  // either way, so the bug is masked.)
+  test("mixed-case logins from one reviewer resolve to a single standing verdict", () => {
+    const earlierRejection = mkReview({
+      reviewId: 51,
+      state: CHANGES_REQUESTED_STATE,
+      submittedAt: "2026-08-01T18:59:48Z",
+      reviewerLogin: "Minsky-Reviewer[bot]",
+      body: BLOCKING_BODY,
+    });
+    const laterApproval = mkReview({
+      reviewId: 52,
+      state: APPROVED_STATE,
+      submittedAt: "2026-08-01T19:07:55Z",
+      reviewerLogin: "minsky-reviewer[bot]",
+    });
+    const match = findMatchingReview([earlierRejection, laterApproval], SINCE, REVIEWER_BOT, HEAD);
+    expect(match?.reviewId).toBe(52);
+    expect(match?.state).toBe(APPROVED_STATE);
+  });
+
   // PR #2525's real history, read from the GitHub API: ten alternating reviews
   // from one reviewer between 18:37Z and 19:30Z. The standing verdict at the
   // end of that sequence is the final APPROVED.

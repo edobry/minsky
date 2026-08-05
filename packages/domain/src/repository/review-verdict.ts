@@ -73,11 +73,21 @@ function isAtOrAfter<T>(candidate: T, incumbent: T, fields: ReviewVerdictFields<
  * CHANGES_REQUESTED (re-rejected). An interleaved COMMENTED does not supersede
  * either.
  *
- * Behavior notes (preserved verbatim from the mt#1830 implementation this
- * generalizes, since `getPullRequestApprovalStatus` still depends on them):
+ * Behavior notes (carried over from the mt#1830 implementation this
+ * generalizes, since `getPullRequestApprovalStatus` still depends on them —
+ * except the login-casing bullet, which corrects it on both paths):
  *   - Non-decision-bearing states are filtered out BEFORE the reduction; they
  *     never appear in the output.
  *   - Reviews with no reviewer login are dropped — there is no key to reduce on.
+ *   - Logins are keyed case-INSENSITIVELY (PR #2655 R1). GitHub logins are
+ *     case-insensitive at the platform level, so `Alice` and `alice` are one
+ *     reviewer; keying on the raw string would split their history in two and
+ *     let a superseded verdict survive as if it were a second reviewer's. The
+ *     trailing `[bot]` suffix is deliberately NOT stripped here: that is a
+ *     FILTER-side equivalence (a caller writing `minsky-reviewer` should match
+ *     `minsky-reviewer[bot]`, per `normalizeReviewerLogin` in the wait path),
+ *     not an identity rule — a human `foo` and an App `foo[bot]` are two
+ *     distinct GitHub accounts and must not collapse into one key.
  *   - On a tie (identical timestamps), the LATER entry in the input array wins,
  *     which matches `listReviews`' chronological ordering.
  *   - The result is in Map insertion order, i.e. arbitrary. Callers needing a
@@ -92,9 +102,10 @@ export function pickLatestDecisionPerReviewer<T>(
     if (!isDecisionBearing(fields.state(review))) continue;
     const login = fields.reviewerLogin(review);
     if (!login) continue;
-    const incumbent = byReviewer.get(login);
+    const key = login.toLowerCase();
+    const incumbent = byReviewer.get(key);
     if (!incumbent || isAtOrAfter(review, incumbent, fields)) {
-      byReviewer.set(login, review);
+      byReviewer.set(key, review);
     }
   }
   return Array.from(byReviewer.values());
