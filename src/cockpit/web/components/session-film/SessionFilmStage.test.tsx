@@ -14,7 +14,7 @@ import { buildKeyframes, foldAtBatchIndex, foldEvents } from "../../lib/session-
 import { groupEventsIntoBatchRows } from "../../lib/session-film-batches";
 import { computeStageLayout } from "../../lib/session-film-layout";
 import { DEFAULT_SESSION_FILM_CONFIG } from "../../lib/session-film-config";
-import { SessionFilmStage } from "./SessionFilmStage";
+import { SessionFilmStage, formatTouchTime } from "./SessionFilmStage";
 
 afterEach(() => cleanup());
 
@@ -631,5 +631,161 @@ describe("SessionFilmStage — persistent hot-label on recently-touched nodes (m
     const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
     if (!node) throw new Error("fixture node missing — test setup bug");
     expect(screen.queryByTestId(`session-film-hot-label-${node.id}`)).toBeNull();
+  });
+});
+
+// ── mt#3793: the detail panel as an INSPECTOR ────────────────────────────────
+//
+// Before this, the panel showed three fields — the raw id, the realm, and the
+// fold's single latest verb — and linked only minsky-substrate targets. It was
+// built (mt#3231 SC 6) to prove the click fired, and it proved that and nothing
+// else. These pin what it now answers.
+
+describe("SessionFilmStage — entity inspector panel (mt#3793)", () => {
+  function openPanelFor(entityId: string, events: SemanticEvent[], props = {}) {
+    const rows = groupEventsIntoBatchRows(events);
+    const { world, layout } = buildFixture(events);
+    render(
+      <SessionFilmStage
+        layout={layout}
+        world={world}
+        reducedMotion={false}
+        events={events}
+        batchRows={rows}
+        {...props}
+      />
+    );
+    const node = layout.nodes.find((n) => n.entityId === entityId);
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    return screen.getByTestId("session-film-entity-detail-panel");
+  }
+
+  test("lists one line per action on the entity, not just the latest verb", () => {
+    const events = [
+      ev({ target: { realm: "repo", id: "file:workspace:foo.ts" }, verb: "read" }),
+      ev({ target: { realm: "repo", id: "file:workspace:bar.ts" }, verb: "read" }),
+      ev({ target: { realm: "repo", id: "file:workspace:foo.ts" }, verb: "write" }),
+    ];
+    openPanelFor("file:workspace:foo.ts", events);
+
+    const history = screen.getByTestId("session-film-entity-history");
+    expect(history.textContent).toContain("Read");
+    expect(history.textContent).toContain("Write");
+    // The OTHER file's action must not appear on this entity's history.
+    expect(history.querySelectorAll("button, div").length).toBeGreaterThan(0);
+    expect(history.textContent).not.toContain("bar.ts");
+  });
+
+  test("shows the touch count from the fold", () => {
+    const events = [
+      ev({ target: { realm: "repo", id: "file:workspace:foo.ts" } }),
+      ev({ target: { realm: "repo", id: "file:workspace:foo.ts" } }),
+    ];
+    const panel = openPanelFor("file:workspace:foo.ts", events);
+    expect(panel.textContent).toContain("touched 2 times");
+  });
+
+  test("clicking a history line seeks to that action's batch row", () => {
+    const onSeekToRow = mock((_rowIndex: number) => {});
+    const events = [
+      ev({ verb: "speak", target: { realm: "agents", id: "agents:a1" } }),
+      ev({ target: { realm: "repo", id: "file:workspace:foo.ts" }, verb: "write" }),
+    ];
+    openPanelFor("file:workspace:foo.ts", events, { onSeekToRow });
+
+    const history = screen.getByTestId("session-film-entity-history");
+    const line = history.querySelector("button");
+    if (!line) throw new Error("history line missing — test setup bug");
+    fireEvent.click(line);
+
+    // Row 1, not event index 1 — they coincide here only because each event is
+    // its own row; the row-grain assertion lives in the entity-history tests.
+    expect(onSeekToRow).toHaveBeenCalledWith(1);
+  });
+
+  test("without an onSeekToRow the history renders as static text, not dead buttons", () => {
+    const events = [ev({ target: { realm: "repo", id: "file:workspace:foo.ts" } })];
+    openPanelFor("file:workspace:foo.ts", events);
+
+    const history = screen.getByTestId("session-film-entity-history");
+    expect(history.querySelector("button")).toBeNull();
+    expect(history.textContent).toContain("Read");
+  });
+
+  test("a target with no cockpit page SAYS so, and names what it is", () => {
+    const events = [ev({ target: { realm: "repo", id: "file:workspace:foo.ts" } })];
+    const panel = openPanelFor("file:workspace:foo.ts", events);
+
+    expect(screen.getByTestId("session-film-entity-no-page")).toBeDefined();
+    expect(panel.textContent).toContain("repo file");
+    // The full identifier stays present and untruncated in the DOM.
+    expect(panel.textContent).toContain("file:workspace:foo.ts");
+  });
+
+  test("a spawn target is named a subagent kind rather than linked to a conversation", () => {
+    const events = [
+      ev({ verb: "spawn", target: { realm: "agents", id: "agents:Explore" } }),
+    ];
+    const panel = openPanelFor("agents:Explore", events);
+
+    expect(panel.textContent).toContain("subagent kind");
+    expect(panel.querySelector("a")).toBeNull();
+  });
+
+  test("with no events supplied the panel still opens, and says the history is empty", () => {
+    // The degradation path: the stage renders standalone (existing callers and
+    // tests) with no event stream, and must not blank the panel.
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+
+    const panel = screen.getByTestId("session-film-entity-detail-panel");
+    expect(panel.textContent).toContain("No recorded actions.");
+    expect(panel.textContent).toContain("touched 1 time");
+  });
+});
+
+describe("formatTouchTime (mt#3793)", () => {
+  test("renders a clock time for a valid timestamp", () => {
+    // Locale-dependent formatting, so assert the SHAPE rather than a literal:
+    // hh:mm:ss with two separators, never the raw ISO string.
+    const out = formatTouchTime("2026-08-05T14:32:07.000Z");
+    expect(out).not.toContain("2026-08-05T");
+    expect(out.split(":")).toHaveLength(3);
+  });
+
+  test("falls back to the raw value rather than rendering Invalid Date", () => {
+    expect(formatTouchTime("not-a-timestamp")).toBe("not-a-timestamp");
+  });
+});
+
+describe("SessionFilmStage — touch span (mt#3793)", () => {
+  test("the panel shows first and last touched from the fold", () => {
+    const events = [
+      ev({
+        tStart: "2026-08-05T14:00:00.000Z",
+        target: { realm: "repo", id: "file:workspace:foo.ts" },
+      }),
+      ev({
+        tStart: "2026-08-05T15:30:00.000Z",
+        target: { realm: "repo", id: "file:workspace:foo.ts" },
+      }),
+    ];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+
+    const span = screen.getByTestId("session-film-entity-touch-span");
+    const entity = world.entities.get("file:workspace:foo.ts");
+    if (!entity) throw new Error("fixture entity missing — test setup bug");
+    // Assert against the FOLD's own values, so the panel cannot drift from the
+    // source it claims to read.
+    expect(span.textContent).toContain(formatTouchTime(entity.firstTouchedAt));
+    expect(span.textContent).toContain(formatTouchTime(entity.lastTouchedAt));
   });
 });

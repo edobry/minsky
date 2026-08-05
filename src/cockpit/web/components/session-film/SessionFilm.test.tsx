@@ -14,7 +14,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import {
   SessionFilm,
   parsePlayheadParam,
@@ -503,5 +503,106 @@ describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
       expect(screen.getByText(/This conversation has no film/i)).toBeDefined();
     });
     expect(screen.queryByTestId("session-film")).toBeNull();
+  });
+});
+
+// ── mt#3793: the inspector props reach the stage ─────────────────────────────
+//
+// The stage's own tests pass `events`/`batchRows`/`onSeekToRow` directly, so
+// they prove the panel WORKS and say nothing about whether anything supplies
+// them. This is the caller direction: the film is the only production call
+// site, and a panel wired to nothing renders an empty history forever while
+// every stage test stays green.
+
+describe("SessionFilm — entity inspector wiring (mt#3793)", () => {
+  /** Three actions on ONE entity, one per row — so a history line's row index is unambiguous. */
+  function mockRepeatedTouches() {
+    const events = Array.from({ length: 3 }, (_, i) => ({
+      schemaVersion: "v0",
+      tStart: new Date(2026, 6, 24, 0, 0, i).toISOString(),
+      actor: { kind: "agent", agentSessionId: "a1" },
+      verb: i === 0 ? "read" : "write",
+      target: { realm: "minsky-substrate", id: "minsky:task:mt#3793" },
+      outcome: "ok",
+      weight: 1,
+      adapterVersion: "test",
+    }));
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/api/cockpit/session-film/events") {
+        return new Response(JSON.stringify({ events, ingestedAt: "2026-07-20T00:00:00.000Z" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+  }
+
+  function stageEntityNode(): Element {
+    const nodes = [...document.querySelectorAll('[data-testid^="session-film-node-"]')];
+    const leaf = nodes.find((n) => !(n.getAttribute("data-testid") ?? "").includes("__root__"));
+    if (!leaf) throw new Error("no entity node rendered — fixture setup bug");
+    return leaf;
+  }
+
+  test("the panel shows the entity's full history, which only the film can supply", async () => {
+    mockRepeatedTouches();
+    renderFilm(`${FILM_PATH}?t=2`);
+    await waitFor(() => expect(screen.getByTestId("session-film")).toBeDefined());
+
+    fireEvent.click(stageEntityNode());
+
+    const history = await screen.findByTestId("session-film-entity-history");
+    // Three touches -> three lines. With the props unwired this is
+    // "No recorded actions." no matter how correct the stage is.
+    expect(history.querySelectorAll("button")).toHaveLength(3);
+  });
+
+  test("clicking a history line moves the film's playhead, and the URL follows", async () => {
+    mockRepeatedTouches();
+    // A probe INSIDE the router, because MemoryRouter keeps its location in
+    // React state rather than on `window.location` — reading the global here
+    // would assert nothing (it never changes) while looking like it did.
+    function PlayheadProbe() {
+      const [params] = useSearchParams();
+      return <span data-testid="playhead-probe">{params.get("t") ?? ""}</span>;
+    }
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    render(
+      <MemoryRouter initialEntries={[`${FILM_PATH}?t=2`]}>
+        <QueryClientProvider client={queryClient}>
+          <Routes>
+            <Route
+              path="/conversation/:id/film"
+              element={
+                <>
+                  <SessionFilm conversationId={CONVERSATION_ID} />
+                  <PlayheadProbe />
+                </>
+              }
+            />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId("session-film")).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("playhead-probe").textContent).toBe("2"));
+
+    fireEvent.click(stageEntityNode());
+    const history = await screen.findByTestId("session-film-entity-history");
+    const firstLine = history.querySelector("button");
+    if (!firstLine) throw new Error("history line missing — fixture setup bug");
+
+    fireEvent.click(firstLine);
+
+    // The playhead is reflected into `?t=` by the film's own effect, so moving
+    // from 2 to 0 is evidence the seek reached the film's STATE — not merely
+    // that a click handler fired.
+    await waitFor(() => {
+      expect(screen.getByTestId("playhead-probe").textContent).toBe("0");
+    });
   });
 });
