@@ -194,6 +194,98 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
   });
 });
 
+describe("ConversationView window stability while scrolled up (mt#3736)", () => {
+  afterEach(cleanup);
+
+  /**
+   * Give the resolved scrollport real geometry, then fire a scroll so the
+   * component samples it.
+   *
+   * Targets `document.scrollingElement` for the reason
+   * `ConversationView.scroll-pinning.test.tsx` documents at length: happy-dom
+   * lays every element out at zero height, so no ancestor of the sentinel ever
+   * satisfies `scrollHeight > clientHeight` and `findScrollParent` resolves to
+   * its documented fallback. Stubbing a container instead would hang the
+   * geometry off an element the component never listens on, and every case
+   * would read as "pinned" — passing whether or not the fix works.
+   *
+   * Range is 2000 - 400 = 1600px of scroll.
+   */
+  function scrollTo(scrollTop: number): void {
+    const port = document.scrollingElement as HTMLElement;
+    Object.defineProperty(port, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(port, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(port, "scrollTop", {
+      value: scrollTop,
+      writable: true,
+      configurable: true,
+    });
+    fireEvent.scroll(port);
+  }
+
+  test("an append does not unmount the oldest rendered turn while the reader is scrolled up", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    expect(screen.getByText("turn-70 body")).toBeDefined();
+
+    // 800 is chosen to sit in the one band that isolates this behavior: more
+    // than PINNED_THRESHOLD_PX from the bottom (so the reader counts as
+    // scrolled up) and more than one viewport from the top (so no automatic
+    // reveal fires — a reveal sets an INDEX, which would hold the window still
+    // for its own reasons and mask the defect entirely).
+    scrollTo(800);
+
+    rerenderCV(syntheticSnapshot(121));
+
+    // Pre-fix, `hiddenBefore` slid 70 → 71: turn-70's DOM was removed from
+    // ABOVE the reader, and the content under them moved up by its height with
+    // no scroll event of any kind.
+    expect(screen.getByText("turn-70 body")).toBeDefined();
+    expect(screen.getByText("turn-120 body")).toBeDefined();
+    expect(hiddenAboveText()).toContain("70 earlier turns");
+  });
+
+  test("the window holds across many appends, not just one", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    scrollTo(800);
+    rerenderCV(syntheticSnapshot(160));
+    expect(screen.getByText("turn-70 body")).toBeDefined();
+    expect(hiddenAboveText()).toContain("70 earlier turns");
+  });
+
+  test("returning to the bottom releases the window back to the tail", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    scrollTo(800);
+    rerenderCV(syntheticSnapshot(160));
+    expect(hiddenAboveText()).toContain("70 earlier turns");
+
+    // 1600 of a 1600px range — exactly at the bottom. The extra turns the
+    // freeze accumulated unmount here, which is safe precisely because the
+    // reader is at the bottom: the scroll range shortens under a clamped
+    // `scrollTop` and nothing they can see moves.
+    scrollTo(1600);
+    expect(hiddenAboveText()).toContain("110 earlier turns");
+  });
+
+  test("a reader who never scrolls still gets the tail-tracking window", () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
+    rerenderCV(syntheticSnapshot(121));
+    // The render budget mt#2433 established is unchanged for the common case.
+    expect(hiddenAboveText()).toContain("71 earlier turns");
+    expect(screen.queryByText("turn-70 body")).toBeNull();
+  });
+
+  test("an explicit reveal still wins over the freeze", async () => {
+    const { rerenderCV } = renderCV(syntheticSnapshot(300));
+    scrollTo(800);
+    await clickAndSettle("show more", () => !!hiddenAboveText()?.includes("150 earlier turns"));
+    rerenderCV(syntheticSnapshot(360));
+    // `revealedFrom` is checked first, so the revealed history stays revealed
+    // rather than being pinned back to wherever the freeze happened to land.
+    expect(hiddenAboveText()).toContain("150 earlier turns");
+    expect(screen.getByText("turn-150 body")).toBeDefined();
+  });
+});
+
 describe("ConversationView thread position readout (mt#3688)", () => {
   afterEach(cleanup);
 
