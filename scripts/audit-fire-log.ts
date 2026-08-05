@@ -88,9 +88,26 @@ function main(): void {
   const derived = derivePrecommitStepNames(repoRoot);
 
   const entries = readFireLogEntries({ logPath });
+
+  // The derived set REPLACES the snapshot; it is not unioned with it.
+  // `resolveKnownGuardNames` uses `precommitNames ?? PRECOMMIT_STEP_NAMES`, so
+  // passing a derived set suppresses the snapshot entirely — which is the
+  // point: a step DELETED from pre-commit.ts must stop being "known", and a
+  // union would keep it known forever. The snapshot is a fallback for when the
+  // parse fails, not a floor under the derivation.
+  //
+  // Verified by execution, not by reading: with a synthetic pre-commit.ts
+  // declaring only `fake-derived-step`, that name resolves and the
+  // snapshot-only `eslint-validation` reports UNRECOGNIZED (known-name count
+  // 53 = 32 registry + 1 derived + 20 standalone, with no snapshot
+  // contribution). PR #2664 R1 read this as "derived names are never used";
+  // this comment and the hoisted variable exist so the precedence is legible
+  // without running it.
+  const precommitNames = derived ?? PRECOMMIT_STEP_NAMES;
+
   const known = resolveKnownGuardNames({
     registryNames: GUARD_REGISTRY.map((r) => r.name),
-    precommitNames: derived ?? PRECOMMIT_STEP_NAMES,
+    precommitNames,
   });
 
   const unknowns = findUnknownGuardNames(entries, known);

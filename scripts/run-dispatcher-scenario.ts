@@ -143,6 +143,36 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
+/**
+ * Hard-fail if the isolation did not actually take.
+ *
+ * Without this the harness has the exact defect it exists to prevent: if
+ * `MINSKY_STATE_DIR` were ignored — a changed resolution order, an env var
+ * clobbered by a later import, a future `getFireLogPath` that consults
+ * something else first — every scenario would write to the operator's REAL
+ * fire-log and still report PASS, because nothing downstream inspects WHERE
+ * the records landed. A probe that cannot fail carries no information
+ * (mem#704), and "the records went somewhere" is not evidence they went
+ * somewhere safe.
+ *
+ * Checked before any scenario runs, so a broken isolation costs zero writes
+ * rather than one per scenario.
+ */
+function assertIsolationHeld(): void {
+  const resolved = getFireLogPath();
+  if (!resolved.startsWith(SCENARIO_STATE_DIR)) {
+    console.error(
+      `ISOLATION FAILED — refusing to run.\n` +
+        `  MINSKY_STATE_DIR: ${SCENARIO_STATE_DIR}\n` +
+        `  fire-log resolves to: ${resolved}\n` +
+        `This harness would have written to a log outside its temp state dir, which is the ` +
+        `mt#3756 defect itself. Fix the resolution before running any scenario.`
+    );
+    rmSync(SCENARIO_STATE_DIR, { recursive: true, force: true });
+    process.exit(1);
+  }
+}
+
 async function runScenario(scenario: Scenario): Promise<ScenarioRun> {
   const outputs: HookOutput[] = [];
   const stderr: string[] = [];
@@ -208,6 +238,8 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+
+  assertIsolationHeld();
 
   const results: Array<{ name: string; ok: boolean; detail: string; guardNames: string[] }> = [];
 
