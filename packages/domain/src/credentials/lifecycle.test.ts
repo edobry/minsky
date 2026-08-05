@@ -187,19 +187,27 @@ describe("listCredentials", () => {
     await addCredential("supabase", "sbp_test");
 
     const listing = await listCredentials(await hermeticProviders());
-    const ids = listing.map((c) => c.provider).sort();
     // Derive from the registry so this cannot go stale when providers are
     // added (it had drifted: hardcoded 3 ids while the registry held 5 —
     // already failing on main before mt#2419 added telegram). Compare against
     // the AVAILABILITY-GATED list: environment-specific providers (telegram)
     // may legitimately be absent in some environments.
+    //
+    // mt#3569: the listing now ALSO carries schema-derived presence-only entries,
+    // so the assertion narrows to the provider-sourced subset — which is what this
+    // test was ever about. Equality still holds there, so a dropped provider still
+    // fails; the schema half has its own coverage in schema-derived.test.ts.
+    const providerIds = listing
+      .filter((c) => c.source === "provider")
+      .map((c) => c.provider)
+      .sort();
     const { listCredentialProviders } = await import("./providers");
-    expect(ids).toEqual(
+    expect(providerIds).toEqual(
       listCredentialProviders()
         .map((p) => p.id)
         .sort()
     );
-    expect(ids).toContain("supabase");
+    expect(providerIds).toContain("supabase");
 
     const supabaseEntry = listing.find((c) => c.provider === "supabase");
     expect(supabaseEntry?.configured).toBe(true);

@@ -339,6 +339,39 @@ export interface WallOfTextMeasurement {
 }
 
 /**
+ * The final assistant text, preferring the `Stop`-RECORDED value over
+ * reconstructing it from the transcript (mt#3490, ADR-031).
+ *
+ * This module is the family's one text-only detector, so it is the one place
+ * `last_assistant_message` can fully serve — which is exactly what hooks.md
+ * recommends: "hooks that need the final assistant text of the current turn
+ * should use `last_assistant_message` on Stop and SubagentStop instead of
+ * reading the transcript." The recorder captured it at `Stop`; this reads it
+ * back rather than re-deriving the same string from lines that may have lagged.
+ *
+ * `extractFinalAssistantText` is RETAINED as the fallback, not replaced —
+ * ADR-031's degradation property requires that a turn with no recorded anchor
+ * (an API-error turn, a first run after this shipped, a compacted transcript)
+ * measures exactly as it does today.
+ *
+ * A recorded-but-EMPTY message falls back too: the recorder stores `""` when
+ * the Stop event carried no text, and an empty measurement would suppress the
+ * detector entirely rather than measure the turn.
+ *
+ * Pure by construction — the anchor arrives as an argument rather than being
+ * read from the store here, so this is testable without patching anything
+ * (ADR-036).
+ */
+export function resolveFinalAssistantText(
+  turnLines: TranscriptLine[],
+  recordedAnchor: { lastAssistantMessage: string } | undefined
+): string {
+  const recorded = recordedAnchor?.lastAssistantMessage;
+  if (recorded && recorded.length > 0) return recorded;
+  return extractFinalAssistantText(turnLines);
+}
+
+/**
  * The turn-end report is the LAST assistant line in the turn that carries
  * non-empty text — the message the principal actually reads as the report.
  * Reuses `extractAssistantText` per-line (it already handles the
@@ -967,7 +1000,7 @@ export function run(
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }
@@ -976,7 +1009,7 @@ export function run(
   let measurement: WallOfTextMeasurement;
   let finalText: string;
   try {
-    finalText = extractFinalAssistantText(turnLines);
+    finalText = resolveFinalAssistantText(turnLines, ctx.recordedAnchor);
     if (finalText.length === 0) return null;
     measurement = measureWallOfText(finalText);
   } catch (err) {

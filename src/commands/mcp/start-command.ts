@@ -1938,6 +1938,27 @@ export function createStartCommand(
         process.on("SIGINT", cleanup);
         process.on("SIGHUP", cleanup);
 
+        // mt#3764: HTTP-mode orphan/idle process exit path. Prevents an
+        // ad-hoc, locally-spawned `mcp start --http` (e.g. a subagent
+        // testing a server in a session workspace and never terminating
+        // it) from running indefinitely — see src/mcp/orphan-exit.ts for
+        // the two mechanisms (parent-death ppid-transition detection,
+        // never-connected idle timeout) and why neither affects the
+        // Railway/Docker hosted entrypoint (its ppid is 1 from the first
+        // tick, per the Dockerfile's shell-form CMD, and stays 1 for the
+        // container's lifetime).
+        if (transportType === "http") {
+          const { wireOrphanExitWatchers, getCurrentProcessPpid } = await import(
+            "../../mcp/orphan-exit"
+          );
+          wireOrphanExitWatchers({
+            initialPpid: getCurrentProcessPpid(),
+            getCurrentPpid: getCurrentProcessPpid,
+            hasEverConnected: () => server.hasEverHadHttpSession(),
+            onExit: () => void cleanup(),
+          });
+        }
+
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard
         // inside `cleanup` makes this listener idempotent even if it fires more
