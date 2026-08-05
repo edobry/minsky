@@ -517,6 +517,32 @@ export function findAllKeywordOverlaps(
  * never silent-skip" invariant. Collapsing them would silently convert a real
  * negative into a lexical fire, which is the noise this task exists to remove.
  */
+/**
+ * Total wall-clock a session verdict may spend on Rung-2 nomination.
+ *
+ * Derived, not chosen: this guard registers `timeoutMs: 10000` on `Stop`
+ * (`registry.ts`), and the detector still has to finish its propagation scan
+ * and write its record after nomination returns. 6000ms leaves 4000ms of
+ * headroom for that tail, and admits three worst-case 2000ms nominations —
+ * comfortably above the observed per-session occurrence count, while bounding
+ * the degenerate long-research session that would otherwise blow the budget.
+ *
+ * Do NOT raise this to accommodate more occurrences. The fix for a session that
+ * needs more nominations than this affords is a cheaper nomination (batching,
+ * one aggregated call), not a larger slice of a budget the dispatcher enforces.
+ */
+export const NOMINATION_SESSION_BUDGET_MS = 6000;
+
+/**
+ * Whether the session's nomination budget is spent. Pure and injected-clock so
+ * the bound is testable without burning six real seconds — observing it
+ * otherwise would mean patching the global clock, which is the design smell the
+ * testable-design checkpoint names.
+ */
+export function isNominationBudgetExhausted(deadlineMs: number, nowMs: number): boolean {
+  return nowMs >= deadlineMs;
+}
+
 export type SkillNominationOutcome =
   | { kind: "nominated"; skill: string; score: number; segment: string }
   | { kind: "none" }
@@ -790,7 +816,23 @@ export async function detectKnowledgeAcquisition(
   // research ABOUT the skill's domain?
   if (nominate) {
     const nominated: MatchedResearchOccurrence[] = [];
+    // Session-wide wall-clock bound. Each nomination is individually race-bound
+    // at DEFAULT_NOMINATION_TIMEOUT_MS (2000ms), but this loop is serial and
+    // runs once per research occurrence — so without a TOTAL bound the cost
+    // grows linearly with occurrences and crosses this guard's 10s registry
+    // budget at five of them. Sessions with far more research calls than that
+    // exist in the corpus, so this is a reachable state, not a theoretical one.
+    //
+    // Crossing the deadline degrades rather than truncating: a partial
+    // nomination set would silently change `hadPropagation`, which is computed
+    // over EVERY matched occurrence. Degrading re-runs the whole session
+    // lexically, which is the one fallback whose semantics are already defined.
+    const deadline = Date.now() + NOMINATION_SESSION_BUDGET_MS;
     for (const { occ, candidateTexts } of candidates) {
+      if (isNominationBudgetExhausted(deadline, Date.now())) {
+        degradedReason = "session-nomination-budget-exceeded";
+        break;
+      }
       const outcome = await nominate(candidateTexts, loadedSkills);
       if (outcome.kind === "degraded") {
         degradedReason = outcome.reason;

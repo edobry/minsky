@@ -23,7 +23,7 @@
  */
 import "reflect-metadata";
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   nominate,
@@ -45,7 +45,14 @@ interface Record_ {
   hadPropagation?: boolean;
 }
 
-function parseArgs(): { threshold: number; limit: number; log: string; skillRoot: string } {
+function parseArgs(): {
+  threshold: number;
+  limit: number;
+  log: string;
+  skillRoot: string;
+  out: string;
+  classify: string;
+} {
   const argv = process.argv.slice(2);
   const read = (flag: string, fallback: number): number => {
     const i = argv.indexOf(flag);
@@ -66,6 +73,8 @@ function parseArgs(): { threshold: number; limit: number; log: string; skillRoot
     limit: read("--limit", 1000),
     log: readStr("--log", CALIBRATION_LOG),
     skillRoot: readStr("--skill-root", SKILL_ROOT),
+    out: readStr("--out", ""),
+    classify: readStr("--classify", ""),
   };
 }
 
@@ -107,7 +116,7 @@ function buildExemplarSets(loadedSkills: string[], skillRoot: string): ExemplarS
 }
 
 async function main(): Promise<void> {
-  const { threshold, limit, log, skillRoot } = parseArgs();
+  const { threshold, limit, log, skillRoot, out, classify } = parseArgs();
 
   if (!existsSync(log)) {
     process.stderr.write(`SKIP: ${log} not present.\n`);
@@ -147,6 +156,15 @@ async function main(): Promise<void> {
   const deps = await buildDeps();
   if (deps === null) return;
 
+  interface Row {
+    lexicalSkill: string | null;
+    lexicalKeyword: string | null;
+    rung2Skill: string | null;
+    score: number | null;
+    verdict: string;
+  }
+
+  const rows: Row[] = [];
   const scores: number[] = [];
   let agree = 0;
   let disagree = 0;
@@ -171,6 +189,13 @@ async function main(): Promise<void> {
 
     if (best === undefined) {
       noNomination += 1;
+      rows.push({
+        lexicalSkill: record.matchedSkill ?? null,
+        lexicalKeyword: record.matchedKeyword ?? null,
+        rung2Skill: null,
+        score: null,
+        verdict: "no-nomination",
+      });
       process.stdout.write(
         `${record.matchedSkill ?? "-"}\t${record.matchedKeyword ?? "-"}\t(none)\t-\tno-nomination\n`
       );
@@ -181,10 +206,61 @@ async function main(): Promise<void> {
     const same = best.family === record.matchedSkill;
     if (same) agree += 1;
     else disagree += 1;
+    rows.push({
+      lexicalSkill: record.matchedSkill ?? null,
+      lexicalKeyword: record.matchedKeyword ?? null,
+      rung2Skill: best.family,
+      score: best.score,
+      verdict: same ? "agrees" : "disagrees",
+    });
     process.stdout.write(
       `${record.matchedSkill ?? "-"}\t${record.matchedKeyword ?? "-"}\t${best.family}\t` +
         `${best.score.toFixed(4)}\t${same ? "agrees" : "DISAGREES"}\n`
     );
+  }
+
+  // Structured results, so the classification is data rather than something a
+  // reader re-derives by eye from a table. `--classify` closes the loop: with a
+  // label map the script computes the FP rate itself, at every threshold the
+  // corpus actually produces, instead of leaving that arithmetic to prose in a
+  // PR body where it cannot be re-run.
+  if (out) {
+    writeFileSync(out, `${JSON.stringify({ threshold, rows }, null, 2)}\n`, "utf8");
+    process.stdout.write(`\nwrote ${rows.length} rows to ${out}\n`);
+  }
+
+  if (classify) {
+    const labels = JSON.parse(readFileSync(classify, "utf8")) as Record<string, "TP" | "FP">;
+    const labelled = rows
+      .filter((r) => r.rung2Skill !== null)
+      .map((r) => ({ ...r, label: labels[`${r.lexicalKeyword}->${r.lexicalSkill}`] }))
+      .filter((r) => r.label !== undefined);
+
+    process.stdout.write(`\nclassified: ${labelled.length} of ${rows.length} rows\n`);
+    if (labelled.length === 0) {
+      process.stdout.write(
+        "No row matched a label key. Keys are `<lexicalKeyword>-><lexicalSkill>`.\n"
+      );
+    } else {
+      // Sweep the thresholds the corpus itself produces — a threshold no record
+      // sits near is not a candidate, so sweeping arbitrary round numbers would
+      // report on cutoffs the data never exercises.
+      const candidates = [...new Set(labelled.map((r) => r.score ?? 0))].sort((a, b) => a - b);
+      process.stdout.write("\nthreshold\tadmitted\tTP\tFP\tFPrate\n");
+      for (const t of candidates) {
+        const admitted = labelled.filter((r) => (r.score ?? 0) >= t);
+        const tp = admitted.filter((r) => r.label === "TP").length;
+        const fp = admitted.filter((r) => r.label === "FP").length;
+        const rate = admitted.length === 0 ? "-" : `${fp}/${admitted.length}`;
+        process.stdout.write(`${t.toFixed(4)}\t${admitted.length}\t${tp}\t${fp}\t${rate}\n`);
+      }
+      const totalTp = labelled.filter((r) => r.label === "TP").length;
+      process.stdout.write(
+        `\nADR-024 sign-off (b) needs 0 known-FP with the true positives retained.\n` +
+          `Any row above with FP=0 AND TP=${totalTp} is a passing threshold; if there is\n` +
+          `none, no global cutoff separates the classes on this corpus.\n`
+      );
+    }
   }
 
   scores.sort((a, b) => a - b);

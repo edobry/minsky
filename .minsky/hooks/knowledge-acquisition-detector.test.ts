@@ -34,7 +34,9 @@ import {
   extractSkillKeywords,
   findAllKeywordOverlaps,
   isNameDerivedKeyword,
+  isNominationBudgetExhausted,
   isRung2NominationEnabled,
+  NOMINATION_SESSION_BUDGET_MS,
   RUNG2_NOMINATION_ENV_VAR,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
@@ -927,6 +929,29 @@ describe("Rung-2 nomination (mt#3772)", () => {
     expect(detection?.result.matchedSkill).toBe(SKILL);
     expect(detection?.result.detectionRung).toBe("1-lexical");
     expect(detection?.result.degradedReason).toBeUndefined();
+  });
+
+  test("the session budget is spent only once the deadline is reached", () => {
+    const deadline = 10_000;
+    expect(isNominationBudgetExhausted(deadline, 9_999)).toBe(false);
+    expect(isNominationBudgetExhausted(deadline, 10_000)).toBe(true);
+    expect(isNominationBudgetExhausted(deadline, 10_001)).toBe(true);
+  });
+
+  test("SC5 invariant: the nomination budget leaves headroom inside the registered guard timeout", async () => {
+    // Read the budget the DISPATCHER enforces rather than restating it — a
+    // registry change that shrinks this guard's timeout must fail here, not in
+    // production where the symptom is a killed guard and no record at all.
+    const { GUARD_REGISTRY } = await import("./registry");
+    const entry = GUARD_REGISTRY.find((g) => g.name === "knowledge-acquisition-detector");
+    expect(entry).toBeDefined();
+    const guardBudget = entry?.timeoutMs ?? 0;
+
+    expect(guardBudget).toBeGreaterThan(0);
+    // Nomination may not consume the whole slot: the detector still has to run
+    // its propagation scan and write the record after nomination returns.
+    expect(NOMINATION_SESSION_BUDGET_MS).toBeLessThan(guardBudget);
+    expect(guardBudget - NOMINATION_SESSION_BUDGET_MS).toBeGreaterThanOrEqual(3000);
   });
 
   test("Rung 2 is OFF by default — the env var is the only way in", () => {
