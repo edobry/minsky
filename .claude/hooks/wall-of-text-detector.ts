@@ -588,18 +588,34 @@ export interface QuestionAnswerResult {
   matched: boolean;
 }
 
+/** The CJK/full-width question mark (U+FF1F) — see `QUESTION_MARK_RE` below. */
+const FULL_WIDTH_QUESTION_MARK = "？";
+
+/**
+ * Matches either question-mark form this detector recognizes: ASCII `?` or
+ * the full-width `？` (U+FF1F, PR #2651 R1 nit). Broader i18n punctuation —
+ * other scripts' question indicators, CJK word segmentation for the
+ * word-count floor below, RTL text — is deliberately OUT OF SCOPE: this
+ * detector is calibration-first and English-centric (its patterns, its
+ * measured corpus, its threshold all are), and the two confirmed ask#6891 FP
+ * shapes were both plain ASCII English interrogatives. Recognizing U+FF1F is
+ * the cheapest fix for the ASCII-only nit without expanding that scope.
+ */
+const QUESTION_MARK_RE = new RegExp(`[?${FULL_WIDTH_QUESTION_MARK}]`);
+
 /**
  * A prompt counts as a "substantive question" when it is non-empty, contains
- * at least one "?", and clears {@link QUESTION_MIN_WORDS}. Deliberately
- * simple (no NLP, no LLM — same calibration-first posture as
- * `DEPTH_REQUEST_PATTERNS`): the ask#6891 FP shapes were both plain
- * interrogatives ("Is this a known, reported Bun bug...?", a three-question
- * Telegram reply), not edge cases needing finer classification.
+ * at least one question mark (`QUESTION_MARK_RE`), and clears
+ * {@link QUESTION_MIN_WORDS}. Deliberately simple (no NLP, no LLM — same
+ * calibration-first posture as `DEPTH_REQUEST_PATTERNS`): the ask#6891 FP
+ * shapes were both plain interrogatives ("Is this a known, reported Bun
+ * bug...?", a three-question Telegram reply), not edge cases needing finer
+ * classification.
  */
 export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
   const trimmed = text.trim();
   if (trimmed.length === 0) return { matched: false };
-  if (!trimmed.includes("?")) return { matched: false };
+  if (!QUESTION_MARK_RE.test(trimmed)) return { matched: false };
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   if (wordCount < QUESTION_MIN_WORDS) return { matched: false };
   return { matched: true };
@@ -708,21 +724,28 @@ export function sessionHasLoggedHash(
  * behavior; this keeps mt#3028/PR #2165's original dedupe tests
  * (hand-built log fixtures with a bare `textHash` field) passing unchanged.
  *
- * **mt#3718:** `suppressed` is now a COMBINED verdict across every
- * suppression gate this detector has (depth-request override, then the
- * question-answer override) — the dedupe check only needs "was this fire
- * suppressed at all," not which gate did it. Per-record suppression state is
- * read via {@link isRecordSuppressed} below, which prefers the shared
- * `suppressionReasons` array (mt#3207) when present and falls back to the
- * legacy `suppressedByDepthRequest` boolean for pre-mt#3207 records — so a
- * record suppressed by EITHER gate still dedupes correctly against a fresh
- * combined verdict.
+ * **mt#3718 R1 fix (PR #2651 reviewer round 1) — reason-SET-aware, not just
+ * suppressed-or-not.** The mt#3718 initial cut collapsed both suppression
+ * gates (depth-request override, question-answer override) into a single
+ * `suppressed: boolean` before comparing — so a record suppressed by the
+ * depth-request gate and a LATER record for the same text suppressed by the
+ * DIFFERENT question-answer gate compared equal (`true === true`) and the
+ * second was wrongly dropped as an unchanged duplicate, losing the very
+ * per-gate visibility `suppressionReasons` exists to provide. Before mt#3718
+ * there was only one gate, so this case could not occur; adding a second
+ * gate made the boolean lossy. The comparison now takes the full
+ * `suppressionReasons` SET (order-independent) via
+ * {@link recordSuppressionReasons} / {@link sameSuppressionReasons} below,
+ * which prefers the shared `suppressionReasons` array (mt#3207) when present
+ * and falls back to the legacy `suppressedByDepthRequest` boolean — implying
+ * exactly `[SUPPRESSION_DEPTH_REQUEST]`, since that was the only gate that
+ * existed — for pre-mt#3207 records.
  */
 export function sessionHasLoggedTextAndSuppression(
   logText: string | undefined,
   sessionId: string | undefined,
   textHash: string,
-  suppressed: boolean
+  suppressionReasons: readonly string[]
 ): boolean {
   if (!logText || !sessionId) return false;
   for (const raw of logText.split("\n")) {
@@ -735,23 +758,38 @@ export function sessionHasLoggedTextAndSuppression(
       continue;
     }
     if (rec["session_id"] !== sessionId || rec["textHash"] !== textHash) continue;
-    const recSuppressed = isRecordSuppressed(rec);
-    if (recSuppressed === suppressed) return true;
+    if (sameSuppressionReasons(recordSuppressionReasons(rec), suppressionReasons)) return true;
   }
   return false;
 }
 
 /**
- * mt#3718: per-record suppression verdict, generalized across every
+ * mt#3718 R1: per-record suppression REASON SET, generalized across every
  * suppression gate. Prefers the shared `suppressionReasons` array (mt#3207)
  * — present on every record written by this detector since that task — and
  * falls back to the legacy `suppressedByDepthRequest` boolean only for
- * records written before mt#3207 introduced the shared field.
+ * records written before mt#3207 introduced the shared field (implying
+ * exactly `[SUPPRESSION_DEPTH_REQUEST]`, the only gate that existed then).
  */
-function isRecordSuppressed(rec: Record<string, unknown>): boolean {
+function recordSuppressionReasons(rec: Record<string, unknown>): string[] {
   const reasons = rec["suppressionReasons"];
-  if (Array.isArray(reasons)) return reasons.length > 0;
-  return rec["suppressedByDepthRequest"] === true;
+  if (Array.isArray(reasons)) {
+    return reasons.filter((r): r is string => typeof r === "string");
+  }
+  return rec["suppressedByDepthRequest"] === true ? [SUPPRESSION_DEPTH_REQUEST] : [];
+}
+
+/**
+ * Order-independent equality of two suppression-reason sets. Order
+ * independence matters because a legacy-fallback set and a freshly-computed
+ * set are each constructed by different code paths that need not agree on
+ * ordering, even though `buildSuppressionReasons` happens to be consistent.
+ */
+function sameSuppressionReasons(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
 }
 
 /**
@@ -789,6 +827,36 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[wall-of-text-detector] Failed to write calibration log: ${msg}\n`);
   }
+}
+
+/**
+ * Canonical suppression-REASON-SET construction — the single source of
+ * truth for both the calibration record's `suppressionReasons` field AND
+ * the dedupe key `run()`/`main()` pass to `sessionHasLoggedTextAndSuppression`
+ * (mt#3718 R1 fix, PR #2651). Before this fix the two call sites separately
+ * derived a COLLAPSED boolean (`depthCheck.matched || questionCheck.matched`)
+ * for the dedupe key, discarding which gate(s) actually fired; two records
+ * with the same `textHash` but suppressed by DIFFERENT gates (depth-request
+ * on one turn, question-answer on a later turn) then compared equal on that
+ * boolean and the later record was wrongly dropped as a duplicate, losing
+ * per-gate calibration visibility. Routing both the record and the dedupe
+ * key through this one function makes that class of drift structurally
+ * impossible: there is exactly one place that decides what "the reasons"
+ * are for a given (depthCheck, questionCheck) pair.
+ */
+function buildSuppressionReasons(
+  suppressedByDepthRequest: boolean,
+  suppressedByQuestionAnswer: boolean
+): string[] {
+  // A fire can only ever be suppressed by one of these gates in practice
+  // today (question-answer only applies to the pure over-budget trigger,
+  // where the depth-request lookback could independently also match), so
+  // this stays a plain concatenation rather than a mutually-exclusive
+  // branch — both reasons are recorded if both ever fire together.
+  return [
+    ...(suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : []),
+    ...(suppressedByQuestionAnswer ? [SUPPRESSION_QUESTION_ANSWER] : []),
+  ];
 }
 
 function buildCalibrationRecord(
@@ -833,15 +901,13 @@ function buildCalibrationRecord(
     // `isSuppressedRecord` cannot see; this field is what the sweep reads
     // to keep a suppressed fire out of the injected count. Empty (not absent)
     // when the fire was injected — absent means "does not record the outcome".
-    // mt#3718: now built from BOTH gates — a fire can only ever be suppressed
-    // by one of them in practice (question-answer never applies when the
-    // depth-request override already matched, and vice versa is possible but
-    // both reasons are recorded when it happens), so this stays a plain
-    // concatenation rather than a mutually-exclusive branch.
-    suppressionReasons: [
-      ...(suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : []),
-      ...(suppressedByQuestionAnswer ? [SUPPRESSION_QUESTION_ANSWER] : []),
-    ],
+    // mt#3718 R1: built via `buildSuppressionReasons` — the same function
+    // `run()`/`main()` call to derive the dedupe key, so the two can never
+    // drift apart (see that function's doc comment).
+    suppressionReasons: buildSuppressionReasons(
+      suppressedByDepthRequest,
+      suppressedByQuestionAnswer
+    ),
   };
 }
 
@@ -935,6 +1001,12 @@ export function run(
   const questionCheck =
     measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
   const suppressed = depthCheck.matched || questionCheck.matched;
+  // mt#3718 R1 fix: the dedupe key is the full REASON SET, not the collapsed
+  // `suppressed` boolean above (which is still used for the injection gate
+  // below, where "was this suppressed at all" is the only question) — see
+  // `buildSuppressionReasons`'s doc comment for why the collapsed boolean
+  // was wrong here specifically.
+  const suppressionReasons = buildSuppressionReasons(depthCheck.matched, questionCheck.matched);
 
   const textHash = hashText(finalText);
   if (
@@ -942,14 +1014,14 @@ export function run(
       readCalibrationLogTextFn(input.cwd),
       input.session_id,
       textHash,
-      suppressed
+      suppressionReasons
     )
   ) {
     // mt#3028 fix (2), extended by mt#3112 and mt#3718: a record for this
     // session already carries this exact measured text AND the same
-    // combined suppression state (within the bounded lookback window) — an
+    // suppression reason SET (within the bounded lookback window) — an
     // unchanged report already logged; skip re-logging. A textHash match
-    // with a DIFFERENT suppression state is treated as new — see
+    // with a DIFFERENT reason set is treated as new — see
     // `sessionHasLoggedTextAndSuppression`'s doc comment.
     return null;
   }
@@ -1083,17 +1155,21 @@ export async function main(): Promise<void> {
   const questionCheck =
     measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
   const suppressed = depthCheck.matched || questionCheck.matched;
+  // mt#3718 R1 fix: dedupe key is the full reason SET (see run()'s
+  // equivalent — `buildSuppressionReasons`'s doc comment explains why the
+  // collapsed `suppressed` boolean above is wrong for this comparison).
+  const suppressionReasons = buildSuppressionReasons(depthCheck.matched, questionCheck.matched);
 
   const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
     // mt#3028 fix (2), extended by mt#3112 and mt#3718: skip re-logging an
-    // unchanged report + suppression state already recorded for this
+    // unchanged report + suppression reason set already recorded for this
     // session (see the header comment + run()'s equivalent check).
     const alreadyLogged = sessionHasLoggedTextAndSuppression(
       readCalibrationLogText(input.cwd),
       input.session_id,
       textHash,
-      suppressed
+      suppressionReasons
     );
     if (!alreadyLogged) {
       appendCalibrationRecord(

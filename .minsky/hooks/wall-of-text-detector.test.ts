@@ -877,37 +877,90 @@ describe("resolveDepthCheck", () => {
 // ---------------------------------------------------------------------------
 
 describe("sessionHasLoggedTextAndSuppression", () => {
-  test("matches when both textHash AND suppressedByDepthRequest agree", () => {
+  test("matches when both textHash AND the legacy suppressedByDepthRequest agree", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: true,
     })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(true);
+    // Legacy (pre-mt#3207) shape: no `suppressionReasons` array, so the
+    // record's implied reason set is derived from the boolean alone.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(true);
   });
 
-  test("does NOT match when textHash agrees but suppressedByDepthRequest differs (the R1 fix)", () => {
+  test("does NOT match when textHash agrees but the legacy suppressedByDepthRequest differs (the R1 fix)", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: false,
     })}\n`;
-    // Same text, but this occurrence's suppression state is TRUE while the
-    // logged record's is FALSE — a genuinely different depth-request context
-    // coincidentally producing identical text; must NOT be treated as a
-    // stale re-measurement.
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    // Same text, but this occurrence's suppression state is non-empty while
+    // the logged record's is empty — a genuinely different depth-request
+    // context coincidentally producing identical text; must NOT be treated
+    // as a stale re-measurement.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
-  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as suppressed=false", () => {
+  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as an empty reason set", () => {
     const log = `${JSON.stringify({ session_id: "s", textHash: "hash-A" })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", false)).toBe(true);
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
   test("undefined log text / session id -> false", () => {
-    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", false)).toBe(false);
-    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", false)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", [])).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", [])).toBe(false);
+  });
+
+  // mt#3718 R1 fix (PR #2651 review round 1): the case a collapsed boolean
+  // could not distinguish — same "suppressed" verdict, DIFFERENT gate.
+  describe("mt#3718 R1 — reason-SET-aware, not just suppressed-or-not", () => {
+    test("a differing reason SET is NOT a duplicate, even though both are non-empty", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+      })}\n`;
+      // Both this occurrence and the logged record are "suppressed" (a
+      // non-empty reason set) — the pre-R1 collapsed-boolean comparison
+      // would have matched these as duplicates. They must NOT match: the
+      // gates differ.
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
+
+    test("reason sets compare order-independently", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST, SUPPRESSION_QUESTION_ANSWER],
+      })}\n`;
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [
+          SUPPRESSION_QUESTION_ANSWER,
+          SUPPRESSION_DEPTH_REQUEST,
+        ])
+      ).toBe(true);
+    });
+
+    test("an empty suppressionReasons array (injected) matches an empty query, not a non-empty one", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [],
+      })}\n`;
+      expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
   });
 });
 
@@ -1154,6 +1207,54 @@ describe("run — mt#3112 R1 dedupe-vs-suppression interaction", () => {
     // Same lines, same suppression state -> genuine re-measurement, deduped.
     const outcome2 = run(input, makeCtx(lines), { readCalibrationLogTextFn: () => priorLogText });
     expect(outcome2).toBeNull();
+  });
+});
+
+describe("run — mt#3718 R1 dedupe-vs-suppression interaction (reason-set-aware dedupe)", () => {
+  test("same text suppressed by DIFFERENT gates across occurrences logs BOTH (reason-set collapse fix)", () => {
+    const input = makeInput();
+    const report = pointerFreeOverBudgetReport();
+
+    // Occurrence 1: opening prompt is a depth-request phrase -> suppressed by
+    // the depth-request gate.
+    const lines1 = transcriptWithFinalReportAndOpeningPrompt(DEPTH_REQUEST_PHRASE, report);
+    const outcome1 = run(input, makeCtx(lines1), noDedupeDeps());
+    expect(outcome1?.calibration).toBeDefined();
+    const cal1 = outcome1?.calibration as Record<string, unknown>;
+    expect(cal1.suppressedByDepthRequest).toBe(true);
+    expect(cal1.suppressedByQuestionAnswer).toBe(false);
+    expect(cal1.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+    const hash1 = cal1.textHash as string;
+
+    // Simulate occurrence 1 having been appended to the calibration log.
+    const priorLogText = `${JSON.stringify({
+      session_id: input.session_id,
+      textHash: hash1,
+      suppressedByDepthRequest: true,
+      suppressedByQuestionAnswer: false,
+      suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+    })}\n`;
+
+    // Occurrence 2: BYTE-IDENTICAL report text, but this time the opening
+    // prompt is a substantive QUESTION rather than a depth-request phrase
+    // -> suppressed by the OTHER gate. Before the R1 fix, the dedupe check
+    // compared only the combined `suppressed` boolean (true in both cases),
+    // so this record was wrongly treated as an unchanged duplicate and
+    // dropped -- losing the fact that a DIFFERENT gate suppressed it.
+    const lines2 = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      report
+    );
+    const outcome2 = run(input, makeCtx(lines2), {
+      readCalibrationLogTextFn: () => priorLogText,
+    });
+    expect(outcome2?.calibration).toBeDefined();
+    const cal2 = outcome2?.calibration as Record<string, unknown>;
+    expect(cal2.suppressedByDepthRequest).toBe(false);
+    expect(cal2.suppressedByQuestionAnswer).toBe(true);
+    expect(cal2.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+    expect(cal2.textHash).toBe(hash1); // same text, confirmed via identical hash
+    expect(outcome2?.additionalContext).toBeUndefined();
   });
 });
 
