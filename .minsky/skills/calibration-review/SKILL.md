@@ -377,10 +377,12 @@ avoids repeating that search-miss.
 
 ## Step 5 — Record the ask id and advance the watermark
 
-After the Ask is created, capture its `id` from the `asks_create` response.
-Then re-run the command with `ack: true` — but **whether you also pass `askId`
-depends on whether this pass skipped anything under Step 1a.** Check that first;
-the two cases take different arguments and the wrong one destroys data.
+**If** an Ask was created, capture its `id` from the `asks_create` response —
+under Step 4's split a pass may legitimately create none. Either way, re-run the
+command with `ack: true`; **whether you also pass `askId` depends on whether an
+Ask exists at all, and on whether this pass skipped anything under Step 1a.**
+Check both first — the cases take different arguments and the wrong one destroys
+data.
 
 ### Which ack call to make
 
