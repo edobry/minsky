@@ -39,10 +39,22 @@
  *     files into the related set and they fail fast with "document is not
  *     defined" -- first surfaced by mt#2967's session-detail.ts /
  *     RunDetail.tsx changes.
+ *   - Any related test under `services/<svc>/**` runs in a separate `bun
+ *     test` invocation with cwd set to that service's directory -- the way
+ *     CI and the service's own `test` script run it (mt#3776). bunfig.toml's
+ *     `pathIgnorePatterns` excludes `services/**` from ROOT-cwd runs even
+ *     when the files are named explicitly on the command line, so before
+ *     this partition existed an all-services related set was pruned to
+ *     nothing: no tests ran, no completion summary printed, and the
+ *     fail-closed gate blocked the commit (same shape as the mt#3738
+ *     cockpit-web incident, one exclusion pattern over). Running from the
+ *     service directory sidesteps the root bunfig entirely (no bunfig.toml
+ *     there) and resolves the service's own dependencies.
  *
  * Wired into pre-commit via src/hooks/pre-commit.ts's `runFastRelatedTests`
  * step (spawns this script and gates the commit on its exit code).
  */
+import { join } from "node:path";
 import { evaluateBunTestSummary } from "./run-tests-gated";
 import { findRelatedTestFiles, type FsLike } from "./find-related-tests";
 
@@ -96,7 +108,8 @@ const COCKPIT_WEB_IGNORE_PATTERNS = "services/**";
 function runBunTest(
   files: string[],
   preload: string = "./tests/setup.ts",
-  pathIgnorePatterns?: string
+  pathIgnorePatterns?: string,
+  cwd?: string
 ): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
   // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
@@ -113,6 +126,10 @@ function runBunTest(
       stdout: "pipe",
       stderr: "pipe",
       timeout: 60000,
+      // mt#3776: service partitions run from the service directory so the
+      // root bunfig's pathIgnorePatterns (which prunes services/** even from
+      // explicitly-named paths) never applies. Undefined = inherit (root).
+      ...(cwd ? { cwd } : {}),
     }
   );
   const out = decoder.decode(proc.stdout);
@@ -161,8 +178,27 @@ export function runFastRelatedTestGate(
 
   const mcpFiles = related.filter((f) => f.startsWith("src/mcp/"));
   const cockpitDomFiles = related.filter((f) => f.startsWith("src/cockpit/web/"));
+  // mt#3776: services/<svc>/** tests must NOT go through the root-cwd
+  // invocation -- bunfig's pathIgnorePatterns prunes them even when named
+  // explicitly, silently for a mixed set and fail-closed for an all-services
+  // set. Group per service; each group runs from its service directory below.
+  // A path directly under services/ with no service segment (no third path
+  // part) has no service directory to run from; it stays in the regular
+  // partition (unchanged prior behavior for a case that shouldn't exist).
+  const serviceGroups = new Map<string, string[]>();
+  const serviceFiles: string[] = [];
+  for (const f of related) {
+    const parts = f.split("/");
+    if (parts[0] === "services" && parts.length >= 3 && parts[1]) {
+      serviceFiles.push(f);
+      const group = serviceGroups.get(parts[1]) ?? [];
+      group.push(f);
+      serviceGroups.set(parts[1], group);
+    }
+  }
+  const serviceFileSet = new Set(serviceFiles);
   const regularFiles = related.filter(
-    (f) => !f.startsWith("src/mcp/") && !f.startsWith("src/cockpit/web/")
+    (f) => !f.startsWith("src/mcp/") && !f.startsWith("src/cockpit/web/") && !serviceFileSet.has(f)
   );
 
   if (regularFiles.length > 0) {
@@ -192,6 +228,26 @@ export function runFastRelatedTestGate(
       return {
         ok: false,
         reason: `related cockpit-web tests FAILED (fail-closed, DOM preload): ${gate.reason}`,
+        relatedCount: related.length,
+        elapsedMs: Date.now() - startMs,
+      };
+    }
+  }
+
+  // mt#3776: each service's tests run from that service's directory with the
+  // root setup preload addressed relative to it -- the exact invocation the
+  // service's own `test` script and CI's per-service step use. Paths are
+  // service-relative and ./-anchored so bun treats them as paths, not name
+  // filters (same quirk toBunTestPath handles for root-cwd runs).
+  for (const [svc, files] of serviceGroups) {
+    const serviceDir = join(repoRoot, "services", svc);
+    const relativePaths = files.map((f) => `./${f.slice(`services/${svc}/`.length)}`);
+    const result = doRun(relativePaths, "../../tests/setup.ts", undefined, serviceDir);
+    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        reason: `related services/${svc} tests FAILED (fail-closed, service-directory run): ${gate.reason}`,
         relatedCount: related.length,
         elapsedMs: Date.now() - startMs,
       };
