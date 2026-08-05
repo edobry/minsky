@@ -642,6 +642,32 @@ describe("resolveWithRetry (mt#3608)", () => {
     expect(waits).toEqual([1_000, 2_000, 3_000, 3_000]);
   });
 
+  test("mt#3689 PR #2662 R1 — a cap BELOW the floor still never yields a sub-floor wait", async () => {
+    // The two bounds can be set to ask for incompatible things. Applying the
+    // cap last returned `maxDelayMs` — below the floor — which made the clamp's
+    // own contract false and reopened the spin it exists to close. The floor
+    // wins: it is a correctness property, the cap is a rate preference.
+    const waits: number[] = [];
+    let calls = 0;
+    const FAIL_COUNT = 3;
+    const resolve = async () => {
+      calls += 1;
+      return calls <= FAIL_COUNT ? TRANSIENT : CONFIGURED;
+    };
+
+    await resolveWithRetry({
+      resolve,
+      sleep: async (ms: number): Promise<void> => {
+        waits.push(ms);
+      },
+      delaysMs: [0],
+      maxDelayMs: 10,
+    });
+
+    expect(waits).toHaveLength(FAIL_COUNT);
+    expect(waits.every((w) => w >= CREDENTIAL_RETRY_MIN_DELAY_MS)).toBe(true);
+  });
+
   test("mt#3689 — the clamp is INERT for the shipped schedule (no production behavior change)", async () => {
     // The floor is below every entry in CREDENTIAL_RETRY_DELAYS_MS, so this
     // change must be invisible in production. Asserting that explicitly keeps a

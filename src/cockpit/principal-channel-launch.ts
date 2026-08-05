@@ -599,10 +599,19 @@ export const CREDENTIAL_RETRY_MIN_DELAY_MS = 1_000;
  * Non-finite input resolves to `maxDelayMs` rather than propagating: `NaN`
  * would survive `Math.max`/`Math.min` unchanged and reach `sleep()` as a wait
  * of unspecified length, which is the failure this guard exists to rule out.
+ *
+ * **The floor is applied LAST, and wins when the interval is empty** (PR #2662
+ * R1). A caller may set `maxDelayMs` BELOW the floor, which asks for two
+ * incompatible things; applying the cap last would return a sub-floor delay and
+ * make this function's own contract false. The floor wins because the two
+ * bounds are not the same kind of constraint: the floor rules out a spin, which
+ * is a correctness property of the retry, while the cap expresses a preferred
+ * rate for a long outage. Losing the preference is survivable; reintroducing
+ * the busy loop this guard exists to prevent is not.
  */
 function clampRetryDelayMs(delayMs: number, maxDelayMs: number): number {
-  if (!Number.isFinite(delayMs)) return maxDelayMs;
-  return Math.min(Math.max(delayMs, CREDENTIAL_RETRY_MIN_DELAY_MS), maxDelayMs);
+  if (!Number.isFinite(delayMs)) return Math.max(maxDelayMs, CREDENTIAL_RETRY_MIN_DELAY_MS);
+  return Math.max(Math.min(delayMs, maxDelayMs), CREDENTIAL_RETRY_MIN_DELAY_MS);
 }
 
 /**
