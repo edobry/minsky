@@ -358,8 +358,23 @@ export async function policyFirstRoute(
   // Phase 1: policy consultation
   // -----------------------------------------------------------------------
 
+  // An incident-severity ask names an operator-only remediation, so it must
+  // reach a human regardless of what policy appears to say about the action
+  // (mt#3714 criterion 3). Before this, `severity: "incident"` did not affect
+  // routing at all: the originating incident's re-filed ask carried both
+  // `severity` and `forceImmediate` and was auto-closed identically to the
+  // first, leaving the agent no way to force a human into the loop.
+  const severityForcesOperator = ask.severity === "incident";
+
   const sources = await loadAllPolicySources(workspaceRoot, specContent);
-  const coverage = isCovered(ask, sources);
+  const coverage = severityForcesOperator ? { covered: false as const } : isCovered(ask, sources);
+
+  if (severityForcesOperator) {
+    log.debug("ask.router: severity forces operator routing, policy phase skipped", {
+      askId: ask.id,
+      kind: ask.kind,
+    });
+  }
 
   if (coverage.covered && coverage.citation) {
     // Policy covers this Ask — short-circuit to closed.

@@ -16,11 +16,66 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { isActionCovered } from "./policy";
+import { isActionCovered, isCovered } from "./policy";
+import type { Ask } from "./types";
 
 function coverage(content: string, tokens: string[]): boolean {
   return isActionCovered(tokens, [{ source: "TEST.md", content }]).covered;
 }
+
+function makeAsk(overrides: Partial<Ask> = {}): Ask {
+  return {
+    id: "test-ask",
+    kind: "authorization.approve",
+    title: "Operator authorization needed: one-shot merge override for PR #2640",
+    question: "Approve a one-shot merge override?",
+    state: "open",
+    requestor: "test",
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  } as Ask;
+}
+
+/**
+ * The CLAUDE.md statement that actually closed the originating asks, verbatim.
+ * `override` sits inside "no override"; `allow` sits inside `intentional-swallow`.
+ */
+/** An affirmative, adjacent grant naming an action — the shape that SHOULD resolve. */
+const COMMIT_GRANT = "- Commits to the session branch are auto-approved.\n";
+
+const INCIDENT_STATEMENT = `  - \`custom/no-silent-catch\` (mt#3299) — every \`catch\` block must rethrow, log, or carry an
+    \`// intentional-swallow: <reason>\` comment. Registered \`off\` (not yet active): this repo's
+    zero-tolerance ESLint warning gate (mt#1097, no override) makes \`warn\` unshippable with 1462
+    pre-existing violations across 560 files; bulk cleanup + flip to \`error\` tracked at mt#3312.
+`;
+
+describe("router path: an authorization ask is never auto-closed by a citation match", () => {
+  test("the exact originating statement does not cover the originating ask", () => {
+    // This is the reproduction of the incident, through the same entry point the
+    // router uses (`isCovered`, title-derived tokens) rather than the
+    // explicit-action path.
+    const result = isCovered(makeAsk(), [{ source: "CLAUDE.md", content: INCIDENT_STATEMENT }]);
+    expect(result.covered).toBe(false);
+  });
+
+  test("an on-topic, affirmative, adjacent grant DOES still auto-close", () => {
+    // Documents the boundary this PR deliberately did NOT move. Spec criterion 1
+    // asked for authorization.approve to be removed from policy auto-resolution
+    // entirely; that is deferred, because it deletes ADR-008's phase-1
+    // short-circuit (this is its last eligible kind) and 11 existing router
+    // tests assert the capability. See the task's Outcome section.
+    const result = isCovered(makeAsk(), [
+      { source: "CLAUDE.md", content: "- A merge override is auto-approved.\n" },
+    ]);
+    expect(result.covered).toBe(true);
+  });
+
+  test("the explicit-action path is unaffected and still resolves a real grant", () => {
+    // The capability is narrowed, not removed: session_commit's detection-time
+    // check names its action explicitly and keeps working.
+    expect(coverage(COMMIT_GRANT, ["commit"])).toBe(true);
+  });
+});
 
 describe("authority keywords must match as whole words", () => {
   test("`allow` does not match inside `intentional-swallow`", () => {
@@ -40,7 +95,7 @@ describe("authority keywords must match as whole words", () => {
   });
 
   test("`auto-approved` still grants", () => {
-    expect(coverage("- Commits to the session branch are auto-approved.\n", ["commit"])).toBe(true);
+    expect(coverage(COMMIT_GRANT, ["commit"])).toBe(true);
   });
 });
 
@@ -86,7 +141,7 @@ describe("action tokens still match inflections", () => {
   // signals to exact words would silently break real grants, so only the
   // authority side is strict; action tokens match as a prefix.
   test("`commit` matches `Commits`", () => {
-    expect(coverage("- Commits to the session branch are auto-approved.\n", ["commit"])).toBe(true);
+    expect(coverage(COMMIT_GRANT, ["commit"])).toBe(true);
   });
 
   test("`commit` matches `auto-commit` across a hyphen", () => {
