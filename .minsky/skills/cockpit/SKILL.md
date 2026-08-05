@@ -4,64 +4,19 @@ description: Open this conversation in the Minsky cockpit.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools:
-  - Bash(open:*)
-  - Bash(minsky cockpit url*)
+  - Bash(minsky cockpit open*)
 ---
 
 # Cockpit
 
-Opens THIS conversation in the cockpit. The work is done by the command below, which runs as
-dynamic context injection — before you see this text — so by the time you read it, the window is
-already open or the failure is already printed.
-
-Two things make this addressable at all: `CLAUDE_CODE_SESSION_ID` is the same id the cockpit
-calls `agentSessionId`, and the conversation is served live — `/conversation/:id` renders an
-in-flight conversation, with no wait for SessionEnd ingest.
-
-`minsky://` is tried first so the tray cockpit window fronts rather than a browser tab; the
-browser URL from `minsky cockpit url` is the fallback for a machine with no tray installed.
-`cockpit status` is NOT the URL source — it reports the launchd daemon, and prints "not
-installed" while a tray-supervised cockpit is serving.
-
-Everything below prints to STDOUT and exits 0, including the failures. That is deliberate, not an
-oversight: this block's output IS the prompt you read, and a non-zero exit or a message on stderr
-would make a failure invisible here — the opposite of what an error should do on this surface.
-
 ```!
-# `open` is macOS; `xdg-open` covers Linux. The tray (and so the minsky:// handler)
-# is macOS-only, but the browser fallback is not, so route through one helper.
-launch() {
-  if command -v open >/dev/null 2>&1; then open "$1" 2>/dev/null
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1
-  else return 127
-  fi
-}
-ID="${CLAUDE_CODE_SESSION_ID:-}"
-if [ -z "$ID" ]; then
-  echo 'FAILED: CLAUDE_CODE_SESSION_ID is unset — cannot identify this conversation.'
-  exit 0
-fi
-if launch "minsky://conversation/$ID"; then
-  echo "OPENED minsky://conversation/$ID (tray cockpit window)"
-  exit 0
-fi
-URL="$(minsky cockpit url 2>/dev/null)"
-if [ -z "$URL" ]; then
-  echo 'FAILED: no minsky:// handler (tray not installed) and no running cockpit.'
-  echo 'Start one with `minsky cockpit start`, or install the tray app.'
-  exit 0
-fi
-if launch "$URL/conversation/$ID"; then
-  echo "OPENED $URL/conversation/$ID (browser — no minsky:// handler registered)"
-else
-  echo "FAILED: could not open $URL/conversation/$ID"
-fi
+minsky cockpit open
 ```
 
-Report that one line and stop. Do not re-run the command, open anything else, or explain the
-mechanism unless asked — the operator ran this to look at a window, not to read about it.
+Report that one line and stop.
 
-One caveat worth knowing if the tray fronts but does not navigate: `minsky://conversation/…`
-only became a recognized URI type in mt#3800, so a tray whose web bundle predates it will show
-whatever page it was already on. The tray auto-rebuilds the web bundle from `main`, so this
-resolves itself on the next rebuild.
+**Prefer `!minsky cockpit open` over this command.** Both run the same thing, but `!` is bash mode:
+it runs in your shell and no model turn is spent. Invoking `/cockpit` renders this skill into a
+prompt and the model replies — a full turn for a command with no decision in it. This skill exists
+because `!` commands do not appear in the slash-command list, and for harnesses that have no bash
+mode.
