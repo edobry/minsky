@@ -51,7 +51,7 @@
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath, sep } from "node:path";
 
 // Isolate BEFORE importing anything that resolves a state path at module load
 // or first invocation. Order is load-bearing (mt#2876 class).
@@ -159,8 +159,15 @@ const SCENARIOS: Scenario[] = [
  * rather than one per scenario.
  */
 function assertIsolationHeld(): void {
-  const resolved = getFireLogPath();
-  if (!resolved.startsWith(SCENARIO_STATE_DIR)) {
+  // Compare normalized paths at a separator boundary, not raw prefixes: a
+  // sibling directory (`/tmp/scenario-abc-evil` against a root of
+  // `/tmp/scenario-abc`) satisfies a bare `startsWith` and would be waved
+  // through by the very check meant to catch it. PR #2664 R2, non-blocking —
+  // taken anyway, because an assertion that can be fooled is the failure mode
+  // this whole PR is about.
+  const root = resolvePath(SCENARIO_STATE_DIR);
+  const resolved = resolvePath(getFireLogPath());
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
     console.error(
       `ISOLATION FAILED — refusing to run.\n` +
         `  MINSKY_STATE_DIR: ${SCENARIO_STATE_DIR}\n` +
