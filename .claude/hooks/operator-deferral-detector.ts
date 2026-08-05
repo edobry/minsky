@@ -546,14 +546,36 @@ function sentenceAround(text: string, idx: number): string {
 const EVALUATION_LOG = ".minsky/operator-deferral-evaluations.jsonl";
 const EVALUATION_TAIL_CHARS = 400;
 
+/**
+ * The ask's scanned text, flattened for the evaluation record.
+ * {@link extractAskTexts} returns `{ questionTexts, optionTexts }`, not an
+ * array — flattening it here keeps that shape in one place.
+ */
+function askEvaluationText(toolInput: Record<string, unknown> | undefined): string {
+  const { questionTexts, optionTexts } = extractAskTexts(toolInput);
+  return [...questionTexts, ...optionTexts].join(" | ");
+}
+
+/**
+ * The unit that was evaluated. The two are NOT the same grain and the stream
+ * says so rather than conflating them (PR #2659 R1): the prose surfaces
+ * evaluate once per completed TURN at `UserPromptSubmit`, while the ask surface
+ * evaluates once per `AskUserQuestion` TOOL CALL at `PreToolUse`. A miss rate
+ * computed over a mixed denominator would be meaningless, so anything reading
+ * this log must group by `evaluated`.
+ */
+export type EvaluatedUnit = "prose-turn" | "ask-tool-call";
+
 export function buildEvaluationRecord(
   sessionId: string | undefined,
   matches: DeferralMatch[],
-  scannedText: string
+  scannedText: string,
+  evaluated: EvaluatedUnit = "prose-turn"
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
     session_id: sessionId,
+    evaluated,
     fired: matches.length > 0,
     surfaces: matches.map((m) => m.surface),
     text_tail: safeTruncate(scannedText, EVALUATION_TAIL_CHARS, "tail"),
@@ -681,7 +703,21 @@ export function runAskSurface(input: ToolHookInput, ctx: DispatchContext): Guard
 
   try {
     const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
-    return toOutcome(detectAskDeferral(input.tool_input, turnLines), input.session_id);
+    const matches = detectAskDeferral(input.tool_input, turnLines);
+    // Recorded here too (PR #2659 R1). A miss on this surface is exactly as
+    // invisible as a miss on the prose ones, and the rung question covers the
+    // detector as a whole — so leaving it out would have made "every evaluated
+    // unit" false, and the recall denominator silently prose-only.
+    appendEvaluationRecord(
+      input.cwd,
+      buildEvaluationRecord(
+        input.session_id,
+        matches,
+        askEvaluationText(input.tool_input),
+        "ask-tool-call"
+      )
+    );
+    return toOutcome(matches, input.session_id);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Ask-surface detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -724,6 +760,17 @@ export async function main(): Promise<void> {
   try {
     if (input.tool_name === "AskUserQuestion") {
       matches = detectAskDeferral(input.tool_input, extractFinalTurn(lines).turnLines);
+      // Mirrors `runAskSurface` (PR #2659 R1) — both entrypoints render this
+      // surface, and recording in only one leaves the denominator wrong.
+      appendEvaluationRecord(
+        input.cwd,
+        buildEvaluationRecord(
+          input.session_id,
+          matches,
+          askEvaluationText(input.tool_input),
+          "ask-tool-call"
+        )
+      );
     } else {
       const turnLines = extractLastAssistantTurn(lines);
       if (turnLines.length > 0) {

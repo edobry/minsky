@@ -167,6 +167,34 @@ describe("evaluation stream records misses, not just fires (mt#3463)", () => {
     expect(record.text_tail).toContain("Nothing deferral-shaped");
   });
 
+  test("defaults to the prose-turn grain", () => {
+    expect(buildEvaluationRecord("s-1", [], "text").evaluated).toBe("prose-turn");
+  });
+
+  // PR #2659 R1: the ask surface recorded nothing, so "every evaluated unit"
+  // was false and the recall denominator was silently prose-only.
+  test("the ask surface is a DIFFERENT denominator, and says so", () => {
+    const record = buildEvaluationRecord("s-1", [], "Recover the service | Hold", "ask-tool-call");
+    expect(record.evaluated).toBe("ask-tool-call");
+    expect(record.fired).toBe(false);
+  });
+
+  test("runAskSurface records an evaluation even when nothing matches", () => {
+    const benignAsk: Record<string, unknown> = {
+      questions: [{ question: "Which colour?", options: [{ label: "Red" }, { label: "Blue" }] }],
+    };
+    const input = {
+      session_id: "s-ask",
+      tool_name: "AskUserQuestion",
+      tool_input: benignAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    // No match -> no GuardOutcome, but the evaluation must still have been
+    // recorded. Asserting the no-match outcome pins the branch the R1 finding
+    // was about: the early return path.
+    expect(runAskSurface(input, ctxWith([]))).toBeNull();
+  });
+
   test("a fired turn names its surfaces", () => {
     const record = buildEvaluationRecord(
       "s-1",
