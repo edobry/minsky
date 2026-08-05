@@ -17,6 +17,7 @@ import {
   resolvePRNumber,
   findPRNumberForBranch,
 } from "./github-pr-operations";
+import { type ReviewVerdictFields, pickLatestDecisionPerReviewer } from "./review-verdict";
 
 /**
  * Minimal review shape consumed by `pickLatestReviewPerReviewer`. Matches
@@ -31,16 +32,14 @@ export interface MinimalReview {
 }
 
 /**
- * The set of review states GitHub treats as "decision-bearing" for its own
- * `review_decision` field. Only these states participate in the per-reviewer
- * latest-wins reduction. COMMENTED and PENDING are informational, NOT
- * decisions: an APPROVED review followed by a COMMENTED review from the same
- * reviewer is still APPROVED, and a CHANGES_REQUESTED followed by a COMMENTED
- * is still CHANGES_REQUESTED. Per GitHub docs (and verified against the
- * `review_decision` GraphQL field), only APPROVED / CHANGES_REQUESTED /
- * DISMISSED carry a decision.
+ * Projects the Octokit-shaped review payload onto the fields the shared
+ * ordering rule reads (`review-verdict.ts`).
  */
-const DECISION_BEARING_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
+const MINIMAL_REVIEW_FIELDS: ReviewVerdictFields<MinimalReview> = {
+  reviewerLogin: (review) => review.user?.login,
+  submittedAt: (review) => review.submitted_at,
+  state: (review) => review.state,
+};
 
 /**
  * Reduce a review list to the latest decision-bearing review per reviewer
@@ -77,23 +76,7 @@ const DECISION_BEARING_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMI
  *     that need a deterministic order should sort the result themselves.
  */
 export function pickLatestReviewPerReviewer<R extends MinimalReview>(reviews: R[]): R[] {
-  const byReviewer = new Map<string, R>();
-  for (const r of reviews) {
-    if (!DECISION_BEARING_STATES.has(r.state)) continue;
-    const login = r.user?.login;
-    if (!login) continue;
-    const prev = byReviewer.get(login);
-    if (!prev) {
-      byReviewer.set(login, r);
-      continue;
-    }
-    const prevTs = prev.submitted_at ?? "";
-    const currTs = r.submitted_at ?? "";
-    if (currTs >= prevTs) {
-      byReviewer.set(login, r);
-    }
-  }
-  return Array.from(byReviewer.values());
+  return pickLatestDecisionPerReviewer(reviews, MINIMAL_REVIEW_FIELDS);
 }
 
 // ── Non-approval merge-blocker computation (mt#2890) ─────────────────────
@@ -353,8 +336,9 @@ export async function getPullRequestApprovalStatus(
     //
     // The reducer itself filters input to decision-bearing states
     // (APPROVED, CHANGES_REQUESTED, DISMISSED) — see DECISION_BEARING_STATES
-    // and pickLatestReviewPerReviewer above. COMMENTED and PENDING are
-    // informational and do not supersede prior decisions.
+    // in `review-verdict.ts`, the shared ordering rule the wait path also
+    // calls (mt#3555). COMMENTED and PENDING are informational and do not
+    // supersede prior decisions.
     // Cast to MinimalReview[]: Octokit's review type carries many fields
     // (author_association, _links, etc.) that don't structurally widen to
     // MinimalReview's tighter user shape. The runtime fields the helper

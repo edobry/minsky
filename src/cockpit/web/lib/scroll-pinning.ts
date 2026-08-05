@@ -170,10 +170,16 @@ export function scrollFraction(scrollport: Element | null): number {
 export function threadPositionFromScroll(
   fraction: number,
   hiddenBefore: number,
-  totalTurns: number
+  totalTurns: number,
+  renderedTurns?: number
 ): number {
   if (totalTurns <= 0) return 0;
-  const rendered = Math.max(0, totalTurns - hiddenBefore);
+  // `renderedTurns` defaults to "everything from `hiddenBefore` to the end",
+  // which is the window's shape whenever it reaches the newest turn. It is
+  // passed explicitly when the frozen window is capped and therefore stops
+  // short of the tail (mt#3736) — the scrollport's range then covers fewer
+  // turns than the subtraction would suggest.
+  const rendered = renderedTurns ?? Math.max(0, totalTurns - hiddenBefore);
   const within = Math.round(Math.min(1, Math.max(0, fraction)) * rendered);
   return Math.min(totalTurns, hiddenBefore + within);
 }

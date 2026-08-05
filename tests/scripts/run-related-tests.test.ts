@@ -124,6 +124,41 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     ]);
   });
 
+  test("the cockpit-web run overrides bunfig's ignore patterns so its own files are not pruned (mt#3738)", () => {
+    // Without this, bunfig.toml's `src/cockpit/web/**` entry prunes the exact
+    // paths the branch just named: bun matches nothing, prints no summary, and
+    // the fail-closed gate turns the silence into a blocked commit. Asserting
+    // on the ARGUMENT rather than on a real run because the fixture fs has no
+    // real test files to execute; the behavioral check is that a real
+    // cockpit-web file now runs at all.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: Array<{ files: string[]; preload?: string; ignore?: string }> = [];
+    const result = runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
+      fs,
+      runBunTest: (files, preload, ignore) => {
+        calls.push({ files, preload, ignore });
+        return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls[0]?.ignore).toBe("services/**");
+    expect(calls[0]?.ignore).not.toContain("cockpit");
+  });
+
+  test("non-cockpit runs pass no ignore-pattern override (mt#3738)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: Array<{ files: string[]; preload?: string; ignore?: string }> = [];
+    const result = runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: (files, preload, ignore) => {
+        calls.push({ files, preload, ignore });
+        return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls[0]?.ignore).toBeUndefined();
+  });
+
   test("exceeding RELATED_TEST_CAP skips the local run instead of running everything", () => {
     const files: Record<string, string> = {};
     const many: string[] = [];
