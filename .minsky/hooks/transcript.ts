@@ -633,6 +633,73 @@ export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
 }
 
 /**
+ * Stable identity of a real-prompt line, for anchor matching.
+ *
+ * MUST agree with `turnKeyFor` in `./turn-end-scan-store`, which is what the
+ * `Stop`-side recorder uses to WRITE the key this function matches against.
+ * The two are deliberately not a shared import — that would make this module,
+ * the lowest layer, depend on a store — so `turn-anchor-store.test.ts` pins
+ * their agreement instead. If you change one, that test fails.
+ */
+function anchorKeyOf(line: TranscriptLine | undefined): string | undefined {
+  return line?.uuid ?? line?.timestamp;
+}
+
+/**
+ * Resolve the just-completed turn from a RECORDED anchor rather than by
+ * inferring the boundary from prompt positions (mt#3490, ADR-031).
+ *
+ * `resolveCompletedTurn` above answers "which span is the completed turn?" by
+ * reading the shape of the file — a good inference, and still the fallback, but
+ * an inference. Six of the seven fixes in this area were spent correcting it.
+ * When the `Stop`-side recorder captured this conversation's turn key, the
+ * boundary is not inferred at all: find that exact line and take the span from
+ * it to the next real prompt.
+ *
+ * The key is the OPENING real prompt of the completed turn. At `Stop` time that
+ * line was the transcript's LAST real prompt; by the next `UserPromptSubmit` it
+ * is the SECOND-TO-LAST, because the firing prompt has landed after it — the
+ * same physical line in both reads, which is exactly what makes it a usable
+ * cross-event key.
+ *
+ * Returns `undefined` — never a wrong window — when the key names no real
+ * prompt in `lines`. That happens legitimately (a compacted transcript, a
+ * subagent-scoped read, an anchor from a prior conversation) and the caller
+ * MUST fall back to {@link resolveCompletedTurn}. Returning `undefined` rather
+ * than an empty turn is what keeps "no anchor" and "anchor names an empty turn"
+ * distinguishable at the call site.
+ *
+ * @see .minsky/hooks/turn-anchor-store.ts — where the key comes from
+ * @see docs/architecture/adr-031-guidance-detector-lifecycle-event.md
+ */
+export function resolveCompletedTurnFromAnchor(
+  lines: TranscriptLine[],
+  turnKey: string
+): CompletedTurn | undefined {
+  // "session-start" is `turnKeyFor`'s sentinel for "no opening prompt existed".
+  // It names no line, so it can only ever produce a wrong match — refuse it
+  // explicitly rather than relying on it failing to match by luck.
+  if (!turnKey || turnKey === "session-start") return undefined;
+
+  const promptIndices = findRealPromptIndices(lines);
+  const anchorPos = promptIndices.findIndex((i) => anchorKeyOf(lines[i]) === turnKey);
+  if (anchorPos < 0) return undefined;
+
+  const anchorIdx = promptIndices[anchorPos] as number;
+  const nextPromptIdx = promptIndices[anchorPos + 1];
+  const end = nextPromptIdx ?? lines.length;
+
+  return {
+    turnLines: lines.slice(anchorIdx + 1, end),
+    openingPromptIndex: anchorIdx,
+    // A real prompt AFTER the anchor is the firing prompt having landed —
+    // the same distinction `resolveCompletedTurn` reports, derived here from
+    // the recorded boundary instead of from the tail's emptiness.
+    firingPromptLanded: nextPromptIdx !== undefined,
+  };
+}
+
+/**
  * Extract the just-completed logical turn.
  *
  * Thin accessor over {@link resolveCompletedTurn} — see that function for how
@@ -648,8 +715,38 @@ export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
  *
  * Returns [] when no turn can be resolved.
  */
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  return resolveCompletedTurn(lines).turnLines;
+export function extractLastAssistantTurn(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): TranscriptLine[] {
+  return resolveCompletedTurnWithAnchor(lines, recordedAnchor).turnLines;
+}
+
+/**
+ * The window resolution every prompt-time consumer should use (mt#3490).
+ *
+ * Prefers the RECORDED boundary and falls back to inferring it — the single
+ * place that precedence lives, so no caller has to remember the order. This is
+ * the "swap the shared helper underneath them" shape ADR-031's migration-cost
+ * paragraph describes: a caller opts in by passing `ctx.recordedAnchor`, and
+ * passing `undefined` is exactly the pre-mt#3490 behaviour.
+ *
+ * Falls back — rather than trusting the anchor blindly — whenever the recorded
+ * key names no real prompt in `lines`. That is a legitimate, expected state
+ * (a compacted transcript, an anchor from before a `/clear`, a subagent-scoped
+ * read), which is why {@link resolveCompletedTurnFromAnchor} reports it as
+ * `undefined` instead of returning an empty window that a caller could mistake
+ * for a genuinely empty turn.
+ */
+export function resolveCompletedTurnWithAnchor(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): CompletedTurn {
+  if (recordedAnchor) {
+    const anchored = resolveCompletedTurnFromAnchor(lines, recordedAnchor.turnKey);
+    if (anchored) return anchored;
+  }
+  return resolveCompletedTurn(lines);
 }
 
 /**
