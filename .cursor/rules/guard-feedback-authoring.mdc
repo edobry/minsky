@@ -96,6 +96,14 @@ the dispatch's JSON — including a *different* guard's `deny`, which then never
 logged anywhere. Measured live: with the pre-fix dispatcher, overriding one guard let a second
 guard's deny be silently dropped and the tool ran.
 
+That measurement was real, and it could not have come from a unit test — `dispatcher.test.ts`
+injects the fire-log writer and the context resolver, so it never exercises the path the bug
+lived on. But it was taken by hand-registering fixture guards into the LIVE dispatcher, which
+wrote 19 records into the production fire-log and ran an unreviewed `deny` against the
+operator's own tool calls (mt#3756). **Re-run it with `bun scripts/run-dispatcher-scenario.ts
+--scenario override-deny-precedence`**, which ships that exact scenario against an isolated
+state dir. Add a scenario there rather than hand-rolling a harness.
+
 So: **never write to stdout from a guard.** Return `auditLines` and let the dispatcher place it.
 The dispatcher deliberately exposes no general-purpose stdout writer beside its JSON emitter, so
 there is no correct way to do otherwise — if you find yourself reaching for `process.stdout.write`

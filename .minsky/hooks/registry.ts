@@ -162,6 +162,14 @@ export interface GuardOutcome {
    * JSON was found to be discarded wholesale by Claude Code whenever stdout
    * carried anything else — so an audit line could silently void a later
    * guard's deny on the same call.
+   *
+   * That behavior is reproducible on demand: `bun
+   * scripts/run-dispatcher-scenario.ts --scenario override-deny-precedence`
+   * (mt#3756). It is deliberately NOT a unit test — `dispatcher.test.ts`
+   * injects `recordFireLogFn`/`resolveDispatchContextFn`, so it cannot observe
+   * the real write path this bug lived on, which is why the original
+   * measurement was taken against the live dispatcher and left 19 fixture
+   * records in the production fire-log.
    */
   auditLines?: string[];
   /**
