@@ -50,7 +50,10 @@ describe("assertNoSuspiciousSpecCollapse", () => {
     }
 
     expect(message).toContain("380");
-    expect(message).toContain("1 lines");
+    // PR #2650 R1 fixed the plural here and on the two sibling surfaces (shared
+    // `formatLineCount`), so this now pins the CORRECT grammar rather than the bug.
+    expect(message).toContain("1 line,");
+    expect(message).not.toContain("1 lines");
     expect(message).toContain("100% drop");
     expect(message).toContain("allowShrink=true");
     expect(message).toContain("no version history");

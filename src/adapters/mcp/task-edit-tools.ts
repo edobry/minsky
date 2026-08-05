@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "@minsky/shared/logger";
 import { countOccurrences } from "./session-edit-tools";
+import { formatLineCount } from "@minsky/domain/ai/edit-pattern-utils";
 
 /** Shape of the collapse detector this module consumes (mt#2577's predicate). */
 type CollapseDetector = (
@@ -95,7 +96,8 @@ export function assertNoSuspiciousSpecCollapse(
   const dropPct = Math.round((1 - collapse.finalLines / collapse.originalLines) * 100);
   throw new Error(
     `Refusing to patch task ${taskId}: the merge result is dramatically smaller than the ` +
-      `original spec (${collapse.originalLines} -> ${collapse.finalLines} lines, a ${dropPct}% ` +
+      `original spec (${formatLineCount(collapse.originalLines)} -> ` +
+      `${formatLineCount(collapse.finalLines)}, a ${dropPct}% ` +
       `drop). This is the marker-collapse failure (mt#2577/mt#3674): the apply model likely ` +
       `mis-resolved a '// ... existing code ...' marker — check the patch content for stray text ` +
       `outside the intended edit. Re-issue with tighter, smaller marker regions, or pass ` +

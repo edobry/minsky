@@ -398,6 +398,14 @@ export class MinskyMCPServer {
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
   private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
 
+  // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
+  // ever registered. Deliberately distinct from `httpSessions.size > 0`,
+  // which reflects only CURRENTLY-open sessions: a client that connected
+  // and later cleanly disconnected (or was reaped) must not be
+  // indistinguishable from "no client ever connected" to the
+  // never-connected idle-exit watcher in `orphan-exit.ts`.
+  private hasEverHadAnyHttpSession = false;
+
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
   // True ONLY during a genuine graceful shutdown initiated by `drain()`
@@ -889,6 +897,7 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
+          this.hasEverHadAnyHttpSession = true;
           const newCount = this.httpSessions.size;
           log.debug("mcp_session_admit", {
             sessionId: id,
@@ -911,6 +920,7 @@ export class MinskyMCPServer {
     // catches that path.
     if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
       this.httpSessions.set(session.transport.sessionId, session);
+      this.hasEverHadAnyHttpSession = true;
       log.debug("Registered new HTTP session (post-handle fallback)", {
         sessionId: session.transport.sessionId,
       });
@@ -2273,6 +2283,17 @@ export class MinskyMCPServer {
    */
   getMaxSessions(): number | null {
     return this.MAX_HTTP_SESSIONS;
+  }
+
+  /**
+   * mt#3764: true once the first HTTP MCP session has EVER been
+   * established, and stays true afterward even if all sessions later
+   * close/reap. Feeds the never-connected idle-exit watcher in
+   * `orphan-exit.ts` — deliberately NOT the same as `getSessionCount() > 0`,
+   * which only reflects currently-open sessions.
+   */
+  hasEverHadHttpSession(): boolean {
+    return this.hasEverHadAnyHttpSession;
   }
 
   /**
