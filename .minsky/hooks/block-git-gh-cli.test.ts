@@ -12,6 +12,8 @@ import {
   splitOnShellOperatorsUnquoted,
   classifyRepoScope,
   commandMayRelocateCwd,
+  resolveLeadingCdTarget,
+  isLiterallyResolvablePath,
   isCwdScopedInvocation,
   isMinskySessionPath,
   stripEnvVarAssignments,
@@ -1637,6 +1639,8 @@ describe("splitOnShellOperators — quote awareness (mt#3788)", () => {
 
 /** Stand-in for the hook installation's own checkout in the mt#3788 scope tests. */
 const FAKE_PROJECT_ROOT = "/Users/e/Projects/minsky";
+/** Stand-in for a git repo Minsky does not manage. */
+const FAKE_EXTERNAL_ROOT = "/tmp/scratch/probe";
 
 describe("isMinskySessionPath (mt#3788)", () => {
   it("recognises the canonical session-workspace root", () => {
@@ -1649,14 +1653,14 @@ describe("isMinskySessionPath (mt#3788)", () => {
 
   it("does not match the project checkout or an unrelated repo", () => {
     expect(isMinskySessionPath(FAKE_PROJECT_ROOT)).toBe(false);
-    expect(isMinskySessionPath("/tmp/scratch/probe")).toBe(false);
+    expect(isMinskySessionPath(FAKE_EXTERNAL_ROOT)).toBe(false);
   });
 });
 
 describe("classifyRepoScope (mt#3788)", () => {
   const PROJECT = FAKE_PROJECT_ROOT;
   const SESSION = "/Users/e/.local/state/minsky/sessions/abc-123";
-  const EXTERNAL = "/tmp/scratch/probe";
+  const EXTERNAL = FAKE_EXTERNAL_ROOT;
 
   // Every candidate below IS a repo root, so findRepoRoot's upward walk stops
   // immediately and the classification is driven entirely by the path.
@@ -1717,6 +1721,70 @@ describe("commandMayRelocateCwd — vetoes the carve-out (PR #2685 R2)", () => {
   it("is not fooled by the word cd appearing inside a quoted argument", () => {
     // Quote-aware splitting keeps this one segment whose binary is `git`.
     expect(commandMayRelocateCwd(`git commit -m "cd into the thing"`)).toBe(false);
+  });
+});
+
+describe("resolveLeadingCdTarget (mt#3798)", () => {
+  const BASE = "/Users/e/Projects/minsky";
+
+  it("resolves an absolute leading cd — the case that unblocks the carve-out", () => {
+    expect(resolveLeadingCdTarget(`cd ${FAKE_EXTERNAL_ROOT} && git add -A`, BASE)).toBe(
+      FAKE_EXTERNAL_ROOT
+    );
+    expect(
+      resolveLeadingCdTarget(`cd ${FAKE_EXTERNAL_ROOT} && git init -q . && git add -A`, BASE)
+    ).toBe(FAKE_EXTERNAL_ROOT);
+  });
+
+  it("resolves a relative leading cd against the base cwd", () => {
+    expect(resolveLeadingCdTarget("cd sub/dir && git add -A", BASE)).toBe(`${BASE}/sub/dir`);
+  });
+
+  it("resolves the PROJECT path too — the scope check, not this, does the denying", () => {
+    // SC2's bypass: this must resolve so classifyRepoScope can call it `project`.
+    expect(resolveLeadingCdTarget(`cd ${BASE} && git push`, "/tmp/scratch")).toBe(BASE);
+  });
+
+  it("refuses a target it cannot read literally", () => {
+    expect(resolveLeadingCdTarget("cd $SOME_VAR && git push", BASE)).toBeNull();
+    expect(resolveLeadingCdTarget('cd "$(pwd)" && git push', BASE)).toBeNull();
+    expect(resolveLeadingCdTarget("cd ~/Projects/minsky && git push", BASE)).toBeNull();
+    expect(resolveLeadingCdTarget("cd /tmp/scr*tch && git push", BASE)).toBeNull();
+  });
+
+  it("refuses when anything relocates again after the leading cd", () => {
+    expect(resolveLeadingCdTarget("cd /tmp/scratch && cd /elsewhere && git push", BASE)).toBeNull();
+    expect(
+      resolveLeadingCdTarget(`cd /tmp/scratch && sh -c "cd ${BASE} && git push"`, BASE)
+    ).toBeNull();
+    expect(
+      resolveLeadingCdTarget("cd /tmp/scratch && pushd /elsewhere && git push", BASE)
+    ).toBeNull();
+  });
+
+  it("refuses a cd that is not the FIRST segment, or is not a bare two-token cd", () => {
+    expect(resolveLeadingCdTarget("git add -A && cd /tmp/scratch", BASE)).toBeNull();
+    expect(resolveLeadingCdTarget("cd && git push", BASE)).toBeNull();
+    expect(resolveLeadingCdTarget("cd -P /tmp/scratch && git push", BASE)).toBeNull();
+  });
+
+  it("refuses a lone cd with nothing after it, and refuses without a base cwd", () => {
+    expect(resolveLeadingCdTarget("cd /tmp/scratch", BASE)).toBeNull();
+    expect(resolveLeadingCdTarget("cd /tmp/scratch && git push", undefined)).toBeNull();
+  });
+});
+
+describe("isLiterallyResolvablePath (mt#3798)", () => {
+  it("accepts plain absolute and relative paths", () => {
+    expect(isLiterallyResolvablePath(FAKE_EXTERNAL_ROOT)).toBe(true);
+    expect(isLiterallyResolvablePath("sub/dir")).toBe(true);
+    expect(isLiterallyResolvablePath("../sibling")).toBe(true);
+  });
+
+  it("rejects expansion, substitution, globs, and tilde", () => {
+    for (const t of ["$VAR", "a$VAR/b", "`pwd`", "~", "~/x", "a*b", "a?b", "a[0]", "a{b,c}", ""]) {
+      expect(isLiterallyResolvablePath(t)).toBe(false);
+    }
   });
 });
 
