@@ -24,7 +24,7 @@
 import { log } from "@minsky/shared/logger";
 import type { Ask, AgentId, TransportKind, AskKind } from "./types";
 import { assertNever } from "./types";
-import { loadAllPolicySources, isCovered } from "./policy";
+import { loadAllPolicySources, isCovered, type CoverageResult } from "./policy";
 import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
 import type { ClientCapabilityRegistry } from "../client-capabilities";
@@ -358,8 +358,27 @@ export async function policyFirstRoute(
   // Phase 1: policy consultation
   // -----------------------------------------------------------------------
 
-  const sources = await loadAllPolicySources(workspaceRoot, specContent);
-  const coverage = isCovered(ask, sources);
+  // An incident-severity ask names an operator-only remediation, so it must
+  // reach a human regardless of what policy appears to say about the action
+  // (mt#3714 criterion 3). Before this, `severity: "incident"` did not affect
+  // routing at all: the originating incident's re-filed ask carried both
+  // `severity` and `forceImmediate` and was auto-closed identically to the
+  // first, leaving the agent no way to force a human into the loop.
+  const severityForcesOperator = ask.severity === "incident";
+
+  // Skip the policy load entirely when severity already decides the outcome —
+  // loadAllPolicySources reads CLAUDE.md and the spec from disk, and nothing
+  // downstream consumes them on this path.
+  let coverage: CoverageResult = { covered: false };
+  if (severityForcesOperator) {
+    log.debug("ask.router: severity forces operator routing, policy phase skipped", {
+      askId: ask.id,
+      kind: ask.kind,
+    });
+  } else {
+    const sources = await loadAllPolicySources(workspaceRoot, specContent);
+    coverage = isCovered(ask, sources);
+  }
 
   if (coverage.covered && coverage.citation) {
     // Policy covers this Ask — short-circuit to closed.
