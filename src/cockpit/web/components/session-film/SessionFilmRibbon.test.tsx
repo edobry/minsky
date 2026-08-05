@@ -712,8 +712,37 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     expect(body.textContent).toContain("ok");
   });
 
-  test("expanded row content includes an 'open in conversation view' deep-link to /conversation/:id", async () => {
+  // mt#3791: the href used to be a bare `/conversation/a1`, which landed the
+  // reader on the newest exchange with no way to find the action they clicked.
+  // It now carries that event's own transcript address.
+  test("expanded row content deep-links to the addressed turn, not just the conversation", async () => {
     const speakEvent = selfEvent({ verb: "speak", sourceRef: { turnIndex: 1 } });
+    renderRibbon([speakEvent]);
+    mockContentFetch({ ok: true, blocks: [], ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const link = await screen.findByText("open in conversation view →");
+    expect(link.closest("a")?.getAttribute("href")).toBe("/conversation/a1?turn=1");
+  });
+
+  test("a tool-call row's deep-link names the specific call, not just its turn (mt#3791)", async () => {
+    const callEvent = selfEvent({
+      verb: "write",
+      sourceRef: { turnIndex: 4, toolUseId: "toolu_01ABC" },
+    });
+    renderRibbon([callEvent]);
+    mockContentFetch({ ok: true, blocks: [], ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const link = await screen.findByText("open in conversation view →");
+    expect(link.closest("a")?.getAttribute("href")).toBe(
+      "/conversation/a1?turn=4&toolUse=toolu_01ABC"
+    );
+  });
+
+  test("an event with no sourceRef links to the conversation with no address (mt#3791)", async () => {
+    // The pre-mt#3262 case: an event the adapter emitted without a back-
+    // reference has no turn to address, and must still produce a working link
+    // rather than `?turn=undefined`.
+    const speakEvent = selfEvent({ verb: "speak" });
     renderRibbon([speakEvent]);
     mockContentFetch({ ok: true, blocks: [], ingestedAt: "2026-07-20T00:00:00.000Z" });
     fireEvent.click(screen.getByTestId("session-film-row-0"));

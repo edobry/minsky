@@ -166,6 +166,7 @@ import {
   resolveEventContent,
   sessionFilmContentQueryKey,
 } from "../../lib/session-film-client";
+import { turnAddressSearch } from "../../lib/conversation-turn-address";
 
 /** Fixed collapsed-row height, px — see the module doc's uniform-height rationale. */
 export const ROW_HEIGHT_PX = 32;
@@ -386,7 +387,23 @@ function EventContentView({
         </div>
       )}
       {content.conversationId ? (
-        <EntityRef type="conversation" id={content.conversationId} className="text-[11px]">
+        <EntityRef
+          type="conversation"
+          id={content.conversationId}
+          // The address of THIS event, not just of the conversation (mt#3791).
+          // Without it the reader lands on the newest exchange and has to find
+          // the action by hand — which is what mt#3262 SC 3 asked for and what
+          // this link did not do for its first ten days.
+          search={
+            event.sourceRef
+              ? turnAddressSearch({
+                  turnIndex: event.sourceRef.turnIndex,
+                  toolUseId: event.sourceRef.toolUseId,
+                })
+              : undefined
+          }
+          className="text-[11px]"
+        >
           open in conversation view →
         </EntityRef>
       ) : null}
