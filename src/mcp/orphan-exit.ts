@@ -66,6 +66,17 @@ export function parsePositiveIntEnv(raw: string | undefined): number | undefined
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/**
+ * Read the current process's ppid. `process.ppid` is on the real
+ * NodeJS.Process type (and present at runtime in both Node and Bun), but
+ * this repo's legacy ambient `process` shim (`src/types/node.d.ts`) omits
+ * it — mirrors the identical cast already established in
+ * `server.ts`'s `resolveAgentId` call site.
+ */
+export function getCurrentProcessPpid(): number {
+  return (process as typeof process & { ppid: number }).ppid;
+}
+
 export interface ParentDeathWatcherOptions {
   /** ppid recorded once, at process startup. */
   initialPpid: number;
