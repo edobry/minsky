@@ -150,18 +150,62 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   return matches;
 }
 
-function buildReminder(matches: UntakenActionMatch[]): string {
+/**
+ * The directive for an ordinary commitment fire — the agent said it would do a
+ * thing and then did not.
+ */
+const COMMITMENT_DIRECTIVE =
+  "Take it now in this continuation, then report the result. If it genuinely cannot " +
+  "proceed — you are blocked on a principal decision, a red check, or an external " +
+  "condition you have already armed a watcher for — name which in one line and end.";
+
+/**
+ * The directive for a fire whose phrase ALSO matches the deferral corpus (mt#3767).
+ *
+ * mt#3620 made this guard win the overlap and silenced the prompt-time sibling,
+ * because Stop is the earlier event and only an earlier warning can prevent the
+ * round-trip. But the remedy for an OFFER lives in the sibling that was silenced:
+ * a menu handed back to the principal is not an omission to correct by acting, it
+ * is a sentence to retract. Emitting the commitment directive here tells the agent
+ * to perform an action whose correct disposition is often to un-name it — and an
+ * instruction that does not fit is what teaches a reader to dismiss a true
+ * positive, which is exactly what happened in this task's originating occurrence.
+ *
+ * So the handoff now carries the TEXT as well as the speaking rights. mem#831
+ * stated the rule for the speaking half — "a dedup between guards on DIFFERENT
+ * events is not a dedup, it is a handoff, and it must hand off toward the EARLIER
+ * event"; this is the other half of it.
+ *
+ * Kept to one classify-then-act sentence set rather than restating
+ * `/classify-before-deferring` — the skill owns the taxonomy, this names the branch
+ * the agent is most likely to have missed (that it already decided).
+ *
+ * ## Ceiling
+ *
+ * This branch is the guard's WORST CASE and the registry's `worstCaseCanary` is
+ * posed at it. Measured with the evidence list at its cap of 3 plus the
+ * "…and N more" line: 430 chars against a 450 ceiling. Any addition here has to
+ * be paid for by a trim elsewhere, NOT by raising
+ * `attentionCost.denialMessageSizeChars` — `dispatcher.ts` derives the whole
+ * turn's merged-injection budget from the sum of those annotations, so raising
+ * one taxes every turn in the repo (mem#865, learned on the mt#3699 sibling).
+ */
+const DEFERRAL_DIRECTIVE =
+  "You OFFERED this rather than doing it. If you already decided against it, the " +
+  "naming was the defect — drop the offer and state the decision. If a lookup or " +
+  "standing default settles it, act. Ask only for a principal-reserved category.";
+
+function buildReminder(matches: UntakenActionMatch[], deferralShaped: boolean): string {
   const lines: string[] = [
-    "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
+    // Trimmed by mt#3767 from "…and ended the turn without taking it." The guard
+    // is Stop-keyed, so "ended the turn" was already implied by when it fires;
+    // the 17 chars buy headroom the SATURATED case needs. Do not re-expand — see
+    // the ceiling note on `DEFERRAL_DIRECTIVE`.
+    "[turn-end-untaken-action] You named a next action and did not take it.",
     "",
   ];
   lines.push(...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${m.matchedPhrase}"`));
-  lines.push(
-    "",
-    "Take it now in this continuation, then report the result. If it genuinely cannot " +
-      "proceed — you are blocked on a principal decision, a red check, or an external " +
-      "condition you have already armed a watcher for — name which in one line and end."
-  );
+  lines.push("", deferralShaped ? DEFERRAL_DIRECTIVE : COMMITMENT_DIRECTIVE);
   return lines.join("\n");
 }
 
@@ -281,6 +325,9 @@ export function run(
       // empty (not absent) still means "recorded an outcome, did not suppress".
       suppressionReasons: [] as string[],
     },
-    additionalContext: buildReminder(newMatches),
+    // The overlap flag selects the DIRECTIVE, not just the calibration field
+    // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
+    // the silenced sibling's remedy and not only its speaking slot.
+    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
   };
 }
