@@ -394,6 +394,72 @@ export function getPersistenceEpoch(): number {
   return _epoch;
 }
 
+/**
+ * Wrap an async resolver so its result is cached only for as long as the
+ * persistence generation it was resolved under is still current (mt#3721).
+ *
+ * This is the primitive that makes the epoch contract above hold by
+ * CONSTRUCTION rather than by each consumer remembering to check. Before
+ * mt#3721, `getPersistenceEpoch` had exactly two callers — `db-providers.ts`
+ * and `widgets/agents.ts` — while eight other module-level caches held
+ * provider-derived handles with no epoch check at all. A recycle
+ * (`recycleSharedPersistence`) restored the pool and those eight stayed pinned
+ * to the ENDED one, which postgres-js rejects forever (`CONNECTION_ENDED` is
+ * raised whenever the `Sql` instance's `ending` flag is set, and nothing
+ * clears it). Observed 2026-08-05: `/api/health` reported `db: "ok"` at 152ms
+ * while five widget endpoints served placeholders eight minutes after a
+ * successful recycle.
+ *
+ * Lives here rather than in `db-providers.ts` because it is a pure epoch
+ * utility that knows nothing about persistence SHAPES — the epoch's owner is
+ * the right home, and it keeps consumers from importing db-providers' much
+ * heavier graph just to wrap a cache. `db-providers.ts` keeps its specialized
+ * `createCachedSqlDbGetter` (which additionally owns negative caching and the
+ * mt#3254 test-environment guard); this is the general-purpose sibling.
+ *
+ * **Successes only.** A `null`/`undefined` result is returned but NOT cached,
+ * so the next call retries. Every site migrated in mt#3721 already behaved
+ * this way (`if (_cached) return _cached;` — a failure threw or returned null
+ * and was never stored), so this preserves their behavior exactly rather than
+ * silently introducing negative caching. A resolver that THROWS likewise
+ * caches nothing.
+ *
+ * @param resolve Builds the value. Called again after any epoch move.
+ * @param options.getEpoch Test seam: override the epoch read. Production
+ *   callers never set this.
+ */
+export function createEpochKeyedCache<T>(
+  resolve: () => Promise<T>,
+  options?: { getEpoch?: () => number }
+): () => Promise<T> {
+  const getEpoch = options?.getEpoch ?? getPersistenceEpoch;
+  let cached: T | null = null;
+  let cachedAtEpoch = -1;
+
+  return async function getEpochKeyedValue(): Promise<T> {
+    if (cached !== null && cachedAtEpoch === getEpoch()) return cached;
+
+    // Rebuild until the epoch is STABLE ACROSS CONSTRUCTION — the discipline
+    // PR #2586 R1 added by hand to `widgets/agents.ts`, generalized here so
+    // every consumer inherits it. Checking the epoch only on entry is not
+    // enough: a recycle landing DURING `resolve()` yields a value already
+    // wrapping the torn-down pool, and caching it reintroduces exactly the
+    // latch this helper exists to remove. Bounded in practice — the epoch moves
+    // at most once per `RECYCLE_MIN_INTERVAL_MS`, so a second pass is already
+    // rare and a third essentially impossible.
+    for (;;) {
+      const epochAtBuild = getEpoch();
+      const value = await resolve();
+      if (getEpoch() !== epochAtBuild) continue;
+      if (value !== null && value !== undefined) {
+        cached = value;
+        cachedAtEpoch = epochAtBuild;
+      }
+      return value;
+    }
+  };
+}
+
 /** Recycle telemetry for /api/health (`dbRecycle`), sibling of getDbCheck. */
 export interface DbRecycle {
   /** ISO timestamp of the most recent recycle, or null if none this process. */
