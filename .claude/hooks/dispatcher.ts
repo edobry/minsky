@@ -611,14 +611,14 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *     and whose absence would make the agent assert stale facts:
  *     inject-current-time 90 + inject-git-state 300 + inject-prod-state 250 +
  *     memory-search 550 = **1190**.
- *   - The five largest conditional detectors: inject-dispatch-watchdog 1550 +
+ *   - The five largest conditional detectors: inject-dispatch-watchdog 1750 +
  *     guard-health-escalation 1300 + substrate-bypass 650 + pre-narration 650 +
- *     code-mechanism-assertion 600 = **4750**. (ask-routing-deferral, also 600,
+ *     code-mechanism-assertion 600 = **4950**. (ask-routing-deferral, also 600,
  *     is now sixth and drops out of the bucket.)
  *
- * 1190 + 4750 = 5940 chars of fragment TEXT. The budget bounds the emitted
+ * 1190 + 4950 = 6140 chars of fragment TEXT. The budget bounds the emitted
  * BLOCK, which also carries the `\n\n` separators between fragments: 9
- * fragments means 8 separators at 2 chars = 16. So 5940 + 16 = **5956**.
+ * fragments means 8 separators at 2 chars = 16. So 6140 + 16 = **6156**.
  *
  * (That separator term is not pedantry — the first draft of this constant
  * omitted it and the "measured turn is not truncated" test below failed by
@@ -651,7 +651,7 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * A turn where everything always-on fires AND the five heaviest detectors all
  * fire at once therefore still fits. The budget does not bind on any realistic
  * turn; it binds on the pathological tail, where the annotated all-22 total is
- * 11240. That is the intent: bound unbounded growth as detectors graduate,
+ * 11440. That is the intent: bound unbounded growth as detectors graduate,
  * without truncating ordinary turns.
  *
  * This number should keep coming DOWN as more guard text is trimmed to the
@@ -672,8 +672,13 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * knowingly larger budget for a corpus with no unbounded members left in it —
  * `guard-feedback-shape.test.ts`'s classification receipt is what keeps that
  * true.
+ *
+ * **Why it went UP again, 5956 -> 6156 (mt#3121).** `inject-dispatch-watchdog`
+ * gained a `contested` status branch, raising its measured worst case (and its
+ * annotation) 1550 -> 1750. It is the heaviest conditional detector, so it sits in
+ * the top-five bucket this derivation sums — the budget moves with it, +200.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 5956;
+export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
