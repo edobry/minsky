@@ -50,11 +50,9 @@
 // @see .minsky/hooks/turn-end-unescalated-incident-scan.ts — hybrid sibling
 // @see mt#3653 — this guard; mem#846 — the handoff carrying the incident record
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { findRepoRoot } from "./types";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import type { TranscriptLine } from "./transcript";
 import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
@@ -159,26 +157,25 @@ const TASK_ID_SHAPE = /^[a-z]+#\d+$/i;
  * fire-only corpus cannot provide. Non-candidate turns write nothing: a turn
  * with no evidence-write carries no signal for this detector's FP/FN axes,
  * and per-turn unconditional writes would flood the stream.
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` derives
+ * `.minsky/<name>-evaluations.jsonl` from it, the same name/path split the
+ * registry's `calibrationLog` uses.
  */
-const EVALUATION_LOG = ".minsky/stop-at-decision-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "stop-at-decision";
 
-/** Append one evaluation record. Fail-open, never throws (a measurement stream must never break the guard it measures). */
+/**
+ * Append one evaluation record. Fail-open, never throws (a measurement stream
+ * must never break the guard it measures).
+ *
+ * mt#3745: this detector already had the correct root precedence
+ * (`CLAUDE_PROJECT_DIR` before cwd) — it was the only one of the three that
+ * did, and its zero stray files are what identified the other two as broken.
+ * That precedence now lives in the shared helper instead of here, so the next
+ * stream inherits it rather than re-deriving it.
+ */
 function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // Root resolution deliberately mirrors the dispatcher's
-    // `calibrationLogPath` (CLAUDE_PROJECT_DIR before cwd) so the evaluation
-    // stream and the calibration log can never land in different repos.
-    const root = process.env["CLAUDE_PROJECT_DIR"] ?? cwd;
-    const logPath = resolve(findRepoRoot(root), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[stop-at-decision-scan] Failed to write evaluation log: ${msg}\n`);
-  }
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**

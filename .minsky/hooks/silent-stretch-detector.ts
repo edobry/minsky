@@ -125,6 +125,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { evaluationLogPath, logEvaluationRecord } from "./dispatcher";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — GRADUATED to injection (mt#3399)
@@ -519,8 +520,12 @@ function readCalibrationLogText(cwd: string): string | undefined {
  * What this stream is for: the tuning loop needs to know whether guidance
  * CHANGED anything, and that is unanswerable from fires alone — a corpus of
  * fires can say "it happened again" but never "it stopped happening."
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` /
+ * `evaluationLogPath` derive `.minsky/<name>-evaluations.jsonl` from it, the
+ * same name/path split the registry's `calibrationLog` uses.
  */
-const EVALUATION_LOG = ".minsky/silent-stretch-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "silent-stretch";
 
 /**
  * Append one evaluation record. Fail-open and never throws, matching
@@ -528,23 +533,20 @@ const EVALUATION_LOG = ".minsky/silent-stretch-evaluations.jsonl";
  * break the guard whose behavior it measures.
  */
 function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[silent-stretch-detector] Failed to write evaluation log: ${msg}\n`);
-  }
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
-/** Bounded-tail read of the evaluation log, for the same-turn dedupe below. */
+/**
+ * Bounded-tail read of the evaluation log, for the same-turn dedupe below.
+ *
+ * mt#3745: this READER had the same cwd-rooting defect as the writer, and it
+ * matters independently — reading a cwd-rooted path inside a session workspace
+ * dedupes against the wrong (usually empty) log, so the dedupe silently stops
+ * deduping exactly where the stray writes were landing.
+ */
 function readEvaluationLogText(cwd: string): string | undefined {
-  const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-  return readLogTailText(logPath);
+  return readLogTailText(evaluationLogPath(EVALUATION_LOG_NAME, { fallbackCwd: cwd }));
 }
 
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
