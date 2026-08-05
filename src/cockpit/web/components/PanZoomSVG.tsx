@@ -66,10 +66,11 @@
  *     is the single definition of that range, shared by the manual-zoom path
  *     and the camera-follow fit. Camera-follow previously bypassed it and
  *     could commit a scale (~4.4 on a near-degenerate bounds) past MAX_SCALE.
- *   - **The viewBox center stays inside the camera extent** (`cameraExtent` /
- *     `clampViewBoxToExtent`) — the board unioned with the live content
- *     bounds. Pan was previously unclamped in every direction; one drag
- *     reached `x = 13147` against a board at `x:[0,900]`.
+ *   - **A quarter of the viewBox always overlaps the content**
+ *     (`cameraContentBounds` / `clampViewBoxToContent`) — the live content
+ *     bounds, NOT the board rect, for the reason recorded on
+ *     `cameraContentBounds`. Pan was previously unclamped in every direction;
+ *     one drag reached `x = 13147` against a board at `x:[0,900]`.
  *   - **The follow loop pauses, it does not die.** `runTick` reschedules while
  *     `userInteractedRef` is set instead of returning, so clearing that flag
  *     actually resumes following. Reset additionally bumps
@@ -294,45 +295,57 @@ function clampViewBoxScale(vb: ViewBox, boardWidth: number, containerAspect: num
 }
 
 /**
- * The world region the camera is allowed to look at: the board, unioned with
- * the live content bounds whenever camera-follow supplies them. The board rect
- * alone is NOT the content extent — the film's live force layout
- * (`session-film-force-layout.ts`) drifts nodes outside the fixed 900x700
- * board, and clamping to the board would fence the camera out of content that
- * genuinely exists.
+ * Fraction of the viewBox that must keep showing content on each axis. At 0.25
+ * the world can be dragged most of the way to an edge — enough to inspect
+ * something at the periphery — while a quarter of the viewport still lands on
+ * it, so there is always something on screen to drag back toward.
  */
-function cameraExtent(
+const MIN_CONTENT_OVERLAP = 0.25;
+
+/**
+ * What the camera must keep in view: the live content bounds when
+ * camera-follow supplies them, else the board rect.
+ *
+ * The board is deliberately NOT unioned in when real bounds exist. That was
+ * this function's first version, and it is wrong in a way only a live run
+ * shows. The board (900x700) is far larger than a typical touched set, so
+ * "stay inside board ∪ bounds" permits the camera to sit in a board corner
+ * where no content has ever been. Measured against the running film: a
+ * 12000px drag clamped the viewBox center to exactly (900, 700) — the board's
+ * bottom-right corner — with 0 of 8 stage nodes on screen. The clamp fired
+ * correctly and still produced the defect it exists to prevent, because the
+ * region it clamped to was not where the world is. The board is a coordinate
+ * frame; the bounds are the world.
+ */
+function cameraContentBounds(
   boardWidth: number,
   boardHeight: number,
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
 ): { minX: number; minY: number; maxX: number; maxY: number } {
-  if (!bounds) return { minX: 0, minY: 0, maxX: boardWidth, maxY: boardHeight };
-  return {
-    minX: Math.min(0, bounds.minX),
-    minY: Math.min(0, bounds.minY),
-    maxX: Math.max(boardWidth, bounds.maxX),
-    maxY: Math.max(boardHeight, bounds.maxY),
-  };
+  return bounds ?? { minX: 0, minY: 0, maxX: boardWidth, maxY: boardHeight };
 }
 
 /**
- * Keep the viewBox's CENTER inside the camera extent (mt#3792 SC1). Pan was
- * previously unclamped in every direction: one large drag put the viewBox at
- * x=13147 while the board occupied x:[0,900] — every node off-screen, and
- * nothing left on screen to indicate which way to drag back.
+ * Keep at least {@link MIN_CONTENT_OVERLAP} of the viewBox overlapping the
+ * content on both axes (mt#3792 SC1). Pan was previously unclamped in every
+ * direction: one large drag put the viewBox at x=13147 while the board
+ * occupied x:[0,900] — every node off-screen, and nothing left on screen to
+ * indicate which way to drag back.
  *
- * Centering is deliberately stricter than merely requiring the viewBox to
- * INTERSECT the extent: it means the middle of the screen always sits on
- * content territory, so the world can never be pushed to an unreadable sliver
- * at one edge. The cost — you cannot park the content off-center to stare at
- * empty space beside it — is not a capability this surface wants.
+ * Expressed as a range for the viewBox CENTER: it may travel up to half a
+ * viewBox past the content edge, less the overlap it must retain. The range
+ * cannot invert at any content size or zoom, because the overlap term is
+ * `MIN_CONTENT_OVERLAP < 0.5` of the viewBox and is subtracted from exactly
+ * half a viewBox of slack.
  */
-function clampViewBoxToExtent(
+function clampViewBoxToContent(
   vb: ViewBox,
-  extent: { minX: number; minY: number; maxX: number; maxY: number }
+  content: { minX: number; minY: number; maxX: number; maxY: number }
 ): ViewBox {
-  const cx = clamp(vb.x + vb.w / 2, extent.minX, extent.maxX);
-  const cy = clamp(vb.y + vb.h / 2, extent.minY, extent.maxY);
+  const slackX = vb.w * (0.5 - MIN_CONTENT_OVERLAP);
+  const slackY = vb.h * (0.5 - MIN_CONTENT_OVERLAP);
+  const cx = clamp(vb.x + vb.w / 2, content.minX - slackX, content.maxX + slackX);
+  const cy = clamp(vb.y + vb.h / 2, content.minY - slackY, content.maxY + slackY);
   return { ...vb, x: cx - vb.w / 2, y: cy - vb.h / 2 };
 }
 
@@ -452,13 +465,13 @@ export function PanZoomSVG({
         // SAME treatment the user-interacted branch below already uses);
         // the growing-bounds effect's own next tick re-reads the container
         // size and re-fits at the new dimensions on its own cadence.
-        // Extent-clamped (mt#3792 SC1): changing only `h` moves the viewBox
+        // Content-clamped (mt#3792 SC1): changing only `h` moves the viewBox
         // CENTER vertically by half the height delta, so a large aspect change
         // can walk the camera off the content the same way a drag could.
         setViewBox((vb) =>
-          clampViewBoxToExtent(
+          clampViewBoxToContent(
             { ...vb, h: vb.w * (height / width) },
-            cameraExtent(boardWidth, boardHeight, boundsRef.current)
+            cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
           )
         );
       } else if (!userInteractedRef.current) {
@@ -467,13 +480,13 @@ export function PanZoomSVG({
       } else {
         // Preserve the user's framing but correct the height to the new aspect so
         // preserveAspectRatio="none" never distorts.
-        // Extent-clamped (mt#3792 SC1): changing only `h` moves the viewBox
+        // Content-clamped (mt#3792 SC1): changing only `h` moves the viewBox
         // CENTER vertically by half the height delta, so a large aspect change
         // can walk the camera off the content the same way a drag could.
         setViewBox((vb) =>
-          clampViewBoxToExtent(
+          clampViewBoxToContent(
             { ...vb, h: vb.w * (height / width) },
-            cameraExtent(boardWidth, boardHeight, boundsRef.current)
+            cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
           )
         );
       }
@@ -525,19 +538,19 @@ export function PanZoomSVG({
       const scaleWobble = 1 + 0.02 * Math.sin((2 * Math.PI * elapsed) / (period * 0.6));
       const w = fit.w * scaleWobble;
       const h = fit.h * scaleWobble;
-      // Extent-clamped like every other writer (mt#3792 SC1): the wobble is
+      // Content-clamped like every other writer (mt#3792 SC1): the wobble is
       // small (±amplitudePx), but a fit whose center already sits on the
       // extent boundary would be nudged outside it by the drift alone. Same
       // clamp, so no writer is exempt from the invariant.
       setViewBox(
-        clampViewBoxToExtent(
+        clampViewBoxToContent(
           {
             x: fit.x + dx - (w - fit.w) / 2,
             y: fit.y + dy - (h - fit.h) / 2,
             w,
             h,
           },
-          cameraExtent(boardWidth, boardHeight, boundsRef.current)
+          cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
         )
       );
     };
@@ -792,13 +805,13 @@ export function PanZoomSVG({
         const focalY = vb.y + fracY * vb.h;
         const nextX = focalX - fracX * nextW;
         const nextY = focalY - fracY * nextH;
-        // Extent-clamped (mt#3792 SC1): zooming out with the focal point near
+        // Content-clamped (mt#3792 SC1): zooming out with the focal point near
         // an edge walks the center outward, so the zoom path needs the same
         // clamp the drag path does — otherwise repeated edge-zooms reach the
         // very off-world framings the pan clamp exists to prevent.
-        return clampViewBoxToExtent(
+        return clampViewBoxToContent(
           { x: nextX, y: nextY, w: nextW, h: nextH },
-          cameraExtent(boardWidth, boardHeight, boundsRef.current)
+          cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
         );
       });
     },
@@ -847,25 +860,37 @@ export function PanZoomSVG({
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    if (!dragRef.current) return;
+    // Snapshot the gesture, don't re-read the ref inside the updater below.
+    //
+    // A `setViewBox` updater is not guaranteed to run during this handler:
+    // React may batch it and invoke it later, by which point `handlePointerUp`
+    // may already have set `dragRef.current = null` — and the non-null
+    // assertion this replaces then threw, unmounting the whole film behind
+    // "Widget session-page crashed: Cannot read properties of null (reading
+    // 'startVBX')". Observed on the live page while screenshotting a
+    // fast synthetic drag; a human drag rarely delivers moves close enough
+    // together to lose the race, which is why it survived since mt#2380.
+    // Reading the ref ONCE, here, removes both the race and the assertion.
+    const gesture = dragRef.current;
+    if (!gesture) return;
     const el = svgRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const vb = viewBoxRef.current;
-    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * vb.w;
-    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * vb.h;
-    // Extent-clamped (mt#3792 SC1) — see `clampViewBoxToExtent`. Applied to
+    const dx = ((e.clientX - gesture.startX) / rect.width) * vb.w;
+    const dy = ((e.clientY - gesture.startY) / rect.height) * vb.h;
+    // Content-clamped (mt#3792 SC1) — see `clampViewBoxToContent`. Applied to
     // every intermediate position, not as a correction after pointerup, so
     // the drag itself stops at the boundary instead of snapping back from
     // wherever it was released.
     setViewBox((cur) =>
-      clampViewBoxToExtent(
+      clampViewBoxToContent(
         {
           ...cur,
-          x: dragRef.current!.startVBX - dx,
-          y: dragRef.current!.startVBY - dy,
+          x: gesture.startVBX - dx,
+          y: gesture.startVBY - dy,
         },
-        cameraExtent(boardWidth, boardHeight, boundsRef.current)
+        cameraContentBounds(boardWidth, boardHeight, boundsRef.current)
       )
     );
   }, [boardWidth, boardHeight]);

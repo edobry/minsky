@@ -975,8 +975,29 @@ describe("PanZoomSVG — timer-driven camera effects (fake clock, mt#3247 R1)", 
       fireEvent.pointerUp(svg);
     }
 
+    /**
+     * Fraction of the viewBox currently showing content, per axis.
+     *
+     * This — not "the center is somewhere inside a permitted rectangle" — is
+     * the invariant worth asserting, and the distinction is not academic. The
+     * first implementation clamped the center to the board unioned with the
+     * bounds; that satisfies a center-in-rectangle assertion while parking the
+     * camera in a board corner with nothing on screen, which is exactly what
+     * the live run measured (0 of 8 nodes visible). An assertion phrased over
+     * the permitted rectangle cannot see that; one phrased over content
+     * overlap can.
+     */
+    function contentOverlapFraction(
+      vb: { x: number; y: number; w: number; h: number },
+      bounds: { minX: number; minY: number; maxX: number; maxY: number }
+    ): { x: number; y: number } {
+      const overlapX = Math.max(0, Math.min(vb.x + vb.w, bounds.maxX) - Math.max(vb.x, bounds.minX));
+      const overlapY = Math.max(0, Math.min(vb.y + vb.h, bounds.maxY) - Math.max(vb.y, bounds.minY));
+      return { x: overlapX / vb.w, y: overlapY / vb.h };
+    }
+
     // SC1 / AT1
-    test("AT1: a drag far larger than the board leaves the camera inside the content extent", () => {
+    test("AT1: a drag far larger than the board still leaves a quarter of the view on the content", () => {
       const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
       act(() => clock.advance(500));
 
@@ -984,25 +1005,65 @@ describe("PanZoomSVG — timer-driven camera effects (fake clock, mt#3247 R1)", 
       // repro, D1) — every node off-screen with no way back but Reset.
       drag(svg, -40_000, -30_000);
 
-      const c = center(currentVB());
-      // Extent = board ∪ bounds = x:[0,1280] y:[0,820] for these bounds.
-      expect(c.x).toBeGreaterThanOrEqual(0);
-      expect(c.x).toBeLessThanOrEqual(BOARD_W);
-      expect(c.y).toBeGreaterThanOrEqual(0);
-      expect(c.y).toBeLessThanOrEqual(BOARD_H);
+      const overlap = contentOverlapFraction(currentVB(), NEAR_BOUNDS);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+      expect(overlap.y).toBeGreaterThanOrEqual(0.25 - 1e-6);
     });
 
-    test("AT1b: the extent follows content outside the board, so a drag toward far content is not fenced in", () => {
+    test("AT1b: the clamp tracks content that sits far outside the board", () => {
+      // Bounds well beyond the board rect — the force layout genuinely drifts
+      // nodes out here, so a clamp anchored on the board would either fence
+      // the camera away from this content or (unioned) allow a framing that
+      // contains none of it.
       const farBounds = { minX: 2000, minY: 100, maxX: 2100, maxY: 200 };
       const { svg } = renderCamera({ bounds: farBounds });
       act(() => clock.advance(500));
 
-      // Drag right, toward the far content. The board alone would cap the
-      // center at x=1280; the extent (board ∪ bounds) allows up to x=2100.
-      drag(svg, -3000, 0);
-      const c = center(currentVB());
-      expect(c.x).toBeGreaterThan(BOARD_W);
-      expect(c.x).toBeLessThanOrEqual(farBounds.maxX);
+      drag(svg, -3000, -2000);
+      const overlap = contentOverlapFraction(currentVB(), farBounds);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+      expect(overlap.y).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    });
+
+    test("AT1d: a batched drag gesture does not crash the component", () => {
+      // The whole gesture in ONE act(), so React batches the state updates and
+      // the `setViewBox` updaters run AFTER pointerup has cleared `dragRef`.
+      // That is the ordering a fast pointer produces, and it used to throw
+      // "Cannot read properties of null (reading 'startVBX')" from inside the
+      // updater, unmounting the film into an error boundary. Caught by
+      // screenshotting the live page during a synthetic drag, not by any
+      // assertion here — the surrounding tests all fire their events
+      // unbatched, where the updater still runs while the ref is populated.
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
+      act(() => clock.advance(500));
+
+      expect(() => {
+        act(() => {
+          fireEvent.pointerDown(svg, { button: 0, clientX: 600, clientY: 400 });
+          fireEvent.pointerMove(svg, { clientX: 400, clientY: 300 });
+          fireEvent.pointerMove(svg, { clientX: 200, clientY: 200 });
+          fireEvent.pointerUp(svg);
+        });
+      }).not.toThrow();
+
+      // Still rendering, and still showing content.
+      expect(screen.getByTestId("pan-zoom-svg")).toBeDefined();
+      const overlap = contentOverlapFraction(currentVB(), NEAR_BOUNDS);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    });
+
+    test("AT1c: panning is still possible — the clamp bounds the camera without pinning it", () => {
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
+      act(() => clock.advance(500));
+      const before = center(currentVB());
+
+      // A modest drag, well inside the permitted travel, must actually move
+      // the camera. A clamp that pinned the view would satisfy every bound
+      // above while making the surface useless.
+      drag(svg, -60, -40);
+      const after = center(currentVB());
+      expect(Math.abs(after.x - before.x)).toBeGreaterThan(1);
+      expect(Math.abs(after.y - before.y)).toBeGreaterThan(1);
     });
 
     // SC2 / AT2
