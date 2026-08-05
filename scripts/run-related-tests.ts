@@ -75,21 +75,46 @@ function getStagedFiles(): string[] {
   return new TextDecoder().decode(proc.stdout).trim().split("\n").filter(Boolean);
 }
 
+/**
+ * The ignore-pattern set the cockpit-web branch runs under (mt#3738).
+ *
+ * `bunfig.toml` lists `src/cockpit/web/**` so those DOM tests stay out of the
+ * main (non-DOM) suite. That exclusion applies to files named explicitly on the
+ * command line too, so the branch below was handing `bun test` a list of paths
+ * that bunfig then pruned to nothing: no tests ran, no `Ran N tests` summary was
+ * printed, and the fail-closed gate read the silence as a failure. Every commit
+ * touching a cockpit-web test was blocked, and the DOM-preload branch had never
+ * actually executed a test.
+ *
+ * `--path-ignore-patterns` REPLACES the bunfig value rather than adding to it,
+ * so naming only `services/**` here restores `src/cockpit/web/**`. This is the
+ * same override `package.json`'s `test:components` script already uses; keep the
+ * two in step.
+ */
+const COCKPIT_WEB_IGNORE_PATTERNS = "services/**";
+
 function runBunTest(
   files: string[],
-  preload: string = "./tests/setup.ts"
+  preload: string = "./tests/setup.ts",
+  pathIgnorePatterns?: string
 ): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
   // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
   // avoided here -- evaluateBunTestSummary (scripts/run-tests-gated.ts) strips
   // ANSI escape codes before matching, so this gate is agnostic to whether the
   // inherited environment forces color on the spawned `bun test` process.
-  const proc = Bun.spawnSync(["bun", "test", "--preload", preload, "--timeout=15000", ...files], {
-    env: { ...process.env, AGENT: "1" },
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 60000,
-  });
+  const ignoreArgs = pathIgnorePatterns
+    ? [`--path-ignore-patterns=${pathIgnorePatterns}`]
+    : ([] as string[]);
+  const proc = Bun.spawnSync(
+    ["bun", "test", "--preload", preload, "--timeout=15000", ...ignoreArgs, ...files],
+    {
+      env: { ...process.env, AGENT: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 60000,
+    }
+  );
   const out = decoder.decode(proc.stdout);
   const err = decoder.decode(proc.stderr);
   process.stdout.write(out);
@@ -157,7 +182,11 @@ export function runFastRelatedTestGate(
   // tests/dom-setup.ts, mirroring bunfig.toml's exclusion of this directory
   // from the default (non-DOM) preload -- see this file's module doc.
   if (cockpitDomFiles.length > 0) {
-    const result = doRun(cockpitDomFiles.map(toBunTestPath), "./tests/dom-setup.ts");
+    const result = doRun(
+      cockpitDomFiles.map(toBunTestPath),
+      "./tests/dom-setup.ts",
+      COCKPIT_WEB_IGNORE_PATTERNS
+    );
     const gate = evaluateBunTestSummary(result.combined, result.exitCode);
     if (!gate.ok) {
       return {
