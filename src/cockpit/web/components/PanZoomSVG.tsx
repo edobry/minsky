@@ -56,6 +56,32 @@
  * OR `bounds` already sits outside the dead zone (a follow is pending, about
  * to start on the next tick). `viewBox` now has exactly one writer at a
  * time; ambient drift only runs when the camera is genuinely at rest.
+ *
+ * Camera bounding + a Reset that survives (mt#3792): the mt#3247 pass above
+ * settled WHO may write `viewBox` at a given moment; this one settles WHAT
+ * region the camera may look at, and makes Reset able to hand the camera back
+ * to the follow loop. Three invariants, each with its own helper below:
+ *
+ *   - **Every framing sits inside the interactive zoom range.** `clampScale`
+ *     is the single definition of that range, shared by the manual-zoom path
+ *     and the camera-follow fit. Camera-follow previously bypassed it and
+ *     could commit a scale (~4.4 on a near-degenerate bounds) past MAX_SCALE.
+ *   - **The viewBox center stays inside the camera extent** (`cameraExtent` /
+ *     `clampViewBoxToExtent`) — the board unioned with the live content
+ *     bounds. Pan was previously unclamped in every direction; one drag
+ *     reached `x = 13147` against a board at `x:[0,900]`.
+ *   - **The follow loop pauses, it does not die.** `runTick` reschedules while
+ *     `userInteractedRef` is set instead of returning, so clearing that flag
+ *     actually resumes following. Reset additionally bumps
+ *     `cameraResetNonceRef` (invalidating the loop's closure-local committed
+ *     fit) and clears `growingBoundsTargetRef` (the stale wobble base ambient
+ *     drift would otherwise snap back to within one 200ms tick).
+ *
+ * The through-line across mt#3231 -> mt#3247 -> mt#3792: each writer held a
+ * private fragment of "what is the camera framing right now," and no writer
+ * could read or invalidate another's — Reset was a fourth actor with no way to
+ * reach any of them. Prefer extending these shared helpers over adding another
+ * ref to referee the existing ones.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -240,6 +266,76 @@ function withinDeadZone(
   );
 }
 
+/**
+ * Clamp a camera scale (`boardWidth / viewBox.w`) into the interactive zoom
+ * range — ONE definition, shared by the manual-zoom path and the
+ * camera-follow fit (mt#3792 SC2). Before this, only manual zoom clamped, so
+ * camera-follow could commit framings the user could neither reach by zooming
+ * nor undo by zooming back: a near-degenerate touched set (a fresh film, where
+ * the bounds are home alone) fits at scale ~4.4 against a MAX_SCALE of 4.
+ */
+function clampScale(scale: number): number {
+  return clamp(scale, MIN_SCALE, MAX_SCALE);
+}
+
+/**
+ * Re-derive a viewBox whose implied scale sits inside the interactive zoom
+ * range, keeping its center. The height follows the CONTAINER aspect, so the
+ * no-distortion invariant this module maintains everywhere else (see the
+ * module doc's aspect-ratio note) survives the clamp.
+ */
+function clampViewBoxScale(vb: ViewBox, boardWidth: number, containerAspect: number): ViewBox {
+  const scale = boardWidth / vb.w;
+  const clamped = clampScale(scale);
+  if (clamped === scale) return vb;
+  const w = boardWidth / clamped;
+  const h = w * containerAspect;
+  return { x: vb.x + vb.w / 2 - w / 2, y: vb.y + vb.h / 2 - h / 2, w, h };
+}
+
+/**
+ * The world region the camera is allowed to look at: the board, unioned with
+ * the live content bounds whenever camera-follow supplies them. The board rect
+ * alone is NOT the content extent — the film's live force layout
+ * (`session-film-force-layout.ts`) drifts nodes outside the fixed 900x700
+ * board, and clamping to the board would fence the camera out of content that
+ * genuinely exists.
+ */
+function cameraExtent(
+  boardWidth: number,
+  boardHeight: number,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (!bounds) return { minX: 0, minY: 0, maxX: boardWidth, maxY: boardHeight };
+  return {
+    minX: Math.min(0, bounds.minX),
+    minY: Math.min(0, bounds.minY),
+    maxX: Math.max(boardWidth, bounds.maxX),
+    maxY: Math.max(boardHeight, bounds.maxY),
+  };
+}
+
+/**
+ * Keep the viewBox's CENTER inside the camera extent (mt#3792 SC1). Pan was
+ * previously unclamped in every direction: one large drag put the viewBox at
+ * x=13147 while the board occupied x:[0,900] — every node off-screen, and
+ * nothing left on screen to indicate which way to drag back.
+ *
+ * Centering is deliberately stricter than merely requiring the viewBox to
+ * INTERSECT the extent: it means the middle of the screen always sits on
+ * content territory, so the world can never be pushed to an unreadable sliver
+ * at one edge. The cost — you cannot park the content off-center to stare at
+ * empty space beside it — is not a capability this surface wants.
+ */
+function clampViewBoxToExtent(
+  vb: ViewBox,
+  extent: { minX: number; minY: number; maxX: number; maxY: number }
+): ViewBox {
+  const cx = clamp(vb.x + vb.w / 2, extent.minX, extent.maxX);
+  const cy = clamp(vb.y + vb.h / 2, extent.minY, extent.maxY);
+  return { ...vb, x: cx - vb.w / 2, y: cy - vb.h / 2 };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -316,6 +412,20 @@ export function PanZoomSVG({
    */
   const growingBoundsBusyRef = useRef(false);
 
+  /**
+   * Reset invalidation channel (mt#3792 SC4). The growing-bounds effect's
+   * `committedTarget` — the camera's current rest position — is a CLOSURE
+   * LOCAL, unreachable from `handleReset`. Before this, Reset could clear
+   * `userInteractedRef` and still leave the follow loop holding a committed
+   * fit from before the user panned, so even a revived loop would consider
+   * itself already settled and never re-fit. Reset bumps this counter; the
+   * tick compares it against the value it last saw and, on a change, discards
+   * `committedTarget`/`easeStart` so the next tick fits from the CURRENT
+   * bounds. A counter rather than a boolean so two Resets inside one poll
+   * interval cannot collapse into one.
+   */
+  const cameraResetNonceRef = useRef(0);
+
   const applyFit = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -342,19 +452,35 @@ export function PanZoomSVG({
         // SAME treatment the user-interacted branch below already uses);
         // the growing-bounds effect's own next tick re-reads the container
         // size and re-fits at the new dimensions on its own cadence.
-        setViewBox((vb) => ({ ...vb, h: vb.w * (height / width) }));
+        // Extent-clamped (mt#3792 SC1): changing only `h` moves the viewBox
+        // CENTER vertically by half the height delta, so a large aspect change
+        // can walk the camera off the content the same way a drag could.
+        setViewBox((vb) =>
+          clampViewBoxToExtent(
+            { ...vb, h: vb.w * (height / width) },
+            cameraExtent(boardWidth, boardHeight, boundsRef.current)
+          )
+        );
       } else if (!userInteractedRef.current) {
         // Auto-refit until the user takes control.
         applyFit();
       } else {
         // Preserve the user's framing but correct the height to the new aspect so
         // preserveAspectRatio="none" never distorts.
-        setViewBox((vb) => ({ ...vb, h: vb.w * (height / width) }));
+        // Extent-clamped (mt#3792 SC1): changing only `h` moves the viewBox
+        // CENTER vertically by half the height delta, so a large aspect change
+        // can walk the camera off the content the same way a drag could.
+        setViewBox((vb) =>
+          clampViewBoxToExtent(
+            { ...vb, h: vb.w * (height / width) },
+            cameraExtent(boardWidth, boardHeight, boundsRef.current)
+          )
+        );
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [applyFit, hasGrowingBounds]);
+  }, [applyFit, hasGrowingBounds, boardWidth, boardHeight]);
 
   // -------------------------------------------------------------------------
   // Ambient camera life (mt#3226 SC 4): a slow drift/zoom-breathing wobble
@@ -399,12 +525,21 @@ export function PanZoomSVG({
       const scaleWobble = 1 + 0.02 * Math.sin((2 * Math.PI * elapsed) / (period * 0.6));
       const w = fit.w * scaleWobble;
       const h = fit.h * scaleWobble;
-      setViewBox({
-        x: fit.x + dx - (w - fit.w) / 2,
-        y: fit.y + dy - (h - fit.h) / 2,
-        w,
-        h,
-      });
+      // Extent-clamped like every other writer (mt#3792 SC1): the wobble is
+      // small (±amplitudePx), but a fit whose center already sits on the
+      // extent boundary would be nudged outside it by the drift alone. Same
+      // clamp, so no writer is exempt from the invariant.
+      setViewBox(
+        clampViewBoxToExtent(
+          {
+            x: fit.x + dx - (w - fit.w) / 2,
+            y: fit.y + dy - (h - fit.h) / 2,
+            w,
+            h,
+          },
+          cameraExtent(boardWidth, boardHeight, boundsRef.current)
+        )
+      );
     };
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
@@ -477,11 +612,15 @@ export function PanZoomSVG({
     const SUPPRESSED_RETRY_MS = 150;
     const TWEEN_TICK_MS = 50;
     const AT_REST_POLL_MS = 150;
+    /** Cadence while the user owns the camera — slow, since the only thing this poll is waiting for is Reset clearing `userInteractedRef`. */
+    const PAUSED_POLL_MS = 300;
 
     /** The last fit committed to: the camera's rest position, or the end target of an in-flight ease. `null` until the first real fit. */
     let committedTarget: ViewBox | null = null;
     /** Non-null while an ease is in flight — the viewBox it started from. */
     let easeStart: ViewBox | null = null;
+    /** Last `cameraResetNonceRef` value this loop acted on — see that ref's doc. */
+    let lastSeenResetNonce = cameraResetNonceRef.current;
     let easeStartTime = 0;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
@@ -492,7 +631,34 @@ export function PanZoomSVG({
 
     function runTick() {
       if (cancelled) return;
-      if (userInteractedRef.current) return; // stopped for good — see module doc's resize-policy note
+      if (userInteractedRef.current) {
+        // PAUSED, not dead (mt#3792 SC3). This branch used to `return` without
+        // rescheduling, which TERMINATED the poll loop on the first pan or
+        // zoom — and since this effect's deps are all static config values, it
+        // never remounted to restart it. Camera-follow was therefore gone for
+        // the rest of the page's life, and Reset (which only clears
+        // `userInteractedRef`) had no live loop left to observe the cleared
+        // flag. Measured: pending timers 1 -> 0 across a single pan. Keep
+        // polling at a slow cadence and skip the WRITES instead.
+        //
+        // Busy is false here because the user owns the camera outright: no
+        // follow is in flight or pending, so ambient drift has nothing to
+        // yield to (it is independently paused by the same
+        // `userInteractedRef`, so this is belt-and-braces, not the mechanism).
+        growingBoundsBusyRef.current = false;
+        scheduleTick(PAUSED_POLL_MS);
+        return;
+      }
+
+      // Reset invalidation (mt#3792 SC4) — see `cameraResetNonceRef`'s doc.
+      // Must run BEFORE the busy recomputation below: a discarded
+      // `committedTarget` means the first follow is pending again, and the
+      // block below reads exactly that to decide whether drift must yield.
+      if (cameraResetNonceRef.current !== lastSeenResetNonce) {
+        lastSeenResetNonce = cameraResetNonceRef.current;
+        committedTarget = null;
+        easeStart = null;
+      }
 
       // Recompute the "camera busy" flag (mt#3247 R1, BLOCKING #1) on EVERY
       // tick, BEFORE the suppressed/no-bounds early returns below — a
@@ -558,7 +724,17 @@ export function PanZoomSVG({
         );
 
       if (needsFit) {
-        committedTarget = fitToBoundsViewBox(bounds, padding, width, height);
+        // Scale-clamped (mt#3792 SC2): `fitToBoundsViewBox` derives a viewBox
+        // from the content bounds alone, with no notion of the zoom range the
+        // manual controls enforce. A near-degenerate bounds (a fresh film:
+        // home alone, so the box is `2 * padding` wide) fits at scale ~4.4
+        // against MAX_SCALE 4 — a framing the user can neither reach nor undo
+        // with the zoom buttons. Same helper the manual path uses.
+        committedTarget = clampViewBoxScale(
+          fitToBoundsViewBox(bounds, padding, width, height),
+          boardWidth,
+          height / width
+        );
         growingBoundsTargetRef.current = committedTarget; // ambient drift wobbles around THIS, not the full-board fit
         easeStart = viewBoxRef.current;
         easeStartTime = Date.now();
@@ -594,7 +770,7 @@ export function PanZoomSVG({
       growingBoundsTargetRef.current = null; // camera-follow torn down — ambient drift (if any) falls back to the full-board fit
       growingBoundsBusyRef.current = false; // camera-follow torn down — nothing pending to guard ambient drift against
     };
-  }, [hasGrowingBounds, growingPadding, growingEaseMs, growingDeadZoneMarginPx]);
+  }, [hasGrowingBounds, growingPadding, growingEaseMs, growingDeadZoneMarginPx, boardWidth]);
 
   // -------------------------------------------------------------------------
   // Zoom (focal point as fractions of the viewport; resolved against the LIVE
@@ -608,7 +784,7 @@ export function PanZoomSVG({
       const aspect = cH / cW; // height/width — the no-distortion invariant
       setViewBox((vb) => {
         const currentScale = boardWidth / vb.w;
-        const nextScale = clamp(currentScale * factor, MIN_SCALE, MAX_SCALE);
+        const nextScale = clampScale(currentScale * factor);
         if (nextScale === currentScale) return vb;
         const nextW = boardWidth / nextScale;
         const nextH = nextW * aspect; // aspect from CONTAINER, not board → no distortion
@@ -616,10 +792,17 @@ export function PanZoomSVG({
         const focalY = vb.y + fracY * vb.h;
         const nextX = focalX - fracX * nextW;
         const nextY = focalY - fracY * nextH;
-        return { x: nextX, y: nextY, w: nextW, h: nextH };
+        // Extent-clamped (mt#3792 SC1): zooming out with the focal point near
+        // an edge walks the center outward, so the zoom path needs the same
+        // clamp the drag path does — otherwise repeated edge-zooms reach the
+        // very off-world framings the pan clamp exists to prevent.
+        return clampViewBoxToExtent(
+          { x: nextX, y: nextY, w: nextW, h: nextH },
+          cameraExtent(boardWidth, boardHeight, boundsRef.current)
+        );
       });
     },
-    [boardWidth]
+    [boardWidth, boardHeight]
   );
 
   const zoomCenter = useCallback((factor: number) => zoomByFraction(factor, 0.5, 0.5), [zoomByFraction]);
@@ -671,12 +854,21 @@ export function PanZoomSVG({
     const vb = viewBoxRef.current;
     const dx = ((e.clientX - dragRef.current.startX) / rect.width) * vb.w;
     const dy = ((e.clientY - dragRef.current.startY) / rect.height) * vb.h;
-    setViewBox((cur) => ({
-      ...cur,
-      x: dragRef.current!.startVBX - dx,
-      y: dragRef.current!.startVBY - dy,
-    }));
-  }, []);
+    // Extent-clamped (mt#3792 SC1) — see `clampViewBoxToExtent`. Applied to
+    // every intermediate position, not as a correction after pointerup, so
+    // the drag itself stops at the boundary instead of snapping back from
+    // wherever it was released.
+    setViewBox((cur) =>
+      clampViewBoxToExtent(
+        {
+          ...cur,
+          x: dragRef.current!.startVBX - dx,
+          y: dragRef.current!.startVBY - dy,
+        },
+        cameraExtent(boardWidth, boardHeight, boundsRef.current)
+      )
+    );
+  }, [boardWidth, boardHeight]);
 
   const handlePointerUp = useCallback(() => {
     dragRef.current = null;
@@ -688,8 +880,41 @@ export function PanZoomSVG({
 
   const handleZoomIn = useCallback(() => zoomCenter(1 + ZOOM_STEP), [zoomCenter]);
   const handleZoomOut = useCallback(() => zoomCenter(1 / (1 + ZOOM_STEP)), [zoomCenter]);
+  /**
+   * Reset (mt#3792 SC4/SC5/SC6). Clearing `userInteractedRef` is necessary and
+   * was never sufficient: the camera-follow state Reset used to leave behind
+   * is what made the button look broken.
+   *
+   *   - `growingBoundsTargetRef` held the pre-Reset follow fit, and ambient
+   *     drift recomputes its wobble base from it every 200ms. Measured: Reset
+   *     applied `w = 900`, and two drift ticks later the viewBox was back at
+   *     `w = 371, x = 271` — the stale fit. The click DID apply; it was undone
+   *     inside ~400ms, which reads as "Reset does nothing" plus a flicker.
+   *   - The follow loop's committed fit is a closure local, so a revived loop
+   *     would consider itself already settled — hence the nonce bump.
+   *
+   * With camera-follow active, Reset means "resume auto-framing the CONTENT"
+   * rather than "snap to the fixed board rect": the film's world is a live
+   * force layout that does not occupy the board rect, so a board fit here
+   * would frame partly-empty space and then be corrected by the follow loop a
+   * tick later — two visible jumps for one click. The follow loop eases from
+   * wherever the user left the camera, which is the same motion language the
+   * rest of this component uses. With no `growingBounds` prop (a caller using
+   * the plain fit-and-hold framing) the original board fit-width behavior is
+   * unchanged.
+   */
   const handleReset = useCallback(() => {
     userInteractedRef.current = false;
+    growingBoundsTargetRef.current = null;
+    cameraResetNonceRef.current += 1;
+    if (hasGrowingBounds && boundsRef.current) {
+      // Hold ambient drift off the viewBox until the follow loop's next tick
+      // commits a fresh target — otherwise drift owns the camera during that
+      // window and writes a wobble around a base Reset just invalidated.
+      growingBoundsBusyRef.current = true;
+      return;
+    }
+    growingBoundsBusyRef.current = false;
     const el = containerRef.current;
     if (el) {
       const { width, height } = el.getBoundingClientRect();
@@ -701,7 +926,7 @@ export function PanZoomSVG({
     }
     // Fallback (JSDOM / zero-size container): restore the full-board view.
     setViewBox({ x: 0, y: 0, w: boardWidth, h: boardHeight });
-  }, [boardWidth, boardHeight]);
+  }, [boardWidth, boardHeight, hasGrowingBounds]);
 
   // -------------------------------------------------------------------------
   // Render
