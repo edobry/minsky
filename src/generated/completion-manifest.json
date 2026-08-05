@@ -7731,6 +7731,16 @@
         {
           "name": "restart",
           "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+        },
+        {
+          "name": "url",
+          "description": "Print the base URL of the running cockpit serving this workspace",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output the full cockpit state as JSON"
+            }
+          ]
         }
       ]
     },
