@@ -67,14 +67,21 @@ import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
-import { CAPTURE_SCHEMA_FIELD, CAPTURE_SCHEMA_VERSION } from "./judged-input-capture";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+} from "./judged-input-capture";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
 // an emoji. Same cross-tree import the standalone parallel-work guard uses.
 import { safeTruncate } from "../../src/utils/safe-truncate";
 
-/** Max chars of matched text carried into a calibration record. */
-const MATCH_EXCERPT_MAX_CHARS = 200;
+// The former `MATCH_EXCERPT_MAX_CHARS = 200` is gone (PR #2687 R1): the bound on
+// captured text is now `MATCH_CONTEXT_MAX_CHARS` inside the shared
+// `judged-input-capture` module, which is where the truncation happens. Keeping
+// a second, unused cap here would be exactly the divergence that consolidation
+// removed.
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -125,11 +132,28 @@ export interface DeferralMatch {
    * The surrounding prose the pattern was found in — what `matchedPhrase` used
    * to hold (mt#3781).
    *
-   * Kept, and kept byte-identical to the previous value, for two reasons. It is
-   * what makes a fire CLASSIFIABLE by a human reviewer (a bare pattern hit
-   * cannot distinguish a real deferral from a quotation of one), and it is what
-   * the guard's advisory line renders — so the injected feedback and its
-   * measured `attentionCost` are unchanged by this fix.
+   * Kept because it is what makes a fire CLASSIFIABLE by a human reviewer — a
+   * bare pattern hit cannot distinguish a real deferral from a quotation of one
+   * — and because it is what the guard's advisory line renders.
+   *
+   * Extracted by the SHARED `extractMatchContext` (mt#3607), not this module's
+   * former ±20/+60 window (PR #2687 R1) — so this detector does not carry its
+   * own copy of a problem three others already solved, and the window reads as
+   * prose instead of clipping mid-word.
+   *
+   * `leadSentences: 1` on the prose surfaces, and the reason is the same one
+   * mt#3607 measured for `ask-routing-deferral`: this corpus's triggers are
+   * frequently WHOLE SENTENCES (`Deferred to operator: requires Railway
+   * access.`), and for those the containing sentence alone is byte-identical
+   * across two fires — it would carry no more information than `matchedPhrase`
+   * already does. The old ±20 window happened to include a fragment of the
+   * preceding clause; one lead sentence is that property, done deliberately.
+   * The ask-option-label surface takes the default: a label is the unit, and
+   * there is no preceding sentence to reach for.
+   *
+   * The 240-char cap is wider than the old 200, so the guard's rendered
+   * advisory was re-measured against its declared `attentionCost` ceiling
+   * rather than assumed to still fit.
    */
   context: string;
 }
@@ -355,12 +379,11 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
     const m = pattern.exec(scanned);
     if (m) {
       const idx = m.index ?? 0;
-      const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
       return [
         {
           surface: "capability-deferral-prose",
           matchedPhrase: m[0].trim(),
-          context: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
+          context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
         },
       ];
     }
@@ -500,7 +523,9 @@ export function detectAskDeferral(
           {
             surface: "ask-option-label",
             matchedPhrase: m[0].trim(),
-            context: safeTruncate(text, MATCH_EXCERPT_MAX_CHARS, "head"),
+            // The option label IS the surrounding text here, so the shared
+            // helper is handed the label and the match's offset within it.
+            context: extractMatchContext(text, m.index ?? 0, m[0].length),
           },
         ];
       }
@@ -540,12 +565,11 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
     const idx = m.index ?? 0;
     const sentence = sentenceAround(scanned, idx);
     if (PERMISSION_ESCALATION_EXCLUSIONS.some((x) => x.test(sentence))) continue;
-    const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
     return [
       {
         surface: "permission-deferral-prose",
         matchedPhrase: m[0].trim(),
-        context: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
+        context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
       },
     ];
   }

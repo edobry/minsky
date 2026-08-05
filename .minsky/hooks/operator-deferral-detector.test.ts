@@ -420,10 +420,11 @@ describe("diversity axis (mt#3781)", () => {
       detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
     ) as { matches: Array<{ phrase: string; context: string }> };
 
-    // The window starts 20 chars before the match, so it clips mid-word —
-    // asserting on the tail of the preceding clause, not the whole sentence.
-    expect(record.matches[0]?.context).toContain("is written");
-    expect(record.matches[0]?.phrase).not.toContain("is written");
+    // `leadSentences: 1` pulls in the sentence before the trigger, which is the
+    // only thing that distinguishes these two fires — the trigger itself is a
+    // whole sentence and identical in both.
+    expect(record.matches[0]?.context).toContain("The migration is written");
+    expect(record.matches[0]?.phrase).not.toContain("The migration is written");
   });
 });
 

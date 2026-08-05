@@ -16,6 +16,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
 // Tool-name constants (custom/no-magic-string-duplication — each of these is
@@ -163,6 +164,51 @@ describe("category definitions", () => {
 // ---------------------------------------------------------------------------
 // detectBatchedMintAndConsume — Acceptance Test 1 shape (mint + consume batched)
 // ---------------------------------------------------------------------------
+
+describe("diversity axis (mt#3781)", () => {
+  // Driven through `run()` — the dispatcher-facing entry point that actually
+  // builds the record in production — rather than the module-private projection.
+  const calibrationFor = (message: string): { matches: Array<Record<string, unknown>> } => {
+    const outcome = run(
+      RUN_HOOK_INPUT,
+      makeCtx([
+        makeUserLine(),
+        makeBatchedAssistantLine([
+          { name: TASKS_CREATE, input: { title: "Fix the bug" } },
+          { name: SESSION_COMMIT, input: { message } },
+        ]),
+        makeUserLine(),
+      ])
+    );
+    return outcome?.calibration as { matches: Array<Record<string, unknown>> };
+  };
+
+  // AT1 for THIS detector. It is categorical, so two fires of the same
+  // (mint, consume, field) shape are one pattern however different their text —
+  // the exact case a text-valued `phrase` could never collapse.
+  test("AT1: two fires of the same tool shape collapse to one distinct phrase", () => {
+    const parsed = [
+      calibrationFor("fix(mt#1): first commit message"),
+      calibrationFor("chore(mt#2): an entirely different message"),
+    ].map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
+  });
+
+  // AT2 — the judged text is still recoverable, via mt#3607's capture, so
+  // moving `phrase` off the excerpt costs the record no classifiability.
+  test("AT2: the judged text survives under the capture, not under `phrase`", () => {
+    const cal = calibrationFor("fix(mt#1): a distinctive commit message") as {
+      matches: Array<{ phrase: string; judged?: { excerpt: string } }>;
+    };
+
+    expect(cal.matches[0]?.judged?.excerpt).toContain("a distinctive commit message");
+    expect(cal.matches[0]?.phrase).not.toContain("a distinctive commit message");
+    expect(cal.matches[0]?.phrase).toBe(`${TASKS_CREATE}|${SESSION_COMMIT}|message`);
+  });
+});
 
 describe("detectBatchedMintAndConsume — positive cases", () => {
   test("AT1: tasks_create batched with session_commit fires a match", () => {
