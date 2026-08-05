@@ -5,6 +5,7 @@ import { createUninstallCommand } from "./uninstall-command";
 import { createStatusCommand } from "./status-command";
 import { createStopCommand } from "./stop-command";
 import { createRestartCommand } from "./restart-command";
+import { createUrlCommand } from "./url-command";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
@@ -20,6 +21,7 @@ export function createCockpitCommand(_container?: AppContainerInterface): Comman
   cockpitCommand.addCommand(createStatusCommand());
   cockpitCommand.addCommand(createStopCommand());
   cockpitCommand.addCommand(createRestartCommand());
+  cockpitCommand.addCommand(createUrlCommand());
 
   return cockpitCommand;
 }

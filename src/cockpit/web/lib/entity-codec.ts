@@ -13,11 +13,20 @@
  *   memory       → /memory/:id
  *   session      → /agents/:id       (NOTE: /agents/, not /session/)
  *   changeset    → /changeset/:id    (changeset id == PR number; mt#2535 added the route)
- *   conversation → /conversation/:id (harness agentSessionId; mt#2769 — WEB ROUTE ONLY, not
- *                  a `minsky://` URI type. ADR-022 stage-1 constraint: the `minsky://` deeplink
- *                  URI table stays exactly {task, ask, session, memory, changeset} — `session`
- *                  keeps meaning the workspace id there. "conversation" is routable via
- *                  `entityToPath` but deliberately absent from `parseMinskyUri`'s validTypes.)
+ *   conversation → /conversation/:id (harness agentSessionId; mt#2769)
+ *
+ * ACCEPT vs EMIT (mt#3800). `parseMinskyUri` accepts SIX types — the five above plus
+ * `conversation` — so `minsky://conversation/<agentSessionId>` resolves, which is what lets a
+ * terminal-side command (`/cockpit`) hand the tray a live conversation. What agents deliberately
+ * EMIT in terminal output is a narrower, separate question governed by
+ * `cockpit-deeplinks.mdc §The five entity types`; do not read either list as the other's contract.
+ *
+ * From mt#2769 until mt#3800 this header attributed the five-type restriction to an "ADR-022
+ * stage-1 constraint." It was not one: ADR-022 contains no mention of `minsky://`, URIs, or a
+ * deeplink type table — its stage-1 text scopes to vocabulary adoption in new code and to leaving
+ * `session_*` tools/params/DB-columns/paths untouched, and stage 2 to the `session_*` →
+ * `workspace_*` rename. Adding `conversation` renames nothing and leaves `session` meaning the
+ * workspace id, so it collides with neither stage.
  *
  * @see tabs.tsx `matchEntityRoute` — the reverse codec (path → entity)
  * @see mt#2517 — parent umbrella
@@ -78,10 +87,9 @@ export function entityToMinskyUri(type: RoutableEntityType, id: string): string 
 /**
  * Parse a `minsky://` URI back to `{type, id}`.
  *
- * Returns `null` when the input is not a valid `minsky://` URI or the type
- * is not one of the five `minsky://` URI types (task/ask/session/memory/changeset —
- * "conversation" is a web-route-only `RoutableEntityType`, not a URI type; see the
- * module header's ADR-022 stage-1 note).
+ * Returns `null` when the input is not a valid `minsky://` URI or the type is not one of the six
+ * accepted URI types (task/ask/session/memory/changeset/conversation). `session` keeps meaning the
+ * WORKSPACE id here, unrelated to `conversation` — see the module header's accept-vs-emit note.
  *
  * Example: `parseMinskyUri("minsky://task/mt%232370")` → `{type: "task", id: "mt#2370"}`
  */
@@ -106,7 +114,14 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   const rawId = withoutScheme.slice(slashIdx + 1).replace(/[.,);\]]+$/, "");
 
   // Validate type
-  const validTypes: RoutableEntityType[] = ["task", "ask", "session", "memory", "changeset"];
+  const validTypes: RoutableEntityType[] = [
+    "task",
+    "ask",
+    "session",
+    "memory",
+    "changeset",
+    "conversation",
+  ];
   if (!(validTypes as string[]).includes(rawType)) return null;
 
   // Id must not be empty

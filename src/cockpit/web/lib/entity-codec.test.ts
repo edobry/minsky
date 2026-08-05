@@ -245,7 +245,7 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
   });
 });
 
-describe("conversation entity type (mt#2769 — web-route only, NOT a minsky:// URI type)", () => {
+describe("conversation entity type (mt#2769 route; mt#3800 made it a minsky:// URI type)", () => {
   const CONVERSATION_ID = "4d44d12b-58f0-433e-95b3-8b914693fa39";
 
   test("entityToPath produces /conversation/:id", () => {
@@ -259,15 +259,31 @@ describe("conversation entity type (mt#2769 — web-route only, NOT a minsky:// 
     expect(tab?.entityId).toBe(CONVERSATION_ID);
   });
 
-  test("is deliberately ABSENT from parseMinskyUri's minsky:// URI types (ADR-022 stage-1)", () => {
-    // entityToMinskyUri will happily stamp out minsky://conversation/... since it
-    // takes any RoutableEntityType with no switch — but parseMinskyUri must NOT
-    // recognize it back, because "conversation" is not one of the five minsky://
-    // URI types (task/ask/session/memory/changeset). session stays the URI type
-    // that means "workspace id" — this task must not touch that table.
+  test("round-trips through the minsky:// URI form (mt#3800)", () => {
+    // Until mt#3800 parseMinskyUri deliberately rejected this, so a tray deep-link
+    // to a conversation fronted the window without navigating. Accepting it is what
+    // lets `/cockpit` hand the tray the conversation the operator is sitting in.
     const uri = entityToMinskyUri("conversation", CONVERSATION_ID);
     expect(uri).toBe(`minsky://conversation/${CONVERSATION_ID}`);
-    expect(parseMinskyUri(uri)).toBeNull();
+    expect(parseMinskyUri(uri)).toEqual({ type: "conversation", id: CONVERSATION_ID });
+    expect(minskyUriToPath(uri)).toBe(`/conversation/${CONVERSATION_ID}`);
+  });
+
+  test("accepting it does NOT widen `session`, which still means the workspace id", () => {
+    // ADR-022 stage 2 (mt#2527) owns the session_* → workspace_* rename; mt#3800 must
+    // not anticipate it. A workspace deeplink still routes to /agents/:id.
+    expect(parseMinskyUri(`minsky://session/${CONVERSATION_ID}`)).toEqual({
+      type: "session",
+      id: CONVERSATION_ID,
+    });
+    expect(minskyUriToPath(`minsky://session/${CONVERSATION_ID}`)).toBe(
+      `/agents/${CONVERSATION_ID}`
+    );
+  });
+
+  test("an unknown type is still rejected", () => {
+    expect(parseMinskyUri(`minsky://conversations/${CONVERSATION_ID}`)).toBeNull();
+    expect(parseMinskyUri(`minsky://bogus/${CONVERSATION_ID}`)).toBeNull();
   });
 });
 
