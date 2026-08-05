@@ -61,7 +61,7 @@ response shape.
 |                | TypeScript                                                                                                                                     | Rust                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Entry point    | `findPortHolder(port)` in `src/cockpit/port-recovery.ts`                                                                                       | `pid_on_port(port, path)` in `cockpit-tray/src-tauri/src/supervisor.rs`                                                                |
-| Command        | `lsof -i :<port> -sTCP:LISTEN -P -n -t`                                                                                                        | `lsof -ti tcp:<port> -sTCP:LISTEN`                                                                                                     |
+| Command        | `lsof -i :<port> -sTCP:LISTEN -P -n -t` (any interface — see the divergence note below)                                                        | `lsof -ti tcp@localhost:<port> -sTCP:LISTEN` (loopback only, mt#3785)                                                                  |
 | Output parsing | first whitespace-delimited token of stdout, parsed as a PID                                                                                    | first line of stdout that parses as `u32` (`parse_lsof_pid`)                                                                           |
 | Extra step     | resolves the holder's command line via `ps -p <pid> -o command=` (used to classify recognized-zombie vs. unrecognized in `classifyPortHolder`) | none — the Rust side only needs the PID (to kill it or evict legacy launchd)                                                           |
 | Kill mechanism | `killZombie`: SIGTERM, poll, then SIGKILL after a timeout — only for a PID this workspace recognizes as its own prior instance                 | `kill_pid`: unconditional SIGTERM (no SIGKILL escalation, no self-recognition check — the tray is the sole intended owner per ADR-014) |
@@ -69,10 +69,29 @@ response shape.
 Both invocations filter to `LISTEN`-state sockets only (so a client
 connection to the port from an unrelated process is never mistaken for the
 port holder) and both treat "no matching PID" as "port free" rather than an
-error. These two invariants are the actual cross-language contract; the
-exact `lsof` flags differ (`-i :N` vs `-ti tcp:N`) but are equivalent
-filters, and are not expected to converge — see the cross-reference
-comments at each function for the pointer back here.
+error. These two invariants are the actual cross-language contract, and both
+sides still honor them; the exact `lsof` flags differ and are not expected to
+converge — see the cross-reference comments at each function for the pointer
+back here.
+
+**Address-scope divergence (mt#3785, 2026-08-05 — temporary).** The flag forms
+were previously described here as equivalent filters. They are no longer: the
+Rust side is scoped to loopback and the TypeScript side is not. The unscoped
+form matches a listener on ANY interface, so with Tailscale serving the cockpit
+port on the tailnet addresses, `lsof -ti tcp:3737 -sTCP:LISTEN` returned two
+PIDs and each implementation's "first PID wins" parsing picked between them
+arbitrarily. On the Rust side that fed `kill_pid`, so a SIGTERM meant for the
+cockpit daemon could have gone to an unrelated process; that is why it was
+fixed first and alone. The TypeScript side cannot make the same wrong kill —
+`killZombie` only fires on a PID `classifyPortState` recognizes as this
+workspace's own prior instance — so its exposure is a misleading
+`unrecognized` verdict, not a destructive act. Closing the divergence is
+**mt#3787**; until it lands, do not treat this row as symmetric.
+
+Note also that the Rust side answers a SECOND question separately: whether the
+port is available at all is now a bind probe (`port_in_use`), per ADR-014's
+"prefer attempting the daemon's own bind" guidance, not an lsof lookup. Only
+the "who holds it" question above uses `lsof`.
 
 ## Cross-references
 
