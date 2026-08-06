@@ -25,6 +25,7 @@ import {
   type LastWarnedStore,
   type AskLookup,
 } from "./calibration-review-cadence-detector";
+import { GUARD_REGISTRY } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -397,13 +398,24 @@ describe("formatCadenceWarning", () => {
       };
     }
 
-    // Mirrors the registry's declared `denialMessageSizeChars` for this guard
-    // (`.minsky/hooks/registry.ts`). Duplicated as a literal rather than
-    // imported: importing `registry.ts` here would pull its full dependency
-    // graph into a file this module's own header documents as filesystem-free
-    // pure-logic tests. `guard-feedback-shape.test.ts` is the receipt that
-    // keeps this number and the registry's declaration from drifting apart.
-    const DECLARED_CEILING = 800;
+    // Read from the registry itself (PR #2701 R1 BLOCKING) rather than a
+    // duplicated literal: a hand-copied number drifts silently the next time
+    // `denialMessageSizeChars` is re-tuned, which is exactly the failure mode
+    // this task exists to fix on the OTHER side of this same file. Importing
+    // `GUARD_REGISTRY` here is the same pattern `guard-feedback-shape.test.ts`
+    // already uses — it is metadata-only at import time (no canary runs
+    // unless explicitly invoked), so it does not compromise this file's
+    // filesystem-free pure-logic tests.
+    const DECLARED_CEILING = (() => {
+      const reg = GUARD_REGISTRY.find((r) => r.name === "calibration-review-cadence-detector");
+      const declared = reg?.attentionCost?.denialMessageSizeChars;
+      if (declared === undefined) {
+        throw new Error(
+          "calibration-review-cadence-detector is missing an attentionCost.denialMessageSizeChars declaration in registry.ts"
+        );
+      }
+      return declared;
+    })();
 
     test("a single due log renders under the declared ceiling", () => {
       const msg = formatCadenceWarning([worstCaseDue()]);
