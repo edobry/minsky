@@ -79,6 +79,16 @@ jobs:
         if: ${{ always() }}
         run: bun run typecheck:packages
 
+      # mt#3780: the steps above each run ONE project; nothing asserted the set
+      # of projects is COMPLETE. Four trees had been found checked-by-nothing
+      # (mt#3082/mt#3088, mt#2900, mt#3498, mt#3102), three of them only because
+      # someone hand-ran a negative control. This step fails when a tracked
+      # .ts/.tsx file is claimed by no project CI runs and is not explicitly
+      # allowlisted with a reason.
+      - name: Typecheck coverage invariant
+        if: ${{ always() }}
+        run: bun run check:typecheck-coverage
+
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.
