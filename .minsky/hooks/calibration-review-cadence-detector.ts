@@ -77,6 +77,7 @@ import { dirname, join } from "node:path";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
@@ -220,33 +221,64 @@ export function buildPendingAskRecord(
   };
 }
 
-/** Build the additionalContext warning message for a set of due logs. */
+/**
+ * Due logs shown by name before the rest collapse to a count (mt#3824).
+ *
+ * `formatCadenceWarning` used to render one multi-field line per DUE log with
+ * no cap, so its size scaled with how many calibration logs were review-due —
+ * a count driven by real repo activity (new fires crossing FIRES_THRESHOLD)
+ * AND by wall-clock time alone (a registry entry's `liveSinceDate +
+ * reviewByDays` window closing ages every registered log toward "never-fired"
+ * regardless of any file content, including inside this guard's own isolated
+ * canary — see `guard-feedback-shape.test.ts`'s size-ceiling receipt). Both
+ * axes are state the guard cannot control, so any UNCAPPED render has no
+ * worst case. Two matches `guard-health-escalation-detector`'s
+ * `MAX_LISTED_GUARDS` precedent for the same reason: each line here carries
+ * several interpolated fields (fire counts, a reason clause), so even two is
+ * enough to act on before the message gets transcript-sized.
+ */
+export const MAX_DUE_LOGS_LISTED = 2;
+
+/** One `formatCadenceWarning` line naming `d` and why it is due. */
+function renderDueLogLine(d: ReviewDueLog): string {
+  const reasonLabel =
+    d.reason === "past-threshold"
+      ? "past review threshold (fires + diversity)"
+      : d.reason === "never-reviewed"
+        ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
+        : d.reason === "never-fired"
+          ? // Trimmed (mt#3824): this was the single largest per-line contributor
+            // (~155 chars) to the guard's now-fixed unbounded growth. Same
+            // meaning, shorter: alive-but-silent, window closed, cite the tracker.
+            `confirmed alive but zero real fires in >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS}d — trigger rare or detector broken (mt#3078)`
+          : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
+  return (
+    // mt#3197: quote the INJECTED count — the detections that actually
+    // reached the operator. The positional count includes suppressed ones,
+    // which made a correctly-tuned detector look like a review backlog.
+    `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
+    `${
+      d.suppressedSinceLastReview > 0
+        ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
+        : ""
+    }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
+  );
+}
+
+/**
+ * Build the additionalContext warning message for a set of due logs.
+ *
+ * Bounded to `MAX_DUE_LOGS_LISTED` named lines plus a trailing count of the
+ * rest (`cappedEvidenceLines`, mt#3705's shared bound) — so the rendered
+ * size has a real ceiling independent of how many logs are due, rather than
+ * scaling 1:1 with repo/registry state.
+ */
 export function formatCadenceWarning(due: ReviewDueLog[]): string {
   const lines: string[] = [
     "[calibration-review-cadence-detector] Calibration log(s) are review-due (mt#2619):",
     "",
+    ...cappedEvidenceLines(due, renderDueLogLine, MAX_DUE_LOGS_LISTED),
   ];
-  for (const d of due) {
-    const reasonLabel =
-      d.reason === "past-threshold"
-        ? "past review threshold (fires + diversity)"
-        : d.reason === "never-reviewed"
-          ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
-          : d.reason === "never-fired"
-            ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
-            : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
-    lines.push(
-      // mt#3197: quote the INJECTED count — the detections that actually
-      // reached the operator. The positional count includes suppressed ones,
-      // which made a correctly-tuned detector look like a review backlog.
-      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
-        `${
-          d.suppressedSinceLastReview > 0
-            ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
-            : ""
-        }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
-    );
-  }
   lines.push("");
   lines.push(
     "Run the /calibration-review skill (or " +

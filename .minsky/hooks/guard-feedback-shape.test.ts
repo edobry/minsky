@@ -260,7 +260,7 @@ type FeedbackShape =
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
   "block-secret-file-read": "fixed",
-  "calibration-review-cadence-detector": "capped", // slice(0, 8) logs
+  "calibration-review-cadence-detector": "capped", // MAX_DUE_LOGS_LISTED (mt#3824)
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation

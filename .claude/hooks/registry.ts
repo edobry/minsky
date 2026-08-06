@@ -2031,7 +2031,16 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
+    // 800, not 450 (mt#3824): 450 was measured against the guard while it was
+    // silent (zero due logs render nothing at all) and was never re-measured
+    // once real due logs existed. `formatCadenceWarning` is now genuinely
+    // capped at MAX_DUE_LOGS_LISTED (2) named lines + a count tail, so this is
+    // a real worst-case bound rather than a moving target: 743 measured at
+    // the longest current registry name ("constructed-identifier-batch", 28
+    // chars) with the longest reason clause ("never-fired"), for ANY number
+    // of due logs (2 or 20 render identically once past the cap) — 800 keeps
+    // ~60 chars of headroom for future registry-name growth.
+    attentionCost: { denialMessageSizeChars: 800, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
       expects: "warn",
