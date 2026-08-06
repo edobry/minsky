@@ -212,7 +212,7 @@ The mt#1713 baseline is **~40 pairs, ~3.4 GB**.
 
 The daemon's own RSS at N=40 concurrent sessions is **unmeasured** — a single-session
 `minsky mcp start` is 63.5 MB, and per-session overhead at scale has not been observed. Do not
-quote a total until mt#3812 measures it.
+quote a total until mt#3811 measures it.
 
 Stated plainly: **choosing the shim gives up roughly half of the available win.** It is still a
 real win — the shim costs ~32% of today's pair, and ~60% of today's inner server alone — and it
@@ -357,7 +357,7 @@ timing staggers it naturally — there is no thundering herd at the moment of re
 measured **one** client recovering in 38ms/47ms; N-client recovery is **UNVERIFIED** and is
 explicitly not claimed here. The one real exposure is cold start (~5.1s median): a tool call
 issued during the restart window fails and retries, and the retry is the recovery path — but
-whether that holds at N=10+ concurrent re-inits is exactly what has not been observed. mt#3812
+whether that holds at N=10+ concurrent re-inits is exactly what has not been observed. mt#3811
 measures it before the default flips.
 
 **`MAX_HTTP_SESSIONS`.** Currently `null` (uncapped) by default. Leave it uncapped locally. A cap
@@ -410,8 +410,20 @@ after:   command: minsky   args: [mcp, shim, --url, http://127.0.0.1:48765/mcp]
 
 ## Question 8 — Decomposition
 
-Implementation subtasks are filed under mt#1713. See that task's children; each carries its own
-spec and can be implemented without re-deriving this ADR's reasoning.
+Four implementation subtasks are filed under mt#1713, each with its own spec, implementable
+without re-deriving this ADR's reasoning:
+
+| Task        | Deliverable                                                                                                                                                 | Depends on                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on | —                         |
+| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                | —                         |
+| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                         | —                         |
+| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                         | mt#3812, mt#3814, mt#3815 |
+| **mt#3811** | Measure daemon RSS at N sessions and N-client restart recovery; gates the default flip and fills the two figures this ADR leaves unmeasured                 | mt#3812, mt#3814          |
+
+mt#3811 is not optional polish: §Question 1's resource table and §Question 6's shared-fate argument
+both carry claims this ADR explicitly declines to make, and mt#3811 is where they get made or
+falsified. The migration default should not flip ahead of it.
 
 ---
 
@@ -429,7 +441,7 @@ spec and can be implemented without re-deriving this ADR's reasoning.
 **Harder / newly committed**
 
 - Only ~50% of the available resource win is realized. If the daemon's own footprint at N=40 turns
-  out to be large, the margin narrows further — hence mt#3812.
+  out to be large, the margin narrows further — hence mt#3811.
 - A new process class to build and maintain (the shim) that must stay genuinely thin. The measured
   ~38MB is the Bun floor; importing anything from the Minsky bundle would put it back on the
   ~55MB proxy's trajectory and erase the win. This is a standing constraint on the shim, not a
