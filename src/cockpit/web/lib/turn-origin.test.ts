@@ -139,6 +139,13 @@ describe("classifyTurnOrigin — isMeta outranks prose (mt#3809)", () => {
     expect(classifyTurnOrigin(turn)).toEqual({ kind: "operator" });
   });
 
+  test("an isMeta turn mixing several harness origins degrades to the general term", () => {
+    // PR #2698 R1: precedence 1 borrows the span label, so it inherits the
+    // same degrade-rather-than-pick-a-winner rule the non-meta path has.
+    const turn = userTurn([injected("skill-body"), injected("system-reminder")], true);
+    expect(classifyTurnOrigin(turn)).toEqual({ kind: "harness", label: "harness" });
+  });
+
   test("an absent isMeta is not a falsy isMeta", () => {
     expect(classifyTurnOrigin(userTurn([text("ship it")], false))).toEqual({ kind: "operator" });
   });
