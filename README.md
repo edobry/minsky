@@ -89,18 +89,26 @@ The full argument — and the emerging ask taxonomy — is in the [companion ess
 
 ### Installation
 
-```bash
-# Clone repository
-git clone https://github.com/edobry/minsky.git
-cd minsky
+Minsky is distributed as an npm package (ADR-033). [Bun](https://bun.sh) is a
+runtime prerequisite either way — the CLI and the hooks it provisions run under Bun.
 
-# Install with Bun (recommended)
-bun install
-bun link
+```bash
+# Install globally (recommended)
+bun add -g minsky
 
 # Or with npm
-npm install
-npm link
+npm install -g minsky
+```
+
+`minsky --version` reports the installed release version.
+
+For development on Minsky itself, install from source instead:
+
+```bash
+git clone https://github.com/edobry/minsky.git
+cd minsky
+bun install
+bun link
 ```
 
 ### Initialize a project
