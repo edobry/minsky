@@ -125,14 +125,17 @@ export function evaluateBunTestSummary(
  * (for gating) while re-emitting it so the invoking hook still shows the test
  * output. AGENT=1 keeps bun's reporter in clean non-interactive mode.
  */
-async function runStep(script: string): Promise<{ exitCode: number; combined: string }> {
+async function runStep(
+  script: string,
+  args: string[] = []
+): Promise<{ exitCode: number; combined: string }> {
   // mt#3156: async spawn under a wall-clock watchdog. `Bun.spawnSync` blocks the
   // JS thread, so no timer could fire to escalate SIGTERM -> SIGKILL — and its
   // own `timeout` option does not enforce (a SIGTERM-ignoring child runs to
   // completion and is reported `exitCode: 0, success: true`). See
   // scripts/spawn-with-watchdog.ts for the measurements.
   const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.GATED_STEP);
-  const result = await spawnWithWatchdog(["bun", script], {
+  const result = await spawnWithWatchdog(["bun", script, ...args], {
     budgetMs,
     // This object is MERGED OVER `process.env`, not a replacement — spawnWithWatchdog
     // spreads it (`{ ...process.env, ...options.env }`), as its own `env?` option
@@ -148,20 +151,142 @@ async function runStep(script: string): Promise<{ exitCode: number; combined: st
   return { exitCode: result.exitCode, combined: `${result.stdout}\n${result.stderr}` };
 }
 
+// ---------------------------------------------------------------------------
+// Change-scoped selection (mt#3562)
+// ---------------------------------------------------------------------------
+
+/** Prefix identifying the isolated-runner's domain within a changed-file list. */
+export const MCP_PATH_PREFIX = "src/mcp/";
+
+/**
+ * Production git runner. Injectable at every call site below so the selection
+ * logic is testable without spawning git or depending on the repo's own state.
+ */
+export function defaultRunGit(args: string[]): string {
+  // Bun.spawnSync per `bun_over_node.mdc` (node:child_process is lint-restricted).
+  // argv form, not a shell string, so no argument ever goes through shell parsing.
+  const result = Bun.spawnSync(["git", ...args], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  // Callers treat a throw as "unknown" and fall back to the full suite, so a
+  // non-zero git exit must throw rather than return empty output — an empty
+  // string would read as "nothing changed", the unsafe direction.
+  if (result.exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} exited ${result.exitCode}`);
+  }
+  return result.stdout.toString();
+}
+
+/**
+ * Resolve the merge base with the upstream default branch — the ref a push
+ * should gate against.
+ *
+ * A push must gate on everything the BRANCH adds, not only what is currently
+ * uncommitted. bun's bare `--changed` default is staged+unstaged+untracked,
+ * which for a clean tree at push time selects nothing at all.
+ *
+ * Returns null when the base cannot be established (no upstream ref, a shallow
+ * clone, git unavailable). Callers treat null as "run the full suite" — the
+ * fail-closed direction, since an unscoped run is slow but correct while a
+ * wrongly-scoped one is fast and blind.
+ */
+export function resolveChangedBase(
+  runGit: (args: string[]) => string = defaultRunGit
+): string | null {
+  for (const ref of ["origin/main", "origin/master"]) {
+    try {
+      const base = runGit(["merge-base", "HEAD", ref]).trim();
+      if (base.length > 0) return base;
+    } catch {
+      // Try the next candidate; a missing remote ref is expected, not fatal.
+    }
+  }
+  return null;
+}
+
+/**
+ * Changed files relative to `base`, unioned with the working tree.
+ *
+ * Mirrors what bun's `--changed=<ref>` itself considers (verified 2026-08-08:
+ * `--changed=HEAD` on a clean tree still reported the untracked files), so the
+ * `src/mcp` routing decision below is made over the SAME set bun selects from.
+ * Returns null on any git failure — again meaning "assume everything changed".
+ */
+export function changedFilesSince(
+  base: string,
+  runGit: (args: string[]) => string = defaultRunGit
+): string[] | null {
+  try {
+    const committed = runGit(["diff", "--name-only", base]);
+    const untracked = runGit(["ls-files", "--others", "--exclude-standard"]);
+    return `${committed}\n${untracked}`
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+  } catch {
+    return null;
+  }
+}
+
+/** Does this changed-file set reach the isolated runner's domain? */
+export function touchesMcp(changedFiles: string[]): boolean {
+  return changedFiles.some((f) => f.startsWith(MCP_PATH_PREFIX));
+}
+
+/**
+ * bun's own wording when a selection legitimately matches nothing. Distinct
+ * from a truncated run, which emits no summary at all — `evaluateBunTestSummary`
+ * separates those two, and this only controls how loudly we SAY which happened.
+ */
+export function selectedNothing(output: string): boolean {
+  return /--changed: \d+ changed files, but no test files are affected/.test(stripAnsi(output));
+}
+
 if (import.meta.main) {
+  // mt#3562: scope the selection to the branch's diff. Set
+  // MINSKY_PREPUSH_FULL_SUITE=1 to force the pre-change behavior.
+  const forceFull = process.env.MINSKY_PREPUSH_FULL_SUITE === "1";
+  const base = forceFull ? null : resolveChangedBase();
+  const changedFiles = base === null ? null : changedFilesSince(base);
+
+  if (forceFull) {
+    console.log("→ MINSKY_PREPUSH_FULL_SUITE=1 — running the full suite.");
+  } else if (base === null) {
+    console.log(
+      "→ Could not resolve a merge base with the upstream default branch — running the FULL suite (fail-closed)."
+    );
+  } else {
+    console.log(`→ Change-scoped against merge base ${base.slice(0, 9)}.`);
+  }
+
+  const mainArgs = base === null ? [] : [`--changed=${base}`];
   console.log("→ Main suite (scripts/run-tests-main.ts, src/mcp excluded)...");
-  const main = await runStep("scripts/run-tests-main.ts");
+  const main = await runStep("scripts/run-tests-main.ts", mainArgs);
   const gate = evaluateBunTestSummary(main.combined, main.exitCode);
   if (!gate.ok) {
     console.error(`\nrun-tests-gated.ts: main suite FAILED (fail-closed): ${gate.reason}`);
     process.exit(1);
   }
+  if (selectedNothing(main.combined)) {
+    console.log(
+      "   No affected tests in the main suite for this diff — passing explicitly, not silently."
+    );
+  }
 
-  console.log("\n→ src/mcp (scripts/run-tests-mcp-isolated.ts, per-file isolation)...");
-  const mcp = await runStep("scripts/run-tests-mcp-isolated.ts");
-  if (mcp.exitCode !== 0) {
-    console.error(`\nrun-tests-gated.ts: src/mcp isolated runner FAILED (exit ${mcp.exitCode}).`);
-    process.exit(1);
+  // The isolated runner has no `--changed` equivalent (it drives one bun
+  // process per file), so it is skipped wholesale when the diff cannot reach
+  // src/mcp. An unreadable changed-file list runs it, same fail-closed default.
+  const runMcp = changedFiles === null || touchesMcp(changedFiles);
+  if (runMcp) {
+    console.log("\n→ src/mcp (scripts/run-tests-mcp-isolated.ts, per-file isolation)...");
+    const mcp = await runStep("scripts/run-tests-mcp-isolated.ts");
+    if (mcp.exitCode !== 0) {
+      console.error(`\nrun-tests-gated.ts: src/mcp isolated runner FAILED (exit ${mcp.exitCode}).`);
+      process.exit(1);
+    }
+  } else {
+    console.log("\n→ src/mcp skipped — this diff touches no src/mcp file.");
   }
 
   console.log("\nrun-tests-gated.ts: all test steps passed.");

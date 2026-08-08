@@ -197,6 +197,15 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
+  // Neither has a config-schema home, so without entries here the auto-mapping
+  // fallback would route them to `skip.prepushTests` / `prepush.fullSuite` and
+  // mt#1612 strict validation would reject them — crashing the CLI for anyone
+  // who has them set. MINSKY_SKIP_PREPUSH_TESTS predates mt#3562 and was never
+  // registered; added here because it is the same one-line defect as the new
+  // var beside it, not as a separate change.
+  "MINSKY_SKIP_PREPUSH_TESTS", // .husky/pre-push (mt#2716) — skip the local suite entirely
+  "MINSKY_PREPUSH_FULL_SUITE", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
