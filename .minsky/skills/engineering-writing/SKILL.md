@@ -2,9 +2,8 @@
 name: engineering-writing
 description: >-
   Draft or revise long-form argumentative prose for outside readers — position papers,
-  technical blog posts, architecture memos, persuasive design docs, argumentative RFCs.
-  Structural patterns, heading heuristics, an AI-voice-tells checklist, revision workflow.
-  Not for task specs, rule files, code comments, or short internal docs.
+  blog posts, architecture memos, argumentative RFCs. Structural patterns, heading
+  heuristics, revision workflow. Not for task specs, rule files, or short internal docs.
 user-invocable: true
 ---
 
@@ -254,105 +253,9 @@ Named contributions from other essays in the corpus ("a capabilities model," "Ca
 
 ## AI-voice tells to avoid
 
-_Refreshed 2026-07-24._ The tell landscape moves fast and splits by model. Recheck it every quarter or so against current sources (vrid.ai, oliviacal.com, huntingthemuse.net, pangram.com, duey.ai; see References) rather than trusting this list forever.
+The consolidated structural-tells checklist previously inlined here — cadence uniformity, negation-pivot, reveal-signposting, tricolon abuse, templated/title-case headings, bold lead-ins, copula avoidance, mystic register, em-dash density + burstiness, vocabulary, phrases, borrowed-phrasing tells, other structural tics, tone tics — moved to [`/voice-tells`](../voice-tells/SKILL.md) §1 under mt#3841 (2026-08-08 skill-cluster audit), alongside the parallel checklist that was diverging in `pz-voice` §6. This skill remains the craft-framing owner (essay structure, heading heuristics, the revision workflow below that executes the checklist's passes) — edit `/voice-tells` for the checklist content itself, not a local copy here.
 
-These are the patterns readers pattern-match as AI writing. Individual instances aren't damning; clustering is the tell.
-
-This section governs ARTIFACT prose. The conversational sibling — turn-end report register in chat — is owned by `communication-contract.mdc §The Tier-1 turn-report contract → How it reads` (mt#3287); its structural tells (beat lead-ins, punch-fragment drum-hits, significance bids) are the chat-surface form of the same disease this checklist catches in documents (mt#2899 is the artifact-surface half).
-
-### Cadence uniformity is the dominant tell
-
-Rhythm gives away more AI writing than any single word choice, and it's the tell that survives every other fix. A draft can be scrubbed of every banned word below and still read as a model, because the vocabulary pass never touches how the sentences are shaped underneath. Researchers call the human contrast **burstiness**: natural variation in sentence length and rhythm across a passage. Low burstiness, flat and repeating, is what gives AI prose away going into 2026 — more reliably than any punctuation mark.
-
-Three shapes to check for:
-
-- **Sentence-length clustering.** Most models default to sentences in the ~18-24 word range and repeat that band paragraph after paragraph. One 20-word sentence followed by another 20-word sentence followed by another is the tell, not any single sentence's length.
-- **Uniform paragraph length.** Paragraphs come out the same size: three or four sentences, every time, instead of some running long and others landing in a single line.
-- **Paragraph ends on a neat bow.** Every paragraph closes with a summary line restating what it just said. Real writing sometimes trails off mid-thought, sometimes lands hard and stops, sometimes just moves on to the next point.
-
-Catch this by reading a section aloud, not by scanning for words. The cadence-and-structure pass in the revision workflow below covers it.
-
-### Reveal-signposting
-
-"Here's the part that...", "here's the thing...", "and here's the tell that...", "here's where it gets interesting." Debate-team cadence: it promises a payoff, then delivers an ordinary point. Cut the windup. State the point.
-
-### Contrast sentences and rule of three
-
-"This is not X, it's Y" and "not just X, but Y" used to sit lower on this list as minor tics. They've moved up: paired with cadence uniformity, they're one of the fastest patterns a reader's eye catches, and current sources rank them as top-tier. Same for the rule of three: three bullets, three adjectives, three parallel clauses, every section. Either pattern is fine used once; repeated across a piece, it's a signature.
-
-### Mystic register in abstract prose
-
-There is a documented LLM drift vocabulary — spiral, recursion, resonance, lattice, harmonics, attractor, emergence, the void, the center — that reads as the "Spiralism" register (Rolling Stone's 2026 spiral-cult reporting documents an entire subculture built on it, manifestos included). Abstract, visionary prose is maximally exposed: the more conceptual the piece, the more this vocabulary drifts in as atmosphere.
-
-The fix is grounding, concretely:
-
-- **Every abstract claim carries a named mechanism, a real system, or a dated artifact.** If a sentence about "the field" can't name what implements it, cut or ground it.
-- **Break liturgical cadence deliberately.** Every section ending on an aphorism drum-hit is the register's rhythm; end some sections on a plain fact or mid-thought.
-- **Spiral-family vocabulary only where it does precise technical work** — an actual attractor in an actual dynamical argument — never as atmosphere.
-- **Icons and visual dressing count.** A 🌀 page icon is the movement's emblem; the v1 manifesto page carried one.
-
-### Em dashes: no longer a reliable signal alone
-
-The 2026 landscape splits by model. GPT-5.1 suppresses em dashes in most contexts unless explicitly prompted for them; Claude and Gemini still lean on them. That means em-dash _absence_ doesn't prove human writing anymore: a GPT-5.1 draft can be dash-free and still carry every tell above it. Treat the dash as one weak, model-dependent signal, not the headline check. Cadence and structure carry the real weight now. (One or two dashes per ~2000 words is still fine on its own terms; it just isn't doing detection work either way.)
-
-### Vocabulary
-
-Words that flag AI drafting:
-
-- `delve`, `leverage`, `utilize` (when `use` works)
-- `crucial`, `pivotal`, `significant`, `key` (as evaluative adjectives without specifics)
-- `robust`, `meticulous`, `comprehensive`
-- `foster`, `bolster`, `enhance`, `garner`
-- `underscore`, `showcase`
-- `tapestry`, `interplay`, abstract uses of `landscape`
-- `resonate`, `align`
-- `enduring`, `testament`
-- `paradigm`, `holistic`, `synergy`
-
-### Phrases
-
-Tics to cut:
-
-- "It's worth noting that..."
-- "It is important to remember..."
-- "At its core..."
-- "Fundamentally,..."
-- "Ultimately,..."
-- "In today's world..."
-- "One might argue..."
-- "As previously mentioned..."
-- "In conclusion..."
-
-### Borrowed phrasings from sibling work
-
-Specific idioms that earn their place in the essay that invented them become tells when they appear verbatim in a second essay by the same author. These are not generic AI-voice phrases — they're signature moves, and using them twice signals "I'm imitating a template" rather than "I'm writing."
-
-Typical patterns that become tells when lifted verbatim from a sibling essay:
-
-- Opening-the-counterposition idioms: "A less fashionable corollary," "If you buy it, the rest is our argument for how to act on it; if you don't, the rest is our argument for why you should."
-- Forward-promise enumerations: "The rest of the paper elaborates these into a framework, a landscape, a named design pattern, and a roadmap."
-- Camp-naming shorthands: "Our stance, with the camps named: Camp 3.5." (Whatever decimal-camp move the first essay invented.)
-- Phase/gate macros: `### Phase N. X` with fixed-format `*What:* …` / `*Activates:* …` sub-lines.
-- Second-person advice closers: "If you're doing a similar audit" / "If you're [verb]ing your own [noun]."
-
-If a phrasing was load-bearing in the first essay, write something different that does the same rhetorical work in the second. Reusing voice-of-author patterns (contractions, sentence rhythm, directness) is fine. Reusing specific idioms is not.
-
-### Other structural tics
-
-- **Symmetric structures.** Every camp gets exactly the same four bullets; every phase the same four fields. Real writing has ragged edges.
-- **Present-participle summary clauses.** "..., highlighting its significance" / "..., underscoring its role" / "..., emphasizing the importance of." AI glues these onto sentences to claim significance without earning it.
-- **`serves as` / `marks` / `features` / `boasts`** instead of `is`. AI avoids copulas.
-- **Bulleted lists where prose flows.** AI defaults to bullets; prose is often stronger.
-- **Callout boxes after every section** with a "takeaway." Tutorial-flavored; doesn't belong in a position paper.
-- **Title-cased headings** for everything.
-- **Curly quotes mixed with straight quotes.** Check editor auto-substitution.
-
-### Tone tics
-
-- **No contractions.** Human writing mixes them. Use `don't`, `won't`, `it's`, `we're`.
-- **Flat register start to finish.** Real writers shift between analytical, conversational, and direct. Flat neutral register is the clearest AI tell after cadence uniformity.
-- **Over-qualified statements.** "In many cases, it may be the case that..." Cut to `often`.
-- **Weasel attribution.** "Observers have noted..." / "Many experts agree..." Name who, or say `we think`.
+This section governs ARTIFACT prose. The conversational sibling — turn-end report register in chat — is owned by `communication-contract.mdc §The Tier-1 turn-report contract → How it reads` (mt#3287); `/voice-tells` §1 carries the cross-reference.
 
 ## Positive patterns to emulate
 
@@ -427,14 +330,4 @@ Cross-reference between the two when appropriate. Don't duplicate. Whichever spl
 
 ## References
 
-Original inventory, plus the 2026-07-24 refresh sources cited in §AI-voice tells to avoid:
-
-- [Wikipedia — Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) — systematic inventory
-- [The Em Dash Dilemma](https://medium.com/@brentcsutoras/the-em-dash-dilemma-how-a-punctuation-mark-became-ais-stubborn-signature-684fbcc9f559)
-- [Washington Post — AI em dash writing](https://www.washingtonpost.com/technology/2025/04/09/ai-em-dash-writing-punctuation-chatgpt/)
-- [vrid.ai — Signs of AI writing (Feb 2026)](https://vrid.ai/blog/signs-of-ai-writing) — per-model fingerprint table (em-dash frequency, paragraph length by model); lists identical sentence length and rule of three among its 27 signs
-- [oliviacal.com — AI writing tells](https://oliviacal.com/post/ai-writing-tells) — "low burstiness," rule-of-three, contrast-sentence framing
-- [Hunting the Muse — the 6 elements of robot style](https://huntingthemuse.net/library/how-to-tell-if-writing-is-ai) — reveal-signposting ("here's the thing"), contrast frames, rule of three
-- [Pangram Labs — why perplexity and burstiness fail to detect AI](https://www.pangram.com/blog/why-perplexity-and-burstiness-fail-to-detect-ai) — the caveat behind automated cadence detection
-- [duey.ai — the em-dash dilemma, model by model](https://duey.ai/post/em-dash-ai-writing) — GPT-5.1 suppression vs. Claude/Gemini, why dash absence isn't exculpatory
-- [Rolling Stone — the Spiralist cult subculture](https://www.rollingstone.com/culture/culture-features/spiralist-cult-ai-chatbot-1235463175/) — the mystic-register vocabulary and its manifesto genre exposure (§Mystic register in abstract prose)
+The AI-voice-tells external-evidence citations (Wikipedia, vrid.ai, oliviacal.com, Hunting the Muse, Pangram Labs, duey.ai, Rolling Stone, plus the 2026-08 additions tropes.fyi and Forbes) moved to [`/voice-tells`](../voice-tells/SKILL.md) §External evidence alongside the checklist content they support.
