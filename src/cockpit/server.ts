@@ -93,6 +93,7 @@ import type { ConversationPresenceRoutesOptions } from "./routes/conversation-pr
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
+  buildOffBoxHostSet,
   cookieBootstrapMiddleware,
   getOrCreateCockpitToken,
   hostAllowlistMiddleware,
@@ -100,6 +101,8 @@ import {
   mutationAuthMiddleware,
 } from "./auth";
 import { cspMiddleware } from "./csp";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { log } from "@minsky/shared/logger";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -117,6 +120,28 @@ const INDEX_HTML = cockpitIndexHtml(__dirname);
  * body-parser's 100kb default. See the `express.json` callsite below.
  */
 export const JSON_BODY_LIMIT = "256kb";
+
+/**
+ * Resolve the operator-configured extra Host-header allowlist entries
+ * (mt#3641). `override` (test-only, `CockpitServerOptions.extraAllowedHosts`)
+ * takes precedence; otherwise reads `cockpit.allowedHosts` from Minsky
+ * configuration. An unavailable/unparseable config degrades to no extra
+ * hosts — the same restrictive default the daemon had before this option
+ * existed — mirroring the fail-open posture `principal-channel-launch.ts`'s
+ * `readPrincipalChannelSection` takes for a missing/broken config: the
+ * daemon must still boot.
+ */
+export function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
+  if (override) return [...override];
+  try {
+    return [...(getConfiguration().cockpit?.allowedHosts ?? [])];
+  } catch (err) {
+    log.warn("[cockpit] could not read cockpit.allowedHosts config; no extra hosts allowed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
 
 /** Options accepted by createCockpitServer */
 export interface CockpitServerOptions {
@@ -162,6 +187,15 @@ export interface CockpitServerOptions {
    * doesn't get rejected by its own daemon.
    */
   host?: string;
+  /**
+   * Test-only override for the operator-configured extra Host-header
+   * allowlist entries (mt#3641). When absent (production), these are read
+   * from `cockpit.allowedHosts` config (`MINSKY_COCKPIT_ALLOWED_HOSTS`) —
+   * see `resolveExtraAllowedHosts` below. Passing this directly lets tests
+   * exercise the tailnet-Host allowlist addition and the off-box cookie gate
+   * without writing a real config file. Never set in production.
+   */
+  extraAllowedHosts?: readonly string[];
   /**
    * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
    * entrypoint — a separate consumer of this shared factory that binds
@@ -271,7 +305,12 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // and no-CORS policy are additive/response-only, so they still apply.
   const localAuthEnabled = !opts.isPublicDeployment;
   const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
-  const allowedHosts = buildAllowedHosts(opts.host);
+  // Operator-configured extra Host name(s) — e.g. a Tailscale MagicDNS name
+  // (mt#3641) — layered onto the allowlist ADDITIVELY (never a wildcard/bypass;
+  // see buildAllowedHosts's docblock). Resolved once here so both the
+  // allowlist and the off-box cookie gate below agree on the same list.
+  const extraAllowedHosts = resolveExtraAllowedHosts(opts.extraAllowedHosts);
+  const allowedHosts = buildAllowedHosts(opts.host, extraAllowedHosts);
   // Loopback bind unless `--host` opted into a routable address. Gates the
   // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
   // explicit Authorization header rather than a Secure-less cookie.
@@ -304,8 +343,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
     // the SPA's same-origin mutation fetches work without any URL/localStorage
     // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
-    // future non-loopback opt-in consumer. See ./auth.ts.
-    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
+    // future non-loopback opt-in consumer. See ./auth.ts. `buildOffBoxHostSet`
+    // (mt#3641) withholds the cookie for a request whose Host matches one of
+    // the operator-configured extra hosts, regardless of `isLoopbackBind` —
+    // once a tailnet name is allowlisted the daemon is reachable off-box by
+    // construction, even while bound to loopback (Tailscale's own recommended
+    // posture, see this file's docblock).
+    app.use(
+      cookieBootstrapMiddleware(cockpitToken, isLoopbackBind, buildOffBoxHostSet(extraAllowedHosts))
+    );
 
     // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
     // token (Authorization header) or the bootstrap cookie. Read-only

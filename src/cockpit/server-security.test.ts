@@ -24,8 +24,12 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { tmpdir } from "os";
+import WebSocket from "ws";
 import { createCockpitServer } from "./server";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import { attachDrivenSessionWebSocket } from "./driven-session-ws";
+import { DrivenSessionRegistry, buildReconnectingDrivenSessionRecord } from "./driven-session-host";
+import { buildAllowedHosts } from "./auth";
 
 const TEST_TOKEN = "test-server-security-token";
 const CONTENT_TYPE_JSON = "application/json";
@@ -67,7 +71,11 @@ async function requestWithHost(
   port: number,
   path: string,
   hostHeader: string
-): Promise<{ status: number; body: string }> {
+): Promise<{
+  status: number;
+  body: string;
+  headers: Record<string, string | string[] | undefined>;
+}> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       { host: "127.0.0.1", port, path, method: "GET", headers: { Host: hostHeader } },
@@ -76,11 +84,23 @@ async function requestWithHost(
         res.on("data", (chunk) => {
           body += chunk;
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
       }
     );
     req.on("error", reject);
     req.end();
+  });
+}
+
+/** Race a raw WS-client connection attempt to either "opened" or "refused"
+ * (any of `unexpected-response` / `error` / `close` firing before `open`) —
+ * mirrors driven-session-ws.test.ts's `waitForWsOutcome` helper. */
+function waitForWsOutcome(ws: WebSocket): Promise<"refused" | "opened"> {
+  return new Promise<"refused" | "opened">((resolve) => {
+    ws.on("open", () => resolve("opened"));
+    ws.on("unexpected-response", () => resolve("refused"));
+    ws.on("error", () => resolve("refused"));
+    ws.on("close", () => resolve("refused"));
   });
 }
 
@@ -264,6 +284,116 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
     closeList.push(s.close);
     const res = await requestWithHost(s.port, "/api/health", "cockpit.example.internal");
     expect(res.status).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // Operator-configured extra allowed hosts (mt#3641 — Tailscale tailnet
+  // access). Distinct from the --host BIND opt-in above: the daemon stays
+  // bound to loopback (Tailscale's own recommended posture) while a
+  // declaratively-configured tailnet MagicDNS name is layered ADDITIVELY
+  // onto the allowlist — an arbitrary, unconfigured Host must still 403.
+  // -------------------------------------------------------------------------
+
+  describe("cockpit.allowedHosts — operator-configured extra Host names", () => {
+    const TAILNET_HOST = "my-node.tail1234.ts.net";
+
+    test("a request whose Host matches a configured extra host returns 200", async () => {
+      const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+      closeList.push(s.close);
+      const res = await requestWithHost(s.port, "/api/health", TAILNET_HOST);
+      expect(res.status).toBe(200);
+    });
+
+    test("a request whose Host is an arbitrary, unconfigured name still 403s (allowlist ADDITION, not a bypass)", async () => {
+      const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+      closeList.push(s.close);
+      const res = await requestWithHost(s.port, "/api/health", "some-other-host.example.com");
+      expect(res.status).toBe(403);
+    });
+
+    test("does NOT mint the plain-HTTP cookie for a request via the configured extra host, even while bound to loopback (criterion 3 re-derivation)", async () => {
+      const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+      closeList.push(s.close);
+      const res = await requestWithHost(s.port, "/api/health", TAILNET_HOST);
+      expect(res.headers["set-cookie"]).toBeUndefined();
+    });
+
+    test("still mints the cookie for a loopback-Host request even when extra hosts are configured", async () => {
+      const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+      closeList.push(s.close);
+      const res = await requestWithHost(s.port, "/api/health", `127.0.0.1:${s.port}`);
+      const setCookie = res.headers["set-cookie"];
+      expect(String(Array.isArray(setCookie) ? setCookie.join(";") : (setCookie ?? ""))).toContain(
+        "minsky_cockpit="
+      );
+    });
+
+    describe("WebSocket upgrade over the configured extra host (mt#2750 cross-origin defense + mt#3641)", () => {
+      /** Register a placeholder driven-session record so the upgrade completes
+       * (101) without spawning a real actuator — the auth/allowlist/origin
+       * checks all run BEFORE session resolution, so this is sufficient to
+       * observe "accepted" vs "refused" at that layer. */
+      function attachFakeDrivenSession(server: Server, allowedHosts: Set<string>): string {
+        const registry = new DrivenSessionRegistry();
+        const sessionId = "mt3641-tailnet-ws-test";
+        registry.register(
+          buildReconnectingDrivenSessionRecord({
+            localId: sessionId,
+            harnessSessionId: null,
+            cwd: "/tmp",
+            permissionMode: "default",
+            taskId: null,
+            minskySessionId: null,
+            status: "unrecoverable",
+            unrecoverableReason: "server-security.test.ts placeholder — never spawned",
+            actuatorGeneration: 0,
+            startedAt: new Date().toISOString(),
+          })
+        );
+        attachDrivenSessionWebSocket(server, { token: TEST_TOKEN, allowedHosts, registry });
+        return sessionId;
+      }
+
+      test("a WS upgrade carrying the configured tailnet Host and a matching Origin is accepted", async () => {
+        const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+        closeList.push(s.close);
+        const sessionId = attachFakeDrivenSession(
+          s.server,
+          buildAllowedHosts(undefined, [TAILNET_HOST])
+        );
+
+        const ws = new WebSocket(`ws://127.0.0.1:${s.port}/api/driven-session/${sessionId}/ws`, {
+          headers: {
+            Host: TAILNET_HOST,
+            Origin: `http://${TAILNET_HOST}`,
+            Authorization: `Bearer ${TEST_TOKEN}`,
+          },
+        });
+        const outcome = await waitForWsOutcome(ws);
+        if (ws.readyState === ws.OPEN) ws.close();
+        expect(outcome).toBe("opened");
+      });
+
+      test("a WS upgrade with the configured tailnet Host but a MISMATCHED Origin is refused (mt#2750 cross-origin defense survives)", async () => {
+        const s = await startTestServer({ extraAllowedHosts: [TAILNET_HOST] });
+        closeList.push(s.close);
+        const sessionId = attachFakeDrivenSession(
+          s.server,
+          buildAllowedHosts(undefined, [TAILNET_HOST])
+        );
+
+        const ws = new WebSocket(`ws://127.0.0.1:${s.port}/api/driven-session/${sessionId}/ws`, {
+          headers: {
+            Host: TAILNET_HOST,
+            Origin: "http://evil.example.com",
+            Authorization: `Bearer ${TEST_TOKEN}`,
+          },
+        });
+        const outcome = await waitForWsOutcome(ws);
+        if (ws.readyState === ws.OPEN) ws.close();
+        expect(outcome).toBe("refused");
+      });
+    });
   });
 
   // -------------------------------------------------------------------------

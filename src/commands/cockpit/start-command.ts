@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
-import { createCockpitServer } from "../../cockpit/server";
+import { createCockpitServer, resolveExtraAllowedHosts } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
@@ -310,11 +310,12 @@ export function createStartCommand(): Command {
       // the raw http.Server), so this is attached directly to the `server`
       // handle rather than threaded through createCockpitServer(). Re-derives
       // the SAME token/allowedHosts createCockpitServer computed internally
-      // (same persisted token file, same --host value) — a cheap,
-      // deterministic re-read, not a new source of truth.
+      // (same persisted token file, same --host value, same
+      // cockpit.allowedHosts config — mt#3641) — a cheap, deterministic
+      // re-read, not a new source of truth.
       attachDrivenSessionWebSocket(server, {
         token: getOrCreateCockpitToken(),
-        allowedHosts: buildAllowedHosts(host),
+        allowedHosts: buildAllowedHosts(host, resolveExtraAllowedHosts()),
       });
 
       // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
