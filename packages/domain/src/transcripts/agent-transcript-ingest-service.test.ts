@@ -116,8 +116,11 @@ interface FakeRow {
   ingestLastFailedAt: Date | null;
   ingestQuarantinedAt: Date | null;
   // mt#3656 — writer-divergence verdict written by the transcript upsert.
-  divergentTipLeaves: string[] | null;
-  divergenceCheckedAt: Date | null;
+  // Optional: the fixtures below build FakeRow literals for cases that predate
+  // this column, and a row that has never been checked is exactly what NULL /
+  // absent is supposed to represent.
+  divergentTipLeaves?: string[] | null;
+  divergenceCheckedAt?: Date | null;
 }
 
 /** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
