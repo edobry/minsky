@@ -11,8 +11,10 @@
 import { describe, test, expect } from "bun:test";
 import {
   COVERAGE_ALLOWLIST,
+  attributeTreesToProjects,
   compareCoverage,
   isAllowlisted,
+  treeOf,
   validateAllowlist,
   type AllowlistEntry,
 } from "../../scripts/typecheck-coverage";
@@ -106,6 +108,65 @@ describe("isAllowlisted", () => {
     expect(isAllowlisted("vite.config.ts", allowlist)).toBe(true);
     expect(isAllowlisted("src/vite.config.ts", allowlist)).toBe(false);
     expect(isAllowlisted("tests/unit/x.test.ts", allowlist)).toBe(false);
+  });
+});
+
+describe("treeOf", () => {
+  test("groups by two directory segments, so sibling packages stay distinct", () => {
+    expect(treeOf("packages/domain/src/tasks/x.ts")).toBe("packages/domain");
+    expect(treeOf("packages/shared/src/x.ts")).toBe("packages/shared");
+    expect(treeOf("src/cockpit/web/x.tsx")).toBe("src/cockpit");
+  });
+
+  test("a one-segment directory stays whole, and a root-level file groups under '.'", () => {
+    expect(treeOf("scripts/x.ts")).toBe("scripts");
+    expect(treeOf("vite.config.ts")).toBe(".");
+  });
+});
+
+describe("attributeTreesToProjects", () => {
+  const ROOT_PROJECT = "tsconfig.json";
+  const DOMAIN_PROJECT = "packages/domain/tsconfig.json";
+  const DOMAIN_TREE = "packages/domain";
+  const SHARED_FILE = "packages/domain/src/c.ts";
+
+  test("names the project covering each tree — SC4's legibility requirement", () => {
+    const attribution = attributeTreesToProjects(
+      new Map([
+        [ROOT_PROJECT, ["src/adapters/a.ts", "tests/unit/b.ts"]],
+        [DOMAIN_PROJECT, [SHARED_FILE]],
+      ])
+    );
+
+    expect(attribution).toEqual([
+      { tree: DOMAIN_TREE, projects: [DOMAIN_PROJECT], fileCount: 1 },
+      { tree: "src/adapters", projects: [ROOT_PROJECT], fileCount: 1 },
+      { tree: "tests/unit", projects: [ROOT_PROJECT], fileCount: 1 },
+    ]);
+  });
+
+  test("a tree covered by several projects lists them all, and counts each file once", () => {
+    const attribution = attributeTreesToProjects(
+      new Map([
+        [ROOT_PROJECT, [SHARED_FILE]],
+        [DOMAIN_PROJECT, [SHARED_FILE, "packages/domain/src/d.ts"]],
+      ])
+    );
+
+    expect(attribution).toEqual([
+      {
+        tree: DOMAIN_TREE,
+        // Sorted, so the report is stable across runs rather than reflecting
+        // whatever order the projects happened to be swept in.
+        projects: [DOMAIN_PROJECT, ROOT_PROJECT],
+        // 2, not 3: the shared file is claimed by both projects but is one file.
+        fileCount: 2,
+      },
+    ]);
+  });
+
+  test("no projects yields no attribution rather than throwing", () => {
+    expect(attributeTreesToProjects(new Map())).toEqual([]);
   });
 });
 

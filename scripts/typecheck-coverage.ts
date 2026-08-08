@@ -41,7 +41,7 @@
  * single project is ~1.1s). Cheap enough to run as its own CI step.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // ── Allowlist ────────────────────────────────────────────────────────────────
@@ -273,6 +273,25 @@ function runCapture(cmd: string[], cwd: string): string {
 }
 
 /**
+ * Path to the lockfile-pinned `tsgo`.
+ *
+ * Fails loudly if it is missing rather than silently falling back to whatever
+ * a PATH lookup or `bunx` would resolve: a coverage invariant that quietly
+ * measured a DIFFERENT compiler version than the typecheck steps it backstops
+ * would report coverage that does not correspond to what CI actually checks.
+ */
+function tsgoBinary(repoRoot: string): string {
+  const binary = join(repoRoot, "node_modules", ".bin", "tsgo");
+  if (!existsSync(binary)) {
+    throw new Error(
+      `pinned tsgo not found at ${binary} — run \`bun install\` before the coverage check ` +
+        "(deliberately NOT falling back to `bunx`, which would bypass the lockfile pin)"
+    );
+  }
+  return binary;
+}
+
+/**
  * Resolve the tsconfig projects that CI actually runs.
  *
  * Derived, never hardcoded — a project added to CI must show up here without
@@ -382,7 +401,15 @@ export function listTrackedTsFiles(repoRoot: string = REPO_ROOT): string[] {
 
 /** The compiler's resolved file set for one project, repo-relative. */
 export function listProjectFiles(project: string, repoRoot: string = REPO_ROOT): string[] {
-  const out = runCapture(["bunx", "tsgo", "--noEmit", "--listFiles", "-p", project], repoRoot);
+  // The LOCKFILE-PINNED binary, not `bunx tsgo`. `bunx` resolves (and if
+  // necessary fetches) at runtime, which both bypasses the pin every other
+  // typecheck step honors and puts a network install inside an invariant whose
+  // whole job is to be trustworthy. Resolved explicitly rather than via PATH
+  // because this is a spawned process, not a `bun run` script.
+  const out = runCapture(
+    [tsgoBinary(repoRoot), "--noEmit", "--listFiles", "-p", project],
+    repoRoot
+  );
   const prefix = `${repoRoot}/`;
   return out
     .split("\n")
@@ -391,32 +418,104 @@ export function listProjectFiles(project: string, repoRoot: string = REPO_ROOT):
     .filter((line) => !line.startsWith("node_modules/"));
 }
 
+/** Which project(s) cover a given tree, and how many of its files they claim. */
+export interface TreeAttribution {
+  readonly tree: string;
+  readonly projects: string[];
+  readonly fileCount: number;
+}
+
+/**
+ * Collapse a repo-relative file path to the TREE it belongs to.
+ *
+ * Two directory segments, which is the granularity that distinguishes the
+ * things people actually reason about here (`packages/domain` vs
+ * `packages/shared`, `src/cockpit` vs `src/adapters`) without degenerating into
+ * one row per directory. Root-level files group under ".".
+ */
+export function treeOf(file: string): string {
+  const lastSlash = file.lastIndexOf("/");
+  if (lastSlash === -1) return ".";
+  const dir = file.slice(0, lastSlash);
+  const segments = dir.split("/");
+  return segments.slice(0, 2).join("/");
+}
+
+/**
+ * Invert the project -> files index into tree -> covering projects.
+ *
+ * This is what makes coverage LEGIBLE rather than inferred: a per-project file
+ * count tells a reader how much each project checks, but not which project is
+ * responsible for any given tree — so "is `src/cockpit` covered, and by what?"
+ * could only be answered by re-deriving the union by hand.
+ */
+export function attributeTreesToProjects(
+  filesByProject: ReadonlyMap<string, readonly string[]>
+): TreeAttribution[] {
+  const projectsByTree = new Map<string, Set<string>>();
+  const filesByTree = new Map<string, Set<string>>();
+
+  for (const [project, files] of filesByProject) {
+    for (const file of files) {
+      const tree = treeOf(file);
+      const projects = projectsByTree.get(tree) ?? new Set<string>();
+      projects.add(project);
+      projectsByTree.set(tree, projects);
+
+      const seen = filesByTree.get(tree) ?? new Set<string>();
+      seen.add(file);
+      filesByTree.set(tree, seen);
+    }
+  }
+
+  return [...projectsByTree]
+    .map(([tree, projects]) => ({
+      tree,
+      projects: [...projects].sort(),
+      fileCount: filesByTree.get(tree)?.size ?? 0,
+    }))
+    .sort((a, b) => a.tree.localeCompare(b.tree));
+}
+
 export interface CoverageReport extends CoverageComparison {
   readonly runProjects: ProjectRun[];
   readonly trackedCount: number;
   readonly coveredCount: number;
+  /** tree -> the project(s) that cover it (SC4's legibility requirement). */
+  readonly attribution: TreeAttribution[];
 }
 
 export function computeCoverageReport(repoRoot: string = REPO_ROOT): CoverageReport {
   const runProjects: ProjectRun[] = [];
   const covered = new Set<string>();
+  const filesByProject = new Map<string, string[]>();
 
   for (const project of resolveRunProjects(repoRoot)) {
     // No try/catch: `runCapture` surfaces a non-zero exit as an exit code, not
     // a throw, and a project with type errors still prints its file list.
     const files = listProjectFiles(project, repoRoot);
     runProjects.push({ project, fileCount: files.length });
+    filesByProject.set(project, files);
     for (const file of files) covered.add(file);
   }
 
   const tracked = listTrackedTsFiles(repoRoot);
   const comparison = compareCoverage(tracked, covered, COVERAGE_ALLOWLIST);
 
+  // Attribute only TRACKED files: a project's program also pulls in generated
+  // and vendored files, which are not what a reader is asking about when they
+  // ask which project covers a tree.
+  const trackedSet = new Set(tracked);
+  const trackedByProject = new Map<string, string[]>(
+    [...filesByProject].map(([project, files]) => [project, files.filter((f) => trackedSet.has(f))])
+  );
+
   return {
     ...comparison,
     runProjects,
     trackedCount: tracked.length,
     coveredCount: covered.size,
+    attribution: attributeTreesToProjects(trackedByProject),
   };
 }
 
@@ -441,6 +540,17 @@ function main(): void {
   console.log(
     `\n  ${report.trackedCount} tracked .ts/.tsx files; ${report.coveredCount} in at least one run project.`
   );
+
+  // Which project covers which tree. A per-project COUNT says how much each
+  // project checks; it does not say who is responsible for a given tree, which
+  // is the question a reader actually arrives with.
+  console.log("\nWhich project covers which tree:\n");
+  for (const { tree, projects, fileCount } of report.attribution) {
+    const label = `${tree}/`.replace(/^\.\/$/, "(repo root)");
+    console.log(
+      `  ${label.padEnd(34)} ${String(fileCount).padStart(5)} files  ←  ${projects.join(", ")}`
+    );
+  }
 
   if (report.allowlisted.length > 0) {
     const byPrefix = new Map<string, number>();
