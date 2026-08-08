@@ -86,6 +86,22 @@ export interface ActiveSessionInfo {
  */
 export const LIVE_SESSION_WINDOW_MS = 2 * 60 * 1000;
 
+/** Shared row mapper, so the full-registry and live-subset views cannot drift apart. */
+function toActiveSessionInfo(agentSessionId: string, s: ActiveSessionState): ActiveSessionInfo {
+  return {
+    agentSessionId,
+    isSubagent: s.isSubagent,
+    lastEventAt: s.lastEventAtMs === null ? null : new Date(s.lastEventAtMs).toISOString(),
+    lastIngestAt: s.lastIngestAtMs === null ? null : new Date(s.lastIngestAtMs).toISOString(),
+    lastTurnsIngested: s.lastTurnsIngested,
+  };
+}
+
+/** Most-recently-active first; null `lastEventAt` sorts last (SC2 ordering). */
+function byMostRecentlyActive(a: ActiveSessionInfo, b: ActiveSessionInfo): number {
+  return (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? "");
+}
+
 interface ActiveSessionState {
   isSubagent: boolean;
   lastEventAtMs: number | null;
@@ -216,14 +232,8 @@ export class TranscriptWatcherTracker {
   /** Active-session registry snapshot, most-recently-active first (SC2). */
   getActiveSessions(): ActiveSessionInfo[] {
     return Array.from(this.sessions.entries())
-      .map(([agentSessionId, s]) => ({
-        agentSessionId,
-        isSubagent: s.isSubagent,
-        lastEventAt: s.lastEventAtMs === null ? null : new Date(s.lastEventAtMs).toISOString(),
-        lastIngestAt: s.lastIngestAtMs === null ? null : new Date(s.lastIngestAtMs).toISOString(),
-        lastTurnsIngested: s.lastTurnsIngested,
-      }))
-      .sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+      .map(([agentSessionId, s]) => toActiveSessionInfo(agentSessionId, s))
+      .sort(byMostRecentlyActive);
   }
 
   /**
@@ -238,12 +248,17 @@ export class TranscriptWatcherTracker {
    * `nowMs` is injectable so tests can pin the clock rather than sleeping.
    */
   getLiveSessions(nowMs: number = Date.now()): ActiveSessionInfo[] {
-    return this.getActiveSessions().filter((s) => {
-      if (s.lastEventAt === null) return false;
-      const ts = new Date(s.lastEventAt).getTime();
-      if (Number.isNaN(ts)) return false;
-      return nowMs - ts <= LIVE_SESSION_WINDOW_MS;
-    });
+    // Select from the map, THEN sort — the live subset is normally a handful of
+    // entries against a registry in the thousands, and this runs on every
+    // /api/health poll. Going through getActiveSessions() would pay O(N log N)
+    // on the whole registry to return O(1) of it.
+    const live: ActiveSessionInfo[] = [];
+    for (const [agentSessionId, s] of this.sessions) {
+      if (s.lastEventAtMs === null) continue;
+      if (nowMs - s.lastEventAtMs > LIVE_SESSION_WINDOW_MS) continue;
+      live.push(toActiveSessionInfo(agentSessionId, s));
+    }
+    return live.sort(byMostRecentlyActive);
   }
 
   /** Snapshot the current counters for the cockpit `/api/health` surface. */

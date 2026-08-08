@@ -26,6 +26,18 @@
     "prodStateSweep": "object",
     "schema": "object"
   },
+  "transcriptWatcherFields": {
+    "running": "boolean",
+    "filesWatched": "number",
+    "ingestsTriggered": "number",
+    "ingestsSucceeded": "number",
+    "ingestErrors": "number",
+    "turnsIngested": "number",
+    "lastIngestAt": "object",
+    "lastErrorAt": "object",
+    "activeSessionCount": "number",
+    "activeSessions": "array"
+  },
   "rustConsumedFields": ["db", "processStartedAtMs"],
   "sample": {
     "status": "ok",
@@ -40,7 +52,26 @@
     "principalChannel": { "state": "running", "chatId": "167346572" },
     "processStartedAtMs": 1735689600000,
     "consecutiveDegraded": 0,
-    "transcriptWatcher": { "activeSessionCount": 0 },
+    "transcriptWatcher": {
+      "running": true,
+      "filesWatched": 1380,
+      "ingestsTriggered": 12,
+      "ingestsSucceeded": 12,
+      "ingestErrors": 0,
+      "turnsIngested": 47,
+      "lastIngestAt": "2026-08-08T20:07:11.851Z",
+      "lastErrorAt": null,
+      "activeSessionCount": 1380,
+      "activeSessions": [
+        {
+          "agentSessionId": "f9a21d2c-c94a-4c94-bef4-44dcfcd16a32",
+          "isSubagent": false,
+          "lastEventAt": "2026-08-08T20:07:10.412Z",
+          "lastIngestAt": "2026-08-08T20:07:11.851Z",
+          "lastTurnsIngested": 3
+        }
+      ]
+    },
     "transcriptSweep": { "totalRuns": 0 },
     "dispatchWatchdogSweep": { "ticksRun": 0, "flagsWritten": 0 },
     "prodStateSweep": {
@@ -56,6 +87,7 @@
       "checkedAt": "2026-07-29T06:22:40.780Z"
     }
   },
+  "$transcriptWatcherFieldNote": "mt#3857: unlike the other nested objects here, this one IS type-asserted — `transcriptWatcherFields` above is enforced by health-contract.test.ts, because this sub-object caused a real payload defect and a loose `object` pin is what let it through. `activeSessions` carries only the LIVE subset (entries whose `lastEventAt` is within LIVE_SESSION_WINDOW_MS, 2 min, per transcript-watcher-tracker.ts), NOT the full registry; `activeSessionCount` carries the registry total. Before mt#3857 `activeSessions` WAS the full registry: it reached 1,380 entries / 209 KB, which is 99.5% of a response the tray supervisor polls every 5s and three webview query keys poll every 15s. Two invariants a consumer — or a future edit — must preserve: (1) the array is bounded by the recency window, never by the registry size, so this response does not grow with transcript history; (2) `activeSessionCount` is the ONLY place the total is reported, so a consumer wanting 'how many conversations does the watcher know about' reads the scalar and must not infer it from the array length. The boot scan seeds via recordSessionSeeded() with a null lastEventAt precisely so a restart does not make the whole history look live and re-inflate this array.",
   "$dbFieldNote": "mt#3563: `db` reports LIVE reachability as of the last probe, not a boot-time constant. \"ok\" = a query completed through the SHARED pool inside the probe deadline; \"degraded\" = one did not (timed out, errored, or a previously issued probe has still not returned — the never-settling-query wedge of mt#3092/mt#2773); \"unreachable\" = no init has ever succeeded. Before mt#3563 this was set once at init and only left \"ok\" on a circuit-breaker rejection, so a daemon whose every DB route hung reported \"ok\" indefinitely (incidents 2026-08-01 and 2026-08-03) and the tray's DB-degraded watchdog never fired. Two properties consumers depend on and must not 'optimize' away: (1) the HTTP status stays 200 regardless of `db` — ADR-014 makes the status code the tray's liveness/adoption signal, so DB truth belongs in the body, exactly as `schema` does; (2) the probe runs OUT-OF-BAND and the handler never awaits it, so this route cannot be made slow by the database it reports on. Consequence: `db` lags reality by at most one poll, which is why `dbCheck.checkedAt` exists — an `ok` you cannot date is the same false confidence this field was fixed to remove.",
   "$dbCheckFieldNote": "mt#3563: `dbCheck` is always an OBJECT (never null), but BOTH of its members are nullable and a consumer must handle each. `checkedAt` (ISO string | null) is null until the first probe FINISHES, and thereafter names when reachability was last actually determined — it is deliberately NOT restamped on a poll that merely observes an earlier probe still outstanding, so during a wedge it goes stale on purpose; stale `checkedAt` + `db: \"degraded\"` reads as 'stuck since then', which is the intended signal, not a gap. `latencyMs` (number | null) is the round-trip of the last SUCCESSFUL probe and stays null until one succeeds — it is NOT reset when a later probe fails, so a non-null `latencyMs` alongside `db: \"degraded\"` describes the last good measurement, not the current state. Read `db` for current state and `dbCheck` for its provenance; do not infer health from `latencyMs` alone.",
   "$dbCheckFieldVariants": {
