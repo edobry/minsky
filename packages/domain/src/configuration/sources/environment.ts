@@ -125,6 +125,14 @@ export const environmentMappings = {
   MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE: "principalChannel.permissionMode",
   MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS: "principalChannel.allowedUserIds",
 
+  // Cockpit daemon configuration (mt#3641) — operator-configured extra
+  // allowed Host name(s) layered onto the mt#2538 Host-header allowlist
+  // (e.g. a Tailscale MagicDNS name). Explicit mapping because the dot-path
+  // auto-conversion would produce `cockpit.allowedHosts` too (harmless here,
+  // but explicit entries are the house convention for every other section
+  // above, and this documents intent + survives a future rename).
+  MINSKY_COCKPIT_ALLOWED_HOSTS: "cockpit.allowedHosts",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 
@@ -266,11 +274,13 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_RETRO_COMPLETENESS", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
   "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
   "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
+  "MINSKY_KA_RUNG2_NOMINATION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
   "MINSKY_DISABLE_RUNG3_CONFIRM", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
   "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
   "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
+  "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
@@ -356,6 +366,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_UNESCALATED_INCIDENT", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
   "MINSKY_SKIP_STOP_AT_DECISION", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
   "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
+  "MINSKY_ACK_BARE_ENTITY_REF", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
 ]);
 
 /**
@@ -424,6 +435,8 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
 
   // Comma-separated lists (mt#3230)
   "principalChannel.allowedUserIds": "csv",
+  // Comma-separated list (mt#3641)
+  "cockpit.allowedHosts": "csv",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",

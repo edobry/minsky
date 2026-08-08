@@ -10,7 +10,9 @@ Minsky's MCP server is transport-agnostic — the same tool registry serves stdi
 
 ## What ships in the image: the bundle and its source map (mt#3023)
 
-The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly. Two artifacts land in the image, and **both are intentional**:
+The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly — `bun run dist/minsky.js mcp start --http ...`, with no preload flag. Two artifacts land in the image, and **both are intentional**:
+
+**Do not add `--preload reflect-metadata` back to the `CMD`.** It was there from mt#3561 until mt#3680, because bun's bundler emitted reflect-metadata's CommonJS require after the init calls that reach tsyringe, so the bundle could not boot on its own. mt#3680 fixed that ordering inside the bundle (`src/reflect-polyfill.ts`). Re-adding the flag would not be merely redundant: a preloaded invocation boots whether or not the bundle is self-sufficient, so it would make production the one place that never exercises the real path — and would silently disarm the bundle-boot smoke, which gates on this exact command.
 
 | Artifact             | Approx. size | Why it is there                                  |
 | -------------------- | ------------ | ------------------------------------------------ |

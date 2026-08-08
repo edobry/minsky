@@ -113,6 +113,93 @@ describe("specDescribesDefect", () => {
   });
 });
 
+describe("prefixed label forms (mt#3778)", () => {
+  // Every one of these is a shape a writer actually produced. The gate logged 42
+  // consecutive fires with zero passes, and 4 of the 16 records carrying the
+  // discriminator were "mentioned but unmatched" — this is that class.
+  const PREFIXED_RECORDS: ReadonlyArray<readonly [string, string]> = [
+    [
+      "dash prefix, bold, terminal period (PR #2565)",
+      "**sc3 — negative control.**\nreverted; 3 red",
+    ],
+    ["colon prefix with trailing subject", "AT4: negative control — reverted the guard\nred"],
+    ["bullet + slash-joined criteria", "- sc2/sc3 negative control: the fixture failed first"],
+    ["step prefix, failing-first wording", "Step 2 — failing-first run: observed red"],
+    ["colon prefix, terminates at EOL", "AT4: failing-first run\nobserved red"],
+  ];
+
+  for (const [label, body] of PREFIXED_RECORDS) {
+    it(`counts a prefixed label: ${label}`, () => {
+      expect(hasNegativeControlEvidence(body)).toBe(true);
+    });
+  }
+
+  // The prefix allowance widens what counts as a record, so these pin the side
+  // that must NOT widen. A false POSITIVE here is worse than the false negatives
+  // this task fixes: it records a control that does not exist, and a test that
+  // cannot fail is indistinguishable from one that can.
+  const MUST_NOT_COUNT: ReadonlyArray<readonly [string, string]> = [
+    ["a prefixed label with nothing beneath it", "**sc3 — negative control.**"],
+    ["prose merely proposing one", "we should add a negative control here"],
+    ["a prefixed NEGATION", "sc3 — no negative control: n/a"],
+    ["an absence stated another way", "Missing negative control: none recorded"],
+    [
+      "a long prose sentence that happens to contain the phrase",
+      "The reviewer asked whether we had ever considered a negative control: no",
+    ],
+    ["a fenced example", "```\nNegative control: example\n```"],
+  ];
+
+  for (const [label, body] of MUST_NOT_COUNT) {
+    it(`does not count ${label}`, () => {
+      expect(hasNegativeControlEvidence(body)).toBe(false);
+    });
+  }
+
+  // PR #2680 R1 — the prefix allowance's two over-breadth holes, both in the
+  // dangerous direction (recording a control that does not exist).
+  const SENTENCE_STYLE_MENTIONS: ReadonlyArray<readonly [string, string]> = [
+    ["a proposal", "Consider a negative control: maybe later"],
+    ["a first-person sentence", "I ran a negative control: it failed"],
+    ["a TODO line", "TODO add negative control\nsome text"],
+  ];
+
+  for (const [label, body] of SENTENCE_STYLE_MENTIONS) {
+    it(`does not count a sentence-style mention: ${label}`, () => {
+      expect(hasNegativeControlEvidence(body)).toBe(false);
+    });
+  }
+
+  const INLINE_NEGATIONS: ReadonlyArray<readonly [string, string]> = [
+    ["none", "Negative control: none"],
+    ["n/a", "Negative control: n/a"],
+    ["not run", "Negative control: not run"],
+    ["none recorded, behind a prefix", "sc3 — negative control: none recorded"],
+    ["skipped", "Negative control: skipped"],
+  ];
+
+  for (const [label, body] of INLINE_NEGATIONS) {
+    it(`does not count an inline negation: ${label}`, () => {
+      expect(hasNegativeControlEvidence(body)).toBe(false);
+    });
+  }
+
+  it("still counts content that merely STARTS with an absence word", () => {
+    // The distinction the anchored absence pattern exists to preserve: `none`
+    // alone asserts there was no control; `none of the three retries fired`
+    // describes what the control observed.
+    expect(hasNegativeControlEvidence("Negative control: none of the three retries fired")).toBe(
+      true
+    );
+  });
+
+  it("strips trailing emphasis, not just leading", () => {
+    // The closing `**` sat exactly where the end-of-line form looks for the end.
+    expect(hasNegativeControlEvidence("**sc3 — negative control.**\nred")).toBe(true);
+    expect(hasNegativeControlEvidence("__AT1 — failing-first run__\nred")).toBe(true);
+  });
+});
+
 describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () => {
   it("accepts a `Negative control:` label line with content", () => {
     const text = [NC_MARKER, "", "$ bun test foo.test.ts  # fix reverted", " 1 fail"].join("\n");

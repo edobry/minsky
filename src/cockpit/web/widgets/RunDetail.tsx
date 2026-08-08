@@ -35,7 +35,7 @@
  * still resets internal tab-adjacent state (e.g. the multi-conversation
  * switcher selection) cleanly.
  */
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -49,6 +49,7 @@ import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import { formatLinkType } from "../lib/conversation-link-type";
 import { relativeTime, shortenId } from "../lib/format";
+import { parseTurnAddress } from "../lib/conversation-turn-address";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 import type { ConversationLinkSource } from "../../conversation-link-source";
 import {
@@ -523,10 +524,48 @@ export function RunDetail({
   renderActiveConversationChrome,
   renderActiveConversationTail,
 }: RunDetailProps) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const base = basePathFor(keySpace, id);
   const tab = tabFromPathname(pathname, base, keySpace);
+  /**
+   * A turn the URL asked to land on (mt#3791), resolved here because this is the
+   * router-aware component — `ConversationView` is rendered by several callers
+   * that have no router at all, so it takes the address as a prop instead.
+   *
+   * Deliberately NOT scoped to one keyspace: `/agents/:id/conversation` renders
+   * the same thread as `/conversation/:id`, so an address works on both. (Per
+   * mem#811's parity gate, a keyspace-exclusive prop would need a spec criterion
+   * saying the exclusion is intended; there is no reason for one here.)
+   */
+  const turnTarget = useMemo(() => parseTurnAddress(search) ?? undefined, [search]);
+  /**
+   * Where a transcript row's "watch this moment" link goes (mt#3794) — the film
+   * tab of THIS conversation, which `FilmMomentLink` appends the row's own
+   * address to.
+   *
+   * Keyspace-scoped where `turnTarget` above deliberately is not, because the
+   * film is: `RUN_TABS_BY_KEYSPACE` offers it only under `conversation`
+   * (mt#3468). Under a workspace the same thread renders with no affordance
+   * rather than a link to a tab that is not there.
+   *
+   * NOT additionally gated on the conversation having a film, which mt#3794's
+   * spec originally required and was amended to drop. Two reasons, in order of
+   * weight. First, `scrubGateOk` is not reachable here: it is computed only for
+   * the sessions-LIST endpoint (`routes/session-film.ts:302`) and is absent
+   * from this page's overview payload, so gating would mean fetching every
+   * conversation to read one flag, or adding an API surface. Second, and why
+   * that is not worth doing: the Film TAB three lines of JSX below is itself
+   * ungated, so a scrub-gated conversation already offers an entry point that
+   * lands on `SessionFilm`'s "This conversation has no film" — hiding the row
+   * link while leaving the tab visible would be an inconsistency, not a
+   * protection. Reachability is answered where the answer actually lives: the
+   * film resolves the address on arrival and reports when it cannot, which
+   * covers cases `scrubGateOk` cannot see (a turn that produced no event, an
+   * address stale after a re-ingest).
+   */
+  const filmPath =
+    keySpace === "conversation" ? pathForTab(base, keySpace, "film") : undefined;
   // The addressable id builds paths; this one reads data. They coincide for
   // every caller except the unified route's local-id alias (mt#3132).
   const dataId = resolvedConversationId ?? id;
@@ -740,13 +779,21 @@ export function RunDetail({
               sessionId={activeConversationId as ConversationId}
               liveByConversationId
               onNotFound={onConversationNotFound}
+              turnTarget={turnTarget}
+              filmPath={filmPath}
+              // Passed IN rather than rendered as a sibling below (mt#3843).
+              // As a sibling it landed in the same stacking context as the
+              // thread's own bottom-pinned controls at the same `z-10`, so
+              // being last in DOM order it painted over the position pill and
+              // took the click meant for its `↑ start` button. Inside, the
+              // thread's `ThreadFooter` stacks them.
+              tail={renderActiveConversationTail?.(activeConversationId)}
             />
           ) : (
             <p className="text-sm text-muted-foreground">
               No conversation linked to this workspace yet.
             </p>
           )}
-          {activeConversationId && renderActiveConversationTail?.(activeConversationId)}
         </div>
       )}
 

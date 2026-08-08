@@ -4,6 +4,9 @@
   "description": "Minsky domain layer — core business logic, independent of interface concerns.",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "exports": {
     "./auth": "./src/auth/index.ts",
     "./configuration": "./src/configuration/index.ts",

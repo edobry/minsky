@@ -192,7 +192,9 @@ describe("deleteSessionImpl — mt#3105 live-actor gate", () => {
     const sessionDB = makeSessionDB([makeRecord()]);
     const { fs } = makeFs();
 
-    const insertValues = mock(() => Promise.resolve());
+    // The row param is declared so `mock.calls` is typed `[row][]`; without it
+    // it is `[][]` and reading `calls[0][0]` below indexes an empty tuple.
+    const insertValues = mock((_row: Record<string, unknown>) => Promise.resolve());
     const fakeDb = { insert: () => ({ values: insertValues }) } as any;
     const persistenceProvider = { getDatabaseConnection: async () => fakeDb } as any;
 

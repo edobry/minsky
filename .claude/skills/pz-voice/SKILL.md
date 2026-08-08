@@ -3,10 +3,9 @@
 name: pz-voice
 description: >-
   Write in the principal's literary voice — terse, semicolon-heavy, technically
-  loaded, presupposing reader literacy, causation over description. Use when
-  drafting any Minsky-voice prose surface: position papers, RFCs, manifestos,
-  About pages, blog posts, marketing copy. Carries WHAT is claimed; cultural
-  codes carry how it feels.
+  loaded, presupposing reader literacy. Use when drafting Minsky-voice prose:
+  position papers, RFCs, manifestos, About pages, blog posts, marketing copy.
+  Carries WHAT is claimed; cultural codes carry how it feels.
 user-invocable: true
 ---
 
@@ -138,17 +137,7 @@ The stance is not always foregrounded — the voice doesn't lecture about its me
 
 ## 6. No-go register — what the voice refuses
 
-The voice refuses, structurally, certain rhetorical moves. Listed here for the agent's reference; do not deploy any of these in pz-voice prose:
-
-- **SaaS hyperbole.** "The future of X." "Transforms your Y." "Supercharges your Z." "From your first agent to your IPO." Cut.
-- **Exclamation marks.** Once a year, maximum. They signal effort-to-be-engaging; the voice doesn't try to be engaging, it tries to be precise.
-- **Hedging without warrant.** "I think," "in my view," "it seems," "perhaps" — used only when the writer is genuinely uncertain, never as a politeness move. The voice states.
-- **Marketing affirmation.** "Game-changing!" "Truly revolutionary." "Unparalleled." Not even ironically.
-- **Buzzword stacking.** "Synergistic leverage of holistic frameworks." If you can't say it without the buzzwords, you don't have the claim.
-- **Empty intensifiers.** "Really," "very," "quite," "extremely," "definitely." Most can be cut without loss; the others can be replaced with the underlying mechanism.
-- **Faux humility.** "Just a thought." "Not sure if this is right, but." The voice is not humble in this affectation; it is rigorous in its claims and surfaces uncertainty only where the argument requires it.
-- **Inspirational endings.** Paragraphs don't end on "and that's beautiful" or "the future is bright." They end on the implication of the argument or on the next argument's premise.
-- **Apologizing for technicality.** "Don't worry if this sounds complex." The voice presupposes reader literacy; readers who don't have it are not the audience.
+The voice refuses, structurally, certain rhetorical moves — SaaS hyperbole, exclamation marks, hedging without warrant, marketing affirmation, buzzword stacking, empty intensifiers, faux humility, inspirational endings, apologizing for technicality. The enumerated list (with examples for each) moved to [`/voice-tells`](../voice-tells/SKILL.md) §2 under mt#3841, alongside the parallel structural-tells checklist that was diverging in `engineering-writing`. This skill remains the craft-framing owner (the operative-ontology stance in §5 these violations break, the writing process in §9) — do not deploy any of the §2 patterns in pz-voice prose.
 
 ## 7. Composition with the cultural-code register
 
@@ -158,14 +147,7 @@ Both are needed; they operate at different layers. Composition principle:
 
 **Voice carries the substance. Cultural codes provide the bridge.**
 
-The balance depends on surface:
-
-| Surface                                       | Voice weight | Cultural-code weight                                                     |
-| --------------------------------------------- | ------------ | ------------------------------------------------------------------------ |
-| Position paper, RFC                           | ~90% voice   | ~10% (epigraph, occasional named reference, brand vocabulary in headers) |
-| Manifesto / About page                        | ~70% voice   | ~30% (cultural-code framing in section openings)                         |
-| Marketing site copy                           | ~40% voice   | ~60% (visual register dominates; copy supports)                          |
-| Visual surfaces (palette, typography, motion) | ~0% voice    | 100% codes                                                               |
+The per-surface balance (position paper ~90/10 through visual surfaces ~0/100) is canonically tabled in [`/minsky-brand`](../minsky-brand/SKILL.md) §8 — this skill and that one used to carry independent copies of the same numbers; `minsky-brand` is now the sole carrier (mt#3841) since the split is fundamentally a brand-foundation concern, not a voice-craft one. Consult it before drafting a mixed voice/code surface.
 
 Rule of thumb for prose: **if a paragraph could be entirely corpus citation with no GitS/Eva/Macx reference and still carry the claim, that's the natural balance. Add the cultural-code reference only when it crystallizes the claim more than the voice alone does** — e.g., "the flock" as a single noun does work that "a coordinated multi-agent body operating around a principal" takes a sentence to do.
 
@@ -230,6 +212,7 @@ When asked to write in pz-voice for a specific surface:
 
 ## Cross-references
 
+- `/voice-tells` — shared AI-voice-tells checklist (mt#3841); this skill's §2 no-go register points there for the enumerated list, and consumes its §1 structural-tells alongside `/engineering-writing`
 - `/marketing-site-design` — sibling skill on the marketing-positioning layer; uses pz-voice for prose surfaces and the cultural-code architecture for visual surfaces
 - `/analyze-adjacent-product` — sibling skill on semiotic analysis of adjacent brands
 - `/engineering-writing` — adjacent existing skill on long-form argumentative prose generally; pz-voice is the principal-calibrated variant

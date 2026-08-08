@@ -108,7 +108,12 @@ describe("UnconfiguredPersistenceProvider stays fail-closed (mt#3636 SC5)", () =
   test("the thrown error is bootDeferrable — what produces session_*'s container message", async () => {
     const error = await degraded()
       .getDatabaseConnection()
-      .catch((e: unknown) => e as PersistenceUnavailableError);
+      .then(
+        (): never => {
+          throw new Error("expected getDatabaseConnection to reject, but it resolved");
+        },
+        (e: unknown) => e as PersistenceUnavailableError
+      );
 
     expect(error.bootDeferrable).toBe(true);
     // The reason must survive into the message the operator actually reads.

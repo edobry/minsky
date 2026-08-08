@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
+import { LIVE_SESSION_WINDOW_MS, TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 
 describe("TranscriptWatcherTracker", () => {
   let tracker: TranscriptWatcherTracker;
@@ -135,6 +135,95 @@ describe("TranscriptWatcherTracker", () => {
       tracker.recordSessionEvent("sess-e", false);
       const fresh = TranscriptWatcherTracker.resetForTest();
       expect(fresh.getActiveSessions()).toHaveLength(0);
+    });
+  });
+
+  describe("live-session window (mt#3857)", () => {
+    // `getLiveSessions` takes an injectable clock, so these advance NOW rather than
+    // back-dating entries or sleeping — `recordSessionEvent` always stamps Date.now().
+    const now = () => Date.now();
+
+    test("a session with a just-recorded event is live", () => {
+      tracker.recordSessionEvent("fresh", false);
+      expect(tracker.getLiveSessions(now()).map((s) => s.agentSessionId)).toEqual(["fresh"]);
+    });
+
+    test("a session goes stale once its last event falls outside the window", () => {
+      tracker.recordSessionEvent("going-stale", false);
+      const pastWindow = now() + LIVE_SESSION_WINDOW_MS + 1;
+      expect(tracker.getLiveSessions(pastWindow)).toHaveLength(0);
+    });
+
+    test("an event exactly at the window boundary still counts as live", () => {
+      tracker.recordSessionEvent("boundary", false);
+      const atEdge = now() + LIVE_SESSION_WINDOW_MS;
+      expect(tracker.getLiveSessions(atEdge).map((s) => s.agentSessionId)).toEqual(["boundary"]);
+    });
+
+    test("the live set is a subset — stale entries drop, fresh ones stay", () => {
+      tracker.recordSessionEvent("stale-one", false);
+      const later = now() + LIVE_SESSION_WINDOW_MS + 1;
+      // A second session whose event lands at `later` is inside the window relative
+      // to `later`, while the first has aged out.
+      tracker.recordSessionEvent("still-live", false);
+      const live = tracker.getLiveSessions(now()).map((s) => s.agentSessionId);
+      expect(live).toContain("still-live");
+      expect(tracker.getLiveSessions(later)).toHaveLength(0);
+    });
+
+    // The regression this task exists for. TranscriptWatcher.seedExisting() calls
+    // recordSessionEvent() for every pre-existing file at boot, so a large history
+    // arrives all stamped "now" — which is exactly what made /api/health 209 KB.
+    // The registry should still KNOW about all of them; only what health serializes
+    // is bounded.
+    test("a boot scan of many files leaves the live set empty once the window passes", () => {
+      for (let i = 0; i < 1000; i++) {
+        tracker.recordSessionEvent(`boot-seeded-${i}`, false);
+      }
+      expect(tracker.trackedSessionCount).toBe(1000);
+      expect(tracker.getActiveSessions()).toHaveLength(1000);
+
+      const pastWindow = now() + LIVE_SESSION_WINDOW_MS + 1;
+      expect(tracker.getLiveSessions(pastWindow)).toHaveLength(0);
+      // The count is what /api/health reports, and it is unaffected by the filter.
+      expect(tracker.trackedSessionCount).toBe(1000);
+    });
+
+    test("a seeded-but-never-active session is tracked and NOT live", () => {
+      tracker.recordSessionSeeded("seeded", false);
+      expect(tracker.trackedSessionCount).toBe(1);
+      expect(tracker.getActiveSessions()[0]?.lastEventAt).toBeNull();
+      expect(tracker.getLiveSessions(now())).toHaveLength(0);
+    });
+
+    // The end-to-end shape of the boot scan: seedExisting() registers the whole
+    // history at once. Before mt#3857 that stamped every entry as live, so the
+    // window filter matched everything for its first two minutes and /api/health
+    // stayed at ~210 KB across every daemon restart.
+    test("a boot scan of many files yields zero live sessions immediately", () => {
+      for (let i = 0; i < 1000; i++) {
+        tracker.recordSessionSeeded(`boot-seeded-${i}`, false);
+      }
+      expect(tracker.trackedSessionCount).toBe(1000);
+      expect(tracker.getLiveSessions(now())).toHaveLength(0);
+    });
+
+    test("a real event on a seeded session promotes it to live", () => {
+      tracker.recordSessionSeeded("wakes-up", false);
+      expect(tracker.getLiveSessions(now())).toHaveLength(0);
+      tracker.recordSessionEvent("wakes-up", false);
+      expect(tracker.getLiveSessions(now()).map((s) => s.agentSessionId)).toEqual(["wakes-up"]);
+      expect(tracker.trackedSessionCount).toBe(1);
+    });
+
+    test("seeding does not clobber a session that already has an event", () => {
+      tracker.recordSessionEvent("already-active", false);
+      tracker.recordSessionIngest("already-active", 7);
+      tracker.recordSessionSeeded("already-active", false);
+      const [entry] = tracker.getActiveSessions();
+      expect(entry?.lastEventAt).not.toBeNull();
+      expect(entry?.lastTurnsIngested).toBe(7);
+      expect(tracker.getLiveSessions(now())).toHaveLength(1);
     });
   });
 });

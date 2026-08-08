@@ -150,9 +150,13 @@ describe("short id minting (mt#2965)", () => {
     expect(a.id).not.toBe(b.id);
     expect(a.shortId).not.toBe(a.id);
 
-    const fetched = await repo.getById(a.id);
+    const aId = a.id;
+    if (aId === undefined) throw new Error("expected create() to return an id");
+    const fetched = await repo.getById(aId);
     expect(fetched?.id).toBe(a.id);
-    expect(fetched?.shortId).toBe(a.shortId);
+    const aShortId = a.shortId;
+    if (aShortId === undefined) throw new Error("expected create() to return a shortId");
+    expect(fetched?.shortId).toBe(aShortId);
   });
 });
 
@@ -989,7 +993,10 @@ describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
    * backfill existing rows, so window_missed_count and force_immediate are NULL.
    */
   function makeLegacyRow(overrides: Partial<AskRecord> = {}): AskRecord {
-    return {
+    // Annotate the base separately, then spread: a `...overrides` inside a
+    // literal that is only contextually typed widens each field (`kind`
+    // became bare `string`), so the base was never checked against AskRecord.
+    const base: AskRecord = {
       id: "00000000-0000-0000-0000-000000000001",
       // Legacy row predates the short_id column (mt#2965) — NULL until backfilled.
       shortId: null,
@@ -1016,8 +1023,13 @@ describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
       windowMissedCount: null,
       forceImmediate: null,
       metadata: {},
-      ...overrides,
+      // Columns added after this fixture was written — surfaced only once the
+      // base literal was actually checked against AskRecord.
+      projectId: null,
+      severity: null,
+      principalPagedAt: null,
     };
+    return { ...base, ...overrides };
   }
 
   it("coalesces NULL window_missed_count to 0 (documented default)", () => {

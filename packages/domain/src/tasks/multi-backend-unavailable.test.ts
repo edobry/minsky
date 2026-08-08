@@ -35,6 +35,19 @@ const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
 /** The guard's error name — asserted rather than matched on prose. */
 const UNAVAILABLE_ERROR = "TaskBackendUnavailableError";
 
+/**
+ * `.then` fulfilled-arm for a call the test expects to REJECT.
+ *
+ * Returning `never` keeps the awaited value a plain `Error`; the previous
+ * `.catch((e) => e as Error)` widened it to `Error | Task`, so every assertion
+ * below read a property off a union — and, worse, a call that unexpectedly
+ * RESOLVED flowed through as the "error" and the test still passed. Throwing
+ * here makes that case fail loudly instead.
+ */
+function expectedRejection(): never {
+  throw new Error("expected the call to reject, but it resolved");
+}
+
 /** Minimal in-memory backend — enough to prove the guard does NOT fire. */
 function fakeBackend(tasks: Task[] = []): TaskBackend {
   return {
@@ -107,7 +120,7 @@ describe("zero-backend read guard (mt#3636)", () => {
       // ahead of every routing decision.
       const error = await build()
         .createTaskFromTitleAndSpec("a title", "a spec", { backend: "minsky" })
-        .catch((e: unknown) => e as Error);
+        .then(expectedRejection, (e: unknown) => e as Error);
 
       expect(error.name).toBe(UNAVAILABLE_ERROR);
       expect(error.message).toContain(BOOT_FAILURE);
@@ -120,7 +133,7 @@ describe("zero-backend read guard (mt#3636)", () => {
       // the database being unreachable.
       const error = await build()
         .createTaskFromTitleAndSpec("a title", "a spec")
-        .catch((e: unknown) => e as Error);
+        .then(expectedRejection, (e: unknown) => e as Error);
 
       expect(error.name).toBe(UNAVAILABLE_ERROR);
       expect(error.message).toContain(BOOT_FAILURE);
@@ -130,7 +143,7 @@ describe("zero-backend read guard (mt#3636)", () => {
     test("the error names the backend, the degraded state, and the underlying cause", async () => {
       const error = await build()
         .listTasks()
-        .catch((e: unknown) => e as Error);
+        .then(expectedRejection, (e: unknown) => e as Error);
 
       expect(error.message).toContain("postgres");
       expect(error.message).toContain(BOOT_FAILURE);
@@ -161,7 +174,7 @@ describe("zero-backend read guard (mt#3636)", () => {
     test("listTasks RAISES with configure-Postgres guidance, not a boot-failure claim", async () => {
       const error = await build()
         .listTasks()
-        .catch((e: unknown) => e as Error);
+        .then(expectedRejection, (e: unknown) => e as Error);
 
       expect(error.message).toContain("persistence is not configured");
       expect(error.message).toContain("persistence.postgres.connectionString");

@@ -3,10 +3,9 @@
 name: minsky-brand
 description: >-
   The Minsky brand foundation in agent-consumable form — locked myth, cultural
-  code, five-layer reference architecture, bridge-as-affect discipline, and
-  locked vocabulary. Invoke as the strategic anchor for any Minsky-surface
-  design work, or any artifact that must carry the brand register without
-  re-deriving the workshop output.
+  code, reference architecture, bridge-as-affect discipline, locked vocabulary.
+  Invoke as the strategic anchor for any Minsky-surface design work, or any
+  artifact that must carry the brand register.
 user-invocable: true
 ---
 
@@ -35,6 +34,15 @@ This myth is **contestable** (the category default is "tools," not "extension"),
 
 Full workshop derivation: [`marketing-site-design/references/minsky-myth-2026-05.md`](../marketing-site-design/references/minsky-myth-2026-05.md). Strategic framing: [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1).
 
+## 1a. Myth-register vocabulary vs. public-copy vocabulary — deliberate, not drift
+
+The locked myth above is written in brand register — "exocortex," "servitor," "flock," "cognition" — while the public copy kit ships plainer language ("the engineering organization around your AI agents"). This is not an unreconciled fork; it's a designed split, and the answer already exists in the [positioning corpus](https://app.notion.com/p/3b6937f03cb4811786b8c76b31226b17) (mem#895; anchored as the copy source of truth in §10 below) — cite it rather than re-litigating:
+
+- **Corpus §5 (Vocabulary bridge)** rules that a register term is defined at first use on any public surface, or replaced with its plain form — myth-register vocabulary reaches the public only through that gate, never bare.
+- **Corpus §8 (Discourse posture)** states the specific case: **"cyberbrain" is brand register only — tagline and visuals, never load-bearing in explanation.** The myth's exocortex/flock/servitor vocabulary anchors the brand's internal self-understanding and tagline/visual surfaces; the corpus's plain-language door-one/door-two articulations (T1-T7) are what actually explains the product publicly.
+
+The divergence is intentional and principal-locked (corpus decision record, 2026-08-07/08), not an open question this skill needs to resolve.
+
 ## 2. The locked cultural code
 
 **Cyberbrain / Section 9.** Autonomous-flock cybernetic substrate that extends a principal's cognition, rendered as a serious operational profession.
@@ -43,7 +51,16 @@ This is an _emergent_ code with no current AI-tool category instantiation — me
 
 ## 3. Bridge-as-affect
 
-The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3.
+The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. This skill is the canonical source (mt#3841; consolidated here from `/analyze-adjacent-product`, which now points back at this section — the general methodology skill is not a Minsky-brand carrier).
+
+A critical discipline when reading or building positioning that claims an _emergent_ code (one with no category instantiation yet). Brands do NOT typically expose the audience to the raw emergent code directly; that produces blank stares. Instead, they bridge through **residual codes** — codes the audience already recognizes — that carry the same structure. The audience pattern-matches to the residual reference; their recognition is the bridge; they end up holding the emergent frame as a conclusion they reached themselves.
+
+The discipline (applied symmetrically to analysis and design):
+
+- **For analysis:** when reading a brand that's making an emergent claim, name both the emergent code and the residual code(s) being used to bridge. Don't confuse the bridge (residual) with the destination (emergent). A brand that visually borrows from "industrial manufacturing" codes to claim "software engineering as factory work" is using the industrial code as the bridge — the destination myth is the emergent claim about software, not the industrial reality.
+- **For your own design:** borrow at the layer of register (typography, color, density, motion budget, copy tone), not at the layer of imagery (literal characters, mecha, products). The right reader notices the borrowing as taste-signal; the wrong reader doesn't notice and isn't bothered. Evangelion's discipline is the canonical execution: dense with religious/Kabbalistic iconography (AT-Field, Sephirot, Magi-as-three-wise-men) without ever being _about_ religion. The borrowings function as affect; the show's subject is something else.
+
+**Point-of-decision heuristic:** would the right reader notice the borrowing without being told? If yes, the borrowing is doing its work — ship it. If you have to caption it, it's gone too literal — cut and replace.
 
 Applied to Minsky:
 
@@ -70,10 +87,6 @@ Applied to Minsky:
 - Mecha as a visual element at the literal-character layer.
 - Anime stills, anime fanart, anime stylization.
 - Skynet / Terminator-coded futurism (wrong cultural code entirely).
-
-### Point-of-decision heuristic
-
-**Would the right reader recognize the borrowing without being told?** If yes, ship it. If you have to caption the reference for it to read, it's gone literal — cut and replace. This is the load-bearing discipline.
 
 ## 4. The five-layer reference architecture
 
@@ -120,7 +133,16 @@ When designing any Minsky surface, the question to ask is: _does this choice car
 
 ## 6. The Pepsi/Arnell trap
 
-Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines (for both analysis and design) lives in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2.
+This skill is the canonical source (mt#3841; consolidated here from `/analyze-adjacent-product`, which now points back at this section — the general methodology skill is not a Minsky-brand carrier).
+
+The 2008 Pepsi rebrand by the Arnell Group produced a now-infamous 27-page "Breathtaking" document (archived [here](https://www.goldennumber.net/wp-content/uploads/pepsi-arnell-021109.pdf), [Ad Age coverage](https://adage.com/article/agency-news/breathtaking-word-purported-arnell-pepsi-doc/134552/)) that justified a minor logo refresh by invoking the Mona Lisa, the Golden Ratio, the Parthenon, the Earth's geomagnetic field, the Gutenberg Bible, and the theory of relativity. The document was widely mocked because it was **post-hoc theater** — semiotic vocabulary deployed to dress up a thin visual move, rather than semiotic _reasoning_ used to drive a strong one.
+
+The discipline this encodes — applies symmetrically to analysis and to design:
+
+- **For analysis:** when reading a brand, name what the signs _actually_ do, not what a theoretically-impressive frame would predict they do. If the analysis sounds clever but the visual evidence is thin, the analysis is theater. The signs should support the claim; if they don't, the claim is wrong.
+- **For your own design:** pick the myth first; let visual choices follow as instantiations of the myth. Never retrofit semiotic justification onto a thin visual move. A long explanation of why a design "works" is a warning sign that the design does not actually carry the meaning on its own.
+
+The Pepsi/Arnell trap is the recommendation-time analogue of the patterns named in `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — manufacturing a frame to make a tactical preference sound principled. The fix is the same: cite first, decide second; or admit you do not know and rescope.
 
 For Minsky-brand work specifically: if you cannot explain a visual or copy choice as a sign carrying a specific connotation that instantiates the locked myth (§1) or one of the layered references (§4), cut it. "It looks cool" is the Pepsi/Arnell tell.
 
@@ -214,7 +236,7 @@ Together they form the brand identity at two layers:
 | Signal  | `pz-voice`                  | Prose substance (manifesto, position paper, blog post) | Voice without channel reads as a Twitter thread, not a brand artifact.  |
 | Channel | `minsky-brand` (this skill) | Visual register (typography, color, layout, imagery)   | Channel without signal reads as a stylish but empty cultural-code play. |
 
-Per-surface balance (workshop output, [`/pz-voice`](../pz-voice/SKILL.md) §7):
+Per-surface balance (canonical here as of mt#3841 — `/pz-voice` §7 points here rather than carrying its own copy):
 
 | Surface                                                    | Signal / channel split                                                      |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -234,16 +256,17 @@ These violate the locked register at the _foundation_ level (distinct from forma
 - **Skynet / Terminator-coded futurism.** Wrong cultural code entirely. The brand is _operational substrate_, not _adversarial AI menace_.
 - **Conflating Minsky with "team substrate."** Per the [Principal Substrate position paper](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1), Minsky's primary frame is _principal-substrate_ (extension of one mind) on a spectrum, not _team substrate_ (coordination for groups). Marketing copy that defaults to "for teams" misses the locked frame.
 - **Single-reference pastiche.** Carrying only one of the five layered references (e.g., a literal GitS pastiche without Iso warmth or Magilumière tonal lock) reads as cosplay. The brand lives in the intersection.
-- **SaaS hyperbole, exclamation, marketing-affirmation.** Belongs to `pz-voice`'s no-go register; cited here because brand surfaces must compose the two skills.
+- **Voice-stance violations.** The [`/voice-tells`](../voice-tells/SKILL.md) §2 no-go register (owned by `pz-voice`'s §5-6 stance) — cited here because brand surfaces must compose the two skills.
 - **Treating the cultural code as decoration.** The code carries the proposition. If a layer can be removed without the surface losing meaning, it was decoration, not signal.
 
 ## 10. Upstream sources
 
+- **Positioning corpus — the copy source of truth (mem#895):** [Positioning corpus v0/v1: how to explain Minsky (August 2026)](https://app.notion.com/p/3b6937f03cb4811786b8c76b31226b17) (mt#1583). The seven core theses, the two-door structure, the vocabulary bridge (§5), and the discourse posture (§8, v1 revision 2026-08-08). ALL public "what is Minsky" copy adapts from this corpus rather than re-deriving; never link to it from a public surface. §1a above records the myth-register-vs-public-copy-register answer this corpus already settled — cite corpus §5/§8, don't re-litigate.
 - **Strategic anchor (the _why_):** [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) (mt#1931). The thesis behind the locked myth and the spectrum-not-binary framing of principal-substrate.
 - **Operational reference (the _how_ at the implementation layer):** [`docs/brand-system.md`](../../../docs/brand-system.md) (mt#1932). Concrete tokens: typography stack, color palette (hex + OKLCH), motion budget, vocabulary inventory, WCAG contrast, font licensing, cockpit migration table. Surfaces consume this directly.
 - **Workshop derivation:** [`marketing-site-design/references/minsky-myth-2026-05.md`](../marketing-site-design/references/minsky-myth-2026-05.md). End-to-end walk through Steps 1–5 of the myth-selection workshop, with Minsky as the brand. Use as the worked reference when running this process for any future Minsky-surface or for an adjacent brand.
 - **Voice substrate:** [`/pz-voice`](../pz-voice/SKILL.md) (mt#1952). The signal layer. Composes per §8 above.
-- **Adjacent-product analytical methodology:** [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis capture workflow. Use when reading a competitor's surface to inform Minsky positioning decisions.
+- **Adjacent-product analytical methodology:** [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, per-analysis capture workflow (the Pepsi/Arnell trap and bridge-as-affect discipline it applies are canonical here — §6 and §3 — as of mt#3841). Use when reading a competitor's surface to inform Minsky positioning decisions.
 - **Principal corpus:** mt#1930. Query via `mcp__minsky__principal_corpus_search` / `principal_corpus_similar`; synthesized memeplex via `mcp__minsky__memory_search` with tag `principal-thinking`.
 
 ## 11. Surface skills that depend on this foundation
@@ -264,7 +287,7 @@ The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Ge
 - `/marketing-site-design` — surface skill for marketing-site work; depends on this foundation.
 - `/cockpit-design` — surface skill for cockpit work; depends on this foundation.
 - `/pz-voice` — signal layer; composes with this foundation per §8.
-- `/analyze-adjacent-product` — analytical methodology for reading adjacent brands. The Pepsi/Arnell discussion (§2) and bridge-as-affect framework (§3) referenced from this skill live there.
+- `/analyze-adjacent-product` — analytical methodology for reading adjacent brands (Peirce/Barthes/Oswald, per-analysis workflow). Its §2/§3 point back at this skill's §6 (Pepsi/Arnell trap) and §3 (bridge-as-affect), which are canonical here as of mt#3841.
 - `docs/brand-system.md` — operational reference for surface implementations.
 - CLAUDE.md `§Principal Context` — Minsky's commercial-product framing.
 - CLAUDE.md `§Documentation Taxonomy` — the strategic / operational / agent-consumable tier model that places this skill in its slot.

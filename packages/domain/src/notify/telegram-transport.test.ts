@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import type { FetchFn } from "./telegram-transport";
 import {
   classifyGetUpdatesFailure,
   fetchTelegramFile,

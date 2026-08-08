@@ -141,6 +141,14 @@ export interface MinskyMCPServerOptions {
  * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
  * underscore names — `debug_echo` — and the allowlist never matched.)
  */
+/**
+ * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
+ * The request handler injects the resolved caller agentId into ONLY this tool's
+ * args (matched exactly against this name and its `toClaudeDesktopName` underscore
+ * alias) so its contested-check can exclude the caller's own task-grain claims.
+ */
+const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -397,6 +405,14 @@ export class MinskyMCPServer {
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
   private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+
+  // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
+  // ever registered. Deliberately distinct from `httpSessions.size > 0`,
+  // which reflects only CURRENTLY-open sessions: a client that connected
+  // and later cleanly disconnected (or was reaped) must not be
+  // indistinguishable from "no client ever connected" to the
+  // never-connected idle-exit watcher in `orphan-exit.ts`.
+  private hasEverHadAnyHttpSession = false;
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
@@ -889,6 +905,7 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
+          this.hasEverHadAnyHttpSession = true;
           const newCount = this.httpSessions.size;
           log.debug("mcp_session_admit", {
             sessionId: id,
@@ -911,6 +928,7 @@ export class MinskyMCPServer {
     // catches that path.
     if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
       this.httpSessions.set(session.transport.sessionId, session);
+      this.hasEverHadAnyHttpSession = true;
       log.debug("Registered new HTTP session (post-handle fallback)", {
         sessionId: session.transport.sessionId,
       });
@@ -1146,6 +1164,22 @@ export class MinskyMCPServer {
           const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
             ._meta?.progressToken;
           const progress = buildProgressReporter(progressToken, extra.sendNotification);
+
+          // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
+          // arguments so its contested-check can EXCLUDE the caller's own task-grain
+          // presence claims (SC4 — a caller must never be flagged as its own peer). Matched
+          // EXACTLY against this tool's canonical dotted name and its Claude-Desktop underscore
+          // alias (both registered) — never a substring, so no other tool whose name merely
+          // contains "dispatch-recover" can receive the param. The server overwrites any
+          // caller-supplied value, so it cannot be spoofed here.
+          if (
+            request.params.name === DISPATCH_RECOVER_TOOL_NAME ||
+            request.params.name === toClaudeDesktopName(DISPATCH_RECOVER_TOOL_NAME)
+          ) {
+            const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
+            dispatchArgs.callerActorId = agentId;
+            request.params.arguments = dispatchArgs;
+          }
 
           const result = await tool.handler(request.params.arguments || {}, progress);
 
@@ -2273,6 +2307,17 @@ export class MinskyMCPServer {
    */
   getMaxSessions(): number | null {
     return this.MAX_HTTP_SESSIONS;
+  }
+
+  /**
+   * mt#3764: true once the first HTTP MCP session has EVER been
+   * established, and stays true afterward even if all sessions later
+   * close/reap. Feeds the never-connected idle-exit watcher in
+   * `orphan-exit.ts` — deliberately NOT the same as `getSessionCount() > 0`,
+   * which only reflects currently-open sessions.
+   */
+  hasEverHadHttpSession(): boolean {
+    return this.hasEverHadAnyHttpSession;
   }
 
   /**

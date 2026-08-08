@@ -104,7 +104,7 @@ describe("getDeclaredTables", () => {
       label: text("label"),
     });
     const [declared] = getDeclaredTables([fixture]);
-    expect(declared.name).toBe("fixture_tbl");
-    expect(declared.columns.sort()).toEqual(["id", "label", "n"]);
+    expect(declared?.name).toBe("fixture_tbl");
+    expect(declared?.columns.sort()).toEqual(["id", "label", "n"]);
   });
 });

@@ -22,6 +22,7 @@ import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
+import type { ConversationId } from "../ids";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
 import { extractMetadataFromJsonb } from "./metadata-extractor";
@@ -66,7 +67,9 @@ export class MetadataExtractionPipeline {
     };
 
     // ── 1. Load all transcript rows ──────────────────────────────────────────
-    let rows: Array<{ agentSessionId: string; transcript: unknown }>;
+    // `ConversationId`, not `string`: the selected column is branded, so a
+    // widened annotation here made the `eq(...)` below reject its own row value.
+    let rows: Array<{ agentSessionId: ConversationId; transcript: unknown }>;
     try {
       rows = await this.db
         .select({

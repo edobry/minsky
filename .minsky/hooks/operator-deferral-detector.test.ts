@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectCapabilityDeferral,
+  detectPermissionDeferral,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
   isProbeSkill,
   stripQuoteChars,
   buildCalibrationRecord,
+  buildEvaluationRecord,
   buildReminder,
   run,
   runAskSurface,
@@ -16,6 +18,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared fixture literals
@@ -63,6 +66,146 @@ const ctxWith = (lines: TranscriptLine[]): DispatchContext =>
     transcriptCandidates: [FIXTURE_PATH],
     transcriptLines: lines,
   }) as unknown as DispatchContext;
+
+// ---------------------------------------------------------------------------
+// Surface C — permission-deferral prose (mt#3463)
+// ---------------------------------------------------------------------------
+
+const PERMISSION_PROSE = "permission-deferral-prose";
+
+/**
+ * Seed corpus (spec criterion 5). Drawn from real turns, not invented shapes:
+ * the first is the mt#3621 originating incident verbatim, and the R5 entry is
+ * the fabricated-authority-boundary case mt#3463's own `## Recurrence` records.
+ *
+ * TRUE POSITIVES — an action the agent could simply have taken.
+ */
+const PERMISSION_TRUE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  ["mt#3621 origin", "The daemon needs a restart. Say the word and I'll do it."],
+  ["want-me-to", "I can restart the daemon. Want me to?"],
+  ["shall-I", "The task is planned and READY. Shall I implement it?"],
+  ["should-I", "Everything is green. Should I merge it?"],
+  ["do-you-want", "The fix is ready. Do you want me to push it?"],
+  ["let-me-know", "It's a one-line change. Let me know if you want me to apply it."],
+  ["if-you-like", "I can file that follow-up task if you'd like."],
+  ["happy-to", "Happy to rerun the suite if you want."],
+  ["just-say-so", "The branch is ready to go — just say the word."],
+  ["would-you-like", "Would you like me to update the spec too?"],
+];
+
+/**
+ * WOULD-BE FALSE POSITIVES — the same permission-ask SHAPE wrapped around an
+ * action that SHOULD be escalated. These must stay silent; firing on them would
+ * train the agent to act unilaterally on exactly the work it must not, which is
+ * strictly worse than the round-trip this surface prevents.
+ */
+const PERMISSION_LEGITIMATE_ESCALATIONS: ReadonlyArray<readonly [string, string]> = [
+  ["force-push", "The history diverged. Should I force-push over it?"],
+  ["prod-deploy", "Want me to deploy this to production?"],
+  ["delete", "Do you want me to delete the stale branch and its data?"],
+  ["revert-prod", "Should I revert the production release?"],
+  ["naming", "Should I call it Attention or Inbox?"],
+  ["vendor", "Do you want me to sign up for the paid plan?"],
+  ["scope-change", "Want me to expand the scope decision to cover the tray too?"],
+  ["drop-table", "Shall I drop the table and re-migrate?"],
+];
+
+describe("Surface C — permission-deferral prose (mt#3463)", () => {
+  test.each(PERMISSION_TRUE_POSITIVES)("fires on %s", (_label, prose) => {
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(PERMISSION_PROSE);
+  });
+
+  test.each(PERMISSION_LEGITIMATE_ESCALATIONS)(
+    "stays silent on a legitimate escalation: %s",
+    (_label, prose) => {
+      expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+    }
+  );
+
+  test("the exclusion is SENTENCE-scoped, not turn-scoped", () => {
+    // An unrelated mention of a reserved word elsewhere in the turn must not
+    // mask a real permission-ask about something else.
+    const prose =
+      "I checked the production logs earlier and they were clean.\n" +
+      "The changelog entry is drafted. Want me to commit it?";
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("probe evidence suppresses it, like Surface A", () => {
+    const lines = [
+      assistantToolUse("Bash", { command: "which railway" }),
+      toolResult("/opt/homebrew/bin/railway"),
+      assistantText("Probed: railway CLI present. Want me to redeploy?"),
+    ];
+    expect(detectPermissionDeferral(lines)).toEqual([]);
+  });
+
+  test("a quoted trigger phrase does not fire (mt#3273 elision parity)", () => {
+    const prose = 'The detector matches phrases like "want me to" in agent prose.';
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("capability prose does NOT fire this surface (the two are disjoint)", () => {
+    expect(detectPermissionDeferral([assistantText(DEFERRAL_PROSE)])).toEqual([]);
+  });
+
+  test("permission prose does NOT fire the capability surface (the gap this closes)", () => {
+    const prose = "The daemon needs a restart. Say the word and I'll do it.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+});
+
+describe("evaluation stream records misses, not just fires (mt#3463)", () => {
+  test("a no-match turn still produces a record — the half a fire-only log cannot give", () => {
+    const record = buildEvaluationRecord("s-1", [], "Nothing deferral-shaped here.");
+    expect(record.fired).toBe(false);
+    expect(record.surfaces).toEqual([]);
+    // The tail is what makes a MISS classifiable later.
+    expect(record.text_tail).toContain("Nothing deferral-shaped");
+  });
+
+  test("defaults to the prose-turn grain", () => {
+    expect(buildEvaluationRecord("s-1", [], "text").evaluated).toBe("prose-turn");
+  });
+
+  // PR #2659 R1: the ask surface recorded nothing, so "every evaluated unit"
+  // was false and the recall denominator was silently prose-only.
+  test("the ask surface is a DIFFERENT denominator, and says so", () => {
+    const record = buildEvaluationRecord("s-1", [], "Recover the service | Hold", "ask-tool-call");
+    expect(record.evaluated).toBe("ask-tool-call");
+    expect(record.fired).toBe(false);
+  });
+
+  test("runAskSurface records an evaluation even when nothing matches", () => {
+    const benignAsk: Record<string, unknown> = {
+      questions: [{ question: "Which colour?", options: [{ label: "Red" }, { label: "Blue" }] }],
+    };
+    const input = {
+      session_id: "s-ask",
+      tool_name: "AskUserQuestion",
+      tool_input: benignAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    // No match -> no GuardOutcome, but the evaluation must still have been
+    // recorded. Asserting the no-match outcome pins the branch the R1 finding
+    // was about: the early return path.
+    expect(runAskSurface(input, ctxWith([]))).toBeNull();
+  });
+
+  test("a fired turn names its surfaces", () => {
+    const record = buildEvaluationRecord(
+      "s-1",
+      [{ surface: PERMISSION_PROSE, matchedPhrase: "Want me to?" }],
+      "Want me to?"
+    );
+    expect(record.fired).toBe(true);
+    expect(record.surfaces).toEqual([PERMISSION_PROSE]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Surface A — capability-deferral prose (the family's R1/R3/R5 prose shapes)
@@ -225,12 +368,77 @@ const R5_ASK: Record<string, unknown> = {
   ],
 };
 
+describe("diversity axis (mt#3781)", () => {
+  const assistant = (text: string): TranscriptLine[] => [
+    userPrompt("go"),
+    { type: "assistant", message: { role: "assistant", content: text } },
+  ];
+
+  // The SAME trigger phrase in two different preceding clauses — the whole
+  // point of the fixtures is that the trigger is identical and the surrounding
+  // prose is not.
+  const TRIGGER_AFTER_MIGRATION = `The migration is written. ${DEFERRAL_PROSE}`;
+  const TRIGGER_AFTER_REVIEW = `Reviewed the diff and it looks fine. ${DEFERRAL_PROSE}`;
+
+  // AT1 — two fires on the SAME trigger phrase in different surrounding prose
+  // yield ONE distinct phrase and TWO distinct contexts. This is the property
+  // the diversity gate depends on and that a snippet-valued `phrase` destroys.
+  test("AT1: same trigger in different prose collapses to one distinct phrase", () => {
+    const first = detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION));
+    const second = detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW));
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    const distinctPhrases = new Set([first[0]?.matchedPhrase, second[0]?.matchedPhrase]);
+    const distinctContexts = new Set([first[0]?.context, second[0]?.context]);
+
+    expect(distinctPhrases.size).toBe(1);
+    expect(distinctContexts.size).toBe(2);
+  });
+
+  // AT1, through the real consumer rather than a stand-in for it: the same two
+  // fires, as calibration records, must produce ONE entry from the function the
+  // sweep actually calls.
+  test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
+    const records = [
+      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
+      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+    ];
+
+    const parsed = records.map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
+  });
+
+  // AT2 — the surrounding text is still recoverable from the record, so the
+  // classifiability the snippet provided is not lost by the fix.
+  test("AT2: the record still carries the surrounding prose", () => {
+    const record = buildCalibrationRecord(
+      "s1",
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+    ) as { matches: Array<{ phrase: string; context: string }> };
+
+    // `leadSentences: 1` pulls in the sentence before the trigger, which is the
+    // only thing that distinguishes these two fires — the trigger itself is a
+    // whole sentence and identical in both.
+    expect(record.matches[0]?.context).toContain("The migration is written");
+    expect(record.matches[0]?.phrase).not.toContain("The migration is written");
+  });
+});
+
 describe("AskUserQuestion option-label surface", () => {
   test("R5 replay: fires on the option labels that hand back a fixable infra action", () => {
     const matches = detectAskDeferral(R5_ASK, []);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.surface).toBe(ASK_OPTION_LABEL);
-    expect(matches[0]?.matchedPhrase).toContain("recover the reviewer service");
+    // mt#3781 split these. `matchedPhrase` is the PATTERN hit — the sweep's
+    // diversity axis, which must be equal across two fires on the same trigger.
+    // `context` keeps the original option label, which is what the assertion
+    // below originally pinned and what a human reviewer classifies from.
+    expect(matches[0]?.context).toContain("recover the reviewer service");
+    expect(matches[0]?.matchedPhrase).toBe("You recover");
   });
 
   test("suppressed when the turn already probed", () => {

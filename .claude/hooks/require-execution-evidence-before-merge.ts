@@ -51,6 +51,11 @@ import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
 import { isTestFile } from "./pr-file-predicates";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -979,6 +984,19 @@ export function runAtCoverageCalibrationWithSpec(
         task,
         prNumber,
         surface: "execution-evidence-at-coverage",
+        // mt#3607: this verdict is computed from two MUTABLE artifacts — the PR
+        // body and the bound task's spec — and carried neither, so a
+        // retrospective re-check had to re-fetch whatever they say NOW. Both are
+        // routinely edited between the fire and the review (a spec gains a
+        // planning audit; a PR body gains the evidence block the gate asked
+        // for), which is the mt#3584 class: the record cannot be re-classified
+        // and the miss becomes invisible. Neither is elided — matching here
+        // depends on fenced-block structure (the gate scans INSIDE the
+        // `Execution evidence:` block and nowhere else), so blanking fences
+        // would destroy what a re-derivation needs.
+        [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+        judgedPrBody: captureArtifact(prBody),
+        judgedSpec: captureArtifact(specFetch.content),
         executableAtCount: coverage.executableAts.length,
         unaddressedAts: coverage.unaddressedAts.map((at) => ({ number: at.number, text: at.text })),
         // mt#3339 (FP-4): the absent-vs-present-elsewhere partition. Additive — every

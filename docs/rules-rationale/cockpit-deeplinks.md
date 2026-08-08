@@ -144,8 +144,35 @@ and did not.
 still bare, so a reader landing mid-message on the second `mt#3198` still cannot click it. The
 tightening removes the arbitrariness; only the linkifier removes the problem.
 
+## The emit set and the accept set are different lists (mt#3800, 2026-08-05)
+
+The rule's five-type table governs what an agent WRITES in terminal output. `parseMinskyUri`
+governs what the cockpit RESOLVES when a URL arrives from the OS. Those had been the same list,
+which made it easy to read either as the other's contract; mt#3800 separated them by adding
+`conversation` to the accept set only.
+
+**Why accept it.** `/cockpit` opens the conversation the operator is currently in. Without a
+`conversation` URI type the only reachable target is a raw `http://localhost:<port>/…`, which
+means hard-coding a port the tray does not own and landing in a browser tab rather than the
+cockpit window the operator already has open.
+
+**Why not emit it.** A conversation reference in prose fails both halves of the label/target
+split this rule is built on: the id is a bare uuid with no readable short form (unlike
+`mt#2370`, `mem#728`, `PR #1234`), and the reader of an agent message is BY CONSTRUCTION already
+inside the conversation being referenced — the link would point at where they are.
+
+**A correction this change carries.** From mt#2769 until mt#3800 the codec's module header
+attributed the five-type restriction to an "ADR-022 stage-1 constraint." ADR-022 contains no
+mention of `minsky://`, URIs, or a deeplink type table; its stage-1 text scopes to vocabulary
+adoption in new code and to leaving `session_*` tools, params, DB columns, and session paths
+untouched. The restriction was real and deliberate, but it was a code comment's own decision
+wearing an ADR's authority — an instance of the pattern `claim-confidence.mdc §The corpus is
+agent-authored` names. The header now states the accept-vs-emit split directly and records what
+the ADR does and does not say.
+
 ## Cross-references
 
+- mt#3800 — `conversation` added to the accept set; the `/cockpit` command; the accept-vs-emit split.
 - mt#3459 — this decision; mt#3259 — the cockpit-side bare-short-id linkifier that is its precedent.
 - mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — the compiled rule (Surface A / terminal).
 - mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.

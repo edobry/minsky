@@ -261,7 +261,7 @@ describe("session merge — audited force-bypass (mt#2215)", () => {
 
     // The merge was invoked, and the third argument carries the canonical audit signature.
     expect(mocks.merge).toHaveBeenCalledTimes(1);
-    const mergeOptions = mocks.merge.mock.calls[0][2] as { bypassAuditMessage?: string };
+    const mergeOptions = mocks.merge.mock.calls[0]?.[2] as { bypassAuditMessage?: string };
     expect(mergeOptions.bypassAuditMessage).toBeDefined();
     expect(mergeOptions.bypassAuditMessage).toContain(
       "Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"
@@ -302,7 +302,7 @@ describe("session merge — audited force-bypass (mt#2215)", () => {
     expect(result).toBeDefined();
     expect(mocks.dismissReview).not.toHaveBeenCalled();
     expect(mocks.merge).toHaveBeenCalledTimes(1);
-    const mergeOptions = mocks.merge.mock.calls[0][2] as { bypassAuditMessage?: string };
+    const mergeOptions = mocks.merge.mock.calls[0]?.[2] as { bypassAuditMessage?: string };
     expect(mergeOptions.bypassAuditMessage).toBeUndefined();
   });
 });

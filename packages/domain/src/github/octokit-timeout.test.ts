@@ -11,12 +11,13 @@ import {
   GitHubRequestTimeoutError,
   GITHUB_REQUEST_TIMEOUT_MS,
 } from "./octokit-timeout";
+import type { FetchLike } from "./octokit-timeout";
 
 const CALLER_ABORT_REASON = "aborted by caller";
 
 describe("createTimeoutFetch (mt#2245)", () => {
   test("rejects with GitHubRequestTimeoutError within timeout+1s when the request never responds", async () => {
-    const neverResolves: typeof fetch = () => new Promise<Response>(() => {});
+    const neverResolves: FetchLike = () => new Promise<Response>(() => {});
     const timeoutFetch = createTimeoutFetch(50, neverResolves);
 
     const start = performance.now();
@@ -34,7 +35,7 @@ describe("createTimeoutFetch (mt#2245)", () => {
   });
 
   test("passes a fast response through unchanged", async () => {
-    const fastFetch: typeof fetch = async () => new Response("ok", { status: 200 });
+    const fastFetch: FetchLike = async () => new Response("ok", { status: 200 });
     const timeoutFetch = createTimeoutFetch(1000, fastFetch);
 
     const res = await timeoutFetch("https://api.github.com/x");
@@ -44,7 +45,7 @@ describe("createTimeoutFetch (mt#2245)", () => {
 
   test("a caller-provided abort signal still cancels the request", async () => {
     // baseFetch rejects when the (chained) signal aborts.
-    const abortableFetch: typeof fetch = (_input, init) =>
+    const abortableFetch: FetchLike = (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(new Error(CALLER_ABORT_REASON)));
       });
@@ -61,7 +62,7 @@ describe("createTimeoutFetch (mt#2245)", () => {
     // Mirrors real fetch: rejects once the (chained) signal aborts. The wrapper
     // must surface the timeout error from the race, and the late abort-driven
     // rejection of the underlying fetch must not become an unhandled rejection.
-    const abortRejectingFetch: typeof fetch = (_input, init) =>
+    const abortRejectingFetch: FetchLike = (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(new Error("aborted by timeout")));
       });

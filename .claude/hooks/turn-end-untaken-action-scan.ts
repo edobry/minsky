@@ -73,6 +73,25 @@ export const TAIL_WINDOW_CHARS = 600;
  *   R2: "say the word and I'll merge"        (deferral-shaped stop)
  *   R3: "I'm taking it forward … that's the next step, not a question"
  */
+/**
+ * Action verbs an announcement can attach to. Shared by the `I'll …` and
+ * `I'm going to …` families so a verb added here is covered in both forms —
+ * mt#3853's miss was partly that they could drift apart.
+ */
+const ACTION_VERB = String.raw`merge|implement|plan|file|fix|ship|land|write|open|build|patch|send|create|add|draft|wire|run|PR`;
+
+/**
+ * What the announced action is performed ON. Anaphora (`it`/`that`/`this`) and
+ * task ids were the original set; mt#3853 adds NAMED artifacts, because a
+ * commitment to a named thing ("I'm going to write and PR option 1") is the
+ * most concrete kind and was the one that escaped.
+ *
+ * Deliberately NOT `.+` — an object-less verb ("I'm going to think about how
+ * this works") is not an announcement of an immediately-executable action, and
+ * matching it would fire on ordinary reasoning prose.
+ */
+const ACTION_OBJECT = String.raw`it|that|this|mt#\d+|the\s+\w+|a\s+PR|option\s+\d+|both|these|them`;
+
 const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   {
     family: "taking-forward",
@@ -87,7 +106,20 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   },
   {
     family: "ill-action",
-    re: /\bi'?ll\s+(?:merge|implement|plan|file|fix|ship|land)\s+(?:it|that|this|mt#\d+)\b/i,
+    re: new RegExp(
+      String.raw`\bi'?ll\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
+  },
+  // mt#3853: `I'm going to X` was matched by NOTHING. It is at least as common
+  // a commitment form as `I'll X`, and the missed turn used it. `gonna` and the
+  // uncontracted `I am going to` are the same speech act.
+  {
+    family: "going-to",
+    re: new RegExp(
+      String.raw`\bi'?(?:m|\s+am)\s+(?:going\s+to|gonna)\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
   },
   { family: "moving-on", re: /\bmoving\s+on\s+to\b/i },
   { family: "say-the-word", re: /\bsay\s+the\s+word\b/i },
@@ -116,6 +148,43 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
 export interface UntakenActionMatch {
   family: string;
   matchedPhrase: string;
+}
+
+/**
+ * Longest quoted phrase an evidence line may carry (mt#3853).
+ *
+ * The evidence lines exist so the agent can recognize WHICH text tripped the
+ * guard; 26 chars is enough to do that for every pattern here (the longest
+ * pattern prefix is `I'm going to ` at 13), and the tail is elided rather than
+ * dropped. Chosen by MEASUREMENT, not preference: 32 still rendered 451 against
+ * the 450 ceiling on the worst-case canary; 26 renders 443.
+ *
+ * Why a cap at all: matched-phrase length is a function of the PATTERN SET, so
+ * without one, every future verb or object added to `ACTION_VERB` /
+ * `ACTION_OBJECT` silently grows the rendered worst case. mt#3853's own
+ * widening pushed it from 430 to 457 against a 450 ceiling — measured on a
+ * canary posed so the long families occupy all three capped slots. Bounding the
+ * phrase makes the ceiling a property of the FORMAT rather than of the corpus,
+ * so widening the patterns can no longer breach it.
+ */
+export const MAX_QUOTED_PHRASE_CHARS = 26;
+
+/**
+ * Scope note (PR #2724 R1): this cap applies to the ADVISORY text only. The
+ * calibration record keeps the FULL matched phrase, deliberately.
+ *
+ * The two have different readers and different budgets. `additionalContext` is
+ * charged against the merged injection budget and rendered into the principal's
+ * scroll, so its size is the thing being bounded. The calibration JSONL is a
+ * file that only `/calibration-review` reads, where a truncated phrase would
+ * make false-positive classification harder for no saving. Truncating there
+ * would degrade the measurement this guard's tuning depends on.
+ */
+
+function quotePhrase(phrase: string): string {
+  return phrase.length <= MAX_QUOTED_PHRASE_CHARS
+    ? phrase
+    : `${phrase.slice(0, MAX_QUOTED_PHRASE_CHARS - 1).trimEnd()}…`;
 }
 
 /**
@@ -153,18 +222,64 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   return matches;
 }
 
-function buildReminder(matches: UntakenActionMatch[]): string {
+/**
+ * The directive for an ordinary commitment fire — the agent said it would do a
+ * thing and then did not.
+ */
+const COMMITMENT_DIRECTIVE =
+  "Take it now in this continuation, then report the result. If it genuinely cannot " +
+  "proceed — you are blocked on a principal decision, a red check, or an external " +
+  "condition you have already armed a watcher for — name which in one line and end.";
+
+/**
+ * The directive for a fire whose phrase ALSO matches the deferral corpus (mt#3767).
+ *
+ * mt#3620 made this guard win the overlap and silenced the prompt-time sibling,
+ * because Stop is the earlier event and only an earlier warning can prevent the
+ * round-trip. But the remedy for an OFFER lives in the sibling that was silenced:
+ * a menu handed back to the principal is not an omission to correct by acting, it
+ * is a sentence to retract. Emitting the commitment directive here tells the agent
+ * to perform an action whose correct disposition is often to un-name it — and an
+ * instruction that does not fit is what teaches a reader to dismiss a true
+ * positive, which is exactly what happened in this task's originating occurrence.
+ *
+ * So the handoff now carries the TEXT as well as the speaking rights. mem#831
+ * stated the rule for the speaking half — "a dedup between guards on DIFFERENT
+ * events is not a dedup, it is a handoff, and it must hand off toward the EARLIER
+ * event"; this is the other half of it.
+ *
+ * Kept to one classify-then-act sentence set rather than restating
+ * `/classify-before-deferring` — the skill owns the taxonomy, this names the branch
+ * the agent is most likely to have missed (that it already decided).
+ *
+ * ## Ceiling
+ *
+ * This branch is the guard's WORST CASE and the registry's `worstCaseCanary` is
+ * posed at it. Measured with the evidence list at its cap of 3 plus the
+ * "…and N more" line: 430 chars against a 450 ceiling. Any addition here has to
+ * be paid for by a trim elsewhere, NOT by raising
+ * `attentionCost.denialMessageSizeChars` — `dispatcher.ts` derives the whole
+ * turn's merged-injection budget from the sum of those annotations, so raising
+ * one taxes every turn in the repo (mem#865, learned on the mt#3699 sibling).
+ */
+const DEFERRAL_DIRECTIVE =
+  "You OFFERED this rather than doing it. If you already decided against it, the " +
+  "naming was the defect — drop the offer and state the decision. If a lookup or " +
+  "standing default settles it, act. Ask only for a principal-reserved category.";
+
+function buildReminder(matches: UntakenActionMatch[], deferralShaped: boolean): string {
   const lines: string[] = [
-    "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
+    // Trimmed by mt#3767 from "…and ended the turn without taking it." The guard
+    // is Stop-keyed, so "ended the turn" was already implied by when it fires;
+    // the 17 chars buy headroom the SATURATED case needs. Do not re-expand — see
+    // the ceiling note on `DEFERRAL_DIRECTIVE`.
+    "[turn-end-untaken-action] You named a next action and did not take it.",
     "",
   ];
-  lines.push(...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${m.matchedPhrase}"`));
   lines.push(
-    "",
-    "Take it now in this continuation, then report the result. If it genuinely cannot " +
-      "proceed — you are blocked on a principal decision, a red check, or an external " +
-      "condition you have already armed a watcher for — name which in one line and end."
+    ...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${quotePhrase(m.matchedPhrase)}"`)
   );
+  lines.push("", deferralShaped ? DEFERRAL_DIRECTIVE : COMMITMENT_DIRECTIVE);
   return lines.join("\n");
 }
 
@@ -284,6 +399,9 @@ export function run(
       // empty (not absent) still means "recorded an outcome, did not suppress".
       suppressionReasons: [] as string[],
     },
-    additionalContext: buildReminder(newMatches),
+    // The overlap flag selects the DIRECTIVE, not just the calibration field
+    // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
+    // the silenced sibling's remedy and not only its speaking slot.
+    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
   };
 }

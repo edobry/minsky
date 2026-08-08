@@ -49,25 +49,16 @@ A brand operates by invoking _cultural codes_ — sets of signs an audience alre
 
 ## 2. The Pepsi/Arnell trap — named anti-pattern
 
-The 2008 Pepsi rebrand by the Arnell Group produced a now-infamous 27-page "Breathtaking" document (archived [here](https://www.goldennumber.net/wp-content/uploads/pepsi-arnell-021109.pdf), [Ad Age coverage](https://adage.com/article/agency-news/breathtaking-word-purported-arnell-pepsi-doc/134552/)) that justified a minor logo refresh by invoking the Mona Lisa, the Golden Ratio, the Parthenon, the Earth's geomagnetic field, the Gutenberg Bible, and the theory of relativity. The document was widely mocked because it was **post-hoc theater** — semiotic vocabulary deployed to dress up a thin visual move, rather than semiotic _reasoning_ used to drive a strong one.
-
-The discipline this encodes — applies symmetrically to analysis and to design:
-
-- **For analysis:** when reading a brand, name what the signs _actually_ do, not what a theoretically-impressive frame would predict they do. If the analysis sounds clever but the visual evidence is thin, the analysis is theater. The signs should support the claim; if they don't, the claim is wrong.
-- **For your own design:** pick the myth first; let visual choices follow as instantiations of the myth. Never retrofit semiotic justification onto a thin visual move. A long explanation of why a design "works" is a warning sign that the design does not actually carry the meaning on its own.
+Canonical source (mt#3841): [`/minsky-brand`](../minsky-brand/SKILL.md) §6. This skill is the general adjacent-brand-analysis methodology, not a brand-foundation carrier — the trap's full definition (the 2008 Pepsi "Breathtaking" document, the discipline for analysis and for design) lives there. Apply it here as: name what the signs _actually_ do, not what a theoretically-impressive frame would predict — if the analysis sounds clever but the visual evidence is thin, the analysis is theater.
 
 The Pepsi/Arnell trap is the recommendation-time analogue of the patterns named in `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — manufacturing a frame to make a tactical preference sound principled. The fix is the same: cite first, decide second; or admit you do not know and rescope.
 
 ## 3. Bridge-as-affect — how brands instantiate emergent codes through residual references
 
-A critical discipline when reading or building positioning that claims an _emergent_ code (one with no category instantiation yet). Brands do NOT typically expose the audience to the raw emergent code directly; that produces blank stares. Instead, they bridge through **residual codes** — codes the audience already recognizes — that carry the same structure. The audience pattern-matches to the residual reference; their recognition is the bridge; they end up holding the emergent frame as a conclusion they reached themselves.
-
-The discipline (applied symmetrically to analysis and design):
+Canonical source (mt#3841): [`/minsky-brand`](../minsky-brand/SKILL.md) §3. This skill is the general adjacent-brand-analysis methodology, not a brand-foundation carrier — the discipline's full definition (residual vs. emergent codes, the Evangelion execution example) lives there. Apply it here as:
 
 - **For analysis:** when reading a brand that's making an emergent claim, name both the emergent code and the residual code(s) being used to bridge. Don't confuse the bridge (residual) with the destination (emergent). A brand that visually borrows from "industrial manufacturing" codes to claim "software engineering as factory work" is using the industrial code as the bridge — the destination myth is the emergent claim about software, not the industrial reality.
-- **For your own design:** borrow at the layer of register (typography, color, density, motion budget, copy tone), not at the layer of imagery (literal characters, mecha, products). The right reader notices the borrowing as taste-signal; the wrong reader doesn't notice and isn't bothered. Evangelion's discipline is the canonical execution: dense with religious/Kabbalistic iconography (AT-Field, Sephirot, Magi-as-three-wise-men) without ever being _about_ religion. The borrowings function as affect; the show's subject is something else.
-
-**When in doubt, ask:** would the right reader notice the borrowing without being told? If yes, the borrowing is doing its work. If you have to caption it, it's gone too literal.
+- **When in doubt, ask:** would the right reader notice the borrowing without being told? If yes, the borrowing is doing its work. If you have to caption it, it's gone too literal.
 
 ## 4. Per-analysis workflow
 
@@ -187,7 +178,7 @@ The 2026-05 analysis (Composio / Cursor / Factory / Macro) is the canonical four
   - Laura R. Oswald, _Marketing Semiotics: Signs, Strategies, and Brand Value_ (Oxford, 2012)
   - Laura R. Oswald, _Creating Value: The Theory and Practice of Marketing Semiotics Research_ (Oxford, 2015)
   - C.S. Peirce — icon / index / symbol triad
-- Anti-pattern citation: Pepsi "Breathtaking" document (Arnell Group, 2008) — [archived PDF](https://www.goldennumber.net/wp-content/uploads/pepsi-arnell-021109.pdf), [Ad Age coverage](https://adage.com/article/agency-news/breathtaking-word-purported-arnell-pepsi-doc/134552/), [Fast Company](https://www.fastcompany.com/1160304/pepsi-logo-design-brief-branding-lunacy-max)
+- Anti-pattern citation (full source links): Pepsi "Breathtaking" document (Arnell Group, 2008) — see [`/minsky-brand`](../minsky-brand/SKILL.md) §6, the canonical carrier as of mt#3841
 - Originating session: 2026-05-18/19 brand workshop in mt#1927; methodology was originally embedded in `marketing-site-design/SKILL.md` and extracted into this standalone skill on 2026-05-19 via mt#1944.
 - mt#1944 — extraction task
 

@@ -4,15 +4,19 @@
 
 # Minsky
 
-An exocortex for software organizations led by a principal — the substrate that holds the cognition of one mind across a flock of agents, and translates declared intent into coordinated realized work.
+AI agents can write the code; Minsky is the engineering organization around them — task tracking, isolated workspaces, adversarial review, durable memory, and decision routing, built into the environment itself.
+
+It is also the surface that holds the state of your working life outside your head: every task, session, open question, and lesson across you and your agents — what's in flight, and what actually needs you.
 
 > _"The power of intelligence stems from our vast diversity, not from any single, perfect principle."_ — Marvin Minsky, _The Society of Mind_
 
-The principal — the human responsible for the work — declares intent; the substrate composes hooks, sessions, tasks, asks, memory, and reviewer agents to drive that intent to realization. Principality is recursive: every individual engineer running Minsky is the principal of their own flock, and an organization is a tree of principals all the way down to the ICs. Minsky is principal substrate at every level on that tree.
+**The thesis.** The field now agrees that code is no longer the bottleneck; the disagreement is about what is. The prevailing answer is capability — agents fail sustained work because models aren't smart enough yet, so wait for better ones. Minsky's answer is structure: agents handle isolated tasks well and sustained projects badly because the organization around them — isolation, coordination, review, memory, long-horizon policy — was never built, and those are properties of the environment, not of any agent. Better models make the missing structure more valuable, not less.
 
-Minsky is a substrate, not an operator: it doesn't write or judge the work — it composes the environment agents and engineers already run inside, so the right practice is the only path through, not a request an agent could decline. Environmental alignment is the mechanism, not instruction: the same pre-commit hook that blocks an unformatted commit from a human blocks one from an agent, with no separate AI configuration to maintain.
+That structure is built as environment, not as instruction: the same pre-commit hook that blocks an unformatted commit from a human blocks one from an agent, with no separate AI configuration to maintain. Rules are text, and text is ignorable under pressure; the environment is not. Minsky doesn't write or judge the work — it composes the workspace agents and engineers already run inside, so the right practice is the only path through, not a request an agent could decline.
 
-The theory behind that mechanism — the control-system mapping the substrate follows, the attention-as-scarce-resource argument, the humility and noticing properties a substrate needs — is written up, not just implemented; the architecture underneath it is documented the same way.
+The human responsible for the work — Minsky calls them the **principal**, whatever their title — declares intent; the environment composes hooks, sessions, tasks, asks, memory, and reviewer agents to drive that intent to reviewed, merged work. Principality is recursive: every individual engineer running Minsky is the principal of their own flock of agents, and an organization is a tree of principals all the way down to the ICs. Minsky is the same substrate at every level of that tree.
+
+The theory behind all of this — the control-system mapping, the attention-as-scarce-resource argument, the humility and noticing properties a substrate needs — is written up, not just implemented; the architecture underneath it is documented the same way.
 
 Theory: [`docs/theory-of-operation.md`](./docs/theory-of-operation.md) — Architecture index: [`docs/architecture.md`](./docs/architecture.md)
 
@@ -241,87 +245,6 @@ Marketing-surface design patterns (Idiom B product-screenshot-dominant, layout, 
 
 The principal's literary voice — the corpus-grounded register used in long-form prose — is codified in the [`pz-voice`](./.claude/skills/pz-voice/SKILL.md) skill.
 
-## Configuration notes
-
-### Observability (Braintrust)
-
-To use Braintrust for LLM observability, both an API key and a project name are required.
-The project name has **no default** — it must be set explicitly so traces do not silently
-accumulate in a project named after someone else's installation:
-
-```bash
-# Configure via config
-minsky config set observability.providers.braintrust.apiKey --value <your-key>
-minsky config set observability.providers.braintrust.projectName --value <your-project>
-
-# Or via environment variables
-export BRAINTRUST_API_KEY=<your-key>
-export BRAINTRUST_PROJECT_NAME=<your-project>
-
-# Verify connectivity
-minsky observability smoke-test
-```
-
-See `observability.providers.braintrust.projectName` in the configuration schema
-(`packages/domain/src/configuration/schemas/observability.ts`).
-
-### Postgres schema migrations (bundle-aware resolver)
-
-`minsky persistence migrate` resolves the migrations folder in a bundle-aware way —
-it no longer requires running from the Minsky repo root. The resolver probes candidates
-in order:
-
-1. `import.meta.dir/../storage/migrations/pg` — source-tree (dev)
-2. `import.meta.dir/storage/migrations/pg` — bundled dist (co-located with `dist/minsky.js`)
-3. `dirname(process.argv[1])/storage/migrations/pg` — secondary bundled probe
-4. `<cwd>/packages/domain/src/storage/migrations/pg` — legacy repo-root fallback
-
-The first candidate whose `meta/_journal.json` exists wins. When using the production
-bundle (`dist/minsky.js`) from an arbitrary working directory, candidates 2 and 3 resolve
-to the migrations co-located with the bundle.
-
-#### Pending-migration detection (per-migration hash, not row count)
-
-`persistence migrate` (both `--dry-run` and `--execute`) reports which local migrations
-are **pending** — not yet recorded as applied — by comparing each local `.sql` file's
-sha256 hash against the full set of hashes recorded in `drizzle.__drizzle_migrations`,
-NOT by subtracting row counts (`fileCount - appliedCount`). A raw count comparison
-silently reports 0 pending whenever the DB's applied-row count meets or exceeds the local
-file count for any reason unrelated to a specific migration's apply state — a historical
-ledger squash/consolidation, a duplicate or orphaned ledger row, an out-of-band insert —
-while a genuinely-unapplied migration goes unreported. The per-migration hash comparison
-is robust to any such count offset: a migration is pending iff its file's hash is absent
-from the ledger, full stop.
-
-`getPostgresMigrationsStatus` exposes this as `pendingCount` (a number) and `pendingTags`
-(the specific migration tags, e.g. `["0060_slow_kang"]`); the dry-run plan additionally
-carries `plan.pendingFiles` (the same set, as filenames with `.sql`). A missing or
-unreadable migration file (partial checkout, in-flight rename, permissions issue) is
-never silently dropped — it is reported pending and logged as a warning, so the operator
-sees the read failure rather than an unexplained gap in the count.
-
-**The pending list is informational, not a guaranteed preview of what `migrate()` will
-apply.** drizzle-orm's own `migrate()` does not decide what to run by hash-set
-membership — it applies by a single-row **timestamp high-water-mark** (the latest
-`created_at` already in the ledger vs. each journal entry's `when`). When the ledger has
-an anomaly (a duplicate/orphaned row, an out-of-band insert, migrations recorded out of
-`when`-order), the hash-missing set this tool reports and the set drizzle's own
-high-water-mark check will actually apply can diverge — a migration this list names may
-be silently skipped by drizzle (permanently shadowed), or the reverse. Every CLI listing
-of pending migrations is labeled accordingly; treat it as "these files' hashes are not
-recorded as applied," not as an exact forecast of `migrate()`'s next run.
-
-## CI workflows
-
-| Workflow             | Trigger              | Purpose                                                                                                                                                                                  |
-| -------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bundle-boot-smoke`  | every PR / main push | Builds the bundle and asserts `GET /health` returns 200                                                                                                                                  |
-| `cold-start-migrate` | every PR / main push | Builds the bundle, runs `minsky persistence migrate --execute` from a temp dir outside the repo, then asserts the `tasks` table was created and `--dry-run` reports 0 pending migrations |
-
-The `cold-start-migrate` workflow is the regression gate for the bundle-aware migration
-resolver. It proves that the production binary can find and apply its bundled migrations
-from an arbitrary working directory.
-
 ## Contributing
 
 Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
@@ -332,6 +255,9 @@ Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 - [Development workflow](./docs/development-workflow.md)
 - [Testing guide](./docs/testing.md)
 - [Architecture overview](./docs/architecture.md)
+- [Configuration guide](./docs/configuration-guide.md) — including Braintrust observability setup
+- [Postgres persistence & schema migrations](./docs/persistence-configuration.md) — including the bundle-aware migration resolver
+- [CI workflows](./docs/ci-workflows.md)
 
 ## License
 

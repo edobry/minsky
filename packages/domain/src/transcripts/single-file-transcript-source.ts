@@ -43,7 +43,18 @@ const SUBAGENTS_SEGMENT_RE = /[\\/]subagents[\\/]/;
  * NOT hoisted into a shared export (`custom/no-domain-singleton`), so they must
  * be kept in sync by hand.
  */
-const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system", "queue-operation"]);
+// mt#3836: kept in step with ClaudeCodeTranscriptSource's copy — `last-prompt`
+// is a SIDECAR type (`isSidecarLineType`), yielded for the divergence detector
+// and never stored. A source that withholds it silently starves that detector,
+// which is the defect this task fixes.
+const RETAINED_TYPES = new Set([
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+]);
 
 export class SingleFileTranscriptSource implements TranscriptSource {
   readonly harness = HARNESS;

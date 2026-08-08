@@ -269,7 +269,7 @@ describe("FollowUpService", () => {
 
     expect(result).toBe(true);
     const [reloaded] = await service.list({ status: "cancelled" });
-    expect(reloaded.id).toBe(row.id);
+    expect(reloaded?.id).toBe(row.id);
   });
 
   test("cancel() is a no-op (returns false) on an already-cancelled row", async () => {
@@ -298,10 +298,10 @@ describe("FollowUpService", () => {
     expect(errored).toEqual([]);
     expect(fired.map((r) => r.id)).toEqual([past.id]);
     const [reloadedPast] = await service.list({ status: "fired" });
-    expect(reloadedPast.id).toBe(past.id);
-    expect(reloadedPast.firedAt).toEqual(now);
+    expect(reloadedPast?.id).toBe(past.id);
+    expect(reloadedPast?.firedAt).toEqual(now);
     const [reloadedFuture] = await service.list({ status: "pending" });
-    expect(reloadedFuture.id).toBe(future.id);
+    expect(reloadedFuture?.id).toBe(future.id);
   });
 
   test("fireDue() is idempotent — a second pass fires nothing new", async () => {

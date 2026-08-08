@@ -101,7 +101,12 @@ describe("createConfiguredTaskService — degraded reads fail closed (mt#3636)",
       persistenceProvider: new UnconfiguredPersistenceProvider(BOOT_FAILURE, true),
     });
 
-    const error = await service.listTasks().catch((e: unknown) => e as Error);
+    const error = await service.listTasks().then(
+      (): never => {
+        throw new Error("expected listTasks to reject, but it resolved");
+      },
+      (e: unknown) => e as Error
+    );
 
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe("TaskBackendUnavailableError");
@@ -131,7 +136,12 @@ describe("createConfiguredTaskService — degraded reads fail closed (mt#3636)",
       ),
     });
 
-    const error = await service.listTasks().catch((e: unknown) => e as Error);
+    const error = await service.listTasks().then(
+      (): never => {
+        throw new Error("expected listTasks to reject, but it resolved");
+      },
+      (e: unknown) => e as Error
+    );
 
     expect(error.message).toContain("persistence is not configured");
     expect(error.message).not.toContain("failed to initialize at boot");

@@ -281,7 +281,11 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
     expect(result.definitionsSkipped).toEqual(["manual-rule"]);
     expect(result.content).toContain("Always rule body.");
     expect(result.content).not.toContain("Manual rule body.");
-    expect((result as unknown as { sizeChars: number }).sizeChars).toBe(result.content?.length);
+    const content = result.content;
+    // Assert presence separately: `toBe(undefined)` would pass vacuously if the
+    // target stopped producing content at all.
+    if (content === undefined) throw new Error("expected the target to produce content");
+    expect((result as unknown as { sizeChars: number }).sizeChars).toBe(content.length);
     expect((result as unknown as { sizeBudgetStatus: string }).sizeBudgetStatus).toBe("ok");
   });
 
@@ -325,7 +329,10 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
     });
     const target = makeClaudeMdTarget();
 
-    const result = await target.compile({ dryRun: true, check: true }, WORKSPACE, fakeFs);
+    // `check: true` was passed here but is not a MinskyTargetOptions field and
+    // the target never read it — inert. `perRuleViolations` is returned
+    // unconditionally (claude-md.ts), so dropping it changes nothing asserted.
+    const result = await target.compile({ dryRun: true }, WORKSPACE, fakeFs);
     const withBudget = result as unknown as {
       perRuleViolations: Array<{ id: string; size: number }>;
     };

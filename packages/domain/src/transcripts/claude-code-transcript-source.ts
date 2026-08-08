@@ -67,7 +67,20 @@ import type {
  * retained so queued-message state is recoverable downstream at all — before
  * this it was dropped at ingest and unrecoverable.
  */
-const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system", "queue-operation"]);
+// mt#3836: `last-prompt` is retained but NEVER stored — it is a SIDECAR type
+// (`isSidecarLineType`, transcript-source.ts). It carries the only
+// writer-identity trace the format offers, which the divergence detector reads
+// at ingest; it has no timestamp and no content, so every storage path drops it
+// anyway. Consumers must not count it toward `lineIndex` — see the predicate's
+// docblock for why that matters to the attachments primary key.
+const RETAINED_TYPES = new Set([
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+]);
 
 const HARNESS = "claude_code";
 

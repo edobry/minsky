@@ -10,7 +10,11 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { ConversationId } from "../ids";
 import { TranscriptSimilarityService, buildResumeHint } from "./transcript-similarity-service";
+
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
 import type {
   TranscriptTurnResult,
   TranscriptSessionResult,
@@ -241,7 +245,9 @@ describe("TranscriptSimilarityService", () => {
       const db = makeFakeDb([]);
       const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
 
-      await expect(svc.findSimilarSession("unknown-session")).rejects.toThrow(/session not found/);
+      await expect(svc.findSimilarSession(conv("unknown-session"))).rejects.toThrow(
+        /session not found/
+      );
     });
 
     test("throws when session has no summary_embedding", async () => {
@@ -249,7 +255,9 @@ describe("TranscriptSimilarityService", () => {
       const db = makeFakeDb(seedRows as FakeSelectResult[]);
       const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
 
-      await expect(svc.findSimilarSession("session-a")).rejects.toThrow(/no summary_embedding/);
+      await expect(svc.findSimilarSession(conv("session-a"))).rejects.toThrow(
+        /no summary_embedding/
+      );
     });
 
     test("returns session results with score as number", async () => {
@@ -289,7 +297,7 @@ describe("TranscriptSimilarityService", () => {
 
       const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
 
-      const results = await svc.findSimilarSession("session-a");
+      const results = await svc.findSimilarSession(conv("session-a"));
       expect(results).toHaveLength(1);
       const result = results[0] as TranscriptSessionResult;
       expect(result.agentSessionId).toBe("session-b");

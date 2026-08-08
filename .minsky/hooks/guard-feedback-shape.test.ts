@@ -208,6 +208,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "silent-stretch-detector",
         "skill-staleness-detector",
         "substrate-bypass-detector",
+        "turn-end-bare-ref-scan",
         "turn-end-retro-scan",
         "turn-end-unescalated-incident-scan",
         "turn-end-untaken-action-scan",
@@ -260,7 +261,7 @@ type FeedbackShape =
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
   "block-secret-file-read": "fixed",
-  "calibration-review-cadence-detector": "capped", // slice(0, 8) logs
+  "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
@@ -276,9 +277,18 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
   "substrate-bypass-detector": "fixed", // excerpts, slice(0, 200)
+  // mt#3286: one line per finding, and a closing status report can name many
+  // entities — so the ordinary canary measures the floor. The declared
+  // worstCaseCanary poses a report enumerating 12 tasks and 6 PRs; the render
+  // itself does a byte-budget fit against ADVISORY_BUDGET_CHARS.
+  "turn-end-bare-ref-scan": WORST_CASE_CANARY, // per-finding lines + budget fit
   "turn-end-retro-scan": "capped", // cappedEvidenceLines (mt#3705)
   "turn-end-unescalated-incident-scan": "capped", // slice(0, 2)
-  "turn-end-untaken-action-scan": "capped", // cappedEvidenceLines (mt#3705)
+  // Reclassified by mt#3767. The evidence lines are still capped, but the
+  // DIRECTIVE now varies by input — a fire matching the deferral corpus selects a
+  // longer branch — so the ordinary canary (commitment-only) measures the shorter
+  // one and bounds nothing. The declared worstCaseCanary is posed at the overlap.
+  "turn-end-untaken-action-scan": WORST_CASE_CANARY, // capped lines + a branching directive
   "turn-end-unwalked-task-scan": "capped", // MAX_LISTED_IDS (mt#3536)
   "wall-of-text-detector": "fixed", // one excerpt, EXCERPT_MAX_CHARS
 };

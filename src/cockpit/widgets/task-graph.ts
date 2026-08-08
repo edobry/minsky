@@ -22,6 +22,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in TaskGraph.tsx (no server imports
@@ -139,8 +140,7 @@ export function createTaskGraphWidget(getDeps: () => Promise<TaskGraphDeps>): Wi
         const payload: TaskGraphPayload = { nodes, edges };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `task_graph error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("task_graph", err) };
       }
     },
   };
@@ -175,15 +175,20 @@ function normaliseStatus(raw: string): GraphNode["status"] {
 // Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
 // ---------------------------------------------------------------------------
 
-import { getSharedPersistenceService } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
-let _cachedDeps: TaskGraphDeps | null = null;
-
-async function defaultDepsFactory(): Promise<TaskGraphDeps> {
-  if (_cachedDeps) {
-    return _cachedDeps;
-  }
-
+/**
+ * Deps cached per persistence epoch (mt#3721).
+ *
+ * Both `taskService` and `taskGraphService` close over the provider (and, for
+ * the graph service, the raw Drizzle connection) they were constructed from, so
+ * a pool recycle (`recycleSharedPersistence`, mt#3638) leaves them querying a
+ * torn-down pool — which postgres-js rejects forever, since `CONNECTION_ENDED`
+ * is raised off an `ending` flag nothing clears. Before mt#3721 this cache had
+ * no epoch check and this widget served `degraded` indefinitely after a recycle
+ * that had already restored the pool.
+ */
+const defaultDepsFactory = createEpochKeyedCache(async (): Promise<TaskGraphDeps> => {
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
   const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
@@ -203,9 +208,8 @@ async function defaultDepsFactory(): Promise<TaskGraphDeps> {
     db as import("drizzle-orm/postgres-js").PostgresJsDatabase
   );
 
-  _cachedDeps = { taskService, taskGraphService };
-  return _cachedDeps;
-}
+  return { taskService, taskGraphService };
+});
 
 /** Default task-graph widget — ready to drop into WIDGET_REGISTRY */
 export const taskGraphWidget: WidgetModule = createTaskGraphWidget(defaultDepsFactory);

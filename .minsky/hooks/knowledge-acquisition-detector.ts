@@ -119,6 +119,14 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type {
+  ExemplarSet,
+  Nomination,
+  NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -500,6 +508,62 @@ export function findAllKeywordOverlaps(
 }
 
 /**
+ * The outcome of asking Rung 2 which loaded skill a research turn is about.
+ *
+ * `none` and `degraded` are deliberately distinct: `none` means the nominator
+ * RAN and nothing cleared the threshold (a real negative — this research is not
+ * about any loaded skill), while `degraded` means it could not run at all. Only
+ * the second falls back to lexical matching, per ADR-024's "fail to Rung 1,
+ * never silent-skip" invariant. Collapsing them would silently convert a real
+ * negative into a lexical fire, which is the noise this task exists to remove.
+ */
+/**
+ * Total wall-clock a session verdict may spend on Rung-2 nomination.
+ *
+ * Derived, not chosen: this guard registers `timeoutMs: 10000` on `Stop`
+ * (`registry.ts`), and the detector still has to finish its propagation scan
+ * and write its record after nomination returns. 6000ms leaves 4000ms of
+ * headroom for that tail, and admits three worst-case 2000ms nominations —
+ * comfortably above the observed per-session occurrence count, while bounding
+ * the degenerate long-research session that would otherwise blow the budget.
+ *
+ * Do NOT raise this to accommodate more occurrences. The fix for a session that
+ * needs more nominations than this affords is a cheaper nomination (batching,
+ * one aggregated call), not a larger slice of a budget the dispatcher enforces.
+ */
+export const NOMINATION_SESSION_BUDGET_MS = 6000;
+
+/**
+ * Whether the session's nomination budget is spent. Pure and injected-clock so
+ * the bound is testable without burning six real seconds — observing it
+ * otherwise would mean patching the global clock, which is the design smell the
+ * testable-design checkpoint names.
+ */
+export function isNominationBudgetExhausted(deadlineMs: number, nowMs: number): boolean {
+  return nowMs >= deadlineMs;
+}
+
+export type SkillNominationOutcome =
+  | { kind: "nominated"; skill: string; score: number; segment: string }
+  | { kind: "none" }
+  | { kind: "degraded"; reason: string };
+
+/**
+ * Injected Rung-2 nominator: scores the research text against each loaded
+ * skill's description and returns the best match above threshold.
+ *
+ * Injected rather than imported so the detector stays testable without a live
+ * embedding provider — the same functional-core/imperative-shell split the
+ * module already uses for `skillKeywordsByName`, whose disk read lives in the
+ * caller. The impure resolution (`ensureHookDomainBootstrap` +
+ * `resolveNominationDeps`) belongs to `run()` / `main()`.
+ */
+export type SkillNominator = (
+  candidateTexts: string[],
+  loadedSkills: string[]
+) => Promise<SkillNominationOutcome>;
+
+/**
  * A bounded window of candidate text centered on `keyword`'s first occurrence,
  * so a reviewer can judge whether the research was topically related to the
  * skill instead of inferring it from the bare token. Bounded like
@@ -556,8 +620,16 @@ interface ResearchOccurrence {
 interface MatchedResearchOccurrence {
   occ: ResearchOccurrence;
   matchedSkill: string;
+  /**
+   * On the lexical path this is the matched KEYWORD; on the Rung-2 path it is
+   * the matched candidate SEGMENT. One field because both answer "what text
+   * tied this occurrence to that skill?" — `detectionRung` on the record says
+   * which kind it is, so a reader is never left guessing.
+   */
   matchedKeyword: string;
   candidateTexts: string[];
+  /** Rung-2 similarity; absent on the lexical path (mt#3772). */
+  score?: number;
 }
 
 /** Find every research-tool tool_use occurrence ANYWHERE in `lines` (whole-session scan). */
@@ -639,7 +711,15 @@ function extractEnclosingTurnText(
 
 export interface KnowledgeAcquisitionResult {
   matched: boolean;
-  /** The detection rung used — always "1+2-lite" for this v1 (rung 1 fused with the keyword-overlap gate). */
+  /**
+   * Which rung ACTUALLY produced this verdict (mt#3772): `"2-embedding"` when
+   * Rung-2 nomination ran and decided, `"1-lexical"` when the keyword gate did
+   * — either because no nominator was supplied or because Rung 2 degraded.
+   *
+   * Was the hardcoded literal `"1+2-lite"` until mt#3772; mt#3199 criterion 5
+   * flagged it as a constant that could not vary, which made it a restatement
+   * of the code path rather than a measurement of it.
+   */
   detectionRung: string;
   researchTools: string[];
   loadedSkills: string[];
@@ -654,6 +734,19 @@ export interface KnowledgeAcquisitionResult {
   keywordHits: KeywordHit[];
   /** Bounded candidate-text window around the matched keyword (mt#3617). */
   matchedTextExcerpt?: string;
+  /**
+   * Rung-2 similarity for the nominating occurrence (mt#3772). Absent when the
+   * verdict came from the lexical fallback, which is how a reader tells the two
+   * apart without parsing `detectionRung`.
+   */
+  nominationScore?: number;
+  /**
+   * Why Rung 2 could not run, when it could not (mt#3772). Present ONLY on the
+   * fallback path — its presence is the ADR-024 "degraded marker", and its
+   * absence on a `rung-1-lexical` record would mean the fallback happened
+   * silently, which the invariant forbids.
+   */
+  degradedReason?: string;
   hadPropagation: boolean;
 }
 
@@ -684,13 +777,14 @@ export interface KnowledgeAcquisitionDetection {
  * @param windowTurns - grace period in turns, applied once against the most
  *   recent matched occurrence (mt#2671 pattern, re-scoped to session grain).
  */
-export function detectKnowledgeAcquisition(
+export async function detectKnowledgeAcquisition(
   lines: TranscriptLine[],
   loadedSkills: string[],
   skillKeywordsByName: ReadonlyMap<string, string[]>,
   alreadyLoggedDedupeKeys: ReadonlySet<string>,
-  windowTurns: number = TRAILING_WINDOW_TURNS
-): KnowledgeAcquisitionDetection | null {
+  windowTurns: number = TRAILING_WINDOW_TURNS,
+  nominateSkill?: SkillNominator
+): Promise<KnowledgeAcquisitionDetection | null> {
   // mt#3720: session-grain dedupe — at most one verdict per session, ever.
   if (alreadyLoggedDedupeKeys.has(SESSION_VERDICT_DEDUPE_KEY)) return null;
 
@@ -702,29 +796,86 @@ export function detectKnowledgeAcquisition(
   const researchTools = [...new Set(occurrences.map((o) => o.toolName))];
   const promptIndices = findRealPromptIndices(lines);
 
-  // Rung-1+2-lite gate, unchanged in substance — but mt#3720 collects EVERY
-  // occurrence that overlaps a loaded skill's keywords rather than returning on
-  // the first, because the session verdict below is an aggregate over all of
-  // them.
-  const matchedOccurrences: MatchedResearchOccurrence[] = [];
-  for (const occ of occurrences) {
-    const turnText = extractEnclosingTurnText(lines, promptIndices, occ.idx);
-    const candidateTexts = [...occ.texts, turnText];
+  // Candidate text per occurrence, computed once: both rungs score the same
+  // text, so a rung comparison is never confounded by a different input.
+  const candidates = occurrences.map((occ) => ({
+    occ,
+    candidateTexts: [...occ.texts, extractEnclosingTurnText(lines, promptIndices, occ.idx)],
+  }));
 
-    let matchedSkill: string | undefined;
-    let matchedKeyword: string | undefined;
-    for (const skill of loadedSkills) {
-      const keywords = skillKeywordsByName.get(skill);
-      if (!keywords || keywords.length === 0) continue;
-      const hit = findKeywordOverlap(candidateTexts, keywords);
-      if (hit) {
-        matchedSkill = skill;
-        matchedKeyword = hit;
+  // mt#3720 collects EVERY matching occurrence rather than returning on the
+  // first, because the session verdict below is an aggregate over all of them.
+  let matchedOccurrences: MatchedResearchOccurrence[] = [];
+  let degradedReason: string | undefined;
+
+  // Rung 2 (mt#3772). ADR-024 stops at Rung 1 by default, but this detector's
+  // Rung-1 gate is measured non-discriminating: `research`/`plan`/`task` are
+  // process vocabulary describing the activity the detector already keyed on,
+  // so the lexical match is tautological rather than evidence of topical
+  // relevance. Rung 2 asks the question the gate is actually for — is this
+  // research ABOUT the skill's domain?
+  if (nominateSkill) {
+    const nominated: MatchedResearchOccurrence[] = [];
+    // Session-wide wall-clock bound. Each nomination is individually race-bound
+    // at DEFAULT_NOMINATION_TIMEOUT_MS (2000ms), but this loop is serial and
+    // runs once per research occurrence — so without a TOTAL bound the cost
+    // grows linearly with occurrences and crosses this guard's 10s registry
+    // budget at five of them. Sessions with far more research calls than that
+    // exist in the corpus, so this is a reachable state, not a theoretical one.
+    //
+    // Crossing the deadline degrades rather than truncating: a partial
+    // nomination set would silently change `hadPropagation`, which is computed
+    // over EVERY matched occurrence. Degrading re-runs the whole session
+    // lexically, which is the one fallback whose semantics are already defined.
+    const deadline = Date.now() + NOMINATION_SESSION_BUDGET_MS;
+    for (const { occ, candidateTexts } of candidates) {
+      if (isNominationBudgetExhausted(deadline, Date.now())) {
+        degradedReason = "session-nomination-budget-exceeded";
         break;
       }
+      const outcome = await nominateSkill(candidateTexts, loadedSkills);
+      if (outcome.kind === "degraded") {
+        degradedReason = outcome.reason;
+        break;
+      }
+      if (outcome.kind === "nominated") {
+        nominated.push({
+          occ,
+          matchedSkill: outcome.skill,
+          matchedKeyword: outcome.segment,
+          candidateTexts,
+          score: outcome.score,
+        });
+      }
+      // "none" — the nominator ran and this research is about no loaded skill.
+      // A real negative, NOT a reason to consult the lexical gate.
     }
-    if (!matchedSkill || !matchedKeyword) continue;
-    matchedOccurrences.push({ occ, matchedSkill, matchedKeyword, candidateTexts });
+    if (degradedReason === undefined) matchedOccurrences = nominated;
+  }
+
+  // Fail to Rung 1, never silent-skip (ADR-024 invariant). All-or-nothing per
+  // verdict: a degradation part-way through discards the rung-2 results and
+  // re-runs every occurrence lexically, so one session's verdict is never half
+  // embedding-nominated and half keyword-matched — which would make the
+  // recorded `detectionRung` a lie about how the verdict was reached.
+  if (nominateSkill === undefined || degradedReason !== undefined) {
+    matchedOccurrences = [];
+    for (const { occ, candidateTexts } of candidates) {
+      let matchedSkill: string | undefined;
+      let matchedKeyword: string | undefined;
+      for (const skill of loadedSkills) {
+        const keywords = skillKeywordsByName.get(skill);
+        if (!keywords || keywords.length === 0) continue;
+        const hit = findKeywordOverlap(candidateTexts, keywords);
+        if (hit) {
+          matchedSkill = skill;
+          matchedKeyword = hit;
+          break;
+        }
+      }
+      if (!matchedSkill || !matchedKeyword) continue;
+      matchedOccurrences.push({ occ, matchedSkill, matchedKeyword, candidateTexts });
+    }
   }
 
   const firstMatch = matchedOccurrences[0];
@@ -764,13 +915,18 @@ export function detectKnowledgeAcquisition(
   return {
     result: {
       matched: true,
-      detectionRung: "1+2-lite",
+      // mt#3772: no longer a hardcoded constant. It now records which rung
+      // ACTUALLY produced the verdict, which is what mt#3199's criterion 5
+      // flagged as unreachable-by-construction on the old literal.
+      detectionRung: degradedReason === undefined && nominateSkill ? "2-embedding" : "1-lexical",
       researchTools,
       loadedSkills,
       matchedSkill: firstMatch.matchedSkill,
       matchedKeyword: firstMatch.matchedKeyword,
       keywordHits,
       matchedTextExcerpt,
+      ...(firstMatch.score !== undefined ? { nominationScore: firstMatch.score } : {}),
+      ...(degradedReason !== undefined ? { degradedReason } : {}),
       hadPropagation,
     },
     dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
@@ -875,6 +1031,8 @@ export function buildCalibrationRecord(
     matchedKeyword: detection.result.matchedKeyword,
     keywordHits: detection.result.keywordHits,
     matchedTextExcerpt: detection.result.matchedTextExcerpt,
+    nominationScore: detection.result.nominationScore,
+    degradedReason: detection.result.degradedReason,
     dedupeKey: detection.dedupeKey,
     suppressionReasons: detection.suppressionReasons,
   };
@@ -892,6 +1050,119 @@ function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
   ].join("\n");
 }
 
+/**
+ * Build the Rung-2 nominator: one exemplar set per loaded skill, whose
+ * exemplar IS that skill's frontmatter description.
+ *
+ * The mapping is the whole idea. `nominate` scores a candidate text against
+ * every family and returns per-family similarity; "family" = skill and
+ * "exemplar" = what that skill is FOR, so the score answers "is this research
+ * about that skill's domain?" — the question the lexical gate only proxied.
+ *
+ * Deps resolve lazily and are cached across occurrences within one session
+ * verdict, and a failure latches: once degraded, every later call returns
+ * degraded without re-attempting. Re-attempting per occurrence would spend a
+ * provider round-trip per research call to re-learn the same answer, and would
+ * let one verdict mix rungs — which the caller explicitly forbids.
+ */
+/**
+ * Opt-in for the Rung-2 nomination path (mt#3772).
+ *
+ * Rung 2 ships DISABLED by default, matching mt#3408's precedent for the
+ * sibling family: the mechanism lands, and the threshold that decides it is
+ * measured offline before it is allowed to change any verdict. Two concrete
+ * reasons here, not caution-in-general:
+ *
+ * 1. `DEFAULT_SIMILARITY_THRESHOLD` (0.455) was derived from the
+ *    retrospective-trigger exemplar band. Nothing has measured where
+ *    research-text-vs-skill-description cosines actually live, so enabling it
+ *    by default would ship an unmeasured threshold into every session verdict.
+ * 2. Enabled, every research occurrence costs a provider round-trip. That is a
+ *    real cost to impose before the precision it buys is known.
+ *
+ * Registered in `HOOK_ONLY_ENV_VARS`.
+ */
+export const RUNG2_NOMINATION_ENV_VAR = "MINSKY_KA_RUNG2_NOMINATION";
+
+/** True when the operator has opted into the Rung-2 nomination path. */
+export function isRung2NominationEnabled(): boolean {
+  const raw = process.env[RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+export function createSkillNominator(cwd: string): SkillNominator {
+  let deps: NominationDeps | null | undefined;
+  let latchedFailure: string | undefined;
+
+  return async (candidateTexts, loadedSkills) => {
+    if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
+
+    if (deps === undefined) {
+      // A hook is its own entry point: it inherits neither the reflect polyfill
+      // nor the process-global configuration the CLI and MCP server set up at
+      // boot, and `resolveNominationDeps` reaches the embedding factory which
+      // needs both. Without this the resolver throws, returns null, and Rung 2
+      // degrades on EVERY turn in production while every test passes — the
+      // mt#3019 dead-path shape mt#3408 hit on this exact call.
+      //
+      // The try/catch is load-bearing, not defensive habit: BOTH calls can
+      // throw, the caller runs inside `run()`'s catch-all, and an escaping
+      // throw there turns the whole verdict into `null` — no record, no
+      // degraded marker, nothing. That is precisely the silent-skip ADR-024
+      // forbids, and it is what this guard converts back into a visible
+      // degradation. Caught by the real-`run()` tests, which have no provider.
+      try {
+        const bootstrap = await ensureHookDomainBootstrap();
+        if (!bootstrap.ok) {
+          latchedFailure = "bootstrap-failed";
+          return { kind: "degraded", reason: latchedFailure };
+        }
+        deps = await resolveNominationDeps();
+      } catch (err) {
+        latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+    }
+    if (deps === null) {
+      latchedFailure = "provider-unconfigured";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    const exemplarSets: ExemplarSet[] = [];
+    for (const skill of loadedSkills) {
+      const description = readSkillDescription(cwd, skill);
+      // A skill with no readable description contributes no exemplar. Unlike
+      // the lexical path — which falls back to name tokens — there is nothing
+      // meaningful to embed for it, and embedding the bare name would score
+      // every research turn against a single word.
+      if (description.trim().length > 0) {
+        exemplarSets.push({ family: skill, exemplars: [description] });
+      }
+    }
+    // No embeddable description for ANY loaded skill is "Rung 2 cannot answer",
+    // NOT "this research is about no skill" — so it degrades to the lexical
+    // gate, which still has name tokens to work with. Returning `none` here
+    // would silence the detector on exactly the unreadable-SKILL.md case the
+    // lexical path was given a name-token fallback for (PR #2239 R1/R2).
+    if (exemplarSets.length === 0) {
+      return { kind: "degraded", reason: "no-embeddable-skill-descriptions" };
+    }
+
+    const result = await nominate(candidateTexts.join("\n"), exemplarSets, deps);
+    if (result.degraded) {
+      latchedFailure = result.degradedReason ?? "unknown";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    let best: Nomination | undefined;
+    for (const nomination of result.nominations) {
+      if (best === undefined || nomination.score > best.score) best = nomination;
+    }
+    if (best === undefined) return { kind: "none" };
+    return { kind: "nominated", skill: best.family, score: best.score, segment: best.segment };
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
@@ -902,7 +1173,10 @@ function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
  * `INJECTION_ENABLED` is false — `additionalContext` is never set until the
  * flag flips post-graduation.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -930,11 +1204,13 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
     const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
-    detection = detectKnowledgeAcquisition(
+    detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys
+      alreadyLoggedDedupeKeys,
+      TRAILING_WINDOW_TURNS,
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined
     );
   } catch (err) {
     process.stderr.write(
@@ -1006,11 +1282,13 @@ export async function main(): Promise<void> {
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
     const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
-    detection = detectKnowledgeAcquisition(
+    detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys
+      alreadyLoggedDedupeKeys,
+      TRAILING_WINDOW_TURNS,
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined
     );
   } catch (err) {
     console.error(

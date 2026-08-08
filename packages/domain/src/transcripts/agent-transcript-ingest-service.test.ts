@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import type { ConversationId } from "../ids";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import {
   AgentTranscriptIngestService,
@@ -29,14 +30,37 @@ import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
-const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002";
-const SESSION_C = "cccccccc-0000-0000-0000-000000000003";
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
+
+const SESSION_A = conv("aaaaaaaa-0000-0000-0000-000000000001");
+const SESSION_B = conv("bbbbbbbb-0000-0000-0000-000000000002");
+const SESSION_C = conv("cccccccc-0000-0000-0000-000000000003");
 const TS1 = "2026-01-01T10:00:00.000Z";
 const TS2 = "2026-01-01T11:00:00.000Z";
 const TS3 = "2026-01-01T12:00:00.000Z";
 
 // ── Fake TranscriptSource ────────────────────────────────────────────────────
+
+/**
+ * Mirrors `RETAINED_TYPES` in `claude-code-transcript-source.ts` /
+ * `single-file-transcript-source.ts` (mt#3836).
+ *
+ * Duplicated rather than imported because those are deliberately module-private
+ * per-source constants (`custom/no-domain-singleton`). The duplication is the
+ * point of failure this list is guarding, so `single-file-transcript-source.test.ts`
+ * asserts each retained type end-to-end against a real file — if a type is added
+ * there and not here, the fake silently under-reports and this comment is the
+ * pointer to why that matters.
+ */
+const FAKE_RETAINED_TYPES = new Set([
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+]);
 
 class FakeTranscriptSource implements TranscriptSource {
   readonly harness = "claude_code";
@@ -53,7 +77,7 @@ class FakeTranscriptSource implements TranscriptSource {
   /** mt#3288: the `jsonlPath` each `readSession` call received (undefined = none). */
   readSessionPaths: (string | undefined)[] = [];
 
-  addSession(sessionId: string, lines: RawTurnLine[], mtime?: Date): void {
+  addSession(sessionId: ConversationId, lines: RawTurnLine[], mtime?: Date): void {
     this.sessionsMap.set(sessionId, lines);
     this.discoveredMap.set(sessionId, {
       agentSessionId: sessionId,
@@ -84,6 +108,17 @@ class FakeTranscriptSource implements TranscriptSource {
     }
     const lines = this.sessionsMap.get(agentSessionId) ?? [];
     for (const line of lines) {
+      // mt#3836: apply the SAME retained-type filter the real sources do.
+      //
+      // Without this the fake was strictly more permissive than production: it
+      // yielded whatever a test handed it, including line types
+      // `ClaudeCodeTranscriptSource` drops. That is exactly how mt#3656's
+      // divergence detector shipped inert — its tests fed `last-prompt` rows
+      // straight through a fake that would pass them, while the real source
+      // filtered them out before the scanner could ever see one. A fake that
+      // cannot express the production filter cannot fail the way production
+      // fails.
+      if (!FAKE_RETAINED_TYPES.has(typeof line.type === "string" ? line.type : "")) continue;
       yield line;
     }
   }
@@ -111,6 +146,12 @@ interface FakeRow {
   ingestLastError: string | null;
   ingestLastFailedAt: Date | null;
   ingestQuarantinedAt: Date | null;
+  // mt#3656 — writer-divergence verdict written by the transcript upsert.
+  // Optional: the fixtures below build FakeRow literals for cases that predate
+  // this column, and a row that has never been checked is exactly what NULL /
+  // absent is supposed to represent.
+  divergentTipLeaves?: string[] | null;
+  divergenceCheckedAt?: Date | null;
 }
 
 /** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
@@ -162,6 +203,9 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
    */
   const writeOrder: string[] = [];
 
+  /** mt#3836: attachment rows as written, for primary-key assertions. */
+  const attachments: Array<{ lineIndex: number }> = [];
+
   const db = {
     /** Called by test setup to tell the fake which session is being processed. */
     _primeSession(sid: string) {
@@ -173,6 +217,7 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
 
     /** mt#3482 — exposed so tests can assert on write ORDER within an ingest. */
     _writeOrder: writeOrder,
+    _attachments: attachments,
 
     select(fields?: Record<string, unknown>) {
       const fieldKeys = fields ? Object.keys(fields) : [];
@@ -201,7 +246,12 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
     insert(_table: unknown) {
       return {
         values(
-          values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow | readonly unknown[]
+          // NOT `readonly unknown[]`: `Array.isArray` narrows to `any[]`, which
+          // cannot remove a READONLY array from the union in the false branch,
+          // so every `values.<field>` read below the guard would still see the
+          // array arm. The fake is reached only through `asPgDb`'s cast, so the
+          // mutable-array signature is never checked against a real call site.
+          values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow | unknown[]
         ) {
           // mt#3482: the attachment insert passes an ARRAY of rows (one per
           // attachment line) — every other table's insert here passes a single
@@ -216,7 +266,14 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
             // chain methods must exist here, or whichever one is missing throws
             // and surfaces as a spurious ingest error.
             const first = values[0] as Record<string, unknown> | undefined;
-            writeOrder.push(first && "attachmentType" in first ? "attachments" : "turns");
+            const isAttachmentInsert = Boolean(first && "attachmentType" in first);
+            writeOrder.push(isAttachmentInsert ? "attachments" : "turns");
+            // mt#3836: retain the attachment rows themselves, not just the fact
+            // that a write happened. `lineIndex` is half of their primary key,
+            // so a test asserting PK stability needs the actual values.
+            if (isAttachmentInsert) {
+              attachments.push(...(values as Array<{ lineIndex: number }>));
+            }
             // Deliberately NOT a thenable, unlike the single-object path below
             // (PR #2503 R1). Every array-valued writer in production ends its
             // chain with a terminal method — attachments with
@@ -270,6 +327,8 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
               ingestLastError: values.ingestLastError ?? null,
               ingestLastFailedAt: values.ingestLastFailedAt ?? null,
               ingestQuarantinedAt: values.ingestQuarantinedAt ?? null,
+              divergentTipLeaves: values.divergentTipLeaves ?? null,
+              divergenceCheckedAt: values.divergenceCheckedAt ?? null,
             });
             return Promise.resolve();
           };
@@ -426,7 +485,7 @@ function makeAttachmentLine(ts: string): RawTurnLine {
   } as unknown as RawTurnLine;
 }
 
-function makeDiscovered(sessionId: string): DiscoveredSession {
+function makeDiscovered(sessionId: ConversationId): DiscoveredSession {
   return {
     agentSessionId: sessionId,
     jsonlPath: `/fake/projects/proj/${sessionId}.jsonl`,
@@ -448,6 +507,29 @@ function asPgDb(db: FakeDbType): PostgresJsDatabase {
   return db as unknown as PostgresJsDatabase;
 }
 
+/** The union `makeDb`'s `insert(...).values(...)` can return. */
+type FakeInsertChain = ReturnType<ReturnType<FakeDbType["insert"]>["values"]>;
+
+/**
+ * Narrow a fake insert chain to its thenable object-values branch.
+ *
+ * `.values()` returns a UNION: the ARRAY branch deliberately omits `then`
+ * (PR #2503 R1), so `then`/`onConflictDoUpdate` are optional across the union.
+ * The tests below only wrap OBJECT-valued inserts, for which the thenable
+ * branch is the only reachable one — assert that rather than optional-chaining,
+ * so a future change to the fake fails loudly here instead of silently turning
+ * the wrapper into a no-op.
+ */
+function thenableChain(chain: FakeInsertChain) {
+  if (typeof chain.then !== "function" || typeof chain.onConflictDoUpdate !== "function") {
+    throw new Error("fake insert chain: expected the thenable object-values branch");
+  }
+  return chain as FakeInsertChain & {
+    then: NonNullable<FakeInsertChain["then"]>;
+    onConflictDoUpdate: NonNullable<FakeInsertChain["onConflictDoUpdate"]>;
+  };
+}
+
 /** A zeroed `SpawnsPipelineRunResult` — nothing scanned, nothing written. */
 const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   spawnsScanned: 0,
@@ -458,6 +540,7 @@ const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   spawnsErrored: 0,
   spawnLinksWritten: 0,
   spawnLinksSkippedNoPromptMatch: 0,
+  spawnsSkippedNoToolUseId: 0,
   spawnLinksErrored: 0,
 };
 
@@ -486,7 +569,12 @@ function makeNoopSpawnsExtractor(): SpawnsExtractor {
  */
 function makeNoopToolCallProjector(): ToolCallProjector {
   return {
-    runForSession: async () => ({ turnsScanned: 0, toolCallsProjected: 0, turnsErrored: 0 }),
+    runForSession: async () => ({
+      turnsScanned: 0,
+      toolCallsProjected: 0,
+      turnsErrored: 0,
+      skippedNonArray: 0,
+    }),
   };
 }
 
@@ -705,6 +793,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // Source now has all three lines (JSONL grew).
@@ -737,6 +830,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       const source = new FakeTranscriptSource();
@@ -874,6 +972,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS3),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // A slow racing actor's own JSONL snapshot only went up to TS2 (it read
@@ -918,6 +1021,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: null,
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       const source = new FakeTranscriptSource();
@@ -945,6 +1053,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS2),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
 
       // Force the HWM read stale (null) so the actor re-collects; its batch
@@ -1101,6 +1214,11 @@ describe("AgentTranscriptIngestService", () => {
         projectDir: null,
         lastIngestedJsonlTimestamp: new Date(TS1),
         ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: 0,
+        ingestLastError: null,
+        ingestLastFailedAt: null,
+        ingestQuarantinedAt: null,
       });
       const linkState = new Map<string, FakeLinkRow>();
       const db = makeDb(state, linkState);
@@ -1193,8 +1311,9 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(table).values(values);
-          if (!("transcript" in values)) return realChain;
+          const rawChain = origInsert(table).values(values);
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (): Promise<void> => {
@@ -1302,13 +1421,14 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(_table).values(values);
+          const rawChain = origInsert(_table).values(values);
           // Only the TRANSCRIPT upsert is being intercepted; every other write
           // (attachments, turns, the failure record) passes straight through,
           // mirroring the guard the sibling override above already uses. The
           // array-valued chain has no `then` by design (PR #2503 R1), so
           // re-wrapping it unconditionally would throw here.
-          if (!("transcript" in values)) return realChain;
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (opts: unknown): Promise<void> => {
@@ -1350,11 +1470,12 @@ describe("AgentTranscriptIngestService", () => {
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
-          const realChain = origInsert(_table).values(values);
+          const rawChain = origInsert(_table).values(values);
           // Same guard as the sibling overrides: pass non-transcript writes
           // straight through. The array-valued chain (attachments, turns) has
           // no `then` by design (PR #2503 R1), so re-wrapping it would throw.
-          if (!("transcript" in values)) return realChain;
+          if (!("transcript" in values)) return rawChain;
+          const realChain = thenableChain(rawChain);
           const isSessionBTranscriptUpsert =
             values.agentSessionId === SESSION_B && "transcript" in values;
           return {
@@ -1840,5 +1961,185 @@ describe("extractor observability — assistant-lines-present-but-no-model (mt#3
     await makeSvcWithSink(quietSource, quietDb).ingestSession(makeDiscovered(SESSION_A));
 
     expect(warnCalls).toHaveLength(0);
+  });
+});
+
+// ── mt#3656: writer-divergence detection is WIRED, not just importable ────────
+
+describe("writer-divergence verdict is persisted by ingestSession", () => {
+  /**
+   * A two-writer fork, in the shape the real specimen has: two prompts under
+   * one parent, each answered, each followed by its own `last-prompt`.
+   *
+   * The `last-prompt` rows deliberately carry NO `timestamp` — that is how the
+   * real format writes them, and it is why they must be observed before the
+   * ingest loop's `if (!tsStr) continue` gate. A test whose sidecar rows had
+   * timestamps would pass even if the scanner sat below that gate, which is
+   * precisely the wiring bug this test exists to catch.
+   */
+  const FORKED_LINES = [
+    { type: "user", timestamp: TS1, uuid: "root", message: { role: "user", content: "q" } },
+    {
+      type: "assistant",
+      timestamp: TS1,
+      uuid: "trunk",
+      parentUuid: "root",
+      message: { role: "assistant", content: "a" },
+    },
+    { type: "last-prompt", leafUuid: "trunk" },
+    {
+      type: "user",
+      timestamp: TS2,
+      uuid: "writerA",
+      parentUuid: "trunk",
+      message: { role: "user", content: "A" },
+    },
+    {
+      type: "assistant",
+      timestamp: TS2,
+      uuid: "replyA",
+      parentUuid: "writerA",
+      message: { role: "assistant", content: "a" },
+    },
+    { type: "last-prompt", leafUuid: "replyA" },
+    {
+      type: "user",
+      timestamp: TS3,
+      uuid: "writerB",
+      parentUuid: "trunk",
+      message: { role: "user", content: "B" },
+    },
+    {
+      type: "assistant",
+      timestamp: TS3,
+      uuid: "replyB",
+      parentUuid: "writerB",
+      message: { role: "assistant", content: "b" },
+    },
+    { type: "last-prompt", leafUuid: "replyB" },
+  ] as unknown as RawTurnLine[];
+
+  test("stores both divergent tips when two writers forked", async () => {
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves?.sort()).toEqual(["replyA", "replyB"]);
+    // The pre-fork `last-prompt` is an ancestor of both, so it is not a tip.
+    expect(row?.divergentTipLeaves).not.toContain("trunk");
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
+  });
+
+  test("warns through the injected sink when a fork is detected", async () => {
+    const warnCalls: string[] = [];
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source, undefined, undefined, (message) => {
+      warnCalls.push(message);
+    }).ingestSession(makeDiscovered(SESSION_A));
+
+    expect(warnCalls.some((m) => m.includes("Writer divergence"))).toBe(true);
+  });
+
+  test("a sidecar line does not consume a lineIndex, so attachment PKs are stable (mt#3836)", async () => {
+    // The corpus-wide hazard. `lineIndex` is half of
+    // `agent_transcript_attachments`' primary key, so if retaining a new line
+    // type shifted the counter, every attachment after the first sidecar row in
+    // every already-ingested transcript would change key and re-ingest as a
+    // duplicate. This pins that the attachment's index is decided by the
+    // CONTENT lines before it and nothing else.
+    const withSidecar = new FakeTranscriptSource();
+    withSidecar.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "q" } },
+      { type: "last-prompt", leafUuid: "u1" },
+      makeAttachmentLine(TS2),
+    ] as unknown as RawTurnLine[]);
+
+    const withoutSidecar = new FakeTranscriptSource();
+    withoutSidecar.addSession(SESSION_B, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "q" } },
+      makeAttachmentLine(TS2),
+    ] as unknown as RawTurnLine[]);
+
+    const stateA = new Map<string, FakeRow>();
+    const dbA = makeDb(stateA);
+    dbA._primeSession(SESSION_A);
+    await makeSvc(dbA, withSidecar).ingestSession(makeDiscovered(SESSION_A));
+
+    const stateB = new Map<string, FakeRow>();
+    const dbB = makeDb(stateB);
+    dbB._primeSession(SESSION_B);
+    await makeSvc(dbB, withoutSidecar).ingestSession(makeDiscovered(SESSION_B));
+
+    const indexOf = (db: ReturnType<typeof makeDb>): number[] =>
+      db._attachments.map((a: { lineIndex: number }) => a.lineIndex);
+
+    expect(indexOf(dbA)).toEqual(indexOf(dbB));
+    expect(indexOf(dbA).length).toBeGreaterThan(0);
+  });
+
+  test("persists the verdict on an idempotent re-ingest with no new lines (PR #2656 R1)", async () => {
+    // The regression: the verdict was computed BELOW the no-new-lines early
+    // return, so it was discarded whenever the upsert was skipped. Every
+    // conversation ingested before this detector shipped is permanently on that
+    // path — it never receives new lines again — so the whole existing corpus
+    // would have stayed unchecked.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const svc = makeSvc(db, source);
+
+    // First ingest stores the verdict via the upsert; clear it to model a row
+    // that predates the detector, then re-ingest with the file unchanged.
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    const primed = state.get(SESSION_A) as FakeRow;
+    state.set(SESSION_A, { ...primed, divergentTipLeaves: null, divergenceCheckedAt: null });
+
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.ingested).toBe(0);
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves?.sort()).toEqual(["replyA", "replyB"]);
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
+    // The transcript itself is untouched — this path still ingested nothing.
+    expect(row?.transcript).toEqual(primed.transcript);
+  });
+
+  test("records an empty verdict — not NULL — for an ordinary linear conversation", async () => {
+    // The distinction matters: NULL means "never checked", so a clean
+    // conversation must be positively marked as checked rather than left
+    // indistinguishable from one ingested before the detector existed.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+      {
+        type: "assistant",
+        timestamp: TS2,
+        uuid: "a1",
+        parentUuid: "u1",
+        message: { role: "assistant", content: "yo" },
+      },
+      { type: "last-prompt", leafUuid: "a1" },
+    ] as unknown as RawTurnLine[]);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves).toEqual([]);
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
   });
 });

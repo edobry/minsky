@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
-import "reflect-metadata";
+// MUST be the first import. A direct `import "reflect-metadata"` here does NOT survive bundling —
+// bun lowers the CommonJS import to a declaration emitted after the other imports' initializers, so
+// tsyringe's polyfill guard fires first and the bundle dies at startup. The indirection through a
+// module is what preserves the order (mt#3680; full mechanism in that file's docblock).
+import "./reflect-polyfill";
 
 // mt#1745: cold-start profiling. Loaded FIRST so the module-level timer
 // baseline is set as early as possible — every other checkpoint's `t=` is

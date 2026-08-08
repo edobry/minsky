@@ -136,7 +136,10 @@ describe("AnthropicModelFetcher.validateConnection", () => {
   });
 
   test("returns false on a network error rather than throwing", async () => {
-    globalThis.fetch = (() => Promise.reject(new Error("ECONNREFUSED"))) as typeof fetch;
+    // `as unknown as` because bun-types' global `fetch` carries `preconnect`,
+    // which a plain stub cannot supply — and this assigns to the GLOBAL, so the
+    // full shape is genuinely required here (unlike an injectable parameter).
+    globalThis.fetch = (() => Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch;
 
     expect(await new AnthropicModelFetcher().validateConnection(CONFIG)).toBe(false);
   });

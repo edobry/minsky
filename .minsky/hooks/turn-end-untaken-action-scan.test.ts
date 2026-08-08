@@ -11,7 +11,7 @@ import {
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
 } from "./turn-end-untaken-action-scan";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import type { DispatchContext } from "./registry";
+import { GUARD_REGISTRY, type DispatchContext } from "./registry";
 import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
@@ -71,6 +71,57 @@ describe("detectUntakenAction (mt#3179)", () => {
     expect(detectUntakenAction(message)).toEqual([]);
   });
 
+  // mt#3853: the verbatim tail the guard MISSED on 2026-08-08. It failed the
+  // old `ill-action` pattern on all three axes at once — `I'm going to` was in
+  // no pattern, `write`/`PR` were not action verbs, and `option 1` was not an
+  // allowed object. The principal had to ask why nothing caught it.
+  test("mt#3853: fires on 'I'm going to write and PR option 1'", () => {
+    const missed =
+      "I'm going to write and PR option 1, verifying the endpoint against current GitHub docs " +
+      "first rather than swapping one unverified vendor premise for another. Deploying it to " +
+      "the reviewer service is a shared-production change, so that step is yours.";
+    const matches = detectUntakenAction(missed);
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.map((m) => m.family)).toContain("going-to");
+  });
+
+  test("mt#3853: the going-to family covers its contraction variants", () => {
+    for (const form of [
+      "I'm going to fix it",
+      "I am going to implement the detector",
+      "I'm gonna ship this",
+    ]) {
+      expect(detectUntakenAction(form).length).toBeGreaterThan(0);
+    }
+  });
+
+  test("mt#3853: new action verbs fire in BOTH the I'll and I'm-going-to forms", () => {
+    for (const verb of ["write", "open", "build", "patch", "draft", "wire"]) {
+      expect(detectUntakenAction(`I'll ${verb} the fix`).length).toBeGreaterThan(0);
+      expect(detectUntakenAction(`I'm going to ${verb} the fix`).length).toBeGreaterThan(0);
+    }
+  });
+
+  // The widening must not turn ordinary reasoning prose into a fire. An
+  // announcement needs an OBJECT; a bare verb is not a commitment to an
+  // immediately-executable action.
+  test("mt#3853: object-less and non-action phrasing stays silent", () => {
+    for (const benign of [
+      "I'm going to think about how this works before deciding.",
+      "I'm going to need more evidence before calling it.",
+      "Going to the docs was what settled it.",
+      "I'll consider whether that holds.",
+    ]) {
+      expect(detectUntakenAction(benign)).toEqual([]);
+    }
+  });
+
+  test("mt#3853: a turn that legitimately ended still stays silent after the widening", () => {
+    // Same suppression fixture as above, re-asserted against the wider patterns —
+    // the widening is only safe if it did not eat the armed-watcher case.
+    expect(detectUntakenAction(LEGITIMATE_WATCHER_MESSAGE)).toEqual([]);
+  });
+
   test("stays silent on empty input", () => {
     expect(detectUntakenAction("")).toEqual([]);
   });
@@ -89,7 +140,9 @@ describe("run (mt#3179)", () => {
     expect(outcome).not.toBeNull();
     expect(outcome?.deny).toBeUndefined();
     expect(outcome?.additionalContext).toContain(
-      "named a next action and ended the turn without taking it"
+      // Trimmed by mt#3767 to buy ceiling headroom; the guard is Stop-keyed, so
+      // "ended the turn" was already implied by when it fires.
+      "named a next action and did not take it"
     );
   });
 
@@ -219,5 +272,60 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
     const cal = outcome?.calibration as Record<string, unknown>;
     expect(cal.suppressionReasons).toEqual([]);
     expect(Object.keys(cal)).toContain("suppressionReasons");
+  });
+
+  // mt#3767. mt#3620 gave this guard the speaking slot on an overlap and
+  // silenced the prompt-time sibling; the DIRECTIVE stayed commitment-only, so
+  // an offer-shaped closing sentence was told to "take it now" when the correct
+  // disposition is usually to retract the sentence. These pin the two branches
+  // apart — asserting on the directive's MEANING, not on its exact wording,
+  // which is trimmed whenever the ceiling binds.
+  describe("mt#3767: the directive matches the shape of the fire", () => {
+    test("an overlap fire gets the retract-or-classify directive, not 'take it now'", () => {
+      const ctxText = run(inputFor(OVERLAPPING_MESSAGE), ctx, storeDir)?.additionalContext ?? "";
+      expect(ctxText).toContain("OFFERED");
+      expect(ctxText).toContain("drop the offer");
+      // The commitment directive's imperative must NOT be what an offer is told.
+      expect(ctxText).not.toContain("Take it now");
+    });
+
+    test("a commitment-only fire is UNCHANGED — it still gets 'take it now'", () => {
+      const ctxText = run(inputFor(R3_FINAL_MESSAGE), ctx, storeDir)?.additionalContext ?? "";
+      expect(ctxText).toContain("Take it now");
+      expect(ctxText).not.toContain("OFFERED");
+    });
+
+    // The ceiling is enforced corpus-wide by guard-feedback-shape.test.ts against
+    // the registry's worstCaseCanary. This asserts the SATURATING shape locally,
+    // so a future edit to either directive fails here — next to the text — rather
+    // than only in the corpus-wide test. Both axes at once: the evidence list at
+    // its cap AND the longer directive selected.
+    test("the saturating render stays under the declared ceiling", () => {
+      const saturating =
+        "I'm taking it forward — that's the next step. Next step: I'll proceed ahead " +
+        "with the cleanup, then moving on to the rest. Say the word if you'd rather " +
+        "I file it.";
+      const ctxText = run(inputFor(saturating), ctx, storeDir)?.additionalContext ?? "";
+
+      // Confirms this input really is saturating on both axes — without these the
+      // length assertion below could pass on an under-posed input, which is the
+      // exact defect this test exists to prevent.
+      expect(ctxText).toContain("…and");
+      expect(ctxText).toContain("OFFERED");
+
+      // Read the ceiling from the registry and sanity-check its PRESENCE, not
+      // its value — matching the mt#3699 sibling. Pinning the literal was the
+      // first draft's mistake (PR #2666 R1): it makes a legitimate annotation
+      // change fail here for the wrong reason, and `dispatcher.test.ts` records
+      // the design intent explicitly — reading the registry means an annotation
+      // change automatically changes what the test asserts. The "don't raise the
+      // annotation to make this pass" discipline is prose-tier
+      // (`guard-feedback-authoring.mdc`), because a raise is sometimes correct
+      // and no test can tell the two apart.
+      const ceiling = GUARD_REGISTRY.find((r) => r.name === "turn-end-untaken-action-scan")
+        ?.attentionCost?.denialMessageSizeChars;
+      expect(ceiling).toBeGreaterThan(0);
+      expect(ctxText.length).toBeLessThanOrEqual(ceiling as number);
+    });
   });
 });

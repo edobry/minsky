@@ -77,7 +77,14 @@ COPY services/site/package.json ./services/site/package.json
 #
 # Mirrors `services/reviewer/Dockerfile:24` which uses the same flag set
 # and ships to production without issue.
-RUN bun install --frozen-lockfile --production --ignore-scripts
+# Bun 1.3.x streaming tarball extraction intermittently fails `bun install`
+# (~30% of full installs) -- mt#3623, upstream oven-sh/bun#34821 (fix PR #34827
+# unmerged). The retry is the load-bearing mitigation: the failure is an
+# intermittent truncated download, so a fresh attempt succeeds. The env var is a
+# secondary hedge that disables the implicated streaming path; it is set inline
+# rather than via ENV so it does not persist into the runtime image. Remove both
+# when a bun release carries the upstream fix.
+RUN for i in 1 2 3; do if BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL=1 bun install --frozen-lockfile --production --ignore-scripts; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
 # Source layer — selective COPY (mt#1726). Replaces the prior blanket
 # `COPY . .` which pulled in tests, docs, scripts, eslint configuration,
@@ -188,8 +195,12 @@ RUN mkdir -p dist/storage/migrations && cp -r packages/domain/src/storage/migrat
 # Rationale + the size tradeoff: docs/deploy-minsky-railway.md §What ships in
 # the image.
 #
-# --preload: Bun 1.2.23's bundler reorders `import "reflect-metadata"` after
-# other init calls in the flattened bundle, causing tsyringe's polyfill check
-# to fire before the polyfill is installed. Preloading the package by name
-# ensures it runs before the bundle evaluates, regardless of bundler ordering.
-CMD bun run --preload reflect-metadata dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
+# No `--preload reflect-metadata` here, deliberately (mt#3680). This CMD carried
+# it from mt#3561 through mt#3680 because bun's bundler emitted the polyfill's
+# CommonJS require AFTER the init calls that reach tsyringe, so the bundle could
+# not boot on its own. `src/reflect-polyfill.ts` fixes that ordering inside the
+# bundle, which makes the flag redundant here — and a redundant flag is worse
+# than none, because it would leave production the one place that never
+# exercises the self-sufficient path. `bundle-boot-smoke.yml` boots this exact
+# bare form, so a regression fails at PR time rather than at container start.
+CMD bun run dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
