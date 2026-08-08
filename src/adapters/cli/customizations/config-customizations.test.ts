@@ -223,7 +223,9 @@ describe("config doctor / validate renderers (mt#3478)", () => {
       expect(JSON.parse(renderConfigDoctorResult(payload))).toEqual(payload);
     });
 
-    test("an unknown status still renders rather than being dropped", () => {
+    // PR #2727 R1: an unmapped status used to render as an anonymous bullet,
+    // hiding its severity. It now carries its raw status text.
+    test("an unknown status renders with its raw status text, not an anonymous bullet", () => {
       const out = renderConfigDoctorResult({
         json: false,
         summary: { total: 1, passed: 0, warnings: 0, errors: 0 },
@@ -231,6 +233,13 @@ describe("config doctor / validate renderers (mt#3478)", () => {
         verbose: false,
       });
       expect(out).toContain("Novel Check");
+      expect(out).toContain("[indeterminate]");
+    });
+
+    test("a mapped status does not get a redundant status prefix", () => {
+      const out = renderConfigDoctorResult(doctorResult());
+      expect(out).toContain("⚠️ Configured Model Validity");
+      expect(out).not.toContain("[warning]");
     });
   });
 
@@ -254,6 +263,20 @@ describe("config doctor / validate renderers (mt#3478)", () => {
       expect(out).toContain("ai.providers.openai");
       expect(out).toContain("missing credential");
       expect(out).toContain("sessiondb.path");
+    });
+
+    // PR #2727 R1: `severity` is error | warning | info. Counting
+    // "everything not an error" as a warning misreported info-level issues.
+    test("counts info-severity issues separately from warnings", () => {
+      const out = renderConfigValidateResult({
+        success: true,
+        json: false,
+        errors: [
+          { path: "a.b", message: "note", severity: "info" },
+          { path: "c.d", message: "careful", severity: "warning" },
+        ],
+      });
+      expect(out).toContain("0 errors, 1 warning, 1 info");
     });
 
     test("verbose adds the configuration sources the default run omits", () => {

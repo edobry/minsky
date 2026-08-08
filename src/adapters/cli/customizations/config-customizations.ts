@@ -4,6 +4,8 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
+import type { DoctorDiagnostic } from "../../shared/commands/config/validate-doctor-commands";
+import type { ValidationResult } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
 import {
   formatResolvedConfiguration,
@@ -149,25 +151,20 @@ export function renderConfigUnsetResult(result: Record<string, unknown>): string
   return `unset ${key}`;
 }
 
-/** A single `config doctor` diagnostic, as returned by configDoctorRegistration. */
-type DoctorDiagnostic = {
-  check: string;
-  status: string;
-  message?: string;
-  suggestion?: string;
-};
-
-/** A single `config validate` issue, as returned by configValidateRegistration. */
-type ValidationIssue = {
-  path?: string;
-  message?: string;
-  severity?: string;
-};
+/**
+ * `config validate`'s issue shape, derived from the canonical `ValidationResult`
+ * rather than re-declared. Note this is the `ValidationResult` exported by
+ * `configuration/index` — `{path, message, severity}` — NOT the unrelated
+ * `ValidationError` (`{field, message, code}`) in `configuration/types.ts`,
+ * which this command path does not use.
+ */
+type ValidationIssue = ValidationResult["errors"][number];
 
 const DIAGNOSTIC_ICONS: Record<string, string> = {
   pass: "✅",
   warning: "⚠️",
   error: "❌",
+  info: "ℹ️",
 };
 const DIAGNOSTIC_ICON_FALLBACK = "•";
 const INDENT = "   ";
@@ -184,8 +181,14 @@ function countBy<T>(items: T[], predicate: (item: T) => boolean): number {
  * defect mt#3478 exists to fix.
  */
 function formatDiagnosticEntry(diagnostic: DoctorDiagnostic): string {
+  // `status` is a union at the type level, but the payload crosses the CLI
+  // boundary as an untyped record — an unmapped value keeps its raw text so a
+  // future status is legible rather than an anonymous bullet.
   const icon = DIAGNOSTIC_ICONS[diagnostic.status] ?? DIAGNOSTIC_ICON_FALLBACK;
-  const lines = [`${icon} ${diagnostic.check}`];
+  const label = DIAGNOSTIC_ICONS[diagnostic.status]
+    ? diagnostic.check
+    : `[${diagnostic.status}] ${diagnostic.check}`;
+  const lines = [`${icon} ${label}`];
   if (diagnostic.message) {
     lines.push(`${INDENT}${diagnostic.message}`);
   }
@@ -249,14 +252,19 @@ export function renderConfigValidateResult(result: Record<string, unknown>): str
   const issues = (result.errors as ValidationIssue[] | undefined) ?? [];
   const verbose = result.verbose === true;
   const errorCount = countBy(issues, (i) => i.severity === "error");
-  const warningCount = issues.length - errorCount;
+  const warningCount = countBy(issues, (i) => i.severity === "warning");
+  // `severity` is error | warning | info; anything else is counted here rather
+  // than folded into warnings, so a count never misrepresents a severity.
+  const infoCount = issues.length - errorCount - warningCount;
 
   const headline =
     issues.length === 0
       ? "Configuration validation: no issues found."
       : `Configuration validation: ${issues.length} issue${issues.length === 1 ? "" : "s"} — ` +
         `${errorCount} error${errorCount === 1 ? "" : "s"}, ` +
-        `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
+        `${warningCount} warning${warningCount === 1 ? "" : "s"}${
+          infoCount > 0 ? `, ${infoCount} info` : ""
+        }`;
 
   const sections: string[] = [headline];
 
@@ -264,8 +272,7 @@ export function renderConfigValidateResult(result: Record<string, unknown>): str
     sections.push(
       issues
         .map((issue) => {
-          const icon =
-            issue.severity === "error" ? DIAGNOSTIC_ICONS.error : DIAGNOSTIC_ICONS.warning;
+          const icon = DIAGNOSTIC_ICONS[issue.severity] ?? DIAGNOSTIC_ICON_FALLBACK;
           const path = issue.path ? ` ${issue.path}` : "";
           const message = issue.message ? `\n${INDENT}${issue.message}` : "";
           return `${icon}${path}${message}`;
