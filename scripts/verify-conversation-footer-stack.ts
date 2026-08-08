@@ -439,6 +439,58 @@ try {
   if (m.present["jump"]) {
     if (m.jumpVsPill?.overlapping) failures.push("return-to-newest overlaps the position pill");
     if (m.jumpVsStrip?.overlapping) failures.push("return-to-newest overlaps the activity strip");
+  } else {
+    results["jumpNote"] =
+      "return-to-newest was not rendered during this run (it appears only when content arrives " +
+      "while the reader is scrolled up), so assertion 4 did not execute";
+  }
+
+  // 5. At the BOTTOM of the thread the footer must sit in normal flow, clear of
+  //    the newest turn. This is the half mt#3344's `scroll-mb-8` reservation
+  //    used to buy: the strip floated BELOW the end sentinel, so aligning the
+  //    sentinel to the scrollport's bottom parked the newest turn underneath it.
+  //    Moving the footer above the sentinel should make the reservation
+  //    unnecessary rather than wrong — this is what checks that it did.
+  await evaluate(
+    ws,
+    `(() => {
+      ${RESOLVE_PORT}
+      el.scrollTop = el.scrollHeight;
+      return "ok";
+    })()`
+  );
+  await sleep(500);
+  const atBottom = JSON.parse(
+    await evaluate(
+      ws,
+      `(() => {
+        const thread = document.querySelector('[data-testid="conversation-thread"]');
+        const footer = document.querySelector('[data-testid="thread-footer"]');
+        if (!thread || !footer) return JSON.stringify({ measurable: false });
+        // The newest turn is the last thread child before the footer; the
+        // footer and the end sentinel are the only nodes after it.
+        const kids = Array.from(thread.children);
+        const idx = kids.indexOf(footer);
+        const newest = idx > 0 ? kids[idx - 1] : null;
+        if (!newest) return JSON.stringify({ measurable: false });
+        const n = newest.getBoundingClientRect();
+        const f = footer.getBoundingClientRect();
+        return JSON.stringify({
+          measurable: true,
+          newestBottom: +n.bottom.toFixed(1),
+          footerTop: +f.top.toFixed(1),
+          overlap: +Math.max(0, n.bottom - f.top).toFixed(1),
+        });
+      })()`
+    )
+  ) as { measurable: boolean; newestBottom?: number; footerTop?: number; overlap?: number };
+  results["atBottom"] = atBottom;
+
+  if (atBottom.measurable && (atBottom.overlap ?? 0) > OVERLAP_EPSILON_PX) {
+    failures.push(
+      `at the bottom of the thread the footer covers the newest turn by ${atBottom.overlap}px ` +
+        "— it is floating over content it should be sitting below"
+    );
   }
 } catch (err) {
   failures.push(`probe error: ${String(err)}`);
