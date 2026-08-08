@@ -16,13 +16,20 @@
 // on a matte rather than altered.
 
 interface Props {
-  /** Label shown in the frame's chrome bar. Name the real surface. */
-  chromeTitle?: string;
+  /**
+   * Label shown in the frame's chrome bar. REQUIRED, and deliberately without a
+   * default: the defect this prop exists to fix was a hard-coded
+   * "minsky · session" silently mislabeling captures of GitHub and the cockpit.
+   * A default would let that regression back in the moment a new caller forgets
+   * the prop — the failure would be invisible, because a wrong label renders
+   * exactly as convincingly as a right one.
+   */
+  chromeTitle: string;
   /** "foreign" mattes a capture of an external surface. */
   tone?: "native" | "foreign";
 }
 
-const { chromeTitle = "minsky · session", tone = "native" } = Astro.props;
+const { chromeTitle, tone = "native" } = Astro.props;
 ---
 
 <div class:list={["product-frame", tone === "foreign" && "foreign"]}>
