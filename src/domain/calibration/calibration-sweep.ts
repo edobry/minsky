@@ -318,17 +318,18 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
     //
-    // mt#3755 (2026-08-06): re-anchored again, and the DISPOSITION is KEEP —
-    // the silence is measured DORMANCY, not breakage and not deterrence.
+    // mt#3755 (measured 2026-08-08): re-anchored again, and the DISPOSITION is
+    // KEEP — the silence is measured DORMANCY, not breakage and not deterrence.
     // Evidence artifact: `bun scripts/replay-build-claim-injection.ts --json`
-    // replayed the detector over all 689 transcripts in the contract window
-    // (2026-07-23 onward, 3,542 evaluation points) and it would have fired
-    // ZERO times. The funnel localizes why, and it is condition (a), not the
-    // claim patterns:
+    // replayed the detector over all 805 transcripts since 2026-07-23
+    // (3,048 evaluation points) and it would have fired ZERO times. The corpus
+    // grows, so absolute counts drift on a re-run; the funnel SHAPE and the
+    // zero-fire result are the finding. It localizes why, and it is condition
+    // (a), not the claim patterns:
     //
-    //     515 sessions  no in-session `*session_pr_merge` tool_use at all
-    //     167 sessions  merged, but no deploy-surface file edited in-transcript
-    //       6 sessions  merge + surface edit, but no usability claim
+    //     620 sessions  no in-session `*session_pr_merge` tool_use at all
+    //     176 sessions  merged, but no deploy-surface file edited in-transcript
+    //       8 sessions  merge + surface edit, but no usability claim
     //       1 session   all three met -> correctly SUPPRESSED by real rebuild
     //                   evidence (a true negative, not a miss)
     //

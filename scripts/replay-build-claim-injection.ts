@@ -15,6 +15,18 @@
 // suppressor to a specific condition instead of leaving "it didn't match" as
 // the whole finding.
 //
+// ATTRIBUTION IS PER-EVALUATION, NOT PER-SESSION (PR #2725 R1 finding 1).
+// The detector runs once per user-prompt boundary, and each run sees only the
+// transcript prefix that existed then. An earlier draft accumulated the raw
+// conditions across evaluations (`hadMerge ||= …`, `max(surfaceFiles)`) and
+// then derived the blocking condition from those session-wide aggregates.
+// That misattributes whenever the conditions hold at DIFFERENT times: a
+// session that merged late and claimed usability early satisfies every
+// aggregate while no single evaluation ever satisfied them together, and the
+// old code's final `else` then blamed `rebuild-evidence` — a condition that
+// may be false. `stageFor` below reads ONE evaluation's coherent view, and the
+// session is attributed to the furthest stage any single evaluation reached.
+//
 // Usage:
 //   bun scripts/replay-build-claim-injection.ts <transcript.jsonl> [...]
 //   bun scripts/replay-build-claim-injection.ts --json <transcript.jsonl> [...]
@@ -36,26 +48,103 @@ import {
 } from "../.minsky/hooks/transcript";
 import { detectBuildClaimInjection } from "../.minsky/hooks/build-claim-injection-detector";
 
+/**
+ * How far one evaluation got through the detector's short-circuit chain.
+ * Ordered so a HIGHER number is closer to firing, which makes "the furthest
+ * any evaluation reached" a plain `Math.max`.
+ */
+export const STAGE = {
+  /** (a) first half: no in-session `*session_pr_merge` tool_use yet. */
+  NO_MERGE: 0,
+  /** (a) second half: merged, but no deploy/build-surface file edited. */
+  NO_DEPLOY_SURFACE: 1,
+  /** (b): merge + surface edit present, but no usability claim in the turn. */
+  NO_USABILITY_CLAIM: 2,
+  /** (c): all three met, but rebuild/deploy evidence suppressed the fire. */
+  SUPPRESSED_BY_REBUILD_EVIDENCE: 3,
+  /** The detector fired. */
+  FIRED: 4,
+} as const;
+
+export type Stage = (typeof STAGE)[keyof typeof STAGE];
+
+/** Label for the condition that blocked a session, keyed by its furthest stage. */
+export const STAGE_LABEL = {
+  [STAGE.NO_MERGE]: "merge",
+  [STAGE.NO_DEPLOY_SURFACE]: "deploy-surface",
+  [STAGE.NO_USABILITY_CLAIM]: "usability-claim",
+  [STAGE.SUPPRESSED_BY_REBUILD_EVIDENCE]: "rebuild-evidence",
+} as const;
+
+export type BlockedBy = (typeof STAGE_LABEL)[keyof typeof STAGE_LABEL];
+
+/**
+ * The slice of a detector result the attribution needs. Declared structurally
+ * rather than importing `BuildClaimInjectionResult` so the pure core carries no
+ * dependency on the hooks tree — `BuildClaimInjectionResult` satisfies it.
+ */
+export interface StageInput {
+  matched: boolean;
+  hadMerge: boolean;
+  deploySurfaceFiles: string[];
+  matchedPhrase?: string;
+  hadRebuildEvidence: boolean;
+}
+
+/**
+ * Classify ONE evaluation's result. Reads only that evaluation's own view, in
+ * the detector's own short-circuit order, so the returned stage is always a
+ * coherent statement about a single moment in the session.
+ */
+export function stageFor(result: StageInput): Stage {
+  if (result.matched) return STAGE.FIRED;
+  if (!result.hadMerge) return STAGE.NO_MERGE;
+  if (result.deploySurfaceFiles.length === 0) return STAGE.NO_DEPLOY_SURFACE;
+  if (!result.matchedPhrase) return STAGE.NO_USABILITY_CLAIM;
+  return STAGE.SUPPRESSED_BY_REBUILD_EVIDENCE;
+}
+
+/**
+ * Reduce one session's per-evaluation stages to its outcome. Pure, so the
+ * aggregation the R1 finding was about is testable without a transcript.
+ *
+ * The session is attributed to the FURTHEST stage any single evaluation
+ * reached. Attributing from separately-accumulated conditions instead is the
+ * defect this replaces: stages `[NO_MERGE, NO_USABILITY_CLAIM]` means one
+ * evaluation saw a claim before any merge and a later one saw the merge
+ * without a claim — never both together — which is a `usability-claim` block,
+ * NOT the `rebuild-evidence` block that OR-ing the raw conditions produced.
+ */
+export function attributeSession(stages: Stage[]): {
+  furthestStage: Stage;
+  wouldFire: boolean;
+  blockedBy: BlockedBy | null;
+} {
+  const furthestStage = stages.reduce<Stage>((a, b) => (b > a ? b : a), STAGE.NO_MERGE);
+  const wouldFire = furthestStage === STAGE.FIRED;
+  return {
+    furthestStage,
+    wouldFire,
+    blockedBy: wouldFire ? null : STAGE_LABEL[furthestStage as Exclude<Stage, 4>],
+  };
+}
+
 /** Per-session replay outcome — one row per transcript. */
-interface SessionReplay {
+export interface SessionReplay {
   path: string;
   /** Number of real user-prompt boundaries the detector would have evaluated at. */
   evaluations: number;
-  /** Condition (a), first half: an in-session `*session_pr_merge` tool_use. */
-  hadMerge: boolean;
-  /** Condition (a), second half: deploy/build-surface files edited in-session. */
-  deploySurfaceFileCount: number;
-  /** Condition (b): a usability/delivery claim in some completed assistant turn. */
+  /** The furthest stage ANY single evaluation reached. */
+  furthestStage: Stage;
+  /** Distinct usability claims seen in any evaluated turn (reporting only). */
   usabilityClaims: string[];
-  /** Condition (c): rebuild/reinstall/deploy evidence anywhere in the session. */
-  hadRebuildEvidence: boolean;
   /** Whether the detector would have fired at ANY evaluation point. */
   wouldFire: boolean;
   /** The condition that blocked a fire, for sessions that did not fire. */
-  blockedBy: "merge" | "deploy-surface" | "usability-claim" | "rebuild-evidence" | null;
+  blockedBy: BlockedBy | null;
 }
 
-function replaySession(path: string): SessionReplay | null {
+export function replaySession(path: string): SessionReplay | null {
   if (!existsSync(path)) return null;
 
   let lines;
@@ -68,13 +157,8 @@ function replaySession(path: string): SessionReplay | null {
 
   const promptIndices = findRealPromptIndices(lines);
   const usabilityClaims: string[] = [];
-  let wouldFire = false;
-  // Conditions (a) and (c) are session-scoped, so the last evaluation's view of
-  // them is the fullest one; seed from the whole transcript and let the loop
-  // confirm. Condition (b) is turn-scoped and must be accumulated per turn.
-  let hadMerge = false;
-  let deploySurfaceFileCount = 0;
-  let hadRebuildEvidence = false;
+  const stages: Stage[] = [];
+  let evaluations = 0;
 
   for (const idx of promptIndices) {
     // The detector sees only what existed when the prompt was submitted.
@@ -89,37 +173,28 @@ function replaySession(path: string): SessionReplay | null {
     }
     if (turnLines.length === 0) continue;
 
+    evaluations++;
     const result = detectBuildClaimInjection(extractAssistantText(turnLines), visible);
 
-    hadMerge = hadMerge || result.hadMerge;
-    deploySurfaceFileCount = Math.max(deploySurfaceFileCount, result.deploySurfaceFiles.length);
-    hadRebuildEvidence = hadRebuildEvidence || result.hadRebuildEvidence;
+    stages.push(stageFor(result));
+
     if (result.matchedPhrase && !usabilityClaims.includes(result.matchedPhrase)) {
       usabilityClaims.push(result.matchedPhrase);
     }
-    if (result.matched) wouldFire = true;
   }
 
-  // Report the FIRST condition in the detector's own short-circuit order that
-  // failed — that is the one actually suppressing the fire, and reporting a
-  // later one would misattribute the cause.
-  let blockedBy: SessionReplay["blockedBy"] = null;
-  if (!wouldFire) {
-    if (!hadMerge) blockedBy = "merge";
-    else if (deploySurfaceFileCount === 0) blockedBy = "deploy-surface";
-    else if (usabilityClaims.length === 0) blockedBy = "usability-claim";
-    else blockedBy = "rebuild-evidence";
-  }
+  return { path, evaluations, usabilityClaims, ...attributeSession(stages) };
+}
 
+function summarize(results: SessionReplay[]) {
   return {
-    path,
-    evaluations: promptIndices.length,
-    hadMerge,
-    deploySurfaceFileCount,
-    usabilityClaims,
-    hadRebuildEvidence,
-    wouldFire,
-    blockedBy,
+    sessions: results.length,
+    evaluations: results.reduce((n, r) => n + r.evaluations, 0),
+    wouldFire: results.filter((r) => r.wouldFire).length,
+    blockedByCounts: results.reduce<Record<string, number>>((acc, r) => {
+      if (r.blockedBy) acc[r.blockedBy] = (acc[r.blockedBy] ?? 0) + 1;
+      return acc;
+    }, {}),
   };
 }
 
@@ -144,23 +219,7 @@ function main(): void {
   }
 
   if (jsonMode) {
-    const fired = results.filter((r) => r.wouldFire).length;
-    process.stdout.write(
-      `${JSON.stringify(
-        {
-          sessions: results.length,
-          evaluations: results.reduce((n, r) => n + r.evaluations, 0),
-          wouldFire: fired,
-          blockedByCounts: results.reduce<Record<string, number>>((acc, r) => {
-            if (r.blockedBy) acc[r.blockedBy] = (acc[r.blockedBy] ?? 0) + 1;
-            return acc;
-          }, {}),
-          results,
-        },
-        null,
-        2
-      )}\n`
-    );
+    process.stdout.write(`${JSON.stringify({ ...summarize(results), results }, null, 2)}\n`);
     return;
   }
 
@@ -168,25 +227,20 @@ function main(): void {
   for (const r of results) {
     const name = r.path.split("/").pop() ?? r.path;
     process.stdout.write(`${name}\n`);
-    process.stdout.write(`  evaluations:      ${r.evaluations}\n`);
-    process.stdout.write(`  (a) merge:        ${r.hadMerge}\n`);
-    process.stdout.write(`  (a) surface files:${r.deploySurfaceFileCount}\n`);
+    process.stdout.write(`  evaluations:   ${r.evaluations}\n`);
     process.stdout.write(
-      `  (b) claims:       ${r.usabilityClaims.length > 0 ? r.usabilityClaims.join(" | ") : "none"}\n`
+      `  claims seen:   ${r.usabilityClaims.length > 0 ? r.usabilityClaims.join(" | ") : "none"}\n`
     );
-    process.stdout.write(`  (c) rebuild evid: ${r.hadRebuildEvidence}\n`);
     process.stdout.write(
-      `  => would fire:    ${r.wouldFire}${r.blockedBy ? ` (blocked by: ${r.blockedBy})` : ""}\n\n`
+      `  => would fire: ${r.wouldFire}${r.blockedBy ? ` (blocked by: ${r.blockedBy})` : ""}\n\n`
     );
   }
 
-  const fired = results.filter((r) => r.wouldFire).length;
-  const counts = results.reduce<Record<string, number>>((acc, r) => {
-    if (r.blockedBy) acc[r.blockedBy] = (acc[r.blockedBy] ?? 0) + 1;
-    return acc;
-  }, {});
-  process.stdout.write(`Would fire: ${fired}/${results.length}\n`);
-  process.stdout.write(`Blocked by: ${JSON.stringify(counts)}\n`);
+  const s = summarize(results);
+  process.stdout.write(`Would fire: ${s.wouldFire}/${s.sessions}\n`);
+  process.stdout.write(`Blocked by: ${JSON.stringify(s.blockedByCounts)}\n`);
 }
 
-main();
+if (import.meta.main) {
+  main();
+}

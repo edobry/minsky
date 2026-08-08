@@ -27,7 +27,7 @@ All three conditions must hold:
 On fire it injects the claim-confidence format reminder (`claim-confidence.mdc` — "[delivery
 state] — [evidential warrant + basis]"), not a block.
 
-## Measured disposition, 2026-08-06 (mt#3755): alive, dormant, kept
+## Measured disposition, 2026-08-08 (mt#3755): alive, dormant, kept
 
 The 30-day graduation contract came due with **zero** calibration records ever written and 2,341
 recorded evaluations. Three hypotheses were live — broken wiring, deterrence (the guard changed
@@ -36,18 +36,21 @@ behavior), or dormancy (the condition is rare). The disposition pass settled it:
 - **Not broken.** `bun scripts/run-guard-canaries.ts --json` reports this detector PASS, so the
   full path (dispatcher → registry → `run()` → detection → calibration write) is alive.
 - **Not deterrence.** `bun scripts/replay-build-claim-injection.ts --json` replayed the real
-  detector over **all 689 transcripts** since 2026-07-23 (**3,542** evaluation points). It would
+  detector over **all 805 transcripts** since 2026-07-23 (**3,048** evaluation points). It would
   have fired **zero** times, and the funnel dies at condition (a) — long before any behavioral
   question about claim language could arise:
 
   | Blocked at                                                                  | Sessions |
   | --------------------------------------------------------------------------- | -------- |
-  | (a) no in-session `*session_pr_merge` tool_use                              | 515      |
-  | (a) merged, but no deploy-surface file edited in-transcript                 | 167      |
-  | (b) merge + surface edit, but no usability claim                            | 6        |
+  | (a) no in-session `*session_pr_merge` tool_use                              | 620      |
+  | (a) merged, but no deploy-surface file edited in-transcript                 | 176      |
+  | (b) merge + surface edit, but no usability claim                            | 8        |
   | (c) all three met → suppressed by real rebuild evidence (**true negative**) | 1        |
 
-- **Dormancy, with a locatable cause.** Exactly one session in 689 reached the last condition and
+The corpus grows continuously, so absolute counts drift on a re-run; the funnel SHAPE and the
+zero-fire result are the finding, not the exact integers.
+
+- **Dormancy, with a locatable cause.** Exactly one session in 805 reached the last condition and
   was correctly suppressed. Condition (a)'s proxy is the binding constraint, for two independent
   reasons: `DEPLOY_SURFACE_PATTERNS` matches only deploy-CONFIG files (`infra/`, Dockerfiles,
   `railway.json`, deploy workflows), and Minsky merges in a main-agent conversation whose

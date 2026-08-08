@@ -37,12 +37,12 @@
 // within 30 days even at low fire volume — mt#2896 shipped precisely so this
 // detector's graduation contract is enforceable.
 //
-// MEASURED 2026-08-06 (mt#3755): condition (a) is the binding constraint, and
-// it is near-unsatisfiable in practice. Replaying this detector over all 689
-// transcripts since 2026-07-23 (3,542 evaluation points, via
-// `bun scripts/replay-build-claim-injection.ts`) yields ZERO fires: 515
-// sessions had no in-session `*session_pr_merge` at all, 167 merged but edited
-// no deploy-surface file in-transcript, 6 had both but made no usability
+// MEASURED 2026-08-08 (mt#3755): condition (a) is the binding constraint, and
+// it is near-unsatisfiable in practice. Replaying this detector over all 805
+// transcripts since 2026-07-23 (3,048 evaluation points, via
+// `bun scripts/replay-build-claim-injection.ts`) yields ZERO fires: 620
+// sessions had no in-session `*session_pr_merge` at all, 176 merged but edited
+// no deploy-surface file in-transcript, 8 had both but made no usability
 // claim, and the single session that satisfied all three was correctly
 // suppressed by real rebuild evidence. Two causes, both in (a): the surface
 // set matches only deploy-CONFIG files, and Minsky merges in a main-agent
