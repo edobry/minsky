@@ -62,6 +62,30 @@ export interface ActiveSessionInfo {
   lastTurnsIngested: number;
 }
 
+/**
+ * Recency window separating "the watcher knows this file exists" from "this
+ * conversation is live right now" (mt#3857).
+ *
+ * The registry conflates the two by construction: `TranscriptWatcher.seedExisting()`
+ * calls `recordSessionEvent()` for every PRE-EXISTING file at boot so the tailer can
+ * seed byte offsets and skip re-streaming old history. That is correct for seeding
+ * and wrong as a liveness signal — at boot, every conversation the watcher has ever
+ * discovered carries a `lastEventAt` of "just now".
+ *
+ * This constant is the server-side home of a window that used to live only in the
+ * browser (`useActiveConversationSessions.ts`), which filtered AFTER downloading the
+ * whole registry. Applying it here is what keeps `/api/health` small: the endpoint is
+ * polled every 5s by the tray supervisor (`cockpit-tray/src-tauri/src/supervisor.rs`)
+ * and 3x/15s by the webview, so its size is multiplied by ~12 requests a minute for
+ * the process lifetime.
+ *
+ * Window calibration is inherited unchanged from the frontend's original: long enough
+ * to survive a multi-refetch gap or a slow tool call between turns, short enough to
+ * exclude the boot scan. Revisit on reports of a live conversation losing its badge
+ * mid-turn (window too short) or a stale one keeping it (too long).
+ */
+export const LIVE_SESSION_WINDOW_MS = 2 * 60 * 1000;
+
 interface ActiveSessionState {
   isSubagent: boolean;
   lastEventAtMs: number | null;
@@ -144,6 +168,33 @@ export class TranscriptWatcherTracker {
     });
   }
 
+  /**
+   * Register a session discovered by the BOOT SCAN, without claiming it is live
+   * (mt#3857). `lastEventAt` stays null: the watcher has learned the file exists,
+   * which is not the same as having observed activity in it.
+   *
+   * This is the distinction `recordSessionEvent` cannot make — it stamps
+   * `Date.now()` unconditionally, so calling it from `seedExisting()` marked every
+   * conversation in the entire history as having just been active. That is what put
+   * 1,380 entries in `/api/health`'s live list and made the window filter a no-op for
+   * the first two minutes after every daemon restart.
+   *
+   * Byte-offset seeding is unaffected: that is `tailer.setOffset()`, a separate call
+   * in `seedExisting()` that this does not touch.
+   *
+   * Existing entries are left alone — a real event that arrived before the scan
+   * reached this file must not be downgraded to "seeded".
+   */
+  recordSessionSeeded(agentSessionId: string, isSubagent: boolean): void {
+    if (this.sessions.has(agentSessionId)) return;
+    this.sessions.set(agentSessionId, {
+      isSubagent,
+      lastEventAtMs: null,
+      lastIngestAtMs: null,
+      lastTurnsIngested: 0,
+    });
+  }
+
   /** Stamp a session's last successful ingest (SC2). */
   recordSessionIngest(agentSessionId: string, turns: number): void {
     const existing = this.sessions.get(agentSessionId);
@@ -173,6 +224,26 @@ export class TranscriptWatcherTracker {
         lastTurnsIngested: s.lastTurnsIngested,
       }))
       .sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+  }
+
+  /**
+   * The GENUINELY-live subset of the registry — entries whose `lastEventAt` falls
+   * within `LIVE_SESSION_WINDOW_MS` of `nowMs` (mt#3857). This is what `/api/health`
+   * serializes; `getActiveSessions()` above returns the FULL registry and is retained
+   * for callers that want it (and for the tracker's own tests).
+   *
+   * Entries with a null `lastEventAt` are excluded: a session the registry has never
+   * seen an event for cannot be live.
+   *
+   * `nowMs` is injectable so tests can pin the clock rather than sleeping.
+   */
+  getLiveSessions(nowMs: number = Date.now()): ActiveSessionInfo[] {
+    return this.getActiveSessions().filter((s) => {
+      if (s.lastEventAt === null) return false;
+      const ts = new Date(s.lastEventAt).getTime();
+      if (Number.isNaN(ts)) return false;
+      return nowMs - ts <= LIVE_SESSION_WINDOW_MS;
+    });
   }
 
   /** Snapshot the current counters for the cockpit `/api/health` surface. */
