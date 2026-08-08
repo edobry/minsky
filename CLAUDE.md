@@ -67,7 +67,8 @@ a derived view is not evidence of absence in the source** — there is no error 
 gap, which is why this passes a check that a wrong VALUE would fail. Incident (2026-08-08): a live
 probe showed a `tool_result` block carrying no HTTP metadata, which became "the metadata never
 enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
-and our ingest simply drops it (mt#2583).
+and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
+plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
 
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
