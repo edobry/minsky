@@ -161,9 +161,16 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
     // added cannot escape the same way.
     const workflowDir = join(REPO_ROOT, ".github", "workflows");
     // eslint-disable-next-line custom/no-real-fs-in-tests -- enumerating the committed workflow set IS the assertion; a hardcoded list is exactly the truncation this test exists to prevent
-    const workflows = readdirSync(workflowDir).filter((f) => f.endsWith(".yml"));
+    const workflows = readdirSync(workflowDir).filter(
+      (f) => f.endsWith(".yml") || f.endsWith(".yaml")
+    );
 
-    expect(workflows.length).toBeGreaterThan(5);
+    // Guards against a vacuous pass without depending on how MANY workflows exist (PR #2716 R1):
+    // a count threshold would break on legitimate consolidation, which has nothing to do with the
+    // invariant. Naming a workflow that must be present is the same protection without the
+    // repository-shape coupling — and bundle-boot-smoke.yml is the one that would have to survive
+    // for this whole family of checks to still mean anything.
+    expect(workflows).toContain("bundle-boot-smoke.yml");
 
     const offenders = workflows.flatMap((file) =>
       codeLines(read(join(".github", "workflows", file)), "hash")
