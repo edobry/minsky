@@ -44,12 +44,34 @@
  *   railway environment edit --service-config <service> deploy.startCommand "<value>"
  *
  * which accepts the write, prints no error, exits 0 — and does not persist.
- * Tried 2026-08-08 with both the service UUID and the name `minsky-ops`; the
- * read-back was byte-identical both times. That is the silent-no-op mem#281
- * records for `source.*` dot-path writes, now reproduced on `deploy.*`.
  *
- * Until a working mechanism exists, treat this override as dashboard-only, and
- * ALWAYS verify by read-back rather than exit code:
+ * ## This override is dashboard-only. That is a conclusion, not a to-do (mt#3848)
+ *
+ * Every agent-runnable candidate was tried or ruled out on 2026-08-08. Do not
+ * re-derive this list; extend it if Railway ships something new.
+ *
+ *   1. CLI dot-path, prefixed (`deploy.startCommand`) — no-op. Tried with the
+ *      service UUID and with the name `minsky-ops`; read-back byte-identical.
+ *   2. CLI dot-path, un-prefixed (`startCommand`) — no-op, same read-back. The
+ *      docs' own examples use section prefixes (`build.buildCommand`,
+ *      `source.rootDirectory`) but never enumerate the valid path set, and
+ *      `deploy.startCommand` is evidently not in it.
+ *   3. Config-as-code (`railway.json`) — STRUCTURALLY unavailable for this
+ *      service. Railway reads it "from your service repository during deploy";
+ *      this service's source is `{ image: "ghcr.io/edobry/minsky:latest" }` with
+ *      no repo, so there is no file for Railway to read.
+ *   4. Railway's TypeScript IaC SDK (`.railway/railway.ts`) — not evaluated here;
+ *      it overlaps mt#1440 and would be that task's mechanism, not a local fix.
+ *   5. Dashboard — Railway's `guides/start-command` documents the dashboard as
+ *      the ONLY way to set a start command. The CLI form this file used to
+ *      prescribe was never vendor-sanctioned for this field.
+ *
+ * So the flag below cannot be removed from an agent context. mt#3848 carries the
+ * finding; ask#7136 already approved the removal, so it needs an operator in the
+ * dashboard, not another authorization.
+ *
+ * ALWAYS verify by read-back rather than exit code — a dot-path write reports
+ * success either way:
  *
  *   railway environment config --json | jq '.services["<serviceId>"].deploy'
  *
