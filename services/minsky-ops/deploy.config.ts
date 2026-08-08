@@ -57,23 +57,29 @@
  *      `source.rootDirectory`) but never enumerate the valid path set, and
  *      `deploy.startCommand` is evidently not in it.
  *   3. Config-as-code (`railway.json`) — STRUCTURALLY unavailable for this
- *      service. Railway reads it "from your service repository during deploy";
- *      this service's source is `{ image: "ghcr.io/edobry/minsky:latest" }` with
- *      no repo, so there is no file for Railway to read.
+ *      service. Railway reads it "from your service repository during deploy"
+ *      (https://docs.railway.com/infrastructure-as-code); this service declares
+ *      `source: { image: ... }` below — an image, no repo — so there is no file
+ *      for Railway to read. If `source` ever gains a `repo`, re-test this one.
  *   4. Railway's TypeScript IaC SDK (`.railway/railway.ts`) — not evaluated here;
  *      it overlaps mt#1440 and would be that task's mechanism, not a local fix.
- *   5. Dashboard — Railway's `guides/start-command` documents the dashboard as
- *      the ONLY way to set a start command. The CLI form this file used to
- *      prescribe was never vendor-sanctioned for this field.
+ *   5. Dashboard — https://docs.railway.com/guides/start-command documents the
+ *      dashboard as the ONLY way to set a start command. The CLI form this file
+ *      used to prescribe was never vendor-sanctioned for this field.
+ *
+ * CLI reference for the dot-path form: https://docs.railway.com/cli/environment
+ * (its examples are `variables.API_KEY.value`, `build.buildCommand`,
+ * `source.rootDirectory` — it does not enumerate the valid path set).
  *
  * So the flag below cannot be removed from an agent context. mt#3848 carries the
  * finding; ask#7136 already approved the removal, so it needs an operator in the
  * dashboard, not another authorization.
  *
  * ALWAYS verify by read-back rather than exit code — a dot-path write reports
- * success either way:
+ * success either way. Turnkey, with this service's own id:
  *
- *   railway environment config --json | jq '.services["<serviceId>"].deploy'
+ *   railway environment config --json \
+ *     | jq '.services["f6e3f285-8075-4845-934b-8e9bed15ab12"].deploy'
  *
  * The structural fix — bringing `startCommand` under config-as-code so overrides
  * stop living out-of-band — is mt#1440.
