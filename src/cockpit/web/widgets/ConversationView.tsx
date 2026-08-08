@@ -146,6 +146,27 @@ type ConversationViewCommonProps = {
    * thread is shown, but the film it would link to does not exist there.
    */
   filmPath?: string;
+  /**
+   * Chrome the host pins to the BOTTOM of the thread — today the activity line
+   * ("Running <tool> · <elapsed>", mt#3344). Arrives as a prop for a reason the
+   * other two do not share: it has to be RENDERED INSIDE the thread, not beside
+   * it (mt#3843).
+   *
+   * The thread already pins two controls of its own to the bottom edge (the
+   * position pill and the return-to-newest button). While the host mounted its
+   * tail as a SIBLING of this component, all three resolved into one stacking
+   * context at the same `z-10`, so which one won was decided by DOM order — and
+   * the host's tail, being last and opaquely backgrounded, painted over the
+   * pill. Measured: 16.5px of the pill's 25px height covered, and a hit test at
+   * the centre of the pill's "↑ start" button landed on the tail, so the
+   * control was not merely hidden but unclickable.
+   *
+   * Passing the tail IN lets `ThreadFooter` lay all three out as one flex
+   * column, which stacks by construction. The host still decides WHAT the tail
+   * is; the thread decides WHERE it sits relative to its own controls, which is
+   * the only place that knowledge exists.
+   */
+  tail?: ReactNode;
 };
 
 type ConversationViewProps = ConversationViewCommonProps &
@@ -589,14 +610,58 @@ function buildTurnNodes({
   return nodes;
 }
 
+/**
+ * The thread's bottom-edge chrome, as ONE sticky stack (mt#3843).
+ *
+ * Everything that pins to the bottom of the scrollport goes through here: the
+ * thread's own floating controls (return-to-newest, position pill) and the
+ * host's `tail`. Before this they were three independently-`sticky` elements —
+ * two inside the thread, one mounted by the host as a SIBLING of it — all at
+ * `z-10` in a single stacking context. That made their paint order DOM order
+ * and their non-overlap an accident of horizontal alignment (`mx-auto` vs
+ * `ml-auto`), and it did not hold: the host's tail, last and opaquely
+ * backgrounded, covered 16.5px of the pill's 25px and took the click aimed at
+ * the pill's "↑ start" button, leaving that control unreachable whenever a tool
+ * was running. A flex column orders them by construction.
+ *
+ * Renders nothing at all when it holds nothing — an empty sticky box would
+ * still claim the band and still eat clicks.
+ */
+function ThreadFooter({ floating, tail }: { floating?: ReactNode; tail?: ReactNode }) {
+  if (!floating && !tail) return null;
+  return (
+    // `pointer-events-none` so the footer's transparent regions never eat a
+    // click meant for the turn scrolling underneath; each member opts back in
+    // for itself.
+    <div
+      className="pointer-events-none sticky bottom-0 z-10 flex flex-col"
+      data-testid="thread-footer"
+    >
+      {/* The floating controls sit ABOVE the tail, and `pb-2` keeps them clear
+          of the scrollport's bottom edge when no tail follows. The tail
+          deliberately gets no such padding: its background has to reach the
+          edge, because transcript text scrolls under it. */}
+      {floating && <div className="flex flex-col gap-2 pb-2">{floating}</div>}
+      {/* Restores the tail's ordinary hit-testing, which the footer's
+          `pointer-events-none` would otherwise strip. It is opaque and
+          full-width, so letting clicks fall through it to the transcript
+          underneath would be the surprising behavior. */}
+      {tail && <div className="pointer-events-auto">{tail}</div>}
+    </div>
+  );
+}
+
 function ConversationThread({
   snapshot,
   extraBlocks,
   className,
   turnTarget,
   filmPath,
+  tail,
 }: {
   snapshot: SessionContextSnapshot;
+  /** Host chrome pinned to the thread's bottom edge — see `ConversationViewCommonProps.tail`. */
+  tail?: ReactNode;
   /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
   filmPath?: string;
   /**
@@ -1057,11 +1122,12 @@ function ConversationThread({
   });
 
   if (visibleTurns.length === 0) {
-    // A transcript can be ALL superseded prompts — the operator rewrote every
-    // message before the agent answered any of them. Returning the bare
-    // empty-state here would silently discard the only content the session
-    // has, which is the exact failure this marker exists to prevent (PR #2449
-    // R1). The markers render on their own instead.
+    // Both empty states still render the host's tail (mt#3843). A conversation
+    // with no turns can be running RIGHT NOW — "Running <tool>" is precisely
+    // what explains why there is nothing to show yet — and before the tail
+    // became a prop the host rendered it as a sibling, so it appeared here.
+    // There are no floating controls to collide with, so `ThreadFooter` holds
+    // the tail alone.
     if (supersededGroups.length > 0) {
       return (
         <div className={cn("flex flex-col gap-3", className)}>
@@ -1072,15 +1138,55 @@ function ConversationThread({
           {supersededGroups.map((group) => (
             <SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />
           ))}
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
     return (
-      <p className={cn("text-sm text-muted-foreground", className)}>
-        This session has no conversational turns to display.
-      </p>
+      <div className={cn("flex flex-col gap-3", className)}>
+        <p className="text-sm text-muted-foreground">
+          This session has no conversational turns to display.
+        </p>
+        <ThreadFooter tail={tail} />
+      </div>
     );
   }
+
+  // Shown only once the conversation is long enough that the window mechanism
+  // engaged at all (mt#3688). Below INITIAL_TURNS every turn is rendered, so the
+  // native scrollbar already tells the truth and a floating readout would be
+  // chrome for its own sake.
+  const showPositionPill = visibleTurns.length > INITIAL_TURNS;
+  // Built as one node so `ThreadFooter` can distinguish "no floating controls"
+  // from "controls that happen to render nothing" — a `children` array of
+  // `false`s is still truthy, which would leave an empty padded box in the stack.
+  const floatingControls =
+    hasNewBelow || showPositionPill ? (
+      <>
+        {/* Return-to-newest (mt#3376). Rendered only while the operator is
+            scrolled up AND live content has arrived since — the two conditions
+            that together mean "you are missing something below". */}
+        {hasNewBelow && (
+          <button
+            type="button"
+            onClick={scrollToNewest}
+            data-testid="jump-to-newest"
+            className="pointer-events-auto mx-auto w-fit rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            New messages below ↓
+          </button>
+        )}
+        {showPositionPill && (
+          <ThreadPositionPill
+            fillRef={positionFillRef}
+            readoutRef={positionReadoutRef}
+            totalTurns={visibleTurns.length}
+            hiddenBefore={hiddenBefore}
+            onRevealFromStart={revealFromStart}
+          />
+        )}
+      </>
+    ) : null;
 
   return (
     // `[overflow-anchor:none]` opts the thread OUT of the browser's scroll
@@ -1145,40 +1251,23 @@ function ConversationThread({
         addressedBlockId: addressedTurn?.blockId,
         filmPath,
       })}
-      {/* Return-to-newest (mt#3376). Rendered only while the operator is
-          scrolled up AND live content has arrived since — the two conditions
-          that together mean "you are missing something below". Sticky so it
-          stays reachable while they keep reading. */}
-      {hasNewBelow && (
-        <button
-          type="button"
-          onClick={scrollToNewest}
-          data-testid="jump-to-newest"
-          className="sticky bottom-2 z-10 mx-auto w-fit rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          New messages below ↓
-        </button>
-      )}
-      {/* Shown only once the conversation is long enough that the window
-          mechanism engaged at all (mt#3688). Below INITIAL_TURNS every turn is
-          rendered, so the native scrollbar already tells the truth and a
-          floating readout would be chrome for its own sake. */}
-      {visibleTurns.length > INITIAL_TURNS && (
-        <ThreadPositionPill
-          fillRef={positionFillRef}
-          readoutRef={positionReadoutRef}
-          totalTurns={visibleTurns.length}
-          hiddenBefore={hiddenBefore}
-          onRevealFromStart={revealFromStart}
-        />
-      )}
-      {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
-          `scrollIntoView({block:"end"})` calls above align THIS sentinel's
-          bottom edge to the scrollport's bottom edge, which would park the
-          newest turn exactly where the tail's `sticky bottom-0` activity strip
-          floats — so the strip would cover the turn it is reporting on.
-          `scroll-margin-bottom` is honored by `scrollIntoView`, so this
-          reserves the strip's height without shifting anything in normal flow. */}
+      <ThreadFooter tail={tail} floating={floatingControls} />
+      {/* The end sentinel both `scrollIntoView({block:"end"})` calls target.
+          
+          `scroll-mb-8` was load-bearing under mt#3344, when the activity strip
+          was mounted BELOW this sentinel by the host: aligning the sentinel's
+          bottom to the scrollport's bottom would have parked the newest turn
+          exactly where the strip floated, so the reservation kept the strip
+          off the turn it reports on. mt#3843 moved the strip ABOVE the
+          sentinel into `thread-footer`, which removes that condition — the
+          sentinel is now the last element in the scrollport, so the margin has
+          no room left to consume and is inert.
+          
+          It is kept rather than deleted because `PINNED_THRESHOLD_PX`
+          (`lib/scroll-pinning.ts`) documents itself as this 32px plus 16px of
+          slack, and re-deriving that constant is mt#3455's subject, not this
+          task's. Retiring the class belongs in the same change that corrects
+          that derivation. */}
       <div ref={attachEnd} aria-hidden className="scroll-mb-8" />
     </div>
   );
@@ -1206,6 +1295,7 @@ function DrivenSessionThread({
   className,
   turnTarget,
   filmPath,
+  tail,
 }: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
@@ -1232,6 +1322,7 @@ function DrivenSessionThread({
       className={className}
       turnTarget={turnTarget}
       filmPath={filmPath}
+      tail={tail}
     />
   );
 }
@@ -1246,6 +1337,7 @@ function ConversationFetcher({
   className,
   turnTarget,
   filmPath,
+  tail,
 }: ConversationViewCommonProps & {
   sessionId: ConversationId;
   /**
@@ -1328,6 +1420,7 @@ function ConversationFetcher({
             </Link>{" "}
             and use its &ldquo;View conversation&rdquo; link to reach the transcript.
           </p>
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
@@ -1342,6 +1435,7 @@ function ConversationFetcher({
           <p className="max-w-md text-xs text-muted-foreground/70">
             &ldquo;{sessionId}&rdquo; is not a valid conversation id.
           </p>
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
@@ -1355,15 +1449,29 @@ function ConversationFetcher({
             Transcripts are ingested when a Claude Code session ends; this one may still be running,
             or its transcript was never ingested.
           </p>
+          {/* The most load-bearing of these branches for the tail (mt#3843):
+              a transcript is ingested when the harness session ENDS, so a
+              conversation that is running right now routinely has none — and
+              "Running <tool>" is the line that says the emptiness is liveness,
+              not absence. */}
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
     return (
-      <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+      <>
+        <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+        <ThreadFooter tail={tail} />
+      </>
     );
   }
   if (query.isLoading || !query.data) {
-    return <LoadingState message="Loading conversation…" className={className} />;
+    return (
+      <>
+        <LoadingState message="Loading conversation…" className={className} />
+        <ThreadFooter tail={tail} />
+      </>
+    );
   }
   return (
     <ConversationThread
@@ -1372,6 +1480,7 @@ function ConversationFetcher({
       className={className}
       turnTarget={turnTarget}
       filmPath={filmPath}
+      tail={tail}
     />
   );
 }
@@ -1406,6 +1515,7 @@ export function ConversationView(props: ConversationViewProps) {
         className={props.className}
         turnTarget={props.turnTarget}
         filmPath={props.filmPath}
+        tail={props.tail}
       />
     );
   }
@@ -1417,6 +1527,7 @@ export function ConversationView(props: ConversationViewProps) {
         className={props.className}
         turnTarget={props.turnTarget}
         filmPath={props.filmPath}
+        tail={props.tail}
       />
     );
   }
@@ -1429,6 +1540,7 @@ export function ConversationView(props: ConversationViewProps) {
       className={props.className}
       turnTarget={props.turnTarget}
       filmPath={props.filmPath}
+      tail={props.tail}
     />
   );
 }

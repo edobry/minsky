@@ -131,13 +131,21 @@ export function ThreadStartBoundary({
 /**
  * Where the reader sits in the WHOLE transcript, kept on screen.
  *
- * Sticky at the BOTTOM rather than the top, which is not an aesthetic choice:
+ * Lives at the BOTTOM rather than the top, which is not an aesthetic choice:
  * `ConversationView` is layout-agnostic by contract, and its hosts pin their own
  * chrome at `sticky top-0` (`RunDetail.tsx`, at a higher z-index), so a bar
  * stuck to the top of the scrollport would render underneath the host's and be
- * invisible. The bottom edge is the thread's own affordance zone — the
- * return-to-newest control already lives there — and needs no knowledge of the
- * host to be correct.
+ * invisible.
+ *
+ * It does NOT pin itself. Until mt#3843 it carried its own `sticky bottom-2
+ * z-10`, on the stated premise that "the bottom edge is the thread's own
+ * affordance zone... and needs no knowledge of the host to be correct." mt#3344
+ * falsified that by mounting a host-supplied activity strip in the same zone at
+ * the same `z-10`; being later in DOM order it painted over this pill, covering
+ * 16.5px of its 25px and swallowing the click meant for the `↑ start` button.
+ * Positioning is therefore the FOOTER's job now — `ThreadFooter` in
+ * `ConversationView.tsx` stacks this, the return-to-newest button, and the
+ * host's tail in one flex column. This component only says what it is.
  *
  * The track is the whole conversation: the fill is the reader's position, and
  * the ghosted leading segment is the part not rendered yet. That segment is the
@@ -162,7 +170,7 @@ export function ThreadPositionPill({
     <div
       // Pointer-events off so the pill never eats a click meant for the turn it
       // floats over; the controls inside opt back in.
-      className="pointer-events-none sticky bottom-2 z-10 ml-auto flex w-fit items-center gap-2 rounded-full border border-border bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm"
+      className="pointer-events-none ml-auto flex w-fit items-center gap-2 rounded-full border border-border bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm"
       data-testid="thread-position"
     >
       <span className="relative block h-1 w-24 overflow-hidden rounded-full bg-muted">

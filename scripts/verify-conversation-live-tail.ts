@@ -176,10 +176,20 @@ async function readState(ws: WebSocket): Promise<ThreadState> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Resolve the scrollport the component itself resolved — same rule as `findScrollParent`. */
+/**
+ * Resolve the scrollport the component itself resolved — same rule as `findScrollParent`.
+ *
+ * Anchored on the thread's own testid, the app-owned handle added for exactly
+ * this purpose (PR #2693 R1). It used to start from the `scroll-mb-8` sentinel,
+ * which is a CLASS FRAGMENT and therefore breaks silently on any unrelated
+ * markup change — and a geometry check that cannot find its scrollport falls
+ * back to a non-scrolling `document.scrollingElement` and reports a measurement
+ * rather than a failure. `verify-conversation-turn-target.ts` already used the
+ * testid; mt#3843 brought the remaining sibling scripts onto it so all of them
+ * resolve the same element the same way.
+ */
 const RESOLVE_PORT = `
-  const sentinel = document.querySelector('div[aria-hidden][class*="scroll-mb-8"]');
-  let port = sentinel ? sentinel.parentElement : null;
+  let port = document.querySelector('[data-testid="conversation-thread"]');
   while (port) {
     const s = getComputedStyle(port);
     const scrolls = ["auto","scroll","overlay"].includes(s.overflowY) || ["auto","scroll","overlay"].includes(s.overflow);
