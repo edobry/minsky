@@ -254,6 +254,7 @@ describe("MinskyTaskBackend timestamp surfacing (mt#2259)", () => {
     expect(task.createdAt).toBeInstanceOf(Date);
     expect(task.updatedAt).toBeInstanceOf(Date);
     // The returned object uses the same `now` written to the row — no drift.
+    if (task.updatedAt === undefined) throw new Error("expected updatedAt to be set");
     expect(task.createdAt).toEqual(task.updatedAt);
   });
 });

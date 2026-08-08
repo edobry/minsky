@@ -69,6 +69,16 @@ jobs:
       - name: Type check (scripts)
         run: bun run typecheck:scripts
 
+      # mt#3102: `packages/**` test files were in NO tsconfig program — the root
+      # `include` omits `packages`, and package SOURCE only entered a program via
+      # import reachability from `src/` (which never reaches a test file, nor a
+      # source file exported only through a barrel). A compile-time assertion
+      # written there was therefore inert. `if: always()` mirrors the reviewer
+      # steps so the gate holds regardless of earlier-step failures.
+      - name: Type check (packages)
+        if: ${{ always() }}
+        run: bun run typecheck:packages
+
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.

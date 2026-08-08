@@ -14,9 +14,21 @@ mt#1763 (`import.meta.url`-relative path resolution outside `/app`),
 mt#1785 (env-var-namespace conflict crashing the config loader).
 
 **Workflow file:** `.github/workflows/bundle-boot-smoke.yml` — runs
-`bun install --frozen-lockfile && bun run build && bun dist/minsky.js
+`bun install --frozen-lockfile && bun run build && bun run dist/minsky.js
 mcp start --http --host=127.0.0.1 --port=<random>`, then polls
-`GET /health` for up to 30s and fails if it does not respond 200.
+`GET /health` for up to 30s and fails if it does not respond 200. A second
+step boots the same bundle through `scripts/cli-entry.ts`, the way an
+installed `minsky` invocation does (mt#3735) — a different code path, and
+only the first was gated when that regression shipped.
+
+**The boot command is deliberately bare.** From mt#3561 until mt#3680 both
+this step and `Dockerfile`'s CMD passed `--preload reflect-metadata`,
+because the bundle could not otherwise install the polyfill before tsyringe
+evaluated. mt#3680 moved the polyfill inside the bundle and both dropped the
+flag. Do not add it back here: a preloaded invocation boots whether or not
+the bundle is self-sufficient, so it would leave this gate passing on a
+bundle that cannot boot as shipped — which is exactly how the original
+defect stayed invisible.
 
 **Hook integration:** the merge gate feeds a check-runs response through
 `parseBundleBootSmokeResponse` + `evaluateBundleBootSmokePresence`. As of

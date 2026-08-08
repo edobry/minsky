@@ -8,21 +8,26 @@ import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
 <section class="hero">
   <div class="hero-grid">
     <div class="hero-caption">
-      <p class="eyebrow">Minsky · cyberbrain substrate</p>
+      <p class="eyebrow">Minsky</p>
       <h1 class="hero-headline tracking-display">
-        The cyberbrain for software organizations.
+        Software engineering isn't ending. It's moving into the environment.
       </h1>
       <p class="hero-sub">
-        Minsky orchestrates tasks, sessions, and review across a flock of
-        agents — a substrate that extends one principal's cognition, not a
-        synthetic workforce that replaces your team.
+        AI agents can write the code; Minsky is the engineering organization
+        around them — task tracking, isolated workspaces, adversarial review,
+        durable memory, and decision routing, built into the environment
+        itself.
+      </p>
+      <p class="hero-concrete">
+        A CLI, an MCP server, and a web cockpit. Self-hosted, provider-agnostic,
+        Git-native.
       </p>
       <div class="hero-cta-row">
-        <CtaButton href="https://github.com/edobry/minsky" variant="primary" external>
-          Read the code
+        <CtaButton href="/get-started" variant="primary">
+          Get started
         </CtaButton>
-        <CtaButton href="#substrate" variant="secondary">
-          See the substrate
+        <CtaButton href="https://github.com/edobry/minsky" variant="secondary" external>
+          GitHub
         </CtaButton>
       </div>
     </div>
@@ -30,7 +35,7 @@ import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
       <ProductFrame>
         <Picture
           src={heroImage}
-          alt="Real CLI output: this task's own session lifecycle, from session get through PR creation"
+          alt="Real CLI output: a task's session lifecycle, from start through PR creation"
           formats={["avif", "webp"]}
           fallbackFormat="png"
           width={heroImage.width > 900 ? 900 : heroImage.width}
@@ -85,6 +90,15 @@ import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
     font-size: 1.125rem;
     line-height: 1.55;
     color: var(--color-text-muted);
+    max-width: 32rem;
+    margin: 0;
+  }
+
+  .hero-concrete {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-text-subtle);
     max-width: 32rem;
     margin: 0;
   }

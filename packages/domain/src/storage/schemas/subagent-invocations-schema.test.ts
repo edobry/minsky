@@ -58,7 +58,10 @@ describe("SubagentInvocationOutcome enum", () => {
     // @ts-expect-error — `pending` must NOT be assignable to the terminal (classifier) type.
     const notTerminal: TerminalSubagentInvocationOutcome = "pending";
     expect(terminal).toBe(A_TERMINAL_OUTCOME);
-    expect(notTerminal).toBe("pending");
+    // Widen for the runtime comparison: `notTerminal` is declared as the
+    // terminal union (the `@ts-expect-error` above is the actual assertion),
+    // so `toBe` would otherwise reject the non-member literal.
+    expect(notTerminal as string).toBe("pending");
   });
 
   test("`pending` cannot reach an escalation threshold — the doc claim, pinned (PR #2501 R1)", () => {

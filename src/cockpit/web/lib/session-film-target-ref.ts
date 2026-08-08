@@ -167,3 +167,81 @@ export function isSelfReferenceTarget(target: TargetLike, subjectAgentId: string
 
 /** Compact self-reference label — an inward glyph, never the raw repeated agent id (spec SC 1). */
 export const SELF_REFERENCE_LABEL = "↳ self";
+
+// ── Where a target can be OPENED (mt#3793) ───────────────────────────────────
+//
+// {@link parseRoutableTarget} answers "does this have an EntityRef?" and returns
+// `null` for everything else — which is correct for the ribbon, where a
+// non-routable target simply renders as text. It is NOT sufficient for the
+// stage's detail panel, where `null` has to be told apart from a real
+// destination and then EXPLAINED: an operator who clicks a node and sees a bare
+// label with no link cannot distinguish "this has a page and we failed to link
+// it" from "nothing in cockpit addresses this." Both looked identical before
+// this, so the panel silently trained the operator to keep clicking.
+//
+// The honest answer for most film targets is the second one, and it needs to be
+// SAID. `kind: "none"` therefore carries a plain-language `className` naming
+// what the target actually is, rather than an absence.
+
+/** Where a stage node's target can be opened, or why it cannot be. */
+export type TargetDestination =
+  /** Opens in cockpit at `entityToPath(type, id)`. */
+  | { kind: "entity"; type: RoutableEntityType; id: string }
+  /** The film's own subject acting on itself — deliberately not a link (see {@link isSelfReferenceTarget}). */
+  | { kind: "self" }
+  /**
+   * No cockpit page addresses this target. `className` is a plain-language
+   * noun for what it IS ("repo file", "shell command") — the panel says so
+   * rather than rendering a dead-looking label.
+   */
+  | { kind: "none"; className: string };
+
+/**
+ * Plain-language name for what a non-routable target is, keyed by the realm
+ * and the composite-id shape `event-adapter.ts` produces for it.
+ *
+ * ## Why `agents:` is NOT a conversation link (mt#3793)
+ *
+ * This looked like the one non-substrate realm with an obvious destination —
+ * a spawned subagent has a conversation, and `RoutableEntityType` already
+ * includes `conversation`. It does not hold, and the reason is in the adapter:
+ * `agentSpawnTargetExtractor` (`event-adapter.ts`) builds its target from the
+ * tool INPUT's `subagent_type`, so a spawn target is `agents:Explore` — an
+ * agent KIND, not any child's session id. `skillTargetExtractor` likewise
+ * emits `agents:skill:<name>`. The only `agents:<agentSessionId>` target is
+ * the film's own subject (`emitSimpleEvent`), which is elided as a
+ * self-reference. So the child's conversation id is never in the event stream
+ * to link to — it lives in the Agent tool's RESULT, which no extractor reads.
+ * Carrying it is an adapter change, tracked separately; until then these are
+ * honestly no-page targets and say so.
+ */
+function nonRoutableClassName(target: TargetLike): string {
+  const { realm, id } = target;
+  if (realm === "unknown") return "unrecognized tool";
+  if (realm === "repo") return id.startsWith("file:") ? "repo file" : "repo path";
+  if (realm === "web") return "web domain";
+  if (realm === "notion") return "Notion page";
+  if (realm === "shell") return "shell command";
+  if (realm === "agents") {
+    if (id.startsWith("agents:skill:")) return "skill";
+    return "subagent kind";
+  }
+  // A minsky-substrate target that `parseRoutableTarget` rejected: an entity
+  // kind with no routable counterpart, or the adapter's "unknown" ref.
+  return "Minsky entity with no page";
+}
+
+/**
+ * Resolve where a selected stage node can be opened. Total over every target —
+ * unlike {@link parseRoutableTarget}, every input yields an answer the panel
+ * can render, so "no destination" is a statement rather than a missing link.
+ */
+export function resolveTargetDestination(
+  target: TargetLike,
+  subjectAgentId: string | null
+): TargetDestination {
+  if (isSelfReferenceTarget(target, subjectAgentId)) return { kind: "self" };
+  const routable = parseRoutableTarget(target);
+  if (routable) return { kind: "entity", type: routable.type, id: routable.id };
+  return { kind: "none", className: nonRoutableClassName(target) };
+}

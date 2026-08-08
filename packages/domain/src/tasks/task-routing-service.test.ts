@@ -108,8 +108,8 @@ describe("TaskRoutingService dependency-completeness treats CLOSED as terminal (
     const result = await service.findAvailableTasks({ statusFilter: ["TODO"] });
 
     expect(result).toHaveLength(1);
-    expect(result[0].blockedBy).toEqual([]);
-    expect(result[0].readinessScore).toBe(1.0);
+    expect(result[0]?.blockedBy).toEqual([]);
+    expect(result[0]?.readinessScore).toBe(1.0);
   });
 
   test("generateRoute: a task whose sole dependency is CLOSED is routable (not blocked)", async () => {

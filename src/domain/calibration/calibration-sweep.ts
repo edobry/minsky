@@ -690,7 +690,7 @@ export interface SharedCalibrationFields {
    * | detector | reasons |
    * | --- | --- |
    * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
-   * | `wall-of-text` | `depth-request-override` |
+   * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
    * | `untaken-action` | (none — see below) |
    * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
    * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
@@ -1334,6 +1334,11 @@ const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
   "session_id",
   "suppressionReasons",
+  // mt#3607's capture-schema marker. It says the record's judged input WAS
+  // captured; it is not itself something to judge a fire by. Listing it here
+  // keeps a hypothetical record carrying the marker and nothing else from
+  // reporting `classifiable` on the strength of its own bookkeeping.
+  "captureSchema",
 ]);
 
 /**
@@ -1433,6 +1438,14 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     const passthrough = (record as SharedCalibrationFields).detectorFields;
     if (passthrough) {
       for (const [key, value] of Object.entries(passthrough)) {
+        // NON_EVIDENCE_KEYS applies on BOTH levels (PR #2679 R1). The top-level
+        // check alone is not enough, and for a NEW bookkeeping key it is not
+        // even the path that runs: `parseDetectorFields` treats every key no
+        // per-kind branch named as passthrough, so a key like `captureSchema`
+        // reaches this loop rather than the one above — for every log at once.
+        // Excluding it in only one place would have left the marker counted as
+        // evidence everywhere it actually appears.
+        if (NON_EVIDENCE_KEYS.has(key)) continue;
         if (isVacuousEvidence(value)) continue;
         fields.add(`detectorFields.${key}`);
       }

@@ -32,6 +32,8 @@ import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan } from "../lib/injected-content";
 import { isApiErrorText } from "../lib/conversation-outcome";
+import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
+import { FilmMomentLink } from "./FilmMomentLink";
 
 // ── Shared element types ─────────────────────────────────────────────────────
 
@@ -185,15 +187,30 @@ export function ToolInvocation({
   result,
   entityIndex,
   expandSignal,
+  isAddressed,
+  filmPath,
+  turnIndex,
 }: {
   call: ToolCallElement;
   result?: ToolResultElement;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /** This call's transcript position — the other half of its address (mt#3794). */
+  turnIndex?: number;
+  /**
+   * This call is what a turn address named (mt#3791) — the reader arrived here
+   * from a film row for THIS call, so it opens and marks itself.
+   */
+  isAddressed?: boolean;
 }) {
   const isError = result?.isError === true;
-  // Errors default expanded; everything else collapsed (mt#2790 design direction).
-  const [open, setOpen] = useState(isError);
+  // Errors default expanded; everything else collapsed (mt#2790 design
+  // direction). An addressed call also opens: the reader clicked through from a
+  // ribbon row that was already showing this call's params and result, so
+  // landing on a collapsed row would hide the thing they navigated to.
+  const [open, setOpen] = useState(isError || isAddressed === true);
   // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
   // identity change — `expandSignal` is a fresh object per click by design.
   const expandEpoch = expandSignal?.epoch;
@@ -228,9 +245,14 @@ export function ToolInvocation({
 
   return (
     <div
+      // The anchor a tool-grain turn address resolves to (mt#3791). Rendered
+      // unconditionally, not only when addressed: an address arriving later
+      // must find an element that is already anchored.
+      {...{ [TOOL_USE_ANCHOR_ATTR]: call.id }}
       className={cn(
         "rounded border",
-        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5"
+        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5",
+        isAddressed && ADDRESSED_MARK_CLASS
       )}
     >
       {/*
@@ -240,7 +262,7 @@ export function ToolInvocation({
         inconsistently — so the row is a flex container holding the toggle and the
         badge as siblings, rather than one button wrapping both.
       */}
-      <div className="flex w-full items-center">
+      <div className="group/call flex w-full items-center">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -273,6 +295,20 @@ export function ToolInvocation({
           </span>
         </button>
         {call.spawn && <SpawnBadge spawn={call.spawn} />}
+        {/*
+          Tool-grain film link (mt#3794), a SIBLING of the toggle for the same
+          reason the spawn badge is one: an anchor nested inside a button is
+          invalid HTML that browsers and screen readers handle inconsistently.
+          Carries `toolUseId` as well as the turn, so a parallel batch resolves
+          to THIS call rather than whichever one the adapter emitted first.
+        */}
+        {filmPath !== undefined && turnIndex !== undefined && (
+          <FilmMomentLink
+            address={{ turnIndex, toolUseId: call.id }}
+            filmPath={filmPath}
+            className="mr-1 group-hover/call:opacity-100"
+          />
+        )}
       </div>
       {open && (
         <div className="border-t border-border/40">
@@ -492,13 +528,26 @@ export function ElementView({
   role,
   entityIndex,
   expandSignal,
+  addressedToolUseId,
+  filmPath,
+  turnIndex,
 }: {
   element: PreparedElement;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /** This turn's transcript position — half of every address built here (mt#3794). */
+  turnIndex?: number;
   /** Turn role — scopes assistant-only treatments (e.g. API-error styling). */
   role: ConversationRole;
   /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /**
+   * The `tool_use` id a turn address named, when this turn is the addressed one
+   * (mt#3791). Only a matching tool call marks itself; every other element
+   * renders exactly as it does with no address at all.
+   */
+  addressedToolUseId?: string;
 }) {
   switch (element.kind) {
     case "text": {
@@ -550,6 +599,11 @@ export function ElementView({
           result={element.result}
           entityIndex={entityIndex}
           expandSignal={expandSignal}
+          isAddressed={
+            addressedToolUseId !== undefined && element.call.id === addressedToolUseId
+          }
+          filmPath={filmPath}
+          turnIndex={turnIndex}
         />
       );
     case "tool-result-orphan":

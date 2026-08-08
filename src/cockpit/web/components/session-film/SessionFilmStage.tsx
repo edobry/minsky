@@ -4,7 +4,7 @@
  *
  * SVG scene: the collapsed world-forest (via `computeStageLayout`), avatar
  * figures making excursions from home to their current target, outcome
- * physics per node (in-flight/ok/error/denied), and a policy-actor marker
+ * physics per node (unresolved/ok/error/denied), and a policy-actor marker
  * for guard denials. Pan/zoom is its OWN input channel (`PanZoomSVG`,
  * mt#2380) — page scroll stays reserved for the playhead (spec SC 6).
  *
@@ -106,18 +106,29 @@
  * @see PanZoomSVG.tsx — ambient camera drift
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EventOutcome } from "@minsky/domain/transcripts/event-schema";
+import type { EventOutcome, SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { PanZoomSVG } from "../PanZoomSVG";
 import type { StageLayout } from "../../lib/session-film-layout";
 import type { AgentFoldState, EntityFoldState, WorldFoldState } from "../../lib/session-film-fold";
+import type { BatchRow } from "../../lib/session-film-batches";
 import { guardDocReceiptPath } from "../../lib/session-film-links";
-import { parseRoutableTarget } from "../../lib/session-film-target-ref";
+import {
+  deriveFilmSubjectAgentId,
+  resolveTargetDestination,
+  targetDisplayLabel,
+} from "../../lib/session-film-target-ref";
+import { buildEntityHistory } from "../../lib/session-film-entity-history";
+import { verbLabelFor } from "../../lib/tool-icon";
 import { EntityRef } from "../EntityRef";
 import {
   computeTouchedSetContourPath,
   touchedSetContourColorClass,
 } from "../../lib/session-film-contour";
-import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
+import {
+  DEFAULT_SESSION_FILM_CONFIG,
+  type SessionFilmConfig,
+  UNRESOLVED_OUTCOME_LABEL,
+} from "../../lib/session-film-config";
 import { bloomOpacity, bloomStdDeviation, computeGlowBrightness } from "../../lib/session-film-aliveness";
 import {
   beamClassName,
@@ -190,11 +201,51 @@ export interface SessionFilmStageProps {
    * (existing tests, standalone usage) get camera-follow unsuppressed.
    */
   scrollSuppressed?: boolean;
+  /**
+   * The film's ordered event stream and its batch-row grouping (mt#3793) —
+   * what the detail panel needs to show an entity's HISTORY rather than only
+   * the fold's single latest verb. Optional so the stage still renders
+   * standalone (and so existing tests keep their call shape); with them
+   * absent the panel degrades to the folded summary it always showed.
+   */
+  events?: readonly SemanticEvent[];
+  batchRows?: readonly BatchRow[];
+  /**
+   * The playhead's current row, which BOUNDS the panel's history (mt#3793).
+   * Without it the panel lists actions from later in the film than the world
+   * the stage is drawing — and contradicts the fold's `touchCount` beside them.
+   * See `buildEntityHistory`'s doc for why the bound lives here rather than the
+   * count being widened.
+   */
+  playheadRowIndex?: number;
+  /**
+   * Move the playhead to a batch row — how a history line becomes clickable
+   * (mt#3793). Owned by the parent because the playhead is the parent's state
+   * (`SessionFilm.tsx`); the stage only names a destination row. Absent means
+   * history lines render as static text rather than buttons, which is the
+   * honest degradation: without this the click could not do anything.
+   */
+  onSeekToRow?: (rowIndex: number) => void;
   className?: string;
 }
 
+/**
+ * Clock-time label for a touch timestamp (mt#3793). Falls back to the raw ISO
+ * string on an unparsable value rather than rendering "Invalid Date" — a wrong
+ * timestamp the operator can still read beats a word that tells them nothing.
+ */
+export function formatTouchTime(iso: string): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function outcomeClassName(outcome: EventOutcome | undefined): string {
-  if (outcome === undefined) return "fill-warn-amber"; // unpaired = in-flight (never silently "ok")
+  if (outcome === undefined) return "fill-warn-amber"; // unpaired = unresolved (never silently "ok")
   if (outcome === "error") return "fill-warn-red";
   if (outcome === "denied") return "fill-warn-red";
   return "fill-signal-cyan";
@@ -233,7 +284,7 @@ function spawnKindLabel(raw: unknown): string {
  */
 function nodeTooltipText(label: string, realm: string, entity: EntityFoldState | undefined): string {
   if (!entity) return label;
-  const outcome = entity.lastOutcome ?? "in-flight";
+  const outcome = entity.lastOutcome ?? UNRESOLVED_OUTCOME_LABEL;
   return `${label} (${realm}) — ${entity.lastVerb} · ${outcome}`;
 }
 
@@ -283,6 +334,10 @@ export function SessionFilmStage({
   config = DEFAULT_SESSION_FILM_CONFIG,
   nowIso,
   scrollSuppressed = false,
+  events,
+  batchRows,
+  playheadRowIndex,
+  onSeekToRow,
   className,
 }: SessionFilmStageProps) {
   // Living layout (mt#3231 SC 4): every downstream reference to `layout`
@@ -321,7 +376,31 @@ export function SessionFilmStage({
     setInternalSelectedEntityId(null);
   }, [onSelectEntity]);
   const selectedEntity = effectiveSelectedEntityId ? world.entities.get(effectiveSelectedEntityId) : undefined;
-  const selectedRoutable = selectedEntity ? parseRoutableTarget(selectedEntity) : null;
+  // The film's own subject, so the panel can name "This agent" in history lines
+  // and elide a self-target rather than linking it. Derived here (not threaded
+  // from the parent) for the same reason the ribbon derives its own copy: it is
+  // a pure function of the event stream this component already receives.
+  const subjectAgentId = useMemo(
+    () => (events ? deriveFilmSubjectAgentId(events) : null),
+    [events]
+  );
+  const selectedDestination = selectedEntity
+    ? resolveTargetDestination(selectedEntity, subjectAgentId)
+    : null;
+  // Recomputed only when the SELECTION changes, not on every animation frame —
+  // this component re-renders on the ambient clock, and a full pass over the
+  // event stream per tick would be paid continuously for a panel that is
+  // usually closed.
+  const selectedHistory = useMemo(() => {
+    if (!selectedEntity || !events || !batchRows) return [];
+    return buildEntityHistory(
+      events,
+      batchRows,
+      selectedEntity.id,
+      subjectAgentId,
+      playheadRowIndex
+    );
+  }, [selectedEntity, events, batchRows, subjectAgentId, playheadRowIndex]);
 
   // Esc + click-outside dismissal (mt#3231 review R1, BLOCKING — "add a
   // working close (X / Esc / click-outside)"). Scoped to a `pointerdown`
@@ -941,14 +1020,32 @@ export function SessionFilmStage({
           `onSelectEntity` fired in v1.1 with nothing downstream — this panel
           IS the consumer. Rendered as an HTML overlay (not SVG) sibling to
           PanZoomSVG so it stays screen-fixed regardless of pan/zoom. */}
-      {selectedEntity ? (
+      {selectedEntity && selectedDestination ? (
         <div
           ref={detailPanelRef}
           data-testid="session-film-entity-detail-panel"
-          className="absolute bottom-2 left-2 z-10 max-w-xs rounded border border-border bg-card p-2 text-xs shadow-sm"
+          className="absolute bottom-2 left-2 z-10 flex max-h-[60%] w-72 flex-col rounded border border-border bg-card text-xs shadow-sm"
         >
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="truncate font-mono font-semibold text-foreground">{selectedEntity.id}</span>
+          <div className="flex items-start justify-between gap-2 border-b border-border p-2">
+            <div className="min-w-0">
+              {/* The readable label leads; the raw composite id follows in full
+                  and WRAPS rather than truncating. A truncated `file:src/…`
+                  answers neither "what is this?" nor "which one?" — the two
+                  questions a click is asking. */}
+              {/* A routable entity's readable name is its own ref (`mt#3795`),
+                  not the composite `minsky:task:mt#3795` the display-label
+                  fallback yields for this realm — which printed the same ugly
+                  string twice, once as the heading and once as the id beneath
+                  (seen live before this). */}
+              <div className="truncate font-semibold text-foreground">
+                {selectedDestination.kind === "entity"
+                  ? selectedDestination.id
+                  : targetDisplayLabel(selectedEntity)}
+              </div>
+              <div className="break-all font-mono text-[10px] text-muted-foreground">
+                {selectedEntity.id}
+              </div>
+            </div>
             <button
               type="button"
               aria-label="Close entity detail"
@@ -958,15 +1055,70 @@ export function SessionFilmStage({
               ×
             </button>
           </div>
-          <div className="text-muted-foreground">
-            {selectedEntity.realm} · {selectedEntity.lastVerb} ·{" "}
-            {selectedEntity.lastOutcome ?? "in-flight"}
-          </div>
-          {selectedRoutable ? (
-            <div className="mt-1">
-              <EntityRef type={selectedRoutable.type} id={selectedRoutable.id} />
+
+          <div className="space-y-1 border-b border-border p-2 text-muted-foreground">
+            <div>
+              {selectedEntity.realm} · touched {selectedEntity.touchCount}{" "}
+              {selectedEntity.touchCount === 1 ? "time" : "times"} ·{" "}
+              {selectedEntity.lastOutcome ?? UNRESOLVED_OUTCOME_LABEL}
             </div>
-          ) : null}
+            {/* First/last touched, from the fold rather than recomputed from the
+                history above — the two must agree, and deriving both from one
+                place is what makes that structural. Clock time only: a film is
+                read within one session, so the date is noise on every line. */}
+            <div data-testid="session-film-entity-touch-span">
+              first {formatTouchTime(selectedEntity.firstTouchedAt)} · last{" "}
+              {formatTouchTime(selectedEntity.lastTouchedAt)}
+            </div>
+            {/* Destination, stated in every case. `none` SAYS there is no page
+                rather than rendering nothing, which is indistinguishable from a
+                link we failed to draw. */}
+            {selectedDestination.kind === "entity" ? (
+              <EntityRef type={selectedDestination.type} id={selectedDestination.id} />
+            ) : selectedDestination.kind === "self" ? (
+              <div>This film&rsquo;s own subject — no separate page.</div>
+            ) : (
+              <div data-testid="session-film-entity-no-page">
+                No cockpit page — this is a {selectedDestination.className}.
+              </div>
+            )}
+          </div>
+
+          {/* The history. Scrolls INSIDE the panel: a long-lived entity can be
+              touched dozens of times, and a panel that grew with its history
+              would swallow the stage it is annotating. */}
+          <div
+            className="min-h-0 flex-1 overflow-y-auto p-1"
+            data-testid="session-film-entity-history"
+          >
+            {selectedHistory.length === 0 ? (
+              <div className="p-1 text-muted-foreground">No recorded actions.</div>
+            ) : (
+              selectedHistory.map((entry) => {
+                const label = `${entry.actorLabel} · ${verbLabelFor(entry.verb)} · ${
+                  entry.outcome ?? UNRESOLVED_OUTCOME_LABEL
+                }`;
+                return onSeekToRow ? (
+                  <button
+                    key={entry.eventIndex}
+                    type="button"
+                    className="block w-full truncate rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => onSeekToRow(entry.rowIndex)}
+                    title={`Go to this moment (row ${entry.rowIndex})`}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <div
+                    key={entry.eventIndex}
+                    className="truncate px-1 py-0.5 text-muted-foreground"
+                  >
+                    {label}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       ) : null}
       {/* Real hover tooltip (mt#3258 SC 2, TOP priority): IMMEDIATE (no

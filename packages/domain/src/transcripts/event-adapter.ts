@@ -23,8 +23,14 @@
  * ## Pairing algorithm (RFC Amendment 1)
  *
  * Per-call `t_end`/`outcome` come from pairing each assistant-line `tool_use`
- * block with the matching `tool_result` block carried in the IMMEDIATELY
- * FOLLOWING user-role line (matched on `tool_use.id === tool_result.tool_use_id`).
+ * block with its `tool_result` block, matched on
+ * `tool_use.id === tool_result.tool_use_id` ANYWHERE in the transcript —
+ * `indexToolResults` builds that map in one pass up front. Position is not
+ * part of the key: see that function's doc for why the original
+ * immediately-following-line search silently lost every parallel batch
+ * (mt#3795). A call whose result appears nowhere in the transcript stays
+ * unresolved (`tEnd`/`outcome` absent), which is the honest reading — see
+ * `event-schema.ts`'s note on `outcome`.
  * All `tool_use` blocks on one assistant line share one `batchId` and one
  * `tStart` — this is the parallel-tool-batch signal; this adapter never
  * synthesizes an order within a batch.
@@ -668,6 +674,46 @@ function makeBatchId(msg: TranscriptMessage, index: number): string {
   return msg.uuid ? `batch:${msg.uuid}` : `batch:line-${index}`;
 }
 
+// ── Tool-result index ─────────────────────────────────────────────────────────
+
+/** One `tool_result` block plus the timestamp of the line that carried it. */
+interface ToolResultRef {
+  block: ContentBlock;
+  timestamp: string | undefined;
+}
+
+/**
+ * Index every `tool_result` in the transcript by its `tool_use_id` (mt#3795).
+ *
+ * Pairing is by IDENTIFIER, not position: a `tool_result` block carries the
+ * `tool_use_id` of the call it answers, and the harness makes no promise about
+ * WHICH line carries it. The prior implementation searched only the line
+ * immediately following the call and required it to be user-role, which loses
+ * every call in a parallel batch — the harness writes those as consecutive
+ * assistant lines, so the first call's next line is another call and the
+ * second call's next line carries the FIRST call's result. Both then emitted
+ * with `outcome: undefined` (unresolved) despite their results sitting a line
+ * or two later, which additionally dropped them from the Gource export
+ * (`gource-exporter.ts` keeps only `outcome === "ok"`).
+ *
+ * First occurrence wins on a duplicate id — ids are unique per transcript in
+ * practice, and preferring the earliest keeps the mapping stable under a
+ * re-ingest that appends.
+ */
+function indexToolResults(messages: readonly TranscriptMessage[]): Map<string, ToolResultRef> {
+  const byId = new Map<string, ToolResultRef>();
+  for (const msg of messages) {
+    if (msg.type !== "user") continue;
+    for (const block of normalizeContent(resolveInnerContent(msg))) {
+      if (block.type !== "tool_result") continue;
+      if (typeof block.tool_use_id !== "string") continue;
+      if (byId.has(block.tool_use_id)) continue;
+      byId.set(block.tool_use_id, { block, timestamp: msg.timestamp });
+    }
+  }
+  return byId;
+}
+
 // ── Event emission ────────────────────────────────────────────────────────────
 
 function emitSimpleEvent(
@@ -760,6 +806,7 @@ export function adaptTranscriptToEvents(
   context: AdapterContext
 ): SemanticEvent[] {
   const events: SemanticEvent[] = [];
+  const resultsById = indexToolResults(messages);
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -770,18 +817,6 @@ export function adaptTranscriptToEvents(
       const blocks = normalizeContent(resolveInnerContent(msg));
       const batchId = makeBatchId(msg, i);
       const tStart = msg.timestamp ?? "";
-
-      const next = messages[i + 1];
-      const nextIsUser = next?.type === "user";
-      const resultBlocks =
-        nextIsUser && next
-          ? normalizeContent(resolveInnerContent(next)).filter((b) => b.type === "tool_result")
-          : [];
-      const resultById = new Map<string, ContentBlock>();
-      for (const rb of resultBlocks) {
-        if (typeof rb.tool_use_id === "string") resultById.set(rb.tool_use_id, rb);
-      }
-      const resultTimestamp = nextIsUser ? next?.timestamp : undefined;
 
       for (const block of blocks) {
         if (
@@ -817,12 +852,12 @@ export function adaptTranscriptToEvents(
             )
           );
         } else if (block.type === "tool_use" && typeof block.id === "string") {
-          const resultBlock = resultById.get(block.id);
+          const result = resultsById.get(block.id);
           events.push(
             ...emitToolCallEvents(
               block,
-              resultBlock,
-              resultTimestamp,
+              result?.block,
+              result?.timestamp,
               batchId,
               tStart,
               context,

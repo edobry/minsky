@@ -2335,7 +2335,7 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). mt#3121: if a DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively working the task), returns status: \"contested\" WITHOUT consuming an attempt, since redispatching would collide with that live actor. If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
           "arguments": [
             {
               "name": "taskId",
@@ -3574,7 +3574,7 @@
                 },
                 {
                   "flags": ["--require-current-head"],
-                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself mean the returned review is the reviewer's STANDING VERDICT. Several reviews from one reviewer can sit on the same HEAD, in which case this filter admits all of them; the tool separately resolves the reviewer's latest decision-bearing review and returns that, whatever its state."
                 },
                 {
                   "flags": ["--full-body"],
@@ -4783,7 +4783,7 @@
               "subcommands": [
                 {
                   "name": "credentials.list",
-                  "description": "List configured credentials (values never displayed)",
+                  "description": "List credential entries: managed providers plus schema-defined AI provider keys (presence only, values never displayed). Use `ai providers list` for AI provider status.",
                   "options": [
                     {
                       "flags": ["--json"],
@@ -5000,6 +5000,10 @@
               "flags": ["--model"],
               "description": "Model to use for fast-apply",
               "takesValue": true
+            },
+            {
+              "flags": ["--allow-shrink"],
+              "description": "Override the collapse guard, which refuses a fast-apply result dramatically smaller than the original file. Set true only when the large deletion is intentional."
             },
             {
               "flags": ["--dry-run"],
@@ -7727,6 +7731,16 @@
         {
           "name": "restart",
           "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+        },
+        {
+          "name": "url",
+          "description": "Print the base URL of the running cockpit serving this workspace",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output the full cockpit state as JSON"
+            }
+          ]
         }
       ]
     },

@@ -33,6 +33,18 @@ type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
 
 /**
+ * Fetch's CALL SIGNATURE only — what a wrapper actually needs from its base.
+ *
+ * Not `typeof fetch`: under bun-types the global additionally carries
+ * `preconnect`, which no plain stub or wrapper can supply, so a
+ * `typeof fetch`-typed parameter is unmockable. Same narrowing as
+ * `FetchFn` in `notify/telegram-transport.ts`. The RETURN type stays
+ * `typeof fetch` because callers hand the result to Octokit's
+ * `request.fetch` option, which demands the full global shape.
+ */
+export type FetchLike = (input: FetchInput, init?: FetchInit) => Promise<Response>;
+
+/**
  * Wrap `baseFetch` so each call is aborted after `timeoutMs`. A caller-supplied
  * `init.signal` is chained, so external aborts (e.g. Octokit's own request
  * signal) still propagate. The timer is always cleared once the request settles.
@@ -42,7 +54,7 @@ type FetchInit = Parameters<typeof fetch>[1];
  */
 export function createTimeoutFetch(
   timeoutMs: number = GITHUB_REQUEST_TIMEOUT_MS,
-  baseFetch: typeof fetch = fetch
+  baseFetch: FetchLike = fetch
 ): typeof fetch {
   const timeoutFetch = (input: FetchInput, init?: FetchInit): Promise<Response> => {
     const controller = new AbortController();

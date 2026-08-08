@@ -382,6 +382,10 @@ describe("claudeHooksTarget — idempotency", () => {
     await target.compile({}, WORKSPACE, fakeFs2);
     const secondOutput = fakeFs2.written[outPath];
 
+    // Assert presence separately — two `undefined`s compare equal, so this
+    // would pass vacuously if the target stopped writing the file at all.
+    expect(firstOutput).toBeDefined();
+    if (secondOutput === undefined) throw new Error(`nothing written to ${outPath}`);
     expect(firstOutput).toBe(secondOutput);
   });
 });

@@ -15,8 +15,12 @@
 
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { ConversationId } from "../ids";
 import { TranscriptFtsService } from "./transcript-fts-service";
 import type { TranscriptTurnResult } from "./transcript-fts-service";
+
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
 
 // ── Type alias for the heavy Drizzle type ────────────────────────────────────
 
@@ -270,7 +274,7 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, countRows, existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-x");
+      const results = await svc.getSession(conv("session-x"));
 
       expect(results).toHaveLength(3);
       expect(results[0]?.turnIndex).toBe(0);
@@ -284,7 +288,7 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, [], existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-x");
+      const results = await svc.getSession(conv("session-x"));
       expect(results[0]?.score).toBe(1.0);
     });
 
@@ -293,7 +297,9 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb([], [], []);
       const svc = new TranscriptFtsService(db);
 
-      await expect(svc.getSession("nonexistent-session")).rejects.toThrow(/session not found/);
+      await expect(svc.getSession(conv("nonexistent-session"))).rejects.toThrow(
+        /session not found/
+      );
     });
 
     test("turnRange slicing: turnRange option does not crash when provided", async () => {
@@ -306,7 +312,9 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, countRows, existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-y", { turnRange: { start: 10, end: 20 } });
+      const results = await svc.getSession(conv("session-y"), {
+        turnRange: { start: 10, end: 20 },
+      });
       expect(results.length).toBeGreaterThanOrEqual(0);
     });
 
@@ -322,7 +330,7 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, [], existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-meta");
+      const results = await svc.getSession(conv("session-meta"));
       const result = results[0] as TranscriptTurnResult;
       expect(result.sessionMetadata.agentSessionId).toBe("session-meta");
       expect(result.sessionMetadata.model).toBe("claude-3-opus");
@@ -336,7 +344,7 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, countRows, existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-cnt");
+      const results = await svc.getSession(conv("session-cnt"));
       expect(results[0]?.sessionMetadata.messageCount).toBe(7);
     });
 
@@ -346,7 +354,7 @@ describe("TranscriptFtsService", () => {
       const db = makeFakeDb(turnRows, [], existenceRows);
       const svc = new TranscriptFtsService(db);
 
-      const results = await svc.getSession("session-x");
+      const results = await svc.getSession(conv("session-x"));
       expect(results[0]?.resumeHint).toBe(
         "cd '/Users/dev/Projects/minsky' && claude --resume session-x"
       );
