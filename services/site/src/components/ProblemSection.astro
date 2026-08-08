@@ -1,28 +1,73 @@
 ---
-// The problem — section 2 of the home-page skeleton (mt#3827).
-// Plain language throughout; no undefined register vocabulary.
+// Problem — beat 2 of the six-beat reframe (mt#3838, Amendment 2).
+//
+// Answers "is my situation the one this is for?" The stat row survives
+// unchanged from the preview build: it was the strongest lean-in moment
+// for all three evaluation readers, and the METR line in particular reads
+// as costly signal because it cuts against the vendor's own interest.
+// What changed is the lead-in, which used to diagnose the industry and
+// now describes the visitor's week — the register the door-2 copy had,
+// which every reader recognized as a transcript of their own complaints.
+
+const stats = [
+  {
+    value: "85%",
+    label: "say the bottleneck moved from writing code to reviewing it",
+    source: "GitLab, 2026",
+  },
+  {
+    value: "4.6x",
+    label: "longer review wait for AI-authored PRs",
+    source: "LinearB, 2026 (8.1M PRs)",
+  },
+  {
+    value: "4%",
+    label: "measured slowdown from AI assistance, confidence interval spanning zero",
+    source: "METR, 2026",
+  },
+  {
+    value: "41%",
+    label: "of workers receive \"workslop\" monthly",
+    source: "BetterUp × Stanford, 2025",
+  },
+];
 ---
 
 <section id="problem" class="content-section" aria-labelledby="problem-heading">
   <div class="content-inner">
     <p class="eyebrow">The problem</p>
-    <h2 id="problem-heading" class="section-headline">The bottleneck is you.</h2>
+    <h2 id="problem-heading" class="section-headline">
+      Eight sessions, five projects, one of you.
+    </h2>
     <div class="section-body">
       <p>
-        An agent handles a single, well-scoped task well — write this function, fix this bug,
-        add this test. Sustained work is different: dozens of tasks in flight, changes that need
-        review, mistakes that need remembering, decisions that need a person. Point an agent at
-        real, ongoing work and the well-scoped-task skill stops covering it.
+        You already know the shape of this. Sessions multiply past what you can
+        hold in your head, so every morning starts with reconstruction: what was
+        I doing, what's stuck, where do I start. The review queue is where the
+        work actually stops, because you are the only reviewer any of it has.
+        And the correction you spent an hour on yesterday died with the session
+        that learned it.
       </p>
       <p>
-        What fills the gap is you. You track what each agent is doing, because nothing else
-        does. You review every change, because nothing else will catch a bad one. You clean up
-        abandoned branches and half-finished sessions, because nothing else notices they stalled.
-        You are the dispatcher, the reviewer, and the janitor — all at once, for every agent you
-        run.
+        Generation scaled. The structure around it stayed one person wide.
       </p>
-      <p>That works for one agent. It does not scale to two, and it collapses well before ten.</p>
     </div>
+    <ul class="stat-row" role="list">
+      {
+        stats.map((s) => (
+          <li class="stat-tile">
+            <span class="stat-value">{s.value}</span>
+            <span class="stat-label">{s.label}</span>
+            <span class="stat-source">{s.source}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="section-note">
+      Measurements from the field, including one that cuts against the case for
+      agent-assisted work. Sourced and dated, because the alternative is asking
+      you to take it on faith.
+    </p>
   </div>
 </section>
 
@@ -32,11 +77,11 @@
     border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
   }
   .content-inner {
-    max-width: 760px;
+    max-width: 900px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.75rem;
   }
   .section-headline {
     font-family: var(--font-sans);
@@ -57,6 +102,60 @@
     font-size: 1.0625rem;
     line-height: 1.65;
     color: var(--color-text-muted);
+    margin: 0;
+    max-width: 42rem;
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 760px) {
+    .stat-row {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.5rem;
+    }
+  }
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.5rem 1.25rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 8px;
+    background-color: var(--color-bg-elevated);
+  }
+  .stat-value {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--color-signal);
+  }
+  .stat-label {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+  }
+  .stat-source {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-text-subtle);
+  }
+
+  .section-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-subtle);
     margin: 0;
     max-width: 42rem;
   }
