@@ -1,0 +1,130 @@
+---
+// The problem, restructured as a stat row (preview variant).
+// Keeps the live section's h2; replaces the body prose with four
+// industry-measurement stats and two connective sentences.
+
+const stats = [
+  {
+    value: "85%",
+    label: "say the bottleneck moved from writing code to reviewing it",
+    source: "GitLab, 2026",
+  },
+  {
+    value: "4.6x",
+    label: "longer review wait for AI-authored PRs",
+    source: "LinearB, 8.1M PRs",
+  },
+  {
+    value: "4%",
+    label: "measured slowdown from AI assistance, confidence interval spanning zero",
+    source: "METR, 2026",
+  },
+  {
+    value: "41%",
+    label: "of workers receive \"workslop\" monthly",
+    source: "BetterUp × Stanford, 2025",
+  },
+];
+---
+
+<section id="problem" class="content-section" aria-labelledby="problem-heading">
+  <div class="content-inner">
+    <p class="eyebrow">The problem</p>
+    <h2 id="problem-heading" class="section-headline">The bottleneck is you.</h2>
+    <ul class="stat-row" role="list">
+      {
+        stats.map((s) => (
+          <li class="stat-tile">
+            <span class="stat-value">{s.value}</span>
+            <span class="stat-label">{s.label}</span>
+            <span class="stat-source">{s.source}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <div class="section-body">
+      <p>
+        Generation scaled; the structure around it stayed one human wide — dispatcher,
+        reviewer, janitor of half-finished branches. The review queue is where that
+        arrangement shows up at industry scale.
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .content-section {
+    padding: 4.5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .content-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 760px) {
+    .stat-row {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.5rem;
+    }
+  }
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.5rem 1.25rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 8px;
+    background-color: var(--color-bg-elevated);
+  }
+  .stat-value {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--color-signal);
+  }
+  .stat-label {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+  }
+  .stat-source {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-text-subtle);
+  }
+
+  .section-body p {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+    margin: 0;
+    max-width: 42rem;
+  }
+</style>

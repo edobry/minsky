@@ -1,0 +1,132 @@
+---
+// The walkthrough, restructured (preview variant). Same eight scenes,
+// same order, same screenshots, and scene 02's undefined-screenshot
+// placeholder handling stays as shipped — only the scene headings and
+// caption bodies change.
+import SubstrateScene from "./SubstrateScene.astro";
+import scene01SessionCli from "../assets/screenshots/scene-01-session-cli.png";
+import scene03CockpitHome from "../assets/screenshots/scene-03-cockpit-home.png";
+import scene04ReviewGithub from "../assets/screenshots/scene-04-review-github.png";
+import scene05TaskGraph from "../assets/screenshots/scene-05-task-graph.png";
+import scene06Memory from "../assets/screenshots/scene-06-memory.png";
+import scene07HookDenial from "../assets/screenshots/scene-07-hook-denial.png";
+import scene08Asks from "../assets/screenshots/scene-08-asks.png";
+
+const scenes = [
+  {
+    eyebrow: "Sessions",
+    title: "Each task gets its own clone",
+    body: "Each task runs in its own clone with its own branch and scope; parallel agents cannot collide, and main is never touched directly.",
+    screenshot: scene01SessionCli,
+    screenshotAlt: "Real CLI output: starting and inspecting a task session",
+  },
+  {
+    eyebrow: "Tools",
+    title: "One contract for every harness",
+    body: "Tasks, sessions, memory, review — one contract exposed over MCP, read identically by every harness.",
+    screenshot: undefined,
+    screenshotAlt: "A tool call surfaced through a coding harness",
+  },
+  {
+    eyebrow: "Cockpit",
+    title: "What's in flight, what needs you",
+    body: "The working set on one surface: in-flight tasks, open PRs, decisions waiting. Mission-control density.",
+    screenshot: scene03CockpitHome,
+    screenshotAlt: "The web cockpit showing tasks and reviews in flight",
+  },
+  {
+    eyebrow: "Review",
+    title: "A second model judges the diff",
+    body: "minsky-reviewer[bot] reads every PR with a different model and no implementer context; merges wait for convergence.",
+    screenshot: scene04ReviewGithub,
+    screenshotAlt: "An automated adversarial code review, approved on a real pull request",
+  },
+  {
+    eyebrow: "Tasks",
+    title: "Work resolves as a DAG",
+    body: "Work decomposes into a dependency graph with a real state machine, enforced in the domain layer.",
+    screenshot: scene05TaskGraph,
+    screenshotAlt: "A task dependency graph with parent and child tasks",
+  },
+  {
+    eyebrow: "Memory",
+    title: "Lessons persist past the session",
+    body: "Durable findings land in a queryable store and surface in future sessions; a lesson binds past the session that learned it.",
+    screenshot: scene06Memory,
+    screenshotAlt: "Searching recorded lessons in the memory store",
+  },
+  {
+    eyebrow: "Hooks",
+    title: "The wall fires before the merge",
+    body: "Guardrails fire at the action surface — branch freshness, generated-file edits, bypass attempts. The agent hits the wall before you do.",
+    screenshot: scene07HookDenial,
+    screenshotAlt: "A pre-commit check blocking a change before it can land",
+  },
+  {
+    eyebrow: "Decisions",
+    title: "Your decisions arrive packaged",
+    body: "Principal-reserved choices arrive as structured questions with the context to decide; everything else is absorbed.",
+    screenshot: scene08Asks,
+    screenshotAlt: "A queue of decisions routed to a person, each with its own context",
+  },
+];
+---
+
+<section id="how-it-works" aria-labelledby="how-it-works-heading">
+  <header class="substrate-header">
+    <div class="substrate-header-inner">
+      <p class="eyebrow">What it is, concretely</p>
+      <h2 id="how-it-works-heading" class="substrate-headline">
+        Eight surfaces, one environment.
+      </h2>
+      <p class="substrate-sub">
+        Minsky is a CLI, an MCP server, and a web cockpit, all reading and writing the same
+        underlying state. What follows is eight of its real surfaces, each doing one piece of
+        the coordination work described above — not mockups, actual screenshots of a running
+        system.
+      </p>
+    </div>
+  </header>
+  {
+    scenes.map((s, i) => (
+      <SubstrateScene
+        eyebrow={s.eyebrow}
+        title={s.title}
+        body={s.body}
+        screenshot={s.screenshot}
+        screenshotAlt={s.screenshotAlt}
+        reverse={i % 2 === 1}
+      />
+    ))
+  }
+</section>
+
+<style>
+  .substrate-header {
+    padding: 5rem 1.5rem 2.5rem;
+  }
+  .substrate-header-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .substrate-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.022em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .substrate-sub {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+    max-width: 36rem;
+    margin: 0;
+  }
+</style>

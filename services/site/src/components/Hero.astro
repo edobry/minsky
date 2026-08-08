@@ -3,6 +3,18 @@ import { Picture } from "astro:assets";
 import CtaButton from "./CtaButton.astro";
 import ProductFrame from "./ProductFrame.astro";
 import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
+
+interface Props {
+  /** Hero headline. Defaults to the live home-page copy. */
+  headline?: string;
+  /** Hero subheadline. Defaults to the live home-page copy. */
+  subheadline?: string;
+}
+
+const {
+  headline = "Software engineering isn't ending. It's moving into the environment.",
+  subheadline = "AI agents can write the code; Minsky is the engineering organization around them — task tracking, isolated workspaces, adversarial review, durable memory, and decision routing, built into the environment itself.",
+} = Astro.props;
 ---
 
 <section class="hero">
@@ -10,13 +22,10 @@ import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
     <div class="hero-caption">
       <p class="eyebrow">Minsky</p>
       <h1 class="hero-headline tracking-display">
-        Software engineering isn't ending. It's moving into the environment.
+        {headline}
       </h1>
       <p class="hero-sub">
-        AI agents can write the code; Minsky is the engineering organization
-        around them — task tracking, isolated workspaces, adversarial review,
-        durable memory, and decision routing, built into the environment
-        itself.
+        {subheadline}
       </p>
       <p class="hero-concrete">
         A CLI, an MCP server, and a web cockpit. Self-hosted, provider-agnostic,
