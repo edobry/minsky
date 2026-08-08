@@ -27,6 +27,46 @@ All three conditions must hold:
 On fire it injects the claim-confidence format reminder (`claim-confidence.mdc` — "[delivery
 state] — [evidential warrant + basis]"), not a block.
 
+## Measured disposition, 2026-08-06 (mt#3755): alive, dormant, kept
+
+The 30-day graduation contract came due with **zero** calibration records ever written and 2,341
+recorded evaluations. Three hypotheses were live — broken wiring, deterrence (the guard changed
+behavior), or dormancy (the condition is rare). The disposition pass settled it:
+
+- **Not broken.** `bun scripts/run-guard-canaries.ts --json` reports this detector PASS, so the
+  full path (dispatcher → registry → `run()` → detection → calibration write) is alive.
+- **Not deterrence.** `bun scripts/replay-build-claim-injection.ts --json` replayed the real
+  detector over **all 689 transcripts** since 2026-07-23 (**3,542** evaluation points). It would
+  have fired **zero** times, and the funnel dies at condition (a) — long before any behavioral
+  question about claim language could arise:
+
+  | Blocked at                                                                  | Sessions |
+  | --------------------------------------------------------------------------- | -------- |
+  | (a) no in-session `*session_pr_merge` tool_use                              | 515      |
+  | (a) merged, but no deploy-surface file edited in-transcript                 | 167      |
+  | (b) merge + surface edit, but no usability claim                            | 6        |
+  | (c) all three met → suppressed by real rebuild evidence (**true negative**) | 1        |
+
+- **Dormancy, with a locatable cause.** Exactly one session in 689 reached the last condition and
+  was correctly suppressed. Condition (a)'s proxy is the binding constraint, for two independent
+  reasons: `DEPLOY_SURFACE_PATTERNS` matches only deploy-CONFIG files (`infra/`, Dockerfiles,
+  `railway.json`, deploy workflows), and Minsky merges in a main-agent conversation whose
+  implementation edits live in a dispatched subagent's transcript. Two of the nine sessions where
+  the sibling merge gate fired had **0** file-edit tool calls against 15 and 27 `Agent`
+  dispatches.
+
+**Disposition: KEEP, contract re-anchored to `liveSinceDate: "2026-08-06"`.** Retiring would
+re-open the mt#2707 chat seam, which no other mechanism covers at the CHAT surface — the sibling
+mt#2545 gate covers the PR-BODY surface only, and it reads the PR's real changed-file list from
+the forge (12 `deny` + 8 `warn` across 705 evaluations in the same window), which is exactly the
+signal this detector lacks. Keeping costs ~nothing: `INJECTION_ENABLED` is `false`, so it injects
+no context and writes no records. The condition-(a) fix is tracked at **mt#3819**.
+
+Per ADR-024's coverage-receipt done-gate — _"zero live fires in 7 days retroactively fails the
+gate and is surfaced for review"_ — this section IS that surfacing. Note the fix is a **Rung-1
+correctness fix to a structural precondition**, not a rung escalation: ADR-024's Rung 2/3 gates
+concern phrase-matching recall, which the measurement shows is not what is failing.
+
 ## Known v1 limitation
 
 "Merge succeeded" is approximated as "a `*session_pr_merge` tool_use call is present in the

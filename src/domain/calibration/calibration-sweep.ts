@@ -317,7 +317,36 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // `findInvalidLiveSinceDates` (above) only catches unparseable/future
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
-    liveSinceDate: "2026-07-23",
+    //
+    // mt#3755 (2026-08-06): re-anchored again, and the DISPOSITION is KEEP —
+    // the silence is measured DORMANCY, not breakage and not deterrence.
+    // Evidence artifact: `bun scripts/replay-build-claim-injection.ts --json`
+    // replayed the detector over all 689 transcripts in the contract window
+    // (2026-07-23 onward, 3,542 evaluation points) and it would have fired
+    // ZERO times. The funnel localizes why, and it is condition (a), not the
+    // claim patterns:
+    //
+    //     515 sessions  no in-session `*session_pr_merge` tool_use at all
+    //     167 sessions  merged, but no deploy-surface file edited in-transcript
+    //       6 sessions  merge + surface edit, but no usability claim
+    //       1 session   all three met -> correctly SUPPRESSED by real rebuild
+    //                   evidence (a true negative, not a miss)
+    //
+    // So the detector is not failing to recognize claims; its condition-(a)
+    // PROXY — "a deploy-surface file was edited via a file-edit tool in THIS
+    // transcript" — is near-unsatisfiable in Minsky's actual workflow, because
+    // `DEPLOY_SURFACE_PATTERNS` matches only deploy CONFIG files (infra/,
+    // Dockerfiles, railway.json, deploy workflows) and merges frequently
+    // happen in a main-agent conversation whose file edits live in a
+    // subagent's transcript. That defect is tracked at mt#3819 rather than
+    // fixed here.
+    //
+    // Kept rather than retired because the cost is ~zero — INJECTION_ENABLED
+    // is false, so it logs nothing and injects nothing — while retiring would
+    // re-open the mt#2707 RFC's "merged != usable" chat seam, which no other
+    // mechanism covers at the CHAT surface (the sibling mt#2545 gate covers
+    // the PR-BODY surface only).
+    liveSinceDate: "2026-08-06",
   },
   {
     path: ".minsky/knowledge-acquisition-calibration.jsonl",
