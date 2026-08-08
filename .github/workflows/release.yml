@@ -5,6 +5,15 @@ on:
     tags:
       - "v*"
 
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Effectiveness is UNVERIFIED -- the
+  # failure needs a flaky network and would not reproduce locally, so it could
+  # not be measured. The per-step retry loops are the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
 jobs:
   build:
     name: Build and Release
@@ -34,7 +43,7 @@ jobs:
         uses: extractions/setup-just@v2
 
       - name: Install dependencies
-        run: bun install
+        run: for i in 1 2 3; do if bun install; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # `bun test` below runs the FULL suite, which includes the
       # session.grep_search tests that spawn `rg` (mt#3163). ubuntu-latest does

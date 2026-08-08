@@ -11,6 +11,15 @@ on:
   # explicitly; without it, this dispatches against `main`. mt#1469.
   workflow_dispatch:
 
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Effectiveness is UNVERIFIED -- the
+  # failure needs a flaky network and would not reproduce locally, so it could
+  # not be measured. The per-step retry loops are the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,7 +40,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a RUNTIME dependency of session.grep_search (mt#3163), which
       # spawns `rg` directly — it is not a test-only convenience. ubuntu-latest
@@ -86,7 +95,7 @@ jobs:
         if: ${{ always() }}
         working-directory: services/reviewer
         run: |
-          bun install --frozen-lockfile --no-progress
+          for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
           bun run typecheck
 
       # Run the reviewer unit suite (mt#2367). It lives in
@@ -99,7 +108,7 @@ jobs:
       - name: Test (services/reviewer)
         if: ${{ always() }}
         run: |
-          bun install --cwd services/reviewer --frozen-lockfile --no-progress
+          for i in 1 2 3; do if bun install --cwd services/reviewer --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
           bun run test:reviewer
 
       # Reviewer-image module-resolution smoke (mt#2453): replicates the
@@ -255,7 +264,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a runtime dependency of session.grep_search (mt#3163); see
       # the identical step in the `build` job above for rationale.
