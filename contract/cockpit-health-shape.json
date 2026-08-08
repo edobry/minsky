@@ -16,6 +16,7 @@
     "db": "string",
     "dbCheck": "object",
     "dbRecycle": "object",
+    "dbHealth": "object",
     "survivedExceptions": "object",
     "principalChannel": "object",
     "processStartedAtMs": "number",
@@ -48,6 +49,7 @@
     "db": "ok",
     "dbCheck": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 7 },
     "dbRecycle": { "lastRecycleAt": null, "recycleCount": 0 },
+    "dbHealth": { "mode": "connected", "lastAttemptAt": "2026-08-08T17:20:10.881Z" },
     "survivedExceptions": { "lastAt": null, "count": 0, "distinctSignatures": 0 },
     "principalChannel": { "state": "running", "chatId": "167346572" },
     "processStartedAtMs": 1735689600000,
@@ -96,6 +98,31 @@
     "wedgedSinceLastGoodProbe": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 231 }
   },
   "$dbRecycleFieldNote": "mt#3638: `dbRecycle` reports the wedge-triggered pool recycle (the recovery half of mt#3563's detection). Always an object; `lastRecycleAt` (ISO string | null) is null until the first recycle this process, `recycleCount` (number) counts recycles since process start. A non-zero count means the daemon detected sustained DB degradation and rebuilt its connection pool in place instead of waiting for a restart; a count that keeps rising while `db` stays degraded means recycling is not helping — the DB itself (or the network path) is down, which is the case the recycle deliberately does not try to fix.",
+  "$dbHealthFieldNote": "mt#3826: `dbHealth` says WHY the database is unusable; `db` above only says THAT it is. The two are deliberately not merged — `db` is the tray's long-standing degraded signal and its three values are a consumed contract, so the explanation is additive beside it rather than a widening of it. Shape is ADR-035 rule 4's: `mode` ('connected' | 'unavailable' — this subsystem never reports 'unconfigured', since it is only reached once the cockpit has decided to use Postgres, and rule 3's configured-vs-unconfigured distinction is made upstream by assessPersistenceHealth), `reason` (operator-facing prose, present only when a failure has been classified) and `lastAttemptAt` (ISO string, ABSENT until the first init attempt — absence means 'nothing tried since boot', which is what distinguishes a wedged process from one actively working a real outage). The addition beyond rule 4 is `failure`: the DISCRIMINATED form of `reason`, so a consumer branches on `failure.kind` instead of parsing prose. `kind` is one of connect-timeout / refused / dns / auth / connection-lost / circuit-breaker / unknown, derived from the driver's structured `code` (postgres-js attaches `{code, errno, address, port}` to every connection error) and NEVER from message text, which varies by driver version. Two consumer rules: (1) treat `unknown` as 'no information', never as a synonym for transient — it means the error carried no code this classifier recognizes; (2) `failure` is ABSENT while healthy and is cleared on any recovery, so its presence is itself the fault signal. Why this exists: before mt#3826 a half-open pool wedge and a network refusing the port produced the identical `degraded`, so the pool-recycle remedy was applied to both and helped only one — on 2026-08-07 an operator on an outbound-80/443-only network took ~500 futile recycles over ~9h. The classification is also what bounds that churn: `connect-timeout`/`refused`/`dns`/`auth` back the recycle cadence off once recycling has demonstrably not helped, while `connection-lost`/`circuit-breaker`/`unknown` — the kinds a fresh pool DOES fix — keep the flat 60s floor.",
+  "$dbHealthFieldVariants": {
+    "healthy": { "mode": "connected", "lastAttemptAt": "2026-08-08T17:20:10.881Z" },
+    "blockedPort": {
+      "mode": "unavailable",
+      "reason": "Nothing answered on the database port before the connect deadline. This is what an outbound-port block on the current network looks like; it is also what a saturated server looks like.",
+      "lastAttemptAt": "2026-08-08T17:29:41.204Z",
+      "failure": {
+        "kind": "connect-timeout",
+        "code": "CONNECT_TIMEOUT",
+        "message": "write CONNECT_TIMEOUT aws-0-us-west-2.pooler.supabase.com:6543"
+      }
+    },
+    "poolWedge": {
+      "mode": "unavailable",
+      "reason": "An established connection went away. A pool recycle is the remedy for this one.",
+      "lastAttemptAt": "2026-08-08T17:29:41.204Z",
+      "failure": {
+        "kind": "connection-lost",
+        "code": "CONNECTION_CLOSED",
+        "message": "write CONNECTION_CLOSED aws-0-us-west-2.pooler.supabase.com:6543"
+      }
+    },
+    "neverAttempted": { "mode": "unavailable" }
+  },
   "$schemaFieldNote": "mt#3297: `schema.current` is TRI-STATE — true (every shipped migration applied), false (the DB is behind this build, `pending` names which), or null (readiness could not be determined; `unknownReason` says why). A consumer that treats null as true reintroduces the bug this field exists to surface: the daemon boots fine and answers 200 while every schema-dependent write fails, so the status code cannot carry this and the body has to. Handle all three explicitly — true: proceed; false: the DB needs `minsky persistence migrate --execute`, and schema-dependent sweeps are paused; null: state unknown, treat as 'cannot vouch for it' rather than as either healthy or broken.",
   "$schemaFieldVariants": {
     "current": { "current": true, "pending": [], "checkedAt": "2026-07-29T06:22:40.780Z" },
