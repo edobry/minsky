@@ -2,6 +2,19 @@
 // Get started — dedicated quick-start page (mt#3827). Commands verified
 // against the repo README's Quick start section as of this writing; do
 // not invent commands here — copy them from README.md.
+//
+// Live-verified 2026-08-08 against a scratch checkout + throwaway local
+// Postgres container (not the shared project DB): `bun install` (real,
+// fresh clone) and `minsky init` (real execution, `bun run src/cli.ts
+// init --backend minsky`) both succeeded. Every flag on this page
+// (`tasks create --title`, `session start --task`, `session dir`,
+// `session pr create --title`) was cross-checked against the current
+// CLI's own `--help` output and matches exactly. `minsky setup`'s
+// interactive wizard path isn't drivable non-interactively; the closest
+// headless probe (`setup db --connection-string ... --yes`) surfaced an
+// unrelated pre-existing CLI bug, filed separately as mt#3830 rather than
+// fixed here (out of this task's scope — this page's own commands are
+// unaffected, since it shows bare `minsky setup`, not that flag).
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
 import SiteFooter from "../components/SiteFooter.astro";
