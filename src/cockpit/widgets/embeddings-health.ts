@@ -1,6 +1,7 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
 import { getSharedPersistenceService } from "../shared-persistence";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 export interface EmbeddingsHealthPayload {
   provider: string;
@@ -77,8 +78,7 @@ export const embeddingsHealthWidget: WidgetModule = {
 
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `embeddings health error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("embeddings health", err) };
     }
   },
 };

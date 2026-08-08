@@ -12,6 +12,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored in TaskList.tsx (no server imports on frontend)
@@ -103,8 +104,7 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
         const payload: TaskListPayload = { tasks: items };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `task_list error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("task_list", err) };
       }
     },
   };

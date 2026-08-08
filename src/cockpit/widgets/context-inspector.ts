@@ -55,6 +55,7 @@ import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-tran
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
+import { describeWidgetDegradedReason } from "../db-providers";
 // mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
 // shared command import the SAME mt#2770 precedence decision.
 import {
@@ -206,8 +207,10 @@ export function createContextInspectorWidget(
         const payload: ContextInspectorPayload = { sessions };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `context-inspector error: ${message}` };
+        return {
+          state: "degraded",
+          reason: describeWidgetDegradedReason("context-inspector", err),
+        };
       }
     },
   };

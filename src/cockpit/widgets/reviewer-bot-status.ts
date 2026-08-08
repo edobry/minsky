@@ -24,6 +24,7 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { log } from "@minsky/shared/logger";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -388,8 +389,10 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
 
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `reviewer-bot status error: ${message}` };
+      return {
+        state: "degraded",
+        reason: describeWidgetDegradedReason("reviewer-bot status", err),
+      };
     }
   }
 

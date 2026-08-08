@@ -17,6 +17,7 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { getCachedTopology } from "../topology-cache";
 import type { WeldEntry } from "../topology-derivation";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Payload shape — mirrored by useSlowTopology.ts on the frontend.
@@ -53,8 +54,7 @@ export const slowTopologyWidget: WidgetModule = {
         : { status: "pending", computedAt: null, interlockCount: 0, entries: [] };
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `slow-topology error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("slow-topology", err) };
     }
   },
 };

@@ -34,6 +34,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
 import { resolveDerivedConversationLinks } from "../derived-conversation-link";
+import { describeWidgetDegradedReason } from "../db-providers";
 import {
   deriveRowAttachState,
   groupAttachmentsBySessionId,
@@ -673,8 +674,7 @@ export function createAgentsWidget(
         const payload: AgentsPayload = { agents, totalCount, hiddenInactiveCount };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `session_list error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("session_list", err) };
       }
     },
   };
