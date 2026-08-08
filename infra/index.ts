@@ -75,8 +75,11 @@ export const minskyMcpService = new railway.Service(
     // A direct `railway environment edit` patch setting it null also failed to clear
     // it (mem#281 records this exact field silently no-opping). The property is inert
     // for an image deploy, so ignoring it states the truth — Pulumi does not own this
-    // field — and keeps `pulumi preview` at zero changes, which is what makes the NEXT
-    // drift visible. Do NOT "fix" this by deleting the ignore; that restores a
+    // field — and stops THIS service from contributing a phantom diff. That is a
+    // service-local claim, not a stack-wide one: cockpit still shows a residual
+    // `- sourceRepo` for the same provider reason (mt#3318 owns clearing it). Every
+    // phantom diff removed is one less reason to stop reading the plan at all.
+    // Do NOT "fix" this by deleting the ignore; that restores a
     // permanent phantom diff. (mt#3318, mt#3832.)
   },
   { ignoreChanges: ["rootDirectory"] }
