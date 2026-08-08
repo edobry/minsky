@@ -27,7 +27,7 @@
 
 import { describe, test, expect } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the real committed sources under test (import ordering and invocation flags are properties of the committed files, not of injectable state); same exemption shape as tests/scripts/cli-entry.test.ts
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -151,6 +151,27 @@ describe("bundle reflect-metadata polyfill ordering (mt#3680)", () => {
       const offenders = codeLines(read(script), "ts").filter((line) => line.includes("--preload"));
       expect(offenders).toEqual([]);
     }
+  });
+
+  test("no workflow invokes the bundle with a preload (mt#3773)", () => {
+    // mt#3680's own enumerating sweep was truncated with `head -20` and missed
+    // `.github/workflows/deploy-minsky-mcp.yml`, whose migration step ran the bundle preloaded —
+    // making the one command that touches the production schema the one that never exercised the
+    // real boot path. This asserts over EVERY workflow rather than a named list, so the next site
+    // added cannot escape the same way.
+    const workflowDir = join(REPO_ROOT, ".github", "workflows");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- enumerating the committed workflow set IS the assertion; a hardcoded list is exactly the truncation this test exists to prevent
+    const workflows = readdirSync(workflowDir).filter((f) => f.endsWith(".yml"));
+
+    expect(workflows.length).toBeGreaterThan(5);
+
+    const offenders = workflows.flatMap((file) =>
+      codeLines(read(join(".github", "workflows", file)), "hash")
+        .filter((line) => line.includes("dist/minsky.js") && line.includes("--preload"))
+        .map((line) => `${file}: ${line.trim()}`)
+    );
+
+    expect(offenders).toEqual([]);
   });
 
   test("the cold-start workflows run on the same Bun version as the bundle-boot smoke", () => {
