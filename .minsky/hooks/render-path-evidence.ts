@@ -1,0 +1,315 @@
+// Render-path evidence cross-reference at merge time — mt#2421 (calibration-first).
+//
+// A PR that changes a surface whose whole purpose is to be LOOKED AT should hand the principal
+// something they can look at. Nothing in the pipeline required that, and the omission has now
+// shipped twice.
+//
+// ## The two incidents, and why the second one is the reason this module exists
+//
+// **mt#2398 / PR #1653 (2026-06-10).** A no-test cockpit-frontend PR shipped a route that 404'd
+// on essentially every real click. The pre-merge "live verification" screenshotted the
+// `Loading conversation…` state and the tab chrome — proxies — and never the rendered
+// conversation. The mt#1459 execution-evidence gate never fired, because that gate triggers on
+// newly-ADDED test files and this PR added none.
+//
+// **mt#3810 / PR #2711 (2026-08-08).** An image renderer for the conversation view — the fix for
+// a defect the principal had reported by pasting a screenshot the cockpit could not display. It
+// merged on unit tests, negative controls on both parser and renderer, a grep proving the
+// deployed JS chunk carried the new code, and an HTTP check proving the deployed API served an
+// image block. Nobody looked at the rendered image, and the principal was never handed a URL.
+// Their reply: *"if it's been fixed, can you show me?"*
+//
+// The second incident is what widened this module's trigger off "no-test". mt#3810's PR CARRIED
+// TESTS and they passed — so mt#1459's gate fired and was satisfied, and mt#2421's own
+// pre-widening trigger ("no-test render-path PRs") did not apply. That framing had the causality
+// backwards. Those component tests ran in happy-dom, asserting `container.querySelector("img")`
+// was non-null; happy-dom never decodes an image and never lays one out, so the suite
+// structurally cannot distinguish a working `<img>` from one whose base64 is truncated, whose
+// media type is wrong, or which a parent clips to zero height. Green tests on a render path read
+// as MORE evidence than no tests at all while being blind in exactly the dimension that matters.
+// Tests are not what makes render verification unnecessary; they are what makes it feel
+// unnecessary.
+//
+// ## What this check asks, and what it deliberately does NOT ask
+//
+// It asks the one mechanically decidable question: **is there anything in this PR body the
+// principal could open?** A URL, or an image.
+//
+// It does NOT try to judge whether prose describes END content versus a loading state. That
+// question is semantic, and answering it with pattern-matching is the arms race ADR-024 §Context
+// names outright — "each miss has historically been answered by adding another regex family
+// (R1 → R5)". ADR-024 does not GOVERN this module (it scopes itself to `UserPromptSubmit`
+// guidance hooks matching trigger phrases in the agent's own output; this is a PreToolUse merge
+// gate reading a PR body and a file list), but its cheapest-sufficient-first ladder is the
+// nearest accepted precedent for the mechanism question, and this module deliberately EXTENDS
+// it: Rung 1 deterministic, with the calibration log as the evidence gate for ever climbing.
+//
+// Judging whether the render is CORRECT stays with the agent's live check; judging whether it
+// LOOKS right stays with the principal (mt#2386). This module only makes sure the principal was
+// given the chance.
+//
+// ## Why this module does not import the evidence hook
+//
+// `require-execution-evidence-before-merge.ts` imports THIS module to run the calibration, so an
+// import back would be an ESM cycle and would put that hook's entry point at the mercy of this
+// file's load order. The PR body and file list flow IN as parameters.
+//
+// Dependency-free per `.minsky/hooks/SPEC.md` beyond its sibling hook modules.
+//
+// @see mt#2421 — this task
+// @see .minsky/hooks/test-first-evidence.ts — the sibling surface this mirrors most closely (also file-list-driven)
+// @see .minsky/hooks/success-criteria-coverage.ts — the sibling whose calibration-run shape this follows
+// @see docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md — the ladder this extends
+// @see mem#561 — the memory that named this coverage hole; mem#734 R2 — the recurrence that widened it
+
+import { isTestFile } from "./pr-file-predicates";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
+import type { PrFile } from "./pr-context";
+
+/**
+ * File patterns that constitute a **user-facing render path**.
+ *
+ * Deliberately narrow at v1. These are the two surfaces both originating incidents came from,
+ * and the surfaces where "correctness includes what it looks like" is unambiguous. Widening is
+ * a calibration decision, not a guess — the log records which PRs fired.
+ *
+ * `src/cockpit/web/**\/*.tsx` is the cockpit's React surface. `.ts` files under the same tree are
+ * excluded: they are hooks, lib code, and API clients whose correctness a unit test CAN settle.
+ * The distinguishing property is that a `.tsx` file produces pixels.
+ */
+const RENDER_PATH_PATTERNS: readonly RegExp[] = [
+  /^src\/cockpit\/web\/.*\.tsx$/,
+  /^cockpit-tray\/.*\.tsx$/,
+];
+
+/**
+ * Test-file predicate for the render-path surface, covering `.tsx` as well as `.ts`.
+ *
+ * ## Why this does not just call the shared `isTestFile`
+ *
+ * The shared predicate in `./pr-file-predicates` matches `/\.(test|integration\.test|spec)\.ts$/`
+ * — `.ts` ONLY. It does not recognize `.test.tsx`, so every test file under `src/cockpit/web`
+ * is invisible to it.
+ *
+ * That is not a cosmetic gap, and finding it corrected this task's own spec. The spec asserted
+ * that mt#3810's PR "carried tests, so mt#1459's gate fired and was satisfied." It did not:
+ * PR #2711 added exactly one test file, `ConversationElementRenderers.image.test.tsx`
+ * (commit `68e7f58d0`), which the shared predicate cannot see — so `findNewTestFiles` returned
+ * empty and the blocking gate never fired. The real story is worse than the spec's version:
+ * not "a gate fired on weak evidence" but "no gate fired at all."
+ *
+ * Widening the SHARED predicate is the right fix and is deliberately NOT done here. It would
+ * change a BLOCKING gate's trigger set — every cockpit-web PR adding a `.test.tsx` would newly
+ * require an `Execution evidence:` block or be denied — which is a blast radius that deserves
+ * its own planning pass rather than riding along inside a log-only surface. Tracked separately;
+ * this local predicate keeps THIS surface correct in the meantime.
+ */
+function isRenderPathTestFile(filename: string): boolean {
+  return isTestFile(filename) || /\.(test|spec)\.tsx$/.test(filename);
+}
+
+/**
+ * True when a filename is a user-facing render path.
+ *
+ * Test files are excluded even when they match a pattern above. A PR that only touches
+ * `Foo.test.tsx` changes no rendered surface, and firing on it would be pure noise — the
+ * mem#719 failure mode, where a detector's unmatchable output trains readers to discount its
+ * correct output too.
+ */
+export function isRenderPathFile(filename: string): boolean {
+  if (isRenderPathTestFile(filename)) return false;
+  return RENDER_PATH_PATTERNS.some((p) => p.test(filename));
+}
+
+/**
+ * Render-path files this PR actually changes.
+ *
+ * `removed` is excluded: a deleted component renders nothing, so there is no surface to show.
+ * Every other status (`added`, `modified`, `renamed`, `copied`, `changed`) produces a surface
+ * that exists after the merge, which is the thing the principal would be looking at.
+ */
+export function findRenderPathFiles(files: PrFile[]): string[] {
+  return files
+    .filter((f) => f.status !== "removed" && isRenderPathFile(f.filename))
+    .map((f) => f.filename);
+}
+
+/**
+ * GitHub URLs that are repo-internal navigation, not a surface the principal can look at.
+ *
+ * A PR body almost always cites a PR, an issue, a commit, or a CI run. Counting those as
+ * "something to open" would make this check pass unconditionally and carry no signal — the
+ * probe has to be able to fail (mem#704).
+ *
+ * `github.com/user-attachments/` is NOT excluded, and neither is
+ * `user-images.githubusercontent.com`: those are exactly where a pasted PR screenshot lives.
+ */
+const NON_SURFACE_URL_PATTERNS: readonly RegExp[] = [
+  /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/(?:pull|issues|commit|commits|blob|tree|actions|compare|releases|discussions)\b/i,
+  /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/?$/i,
+  /^https?:\/\/(?:www\.)?notion\.so\//i,
+  /^https?:\/\/[^/]*\.notion\.site\//i,
+];
+
+/** Markdown image syntax, an HTML `<img>` tag, or a URL ending in an image extension. */
+const IMAGE_EVIDENCE_PATTERNS: readonly RegExp[] = [
+  /!\[[^\]]*\]\([^)]+\)/,
+  /<img\b[^>]*\bsrc\s*=/i,
+  /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|avif)\b/i,
+];
+
+/** Extracts every http(s) URL in the text, trimming trailing markdown/prose punctuation. */
+function extractUrls(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s<>()[\]"'`]+/gi) ?? [];
+  return matches.map((u) => u.replace(/[.,;:!?]+$/, ""));
+}
+
+/**
+ * True when the PR body carries something the principal can open.
+ *
+ * Satisfied by an image (a pasted screenshot IS the render) or by any http(s) URL that is not
+ * repo-internal navigation. A `localhost` / `127.0.0.1` URL counts: the principal running the
+ * cockpit locally can open it, and it is the form a live check most often produces.
+ *
+ * ## Why this is NOT fence-gated, unlike its siblings
+ *
+ * The AT, SC and negative-control surfaces all elide fenced blocks, because each of those
+ * matches a LABEL or a REFERENCE — a claim, which can be quoted from an example without being
+ * made (mt#3530 shipped exactly that fix for two blocking gates). A URL is different in kind: a
+ * URL inside a fenced block is usually a `curl` invocation or its output, which is not a quoted
+ * claim about verification but the verification itself. Eliding fences here would discard real
+ * evidence and fire on PRs that did the right thing. Bias is deliberate and one-directional:
+ * this surface should fire on CLEAR absence and stay quiet otherwise, because a log-only check
+ * that cries wolf gets discounted before it can ever earn a graduation.
+ */
+export function hasOpenableArtifact(prBody: string): boolean {
+  const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
+  if (IMAGE_EVIDENCE_PATTERNS.some((p) => p.test(stripped))) return true;
+  return extractUrls(stripped).some((url) => !NON_SURFACE_URL_PATTERNS.some((p) => p.test(url)));
+}
+
+/** Result of checking a PR's render-path changes against its body. */
+export interface RenderPathEvidenceResult {
+  /** False when the PR touches no render-path file — the check does not apply. */
+  applicable: boolean;
+  /** The render-path files this PR changes. */
+  renderPathFiles: string[];
+  /** True when the body carries a URL or an image the principal could open. */
+  hasArtifact: boolean;
+  /**
+   * True when the PR also carries test files.
+   *
+   * Recorded, never acted on. This is the mt#3810 axis: the pre-widening trigger switched OFF
+   * in exactly this case, and the calibration log needs the field to show whether the widened
+   * trigger's extra fires are concentrated here. Reading it as a reason to suppress would
+   * reintroduce the defect.
+   */
+  hasTests: boolean;
+}
+
+/** Core check (pure, injectable — mirrors `checkTestFirstEvidence`'s shape). */
+export function checkRenderPathEvidence(files: PrFile[], prBody: string): RenderPathEvidenceResult {
+  const renderPathFiles = findRenderPathFiles(files);
+  if (renderPathFiles.length === 0) {
+    return { applicable: false, renderPathFiles: [], hasArtifact: false, hasTests: false };
+  }
+  return {
+    applicable: true,
+    renderPathFiles,
+    hasArtifact: hasOpenableArtifact(prBody),
+    // The `.tsx`-aware predicate, not the shared one — otherwise the mt#3810 shape (whose only
+    // test file was a `.test.tsx`) would record `hasTests: false` and the calibration log would
+    // misattribute the very case that widened this trigger.
+    hasTests: files.some((f) => isRenderPathTestFile(f.filename)),
+  };
+}
+
+/** Override env var (registered in `HOOK_ONLY_ENV_VARS`) — skips the render-path check. */
+export const RENDER_PATH_SKIP_ENV_VAR = "MINSKY_SKIP_RENDER_PATH_EVIDENCE";
+
+/** Calibration log path (mt#2263 ladder) — repo-root relative. */
+export const RENDER_PATH_CALIBRATION_LOG =
+  ".minsky/execution-evidence-render-path-calibration.jsonl";
+
+/** True when the render-path check is skipped via env var. */
+export function isRenderPathSkipped(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env[RENDER_PATH_SKIP_ENV_VAR];
+  return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/** Result of running the render-path calibration surface for one merge attempt. */
+export interface RenderPathCalibrationRunResult {
+  /** True when the check actually ran (not skipped). */
+  ranCheck: boolean;
+  /** A WARN string for `additionalContext`, when a render-path PR has no openable artifact. */
+  warning?: string;
+  /** The record to append to the calibration log, when there is one. */
+  calibrationRecord?: Record<string, unknown>;
+}
+
+/**
+ * Runs the render-path calibration for one merge attempt and returns what the caller should
+ * emit — never performs I/O of its own, so the caller owns both the log write and the warning.
+ *
+ * Log-only by construction (mt#2263 ladder): this returns a warning, never a deny, and the
+ * caller must never let it alter the gate's blocking decision.
+ */
+export function runRenderPathCalibration(
+  task: string,
+  prNumber: number,
+  files: PrFile[],
+  prBody: string,
+  env: NodeJS.ProcessEnv = process.env
+): RenderPathCalibrationRunResult {
+  if (isRenderPathSkipped(env)) return { ranCheck: false };
+
+  let result: RenderPathEvidenceResult;
+  try {
+    result = checkRenderPathEvidence(files, prBody);
+  } catch {
+    // Fail silent, matching every sibling surface: a parse failure must never surface as a
+    // WARN and never as a block.
+    return { ranCheck: false };
+  }
+
+  if (!result.applicable || result.hasArtifact) {
+    return { ranCheck: true };
+  }
+
+  const fileList = result.renderPathFiles.map((f) => `  - ${f}`).join("\n");
+  const testNote = result.hasTests
+    ? " This PR does carry tests — that is not a substitute here: a component test in happy-dom " +
+      "never decodes or lays out what it asserts on, which is how mt#3810 shipped green and blind."
+    : "";
+
+  const warning =
+    `[execution-evidence-render-path] CALIBRATION (log-only, mt#2421 — would block if ` +
+    `graduated): ${task} changes ${result.renderPathFiles.length} user-facing render-path ` +
+    `file(s), and the PR body carries no URL or image the principal could open:\n${fileList}\n\n` +
+    `A surface that exists to be looked at should ship with something to look at — a deployed ` +
+    `or localhost URL pointing at the changed surface, or a screenshot. Merge is NOT blocked by ` +
+    `this.${testNote} Override: set ${RENDER_PATH_SKIP_ENV_VAR}=1.`;
+
+  return {
+    ranCheck: true,
+    warning,
+    calibrationRecord: {
+      timestamp: new Date().toISOString(),
+      task,
+      prNumber,
+      surface: "execution-evidence-render-path",
+      // mt#3607: the verdict is computed from a MUTABLE PR body, so a later re-check cannot
+      // reconstruct what was judged unless the record carries it. This log starts empty, so
+      // every record it ever accumulates is auditable — the cheapest this will ever be.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedPrBody: captureArtifact(prBody),
+      renderPathFiles: result.renderPathFiles,
+      // The mt#3810 axis — see `RenderPathEvidenceResult.hasTests`.
+      hasTests: result.hasTests,
+    },
+  };
+}
