@@ -446,17 +446,18 @@ after:   command: minsky   args: [mcp, shim, --url, http://127.0.0.1:48765/mcp]
 Four implementation subtasks are filed under mt#1713, each with its own spec, implementable
 without re-deriving this ADR's reasoning:
 
-| Task        | Deliverable                                                                                                                                                 | Depends on                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on | —                         |
-| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                | —                         |
-| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                         | —                         |
-| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                         | mt#3812, mt#3814, mt#3815 |
-| **mt#3811** | Measure daemon RSS at N sessions and N-client restart recovery; gates the default flip and fills the two figures this ADR leaves unmeasured                 | mt#3812, mt#3814          |
+| Task        | Deliverable                                                                                                                                                                | Depends on                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on                | —                         |
+| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                               | —                         |
+| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                                        | —                         |
+| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                                        | mt#3812, mt#3814, mt#3815 |
+| **mt#3811** | ~~Measure daemon RSS at N sessions and N-client restart recovery~~ — **DONE, 2026-08-08**: both figures are now measured and folded into §Question 1 and §Question 6 below | —                         |
 
-mt#3811 is not optional polish: §Question 1's resource table and §Question 6's shared-fate argument
-both carry claims this ADR explicitly declines to make, and mt#3811 is where they get made or
-falsified. The migration default should not flip ahead of it.
+mt#3811 was not optional polish: §Question 1's resource table and §Question 6's shared-fate
+argument previously carried claims this ADR explicitly declined to make, and mt#3811 is where they
+were made — driven directly against the daemon over HTTP, since the shim (mt#3812) was not yet
+built and neither measured quantity depends on it. Both sections now carry the measured numbers.
 
 ---
 
@@ -485,10 +486,21 @@ falsified. The migration default should not flip ahead of it.
 
 **Left unverified, deliberately**
 
-- N-client recovery after a daemon restart (only N=1 measured).
-- Daemon RSS at N=40 concurrent sessions.
 - The interactive (non-`sdk-cli`) Claude Code transport's header set. Shared implementation makes
   divergence unlikely; it was not captured.
+- Daemon RSS at exactly N=40 concurrent sessions (the census's actual scale). mt#3811 measured
+  N=1/5/10 directly and found no growth signal above ~90 MB of noise across that range — see
+  §Question 1 — which supports extrapolating a small daemon term to N=40, but N=40 itself was not
+  directly driven.
+
+**Resolved by mt#3811 (2026-08-08)** — previously listed here as unverified:
+
+- ~~N-client recovery after a daemon restart (only N=1 measured)~~ — measured at N=6. Transparent
+  (8–14ms, zero surfaced failures) when the daemon is already back up by the client's next call;
+  a hard, model-surfaced failure with no guaranteed recovery when the call lands in the cold-start
+  gap itself. See §Question 6.
+- ~~Daemon RSS at N concurrent sessions (the general shape)~~ — measured at N=1/5/10; see
+  §Question 1.
 
 ## Alternatives rejected
 
