@@ -292,36 +292,94 @@ export async function submitReview(
   // mt#1345: optional inline comments with optional in_reply_to wiring.
   inlineComments?: ReviewInlineComment[]
 ): Promise<SubmittedReview> {
+  // mt#3852: split replies out of the review payload BEFORE building it.
+  //
+  // `createReview`'s comments[] elements are GraphQL `DraftPullRequestReviewComment`,
+  // which has no reply field and REQUIRES an anchor. The old reply variant sent
+  // `{ body, in_reply_to }` with path/line deliberately omitted, so GitHub rejected
+  // all three at once — `inReplyTo` not a field, `path` null, `position` null — and
+  // 422'd the ENTIRE review, losing every finding in it. `in_reply_to` is a real
+  // documented parameter, but of `createReviewComment` (POST /pulls/{n}/comments),
+  // not of `createReview`; mt#1345 applied it to the wrong endpoint. Replies now go
+  // to the dedicated replies endpoint after the review lands.
+  const all = inlineComments ?? [];
+  const replies = all.filter((c) => c.inReplyTo !== undefined);
+  const anchorable: ReviewInlineComment[] = [];
+  for (const c of all) {
+    if (c.inReplyTo !== undefined) continue;
+    // Validate the anchor locally so a malformed comment cannot 422 the whole
+    // review. Dropping one comment loses one finding; the pre-mt#3852 behavior
+    // lost the entire review, and surfaced only as an opaque 422 after a full
+    // model pass had already been spent.
+    const missing: string[] = [];
+    if (typeof c.path !== "string" || c.path.length === 0) missing.push("path");
+    if (typeof c.line !== "number" || !Number.isFinite(c.line) || c.line < 1) missing.push("line");
+    if (missing.length > 0) {
+      log.warn("reviewer.inline_comment_dropped_unanchorable", {
+        pr: prNumber,
+        missing,
+        path: c.path ?? null,
+        line: c.line ?? null,
+      });
+      continue;
+    }
+    // PR #2722 R1 BLOCKING: `side` needs the same treatment. Its TS type is
+    // `"LEFT" | "RIGHT"`, but every field on this interface arrives from PARSED
+    // MODEL OUTPUT at runtime, where the compiler guarantees nothing — the same
+    // reason path/line are checked above. An out-of-enum `side` 422s the whole
+    // review exactly like a null anchor did.
+    //
+    // Coerced rather than dropped: an unusable `side` still leaves a usable
+    // anchor, and "RIGHT" is what omitting it already means, so the finding
+    // survives instead of being discarded over a field that carries the least
+    // information of the three.
+    if (c.side !== undefined && c.side !== "LEFT" && c.side !== "RIGHT") {
+      log.warn("reviewer.inline_comment_side_coerced", {
+        pr: prNumber,
+        path: c.path,
+        line: c.line,
+        received: String(c.side),
+        coercedTo: "RIGHT",
+      });
+      anchorable.push({ ...c, side: "RIGHT" });
+      continue;
+    }
+    anchorable.push(c);
+  }
+
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
-    // Map inlineComments to the Octokit comments[] shape.
+    // Map the already-validated anchorable comments to Octokit's shape.
     //
-    // Two branches per comment (PR #1069 R1 BLOCKING #2):
-    //   - inReplyTo set: GitHub anchors via the parent comment; omit
-    //     path/line/side from the payload. Only body + in_reply_to are
-    //     required.
-    //   - inReplyTo NOT set: top-level comment anchored by file+line+side.
-    //     side defaults to "RIGHT" because the GitHub API does not guarantee
-    //     a default; sending without it risks a 422 that rejects the entire
-    //     review payload.
+    // ONE branch now (mt#3852). The second branch this comment used to describe
+    // — inReplyTo set, path/line/side omitted — is the defect: `createReview`
+    // has no reply field, so that payload 422'd the whole review. Replies are
+    // partitioned out above and posted separately.
+    //
+    // `side` still defaults to "RIGHT" because the GitHub API does not guarantee
+    // a default, and sending without it risks the same review-wide 422.
     const comments =
-      inlineComments !== undefined && inlineComments.length > 0
-        ? inlineComments.map((c) =>
-            c.inReplyTo !== undefined
-              ? { body: c.body, in_reply_to: c.inReplyTo }
-              : { path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body }
-          )
+      anchorable.length > 0
+        ? anchorable.map((c) => ({
+            path: c.path,
+            line: c.line,
+            side: c.side ?? "RIGHT",
+            body: c.body,
+          }))
         : undefined;
 
-    // mt#1782: the inline-comments union ({reply variant} | {inline variant})
-    // doesn't structurally match Octokit's `createReview` `comments` parameter
-    // shape because Octokit's typed signature for `createReview` does not include
-    // `in_reply_to` (which is technically a `createReviewComment` parameter).
-    // mt#1345's use of `in_reply_to` against `createReview` is intentional — GitHub
-    // accepts it at the REST surface — but TS can't reconcile the union with
-    // Octokit's stricter type. Cast at the call site to satisfy the typechecker
-    // without changing behavior. See mt#1782 spec for follow-up tracking on the
-    // wider mt#1345 reply-routing question.
+    // mt#3852: the mt#1782 cast used to exist because this array was a UNION —
+    // a reply variant carrying `in_reply_to` (which Octokit's `createReview`
+    // signature rightly does not declare) plus an anchored variant. Octokit's
+    // type was correct and the union was the bug: `createReview` never accepted
+    // `in_reply_to`, and the note here claiming it did is what kept the defect
+    // legible-looking for three rounds.
+    //
+    // PR #2722 R1: the cast is still REQUIRED, so do not read the above as
+    // saying it is now vestigial. `side` widens to `string` through the map,
+    // while Octokit wants the literal union — that is what the cast bridges.
+    // It no longer hides a structurally wrong element, which is the part that
+    // mattered; it still hides a literal-widening, which is the ordinary kind.
     type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
     return octokit.rest.pulls.createReview({
       owner,
@@ -333,6 +391,47 @@ export async function submitReview(
       request: { signal },
     });
   });
+
+  // mt#3852: post replies AFTER the review lands, via the dedicated endpoint
+  // (POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies).
+  //
+  // Ordering is deliberate: the review is the primary artifact, and a reply
+  // failure must not cost it. Each reply is independent — one failing does not
+  // stop the rest, and none of them fails the call. A dropped reply degrades to
+  // "the bot did not answer that thread"; a thrown one would discard a review
+  // that already succeeded, which is the failure mode this task exists to end.
+  for (const c of replies) {
+    // PR #2722 R1: same class as the anchor validation above — `inReplyTo` is
+    // typed `number` but arrives from parsed model output, so the type is not a
+    // runtime guarantee. A non-numeric id would reach GitHub as a malformed
+    // comment_id; check it here rather than casting and hoping.
+    const commentId = c.inReplyTo;
+    if (typeof commentId !== "number" || !Number.isInteger(commentId) || commentId < 1) {
+      log.warn("reviewer.inline_reply_dropped_bad_id", {
+        pr: prNumber,
+        received: String(c.inReplyTo),
+      });
+      continue;
+    }
+    try {
+      await withTimeout("github.pulls.createReplyForReviewComment", timeoutMs, (signal) =>
+        octokit.rest.pulls.createReplyForReviewComment({
+          owner,
+          repo,
+          pull_number: prNumber,
+          comment_id: commentId,
+          body: c.body,
+          request: { signal },
+        })
+      );
+    } catch (err) {
+      log.warn("reviewer.inline_reply_failed", {
+        pr: prNumber,
+        inReplyTo: c.inReplyTo,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   return {
     id: response.data.id,
