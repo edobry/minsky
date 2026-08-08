@@ -25,6 +25,7 @@ import {
   type LastWarnedStore,
   type AskLookup,
 } from "./calibration-review-cadence-detector";
+import { GUARD_REGISTRY } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -367,6 +368,92 @@ describe("formatCadenceWarning", () => {
     expect(msg).toContain("causal-premise");
     expect(msg).toContain("never reviewed");
     expect(msg).toContain("7 days ago");
+  });
+
+  // mt#3824: the guard used to render one line per due log with no cap, so its
+  // size scaled 1:1 with how many calibration logs were review-due — a count
+  // driven by real repo activity AND by wall-clock time alone (every
+  // registered log ages toward "never-fired" as its `liveSinceDate +
+  // reviewByDays` window closes, independent of any file content). These
+  // tests are pure functions of a synthetic `due` array — no filesystem, no
+  // watermark state, no wall clock — so they demonstrate the state-
+  // independence claim in BOTH directions success criterion 2 asks for: a
+  // small due set and a large one render through the identical code path and
+  // must both stay under the declared ceiling.
+  describe("size ceiling holds independent of due-log count (mt#3824)", () => {
+    /** Longest registry name + longest reason clause — the true worst case. */
+    const WORST_CASE_NAME = "constructed-identifier-batch";
+    function worstCaseDue(name = WORST_CASE_NAME): ReviewDueLog {
+      return {
+        name,
+        path: `.minsky/${name}-calibration.jsonl`,
+        kind: name,
+        firesSinceLastReview: 999,
+        injectedFiresSinceLastReview: 999,
+        suppressedSinceLastReview: 999,
+        totalFires: 9999,
+        distinctPhrases: 999,
+        reason: "never-fired",
+        reviewByDays: 30,
+      };
+    }
+
+    // Read from the registry itself (PR #2701 R1 BLOCKING) rather than a
+    // duplicated literal: a hand-copied number drifts silently the next time
+    // `denialMessageSizeChars` is re-tuned, which is exactly the failure mode
+    // this task exists to fix on the OTHER side of this same file. Importing
+    // `GUARD_REGISTRY` here is the same pattern `guard-feedback-shape.test.ts`
+    // already uses — it is metadata-only at import time (no canary runs
+    // unless explicitly invoked), so it does not compromise this file's
+    // filesystem-free pure-logic tests.
+    const DECLARED_CEILING = (() => {
+      const reg = GUARD_REGISTRY.find((r) => r.name === "calibration-review-cadence-detector");
+      const declared = reg?.attentionCost?.denialMessageSizeChars;
+      if (declared === undefined) {
+        throw new Error(
+          "calibration-review-cadence-detector is missing an attentionCost.denialMessageSizeChars declaration in registry.ts"
+        );
+      }
+      return declared;
+    })();
+
+    test("a single due log renders under the declared ceiling", () => {
+      const msg = formatCadenceWarning([worstCaseDue()]);
+      expect(msg.length).toBeLessThanOrEqual(DECLARED_CEILING);
+    });
+
+    test("many due logs (simulating several registry entries aging past their review-by window at once) still render under the declared ceiling", () => {
+      const many = Array.from({ length: 8 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
+      const msg = formatCadenceWarning(many);
+      expect(msg.length).toBeLessThanOrEqual(DECLARED_CEILING);
+    });
+
+    test("size stays bounded no matter how large the due set gets — 100 worst-case logs still fit under the declared ceiling", () => {
+      // The real teeth: not merely \"still under budget\" for a moderate count,
+      // but that the byte-budget fit (`formatCadenceWarning`'s greedy loop
+      // against ADVISORY_BUDGET_CHARS) holds for an arbitrarily large due set.
+      // A count-based cap needs its declared ceiling hand-verified against the
+      // longest plausible name/reason; this design is self-enforcing instead —
+      // it recomputes the fit against the actual rendered length every time,
+      // so it cannot silently drift the way the count-based predecessor of
+      // this test once did (PR #2701 R2).
+      const many = Array.from({ length: 100 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
+      const msg = formatCadenceWarning(many);
+      expect(msg.length).toBeLessThanOrEqual(DECLARED_CEILING);
+    });
+
+    test("beyond what fits, the overflow collapses to an accurate count rather than growing without bound", () => {
+      const many = Array.from({ length: 5 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
+      const msg = formatCadenceWarning(many);
+      const listedCount = (msg.match(/^ {2}- /gm) ?? []).length;
+      // Fewer than the full set was listed — the budget is doing real work,
+      // not just passing through everything.
+      expect(listedCount).toBeGreaterThan(0);
+      expect(listedCount).toBeLessThan(many.length);
+      // And the omitted-count line's number matches what was actually left out.
+      const omitted = many.length - listedCount;
+      expect(msg).toContain(`…and ${omitted} more review-due log(s)`);
+    });
   });
 });
 

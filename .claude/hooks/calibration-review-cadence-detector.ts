@@ -245,6 +245,15 @@ export function buildPendingAskRecord(
  * to ADVISORY_BUDGET_CHARS. Lists as many due logs as fit; the remainder is
  * summarized as one "…and K more" line so the count is never silently
  * truncated (the full list is one `/calibration-review` run away).
+ *
+ * Deliberately a dynamic byte-budget fit rather than a fixed item count
+ * (mt#3824 R2): a fixed count (e.g. "show 2") still needs its declared
+ * ceiling hand-verified against the longest plausible name/reason, which is
+ * exactly the kind of manual worst-case estimate that drifted silently
+ * before (mt#3479's 450 was measured against a SILENT guard). Greedily
+ * fitting against the actual budget is self-enforcing: it can never render
+ * more than ADVISORY_BUDGET_CHARS regardless of how long a future registry
+ * entry's name or reason clause gets, without anyone having to re-measure.
  */
 export function formatCadenceWarning(due: ReviewDueLog[]): string {
   const header =

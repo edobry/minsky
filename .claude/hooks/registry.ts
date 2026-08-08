@@ -2031,6 +2031,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
+    // 450, unchanged (mt#3824 R2): the OLD 450 was a moving target because the
+    // render was uncapped — a due-log count driven by real activity AND by
+    // wall-clock (`liveSinceDate + reviewByDays` window closures) scaled the
+    // message linearly, with no worst case. `formatCadenceWarning` is now a
+    // dynamic byte-budget fit against ADVISORY_BUDGET_CHARS in the module
+    // itself (see that constant's doc comment) — the render is
+    // self-enforcing and can never exceed 450, so the number does not need
+    // to move. MUST equal that module's `ADVISORY_BUDGET_CHARS`.
     attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
