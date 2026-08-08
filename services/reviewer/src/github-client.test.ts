@@ -662,7 +662,11 @@ function buildFakeCreateReviewOctokit() {
   );
   // mt#3852: replies no longer ride inside createReview — they go to the
   // dedicated replies endpoint, so the fake has to expose it.
-  const createReplyMock = mock(() => Promise.resolve({ data: { id: 4242 } }));
+  // Typed with its argument so `mock.calls[0]?.[0]` narrows — a zero-arg mock
+  // infers an empty tuple, and indexing it is a TS2493.
+  const createReplyMock = mock((_args: Record<string, unknown>) =>
+    Promise.resolve({ data: { id: 4242 } })
+  );
   const octokit = {
     rest: {
       pulls: {
@@ -765,6 +769,59 @@ describe("submitReview", () => {
     if (!comments) throw new Error(COMMENTS_MISSING);
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatchObject({ path: "ok.ts", line: 7 });
+  });
+
+  // PR #2722 R1 BLOCKING: every field here arrives from parsed model output, so
+  // the TS types are not runtime guarantees. An out-of-enum `side` 422s the whole
+  // review the same way a null anchor did.
+  test("an out-of-enum side is coerced to RIGHT rather than 422ing the review", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, side: "MIDDLE" as never, body: "bad side" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    // The finding survives — coerced, not dropped.
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toEqual({
+      path: "a.ts",
+      line: 1,
+      side: "RIGHT",
+      body: "bad side",
+    });
+  });
+
+  test("a valid explicit side is left alone by the coercion path", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, side: "LEFT", body: "left side" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments[0]).toMatchObject({ side: "LEFT" });
+  });
+
+  test("a non-numeric inReplyTo is dropped instead of reaching GitHub", async () => {
+    const { octokit, createReviewMock, createReplyMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, body: "bad reply id", inReplyTo: "12345" as never },
+    ]);
+
+    // It was treated as a reply (so it left the review payload) and then rejected.
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+    expect(createReplyMock.mock.calls).toHaveLength(0);
   });
 
   test("a failing reply does not fail the review that already landed", async () => {

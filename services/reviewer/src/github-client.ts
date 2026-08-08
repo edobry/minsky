@@ -323,21 +323,41 @@ export async function submitReview(
       });
       continue;
     }
+    // PR #2722 R1 BLOCKING: `side` needs the same treatment. Its TS type is
+    // `"LEFT" | "RIGHT"`, but every field on this interface arrives from PARSED
+    // MODEL OUTPUT at runtime, where the compiler guarantees nothing — the same
+    // reason path/line are checked above. An out-of-enum `side` 422s the whole
+    // review exactly like a null anchor did.
+    //
+    // Coerced rather than dropped: an unusable `side` still leaves a usable
+    // anchor, and "RIGHT" is what omitting it already means, so the finding
+    // survives instead of being discarded over a field that carries the least
+    // information of the three.
+    if (c.side !== undefined && c.side !== "LEFT" && c.side !== "RIGHT") {
+      log.warn("reviewer.inline_comment_side_coerced", {
+        pr: prNumber,
+        path: c.path,
+        line: c.line,
+        received: String(c.side),
+        coercedTo: "RIGHT",
+      });
+      anchorable.push({ ...c, side: "RIGHT" });
+      continue;
+    }
     anchorable.push(c);
   }
 
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
-    // Map inlineComments to the Octokit comments[] shape.
+    // Map the already-validated anchorable comments to Octokit's shape.
     //
-    // Two branches per comment (PR #1069 R1 BLOCKING #2):
-    //   - inReplyTo set: GitHub anchors via the parent comment; omit
-    //     path/line/side from the payload. Only body + in_reply_to are
-    //     required.
-    //   - inReplyTo NOT set: top-level comment anchored by file+line+side.
-    //     side defaults to "RIGHT" because the GitHub API does not guarantee
-    //     a default; sending without it risks a 422 that rejects the entire
-    //     review payload.
+    // ONE branch now (mt#3852). The second branch this comment used to describe
+    // — inReplyTo set, path/line/side omitted — is the defect: `createReview`
+    // has no reply field, so that payload 422'd the whole review. Replies are
+    // partitioned out above and posted separately.
+    //
+    // `side` still defaults to "RIGHT" because the GitHub API does not guarantee
+    // a default, and sending without it risks the same review-wide 422.
     const comments =
       anchorable.length > 0
         ? anchorable.map((c) => ({
@@ -353,8 +373,13 @@ export async function submitReview(
     // signature rightly does not declare) plus an anchored variant. Octokit's
     // type was correct and the union was the bug: `createReview` never accepted
     // `in_reply_to`, and the note here claiming it did is what kept the defect
-    // legible-looking for three rounds. Every element is now the anchored shape,
-    // so the cast narrows a homogeneous array rather than papering over a union.
+    // legible-looking for three rounds.
+    //
+    // PR #2722 R1: the cast is still REQUIRED, so do not read the above as
+    // saying it is now vestigial. `side` widens to `string` through the map,
+    // while Octokit wants the literal union — that is what the cast bridges.
+    // It no longer hides a structurally wrong element, which is the part that
+    // mattered; it still hides a literal-widening, which is the ordinary kind.
     type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
     return octokit.rest.pulls.createReview({
       owner,
@@ -376,13 +401,25 @@ export async function submitReview(
   // "the bot did not answer that thread"; a thrown one would discard a review
   // that already succeeded, which is the failure mode this task exists to end.
   for (const c of replies) {
+    // PR #2722 R1: same class as the anchor validation above — `inReplyTo` is
+    // typed `number` but arrives from parsed model output, so the type is not a
+    // runtime guarantee. A non-numeric id would reach GitHub as a malformed
+    // comment_id; check it here rather than casting and hoping.
+    const commentId = c.inReplyTo;
+    if (typeof commentId !== "number" || !Number.isInteger(commentId) || commentId < 1) {
+      log.warn("reviewer.inline_reply_dropped_bad_id", {
+        pr: prNumber,
+        received: String(c.inReplyTo),
+      });
+      continue;
+    }
     try {
       await withTimeout("github.pulls.createReplyForReviewComment", timeoutMs, (signal) =>
         octokit.rest.pulls.createReplyForReviewComment({
           owner,
           repo,
           pull_number: prNumber,
-          comment_id: c.inReplyTo as number,
+          comment_id: commentId,
           body: c.body,
           request: { signal },
         })
