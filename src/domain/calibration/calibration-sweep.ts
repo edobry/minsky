@@ -318,9 +318,21 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
     //
-    // mt#3755 (measured 2026-08-08): re-anchored again, and the DISPOSITION is
-    // KEEP — the silence is measured DORMANCY, not breakage and not deterrence.
-    // Evidence artifact: `bun scripts/replay-build-claim-injection.ts --json`
+    // mt#3755 (2026-08-08): re-anchored again, and the DISPOSITION is KEEP —
+    // the silence is measured DORMANCY, not breakage and not deterrence.
+    //
+    // The anchor is the LIVENESS PROOF date, per this field's own contract
+    // above ("the date the detector's full invocation path ... was PROVEN
+    // alive"). Proof: `bun scripts/run-guard-canaries.ts --json` on 2026-08-08
+    // returned `build-claim-injection-detector` `passed: true` with a real
+    // calibration outcome (timestamp 2026-08-08T23:53:07.794Z, matchedPhrases
+    // ["you can use it"]); suite 42 passed / 0 failed. mt#3755's Success
+    // Criterion 1 named the earlier 2026-08-05 canary run as the anchor; a
+    // FRESHER proof of the same property supersedes it, and dating the clock
+    // from a stale proof would understate the contract's runway. Amendment
+    // recorded in mt#3755 `## Criterion 1 amendment`.
+    //
+    // Dormancy evidence: `bun scripts/replay-build-claim-injection.ts --json`
     // replayed the detector over all 805 transcripts since 2026-07-23
     // (3,048 evaluation points) and it would have fired ZERO times. The corpus
     // grows, so absolute counts drift on a re-run; the funnel SHAPE and the
@@ -347,7 +359,7 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // re-open the mt#2707 RFC's "merged != usable" chat seam, which no other
     // mechanism covers at the CHAT surface (the sibling mt#2545 gate covers
     // the PR-BODY surface only).
-    liveSinceDate: "2026-08-06",
+    liveSinceDate: "2026-08-08",
   },
   {
     path: ".minsky/knowledge-acquisition-calibration.jsonl",

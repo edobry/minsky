@@ -58,7 +58,9 @@ zero-fire result are the finding, not the exact integers.
   the sibling merge gate fired had **0** file-edit tool calls against 15 and 27 `Agent`
   dispatches.
 
-**Disposition: KEEP, contract re-anchored to `liveSinceDate: "2026-08-06"`.** Retiring would
+**Disposition: KEEP, contract re-anchored to `liveSinceDate: "2026-08-08"`** — the date the
+canary last PROVED the invocation path alive, which is what that field dates (30-day window now
+runs to 2026-09-07). Retiring would
 re-open the mt#2707 chat seam, which no other mechanism covers at the CHAT surface — the sibling
 mt#2545 gate covers the PR-BODY surface only, and it reads the PR's real changed-file list from
 the forge (12 `deny` + 8 `warn` across 705 evaluations in the same window), which is exactly the
