@@ -1,0 +1,163 @@
+---
+// Get started — dedicated quick-start page (mt#3827). Commands verified
+// against the repo README's Quick start section as of this writing; do
+// not invent commands here — copy them from README.md.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+
+const title = "Get started — Minsky";
+const description =
+  "Install Minsky, connect a database, and run your first task — against your own git repository, no account required.";
+---
+
+<BaseLayout title={title} description={description} pathname="/get-started">
+  <Header />
+  <main>
+    <section class="page">
+      <div class="page-inner">
+        <p class="eyebrow">Get started</p>
+        <h1 class="page-headline">Run Minsky against your own repo.</h1>
+        <p class="page-lead">
+          Minsky installs locally and runs against your own git repository. No account, no
+          signup, no hosted service to configure.
+        </p>
+
+        <h2 class="step-title">1. Install</h2>
+        <pre class="code-block"><span class="prompt">$</span> git clone https://github.com/edobry/minsky.git
+<span class="prompt">$</span> cd minsky
+<span class="prompt">$</span> bun install
+<span class="prompt">$</span> bun link</pre>
+        <p class="step-note">
+          Bun is the recommended runtime. If you'd rather use npm: <code>npm install && npm
+          link</code> works too.
+        </p>
+
+        <h2 class="step-title">2. Initialize a project</h2>
+        <pre class="code-block"><span class="prompt">$</span> minsky init
+<span class="prompt">$</span> minsky setup</pre>
+        <p class="step-note">
+          <code>minsky init</code> configures a task backend and git hooks for the current
+          project. <code>minsky setup</code> registers the MCP server for your coding harness and
+          connects a database — on a fresh machine it walks you through a short interactive
+          wizard (a local Docker Postgres, a free-tier Supabase project, or your own connection
+          string). Schema migrations run automatically; there's no separate migrate step.
+        </p>
+
+        <h2 class="step-title">3. Create and work on a task</h2>
+        <pre class="code-block"><span class="prompt">$</span> minsky tasks create --title "Add user authentication"
+<span class="prompt">$</span> minsky session start --task &lt;id&gt;
+<span class="prompt">$</span> cd $(minsky session dir &lt;id&gt;)
+<span class="prompt">$</span> # make changes, then:
+<span class="prompt">$</span> minsky session pr create --title "feat: Add user authentication"</pre>
+        <p class="step-note">
+          <code>session start</code> creates an isolated workspace on its own branch. Work
+          happens there; <code>session pr create</code> opens a pull request when you're done.
+        </p>
+
+        <div class="page-cta-row">
+          <a class="text-link" href="/">Back to the overview</a>
+          <a
+            class="text-link"
+            href="https://github.com/edobry/minsky"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            GitHub ↗
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <SiteFooter />
+</BaseLayout>
+
+<style>
+  .page {
+    padding: 4.5rem 1.5rem 5rem;
+  }
+  .page-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .page-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4vw, 2.875rem);
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .page-lead {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    margin: 0 0 1rem;
+    max-width: 40rem;
+  }
+
+  .step-title {
+    font-family: var(--font-sans);
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    margin: 1.5rem 0 0;
+  }
+
+  .code-block {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.75;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-elevated);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 6px;
+    padding: 1.125rem 1.375rem;
+    margin: 0.75rem 0;
+    overflow-x: auto;
+  }
+  .code-block .prompt {
+    color: var(--color-signal);
+  }
+
+  .step-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+    margin: 0;
+    max-width: 40rem;
+  }
+  .step-note code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    color: var(--color-text-primary);
+    background-color: color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+  }
+
+  .page-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid color-mix(in oklch, var(--color-text-primary) 6%, transparent);
+  }
+  .text-link {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-signal);
+    letter-spacing: 0.01em;
+    transition: color 160ms ease;
+  }
+  .text-link:hover {
+    color: var(--color-text-primary);
+  }
+</style>

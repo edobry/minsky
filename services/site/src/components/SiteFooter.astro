@@ -1,4 +1,5 @@
 ---
+import CtaButton from "./CtaButton.astro";
 const year = new Date().getFullYear();
 ---
 
@@ -6,23 +7,19 @@ const year = new Date().getFullYear();
   <div class="footer-inner">
     <div class="footer-cta">
       <p class="eyebrow">Get started</p>
-      <h2 class="footer-headline">Read the substrate. Run a session.</h2>
+      <h2 class="footer-headline">Run Minsky against your own repo.</h2>
       <div class="footer-cta-row">
-        <a
-          href="https://github.com/edobry/minsky"
-          class="cta-link"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          github.com/edobry/minsky ↗
-        </a>
+        <CtaButton href="/get-started" variant="primary">Get started</CtaButton>
+        <CtaButton href="https://github.com/edobry/minsky" variant="secondary" external>
+          GitHub
+        </CtaButton>
       </div>
     </div>
     <div class="footer-meta">
       <p class="footer-tagline system-speaks">
-        Minsky — the cyberbrain for software organizations.
+        The cyberbrain for software organizations.
       </p>
-      <p class="footer-copy">© {year} Minsky. The flock is autonomous.</p>
+      <p class="footer-copy">© {year} Minsky.</p>
     </div>
   </div>
 </footer>
@@ -67,19 +64,6 @@ const year = new Date().getFullYear();
     gap: 1rem;
     margin-top: 0.5rem;
   }
-  .cta-link {
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    color: var(--color-signal);
-    letter-spacing: 0.01em;
-    line-height: 1.5;
-    padding: 0.5rem 0;
-    transition: color 160ms ease;
-  }
-  .cta-link:hover {
-    color: var(--color-text-primary);
-  }
-
   .footer-meta {
     display: flex;
     flex-direction: column;
