@@ -44,7 +44,7 @@
  * production call sites that construct this service need to change.
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -56,6 +56,7 @@ import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcr
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
+import { WriterDivergenceScanner } from "./writer-divergence";
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import {
@@ -345,6 +346,10 @@ export class AgentTranscriptIngestService {
     // filtered out by the HWM gate — so the counter is stable across re-ingest
     // for an append-only JSONL file. Attachments use it as part of their PK.
     const newLines: RawTurnLine[] = [];
+    // mt#3656: accumulates the `last-prompt` leaves and `parentUuid` edges from
+    // the raw pass below, so a two-writer fork is detected where the raw bytes
+    // are read — the only place the signal exists.
+    const divergenceScanner = new WriterDivergenceScanner();
     const newAttachmentRows: AttachmentRow[] = [];
     let latestTs: Date | null = null;
     let lineIndex = -1;
@@ -363,6 +368,15 @@ export class AgentTranscriptIngestService {
       // resolve the id, which made `ingestAll` quadratic.
       for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
         lineIndex++;
+
+        // mt#3656: feed EVERY line to the divergence scanner before any gate
+        // below can drop it. This must precede the timestamp check: a
+        // `last-prompt` row — the only writer-identity trace the format offers
+        // — carries no `timestamp` at all, so `if (!tsStr) continue` discards
+        // it, and it is retained by neither the transcript jsonb nor the
+        // attachments table. The verdict is a whole-file property, so the
+        // scanner also wants the lines the high-water-mark gate skips.
+        divergenceScanner.observe(line);
 
         const tsStr = this.source.getJsonlTimestamp(line);
         if (!tsStr) continue;
@@ -456,7 +470,48 @@ export class AgentTranscriptIngestService {
       );
     }
 
+    // mt#3656: resolve the writer-divergence verdict over the WHOLE file the
+    // scan just walked. Computed HERE, above the no-new-lines early return,
+    // because the verdict is a property of the file rather than of this batch:
+    // a conversation ingested before this detector shipped never receives new
+    // lines again, so a verdict computed below the return would be discarded
+    // for the entire existing corpus (PR #2656 R1).
+    //
+    // Logged at WARN when it fires because a fork means a branch is being
+    // silently orphaned — the failure mode has no other error surface anywhere
+    // in the system, which is the whole reason this exists.
+    const divergenceVerdict = divergenceScanner.verdict();
+    if (divergenceVerdict.divergentTips.length > 0) {
+      this.logWarn(
+        `[transcripts] Writer divergence in session ${agentSessionId}: ${divergenceVerdict.divergentTips.length} last-prompt records name leaves on different branches — two writers each held the tip`,
+        { agentSessionId, divergentTips: divergenceVerdict.divergentTips }
+      );
+    }
+    if (divergenceVerdict.unresolvedLeaves.length > 0) {
+      // Not a divergence claim — the opposite. These leaves could not be placed
+      // in the tree, so the verdict is silent about them rather than guessing.
+      log.debug(
+        `[transcripts] ${divergenceVerdict.unresolvedLeaves.length} unplaceable last-prompt leaf/leaves for session ${agentSessionId}`,
+        { agentSessionId }
+      );
+    }
+
     if (newLines.length === 0 && newAttachmentRows.length === 0) {
+      // The transcript upsert below is skipped, so the verdict has to be
+      // written on its own here or it is lost for every already-ingested
+      // conversation. Conditional in SQL rather than unconditional: the WHERE
+      // clause makes a steady-state sweep write NOTHING, so this does not
+      // reintroduce the per-tick write amplification the early return exists
+      // to avoid.
+      //
+      // The other early returns between the scan and the upsert (attachment
+      // write failure, upsert failure) deliberately do NOT write the verdict.
+      // They differ in kind: those abort a FAILED ingest that will be retried,
+      // and the scan is re-run from scratch on every pass, so the verdict is
+      // re-derived rather than lost. This path is the only one where "the next
+      // pass" never comes.
+      await this.persistDivergenceVerdict(agentSessionId, divergenceVerdict.divergentTips);
+
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`
       );
@@ -664,6 +719,10 @@ export class AgentTranscriptIngestService {
           projectId: resolvedProjectId ?? undefined,
           lastIngestedJsonlTimestamp: latestTs ?? undefined,
           ingestedAt: new Date(),
+          // mt#3656: an empty array is a real verdict ("the writers agreed"),
+          // distinct from NULL ("never checked") — hence the paired timestamp.
+          divergentTipLeaves: divergenceVerdict.divergentTips,
+          divergenceCheckedAt: new Date(),
         })
         .onConflictDoUpdate({
           target: agentTranscriptsTable.agentSessionId,
@@ -700,6 +759,17 @@ export class AgentTranscriptIngestService {
             lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
             projectId: sql`COALESCE(${agentTranscriptsTable.projectId}, EXCLUDED.project_id)`,
+            // mt#3656: OVERWRITE-ALWAYS, unlike the fill-if-null columns above.
+            // Those are fill-if-null because an incremental batch may simply
+            // lack the data (a later batch without the model-bearing turn must
+            // not regress a resolved model). The divergence verdict is the
+            // opposite: it is recomputed from the ENTIRE file on every pass —
+            // `last-prompt` rows are never high-water-mark filtered — so the
+            // newest computation always saw at least as much as the stored one.
+            // Overwriting is also what lets a fork that is later resolved stop
+            // being reported.
+            divergentTipLeaves: sql`EXCLUDED.divergent_tip_leaves`,
+            divergenceCheckedAt: sql`EXCLUDED.divergence_checked_at`,
             // mt#3089: never regress an already-resolved model with a later
             // batch that didn't happen to include the model-bearing turn.
             model: sql`COALESCE(${agentTranscriptsTable.model}, EXCLUDED.model)`,
@@ -899,6 +969,46 @@ export class AgentTranscriptIngestService {
    * caller is already returning an error for the original problem, and throwing
    * from here would replace a specific diagnosis with a bookkeeping error.
    */
+  /**
+   * Write the writer-divergence verdict on the no-new-lines path, where the
+   * transcript upsert never runs (mt#3656, PR #2656 R1).
+   *
+   * The WHERE clause is what makes this affordable. A sweep re-reads every
+   * quiet conversation on every tick, so an unconditional UPDATE here would
+   * add a write per conversation per tick — exactly the cost the early return
+   * exists to avoid. Writing only when the verdict is new (`divergence_checked_at
+   * IS NULL`) or has actually CHANGED means a steady state writes nothing, and
+   * it needs no extra SELECT to decide.
+   *
+   * `IS DISTINCT FROM` rather than `<>`: the stored value is NULL for every row
+   * predating this column, and `NULL <> '{}'` is NULL, not true — a plain
+   * inequality would never match the rows that most need writing.
+   *
+   * Best-effort: this path's whole point is that there was nothing to ingest,
+   * so a bookkeeping failure must not turn an idempotent no-op into an error.
+   */
+  private async persistDivergenceVerdict(
+    agentSessionId: string,
+    divergentTips: string[]
+  ): Promise<void> {
+    try {
+      await this.db
+        .update(agentTranscriptsTable)
+        .set({ divergentTipLeaves: divergentTips, divergenceCheckedAt: new Date() })
+        .where(
+          and(
+            eq(agentTranscriptsTable.agentSessionId, agentSessionId as ConversationId),
+            sql`(${agentTranscriptsTable.divergenceCheckedAt} IS NULL
+              OR ${agentTranscriptsTable.divergentTipLeaves} IS DISTINCT FROM ${divergentTips})`
+          )
+        );
+    } catch (err) {
+      log.warn(`Failed to record writer-divergence verdict for session ${agentSessionId}`, {
+        error: getLoggableErrorSummary(err),
+      });
+    }
+  }
+
   private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
     try {
       const summary = getLoggableErrorSummary(cause);

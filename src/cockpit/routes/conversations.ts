@@ -337,6 +337,9 @@ export function mountConversationRoutes(
               // mt#3321 generated title — tier 2 of the label precedence, read
               // off the row already being selected here (no extra query).
               title: agentTranscriptsTable.title,
+              // mt#3656 writer-divergence verdict — same free ride off this row.
+              divergentTipLeaves: agentTranscriptsTable.divergentTipLeaves,
+              divergenceCheckedAt: agentTranscriptsTable.divergenceCheckedAt,
             })
             .from(agentTranscriptsTable)
             .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
@@ -501,6 +504,15 @@ export function mountConversationRoutes(
             transcript.lastIngestedJsonlTimestamp instanceof Date
               ? transcript.lastIngestedJsonlTimestamp.toISOString()
               : null,
+          // mt#3656: two writers each held the tip, so one branch is being
+          // silently orphaned. `checked: false` is NOT an all-clear — it means
+          // this conversation was last ingested before the detector existed, so
+          // nothing has looked yet. A renderer must not read the empty list as
+          // "no divergence" without consulting `checked` first.
+          writerDivergence: {
+            checked: transcript.divergenceCheckedAt instanceof Date,
+            divergentTips: transcript.divergentTipLeaves ?? [],
+          },
         },
         workspace,
       });
