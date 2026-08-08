@@ -7,7 +7,7 @@ import CtaButton from "./CtaButton.astro";
 
 <section id="get-started" class="content-section" aria-labelledby="get-started-heading">
   <div class="content-inner">
-    <p class="eyebrow">Get started</p>
+    <p class="eyebrow">Can you run it tonight</p>
     <h2 id="get-started-heading" class="section-headline">Try it against a real repo.</h2>
     <p class="section-lead">
       Minsky installs locally and runs against your own git repository. No account, no signup.
@@ -16,6 +16,10 @@ import CtaButton from "./CtaButton.astro";
 <span class="prompt">$</span> cd minsky
 <span class="prompt">$</span> bun install && bun link
 <span class="prompt">$</span> minsky init</pre>
+    <p class="install-note">
+      Source install for now. A packaged single-command release is in progress;
+      until it lands, the four lines above are the whole path.
+    </p>
     <div class="cta-row">
       <CtaButton href="/get-started" variant="primary">Get started</CtaButton>
       <CtaButton href="https://github.com/edobry/minsky" variant="secondary" external>
@@ -68,6 +72,15 @@ import CtaButton from "./CtaButton.astro";
   }
   .quickstart .prompt {
     color: var(--color-signal);
+  }
+
+  .install-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-subtle);
+    margin: 0;
+    max-width: 38rem;
   }
 
   .cta-row {

@@ -1,47 +1,66 @@
 ---
+// Hero — beat 1 of the six-beat reframe (mt#3838, Amendment 2).
+//
+// Answers "what is this, and does it sit on top of what I already run?"
+// within five seconds. Order is load-bearing and was set by the
+// user-perspective evaluation: three cold-context readers misread the
+// thesis line as shift-left security tooling and were rescued by the
+// deployment-facts sentence, which the previous build buried in third
+// position. The thesis now runs as an eyebrow; the headline states the
+// category by function; the deployment facts and the named harnesses sit
+// directly beneath it, above the fold, with a real capture in frame.
 import { Picture } from "astro:assets";
 import CtaButton from "./CtaButton.astro";
 import ProductFrame from "./ProductFrame.astro";
 import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
 
 interface Props {
-  /** Hero headline. Defaults to the live home-page copy. */
+  /** Thesis kicker above the headline. */
+  eyebrow?: string;
+  /** Hero headline: states the category by function. */
   headline?: string;
-  /** Hero subheadline. Defaults to the live home-page copy. */
+  /** Hero subheadline: the three properties that make it that category. */
   subheadline?: string;
 }
 
 const {
-  headline = "Software engineering isn't ending. It's moving into the environment.",
-  subheadline = "AI agents can write the code; Minsky is the engineering organization around them — task tracking, isolated workspaces, adversarial review, durable memory, and decision routing, built into the environment itself.",
+  eyebrow = "Engineering's shifting left.",
+  headline = "The environment your coding agents work inside.",
+  subheadline = "Every task runs in its own workspace. Every change is reviewed by a model that didn't write it, and can't merge until that review converges. Every lesson is kept where the next session will find it.",
 } = Astro.props;
 ---
 
 <section class="hero">
   <div class="hero-grid">
     <div class="hero-caption">
-      <p class="eyebrow">Minsky</p>
+      <p class="eyebrow">{eyebrow}</p>
       <h1 class="hero-headline tracking-display">
         {headline}
       </h1>
       <p class="hero-sub">
         {subheadline}
       </p>
-      <p class="hero-concrete">
-        A CLI, an MCP server, and a web cockpit. Self-hosted, provider-agnostic,
-        Git-native.
-      </p>
+      <div class="hero-facts">
+        <p class="hero-concrete">
+          A CLI, an MCP server, and a web cockpit. Self-hosted,
+          provider-agnostic, Git-native.
+        </p>
+        <p class="hero-concrete">
+          Runs under the harness you already use: Claude Code, Codex, opencode,
+          over MCP.
+        </p>
+      </div>
       <div class="hero-cta-row">
         <CtaButton href="/get-started" variant="primary">
           Get started
         </CtaButton>
-        <CtaButton href="https://github.com/edobry/minsky" variant="secondary" external>
-          GitHub
+        <CtaButton href="#how-it-works" variant="secondary">
+          Watch it run a task
         </CtaButton>
       </div>
     </div>
     <div class="hero-product">
-      <ProductFrame>
+      <ProductFrame chromeTitle="minsky · session">
         <Picture
           src={heroImage}
           alt="Real CLI output: a task's session lifecycle, from start through PR creation"
@@ -101,6 +120,12 @@ const {
     color: var(--color-text-muted);
     max-width: 32rem;
     margin: 0;
+  }
+
+  .hero-facts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   .hero-concrete {

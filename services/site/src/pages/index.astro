@@ -1,33 +1,39 @@
 ---
+// Home page — the six-beat reframe (mt#3838, Amendment 2).
+//
+// Every section answers a question the visitor actually arrived with, in
+// the order they ask them: what is this and does it fit my stack (Hero),
+// is my situation the one this is for (Problem), what does it do to one
+// of my tasks (TaskJourney), does it work with what I run (FitCheck), is
+// it real and alive (Proof), can I run it tonight (GetStarted).
+//
+// Retired here: "Two doors" (the visitor was asked to self-categorize
+// before seeing anything work), "The idea" as a top-of-page section, and
+// "Eight surfaces, one environment." with its subsystem sequencing. The
+// thesis register those carried now lives in the /structure-gap essay.
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
 import Hero from "../components/Hero.astro";
-import CoProductRow from "../components/CoProductRow.astro";
 import ProblemSection from "../components/ProblemSection.astro";
-import IdeaSection from "../components/IdeaSection.astro";
-import SubstrateWalkthrough from "../components/SubstrateWalkthrough.astro";
-import TwoDoors from "../components/TwoDoors.astro";
-import NotSection from "../components/NotSection.astro";
-import BuiltSection from "../components/BuiltSection.astro";
+import TaskJourney from "../components/TaskJourney.astro";
+import FitCheck from "../components/FitCheck.astro";
+import ProofSection from "../components/ProofSection.astro";
 import GetStartedTeaser from "../components/GetStartedTeaser.astro";
 import SiteFooter from "../components/SiteFooter.astro";
 
-const title = "Minsky — the engineering organization around your AI agents";
+const title = "Minsky — the environment your coding agents work inside";
 const description =
-  "AI agents can write the code; Minsky is the engineering organization around them — isolated workspaces, adversarial review, durable memory, and decision routing, built into the environment.";
+  "Isolated workspaces per task, review by a model that didn't write the code, and memory that outlives the session. A self-hosted CLI, MCP server, and cockpit that runs under the coding harness you already use.";
 ---
 
 <BaseLayout title={title} description={description}>
   <Header />
   <main>
     <Hero />
-    <CoProductRow />
     <ProblemSection />
-    <IdeaSection />
-    <SubstrateWalkthrough />
-    <TwoDoors />
-    <NotSection />
-    <BuiltSection />
+    <TaskJourney />
+    <FitCheck />
+    <ProofSection />
     <GetStartedTeaser />
   </main>
   <SiteFooter />
