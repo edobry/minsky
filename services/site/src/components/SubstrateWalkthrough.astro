@@ -1,4 +1,7 @@
 ---
+// What it is, concretely — section 4 of the home-page skeleton (mt#3827).
+// Eight real product surfaces, walked through UNDER an explanatory intro,
+// not instead of it. Copy is plain language — no undefined register terms.
 import SubstrateScene from "./SubstrateScene.astro";
 import scene01SessionCli from "../assets/screenshots/scene-01-session-cli.png";
 import scene03CockpitHome from "../assets/screenshots/scene-03-cockpit-home.png";
@@ -9,83 +12,83 @@ import scene07HookDenial from "../assets/screenshots/scene-07-hook-denial.png";
 import scene08Asks from "../assets/screenshots/scene-08-asks.png";
 
 /*
- * Eight scenes per marketing-site-design/SKILL.md §9.
- * Headlines are three- to four-word conceptual per docs/brand-system.md §4.
- * Real screenshots captured 2026-07-18 (mt#2920, principal authorization
- * 2026-07-17). Scene 02 (MCP tool call surfaced in a harness) has no clean
- * live-capture path from this session — recorded exception, brand-tokened
- * placeholder stands in via SubstrateScene's undefined-screenshot branch.
+ * Eight scenes. Scene 02 (a tool call surfaced through a harness) has no
+ * clean live-capture path yet — a plain placeholder stands in via
+ * SubstrateScene's undefined-screenshot branch (no leaked task IDs or
+ * internal process language; see mt#3827).
  */
 const scenes = [
   {
-    eyebrow: "Sessions · Scene 01",
+    eyebrow: "Sessions",
     title: "Sessions that isolate.",
-    body: "Each task gets its own session workspace — branch, env, file scope. The agent never operates on main; the principal never adjudicates a merge conflict that came from agent-side drift.",
+    body: "Each task gets its own workspace — its own branch, its own file scope, run separately from everything else in flight. An agent never edits shared code directly, so a stalled or wrong session can't corrupt anyone else's work.",
     screenshot: scene01SessionCli,
-    screenshotAlt: "Real CLI output: minsky session get / tasks status get for mt#2920",
+    screenshotAlt: "Real CLI output: starting and inspecting a task session",
   },
   {
-    eyebrow: "Substrate · Scene 02",
+    eyebrow: "Tools",
     title: "Tools that compose.",
-    body: "Minsky exposes its substrate over MCP — tasks, sessions, memory, review — so a flock of agents reads the same surface. One contract, every harness.",
+    body: "The same commands work whether a person types them in a terminal or an agent calls them through a tool protocol. One set of operations, every harness — no separate API to keep in sync.",
     screenshot: undefined,
-    screenshotAlt: "MCP tool call surfaced through Claude Code",
+    screenshotAlt: "A tool call surfaced through a coding harness",
   },
   {
-    eyebrow: "Cockpit · Scene 03",
+    eyebrow: "Cockpit",
     title: "Attention that allocates.",
-    body: "The cockpit renders the principal's working set: in-flight tasks, open PRs, asks awaiting decision, hook denials worth knowing about. Mission-control density, not consumer-app whitespace.",
+    body: "The cockpit shows what's actually in flight: open tasks, open reviews, and the handful of questions that need a person to decide. Dense by design — built to be scanned, not admired.",
     screenshot: scene03CockpitHome,
-    screenshotAlt: "Cockpit web home — attention surface",
+    screenshotAlt: "The web cockpit showing tasks and reviews in flight",
   },
   {
-    eyebrow: "Review · Scene 04",
+    eyebrow: "Review",
     title: "Reviews that hold.",
-    body: "minsky-reviewer[bot] reviews every PR adversarially with a cross-family model and no implementer context. Chinese-wall by construction; merges block until the reviewer converges.",
+    body: "Every change is reviewed by a separate agent, running a different model, with no stake in the code it's judging. A merge waits until that review comes back clean — the same gate whether a person or an agent wrote the change.",
     screenshot: scene04ReviewGithub,
-    screenshotAlt: "minsky-reviewer[bot] adversarial review, approved, on PR #2034",
+    screenshotAlt: "An automated adversarial code review, approved on a real pull request",
   },
   {
-    eyebrow: "Graph · Scene 05",
+    eyebrow: "Tasks",
     title: "Tasks that converge.",
-    body: "Tasks decompose into subtasks and resolve as a DAG. The status state-machine is enforced in the domain layer — TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE — not as convention.",
+    body: "Large pieces of work break into smaller tasks with real dependencies between them — not a flat list, a graph. The system tracks which tasks are blocked on which, so nothing merges out of order by accident.",
     screenshot: scene05TaskGraph,
-    screenshotAlt: "Task dependency graph with subtask DAG — 637 tasks",
+    screenshotAlt: "A task dependency graph with parent and child tasks",
   },
   {
-    eyebrow: "Memory · Scene 06",
+    eyebrow: "Memory",
     title: "Memory that compounds.",
-    body: "Durable findings land in the Minsky memory store and surface on demand. The same lesson never has to be relearned across sessions, harnesses, or agents.",
+    body: "When something goes wrong once and gets diagnosed, that lesson is saved and comes back automatically the next time it's relevant — to any agent, in any session. The same mistake doesn't get made twice for lack of a shared memory.",
     screenshot: scene06Memory,
-    screenshotAlt: "Memory recall — search and stats over the memory store",
+    screenshotAlt: "Searching recorded lessons in the memory store",
   },
   {
-    eyebrow: "Hooks · Scene 07",
+    eyebrow: "Hooks",
     title: "Hooks that catch.",
-    body: "Structural guardrails fire at the action surface — branch-freshness, contract-propagation, bypass-merge, generated-file edits. The agent runs into the wall before the principal does.",
+    body: "Some rules are enforced in the code path itself: a formatting violation, an unsafe command, a merge without review — blocked before it happens, not flagged after. The same block applies whether the commit came from a person or an agent.",
     screenshot: scene07HookDenial,
-    screenshotAlt: "Pre-commit hook denying a per-rule-ceiling breach (mt#2913)",
+    screenshotAlt: "A pre-commit check blocking a change before it can land",
   },
   {
-    eyebrow: "Asks · Scene 08",
+    eyebrow: "Decisions",
     title: "Decisions that surface.",
-    body: "When a choice is principal-reserved — naming, framework selection, scope change — Minsky packages the question and the options instead of guessing. The principal stays load-bearing on principal-level decisions.",
+    body: "Some choices genuinely need a person — naming something, changing scope, taking on risk. Instead of guessing, Minsky packages the question with the context needed to answer it and routes it to whoever owns that decision, then keeps moving on everything else.",
     screenshot: scene08Asks,
-    screenshotAlt: "Asks subsystem packaging pending principal decisions",
+    screenshotAlt: "A queue of decisions routed to a person, each with its own context",
   },
 ];
 ---
 
-<section id="substrate" aria-labelledby="substrate-heading">
+<section id="how-it-works" aria-labelledby="how-it-works-heading">
   <header class="substrate-header">
     <div class="substrate-header-inner">
-      <p class="eyebrow">The substrate</p>
-      <h2 id="substrate-heading" class="substrate-headline">
-        Eight surfaces. One substrate.
+      <p class="eyebrow">What it is, concretely</p>
+      <h2 id="how-it-works-heading" class="substrate-headline">
+        Eight surfaces, one environment.
       </h2>
       <p class="substrate-sub">
-        The flock operates on a common substrate. Each surface is a real organ
-        of the cognitive system — not a marketing tile.
+        Minsky is a CLI, an MCP server, and a web cockpit, all reading and writing the same
+        underlying state. What follows is eight of its real surfaces, each doing one piece of
+        the coordination work described above — not mockups, actual screenshots of a running
+        system.
       </p>
     </div>
   </header>
