@@ -58,6 +58,7 @@
 
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
+import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import {
@@ -459,6 +460,35 @@ export async function run(
   const spec = typeof toolInput["spec"] === "string" ? (toolInput["spec"] as string) : "";
   const title = typeof toolInput["title"] === "string" ? (toolInput["title"] as string) : "";
   if (!spec && !title) return null;
+
+  // Canary isolation (mt#3824 R2). This scan's own doc comment on `run()`'s
+  // registry entry says its healthy canary outcome is a RECORDED SKIP,
+  // because "the scan needs a live database, which a canary process does not
+  // have." That assumption stopped being true without this guard's code
+  // changing: whether the canary process CAN reach a persistence provider is
+  // deploy/environment state, not something this module controls — when it
+  // could, the scan ran for real against the LIVE task corpus, and the
+  // canary's synthetic fixture text happened to match a genuine active
+  // task's spec on 2026-08-08, flipping guard-feedback-shape's coverage and
+  // growth-shape receipts (this guard newly "producing" feedback) with no
+  // code change on either side. A canary must never depend on which real
+  // tasks happen to exist. Short-circuit to the documented skip outcome
+  // whenever the process is in canary mode, before any DB is touched —
+  // mirrors `memory-search.ts` / `mcp-daemon-staleness-detector.ts`'s
+  // existing `CANARY_MODE_ENV` seam-gating pattern.
+  if (process.env[CANARY_MODE_ENV] === "1") {
+    return {
+      calibration: {
+        ts: new Date().toISOString(),
+        sessionId: input.session_id ?? null,
+        title,
+        tokensTried: [],
+        tokensDroppedAsUbiquitous: [],
+        outcome: "skipped",
+        reason: "canary mode — corpus scan not exercised against live task data",
+      },
+    };
+  }
 
   const result = await scanForSignatureMatches(title, spec);
 

@@ -10,16 +10,16 @@
     <span class="dot dot-r"></span>
     <span class="dot dot-y"></span>
     <span class="dot dot-g"></span>
-    <span class="chrome-title">minsky · session task/mt-1934</span>
+    <span class="chrome-title">minsky · session</span>
   </div>
   <div class="product-surface">
     <slot>
-      <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky session start mt#1934</span>
-<span class="muted">[ok]</span> session <span class="signal">a23c1326</span> · branch <span class="signal">task/mt-1934</span>
-<span class="muted">[ok]</span> task <span class="signal">mt#1934</span> · READY → IN-PROGRESS
+      <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky session start --task &lt;id&gt;</span>
+<span class="muted">[ok]</span> session <span class="signal">a23c1326</span> · branch <span class="signal">task/&lt;id&gt;</span>
+<span class="muted">[ok]</span> task <span class="signal">&lt;id&gt;</span> · READY → IN-PROGRESS
 
-<span class="prompt">›</span> <span class="cmd">minsky session pr create --task mt#1934</span>
-<span class="muted">[ok]</span> PR <span class="signal">#1184</span> opened
+<span class="prompt">›</span> <span class="cmd">minsky session pr create --title "..."</span>
+<span class="muted">[ok]</span> PR opened
 <span class="muted">[wait]</span> minsky-reviewer[bot] reviewing<span class="cursor">_</span></pre>
     </slot>
   </div>

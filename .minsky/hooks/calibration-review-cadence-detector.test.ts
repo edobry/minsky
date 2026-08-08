@@ -428,20 +428,31 @@ describe("formatCadenceWarning", () => {
       expect(msg.length).toBeLessThanOrEqual(DECLARED_CEILING);
     });
 
-    test("rendered size is IDENTICAL past the cap — 3 due logs and 8 due logs produce the same length", () => {
-      // The real teeth: not just \"still under budget\" (a generous ceiling
-      // could paper over slow growth) but that growth stops entirely once the
-      // cap is reached, which is what makes the ceiling a genuine worst case
-      // rather than a number that happens to hold today.
-      const three = Array.from({ length: 3 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
-      const eight = Array.from({ length: 8 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
-      expect(formatCadenceWarning(eight).length).toBe(formatCadenceWarning(three).length);
+    test("size stays bounded no matter how large the due set gets — 100 worst-case logs still fit under the declared ceiling", () => {
+      // The real teeth: not merely \"still under budget\" for a moderate count,
+      // but that the byte-budget fit (`formatCadenceWarning`'s greedy loop
+      // against ADVISORY_BUDGET_CHARS) holds for an arbitrarily large due set.
+      // A count-based cap needs its declared ceiling hand-verified against the
+      // longest plausible name/reason; this design is self-enforcing instead —
+      // it recomputes the fit against the actual rendered length every time,
+      // so it cannot silently drift the way the count-based predecessor of
+      // this test once did (PR #2701 R2).
+      const many = Array.from({ length: 100 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
+      const msg = formatCadenceWarning(many);
+      expect(msg.length).toBeLessThanOrEqual(DECLARED_CEILING);
     });
 
-    test("beyond MAX_DUE_LOGS_LISTED, the overflow collapses to a count rather than growing", () => {
+    test("beyond what fits, the overflow collapses to an accurate count rather than growing without bound", () => {
       const many = Array.from({ length: 5 }, (_, i) => worstCaseDue(`${WORST_CASE_NAME}-${i}`));
       const msg = formatCadenceWarning(many);
-      expect(msg).toContain("…and 3 more");
+      const listedCount = (msg.match(/^ {2}- /gm) ?? []).length;
+      // Fewer than the full set was listed — the budget is doing real work,
+      // not just passing through everything.
+      expect(listedCount).toBeGreaterThan(0);
+      expect(listedCount).toBeLessThan(many.length);
+      // And the omitted-count line's number matches what was actually left out.
+      const omitted = many.length - listedCount;
+      expect(msg).toContain(`…and ${omitted} more review-due log(s)`);
     });
   });
 });
