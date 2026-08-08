@@ -44,7 +44,7 @@
  * production call sites that construct this service need to change.
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -470,7 +470,48 @@ export class AgentTranscriptIngestService {
       );
     }
 
+    // mt#3656: resolve the writer-divergence verdict over the WHOLE file the
+    // scan just walked. Computed HERE, above the no-new-lines early return,
+    // because the verdict is a property of the file rather than of this batch:
+    // a conversation ingested before this detector shipped never receives new
+    // lines again, so a verdict computed below the return would be discarded
+    // for the entire existing corpus (PR #2656 R1).
+    //
+    // Logged at WARN when it fires because a fork means a branch is being
+    // silently orphaned — the failure mode has no other error surface anywhere
+    // in the system, which is the whole reason this exists.
+    const divergenceVerdict = divergenceScanner.verdict();
+    if (divergenceVerdict.divergentTips.length > 0) {
+      this.logWarn(
+        `[transcripts] Writer divergence in session ${agentSessionId}: ${divergenceVerdict.divergentTips.length} last-prompt records name leaves on different branches — two writers each held the tip`,
+        { agentSessionId, divergentTips: divergenceVerdict.divergentTips }
+      );
+    }
+    if (divergenceVerdict.unresolvedLeaves.length > 0) {
+      // Not a divergence claim — the opposite. These leaves could not be placed
+      // in the tree, so the verdict is silent about them rather than guessing.
+      log.debug(
+        `[transcripts] ${divergenceVerdict.unresolvedLeaves.length} unplaceable last-prompt leaf/leaves for session ${agentSessionId}`,
+        { agentSessionId }
+      );
+    }
+
     if (newLines.length === 0 && newAttachmentRows.length === 0) {
+      // The transcript upsert below is skipped, so the verdict has to be
+      // written on its own here or it is lost for every already-ingested
+      // conversation. Conditional in SQL rather than unconditional: the WHERE
+      // clause makes a steady-state sweep write NOTHING, so this does not
+      // reintroduce the per-tick write amplification the early return exists
+      // to avoid.
+      //
+      // The other early returns between the scan and the upsert (attachment
+      // write failure, upsert failure) deliberately do NOT write the verdict.
+      // They differ in kind: those abort a FAILED ingest that will be retried,
+      // and the scan is re-run from scratch on every pass, so the verdict is
+      // re-derived rather than lost. This path is the only one where "the next
+      // pass" never comes.
+      await this.persistDivergenceVerdict(agentSessionId, divergenceVerdict.divergentTips);
+
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`
       );
@@ -547,26 +588,6 @@ export class AgentTranscriptIngestService {
     // already-stored value — handled below via COALESCE on conflict, mirroring
     // projectId's precedence pattern.
     const extractedModel = extractModelFromNewLines(newLines);
-
-    // mt#3656: resolve the writer-divergence verdict over the WHOLE file the
-    // scan just walked. Logged at WARN when it fires because a fork means a
-    // branch is being silently orphaned — the failure mode has no other error
-    // surface anywhere in the system, which is the whole reason this exists.
-    const divergenceVerdict = divergenceScanner.verdict();
-    if (divergenceVerdict.divergentTips.length > 0) {
-      this.logWarn(
-        `[transcripts] Writer divergence in session ${agentSessionId}: ${divergenceVerdict.divergentTips.length} last-prompt records name leaves on different branches — two writers each held the tip`,
-        { agentSessionId, divergentTips: divergenceVerdict.divergentTips }
-      );
-    }
-    if (divergenceVerdict.unresolvedLeaves.length > 0) {
-      // Not a divergence claim — the opposite. These leaves could not be placed
-      // in the tree, so the verdict is silent about them rather than guessing.
-      log.debug(
-        `[transcripts] ${divergenceVerdict.unresolvedLeaves.length} unplaceable last-prompt leaf/leaves for session ${agentSessionId}`,
-        { agentSessionId }
-      );
-    }
 
     // mt#3089 R1 review — extractor observability: a null result is
     // unremarkable when the batch has no assistant lines at all (nothing to
@@ -948,6 +969,46 @@ export class AgentTranscriptIngestService {
    * caller is already returning an error for the original problem, and throwing
    * from here would replace a specific diagnosis with a bookkeeping error.
    */
+  /**
+   * Write the writer-divergence verdict on the no-new-lines path, where the
+   * transcript upsert never runs (mt#3656, PR #2656 R1).
+   *
+   * The WHERE clause is what makes this affordable. A sweep re-reads every
+   * quiet conversation on every tick, so an unconditional UPDATE here would
+   * add a write per conversation per tick — exactly the cost the early return
+   * exists to avoid. Writing only when the verdict is new (`divergence_checked_at
+   * IS NULL`) or has actually CHANGED means a steady state writes nothing, and
+   * it needs no extra SELECT to decide.
+   *
+   * `IS DISTINCT FROM` rather than `<>`: the stored value is NULL for every row
+   * predating this column, and `NULL <> '{}'` is NULL, not true — a plain
+   * inequality would never match the rows that most need writing.
+   *
+   * Best-effort: this path's whole point is that there was nothing to ingest,
+   * so a bookkeeping failure must not turn an idempotent no-op into an error.
+   */
+  private async persistDivergenceVerdict(
+    agentSessionId: string,
+    divergentTips: string[]
+  ): Promise<void> {
+    try {
+      await this.db
+        .update(agentTranscriptsTable)
+        .set({ divergentTipLeaves: divergentTips, divergenceCheckedAt: new Date() })
+        .where(
+          and(
+            eq(agentTranscriptsTable.agentSessionId, agentSessionId as ConversationId),
+            sql`(${agentTranscriptsTable.divergenceCheckedAt} IS NULL
+              OR ${agentTranscriptsTable.divergentTipLeaves} IS DISTINCT FROM ${divergentTips})`
+          )
+        );
+    } catch (err) {
+      log.warn(`Failed to record writer-divergence verdict for session ${agentSessionId}`, {
+        error: getLoggableErrorSummary(err),
+      });
+    }
+  }
+
   private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
     try {
       const summary = getLoggableErrorSummary(cause);

@@ -1934,6 +1934,35 @@ describe("writer-divergence verdict is persisted by ingestSession", () => {
     expect(warnCalls.some((m) => m.includes("Writer divergence"))).toBe(true);
   });
 
+  test("persists the verdict on an idempotent re-ingest with no new lines (PR #2656 R1)", async () => {
+    // The regression: the verdict was computed BELOW the no-new-lines early
+    // return, so it was discarded whenever the upsert was skipped. Every
+    // conversation ingested before this detector shipped is permanently on that
+    // path — it never receives new lines again — so the whole existing corpus
+    // would have stayed unchecked.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, FORKED_LINES);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const svc = makeSvc(db, source);
+
+    // First ingest stores the verdict via the upsert; clear it to model a row
+    // that predates the detector, then re-ingest with the file unchanged.
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    const primed = state.get(SESSION_A) as FakeRow;
+    state.set(SESSION_A, { ...primed, divergentTipLeaves: null, divergenceCheckedAt: null });
+
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.ingested).toBe(0);
+    const row = state.get(SESSION_A);
+    expect(row?.divergentTipLeaves?.sort()).toEqual(["replyA", "replyB"]);
+    expect(row?.divergenceCheckedAt).toBeInstanceOf(Date);
+    // The transcript itself is untouched — this path still ingested nothing.
+    expect(row?.transcript).toEqual(primed.transcript);
+  });
+
   test("records an empty verdict — not NULL — for an ordinary linear conversation", async () => {
     // The distinction matters: NULL means "never checked", so a clean
     // conversation must be positively marked as checked rather than left
