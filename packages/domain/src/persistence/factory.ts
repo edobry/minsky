@@ -121,14 +121,33 @@ export async function resolvePersistenceProviderOrError(): Promise<PersistencePr
     }
     return { ok: true, provider };
   } catch (err) {
-    const { scrubText } = await import("../transcripts/credential-scrubber");
-    const rawMessage = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      error: scrubText(rawMessage).text,
-      errorClass: err instanceof Error ? err.constructor.name : typeof err,
-    };
+    return toResolutionFailure(err);
   }
+}
+
+/**
+ * Shape a thrown value into the failure half of a `PersistenceProviderResolution`.
+ *
+ * Separate and exported because this is where the credential scrubbing the type's
+ * contract promises actually happens, and it is the only part of the resolution
+ * path exercisable without a database — `resolvePersistenceProviderOrError`'s own
+ * branch depends on ambient process state (whether configuration was initialized,
+ * whether a DB is reachable), so a test that asserts which branch it takes asserts
+ * something it does not own.
+ */
+export async function toResolutionFailure(
+  err: unknown
+): Promise<{ ok: false; error: string; errorClass: string }> {
+  // PR #2178 R1: a driver/initialization message can embed the connection
+  // string, and a DSN carries a password. The class is kept unconditionally —
+  // it discriminates the failure even when the message scrubs to nothing.
+  const { scrubText } = await import("../transcripts/credential-scrubber");
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  return {
+    ok: false,
+    error: scrubText(rawMessage).text,
+    errorClass: err instanceof Error ? err.constructor.name : typeof err,
+  };
 }
 
 /**
