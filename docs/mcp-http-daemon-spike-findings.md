@@ -278,6 +278,260 @@ down — both via `/health` `000`/connection-refused checks during the runs, and
 either spike port. See the mt#3766 spec's `## Findings` section for the exact final `ps` output.
 No daemon from this spike was left running.
 
+### mt#3811 cleanup (2026-08-08)
+
+Port 48792, bound `127.0.0.1` only throughout. Every daemon and client process spawned across all
+three experiments (including the two extra daemons from the Experiment 3 contamination —
+one self-spawned by a client, one this experiment's own restart attempt that hit `EADDRINUSE`
+and did not exit on its own) was individually confirmed dead by PID after the run, followed by a
+broad final sweep:
+
+```
+$ ps aux | grep "claude -p" | grep -v grep | wc -l
+0
+$ ps -Ao pid,ppid,rss,command | grep "mcp start --http" | grep -v grep
+(empty)
+$ lsof -iTCP:48792 -sTCP:LISTEN
+(empty)
+```
+
+The scratch `--mcp-config` and token lived under `/tmp/mt3811-spike/`, never inside the repo, and
+were removed (`rm -rf`) once all data was extracted from the run.
+
+One process-hygiene note surfaced by this run, distinct from mt#3764's original finding: the
+daemon's own `[mt#3764] Parent process died (ppid changed ... -> 1); exiting orphaned HTTP MCP
+server` watcher fired on some (not all) of this spike's `nohup ... & disown`-backgrounded daemon
+starts, self-reaping the daemon within its ~5s poll interval before a client had connected. This
+is the watcher working as designed against a genuinely-orphaned process — it just meant a few
+daemon starts self-exited before I could use them, which cost debugging time but not a leaked
+process. `MINSKY_MCP_DISABLE_PARENT_DEATH_EXIT=1` (documented in `src/mcp/orphan-exit.ts`) was
+used for the remaining spike runs to keep the daemon alive across the many separate shell
+invocations this measurement required; this is not something a supervised deployment (tray
+supervisor, or a real terminal session) would need, since there the daemon's actual parent process
+does not exit.
+
+## Overall verdict (mt#3811)
+
+**Resource case: unchanged.** Daemon RSS at N=1/5/10 shows no growth signal above ~90 MB of
+GC/allocator noise; even a deliberately pessimistic reading (the single highest sample observed
+across all runs, ~257 MB) keeps the shim topology's total at the census's ~40 conversations at
+`~38 MB × 40 (shim) + ~257 MB (daemon, pessimistic) ≈ 1.78 GB`, next to baseline's ~3.4 GB —
+**≈ -48%**, materially the same as ADR-038's existing ≈ -50% estimate. The daemon's own footprint
+turns out to be small relative to the shim's own per-process floor (~1.5 GB across 40
+conversations) — it was never the daemon that was leaving the ≈ -95% of direct HTTP on the table;
+it is the shim's own ~38 MB/conversation cost, which this task did not re-measure (already
+measured in ADR-038 §Question 1) and does not change.
+
+**Restart-recovery case (daemon already back up): confirmed safe.** N=6 concurrent clients all
+recovered transparently in single-digit-to-low-double-digit milliseconds with zero surfaced
+failures — directly validates ADR-038 §Question 6's "shared fate is measured and cheap" framing
+for this specific case.
+
+**Cold-start-window case: a real, previously-unmeasured exposure.** A tool call landing while
+nothing is listening (the ~5.1s median cold-start gap mt#3766 measured) gets an immediate hard
+failure surfaced into the model's turn — not the transparent, sub-15ms recovery of the
+already-back-up case. Recovery then depends on agent-level retry behavior, which is not
+guaranteed: in the observed run, the agent retried once and then gave up, surfacing the failure to
+the user. ADR-038 §Question 6 characterizes this as "a tool call issued during the restart window
+fails and retries, and the retry is the recovery path" — that undersells it; the retry is model
+behavior, not a client mechanism, and this measurement shows model behavior can decline to keep
+retrying.
+
+**Net: proceed on resources, but the default flip should not ship without addressing the
+cold-start window.** Nothing here undercuts the ≈ -50% shim-topology resource case, so ask#7273's
+"does the ≈ -50% (not ≈ -95%) number change the calculus" question resolves to **no, it does not
+change the calculus** — the daemon was never the reason the shim gives up half of direct HTTP's
+win. But §Question 6's restart-safety framing needs revision: a daemon restart is transparent only
+when a client's next call lands after the daemon is back up, and the ~5.1s cold-start window is a
+real gap where at least one of N concurrent conversations issuing a call during a planned or
+crash restart will see a hard, non-transparent failure. This should be scoped into Phase 2 (mt#3812's
+shim, or the daemon supervisor mt#3814/mt#3815) as an explicit requirement — e.g., the shim
+retrying with backoff around a connection-refused specifically — rather than assumed to come free
+from "lazy per-client reinit," which this measurement shows is not sufficient on its own for calls
+landing inside the cold-start window itself.
+
+---
+
+## N-scale measurement — mt#3811 (2026-08-08)
+
+> **Status:** Fills the two figures mt#3766 (above) and ADR-038 explicitly declined to claim:
+> daemon RSS at N concurrent sessions, and N-client restart recovery. Driven with real `claude -p`
+> clients pointed **directly at the daemon over HTTP** — no shim in the path. See
+> [Methodology note: no shim](#methodology-note-no-shim) for why that does not affect either
+> measured quantity.
+
+**Claude Code version tested:** 2.1.226. Daemon: `minsky mcp start --http --host 127.0.0.1`, same
+static-bearer-token auth path as mt#3766.
+
+### Methodology note: no shim
+
+The mt#3811 spec's `## Scope` says to drive clients "through shims"; the shim (mt#3812) is not
+built. Both quantities measured here are properties of the **daemon** and the **client**, not of
+what sits between them:
+
+- **Daemon RSS at N sessions** — the daemon allocates one `httpSessions` Map entry per connected
+  client (`src/mcp/server.ts`); it cannot tell a client reached it through a shim from one that
+  connected directly, so the RSS slope is identical either way.
+- **N-client restart recovery** — the behavior under test is Claude Code's own HTTP client
+  reissuing `InitializeRequest` after a restart invalidates its `Mcp-Session-Id`. A shim would
+  only pipe the same frames through unchanged.
+
+Clients were driven with `type: "http"` in a scratch `--mcp-config` (same shape as mt#3766's,
+below), never committed to the repo.
+
+```json
+{
+  "mcpServers": {
+    "minsky-spike": {
+      "type": "http",
+      "url": "http://127.0.0.1:48792/mcp",
+      "headers": { "Authorization": "Bearer <spike-token>" }
+    }
+  }
+}
+```
+
+Each RSS-measurement client ran a fixed sequence via `claude -p`: call `debug_echo`, hold the
+connection open with a **foreground** `perl -e 'select(undef,undef,undef,N)'` (a bare `sleep N`
+Bash command is intercepted and backgrounded by the harness after a 5s grace period, which tears
+down the tool-call span and defeats the "N clients held open concurrently" design — `perl`'s
+`select`-based sleep is not pattern-matched and runs to completion in the foreground), then call
+`debug_echo` again.
+
+### Experiment 1: daemon RSS at N = 1, 5, 10 concurrent sessions
+
+**Method:** for each N, spawn N clients simultaneously, wait ~40s for the initial
+connection-burst's GC/allocator activity to decay (see below — this decay is itself slow), then
+sample the daemon's RSS via `ps -o rss=` five times at ~7s intervals while all N clients remained
+confirmed alive (`ps -p <pid>`) and connected. Two independent runs were made per N (a first pass
+with a shorter 12s settle buffer, and a refined pass with a ~40s settle buffer); all raw samples
+are reported.
+
+| N   | Settled samples (KB), refined run      | Settled samples (KB), first run       | Combined median |
+| --- | -------------------------------------- | ------------------------------------- | --------------- |
+| 1   | 136080, 146032, 145312, 106608, 106736 | 118960, 128960, 101712, 98832, 96608  | ~110 MB         |
+| 5   | 201504, 147968, 175408, 172816, 169488 | 88096, 116240, 199008, 256752, 211088 | ~170 MB         |
+| 10  | 125264, 113840, 87808, 88400, 85632    | 121344, 106656, 123920, 106832, 88384 | ~104 MB         |
+
+**Finding: no monotonic RSS growth with N is resolvable in the 1–10 range.** The median at N=10
+(~104 MB) is _lower_ than the median at N=5 (~170 MB) and close to the median at N=1 (~110 MB).
+This is not evidence that concurrent sessions are free — it is evidence that at this N range, `ps`
+RSS on this Bun process is dominated by GC/allocator burst-and-decay tied to **recent connection
+churn**, not by the number of concurrently-open sessions.
+
+This was independently confirmed by sampling RSS with **zero** clients connected, immediately
+after the N=5 run's clients had all disconnected:
+
+```
+N=0 (no clients, decaying after N=5 load): 169488, 137952, 112528, 85904 KB, sampled 8s apart
+```
+
+The exact same 86–170 MB band appears with **no sessions open at all** — purely the previous
+burst's heap decaying. Bun/JSC does not aggressively return freed heap pages to the OS; a `ps`
+RSS reading taken within roughly a minute of a connection burst (session establishment plus the
+crypto/JSON work of handling auth headers and JSON-RPC framing) reflects that burst's high-water
+mark more than it reflects live occupancy.
+
+**Per-session slope: not measurable above noise in this range.** All 30 in-session RSS samples
+(10 per N step, N=1/5/10) fall inside an 84–257 MB band that is reproduced by zero-client decay
+alone. An upper bound can be reasoned from the code structure instead of the noise-dominated
+`ps` numbers: each `httpSessions` entry (`src/mcp/server.ts:380`) holds references to an MCP SDK
+`Server` + `Transport` pair — no subprocess, no dedicated per-client buffer pool — so the true
+structural marginal cost per session is very likely well under the ~90 MB noise floor itself, but
+this measurement cannot put a number on it more precise than "small relative to the observed
+swings."
+
+### Experiment 2: restart recovery with N ≥ 5 clients live
+
+**Method:** 6 clients spawned concurrently, each holding a connection open via the foreground
+`perl` wait (45s hold). Once all 6 were confirmed connected and mid-wait, the daemon process was
+killed and a fresh daemon was started on the same port with the same bearer token — the daemon
+was healthy again within ~1s (the "already-listening-by-next-call" case, not the cold-start-window
+case; see Experiment 3 for that).
+
+**Result: 6/6 clients recovered transparently. Zero clients surfaced a tool failure into their
+model turn.** Recovery latency per client (time from the `-32001 Session not found` JSON-RPC
+error to the retried call completing):
+
+| Client | Recovery latency                                                                                |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| 1      | 11ms                                                                                            |
+| 2      | 9ms                                                                                             |
+| 3      | 10ms                                                                                            |
+| 4      | 8ms                                                                                             |
+| 5      | 10ms                                                                                            |
+| 6      | ~10ms (its first call landed after the restart; its second call found an already-valid session) |
+
+All 6 clients' final output contained both expected raw JSON echoes with no error text — the same
+`InitializeRequest`-reissue pattern mt#3766 documented for a single client (Experiment 1 there),
+now confirmed at N=6 concurrent clients. This directly answers ADR-038 §Question 6's open
+question ("whether N-client recovery holds") for the case where the daemon is already back up and
+listening by the time each client's next call fires: **yes, recovery stays sub-15ms and fully
+transparent at N=6.**
+
+### Experiment 3: the cold-start window (a call landing while nothing is listening)
+
+This is a different case from Experiment 2: instead of the daemon already being up again by the
+time a client's next call fires, the client's call is timed to land while the daemon is **fully
+down** — nothing listening on the port at all (as opposed to a live daemon that no longer
+recognizes a stale session ID).
+
+**Method:** one client established a session (first `debug_echo` call confirmed successful), then
+the daemon was killed and deliberately **not** restarted before the client's second call fired.
+
+**First attempt — result contaminated, but revealing.** The first run of this experiment used
+a broad `--allowedTools "Bash,mcp__minsky-spike__debug_echo"` grant with no constraint on what the
+Bash tool could be used for. On hitting "Unable to connect," the **client's own model** used its
+Bash access to launch a _second, competing_ `minsky mcp start --http` daemon on the same port —
+unprompted, and with different flags (`--require-auth`) than the one this experiment was
+measuring. It won the port-bind race against a daemon this experiment separately tried to
+restart, which then crashed with `EADDRINUSE` and (a separate, notable gap) **did not exit its
+process despite an uncaught exception** — both processes were discovered and killed during
+cleanup. This is a real leaked-process risk distinct from mt#3764's original finding: **an
+agentic client with Bash access can self-remediate an MCP connection failure by spawning a
+duplicate daemon process**, worth a note for anyone building a client-side supervisor that grants
+broad shell access. The experiment was re-run with an explicit prompt instruction not to touch any
+MCP server process, and that instruction was honored in the clean run below.
+
+**Clean run — result.** With the daemon killed and left down, the client's second `debug_echo`
+call failed immediately:
+
+```
+2026-08-08T06:23:03.314Z  Calling MCP tool: debug_echo
+2026-08-08T06:23:03.315Z  Connection error: Unable to connect. Is the computer able to access the url?
+2026-08-08T06:23:03.315Z  Tool 'debug_echo' failed after 0s: Unable to connect. Is the computer able to access the url?
+```
+
+Failure surfaced in ~1-4ms — no automatic transport-level retry or backoff loop was observed for
+this failure class (unlike the stale-session-on-a-live-daemon case in Experiment 1/2, where
+recovery happens inside the _same_ `tool_dispatch` span with no failure ever surfacing). The
+**agent itself** decided to retry, ~2.9s later:
+
+```
+2026-08-08T06:23:06.187Z  Calling MCP tool: debug_echo
+2026-08-08T06:23:06.188Z  Tool 'debug_echo' failed after 0s: Unable to connect. Is the computer able to access the url?
+```
+
+Also failed. The agent then **stopped retrying** (its own 2-strikes-style discipline) and reported
+the failure verbatim to the user rather than continuing to retry:
+
+> "The second `debug_echo` call did not return a result. Both attempts failed with, verbatim:
+> `Unable to connect. Is the computer able to access the url?` ... Stopped there per the 2-strikes
+> rule; no server process was started, restarted, killed, or otherwise touched."
+
+The daemon was restored ~20s later, after the client process had already exited — the client
+never got a chance to benefit from it.
+
+**Verdict: hard failure, not retry-with-backoff.** A tool call landing in the genuine
+"nothing listening" window gets an immediate hard failure surfaced into the model's turn. Recovery
+is not automatic at the transport layer for this failure class — it depends entirely on
+agent-level retry behavior, which is neither guaranteed nor bounded, and in the observed run gave
+up after two attempts and surfaced the failure to the user. This is a materially different outcome
+than the "daemon already back up" case in Experiment 2, and it means ADR-038 §Question 6's framing
+— "a tool call issued during the restart window fails and retries, and the retry is the recovery
+path" — undersells the exposure: the retry is not a client-side mechanism, it is model behavior,
+and model behavior can (and here did) give up.
+
 ---
 
 ## Summary answer (spec Acceptance Test 1)

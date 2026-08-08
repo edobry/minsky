@@ -539,6 +539,33 @@ export function RunDetail({
    * saying the exclusion is intended; there is no reason for one here.)
    */
   const turnTarget = useMemo(() => parseTurnAddress(search) ?? undefined, [search]);
+  /**
+   * Where a transcript row's "watch this moment" link goes (mt#3794) — the film
+   * tab of THIS conversation, which `FilmMomentLink` appends the row's own
+   * address to.
+   *
+   * Keyspace-scoped where `turnTarget` above deliberately is not, because the
+   * film is: `RUN_TABS_BY_KEYSPACE` offers it only under `conversation`
+   * (mt#3468). Under a workspace the same thread renders with no affordance
+   * rather than a link to a tab that is not there.
+   *
+   * NOT additionally gated on the conversation having a film, which mt#3794's
+   * spec originally required and was amended to drop. Two reasons, in order of
+   * weight. First, `scrubGateOk` is not reachable here: it is computed only for
+   * the sessions-LIST endpoint (`routes/session-film.ts:302`) and is absent
+   * from this page's overview payload, so gating would mean fetching every
+   * conversation to read one flag, or adding an API surface. Second, and why
+   * that is not worth doing: the Film TAB three lines of JSX below is itself
+   * ungated, so a scrub-gated conversation already offers an entry point that
+   * lands on `SessionFilm`'s "This conversation has no film" — hiding the row
+   * link while leaving the tab visible would be an inconsistency, not a
+   * protection. Reachability is answered where the answer actually lives: the
+   * film resolves the address on arrival and reports when it cannot, which
+   * covers cases `scrubGateOk` cannot see (a turn that produced no event, an
+   * address stale after a re-ingest).
+   */
+  const filmPath =
+    keySpace === "conversation" ? pathForTab(base, keySpace, "film") : undefined;
   // The addressable id builds paths; this one reads data. They coincide for
   // every caller except the unified route's local-id alias (mt#3132).
   const dataId = resolvedConversationId ?? id;
@@ -753,6 +780,7 @@ export function RunDetail({
               liveByConversationId
               onNotFound={onConversationNotFound}
               turnTarget={turnTarget}
+              filmPath={filmPath}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

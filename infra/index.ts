@@ -48,22 +48,42 @@ const minskyMcpProject = "0e054318-7e19-4489-8e1e-de787965161d";
 const minskyMcpEnv = "0289b171-1514-4540-ac93-19b30da3e2c0";
 const minskyMcpServiceId = "a7c5195f-55de-472a-87e4-34e921a15171";
 
-export const minskyMcpService = new railway.Service("minsky-mcp", {
-  projectId: minskyMcpProject,
-  name: "minsky-mcp",
-  sourceImage: "ghcr.io/edobry/minsky:latest",
-  // minsky-mcp deploys from a GHCR image (sourceImage above), NOT from a
-  // repo+Dockerfile, so Railway config-as-code (`config_path` / railway.json) is
-  // INCOMPATIBLE here: Railway rejects `config_path` when `source_image` is set
-  // ("Invalid Attribute Combination"), which blocks `pulumi up` (mt#2472).
-  // Deploy-scoping for this image-based service lives entirely in
-  // `.github/workflows/deploy-minsky-mcp.yml` `paths:` — the workflow builds +
-  // pushes the GHCR image only on changes within the build closure; that is the
-  // single source of truth. (mt#2461 added a config_path here by analogy to the
-  // reviewer service — which IS repo+Dockerfile-source and so CAN use config-as-code
-  // — and broke the prod stack; mt#2472 removed it.)
-  regions: [{ region: "us-west2", numReplicas: 1 }],
-});
+export const minskyMcpService = new railway.Service(
+  "minsky-mcp",
+  {
+    projectId: minskyMcpProject,
+    name: "minsky-mcp",
+    sourceImage: "ghcr.io/edobry/minsky:latest",
+    // minsky-mcp deploys from a GHCR image (sourceImage above), NOT from a
+    // repo+Dockerfile, so Railway config-as-code (`config_path` / railway.json) is
+    // INCOMPATIBLE here: Railway rejects `config_path` when `source_image` is set
+    // ("Invalid Attribute Combination"), which blocks `pulumi up` (mt#2472).
+    // Deploy-scoping for this image-based service lives entirely in
+    // `.github/workflows/deploy-minsky-mcp.yml` `paths:` — the workflow builds +
+    // pushes the GHCR image only on changes within the build closure; that is the
+    // single source of truth. (mt#2461 added a config_path here by analogy to the
+    // reviewer service — which IS repo+Dockerfile-source and so CAN use config-as-code
+    // — and broke the prod stack; mt#2472 removed it.)
+    regions: [{ region: "us-west2", numReplicas: 1 }],
+    // rootDirectory is ignored rather than declared or cleared, because neither is
+    // possible. The live service carries rootDirectory: "/" left over from a
+    // repo-source era. Pulumi cannot remove it: omitting an optional property sends
+    // no clear instruction, so the API retains its value — a targeted `pulumi up`
+    // reported "1 updated" and left state at inputs=ABSENT / outputs="/". Declaring
+    // "/" to match is rejected at plan time, because rootDirectory conflicts with
+    // sourceImage (infra/sdks/railway/service.ts) and this service is image-source.
+    // A direct `railway environment edit` patch setting it null also failed to clear
+    // it (mem#281 records this exact field silently no-opping). The property is inert
+    // for an image deploy, so ignoring it states the truth — Pulumi does not own this
+    // field — and stops THIS service from contributing a phantom diff. That is a
+    // service-local claim, not a stack-wide one: cockpit still shows a residual
+    // `- sourceRepo` for the same provider reason (mt#3318 owns clearing it). Every
+    // phantom diff removed is one less reason to stop reading the plan at all.
+    // Do NOT "fix" this by deleting the ignore; that restores a
+    // permanent phantom diff. (mt#3318, mt#3832.)
+  },
+  { ignoreChanges: ["rootDirectory"] }
+);
 
 defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
   MINSKY_APP_ID: plain("3436626"),
@@ -329,16 +349,31 @@ const cockpitServiceId = "83273eef-b451-42af-b3e4-7e1c42b8bb50";
 export const cockpitService = new railway.Service("cockpit", {
   projectId: cockpitProject,
   name: "cockpit-preview",
-  sourceRepo: "edobry/minsky",
-  sourceRepoBranch: "main",
-  // Build context is the repo root — same pattern as services/reviewer (which
-  // also OMITS rootDirectory). The Dockerfile lives at services/cockpit/Dockerfile
-  // (build wiring in services/cockpit/deploy.config.ts). rootDirectory is OMITTED,
-  // NOT set to "": Railway rejects an empty root_directory ("Invalid Attribute Value
-  // Length ... must be at least 1, got: 0"), which blocked pulumi up entirely
-  // (mt#2474). Omitting it = Railway default (repo root), matching the working
-  // reviewer service (verified <unset> in the prod stack state).
+  // No repo source is declared, deliberately. This service is deployed only by
+  // .github/workflows/cockpit-preview.yml (`railway up --service cockpit-preview`)
+  // on each PR push, into ONE shared environment where each deploy overwrites the
+  // previous one. Declaring sourceRepo + sourceRepoBranch would arm a second,
+  // Railway-native auto-deploy on every push to the connected branch — with none of
+  // the workflow's path scoping — so a push to main would stomp an in-review PR's
+  // preview. minsky-site above shows that mechanism working as intended: it has no
+  // deploy workflow at all, so repo+branch IS its entire deploy trigger.
+  // The two properties go together because the schema requires the branch whenever
+  // sourceRepo is set; declaring only one risks a plan-time "Invalid Attribute
+  // Combination" (mt#2472). `railway up` builds from the CI checkout, so dropping
+  // the dashboard repo link costs nothing.
+  // rootDirectory stays OMITTED rather than "": Railway rejects an empty
+  // root_directory ("Invalid Attribute Value Length ... must be at least 1, got: 0"),
+  // which blocked pulumi up entirely (mt#2474).
   regions: [{ region: "us-west2", numReplicas: 1 }],
+  // NOTE: do NOT add `ignoreChanges: ["sourceRepo"]` here. It looks like the right
+  // parallel to minsky-mcp's rootDirectory ignore below, and it is not: ignoring the
+  // property keeps the live repo link in the DESIRED state while no branch is
+  // declared, so refresh fails the schema's pairing constraint outright —
+  // `Invalid Attribute Combination. Attribute "source_repo_branch" must be specified
+  // when "source_repo" is specified` (verified by preview, mt#3832; the mt#2472
+  // breakage class). Leaving both undeclared is correct: preview shows a residual
+  // `- sourceRepo` that the provider cannot express as a clear, which is harmless —
+  // it is the branch, not the repo link, that would arm an unwanted deploy trigger.
 });
 
 // Env-var IaC for cockpit-preview is deferred to mt#2407. Declaring a

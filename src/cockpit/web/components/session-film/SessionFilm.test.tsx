@@ -354,7 +354,157 @@ describe("SessionFilm — the ribbon follows the playhead (mt#3466)", () => {
   });
 });
 
+describe("SessionFilm — ?turn= address arrival (mt#3794)", () => {
+  /**
+   * Events carrying `sourceRef` — the join key an address resolves against.
+   *
+   * Turn 103 deliberately produces TWO rows: a conversational `speak` (no
+   * `batchId`, so its own row) followed by a two-call parallel batch. That is
+   * the ordinary shape of an assistant turn that says something and then acts,
+   * and it is the ONLY shape in which `toolUse` changes the answer — with one
+   * row per turn, turn-grain and tool-grain would resolve identically and a
+   * passing tool-grain test would prove nothing.
+   */
+  function sourcedEvents() {
+    const base = {
+      schemaVersion: "v0",
+      actor: { kind: "agent", agentSessionId: "a1" },
+      target: { realm: "repo", id: "file:ws:x.ts" },
+      outcome: "ok",
+      weight: 1,
+      adapterVersion: "test",
+    };
+    const at = (s: number) => new Date(2026, 6, 24, 0, 0, s).toISOString();
+    return [
+      // Rows 0-2 — one plain event each, turns 100-102.
+      ...[0, 1, 2].map((i) => ({
+        ...base,
+        verb: "read",
+        tStart: at(i),
+        batchId: `b${i}`,
+        sourceRef: { turnIndex: 100 + i },
+      })),
+      // Row 3 — turn 103's prose.
+      { ...base, verb: "speak", tStart: at(3), sourceRef: { turnIndex: 103 } },
+      // Row 4 — turn 103's parallel batch, two calls sharing one batchId.
+      {
+        ...base,
+        verb: "read",
+        tStart: at(4),
+        batchId: "bp",
+        sourceRef: { turnIndex: 103, toolUseId: "tu-a" },
+      },
+      {
+        ...base,
+        verb: "write",
+        tStart: at(5),
+        batchId: "bp",
+        sourceRef: { turnIndex: 103, toolUseId: "tu-b" },
+      },
+      // Row 5 — turn 104.
+      { ...base, verb: "read", tStart: at(6), batchId: "b6", sourceRef: { turnIndex: 104 } },
+    ];
+  }
+
+  function mockSourcedEvents() {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/api/cockpit/session-film/events") {
+        return new Response(
+          JSON.stringify({ events: sourcedEvents(), ingestedAt: "2026-07-20T00:00:00.000Z" }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+  }
+
+  test("lands on the row whose event came from the named turn", async () => {
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?turn=101`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-1").getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("a tool-grain address picks the batch row, not the prose row of the same turn", async () => {
+    // Turn 103 spans rows 3 (speak) and 4 (the batch). Turn-grain resolves to
+    // the first event from that turn — the prose. Only `toolUse` reaches the
+    // action the reader actually clicked.
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?turn=103&toolUse=tu-b`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-4").getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("the same turn WITHOUT a tool id lands on its prose row — the control for the case above", async () => {
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?turn=103`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-3").getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("a tool id this film has no event for degrades to the turn rather than failing", async () => {
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?turn=103&toolUse=tu-does-not-exist`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-3").getAttribute("aria-current")).toBe("true");
+    });
+    expect(screen.queryByTestId("session-film-unresolved-address")).toBeNull();
+  });
+
+  test("an address matching nothing says so instead of silently opening at the start", async () => {
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?turn=999`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-unresolved-address")).toBeDefined();
+    });
+    // Landing at row 0 is correct — the note is what distinguishes it from a
+    // film that simply opens there.
+    expect(screen.getByTestId("session-film-row-0").getAttribute("aria-current")).toBe("true");
+  });
+
+  test("the identity address wins over an ordinal in the same URL", async () => {
+    mockSourcedEvents();
+    renderFilm(`${FILM_PATH}?t=0&turn=104`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-5").getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("an events payload with no sourceRef at all is unaddressable, not a crash", async () => {
+    // Every event predating the adapter's `sourceRef` stamping looks like this.
+    mockEvents();
+    renderFilm(`${FILM_PATH}?turn=101`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-unresolved-address")).toBeDefined();
+    });
+  });
+});
+
 describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
+  test("a reader who arrived from a link is told the MOMENT can't be shown (mt#3794)", async () => {
+    // The link is deliberately not gated on film availability — no
+    // per-conversation signal exists to gate it on (see RunDetail's filmPath
+    // docblock) — so this message is what keeps such a click explained rather
+    // than dead.
+    mockEvents({ status: 422 });
+    renderFilm(`${FILM_PATH}?turn=101`);
+
+    await waitFor(() => {
+      expect(screen.getByText(/That moment can't be shown/i)).toBeDefined();
+    });
+  });
+
   test("reports no film instead of surfacing a raw failure", async () => {
     // The picker used to keep `scrubGateOk: false` conversations unreachable by
     // disabling their row. Reachable-from-its-own-page means this error branch
