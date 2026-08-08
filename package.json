@@ -1,6 +1,6 @@
 {
   "name": "minsky",
-  "description": "A development workflow orchestration platform that creates collaborative environments for both human and AI developers through organizational cybernetic principles.",
+  "description": "The engineering organization around your AI agents — tasks, isolated sessions, adversarial review, memory, and decision routing, built as environment.",
   "icon": "assets/icon/minsky-icon.svg",
   "keywords": [
     "minsky",

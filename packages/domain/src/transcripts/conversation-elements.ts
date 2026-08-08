@@ -91,6 +91,23 @@ export type ConversationElement =
        */
       isInterruptionRejection: boolean;
     }
+  | {
+      kind: "image";
+      /**
+       * The Anthropic content-block source discriminator — `base64`, `url`, or
+       * `file` (docs.claude.com, Messages API image blocks). Kept as a plain
+       * string rather than a union: this parses a THIRD-PARTY payload, and a
+       * source type we don't know yet must degrade to the placeholder rather
+       * than fail to parse.
+       */
+      sourceType: string;
+      /** e.g. `image/png`. Present on `base64` sources; absent otherwise. */
+      mediaType?: string;
+      /** Base64 payload — present only when `sourceType === "base64"`. */
+      data?: string;
+      /** Remote URL — present only when `sourceType === "url"`. */
+      url?: string;
+    }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
 /** Conversational role of a turn. */
@@ -222,6 +239,40 @@ export function spawnAgentKindFromInput(input: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Expand an Anthropic `image` content block into an image element.
+ *
+ * Every field is read defensively and the block is NEVER rejected: this parses
+ * a third-party payload whose shape we do not control, and a turn that carried
+ * an image must not disappear from the transcript because its source shape was
+ * unfamiliar. An unrecognized or malformed source yields an element with a
+ * `sourceType` but no `data`/`url`, which the renderer draws as a labeled
+ * placeholder rather than a broken image.
+ */
+function imageBlockToElement(block: ContentBlock): ConversationElement {
+  const source = block.source;
+  if (source === null || typeof source !== "object") {
+    return { kind: "image", sourceType: "" };
+  }
+  const s = source as Record<string, unknown>;
+  const sourceType = asString(s.type);
+  const element: ConversationElement = { kind: "image", sourceType };
+
+  if (sourceType === "base64") {
+    const mediaType = asString(s.media_type);
+    const data = asString(s.data);
+    if (mediaType) element.mediaType = mediaType;
+    // An empty `data` stays absent so the renderer's placeholder branch fires
+    // rather than emitting a `data:` URI with nothing after the comma.
+    if (data) element.data = data;
+  } else if (sourceType === "url") {
+    const url = asString(s.url);
+    if (url) element.url = url;
+  }
+
+  return element;
+}
+
 function blockToElement(
   block: ContentBlock,
   spawnChildren?: SpawnChildrenByToolUseId
@@ -260,6 +311,8 @@ function blockToElement(
         isError: block.is_error === true,
         isInterruptionRejection: isInterruptionRejectionContent(block.content),
       };
+    case "image":
+      return imageBlockToElement(block);
     default:
       return { kind: "unknown", rawType: asString(block.type), raw: block };
   }

@@ -1,0 +1,63 @@
+---
+// The problem — section 2 of the home-page skeleton (mt#3827).
+// Plain language throughout; no undefined register vocabulary.
+---
+
+<section id="problem" class="content-section" aria-labelledby="problem-heading">
+  <div class="content-inner">
+    <p class="eyebrow">The problem</p>
+    <h2 id="problem-heading" class="section-headline">The bottleneck is you.</h2>
+    <div class="section-body">
+      <p>
+        An agent handles a single, well-scoped task well — write this function, fix this bug,
+        add this test. Sustained work is different: dozens of tasks in flight, changes that need
+        review, mistakes that need remembering, decisions that need a person. Point an agent at
+        real, ongoing work and the well-scoped-task skill stops covering it.
+      </p>
+      <p>
+        What fills the gap is you. You track what each agent is doing, because nothing else
+        does. You review every change, because nothing else will catch a bad one. You clean up
+        abandoned branches and half-finished sessions, because nothing else notices they stalled.
+        You are the dispatcher, the reviewer, and the janitor — all at once, for every agent you
+        run.
+      </p>
+      <p>That works for one agent. It does not scale to two, and it collapses well before ten.</p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .content-section {
+    padding: 4.5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .content-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+  }
+  .section-body p {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+    margin: 0;
+    max-width: 42rem;
+  }
+</style>
