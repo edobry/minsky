@@ -208,14 +208,96 @@ describe("snapshotBlockToConversationTurn — element extraction", () => {
     expect(t?.elements.map((e) => e.kind)).toEqual(["thinking", "text", "tool-call"]);
   });
 
+  // Uses a genuinely unrecognized block type. This test asserted `image` until
+  // mt#3810 — image is now a rendered kind, so keeping it here would have
+  // pinned the defect as the expected behavior.
   test("unknown block type → unknown element (defensive)", () => {
     const t = snapshotBlockToConversationTurn(
       block({
         rawJsonlType: "assistant",
-        content: { role: "assistant", content: [{ type: "image", source: {} }] },
+        content: { role: "assistant", content: [{ type: "server_tool_use", id: "x" }] },
       })
     );
     expect(t?.elements[0]?.kind).toBe("unknown");
+  });
+});
+
+describe("snapshotBlockToConversationTurn — image blocks (mt#3810)", () => {
+  test("a base64 image block becomes an image element, not unknown", () => {
+    const t = snapshotBlockToConversationTurn(
+      block({
+        rawJsonlType: "user",
+        content: {
+          role: "user",
+          content: [
+            { type: "text", text: "[Image: original 3840x1936…]" },
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+            },
+          ],
+        },
+      })
+    );
+    expect(t?.elements.map((e) => e.kind)).toEqual(["text", "image"]);
+    expect(t?.elements[1]).toEqual({
+      kind: "image",
+      sourceType: "base64",
+      mediaType: "image/png",
+      data: "iVBORw0KGgo=",
+    });
+  });
+
+  test("a url image block carries the url and no base64 payload", () => {
+    const t = snapshotBlockToConversationTurn(
+      block({
+        rawJsonlType: "user",
+        content: {
+          role: "user",
+          content: [{ type: "image", source: { type: "url", url: "https://example.com/a.png" } }],
+        },
+      })
+    );
+    expect(t?.elements[0]).toEqual({
+      kind: "image",
+      sourceType: "url",
+      url: "https://example.com/a.png",
+    });
+  });
+
+  // The renderer keys its placeholder off an absent data/url, so these three
+  // shapes must not fabricate one — an empty `data` yielding `data:image/png;base64,`
+  // would render as a broken image instead of a labeled placeholder.
+  test("malformed image sources degrade to a payload-less element rather than throwing", () => {
+    const shapes = [
+      { type: "image", source: {} },
+      { type: "image", source: null },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "" } },
+    ];
+    for (const shape of shapes) {
+      const t = snapshotBlockToConversationTurn(
+        block({ rawJsonlType: "user", content: { role: "user", content: [shape] } })
+      );
+      const el = t?.elements[0];
+      expect(el?.kind).toBe("image");
+      expect(el && "data" in el ? el.data : undefined).toBeUndefined();
+      expect(el && "url" in el ? el.url : undefined).toBeUndefined();
+    }
+  });
+
+  // `file` sources are a documented Anthropic source type this renderer does
+  // not fetch — it must degrade to the placeholder, not to `unknown`.
+  test("an unrecognized source type keeps the image kind and reports the type", () => {
+    const t = snapshotBlockToConversationTurn(
+      block({
+        rawJsonlType: "user",
+        content: {
+          role: "user",
+          content: [{ type: "image", source: { type: "file", file_id: "file_123" } }],
+        },
+      })
+    );
+    expect(t?.elements[0]).toEqual({ kind: "image", sourceType: "file" });
   });
 });
 
