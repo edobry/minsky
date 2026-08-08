@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // PreToolUse hook: detect a BARE PROHIBITION in a raw `Agent`-tool dispatch prompt — an
-// instruction telling the subagent NOT to do something, without stating the basis and without
-// granting an explicit licence to falsify it (mt#3162).
+// instruction telling the subagent NOT to do something without stating the basis (mt#3162,
+// narrowed by mt#3167; a missing licence-to-falsify no longer qualifies on its own — see
+// "What it detects" below).
 //
 // ## Why this path is required, not optional
 //

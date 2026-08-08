@@ -36,11 +36,17 @@
  *
  * ## Scope of the claim this module makes
  *
- * It detects the SHAPE of a bare prohibition — a prohibition phrase without a nearby basis, or
- * without any licence-to-falsify anywhere in the prompt. It cannot judge whether a stated basis
- * is TRUE or whether a prohibition is warranted; those are not mechanically checkable. The
- * design bet is that requiring the shape is cheap and that the shape is what makes a wrong
- * negative conclusion recoverable.
+ * It detects the SHAPE of a bare prohibition — a prohibition phrase without a nearby basis. It
+ * cannot judge whether a stated basis is TRUE or whether a prohibition is warranted; those are
+ * not mechanically checkable. The design bet is that requiring the shape is cheap and that the
+ * shape is what makes a wrong negative conclusion recoverable.
+ *
+ * **The module encodes HALF the asymmetry above, deliberately (mt#3167).** A missing
+ * licence-to-falsify used to qualify a prohibition as bare on its own; calibration measured that
+ * category at 8/8 false positives and the principal retired it from the fire path. The POLICY —
+ * state the basis AND grant the licence — is unchanged and is still what
+ * {@link buildBareProhibitionMessage} asks callers for; only the mechanical verdict narrowed.
+ * {@link NegativeConstraintReport.bare} carries the full reasoning.
  *
  * @see mt#3162 — this task
  * @see mem#702 (`e437d993`) — the originating incident + the asymmetry
