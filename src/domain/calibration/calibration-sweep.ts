@@ -116,7 +116,8 @@ export interface CalibrationLogEntry {
     | "operator-deferral"
     | "untaken-action"
     | "retrospective-completeness"
-    | "stop-at-decision";
+    | "stop-at-decision"
+    | "bare-entity-ref";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -358,6 +359,28 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // fallback branch with no dedicated parser case. It still gets its OWN kind:
     // the registry invariant (PR #2263 R1) requires unique kinds per entry.
     kind: "untaken-action",
+  },
+  {
+    path: ".minsky/bare-entity-ref-calibration.jsonl",
+    name: "bare-entity-ref",
+    // mt#3286 — turn-end-bare-ref-scan (family:linked-reference-actionability,
+    // mem#623 R1-R6): a turn's CLOSING message referencing an entity the
+    // operator cannot click, plus two deterministically-malformed link shapes
+    // (a non-UUID ask/memory/session target, R4; a raw-UUID-fragment label,
+    // R5).
+    //
+    // Emits `matches: {family, phrase}[]` — family is the defect class, phrase
+    // the offending ref — so it parses through the shared fallback branch with
+    // no dedicated parser case, and diversity is measured over distinct refs.
+    // It still takes its OWN kind: the registry invariant (PR #2263 R1)
+    // requires unique kinds per entry.
+    //
+    // The record ALSO carries `logged_only`, the bare ask#N / mem#N / ws#N
+    // population the v0 Success Criteria deliberately do not flag. Reviewing
+    // this log means comparing the two populations, not just rating `matches`:
+    // R6's whole argument is that the log-only carve-out is where the real
+    // failures sit.
+    kind: "bare-entity-ref",
   },
   {
     path: ".minsky/retrospective-completeness-calibration.jsonl",
@@ -1871,6 +1894,9 @@ export interface CalibrationAsFireLogEntry {
  * with the registry it must exhaustively cover).
  */
 const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
+  // mt#3286 — the log is named for the DEFECT it measures, the guard for the
+  // moment it runs, so the two names differ and the mapping is required.
+  "bare-entity-ref": "turn-end-bare-ref-scan",
   "causal-premise": "causal-premise-detector",
   "retrospective-trigger": "retrospective-trigger-scanner",
   "ask-routing-deferral": "ask-routing-deferral-detector",
