@@ -36,6 +36,17 @@ explicit licence to falsify it ("...if that basis doesn't hold, say so and proce
 strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
 dispatch`.
 
+**The same bound covers DATA-EXISTENCE negatives (mt#3849).** "That field / column / payload key
+isn't there" is the same shape as "the capability is unavailable" — a negative bounded to the one
+view you read. The falsifier is the PRIMARY source, never the accessor: the raw file, not the
+parsed view; the call sites, not the type signature; the component, not a screenshot of it. A
+derived view is accurate about ITSELF and silent about the question you are asking, so **absence in
+a derived view is not evidence of absence in the source** — there is no error to notice, only a
+gap, which is why this passes a check that a wrong VALUE would fail. Incident (2026-08-08): a live
+probe showed a `tool_result` block carrying no HTTP metadata, which became "the metadata never
+enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
+and our ingest simply drops it (mt#2583).
+
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
 checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
