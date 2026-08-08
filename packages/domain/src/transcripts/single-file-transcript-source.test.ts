@@ -11,6 +11,7 @@ import { join } from "node:path";
 import type { ConversationId } from "../ids";
 import { SingleFileTranscriptSource } from "./single-file-transcript-source";
 import type { RawTurnLine } from "./transcript-source";
+import { SIDECAR_LINE_TYPES } from "./transcript-source";
 
 /** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
 const conv = (id: string) => id as ConversationId;
@@ -118,6 +119,24 @@ describe("SingleFileTranscriptSource", () => {
     // the line is what makes that detector reachable at all.
     expect(lines.map((l) => l.type)).toEqual(["user", "last-prompt", "assistant"]);
     expect(lines[1]?.leafUuid).toBe("leaf-1");
+  });
+
+  test("EVERY declared sidecar type is actually retained by the source (mt#3836 R1)", async () => {
+    // The invariant the reviewer asked for. `isSidecarLineType` and each
+    // source's `RETAINED_TYPES` are separate lists, so a type could be declared
+    // sidecar — and therefore skipped for `lineIndex` — while the source still
+    // drops it, silently starving whatever reader wanted it. That is exactly
+    // the mt#3836 defect in miniature. Iterating the declared set means adding
+    // a sidecar type without retaining it fails here rather than in production.
+    for (const type of SIDECAR_LINE_TYPES) {
+      await writeFile(file, `${USER_LINE}\n${JSON.stringify({ type })}\n${ASSISTANT_LINE}\n`);
+      const src = new SingleFileTranscriptSource(file);
+
+      const seen: RawTurnLine[] = [];
+      for await (const line of src.readSession(conv("ignored-id"))) seen.push(line);
+
+      expect(seen.map((l) => l.type)).toContain(type);
+    }
   });
 
   test("a retained queue-operation line keeps its fields despite having no message", async () => {

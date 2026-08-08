@@ -99,6 +99,8 @@ export interface TranscriptSource {
  * deliberately per-source module constants (`custom/no-domain-singleton`), and
  * this stays consistent with that by exporting behavior, not mutable state.
  */
+export const SIDECAR_LINE_TYPES = ["last-prompt"] as const;
+
 export function isSidecarLineType(line: RawTurnLine): boolean {
-  return line.type === "last-prompt";
+  return SIDECAR_LINE_TYPES.includes(line.type as (typeof SIDECAR_LINE_TYPES)[number]);
 }

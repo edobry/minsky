@@ -1027,7 +1027,21 @@ export class AgentTranscriptIngestService {
             // NULL-safe by construction: `array_to_string(NULL, ',')` is NULL
             // and `NULL IS DISTINCT FROM '<anything>'` is TRUE, so a row that
             // has never been checked still matches. An empty verdict renders
-            // `''` on both sides and correctly does not re-write.
+            // `''` on BOTH sides — `array_to_string('{}', ',')` is the empty
+            // string, not NULL — and correctly does not re-write. That case is
+            // the one that would have hurt: a clean conversation re-writing on
+            // every sweep tick is precisely the amplification this guard exists
+            // to prevent, so it is asserted rather than assumed (PR #2708 R1,
+            // integration test + a live re-ingest that left the timestamp
+            // unchanged).
+            //
+            // Two couplings this comparison accepts, both safe for THIS data
+            // and both worth knowing before reusing the shape (PR #2708 R1):
+            // it is ORDER-sensitive, and the leaves are emitted in file order,
+            // which is deterministic for an append-only transcript — a
+            // reordering would cost one redundant write, never a wrong verdict;
+            // and it is DELIMITER-coupled, which is sound only because the
+            // values are uuids and cannot contain a comma.
             sql`(${agentTranscriptsTable.divergenceCheckedAt} IS NULL
               OR array_to_string(${agentTranscriptsTable.divergentTipLeaves}, ',')
                  IS DISTINCT FROM ${divergentTips.join(",")})`

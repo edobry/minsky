@@ -122,6 +122,29 @@ if (process.env.RUN_INTEGRATION_TESTS && BRANCH_URL) {
       expect(row?.checkedAt).toBeInstanceOf(Date);
     });
 
+    test("an unchanged EMPTY verdict does not re-write either (PR #2708 R1)", async () => {
+      // The costly case if it were wrong. Clean conversations are the vast
+      // majority, and the sweep re-reads every quiet one on every tick — so an
+      // empty verdict that failed to compare equal would re-write the entire
+      // corpus, forever. It hinges on `array_to_string('{}', ',')` returning
+      // '' rather than NULL, which is worth pinning against the real planner
+      // rather than reasoning about.
+      const id = scratchId("idempotent-empty");
+      await insertRow(id);
+
+      await persistVerdict(id, []);
+      const first = await readVerdict(id);
+      await persistVerdict(id, []);
+      const second = await readVerdict(id);
+
+      const firstAt = first?.checkedAt;
+      const secondAt = second?.checkedAt;
+      if (!(firstAt instanceof Date) || !(secondAt instanceof Date)) {
+        throw new Error("expected both reads to carry a divergence_checked_at timestamp");
+      }
+      expect(secondAt.getTime()).toBe(firstAt.getTime());
+    });
+
     test("an unchanged verdict does not re-write, so a quiet sweep stays idle", async () => {
       const id = scratchId("idempotent");
       await insertRow(id);
