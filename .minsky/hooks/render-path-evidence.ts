@@ -105,8 +105,8 @@ const RENDER_PATH_PATTERNS: readonly RegExp[] = [
  * Widening the SHARED predicate is the right fix and is deliberately NOT done here. It would
  * change a BLOCKING gate's trigger set — every cockpit-web PR adding a `.test.tsx` would newly
  * require an `Execution evidence:` block or be denied — which is a blast radius that deserves
- * its own planning pass rather than riding along inside a log-only surface. Tracked separately;
- * this local predicate keeps THIS surface correct in the meantime.
+ * its own planning pass rather than riding along inside a log-only surface. Tracked at mt#3868,
+ * whose success criteria include deleting this stopgap; it keeps THIS surface correct meanwhile.
  */
 function isRenderPathTestFile(filename: string): boolean {
   return isTestFile(filename) || /\.(test|spec)\.tsx$/.test(filename);
