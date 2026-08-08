@@ -9,7 +9,11 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { PersistenceProviderFactory } from "./factory";
+import {
+  PersistenceProviderFactory,
+  resolvePersistenceProvider,
+  resolvePersistenceProviderOrError,
+} from "./factory";
 import type { PersistenceConfig } from "./types";
 
 describe("PersistenceProviderFactory error messages (mt#1280)", () => {
@@ -51,5 +55,42 @@ describe("PersistenceProviderFactory error messages (mt#1280)", () => {
     await expect(PersistenceProviderFactory.create(config)).rejects.toThrow(
       /persistence\.postgres\.connectionString is empty or whitespace/
     );
+  });
+});
+
+/**
+ * mt#3750: the same discipline as the mt#1280 tests above, one layer out. Those
+ * lock in that a CONFIG failure names what to fix; these lock in that a
+ * RESOLUTION failure reaches the caller as a cause at all, rather than as a bare
+ * `null` every caller has to invent an explanation for.
+ *
+ * No mocks and no database: the test process never calls
+ * `initializeConfiguration` (`tests/setup.ts` loads only the reflect polyfill),
+ * so resolution fails here for a reason that does not depend on whether a
+ * database is reachable.
+ */
+describe("resolvePersistenceProviderOrError (mt#3750)", () => {
+  test("a failed resolution carries the cause instead of discarding it", async () => {
+    const resolution = await resolvePersistenceProviderOrError();
+
+    expect(resolution.ok).toBe(false);
+    if (resolution.ok) return;
+
+    expect(resolution.error).toContain("Configuration not initialized");
+    expect(resolution.errorClass).toBe("Error");
+  });
+
+  test("resolvePersistenceProvider still returns null over the same failure", async () => {
+    // The contract 44+ existing call sites branch on is unchanged by the
+    // additive sibling above — this is the regression guard for that promise.
+    expect(await resolvePersistenceProvider()).toBeNull();
+  });
+
+  test("the two functions agree on whether a provider was produced", async () => {
+    const resolution = await resolvePersistenceProviderOrError();
+    const provider = await resolvePersistenceProvider();
+
+    // Env-independent coupling: null exactly when the resolution is not ok.
+    expect(provider === null).toBe(!resolution.ok);
   });
 });
