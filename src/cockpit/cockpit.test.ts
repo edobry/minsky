@@ -1899,3 +1899,9 @@ describe("Cockpit server", () => {
     }
   });
 });
+
+// describeWidgetDegradedReason (mt#3825) is unit-tested directly in
+// db-providers.test.ts alongside its sibling describeFailedPersistenceInit —
+// cockpit.test.ts is already at eslint.config.js's max-lines budget, and this
+// file's job is exercising widgets through the HTTP surface, not the pure
+// classifier function.

@@ -14,7 +14,12 @@ import {
   __resetDbProvidersForTests,
   shouldRefuseTestEnvironmentDb,
   TestEnvironmentDbAccessError,
+  describeWidgetDegradedReason,
+  classifyDriverConnectionError,
+  describeFailedPersistenceInit,
 } from "./db-providers";
+import { PersistenceUnavailableError } from "@minsky/domain/persistence/unconfigured-provider";
+import { PersistenceInitTimeoutError } from "./shared-persistence";
 
 type FakeDb = { marker: string };
 
@@ -404,5 +409,82 @@ describe("epoch-keyed cache invalidation (mt#3638)", () => {
     await getDb();
     await getDb();
     expect(resolves).toBe(1);
+  });
+});
+
+// -------------------------------------------------------------------------
+// describeWidgetDegradedReason (mt#3825) — three-state classification.
+//
+// Originating incident: `session_list error: write CONNECT_TIMEOUT
+// undefined:undefined`, a raw postgres.js driver artifact rendered verbatim
+// to the operator. Uses the `getDbStatus` test seam to drive AT2's three
+// states without standing up three live database conditions.
+// -------------------------------------------------------------------------
+
+describe("describeWidgetDegradedReason (mt#3825)", () => {
+  const NO_ARTIFACT = [/CONNECT_TIMEOUT/, /undefined:undefined/] as const;
+
+  function driverConnectTimeout(): Error {
+    return Object.assign(new Error("write CONNECT_TIMEOUT undefined:undefined"), {
+      code: "CONNECT_TIMEOUT",
+    });
+  }
+
+  test("AT2 — not-configured / configured-but-failed-at-boot (AT1) / driver-failure-on-initialized-provider render distinct, cause-carrying, artifact-free messages", () => {
+    const notConfigured = describeWidgetDegradedReason(
+      "session_list",
+      new PersistenceUnavailableError("Persistence is not configured: no connection string."),
+      { getDbStatus: () => "unreachable" }
+    );
+    const configuredButFailingAtBoot = describeWidgetDegradedReason(
+      "session_list",
+      driverConnectTimeout(),
+      { getDbStatus: () => "degraded" }
+    );
+    const driverFailureOnInitializedProvider = describeWidgetDegradedReason(
+      "session_list",
+      driverConnectTimeout(),
+      { getDbStatus: () => "ok" }
+    );
+
+    expect(notConfigured).toContain("not configured");
+    expect(configuredButFailingAtBoot).toContain("Postgres IS configured");
+    expect(driverFailureOnInitializedProvider).toContain("already established");
+
+    const all = [notConfigured, configuredButFailingAtBoot, driverFailureOnInitializedProvider];
+    for (const msg of all) {
+      expect(msg).toContain("session_list:");
+      for (const artifact of NO_ARTIFACT) expect(msg).not.toMatch(artifact);
+    }
+    expect(new Set(all).size).toBe(3);
+  });
+
+  test("a PersistenceInitTimeoutError classifies as configured-but-failed-at-boot", () => {
+    const err = new PersistenceInitTimeoutError(30_000);
+    const reason = describeWidgetDegradedReason("task_list", err, {
+      getDbStatus: () => "degraded",
+    });
+    expect(reason).toContain("Postgres IS configured");
+  });
+
+  test("an unrecognized error passes through unclassified rather than mis-described as a DB problem", () => {
+    const err = new Error("some unrelated bug");
+    const reason = describeWidgetDegradedReason("workstreams", err, { getDbStatus: () => "ok" });
+    expect(reason).toBe("workstreams: some unrelated bug");
+  });
+
+  test("classifyDriverConnectionError never re-embeds the raw driver artifact", () => {
+    const phrase = classifyDriverConnectionError(driverConnectTimeout());
+    expect(phrase).toBeDefined();
+    for (const artifact of NO_ARTIFACT) expect(phrase).not.toMatch(artifact);
+  });
+
+  // Negative control (mt#3244): fails if describeFailedPersistenceInit
+  // regresses to interpolating err.message directly — see PR body's
+  // "Negative control:" line for the observed failing run against the
+  // reverted pre-fix version.
+  test("describeFailedPersistenceInit sanitizes the raw driver artifact (negative control)", () => {
+    const rendered = describeFailedPersistenceInit(driverConnectTimeout());
+    for (const artifact of NO_ARTIFACT) expect(rendered).not.toMatch(artifact);
   });
 });
