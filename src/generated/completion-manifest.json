@@ -7741,6 +7741,17 @@
               "description": "Output the full cockpit state as JSON"
             }
           ]
+        },
+        {
+          "name": "open",
+          "description": "Open a conversation in the cockpit's conversation view",
+          "options": [
+            {
+              "flags": ["--conversation"],
+              "description": "Conversation (harness agent-session) id; defaults to $CLAUDE_CODE_SESSION_ID",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },
