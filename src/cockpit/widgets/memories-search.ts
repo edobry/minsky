@@ -1,5 +1,6 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { getSharedMemoryService } from "./shared-memory-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 import type { MemorySearchResult } from "@minsky/domain/memory/types";
 
 export interface MemoriesSearchPayload {
@@ -50,8 +51,7 @@ export const memoriesSearchWidget: WidgetModule = {
 
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `memories search error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("memories search", err) };
     }
   },
 };

@@ -24,6 +24,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in Workstreams.tsx (no server imports
@@ -342,8 +343,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
         };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `workstreams error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("workstreams", err) };
       }
     },
   };

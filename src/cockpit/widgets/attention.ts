@@ -27,6 +27,7 @@ import {
 import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public payload shapes — mirrored in Attention.tsx; keep in sync.
@@ -181,8 +182,7 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
 
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `attention error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("attention", err) };
       }
     },
   };
