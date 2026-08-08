@@ -1,0 +1,44 @@
+---
+// Preview variant B — full home-page render for the v2 restructure.
+// Does not affect the live home page (src/pages/index.astro).
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Header from "../../components/Header.astro";
+import Hero from "../../components/Hero.astro";
+import ProblemSectionV2 from "../../components/ProblemSectionV2.astro";
+import IdeaSectionV2 from "../../components/IdeaSectionV2.astro";
+import TwoDoorsV2 from "../../components/TwoDoorsV2.astro";
+import SubstrateWalkthroughV2 from "../../components/SubstrateWalkthroughV2.astro";
+import NotSection from "../../components/NotSection.astro";
+import BuiltSection from "../../components/BuiltSection.astro";
+import GetStartedTeaser from "../../components/GetStartedTeaser.astro";
+import SiteFooter from "../../components/SiteFooter.astro";
+import PreviewBanner from "../../components/PreviewBanner.astro";
+
+const title = "Preview variant B — Minsky";
+const description = "Preview variant B of the Minsky home-page restructure. Not published.";
+---
+
+<BaseLayout title={title} description={description} pathname="/preview/b" noindex={true}>
+  <PreviewBanner variant="B" />
+  <Header />
+  <main>
+    <Hero
+      headline="Engineering's shifting left."
+      subheadline="Minsky moves the engineering organization upstream of the code: isolated workspaces, adversarial review, durable memory, decision routing — enforced by the environment, at every scale."
+    />
+    <ProblemSectionV2 />
+    <IdeaSectionV2 />
+    <TwoDoorsV2 />
+    <SubstrateWalkthroughV2 />
+    <NotSection />
+    <BuiltSection />
+    <GetStartedTeaser />
+  </main>
+  <SiteFooter />
+</BaseLayout>
+
+<style>
+  :global(body) {
+    padding-top: 2.25rem;
+  }
+</style>
