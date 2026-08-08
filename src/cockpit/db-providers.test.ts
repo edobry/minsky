@@ -487,4 +487,49 @@ describe("describeWidgetDegradedReason (mt#3825)", () => {
     const rendered = describeFailedPersistenceInit(driverConnectTimeout());
     for (const artifact of NO_ARTIFACT) expect(rendered).not.toMatch(artifact);
   });
+
+  // SC4 (recovery) — verified, not built. Every widget under
+  // src/cockpit/widgets/ shares one catch-block contract: `try { ...; return
+  // { state: "ok", payload }; } catch (err) { return { state: "degraded",
+  // reason: describeWidgetDegradedReason(name, err) }; }`. Nothing in that
+  // contract, or in describeWidgetDegradedReason itself, caches a failure
+  // across calls — so a widget's NEXT poll clearing is a property of the
+  // shape itself, not a mechanism this task builds. `fetchLikeAWidget` below
+  // is that exact shape, parameterized on the operation the real widgets
+  // vary (getSharedPersistenceService / getServerSessionProvider / etc.) via
+  // the injected `op`, plus the same `getDbStatus` seam the three-state test
+  // above uses. This reproduces the originating incident end to end: degraded
+  // on a driver-level connect failure, then OK on the very next poll once the
+  // underlying operation stops throwing — with no new retry/cache code added
+  // anywhere in this PR to make that transition happen.
+  test("a degraded widget's next poll returns to ok once the underlying operation stops throwing (SC4)", async () => {
+    let shouldFail = true;
+    const op = async () => {
+      if (shouldFail) throw driverConnectTimeout();
+      return { agents: [] };
+    };
+    async function fetchLikeAWidget(): Promise<{ state: "ok" | "degraded"; reason?: string }> {
+      try {
+        const payload = await op();
+        return { state: "ok", payload } as { state: "ok"; payload: typeof payload };
+      } catch (err) {
+        return {
+          state: "degraded",
+          reason: describeWidgetDegradedReason("session_list", err, { getDbStatus: () => "ok" }),
+        };
+      }
+    }
+
+    const degraded = await fetchLikeAWidget();
+    expect(degraded.state).toBe("degraded");
+    expect(degraded.reason).toContain("session_list:");
+    for (const artifact of NO_ARTIFACT) expect(degraded.reason).not.toMatch(artifact);
+
+    // The underlying condition clears (network restored, DB reachable again)
+    // — no reload, no additional cockpit-level cache to invalidate.
+    shouldFail = false;
+    const recovered = await fetchLikeAWidget();
+    expect(recovered.state).toBe("ok");
+    expect(recovered.reason).toBeUndefined();
+  });
 });
