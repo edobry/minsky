@@ -118,6 +118,37 @@ describe("mt#3843 — one sticky footer, not three competitors", () => {
     expect(screen.getAllByTestId("test-tail")).toHaveLength(1);
   });
 
+  test("every interactive footer member opts back in to pointer events", () => {
+    renderCV(LONG, TAIL);
+    const footer = screen.getByTestId("thread-footer");
+
+    // The container is `pointer-events-none` so its TRANSPARENT regions never
+    // eat a click meant for the turn scrolling underneath — the pill is
+    // `w-fit`, so most of that row is see-through. The cost of that choice is
+    // that every interactive member must opt back in for itself, and one added
+    // later without the opt-in would be silently unclickable while looking
+    // perfectly fine.
+    //
+    // Asserted on the class rather than on computed style because happy-dom
+    // loads no CSS: `getComputedStyle(...).pointerEvents` cannot see a Tailwind
+    // utility here. The class IS the mechanism, so this is the invariant, not a
+    // surrogate for it — and `verify-conversation-footer-stack.ts` hit-tests
+    // every one of these buttons for real in a browser.
+    expect(footer.className).toContain("pointer-events-none");
+
+    const buttons = Array.from(footer.querySelectorAll("button"));
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      const optedIn =
+        button.className.includes("pointer-events-auto") ||
+        !!button.closest(".pointer-events-auto");
+      expect({ label: button.textContent?.trim(), optedIn }).toEqual({
+        label: button.textContent?.trim(),
+        optedIn: true,
+      });
+    }
+  });
+
   test("no footer is rendered when there is nothing to put in it", () => {
     // Short thread (no pill), nothing arrived from below (no return-to-newest),
     // no tail. An empty sticky box would still claim the band AND still eat

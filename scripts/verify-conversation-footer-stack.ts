@@ -216,7 +216,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 const RESOLVE_PORT = `
   let port = document.querySelector('[data-testid="conversation-thread"]');
-  port = port ? port.parentElement : null;
   while (port) {
     const s = getComputedStyle(port);
     const scrolls = ["auto","scroll","overlay"].includes(s.overflowY)
@@ -269,6 +268,28 @@ const MEASURE = `
       };
     }
 
+    // EVERY button in the footer, not just "↑ start". The footer is
+    // pointer-events-none with each member opting back in, so a member added
+    // later without that opt-in would be silently unclickable — invisible to a
+    // check that only ever probes one known button.
+    const footerEl = q('[data-testid="thread-footer"]');
+    const buttonHits = footerEl
+      ? Array.from(footerEl.querySelectorAll("button")).map((btn) => {
+          const b = btn.getBoundingClientRect();
+          const hit = b.width > 0 && b.height > 0
+            ? document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2)
+            : null;
+          return {
+            label: (btn.getAttribute("aria-label") || btn.textContent || "").trim().slice(0, 40),
+            rendered: b.width > 0 && b.height > 0,
+            reachable: !!(hit && (hit === btn || btn.contains(hit))),
+            actual: hit
+              ? ((hit.closest('[data-testid]') && hit.closest('[data-testid]').dataset.testid) || hit.tagName)
+              : null,
+          };
+        })
+      : [];
+
     const p = rect(pill), s = rect(strip), j = rect(jump);
     return JSON.stringify({
       present: { pill: !!pill, strip: !!strip, jump: !!jump, footer: !!q('[data-testid="thread-footer"]') },
@@ -279,6 +300,7 @@ const MEASURE = `
       jumpVsStrip: intersects(j, s),
       stripBottomGap: (s && portRect) ? +(portRect.bottom - s.bottom).toFixed(1) : null,
       startHit,
+      buttonHits,
     });
   })()`;
 
@@ -326,29 +348,47 @@ try {
 
   // Wait for BOTH controls. The strip depends on a live presence poll, so it can
   // lag the thread's first paint by a poll interval.
+  //
+  // `threadRendered` is tracked separately so the two outcomes stay separate. A
+  // page that never rendered the thread at all is a BROKEN RUN — a bad id, an
+  // auth failure, a JS error — and reporting that as "nothing to check" would
+  // hide a failure behind a SKIP. Only a page that DID render, but without both
+  // controls, is genuinely nothing to check.
   let ready = false;
+  let threadRendered = false;
   for (let i = 0; i < 45; i++) {
     const present = JSON.parse(
       await evaluate(
         ws,
         `JSON.stringify({
+          thread: !!document.querySelector('[data-testid="conversation-thread"]'),
           pill: !!document.querySelector('[data-testid="thread-position"]'),
           strip: !!document.querySelector('[data-testid="conversation-presence-activity"]'),
         })`
       )
-    ) as { pill: boolean; strip: boolean };
+    ) as { thread: boolean; pill: boolean; strip: boolean };
+    if (present.thread) threadRendered = true;
     if (present.pill && present.strip) {
       ready = true;
       break;
     }
     await sleep(1000);
   }
+  if (!ready && !threadRendered) {
+    await teardownAll();
+    console.error(
+      `FAIL: ${url} never rendered a conversation thread within 45s. This is not "nothing to ` +
+        "check\" — the page did not load. Check the conversation id, the cockpit's auth, and the " +
+        "browser console for that tab."
+    );
+    process.exit(1);
+  }
   if (!ready) {
     await teardownAll();
     skip(
-      `conversation ${conversationId} did not render both the position pill and the activity ` +
-        "strip within 45s — it may have stopped working, or be shorter than the pill's turn " +
-        "threshold. Nothing to check."
+      `conversation ${conversationId} rendered its thread but not both the position pill and the ` +
+        "activity strip within 45s — it may have stopped working, or be shorter than the pill's " +
+        "turn threshold. Nothing to check."
     );
   }
 
@@ -398,6 +438,12 @@ try {
     jumpVsStrip: { overlapping: boolean } | null;
     stripBottomGap: number | null;
     startHit: { reachesButton: boolean; actual: string | null } | null;
+    buttonHits: Array<{
+      label: string;
+      rendered: boolean;
+      reachable: boolean;
+      actual: string | null;
+    }>;
   };
   results["measured"] = m;
 
@@ -419,6 +465,18 @@ try {
     failures.push(
       `a click at the centre of the "↑ start" button lands on ${m.startHit.actual} instead — ` +
         "the control is covered, not merely crowded"
+    );
+  }
+
+  // 2b. Every OTHER rendered button in the footer must be reachable too. The
+  //     footer is `pointer-events-none` with each member opting back in, so a
+  //     member added later without that opt-in is silently unclickable — a
+  //     check that only probes one known button would never see it.
+  for (const b of m.buttonHits.filter((x) => x.rendered && !x.reachable)) {
+    failures.push(
+      `the footer button "${b.label}" is not clickable — a click at its centre lands on ` +
+        `${b.actual}. Footer members must carry \`pointer-events-auto\`; the container is ` +
+        "`pointer-events-none` so its transparent regions do not eat clicks meant for the transcript."
     );
   }
 
