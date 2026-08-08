@@ -173,11 +173,20 @@ describe("mt#3344 — pinned run-detail chrome", () => {
     const chrome = getByTestId("run-detail-chrome");
     expect(chrome.contains(activity)).toBe(false);
 
-    // It pins to the BOTTOM edge, and needs its own opaque background for the
-    // same reason the header does — transcript text scrolls underneath it.
-    expect(activity.className).toContain("sticky");
-    expect(activity.className).toContain("bottom-0");
+    // It needs its own opaque background — transcript text scrolls underneath it.
     expect(activity.className).toContain("bg-background");
+
+    // It pins to the BOTTOM edge through the thread's shared footer, NOT on its
+    // own (mt#3843). Until then it carried `sticky bottom-0 z-10` itself while
+    // the host mounted it as a sibling of the thread — which is precisely the
+    // "two separate sticky elements would overlap rather than stack" failure
+    // AT1 above names as the reason the HEADER has a shared container. The
+    // bottom edge now has one for the same reason.
+    const footer = getByTestId("thread-footer");
+    expect(footer.contains(activity)).toBe(true);
+    expect(footer.className).toContain("sticky");
+    expect(footer.className).toContain("bottom-0");
+    expect(activity.className).not.toContain("sticky");
   });
 
   test("AT3: the presence VALUE stays in the header and is not duplicated in the tail", async () => {
