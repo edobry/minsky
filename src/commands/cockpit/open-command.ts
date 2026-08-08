@@ -74,12 +74,17 @@ export function createOpenCommand(): Command {
       "after",
       [
         "",
-        "Inside a Claude Code session, run it in bash mode so it costs no model turn:",
+        "Inside a Claude Code session, prefer bash mode:",
         "  !minsky cockpit open",
         "",
-        "The /cockpit slash command does the same thing and is discoverable from the",
-        "command list, but a slash command IS a prompt — it spends a model turn on a",
-        "command that has no decision in it.",
+        "Whether that costs a model turn is a SETTING, not a property of bash mode.",
+        "Claude Code's `respondToBashCommands` defaults to true (since v2.1.186), so a",
+        "! command draws a reply and costs a turn just like /cockpit does. Set it to",
+        "false and the output lands in context with no reply — then ! is free and",
+        "/cockpit is the more expensive path.",
+        "",
+        "/cockpit remains the discoverable form: ! commands are not in the slash-command",
+        "list. Both run this exact command.",
       ].join("\n")
     )
     .option(
