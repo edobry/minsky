@@ -1,0 +1,93 @@
+---
+// What Minsky is not — section 6 of the home-page skeleton (mt#3827).
+
+const items = [
+  {
+    title: "Not a code review bot.",
+    body:
+      "Tools like CodeRabbit or a GitHub Copilot review operate at the pull request — after the code is already written. Minsky operates upstream of that: it's the environment that shapes how the code gets written in the first place. By the time a change reaches a PR, most of Minsky's checks have already run.",
+  },
+  {
+    title: "Not a task tracker.",
+    body:
+      "A tracker records what should happen. Minsky is the coordination layer that makes your existing linters, tests, and CI pipeline behave like one system, instead of three separate tools an agent has to remember to run.",
+  },
+  {
+    title: "Not a hosted agent platform.",
+    body:
+      "Minsky runs on your infrastructure, in your git repository, against the model provider you choose. No vendor holds your code, your credentials, or your agents' output.",
+  },
+];
+---
+
+<section id="not" class="content-section" aria-labelledby="not-heading">
+  <div class="content-inner">
+    <p class="eyebrow">What Minsky is not</p>
+    <h2 id="not-heading" class="section-headline">Three things it's easy to assume.</h2>
+    <div class="not-grid">
+      {
+        items.map((item) => (
+          <div class="not-item">
+            <h3 class="not-title">{item.title}</h3>
+            <p class="not-body">{item.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .content-section {
+    padding: 4.5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .content-inner {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+    max-width: 42rem;
+  }
+
+  .not-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  @media (min-width: 760px) {
+    .not-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+    }
+  }
+  .not-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+  .not-title {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .not-body {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+</style>
