@@ -204,15 +204,28 @@ That is essentially the Bun runtime floor.
 
 The mt#1713 baseline is **~40 pairs, ~3.4 GB**.
 
-| Topology                      | Per-conversation cost | ~40 conversations    | vs baseline |
-| ----------------------------- | --------------------- | -------------------- | ----------- |
-| Today (proxy + inner server)  | ~119 MB               | ~3.4 GB (baseline)   | —           |
-| **Thin shim + shared daemon** | ~38 MB                | ~1.5 GB + one daemon | **≈ -50%**  |
-| Direct HTTP + shared daemon   | 0                     | one daemon           | ≈ -95%      |
+| Topology                      | Per-conversation cost | ~40 conversations         | vs baseline        |
+| ----------------------------- | --------------------- | ------------------------- | ------------------ |
+| Today (proxy + inner server)  | ~119 MB               | ~3.4 GB (baseline)        | —                  |
+| **Thin shim + shared daemon** | ~38 MB                | **~1.5–1.8 GB, measured** | **≈ -48% to -50%** |
+| Direct HTTP + shared daemon   | 0                     | one daemon (~0.1–0.25 GB) | ≈ -95%             |
 
-The daemon's own RSS at N=40 concurrent sessions is **unmeasured** — a single-session
-`minsky mcp start` is 63.5 MB, and per-session overhead at scale has not been observed. Do not
-quote a total until mt#3811 measures it.
+**Daemon RSS at N sessions — measured by mt#3811 (2026-08-08), no longer unmeasured.** Driving
+N=1/5/10 concurrent HTTP-connected clients against one daemon and sampling `ps` RSS repeatedly at
+each step found **no growth signal distinguishable from noise**: settled-window medians were
+~110 MB (N=1), ~170 MB (N=5), ~104 MB (N=10) — non-monotonic, because at this N range `ps` RSS on
+the daemon's Bun process is dominated by GC/allocator burst-and-decay following recent connection
+churn (independently confirmed: the identical 86–170 MB band reappears with **zero** clients
+connected, purely from a prior burst decaying), not by concurrent session count. All 30 in-session
+samples across N=1/5/10 fall in an 84–257 MB band. Taking the single highest sample observed
+(~257 MB) as a deliberately pessimistic per-daemon estimate, the shim topology's total at ~40
+conversations is `~38 MB × 40 + ~257 MB ≈ 1.78 GB` — **≈ -48%**, materially unchanged from the
+≈ -50% estimate this table already carried before the daemon term was filled in. The daemon was
+never the reason the shim topology gives up roughly half of direct HTTP's win — the shim's own
+~38 MB/conversation floor (measured separately, above) is what accounts for that gap, and this
+measurement does not touch that number. Full methodology, all raw samples, and the two
+companion restart-recovery experiments:
+`docs/mcp-http-daemon-spike-findings.md` §N-scale measurement.
 
 Stated plainly: **choosing the shim gives up roughly half of the available win.** It is still a
 real win — the shim costs ~32% of today's pair, and ~60% of today's inner server alone — and it
@@ -359,11 +372,26 @@ measurement subtask before the migration flips the default.**
 **Restart.** All N conversations lose their transport session at once. Recovery is per-client,
 lazy, and independent: it fires on that conversation's _next_ tool call, not at t=0, so agent turn
 timing staggers it naturally — there is no thundering herd at the moment of restart. The spike
-measured **one** client recovering in 38ms/47ms; N-client recovery is **UNVERIFIED** and is
-explicitly not claimed here. The one real exposure is cold start (~5.1s median): a tool call
-issued during the restart window fails and retries, and the retry is the recovery path — but
-whether that holds at N=10+ concurrent re-inits is exactly what has not been observed. mt#3811
-measures it before the default flips.
+measured **one** client recovering in 38ms/47ms.
+
+**mt#3811 (2026-08-08) measured N-client recovery: confirmed, for the case where the daemon is
+already back up.** 6 concurrent clients, each with a live session, all recovered transparently in
+8–14ms with zero surfaced failures when the daemon restart completed before each client's next
+call fired — the lazy-reinit claim above holds at N=6.
+
+**The cold-start window is a real exposure, not a hypothetical one — and the recovery framing
+above needs a correction.** "A tool call issued during the restart window fails and retries, and
+the retry is the recovery path" undersells what mt#3811 observed: when a client's call actually
+lands while nothing is listening (the ~5.1s median cold-start gap, as opposed to the
+already-back-up case above), the failure surfaces immediately into the model's turn — there is no
+automatic client-side retry/backoff for this failure class, unlike the stale-session case. Recovery
+then depends on **agent-level** retry behavior, which is not guaranteed: in the measured run the
+agent retried once, then stopped (its own 2-strikes-style discipline) and surfaced the failure to
+the user rather than continuing to retry. At N-way concurrency, any client whose call happens to
+land inside a restart's ~5s window will see this, not a staggered-and-silent recovery. This should
+be an explicit requirement for Phase 2 (mt#3812's shim, or the supervisor in mt#3814/mt#3815) —
+e.g. retry-with-backoff specifically around connection-refused — rather than assumed to come free.
+Full experiment detail: `docs/mcp-http-daemon-spike-findings.md` §N-scale measurement, Experiment 3.
 
 **`MAX_HTTP_SESSIONS`.** Currently `null` (uncapped) by default. Leave it uncapped locally. A cap
 sized to expected conversation count would be wrong: Observation D shows conversations mint
@@ -418,17 +446,18 @@ after:   command: minsky   args: [mcp, shim, --url, http://127.0.0.1:48765/mcp]
 Four implementation subtasks are filed under mt#1713, each with its own spec, implementable
 without re-deriving this ADR's reasoning:
 
-| Task        | Deliverable                                                                                                                                                 | Depends on                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on | —                         |
-| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                | —                         |
-| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                         | —                         |
-| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                         | mt#3812, mt#3814, mt#3815 |
-| **mt#3811** | Measure daemon RSS at N sessions and N-client restart recovery; gates the default flip and fills the two figures this ADR leaves unmeasured                 | mt#3812, mt#3814          |
+| Task        | Deliverable                                                                                                                                                                | Depends on                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on                | —                         |
+| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                               | —                         |
+| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                                        | —                         |
+| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                                        | mt#3812, mt#3814, mt#3815 |
+| **mt#3811** | ~~Measure daemon RSS at N sessions and N-client restart recovery~~ — **DONE, 2026-08-08**: both figures are now measured and folded into §Question 1 and §Question 6 below | —                         |
 
-mt#3811 is not optional polish: §Question 1's resource table and §Question 6's shared-fate argument
-both carry claims this ADR explicitly declines to make, and mt#3811 is where they get made or
-falsified. The migration default should not flip ahead of it.
+mt#3811 was not optional polish: §Question 1's resource table and §Question 6's shared-fate
+argument previously carried claims this ADR explicitly declined to make, and mt#3811 is where they
+were made — driven directly against the daemon over HTTP, since the shim (mt#3812) was not yet
+built and neither measured quantity depends on it. Both sections now carry the measured numbers.
 
 ---
 
@@ -457,10 +486,21 @@ falsified. The migration default should not flip ahead of it.
 
 **Left unverified, deliberately**
 
-- N-client recovery after a daemon restart (only N=1 measured).
-- Daemon RSS at N=40 concurrent sessions.
 - The interactive (non-`sdk-cli`) Claude Code transport's header set. Shared implementation makes
   divergence unlikely; it was not captured.
+- Daemon RSS at exactly N=40 concurrent sessions (the census's actual scale). mt#3811 measured
+  N=1/5/10 directly and found no growth signal above ~90 MB of noise across that range — see
+  §Question 1 — which supports extrapolating a small daemon term to N=40, but N=40 itself was not
+  directly driven.
+
+**Resolved by mt#3811 (2026-08-08)** — previously listed here as unverified:
+
+- ~~N-client recovery after a daemon restart (only N=1 measured)~~ — measured at N=6. Transparent
+  (8–14ms, zero surfaced failures) when the daemon is already back up by the client's next call;
+  a hard, model-surfaced failure with no guaranteed recovery when the call lands in the cold-start
+  gap itself. See §Question 6.
+- ~~Daemon RSS at N concurrent sessions (the general shape)~~ — measured at N=1/5/10; see
+  §Question 1.
 
 ## Alternatives rejected
 
