@@ -117,6 +117,12 @@ export type PreparedElement =
       output?: InjectedSpan;
       caveat?: InjectedSpan;
     }
+  /**
+   * An image the operator pasted (or a tool returned). Mirrors the domain
+   * element of the same kind — see `conversation-elements.ts` for why
+   * `sourceType` is a plain string and why `data`/`url` are optional.
+   */
+  | { kind: "image"; sourceType: string; mediaType?: string; data?: string; url?: string }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
 // ── API-error text detection (mt#2793, re-homed by mt#3132) ─────────────────
@@ -523,6 +529,55 @@ export function CommandInvocation({
 
 // ── The single-element renderer ─────────────────────────────────────────────
 
+/**
+ * Render a pasted/returned image.
+ *
+ * Delivery note (mt#3810, ADR-025): the base64 payload already travels to the
+ * browser inside the context-inspector snapshot whether or not anything draws
+ * it, so rendering it here adds ZERO bytes to the payload. A real screenshot
+ * block measures ~39 KB of base64 (3840x1936 PNG, conversation
+ * `f1048ecf-a061-4725-8e60-dab6ad9bd322`). We deliberately do NOT add a
+ * fetch-on-demand path: ADR-025 makes object storage the system of record and
+ * mt#2580 re-points this snapshot's reader at it, so a second delivery
+ * mechanism built against today's Postgres blob would be rework against a
+ * substrate that is being retired. Image weight is an input for mt#2580 to
+ * size, not a mechanism for this component to invent.
+ *
+ * `loading="lazy"` keeps a long transcript from decoding every image up front.
+ */
+function ImageElement({
+  element,
+}: {
+  element: Extract<PreparedElement, { kind: "image" }>;
+}): JSX.Element {
+  const src =
+    element.data !== undefined
+      ? `data:${element.mediaType ?? "image/png"};base64,${element.data}`
+      : element.url;
+
+  if (src === undefined) {
+    // Malformed, empty, or a source type we don't render (e.g. `file`, which
+    // needs an API fetch we deliberately don't do here). Say which, rather
+    // than showing a broken image or silently dropping the turn's content.
+    return (
+      <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
+        image not shown{element.sourceType ? ` (source: ${element.sourceType})` : ""}
+      </div>
+    );
+  }
+
+  return (
+    <a href={src} target="_blank" rel="noreferrer" className="block">
+      <img
+        src={src}
+        alt={element.url ?? "Image in conversation"}
+        loading="lazy"
+        className="max-h-96 max-w-full rounded border border-border/40 object-contain"
+      />
+    </a>
+  );
+}
+
 export function ElementView({
   element,
   role,
@@ -630,6 +685,8 @@ export function ElementView({
           expandSignal={expandSignal}
         />
       );
+    case "image":
+      return <ImageElement element={element} />;
     case "unknown":
       return (
         <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
