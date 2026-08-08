@@ -75,19 +75,19 @@ describe("analyzeNegativeConstraints — mt#3120 discrimination pair", () => {
 });
 
 describe("analyzeNegativeConstraints — basis detection", () => {
-  test("a prohibition with a because-clause but no licence is still bare", () => {
+  test("a prohibition with a because-clause but no licence is NOT bare (mt#3167)", () => {
     const report = analyzeNegativeConstraints(
       "Do not build the polling path because the webhook already covers it."
     );
 
     expect(report.findings.length).toBeGreaterThan(0);
     expect(report.findings[0]?.hasBasis).toBe(true);
+    // The licence marker is still MEASURED — it is only retired from the fire path.
     expect(report.hasLicenceToFalsify).toBe(false);
-    // Basis alone does not make it recoverable — the recipient still has no standing to say so.
-    expect(report.bare.length).toBeGreaterThan(0);
+    expect(report.bare).toEqual([]);
   });
 
-  test("a prohibition with a licence but no basis is still bare", () => {
+  test("a prohibition with a licence but no basis is bare", () => {
     const report = analyzeNegativeConstraints(
       "Do not build the polling path. If you find that wrong, say so and proceed."
     );
@@ -155,16 +155,55 @@ describe("buildBareProhibitionMessage", () => {
     expect(message).toContain("say so and proceed");
   });
 
-  test("distinguishes which property is missing", () => {
-    const noLicence = buildBareProhibitionMessage(
-      analyzeNegativeConstraints("Do not build it because the webhook covers it.")
-    );
-    expect(noLicence).toContain("no licence to falsify");
-
+  test("names the one property a bare finding can now be missing (mt#3167)", () => {
     const noBasis = buildBareProhibitionMessage(
       analyzeNegativeConstraints("Do not build it. If you find that wrong, say so.")
     );
     expect(noBasis).toContain("no basis stated");
+    // The retired category can no longer appear in a message: nothing reaches `bare` on it.
+    expect(noBasis).not.toContain("no licence to falsify");
+  });
+});
+
+describe("mt#3167 — the licence-to-falsify category is retired from the fire path", () => {
+  /**
+   * The four shapes the 2026-08-04 calibration review classified as false positives, one per
+   * pattern that fired. Each states its basis and each is a scope decision, a role constraint, or
+   * guard-backed policy — cases where licensing the recipient to falsify the instruction would be
+   * wrong rather than diligent. Under v1 every one of these was flagged.
+   *
+   * Each carries its basis, matching the recorded data: all 8 real matches had `hasBasis: true`
+   * and were categorized `no-licence`. A fixture without a basis marker would fire for the
+   * SURVIVING reason and prove nothing about the retirement, so the assertion below checks
+   * `hasBasis` on every fixture before checking that `bare` is empty.
+   */
+  const MEASURED_FALSE_POSITIVES = [
+    "The secret-file-read guard blocks this: reading `config.yaml` emits the value. Do not try to work around that guard.",
+    "Do not build the cockpit widget — those are mt#3330's deliverables, per the decomposition.",
+    "You are one of five parallel workstream planners, so do not attempt to answer the question yourself.",
+    "Editing `.claude/hooks/` is blocked because the tree is generated from `.minsky/hooks/`.",
+  ];
+
+  test("each measured false positive is no longer flagged", () => {
+    for (const text of MEASURED_FALSE_POSITIVES) {
+      const report = analyzeNegativeConstraints(text);
+      // The prohibition is still SEEN — this is a narrowing of the verdict, not of detection.
+      expect(report.findings.length).toBeGreaterThan(0);
+      expect(report.findings.every((f) => f.hasBasis)).toBe(true);
+      expect(report.hasLicenceToFalsify).toBe(false);
+      expect(report.bare).toEqual([]);
+    }
+  });
+
+  test("the mem#702 shape a basis-less prohibition encodes still fires", () => {
+    // The category that survives: no basis at all, which is what makes a wrong negative
+    // conclusion unrecoverable by its recipient.
+    const report = analyzeNegativeConstraints(
+      "The creation-time approach is blocked. Do not attempt it in this task."
+    );
+
+    expect(report.bare.length).toBeGreaterThan(0);
+    expect(report.bare.every((f) => !f.hasBasis)).toBe(true);
   });
 });
 
