@@ -116,7 +116,12 @@ export class TranscriptWatcher {
       } catch {
         continue;
       }
-      this.tracker.recordSessionEvent(sessionIdFromPath(abs), isSubagentPath(abs));
+      // Seed WITHOUT stamping liveness (mt#3857): discovering a file is not
+      // observing activity in it. `recordSessionEvent` would stamp Date.now() on
+      // every historical conversation, which is what made /api/health's live-session
+      // list 1,380 entries wide. The byte-offset seed above is the part that must
+      // happen here, and it is untouched.
+      this.tracker.recordSessionSeeded(sessionIdFromPath(abs), isSubagentPath(abs));
       count++;
     }
     this.tracker.setFilesWatched(this.tracker.trackedSessionCount);

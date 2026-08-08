@@ -31,6 +31,7 @@ import {
   __resetSharedPersistenceForTests,
 } from "./shared-persistence";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
+import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 /* eslint-disable custom/no-real-fs-in-tests -- the acceptance-test-2 case below writes to an
    explicit tmp path (never the real default cache path) to prove refreshProdStateCache's
    write-then-read round trip through the live /api/health route; mirrors prod-state-cache.test.ts */
@@ -121,6 +122,80 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     for (const field of parsed.rustConsumedFields) {
       expect(Object.keys(parsed.fields)).toContain(field);
     }
+  });
+
+  // mt#3857. The rest of this fixture pins only the TOP-LEVEL field set, so
+  // `transcriptWatcher: "object"` was satisfied by any contents whatsoever —
+  // which is how a 1,380-entry / 209 KB array rode inside it, on the endpoint
+  // the tray polls every 5s. These three tests are the CI teeth: the nested
+  // type pin, and the two semantic invariants a re-inflation would break.
+  test("transcriptWatcher's nested field set and types match the fixture", async () => {
+    const parsed = healthShapeFixtureJson as unknown as {
+      transcriptWatcherFields: Record<string, string>;
+    };
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as { transcriptWatcher: Record<string, unknown> };
+
+    expect(Object.keys(body.transcriptWatcher).sort()).toEqual(
+      Object.keys(parsed.transcriptWatcherFields).sort()
+    );
+    for (const [field, expectedType] of Object.entries(parsed.transcriptWatcherFields)) {
+      expect(body.transcriptWatcher).toHaveProperty(field);
+      expect(typeOf(body.transcriptWatcher[field])).toBe(expectedType);
+    }
+  });
+
+  test("activeSessions is bounded by the live window, not the registry size", async () => {
+    // The exact shape of the defect: a large registry of sessions the watcher
+    // knows about but has seen no recent activity in. Pre-mt#3857 all of these
+    // shipped in the response; now none of them may.
+    const tracker = TranscriptWatcherTracker.resetForTest();
+    for (let i = 0; i < 500; i++) {
+      tracker.recordSessionSeeded(`contract-seeded-${i}`, false);
+    }
+    tracker.recordSessionEvent("contract-genuinely-live", false);
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as {
+      transcriptWatcher: {
+        activeSessionCount: number;
+        activeSessions: Array<{ agentSessionId: string }>;
+      };
+    };
+
+    // The registry still knows about all 501 ...
+    expect(body.transcriptWatcher.activeSessionCount).toBe(501);
+    // ... but only the one with real activity is on the wire.
+    expect(body.transcriptWatcher.activeSessions).toHaveLength(1);
+    expect(body.transcriptWatcher.activeSessions[0]?.agentSessionId).toBe(
+      "contract-genuinely-live"
+    );
+  });
+
+  test("the health payload does not grow with transcript history", async () => {
+    // Size assertion in bytes, because the invariant that matters to the tray is
+    // "this response stays small", and a field-shape test cannot express that.
+    // Threshold is mt#3857's SC1 (4 KB); the measured post-fix payload against a
+    // 1,380-file history was 1,642 bytes.
+    const tracker = TranscriptWatcherTracker.resetForTest();
+    for (let i = 0; i < 2000; i++) {
+      tracker.recordSessionSeeded(`contract-history-${i}`, false);
+    }
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const text = await res.text();
+
+    expect(JSON.parse(text).transcriptWatcher.activeSessionCount).toBe(2000);
+    expect(text.length).toBeLessThan(4096);
   });
 
   test("prodStateSweep block reflects real sweep outcomes under normal operation (mt#3039 acceptance test 2)", async () => {

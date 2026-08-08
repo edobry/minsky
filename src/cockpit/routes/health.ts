@@ -203,9 +203,22 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
+      // mt#3857: `activeSessions` carries the LIVE subset only, and the registry
+      // total rides alongside as a scalar. This endpoint is the most-polled surface
+      // in the system — every 5s by the tray supervisor, 3x/15s by the webview — so
+      // an unbounded array here is multiplied by ~12 requests a minute forever. It
+      // had grown to 1,380 entries / 209 KB per response (99.5% of the payload)
+      // before this filter; the full registry is still available via
+      // `getActiveSessions()` for any caller that wants it.
+      //
+      // Emitting a count next to a bounded list also matches the convention ADR-017
+      // set for the sibling `transcriptSweep` field ("counts + ISO timestamps only"),
+      // and matches what `contract/cockpit-health-shape.json`'s sample already
+      // assumed this field looked like.
       transcriptWatcher: {
         ...watcherTracker.getSummary(),
-        activeSessions: watcherTracker.getActiveSessions(),
+        activeSessionCount: watcherTracker.trackedSessionCount,
+        activeSessions: watcherTracker.getLiveSessions(),
       },
       // mt#3297: whether the DB has the schema this build expects. The status
       // code cannot carry this — the daemon boots fine and answers 200 whether
