@@ -324,15 +324,33 @@ describe("observability.calibration-review — --ack covers all review-due legs 
   test("still skips a newly-covered-leg log whose ask is open when no askId is supplied", async () => {
     // The mt#2659 safety property must survive the widening: --ack without
     // askId must not silently discharge a log the operator is still deciding.
+    //
+    // mt#3818: this test used to also assert `acked.watermarkAdvanced === false`.
+    // That flag is a PROCESS-GLOBAL boolean — `calibration.ts` sets it true the
+    // moment `selectAckablePaths` returns ANY ackable path, not specifically
+    // this one. It is not a safe proxy for "this log's watermark held": once
+    // wall-clock passes any OTHER registry entry's `liveSinceDate +
+    // reviewByDays` window (e.g. `knowledge-acquisition`'s 2026-07-23 + 14
+    // days = 2026-08-06), that unrelated entry's never-fired leg (mt#3078)
+    // becomes review-due and ackable in this test's temp workspace too — which
+    // flips the global flag to `true` while the invariant this test actually
+    // cares about (SILENT_STRETCH_PATH's watermark is untouched) still holds.
+    // The per-path assertions below are the actual safety property; the
+    // deleted global-flag assertion carried a latent wall-clock dependency on
+    // registry entries this test never touches. See the mt#3818 spec's
+    // Diagnosis section for the full mechanism and the negative-control run
+    // that confirmed it (neutralizing the tripping entry's `liveSinceDate`
+    // made the old assertion pass).
     const workspace = makeWorkspace();
     const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
     writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    const originalWatermark = {
+      lastReviewedCount: 1,
+      lastReviewedAt: daysAgoIso(20),
+      openAskId: ASK_ID,
+    };
     writeWatermarks(workspace, {
-      [SILENT_STRETCH_PATH]: {
-        lastReviewedCount: 1,
-        lastReviewedAt: daysAgoIso(20),
-        openAskId: ASK_ID,
-      },
+      [SILENT_STRETCH_PATH]: originalWatermark,
     });
 
     const command = getCommand();
@@ -342,8 +360,10 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     )) as AckResult;
 
     expect(acked.skippedOpenAskPaths).toContain(SILENT_STRETCH_PATH);
-    expect(acked.watermarkAdvanced).toBe(false);
-    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(1);
+    // The per-path property the mt#2659 safety invariant actually encodes: a
+    // skipped log's watermark entry is byte-for-byte unchanged — not merely
+    // its count, but its timestamp and openAskId too.
+    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]).toEqual(originalWatermark);
   });
 
   test("supplying askId reaffirms an open-ask log on a newly-covered leg", async () => {

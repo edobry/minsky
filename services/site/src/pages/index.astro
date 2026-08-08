@@ -3,12 +3,18 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
 import Hero from "../components/Hero.astro";
 import CoProductRow from "../components/CoProductRow.astro";
+import ProblemSection from "../components/ProblemSection.astro";
+import IdeaSection from "../components/IdeaSection.astro";
 import SubstrateWalkthrough from "../components/SubstrateWalkthrough.astro";
+import TwoDoors from "../components/TwoDoors.astro";
+import NotSection from "../components/NotSection.astro";
+import BuiltSection from "../components/BuiltSection.astro";
+import GetStartedTeaser from "../components/GetStartedTeaser.astro";
 import SiteFooter from "../components/SiteFooter.astro";
 
-const title = "Minsky — the cyberbrain for software organizations";
+const title = "Minsky — the engineering organization around your AI agents";
 const description =
-  "Minsky orchestrates tasks, sessions, and review across a flock of agents — a substrate that extends one principal's cognition, not a synthetic workforce that replaces your team.";
+  "AI agents can write the code; Minsky is the engineering organization around them — isolated workspaces, adversarial review, durable memory, and decision routing, built into the environment.";
 ---
 
 <BaseLayout title={title} description={description}>
@@ -16,7 +22,13 @@ const description =
   <main>
     <Hero />
     <CoProductRow />
+    <ProblemSection />
+    <IdeaSection />
     <SubstrateWalkthrough />
+    <TwoDoors />
+    <NotSection />
+    <BuiltSection />
+    <GetStartedTeaser />
   </main>
   <SiteFooter />
 </BaseLayout>
