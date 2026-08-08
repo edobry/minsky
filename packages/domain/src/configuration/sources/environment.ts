@@ -125,6 +125,14 @@ export const environmentMappings = {
   MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE: "principalChannel.permissionMode",
   MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS: "principalChannel.allowedUserIds",
 
+  // Cockpit daemon configuration (mt#3641) — operator-configured extra
+  // allowed Host name(s) layered onto the mt#2538 Host-header allowlist
+  // (e.g. a Tailscale MagicDNS name). Explicit mapping because the dot-path
+  // auto-conversion would produce `cockpit.allowedHosts` too (harmless here,
+  // but explicit entries are the house convention for every other section
+  // above, and this documents intent + survives a future rename).
+  MINSKY_COCKPIT_ALLOWED_HOSTS: "cockpit.allowedHosts",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 
@@ -427,6 +435,8 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
 
   // Comma-separated lists (mt#3230)
   "principalChannel.allowedUserIds": "csv",
+  // Comma-separated list (mt#3641)
+  "cockpit.allowedHosts": "csv",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",

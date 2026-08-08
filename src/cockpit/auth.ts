@@ -145,11 +145,49 @@ export function isLoopbackHost(host: string): boolean {
 /**
  * The set of Host-header values the daemon accepts (all lowercased). Always
  * includes the standard loopback aliases; `explicitHost` (the `--host` opt-in
- * value, if not itself already a loopback alias) is added on top.
+ * bind value, if not itself already a loopback alias) is added on top, as is
+ * every entry in `extraHosts` — the operator-configured tailnet name(s)
+ * (mt#3641, `cockpit.allowedHosts` / `MINSKY_COCKPIT_ALLOWED_HOSTS`). This is
+ * an ADDITIVE allowlist: entries not listed here (and not a loopback alias or
+ * `explicitHost`) still 403 via `hostAllowlistMiddleware` — no wildcard, no
+ * bypass.
+ *
+ * `explicitHost` and `extraHosts` are distinct knobs on purpose (mt#3641
+ * criterion 2): the former is the `--host` BIND value; the latter is a
+ * declarative-config allowlist ADDITION that does not change what interface
+ * the daemon binds to. Before mt#3641 these were the same knob — every
+ * production caller passed the bind value as the only allowlist input, which
+ * is exactly what made a loopback-bind + tailnet-Host combination (Tailscale's
+ * own recommended posture) unreachable.
  */
-export function buildAllowedHosts(explicitHost?: string): Set<string> {
+export function buildAllowedHosts(
+  explicitHost?: string,
+  extraHosts?: readonly string[]
+): Set<string> {
   const hosts = new Set<string>(DEFAULT_LOOPBACK_HOSTS);
   if (explicitHost) hosts.add(normalizeHost(explicitHost));
+  for (const host of extraHosts ?? []) {
+    if (host) hosts.add(normalizeHost(host));
+  }
+  return hosts;
+}
+
+/**
+ * Normalize `extraHosts` into a lowercased Set, shared by
+ * `cookieBootstrapMiddleware`'s `offBoxHosts` parameter above and its callers
+ * (`createCockpitServer`) — applies the SAME normalization `buildAllowedHosts`
+ * uses, so a Host header that satisfies the allowlist check and the
+ * off-box-cookie check agree on the same entries. Kept as a separate export
+ * (rather than exporting `normalizeHost` itself) so callers build this set
+ * from exactly the operator-configured extra-host list, never from
+ * `explicitHost` (the `--host` bind value, already governed by
+ * `isLoopbackBind`).
+ */
+export function buildOffBoxHostSet(extraHosts: readonly string[] = []): Set<string> {
+  const hosts = new Set<string>();
+  for (const host of extraHosts) {
+    if (host) hosts.add(normalizeHost(host));
+  }
   return hosts;
 }
 
@@ -280,10 +318,33 @@ export function isRequestOriginAllowed(req: {
  * be handed to a browser talking to a routable address, where it could be sent
  * cross-origin over the wire. Non-loopback consumers authenticate with an
  * explicit `Authorization: Bearer <token>` header instead (mt#2538 R1).
+ *
+ * `offBoxHosts` (mt#3641) re-derives that same gate for the tailnet case,
+ * where `isLoopbackBind` alone stops being a valid proxy for "only local
+ * processes can reach me". Tailscale's own best practice is to keep the
+ * daemon bound to loopback and put `tailscale serve` in front of it, which
+ * means `isLoopbackBind` stays `true` while the daemon becomes reachable
+ * from every device on the tailnet — the exact posture this parameter exists
+ * to cover. `offBoxHosts` is the set of operator-configured extra Host names
+ * (`cockpit.allowedHosts`, NOT the `--host` bind value, which the
+ * `isLoopbackBind` check already governs): a request whose `Host` matches
+ * one of them is, by construction, arriving from off-box, so the plain-HTTP
+ * cookie must be withheld for it regardless of what `isLoopbackBind` says.
+ * The loopback-bind branch's own requests (Host: localhost/127.0.0.1/::1)
+ * are unaffected and keep minting the cookie exactly as before.
  */
-export function cookieBootstrapMiddleware(token: string, isLoopbackBind: boolean) {
+export function cookieBootstrapMiddleware(
+  token: string,
+  isLoopbackBind: boolean,
+  offBoxHosts: ReadonlySet<string> = new Set()
+) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!isLoopbackBind) {
+      next();
+      return;
+    }
+    const requestHostname = extractHostname(req.headers.host);
+    if (requestHostname !== null && offBoxHosts.has(requestHostname)) {
       next();
       return;
     }
