@@ -530,6 +530,29 @@ export function CommandInvocation({
 // ── The single-element renderer ─────────────────────────────────────────────
 
 /**
+ * Ceiling on base64 payload we will paint inline, in characters.
+ *
+ * Derived from the corpus rather than picked round (`decision-defaults.mdc
+ * §Thresholds`): across the 7 `image` blocks present in this project's local
+ * JSONL corpus (2026-08-08), base64 length runs min 20,488 / median 80,096 /
+ * max 397,880 chars. 1,000,000 sits ~2.5x above the observed max — so no real
+ * screenshot in the corpus trips it — while capping a single inline paint below
+ * the multi-megabyte bar SC3 names.
+ *
+ * Deliberately checked at RENDER time, not in the parser: the payload has
+ * already arrived in the snapshot either way (see the delivery note below), so
+ * this bounds what the DOM has to hold, not what the network carries. The
+ * parser stays faithful to the block it was given.
+ */
+const MAX_INLINE_BASE64_CHARS = 1_000_000;
+
+/** Render a byte-ish count for the placeholder without pulling in a formatter. */
+function approxKb(base64Chars: number): string {
+  // base64 encodes 3 bytes per 4 chars; close enough for a diagnostic label.
+  return `${Math.round((base64Chars * 3) / 4 / 1024)} KB`;
+}
+
+/**
  * Render a pasted/returned image.
  *
  * Delivery note (mt#3810, ADR-025): the base64 payload already travels to the
@@ -550,6 +573,16 @@ function ImageElement({
 }: {
   element: Extract<PreparedElement, { kind: "image" }>;
 }): JSX.Element {
+  // SC3's oversized half. Checked BEFORE building the `data:` URI so an
+  // outsized payload is never concatenated into a string the DOM then holds.
+  if (element.data !== undefined && element.data.length > MAX_INLINE_BASE64_CHARS) {
+    return (
+      <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
+        image too large to display inline (~{approxKb(element.data.length)})
+      </div>
+    );
+  }
+
   const src =
     element.data !== undefined
       ? `data:${element.mediaType ?? "image/png"};base64,${element.data}`
@@ -559,9 +592,11 @@ function ImageElement({
     // Malformed, empty, or a source type we don't render (e.g. `file`, which
     // needs an API fetch we deliberately don't do here). Say which, rather
     // than showing a broken image or silently dropping the turn's content.
+    // A blank `sourceType` (no source object at all) reads as "unknown" rather
+    // than a dangling label — reviewer non-blocking finding on PR #2711.
     return (
       <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
-        image not shown{element.sourceType ? ` (source: ${element.sourceType})` : ""}
+        image not shown (source: {element.sourceType || "unknown"})
       </div>
     );
   }

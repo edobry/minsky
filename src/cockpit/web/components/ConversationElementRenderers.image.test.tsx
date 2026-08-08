@@ -89,6 +89,57 @@ describe("ElementView — image elements (mt#3810)", () => {
     expect(container.textContent).toContain("file");
   });
 
+  // Reviewer non-blocking finding, PR #2711: a source-less block left
+  // `sourceType` empty, producing a dangling "image not shown" with nothing
+  // after it. It reads as "unknown" now.
+  test("a source-less block reports its source as unknown rather than blank", () => {
+    const { container } = renderElement({ kind: "image", sourceType: "" });
+    expect(container.textContent).toContain("unknown");
+  });
+
+  // SC3's oversized half — reviewer BLOCKING finding, PR #2711. The threshold
+  // is 1,000,000 base64 chars, ~2.5x the largest image in the local corpus
+  // (397,880), so nothing real trips it.
+  describe("oversized payloads (SC3)", () => {
+    test("a payload over the inline ceiling renders a placeholder, not an <img>", () => {
+      const { container } = renderElement({
+        kind: "image",
+        sourceType: "base64",
+        mediaType: "image/png",
+        data: "A".repeat(1_000_001),
+      });
+
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.textContent).toContain("too large");
+      // The placeholder is diagnostic — it reports roughly how big the thing
+      // was, so a reader can tell an oversized image from a broken one.
+      expect(container.textContent).toContain("KB");
+      expect(container.textContent).not.toContain("unsupported block");
+    });
+
+    test("a payload at the ceiling still renders — the guard is not off-by-one against real images", () => {
+      const { container } = renderElement({
+        kind: "image",
+        sourceType: "base64",
+        mediaType: "image/png",
+        data: "A".repeat(1_000_000),
+      });
+
+      expect(container.querySelector("img")).not.toBeNull();
+    });
+
+    test("the largest image observed in the corpus (397,880 chars) renders inline", () => {
+      const { container } = renderElement({
+        kind: "image",
+        sourceType: "base64",
+        mediaType: "image/png",
+        data: "A".repeat(397_880),
+      });
+
+      expect(container.querySelector("img")).not.toBeNull();
+    });
+  });
+
   // Regression guard: a genuinely unrecognized block type must STILL draw the
   // unsupported-block chip. mt#3810 narrowed that path, it did not remove it.
   test("a non-image unknown block still renders the unsupported-block chip", () => {
