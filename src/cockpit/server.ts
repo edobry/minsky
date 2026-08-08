@@ -131,7 +131,7 @@ export const JSON_BODY_LIMIT = "256kb";
  * `readPrincipalChannelSection` takes for a missing/broken config: the
  * daemon must still boot.
  */
-export function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
+function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
   if (override) return [...override];
   try {
     return [...(getConfiguration().cockpit?.allowedHosts ?? [])];
@@ -141,6 +141,37 @@ export function resolveExtraAllowedHosts(override?: readonly string[]): string[]
     });
     return [];
   }
+}
+
+/**
+ * `app.locals` key the resolved Host-header allowlist is published under
+ * (mt#3641 PR #2721 R1). `createCockpitServer` is the ONE place that resolves
+ * `cockpit.allowedHosts` config into a concrete `Set<string>` — every other
+ * consumer of that resolved set (today: `start-command.ts`'s WS-attach call)
+ * must read it back via {@link getResolvedAllowedHosts} rather than calling
+ * `buildAllowedHosts`/`resolveExtraAllowedHosts` a second time. Two
+ * independent derivations of the same fact drift the moment either call site
+ * grows an argument; a single resolution consumed by reference cannot.
+ */
+const ALLOWED_HOSTS_LOCALS_KEY = "cockpitAllowedHosts";
+
+/**
+ * Read back the Host-header allowlist `createCockpitServer` resolved for
+ * `app` — the SAME `Set<string>` instance `hostAllowlistMiddleware` and
+ * `cookieBootstrapMiddleware`'s `offBoxHosts` gate are enforcing against, not
+ * a re-derivation. Throws if called on an app `createCockpitServer` never
+ * built (a programming error, not a runtime condition to degrade from).
+ */
+export function getResolvedAllowedHosts(app: express.Express): Set<string> {
+  const value: unknown = app.locals[ALLOWED_HOSTS_LOCALS_KEY];
+  if (!(value instanceof Set)) {
+    throw new Error(
+      "getResolvedAllowedHosts: app.locals.cockpitAllowedHosts is missing — " +
+        "this app was not built by createCockpitServer, or createCockpitServer " +
+        "no longer populates it."
+    );
+  }
+  return value;
 }
 
 /** Options accepted by createCockpitServer */
@@ -311,6 +342,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // allowlist and the off-box cookie gate below agree on the same list.
   const extraAllowedHosts = resolveExtraAllowedHosts(opts.extraAllowedHosts);
   const allowedHosts = buildAllowedHosts(opts.host, extraAllowedHosts);
+  // Publish the resolved allowlist for out-of-band consumers (mt#3641 PR
+  // #2721 R1) — start-command.ts's WS-attach call reads this back via
+  // `getResolvedAllowedHosts` instead of re-deriving it, so the HTTP path
+  // and the WS path are the same Set BY CONSTRUCTION, not by convention.
+  app.locals[ALLOWED_HOSTS_LOCALS_KEY] = allowedHosts;
   // Loopback bind unless `--host` opted into a routable address. Gates the
   // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
   // explicit Authorization header rather than a Secure-less cookie.

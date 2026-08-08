@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
-import { createCockpitServer, resolveExtraAllowedHosts } from "../../cockpit/server";
+import { createCockpitServer, getResolvedAllowedHosts } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
@@ -38,12 +38,7 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
-import {
-  getCockpitTokenPath,
-  isLoopbackHost,
-  getOrCreateCockpitToken,
-  buildAllowedHosts,
-} from "../../cockpit/auth";
+import { getCockpitTokenPath, isLoopbackHost, getOrCreateCockpitToken } from "../../cockpit/auth";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
 import {
   createHighestUpdateIdReader,
@@ -308,14 +303,17 @@ export function createStartCommand(): Command {
       // WS upgrades bypass Express's request pipeline entirely (they're
       // plain HTTP GETs with `Connection: Upgrade`, handled by a listener on
       // the raw http.Server), so this is attached directly to the `server`
-      // handle rather than threaded through createCockpitServer(). Re-derives
-      // the SAME token/allowedHosts createCockpitServer computed internally
-      // (same persisted token file, same --host value, same
-      // cockpit.allowedHosts config — mt#3641) — a cheap, deterministic
-      // re-read, not a new source of truth.
+      // handle rather than threaded through createCockpitServer(). The
+      // TOKEN is a cheap, deterministic re-read of the same persisted file
+      // (idempotent — reading it twice is not a second derivation of
+      // anything). `allowedHosts`, by contrast, is a RESOLVED VALUE
+      // (bind host + cockpit.allowedHosts config), so it is read back from
+      // `app.locals` via `getResolvedAllowedHosts` rather than re-derived —
+      // createCockpitServer is the only place that resolves it, and this
+      // call site consumes that exact Set instance (mt#3641 PR #2721 R1).
       attachDrivenSessionWebSocket(server, {
         token: getOrCreateCockpitToken(),
-        allowedHosts: buildAllowedHosts(host, resolveExtraAllowedHosts()),
+        allowedHosts: getResolvedAllowedHosts(app),
       });
 
       // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
