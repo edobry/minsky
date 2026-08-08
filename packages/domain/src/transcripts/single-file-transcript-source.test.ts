@@ -28,6 +28,13 @@ const ASSISTANT_LINE = JSON.stringify({
 });
 const SUMMARY_LINE = JSON.stringify({ type: "summary", summary: "ignored" });
 /**
+ * mt#3836: the real shape of a `last-prompt` sidecar row — `{type, leafUuid}`
+ * with NO `timestamp` and NO `uuid`. The missing timestamp is load-bearing: it
+ * is why every storage path drops the row on its own, and why it must not be
+ * counted toward `lineIndex`.
+ */
+const LAST_PROMPT_LINE = JSON.stringify({ type: "last-prompt", leafUuid: "leaf-1" });
+/**
  * mt#3260: the verified real shape of a `queue-operation` line — `{type,
  * operation, timestamp, sessionId}`, with NO `message` and NO `uuid`, unlike
  * every other retained type. Measured across the local transcript corpus
@@ -97,6 +104,20 @@ describe("SingleFileTranscriptSource", () => {
     // Before mt#3260 this line was dropped and queued-message state was
     // unrecoverable downstream.
     expect(lines.map((l) => l.type)).toEqual(["user", "queue-operation", "assistant"]);
+  });
+
+  test("readSession retains last-prompt sidecar lines (mt#3836)", async () => {
+    await writeFile(file, `${USER_LINE}\n${LAST_PROMPT_LINE}\n${ASSISTANT_LINE}\n`);
+    const src = new SingleFileTranscriptSource(file);
+
+    const lines: RawTurnLine[] = [];
+    for await (const line of src.readSession(conv("ignored-id"))) lines.push(line);
+
+    // mt#3656 shipped a divergence detector that reads these rows at ingest;
+    // the source dropped them, so it could never fire in production. Retaining
+    // the line is what makes that detector reachable at all.
+    expect(lines.map((l) => l.type)).toEqual(["user", "last-prompt", "assistant"]);
+    expect(lines[1]?.leafUuid).toBe("leaf-1");
   });
 
   test("a retained queue-operation line keeps its fields despite having no message", async () => {

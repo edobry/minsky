@@ -76,3 +76,29 @@ export interface TranscriptSource {
   /** Extract the ISO timestamp from a raw line; undefined if missing/invalid. */
   getJsonlTimestamp(line: RawTurnLine): TimestampISO | undefined;
 }
+
+/**
+ * Is this a SIDECAR line — yielded for side-channel analysis, never stored?
+ *
+ * `readSession` yields two populations. Most lines are CONTENT: they become a
+ * `transcript` entry or an `agent_transcript_attachments` row, and each one
+ * consumes a `lineIndex`. A sidecar line is neither; it exists so a reader can
+ * observe something the stored projection cannot express — currently only
+ * `last-prompt`, whose two-leaves-on-different-branches shape is the only
+ * writer-identity trace the transcript format offers (mem#805, mt#3656).
+ *
+ * **Why this is a shared predicate and not a per-caller check.** `lineIndex` is
+ * half of the attachments primary key, so two writers that disagree about which
+ * lines are countable produce colliding keys for the same file. There are
+ * exactly two such writers — `AgentTranscriptIngestService.ingestSession` and
+ * `scripts/backfill-agent-transcript-attachments.ts` — and mt#3836 exists
+ * because a change to the yielded set was made without them agreeing. Adding a
+ * type here is therefore a decision about BOTH, made in one place.
+ *
+ * A function rather than an exported `Set`: the retained-type sets are
+ * deliberately per-source module constants (`custom/no-domain-singleton`), and
+ * this stays consistent with that by exporting behavior, not mutable state.
+ */
+export function isSidecarLineType(line: RawTurnLine): boolean {
+  return line.type === "last-prompt";
+}

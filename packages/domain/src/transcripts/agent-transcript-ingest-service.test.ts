@@ -42,6 +42,26 @@ const TS3 = "2026-01-01T12:00:00.000Z";
 
 // ── Fake TranscriptSource ────────────────────────────────────────────────────
 
+/**
+ * Mirrors `RETAINED_TYPES` in `claude-code-transcript-source.ts` /
+ * `single-file-transcript-source.ts` (mt#3836).
+ *
+ * Duplicated rather than imported because those are deliberately module-private
+ * per-source constants (`custom/no-domain-singleton`). The duplication is the
+ * point of failure this list is guarding, so `single-file-transcript-source.test.ts`
+ * asserts each retained type end-to-end against a real file — if a type is added
+ * there and not here, the fake silently under-reports and this comment is the
+ * pointer to why that matters.
+ */
+const FAKE_RETAINED_TYPES = new Set([
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+]);
+
 class FakeTranscriptSource implements TranscriptSource {
   readonly harness = "claude_code";
 
@@ -88,6 +108,17 @@ class FakeTranscriptSource implements TranscriptSource {
     }
     const lines = this.sessionsMap.get(agentSessionId) ?? [];
     for (const line of lines) {
+      // mt#3836: apply the SAME retained-type filter the real sources do.
+      //
+      // Without this the fake was strictly more permissive than production: it
+      // yielded whatever a test handed it, including line types
+      // `ClaudeCodeTranscriptSource` drops. That is exactly how mt#3656's
+      // divergence detector shipped inert — its tests fed `last-prompt` rows
+      // straight through a fake that would pass them, while the real source
+      // filtered them out before the scanner could ever see one. A fake that
+      // cannot express the production filter cannot fail the way production
+      // fails.
+      if (!FAKE_RETAINED_TYPES.has(typeof line.type === "string" ? line.type : "")) continue;
       yield line;
     }
   }
@@ -172,6 +203,9 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
    */
   const writeOrder: string[] = [];
 
+  /** mt#3836: attachment rows as written, for primary-key assertions. */
+  const attachments: Array<{ lineIndex: number }> = [];
+
   const db = {
     /** Called by test setup to tell the fake which session is being processed. */
     _primeSession(sid: string) {
@@ -183,6 +217,7 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
 
     /** mt#3482 — exposed so tests can assert on write ORDER within an ingest. */
     _writeOrder: writeOrder,
+    _attachments: attachments,
 
     select(fields?: Record<string, unknown>) {
       const fieldKeys = fields ? Object.keys(fields) : [];
@@ -231,7 +266,14 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
             // chain methods must exist here, or whichever one is missing throws
             // and surfaces as a spurious ingest error.
             const first = values[0] as Record<string, unknown> | undefined;
-            writeOrder.push(first && "attachmentType" in first ? "attachments" : "turns");
+            const isAttachmentInsert = Boolean(first && "attachmentType" in first);
+            writeOrder.push(isAttachmentInsert ? "attachments" : "turns");
+            // mt#3836: retain the attachment rows themselves, not just the fact
+            // that a write happened. `lineIndex` is half of their primary key,
+            // so a test asserting PK stability needs the actual values.
+            if (isAttachmentInsert) {
+              attachments.push(...(values as Array<{ lineIndex: number }>));
+            }
             // Deliberately NOT a thenable, unlike the single-object path below
             // (PR #2503 R1). Every array-valued writer in production ends its
             // chain with a terminal method — attachments with
@@ -2006,6 +2048,43 @@ describe("writer-divergence verdict is persisted by ingestSession", () => {
     }).ingestSession(makeDiscovered(SESSION_A));
 
     expect(warnCalls.some((m) => m.includes("Writer divergence"))).toBe(true);
+  });
+
+  test("a sidecar line does not consume a lineIndex, so attachment PKs are stable (mt#3836)", async () => {
+    // The corpus-wide hazard. `lineIndex` is half of
+    // `agent_transcript_attachments`' primary key, so if retaining a new line
+    // type shifted the counter, every attachment after the first sidecar row in
+    // every already-ingested transcript would change key and re-ingest as a
+    // duplicate. This pins that the attachment's index is decided by the
+    // CONTENT lines before it and nothing else.
+    const withSidecar = new FakeTranscriptSource();
+    withSidecar.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "q" } },
+      { type: "last-prompt", leafUuid: "u1" },
+      makeAttachmentLine(TS2),
+    ] as unknown as RawTurnLine[]);
+
+    const withoutSidecar = new FakeTranscriptSource();
+    withoutSidecar.addSession(SESSION_B, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "q" } },
+      makeAttachmentLine(TS2),
+    ] as unknown as RawTurnLine[]);
+
+    const stateA = new Map<string, FakeRow>();
+    const dbA = makeDb(stateA);
+    dbA._primeSession(SESSION_A);
+    await makeSvc(dbA, withSidecar).ingestSession(makeDiscovered(SESSION_A));
+
+    const stateB = new Map<string, FakeRow>();
+    const dbB = makeDb(stateB);
+    dbB._primeSession(SESSION_B);
+    await makeSvc(dbB, withoutSidecar).ingestSession(makeDiscovered(SESSION_B));
+
+    const indexOf = (db: ReturnType<typeof makeDb>): number[] =>
+      db._attachments.map((a: { lineIndex: number }) => a.lineIndex);
+
+    expect(indexOf(dbA)).toEqual(indexOf(dbB));
+    expect(indexOf(dbA).length).toBeGreaterThan(0);
   });
 
   test("persists the verdict on an idempotent re-ingest with no new lines (PR #2656 R1)", async () => {
