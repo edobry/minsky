@@ -51,7 +51,18 @@ This is an _emergent_ code with no current AI-tool category instantiation — me
 
 ## 3. Bridge-as-affect
 
-Per [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3 (canonical owner of the general discipline — invoking emergent cultural codes through residual references the audience already recognizes, without going literal). This section is the Minsky-specific application:
+The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. This skill is the canonical source (mt#3841; consolidated here from `/analyze-adjacent-product`, which now points back at this section — the general methodology skill is not a Minsky-brand carrier).
+
+A critical discipline when reading or building positioning that claims an _emergent_ code (one with no category instantiation yet). Brands do NOT typically expose the audience to the raw emergent code directly; that produces blank stares. Instead, they bridge through **residual codes** — codes the audience already recognizes — that carry the same structure. The audience pattern-matches to the residual reference; their recognition is the bridge; they end up holding the emergent frame as a conclusion they reached themselves.
+
+The discipline (applied symmetrically to analysis and design):
+
+- **For analysis:** when reading a brand that's making an emergent claim, name both the emergent code and the residual code(s) being used to bridge. Don't confuse the bridge (residual) with the destination (emergent). A brand that visually borrows from "industrial manufacturing" codes to claim "software engineering as factory work" is using the industrial code as the bridge — the destination myth is the emergent claim about software, not the industrial reality.
+- **For your own design:** borrow at the layer of register (typography, color, density, motion budget, copy tone), not at the layer of imagery (literal characters, mecha, products). The right reader notices the borrowing as taste-signal; the wrong reader doesn't notice and isn't bothered. Evangelion's discipline is the canonical execution: dense with religious/Kabbalistic iconography (AT-Field, Sephirot, Magi-as-three-wise-men) without ever being _about_ religion. The borrowings function as affect; the show's subject is something else.
+
+**Point-of-decision heuristic:** would the right reader notice the borrowing without being told? If yes, the borrowing is doing its work — ship it. If you have to caption it, it's gone too literal — cut and replace.
+
+Applied to Minsky:
 
 ### What goes on every surface
 
@@ -76,10 +87,6 @@ Per [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3 (can
 - Mecha as a visual element at the literal-character layer.
 - Anime stills, anime fanart, anime stylization.
 - Skynet / Terminator-coded futurism (wrong cultural code entirely).
-
-### Point-of-decision heuristic
-
-Same test as [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3: would the right reader recognize the borrowing without being told? If not, it's gone literal — cut and replace.
 
 ## 4. The five-layer reference architecture
 
@@ -126,7 +133,18 @@ When designing any Minsky surface, the question to ask is: _does this choice car
 
 ## 6. The Pepsi/Arnell trap
 
-Per [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2 (canonical owner — the 2008 Pepsi "Breathtaking" document, the anti-pattern, and its symmetrical disciplines for analysis and design). For Minsky-brand work specifically: if you cannot explain a visual or copy choice as a sign carrying a specific connotation that instantiates the locked myth (§1) or one of the layered references (§4), cut it. "It looks cool" is the Pepsi/Arnell tell.
+This skill is the canonical source (mt#3841; consolidated here from `/analyze-adjacent-product`, which now points back at this section — the general methodology skill is not a Minsky-brand carrier).
+
+The 2008 Pepsi rebrand by the Arnell Group produced a now-infamous 27-page "Breathtaking" document (archived [here](https://www.goldennumber.net/wp-content/uploads/pepsi-arnell-021109.pdf), [Ad Age coverage](https://adage.com/article/agency-news/breathtaking-word-purported-arnell-pepsi-doc/134552/)) that justified a minor logo refresh by invoking the Mona Lisa, the Golden Ratio, the Parthenon, the Earth's geomagnetic field, the Gutenberg Bible, and the theory of relativity. The document was widely mocked because it was **post-hoc theater** — semiotic vocabulary deployed to dress up a thin visual move, rather than semiotic _reasoning_ used to drive a strong one.
+
+The discipline this encodes — applies symmetrically to analysis and to design:
+
+- **For analysis:** when reading a brand, name what the signs _actually_ do, not what a theoretically-impressive frame would predict they do. If the analysis sounds clever but the visual evidence is thin, the analysis is theater. The signs should support the claim; if they don't, the claim is wrong.
+- **For your own design:** pick the myth first; let visual choices follow as instantiations of the myth. Never retrofit semiotic justification onto a thin visual move. A long explanation of why a design "works" is a warning sign that the design does not actually carry the meaning on its own.
+
+The Pepsi/Arnell trap is the recommendation-time analogue of the patterns named in `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — manufacturing a frame to make a tactical preference sound principled. The fix is the same: cite first, decide second; or admit you do not know and rescope.
+
+For Minsky-brand work specifically: if you cannot explain a visual or copy choice as a sign carrying a specific connotation that instantiates the locked myth (§1) or one of the layered references (§4), cut it. "It looks cool" is the Pepsi/Arnell tell.
 
 ## 7. Locked vocabulary
 
@@ -248,7 +266,7 @@ These violate the locked register at the _foundation_ level (distinct from forma
 - **Operational reference (the _how_ at the implementation layer):** [`docs/brand-system.md`](../../../docs/brand-system.md) (mt#1932). Concrete tokens: typography stack, color palette (hex + OKLCH), motion budget, vocabulary inventory, WCAG contrast, font licensing, cockpit migration table. Surfaces consume this directly.
 - **Workshop derivation:** [`marketing-site-design/references/minsky-myth-2026-05.md`](../marketing-site-design/references/minsky-myth-2026-05.md). End-to-end walk through Steps 1–5 of the myth-selection workshop, with Minsky as the brand. Use as the worked reference when running this process for any future Minsky-surface or for an adjacent brand.
 - **Voice substrate:** [`/pz-voice`](../pz-voice/SKILL.md) (mt#1952). The signal layer. Composes per §8 above.
-- **Adjacent-product analytical methodology:** [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis capture workflow. Use when reading a competitor's surface to inform Minsky positioning decisions.
+- **Adjacent-product analytical methodology:** [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, per-analysis capture workflow (the Pepsi/Arnell trap and bridge-as-affect discipline it applies are canonical here — §6 and §3 — as of mt#3841). Use when reading a competitor's surface to inform Minsky positioning decisions.
 - **Principal corpus:** mt#1930. Query via `mcp__minsky__principal_corpus_search` / `principal_corpus_similar`; synthesized memeplex via `mcp__minsky__memory_search` with tag `principal-thinking`.
 
 ## 11. Surface skills that depend on this foundation
@@ -269,7 +287,7 @@ The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Ge
 - `/marketing-site-design` — surface skill for marketing-site work; depends on this foundation.
 - `/cockpit-design` — surface skill for cockpit work; depends on this foundation.
 - `/pz-voice` — signal layer; composes with this foundation per §8.
-- `/analyze-adjacent-product` — analytical methodology for reading adjacent brands. The Pepsi/Arnell discussion (§2) and bridge-as-affect framework (§3) referenced from this skill live there.
+- `/analyze-adjacent-product` — analytical methodology for reading adjacent brands (Peirce/Barthes/Oswald, per-analysis workflow). Its §2/§3 point back at this skill's §6 (Pepsi/Arnell trap) and §3 (bridge-as-affect), which are canonical here as of mt#3841.
 - `docs/brand-system.md` — operational reference for surface implementations.
 - CLAUDE.md `§Principal Context` — Minsky's commercial-product framing.
 - CLAUDE.md `§Documentation Taxonomy` — the strategic / operational / agent-consumable tier model that places this skill in its slot.

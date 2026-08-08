@@ -37,11 +37,11 @@ This skill begins where those leave off.
 
 ## 2. The Pepsi/Arnell trap (marketing-surface application)
 
-Canonical discussion: [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2 (the general anti-pattern). Minsky-specific application: [`/minsky-brand`](../minsky-brand/SKILL.md) §6 (the "it looks cool" tell). Same discipline, applied to marketing surfaces specifically: if you cannot explain a visual choice on a marketing page as a sign carrying a specific connotation that instantiates the locked myth, cut it.
+Canonical: [`/minsky-brand`](../minsky-brand/SKILL.md) §6 (the trap's full definition and the "it looks cool" tell). Same discipline, applied to marketing surfaces specifically: if you cannot explain a visual choice on a marketing page as a sign carrying a specific connotation that instantiates the locked myth, cut it.
 
 ## 3. Bridge-as-affect (marketing-surface application)
 
-Canonical discussion: [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3 (the general discipline — invoking emergent cultural codes through residual references, without going literal). Minsky-specific application: [`/minsky-brand`](../minsky-brand/SKILL.md) §3.
+Canonical: [`/minsky-brand`](../minsky-brand/SKILL.md) §3 (the discipline's full definition and its Minsky-specific application).
 
 On a marketing surface specifically: **borrow at the layer of register, never at the layer of imagery.** Specific register-borrowing rules live in `minsky-brand` §3 ("What goes on every surface" / "What never appears"). On marketing pages, the imagery-rejection rules apply with extra force because the marketing context tempts toward "more dramatic" visuals — the Iron Man / JARVIS framing, the Composio-style multicolor saturation, the WebGL-shader hero. The brand foundation forbids all of these; this skill names the marketing-format equivalents in §8 below.
 
@@ -185,7 +185,7 @@ Given the selected myth, name the cultural code that carries it. **Invoke the si
 
 - Use the cultural-code-lane discussion in [`/minsky-brand`](../minsky-brand/SKILL.md) §4 as the reference for the Minsky-brand layered architecture; new codes are allowed if justified.
 - If the myth lives in an _occupied_ code, name the competitor whose visual register the brand will partially share. Decide which signs to adopt and which to reject.
-- If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `analyze-adjacent-product` SKILL.md §3 for the bridge-as-affect discipline).
+- If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `minsky-brand` SKILL.md §3 for the bridge-as-affect discipline).
 
 Output: 1 cultural code, with 2-3 exemplars cited. If the code is layered (per `minsky-brand` §5's code-architecture), name each reference and the role it plays.
 
@@ -255,7 +255,7 @@ Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marke
 
 - [`/minsky-brand`](../minsky-brand/SKILL.md) — **strategic anchor**. Locked myth, cultural code, five-layer reference architecture, vocabulary, bridge-as-affect discipline, code-architecture synthesis. Load first; this skill depends on it.
 - [`/pz-voice`](../pz-voice/SKILL.md) — signal layer. Compose with `minsky-brand` per its §8 (signal/channel split). Required when drafting marketing copy.
-- [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) — sibling skill providing the analytical foundation (Peirce-Barthes-Oswald framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis workflow, two-idiom synthesis). This skill consumes that one's output at §7 workshop Step 4.
+- [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) — sibling skill providing the analytical foundation (Peirce-Barthes-Oswald framework, per-analysis workflow, two-idiom synthesis; the Pepsi/Arnell trap and bridge-as-affect discipline it applies are canonical in `minsky-brand` §6/§3 as of mt#3841). This skill consumes that one's output at §7 workshop Step 4.
 - [`/cockpit-design`](../cockpit-design/SKILL.md) — structural template; this skill is its marketing-surface sibling. Cockpit's mission-control register is one organ inside the cyberbrain frame, not an independent design language — both depend on `minsky-brand`.
 - [`docs/brand-system.md`](../../../docs/brand-system.md) — operational reference. Typography stack, color palette (hex + OKLCH), motion budget with `prefers-reduced-motion`, WCAG contrast targets, font licensing, fallback stacks. Consume directly when implementing.
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — discipline against post-hoc framing (the Pepsi/Arnell trap at the recommendation surface)
