@@ -1,5 +1,6 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { getSharedMemoryService } from "./shared-memory-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 import type { MemoryRecord, MemorySearchResult } from "@minsky/domain/memory/types";
 
 export interface MemoriesDetailPayload {
@@ -40,6 +41,10 @@ export const memoriesDetailWidget: WidgetModule = {
       // unambiguously uuid-keyed.
       const record = await memSvc.get(id);
       if (!record) {
+        // widget-degraded-message: genuine not-found (mt#3661 Category B) —
+        // already cause-carrying (names the exact id that wasn't found), not
+        // an interpolated raw driver/error message. Out of scope for the
+        // mt#3825 catch-all conversion below.
         return { state: "degraded", reason: `Memory not found: ${id}` };
       }
 
@@ -63,8 +68,7 @@ export const memoriesDetailWidget: WidgetModule = {
 
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `memories detail error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("memories detail", err) };
     }
   },
 };

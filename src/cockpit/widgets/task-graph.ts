@@ -22,6 +22,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in TaskGraph.tsx (no server imports
@@ -139,8 +140,7 @@ export function createTaskGraphWidget(getDeps: () => Promise<TaskGraphDeps>): Wi
         const payload: TaskGraphPayload = { nodes, edges };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `task_graph error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("task_graph", err) };
       }
     },
   };
