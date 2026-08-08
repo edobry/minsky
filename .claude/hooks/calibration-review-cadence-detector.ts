@@ -112,6 +112,23 @@ const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.j
  */
 export const COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 
+/**
+ * Hard ceiling for the rendered advisory, in characters. MUST equal this
+ * guard's declared `attentionCost.denialMessageSizeChars` in
+ * `.minsky/hooks/registry.ts` — `guard-feedback-shape.test.ts` (mt#3479)
+ * asserts the rendered text against the registry declaration, so drift
+ * between the two fails there mechanically.
+ *
+ * Why a ceiling is enforced in code and not just measured in tests (2026-08-08):
+ * the due-log list is unbounded — `never-fired` legs join it purely by
+ * wall-clock (`liveSinceDate + reviewByDays`), independent of any workspace
+ * state — so an unbounded render grows past any declared figure as the
+ * registry ages. It did: the advisory crossed 450 chars when registry legs
+ * aged into review-due, failing guard-feedback-shape on main and in every PR's
+ * CI. Bounding the render is the contract; the declaration is the promise.
+ */
+const ADVISORY_BUDGET_CHARS = 450;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -223,41 +240,65 @@ export function buildPendingAskRecord(
   };
 }
 
-/** Build the additionalContext warning message for a set of due logs. */
+/**
+ * Build the additionalContext warning message for a set of due logs, bounded
+ * to ADVISORY_BUDGET_CHARS. Lists as many due logs as fit; the remainder is
+ * summarized as one "…and K more" line so the count is never silently
+ * truncated (the full list is one `/calibration-review` run away).
+ *
+ * Deliberately a dynamic byte-budget fit rather than a fixed item count
+ * (mt#3824 R2): a fixed count (e.g. "show 2") still needs its declared
+ * ceiling hand-verified against the longest plausible name/reason, which is
+ * exactly the kind of manual worst-case estimate that drifted silently
+ * before (mt#3479's 450 was measured against a SILENT guard). Greedily
+ * fitting against the actual budget is self-enforcing: it can never render
+ * more than ADVISORY_BUDGET_CHARS regardless of how long a future registry
+ * entry's name or reason clause gets, without anyone having to re-measure.
+ */
 export function formatCadenceWarning(due: ReviewDueLog[]): string {
-  const lines: string[] = [
-    "[calibration-review-cadence-detector] Calibration log(s) are review-due (mt#2619):",
-    "",
-  ];
-  for (const d of due) {
+  const header =
+    "[calibration-review-cadence-detector] Calibration log(s) are review-due (mt#2619):";
+  const action =
+    "Run /calibration-review to classify false positives and record a flip/tune/keep disposition.";
+
+  const legLine = (d: ReviewDueLog): string => {
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
         : d.reason === "never-reviewed"
           ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
           : d.reason === "never-fired"
-            ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
+            ? `alive but zero real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days (mt#3078)`
             : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
-    lines.push(
-      // mt#3197: quote the INJECTED count — the detections that actually
-      // reached the operator. The positional count includes suppressed ones,
-      // which made a correctly-tuned detector look like a review backlog.
-      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
-        `${
-          d.suppressedSinceLastReview > 0
-            ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
-            : ""
-        }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
+    // mt#3197: quote the INJECTED count — the detections that actually
+    // reached the operator. The positional count includes suppressed ones,
+    // which made a correctly-tuned detector look like a review backlog.
+    return (
+      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) ` +
+      `${
+        d.suppressedSinceLastReview > 0 ? `(+${d.suppressedSinceLastReview} suppressed) ` : ""
+      }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
     );
+  };
+
+  const render = (listed: string[], omitted: number): string => {
+    const lines = [header, "", ...listed];
+    if (omitted > 0) lines.push(`  …and ${omitted} more review-due log(s)`);
+    lines.push("", action);
+    return lines.join("\n");
+  };
+
+  // Greedily list legs while the FULL render (including a potential
+  // "…and K more" line for the rest) stays within budget.
+  const listed: string[] = [];
+  let considered = 0;
+  for (const d of due) {
+    considered += 1;
+    const candidate = [...listed, legLine(d)];
+    if (render(candidate, due.length - considered).length > ADVISORY_BUDGET_CHARS) break;
+    listed.push(legLine(d));
   }
-  lines.push("");
-  lines.push(
-    "Run the /calibration-review skill (or " +
-      "mcp__minsky__observability_calibration-review) to classify false " +
-      "positives and record a flip/tune/keep disposition before this drifts " +
-      "further out of review."
-  );
-  return lines.join("\n");
+  return render(listed, due.length - listed.length);
 }
 
 /**

@@ -1698,6 +1698,59 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     attentionCost: { denialMessageSizeChars: 0, optionCount: 0 },
   },
   {
+    // mt#3286 — R3-R6 of the linked-reference-actionability family (mem#623):
+    // a turn's closing message hands the operator entities they cannot click.
+    // Advisory-only and calibration-first per ADR-024: this is a Rung-1
+    // deterministic matcher over SYNTAX (a deeplink has one correct written
+    // form), not over prose, so the ladder's paraphrase-driven escalation to
+    // Rung 2 does not apply — there is no paraphrase axis for a URL.
+    //
+    // `attentionCost` mirrors ADVISORY_BUDGET_CHARS in the guard, which bounds
+    // the render in code; `guard-feedback-shape.test.ts` asserts the two agree.
+    name: "turn-end-bare-ref-scan",
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./turn-end-bare-ref-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "bare-entity-ref",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 0 },
+    canary: {
+      // A bare task ref with no link anywhere in the message — the enforced
+      // v0 class. `transcript_path` is deliberately nonexistent: this guard
+      // prefers `last_assistant_message` and must work when the transcript
+      // has not yet flushed the final message.
+      input: {
+        session_id: "mt3286-bare-ref-canary",
+        transcript_path: "/nonexistent/mt3286-canary.jsonl",
+        last_assistant_message: "Shipped mt#1234 and merged PR #5678.",
+      },
+      transcriptLines: [],
+      expects: "warn",
+    },
+    // GROWTH-SHAPED (mt#3705): the render emits one line per finding, so the
+    // canary above establishes the FLOOR, not the ceiling. This poses the
+    // largest input the guard can actually face — a long closing status report
+    // enumerating many entities, none linked — so the declared
+    // denialMessageSizeChars is measured against a real worst case rather than
+    // a comfortable one. The in-code budget fit is what actually bounds it.
+    worstCaseCanary: {
+      input: {
+        session_id: "mt3286-bare-ref-worst-case",
+        transcript_path: "/nonexistent/mt3286-worst.jsonl",
+        last_assistant_message:
+          "Status: mt#10001 mt#10002 mt#10003 mt#10004 mt#10005 mt#10006 mt#10007 " +
+          "mt#10008 mt#10009 mt#10010 mt#10011 mt#10012 are open; " +
+          "PR #20001 PR #20002 PR #20003 PR #20004 PR #20005 PR #20006 are in flight; " +
+          "see [ask#…deadbeef](minsky://ask/1e2d3c4b-5a69-4788-9910-aabbccddeeff) " +
+          "and [mem#…cafebabe](minsky://memory/2f3e4d5c-6b7a-4899-8a0b-bbccddeeff00).",
+      },
+      transcriptLines: [],
+      expects: "warn",
+    },
+  },
+  {
     name: "turn-end-retro-scan",
     tuningOwnership: "preference",
     event: "Stop",
@@ -2031,6 +2084,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
+    // 450, unchanged (mt#3824 R2): the OLD 450 was a moving target because the
+    // render was uncapped — a due-log count driven by real activity AND by
+    // wall-clock (`liveSinceDate + reviewByDays` window closures) scaled the
+    // message linearly, with no worst case. `formatCadenceWarning` is now a
+    // dynamic byte-budget fit against ADVISORY_BUDGET_CHARS in the module
+    // itself (see that constant's doc comment) — the render is
+    // self-enforcing and can never exceed 450, so the number does not need
+    // to move. MUST equal that module's `ADVISORY_BUDGET_CHARS`.
     attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below

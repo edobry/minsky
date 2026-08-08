@@ -216,3 +216,27 @@ deployment:
   `RAILWAY_SERVICE_ID` variable is matched against each candidate's declared `railway.serviceId`.
 - If neither resolves, the error lists every candidate service name — see
   [Deployment Platforms](./deployment-platforms.md#service-resolution).
+
+## Observability (Braintrust)
+
+Relocated from the top-level README (mt#3828).
+
+To use Braintrust for LLM observability, both an API key and a project name are required.
+The project name has **no default** — it must be set explicitly so traces do not silently
+accumulate in a project named after someone else's installation:
+
+```bash
+# Configure via config
+minsky config set observability.providers.braintrust.apiKey --value <your-key>
+minsky config set observability.providers.braintrust.projectName --value <your-project>
+
+# Or via environment variables
+export BRAINTRUST_API_KEY=<your-key>
+export BRAINTRUST_PROJECT_NAME=<your-project>
+
+# Verify connectivity
+minsky observability smoke-test
+```
+
+See `observability.providers.braintrust.projectName` in the configuration schema
+(`packages/domain/src/configuration/schemas/observability.ts`).

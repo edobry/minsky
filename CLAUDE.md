@@ -144,6 +144,8 @@ at hand.
 - **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
 - **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
 - **Don't over-link — and know this line is provisional (mt#3459).** Link a meaningful reference (typically the first mention), not every repetition in a long report. One clickable ref per entity per message is plenty; blanket linking is noise. **Why it reads as a bug anyway, and what replaces it:** the rule controls noise successfully, but in a long turn most refs a reader lands on are the bare repeats it permits (measured 31 linked vs 232 bare in one session), so a fully compliant message still reads as "not linkified." The decision (2026-08-04) is to move linkification to the **display surface** rather than tune the ration — Claude Code's `MessageDisplay` hook rewrites shown text while leaving the transcript untouched, which is the render-time model the cockpit already uses. Until that ships, follow this line as written; the first mention of an entity must always be linked, with no exceptions. Detail: `docs/rules-rationale/cockpit-deeplinks.md §The one-link-per-entity ration is provisional`.
+
+- **The unit is the MESSAGE, and this is a FLOOR (mt#3286).** The ration above is a CEILING — "one per entity per message is plenty" bounds how much you may link. It was read for years as if it also set the floor, and it does not. The floor: **link the first mention of an entity in EVERY message where it appears**, not once per conversation. A turn's **closing or action message additionally links every pending-decision entity**, even when an earlier message in the same turn already linked it — the closing message is where the operator acts, and a link three messages up is not at hand there. Recurrences: mem#623 R3 (the ref was linked early in the turn and bare at the close; the operator reported "I don't see a link"), R4, R5, R6. All four were compliant with the ceiling and unusable anyway, which is what a missing floor looks like. Enforced advisory-only by the `turn-end-bare-ref-scan` Stop observer (calibration-first per ADR-024).
 - **PR / changeset references use the `changeset` type.** Emit `[PR #<n>](minsky://changeset/<n>)` when referencing a PR by number. The label should be the human-readable form (`PR #1234`); the id in the URI is the plain PR number (`1234`). Bare `#1234` without the `PR` prefix stays plain text.
 
 ## Examples
@@ -199,8 +201,13 @@ happened" — chat is deliberately the thinnest:
 | **Chat** | Outcomes, exceptions, judgment calls, heartbeats | Push into scroll |
 | **Asks** | Principal-blocking decisions, self-answerable | Routed push + attention accounting |
 | **Task record** | Audit trail: gates, premise audits, evidence, notes | Pull; one deeplink away |
-| **Cockpit** | Fleet/workstream state, digests | Pull today; ambient push per ambient-cockpit RFC |
+| **Cockpit** | Fleet/workstream state, digests | As a REPORT channel: pull today; ambient push per ambient-cockpit RFC |
 | **Transcript archive** | Everything, verbatim | Pull; searchable |
+
+**This table classifies channels for REPORTING; it does not state any surface's product
+identity.** The cockpit's own direction is to become the principal's primary live point of
+contact (mem#554; `/product-thinking`) — do not read the `Pull` in its row as evidence it is a
+pull-oriented or after-the-fact product. Cue (k) in `/check-premise` owns that claim.
 
 **Nothing is lost by compression — chat was never the storage layer.** Structured artifacts land
 in full in the task record (or after the plain-language lead, `user-preferences.mdc

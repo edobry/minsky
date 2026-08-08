@@ -781,13 +781,19 @@ export function RunDetail({
               onNotFound={onConversationNotFound}
               turnTarget={turnTarget}
               filmPath={filmPath}
+              // Passed IN rather than rendered as a sibling below (mt#3843).
+              // As a sibling it landed in the same stacking context as the
+              // thread's own bottom-pinned controls at the same `z-10`, so
+              // being last in DOM order it painted over the position pill and
+              // took the click meant for its `↑ start` button. Inside, the
+              // thread's `ThreadFooter` stacks them.
+              tail={renderActiveConversationTail?.(activeConversationId)}
             />
           ) : (
             <p className="text-sm text-muted-foreground">
               No conversation linked to this workspace yet.
             </p>
           )}
-          {activeConversationId && renderActiveConversationTail?.(activeConversationId)}
         </div>
       )}
 
