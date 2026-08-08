@@ -71,6 +71,57 @@ describe("detectUntakenAction (mt#3179)", () => {
     expect(detectUntakenAction(message)).toEqual([]);
   });
 
+  // mt#3853: the verbatim tail the guard MISSED on 2026-08-08. It failed the
+  // old `ill-action` pattern on all three axes at once — `I'm going to` was in
+  // no pattern, `write`/`PR` were not action verbs, and `option 1` was not an
+  // allowed object. The principal had to ask why nothing caught it.
+  test("mt#3853: fires on 'I'm going to write and PR option 1'", () => {
+    const missed =
+      "I'm going to write and PR option 1, verifying the endpoint against current GitHub docs " +
+      "first rather than swapping one unverified vendor premise for another. Deploying it to " +
+      "the reviewer service is a shared-production change, so that step is yours.";
+    const matches = detectUntakenAction(missed);
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.map((m) => m.family)).toContain("going-to");
+  });
+
+  test("mt#3853: the going-to family covers its contraction variants", () => {
+    for (const form of [
+      "I'm going to fix it",
+      "I am going to implement the detector",
+      "I'm gonna ship this",
+    ]) {
+      expect(detectUntakenAction(form).length).toBeGreaterThan(0);
+    }
+  });
+
+  test("mt#3853: new action verbs fire in BOTH the I'll and I'm-going-to forms", () => {
+    for (const verb of ["write", "open", "build", "patch", "draft", "wire"]) {
+      expect(detectUntakenAction(`I'll ${verb} the fix`).length).toBeGreaterThan(0);
+      expect(detectUntakenAction(`I'm going to ${verb} the fix`).length).toBeGreaterThan(0);
+    }
+  });
+
+  // The widening must not turn ordinary reasoning prose into a fire. An
+  // announcement needs an OBJECT; a bare verb is not a commitment to an
+  // immediately-executable action.
+  test("mt#3853: object-less and non-action phrasing stays silent", () => {
+    for (const benign of [
+      "I'm going to think about how this works before deciding.",
+      "I'm going to need more evidence before calling it.",
+      "Going to the docs was what settled it.",
+      "I'll consider whether that holds.",
+    ]) {
+      expect(detectUntakenAction(benign)).toEqual([]);
+    }
+  });
+
+  test("mt#3853: a turn that legitimately ended still stays silent after the widening", () => {
+    // Same suppression fixture as above, re-asserted against the wider patterns —
+    // the widening is only safe if it did not eat the armed-watcher case.
+    expect(detectUntakenAction(LEGITIMATE_WATCHER_MESSAGE)).toEqual([]);
+  });
+
   test("stays silent on empty input", () => {
     expect(detectUntakenAction("")).toEqual([]);
   });

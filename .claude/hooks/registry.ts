@@ -1836,10 +1836,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       input: {
         session_id: "mt3767-untaken-action-worstcase-canary",
         transcript_path: "/nonexistent/mt3767-worstcase-canary.jsonl",
+        // mt#3853 re-posed. The previous canary fired MANY families, which
+        // reads like saturation and is not: matches emit in PATTERN order, the
+        // evidence list caps at 3, and the first three patterns
+        // (taking-forward / next-step / next-up) all have SHORT fixed phrases.
+        // So a message matching everything spends its three slots on the
+        // cheapest lines and measures 430 — while a message matching ONLY the
+        // long-phrase families puts them in all three slots and measures 443,
+        // on the longer of the two directives. That second shape is the real
+        // worst case; posing the first is how mt#3767 measured 383 for a branch
+        // whose true worst case was 474.
+        //
+        // Deliberately excludes "say the word": that routes to the overlap
+        // directive, which is SHORTER, so including it would understate again.
         last_assistant_message:
-          "I'm taking it forward — that's the next step. Next step: I'll proceed ahead " +
-          "with the cleanup, then moving on to the rest. Say the word if you'd rather " +
-          "I file it.",
+          "I'll proceed ahead with the migration. I'll implement the remaining detector " +
+          "work, and I'm going to write and PR the reviewer replacement work.",
       },
       expects: "warn",
       setup: async () => {

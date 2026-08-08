@@ -70,6 +70,25 @@ export const TAIL_WINDOW_CHARS = 600;
  *   R2: "say the word and I'll merge"        (deferral-shaped stop)
  *   R3: "I'm taking it forward … that's the next step, not a question"
  */
+/**
+ * Action verbs an announcement can attach to. Shared by the `I'll …` and
+ * `I'm going to …` families so a verb added here is covered in both forms —
+ * mt#3853's miss was partly that they could drift apart.
+ */
+const ACTION_VERB = String.raw`merge|implement|plan|file|fix|ship|land|write|open|build|patch|send|create|add|draft|wire|run|PR`;
+
+/**
+ * What the announced action is performed ON. Anaphora (`it`/`that`/`this`) and
+ * task ids were the original set; mt#3853 adds NAMED artifacts, because a
+ * commitment to a named thing ("I'm going to write and PR option 1") is the
+ * most concrete kind and was the one that escaped.
+ *
+ * Deliberately NOT `.+` — an object-less verb ("I'm going to think about how
+ * this works") is not an announcement of an immediately-executable action, and
+ * matching it would fire on ordinary reasoning prose.
+ */
+const ACTION_OBJECT = String.raw`it|that|this|mt#\d+|the\s+\w+|a\s+PR|option\s+\d+|both|these|them`;
+
 const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   {
     family: "taking-forward",
@@ -84,7 +103,20 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   },
   {
     family: "ill-action",
-    re: /\bi'?ll\s+(?:merge|implement|plan|file|fix|ship|land)\s+(?:it|that|this|mt#\d+)\b/i,
+    re: new RegExp(
+      String.raw`\bi'?ll\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
+  },
+  // mt#3853: `I'm going to X` was matched by NOTHING. It is at least as common
+  // a commitment form as `I'll X`, and the missed turn used it. `gonna` and the
+  // uncontracted `I am going to` are the same speech act.
+  {
+    family: "going-to",
+    re: new RegExp(
+      String.raw`\bi'?(?:m|\s+am)\s+(?:going\s+to|gonna)\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
   },
   { family: "moving-on", re: /\bmoving\s+on\s+to\b/i },
   { family: "say-the-word", re: /\bsay\s+the\s+word\b/i },
@@ -113,6 +145,43 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
 export interface UntakenActionMatch {
   family: string;
   matchedPhrase: string;
+}
+
+/**
+ * Longest quoted phrase an evidence line may carry (mt#3853).
+ *
+ * The evidence lines exist so the agent can recognize WHICH text tripped the
+ * guard; 26 chars is enough to do that for every pattern here (the longest
+ * pattern prefix is `I'm going to ` at 13), and the tail is elided rather than
+ * dropped. Chosen by MEASUREMENT, not preference: 32 still rendered 451 against
+ * the 450 ceiling on the worst-case canary; 26 renders 443.
+ *
+ * Why a cap at all: matched-phrase length is a function of the PATTERN SET, so
+ * without one, every future verb or object added to `ACTION_VERB` /
+ * `ACTION_OBJECT` silently grows the rendered worst case. mt#3853's own
+ * widening pushed it from 430 to 457 against a 450 ceiling — measured on a
+ * canary posed so the long families occupy all three capped slots. Bounding the
+ * phrase makes the ceiling a property of the FORMAT rather than of the corpus,
+ * so widening the patterns can no longer breach it.
+ */
+export const MAX_QUOTED_PHRASE_CHARS = 26;
+
+/**
+ * Scope note (PR #2724 R1): this cap applies to the ADVISORY text only. The
+ * calibration record keeps the FULL matched phrase, deliberately.
+ *
+ * The two have different readers and different budgets. `additionalContext` is
+ * charged against the merged injection budget and rendered into the principal's
+ * scroll, so its size is the thing being bounded. The calibration JSONL is a
+ * file that only `/calibration-review` reads, where a truncated phrase would
+ * make false-positive classification harder for no saving. Truncating there
+ * would degrade the measurement this guard's tuning depends on.
+ */
+
+function quotePhrase(phrase: string): string {
+  return phrase.length <= MAX_QUOTED_PHRASE_CHARS
+    ? phrase
+    : `${phrase.slice(0, MAX_QUOTED_PHRASE_CHARS - 1).trimEnd()}…`;
 }
 
 /**
@@ -204,7 +273,9 @@ function buildReminder(matches: UntakenActionMatch[], deferralShaped: boolean): 
     "[turn-end-untaken-action] You named a next action and did not take it.",
     "",
   ];
-  lines.push(...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${m.matchedPhrase}"`));
+  lines.push(
+    ...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${quotePhrase(m.matchedPhrase)}"`)
+  );
   lines.push("", deferralShaped ? DEFERRAL_DIRECTIVE : COMMITMENT_DIRECTIVE);
   return lines.join("\n");
 }
