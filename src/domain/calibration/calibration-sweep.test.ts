@@ -1593,6 +1593,20 @@ const KIND_FIXTURES: Readonly<
     line: () => makePolicyCoverageRecord("covered"),
     expectedGuardName: "policy-coverage-detector",
   },
+  "bare-entity-ref": {
+    // mt#3286 — same matches-shape family as retrospective-trigger: family is
+    // the defect class, phrase the offending ref.
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-08-08T12:00:00Z",
+        session_id: "test-session",
+        matches: [{ family: "bare-ref", phrase: "mt#1234" }],
+        logged_only: [{ family: "bare-short-id", phrase: "ask#6891" }],
+        flagged_count: 1,
+        logged_only_count: 1,
+      }),
+    expectedGuardName: "turn-end-bare-ref-scan",
+  },
   "silent-stretch": {
     line: () => makeSilentStretchRecord(),
     expectedGuardName: "silent-stretch-detector",

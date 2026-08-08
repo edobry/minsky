@@ -182,12 +182,19 @@ jobs:
           # Wrapped in `timeout` (mt#2505 R1): a hung DB connection / lock must
           # fail the deploy fast, not sit until the GH Actions job cap (~6h). The
           # migrator is idempotent (drizzle HWM), so a retried run resumes safely.
+          #
+          # No `--preload reflect-metadata` (mt#3773): the bundle installs the
+          # polyfill itself since mt#3680, so the flag is redundant here. It is
+          # removed rather than left in place because a preloaded invocation boots
+          # whether or not the bundle is self-sufficient — keeping it on the
+          # migration step would mean the one command that touches the production
+          # schema is also the one that never exercises the real boot path.
           set +e
           timeout 600 docker run --rm \
             -e MINSKY_PERSISTENCE_BACKEND=postgres \
             -e MINSKY_PERSISTENCE_POSTGRES_URL \
             "$IMAGE:ci" \
-            bun run --preload reflect-metadata dist/minsky.js persistence migrate --execute
+            bun run dist/minsky.js persistence migrate --execute
           rc=$?
           set -e
           if [ "$rc" -ne 0 ]; then
