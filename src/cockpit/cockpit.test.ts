@@ -538,8 +538,11 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/session_list/i);
-    expect(body.reason).toMatch(/DB connection failed/i);
+    // Pin the COMPOSED shape, not two independent substring hits (PR #2702 R1):
+    // separate `toMatch`es for the label and the message pass even if the
+    // separator or ordering regresses, which is the format this widget's
+    // operator-facing text depends on.
+    expect(body.reason).toBe("session_list: DB connection failed");
   });
 
   // ---------------------------------------------------------------------------

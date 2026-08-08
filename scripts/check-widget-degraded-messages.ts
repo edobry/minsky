@@ -50,8 +50,12 @@ const MARKER_LOOKBEHIND = 10;
 /** The classifier every converted catch-all site calls. */
 const CLASSIFIER_CALL = "describeWidgetDegradedReason(";
 
-/** A `reason:` field built from a backtick template with an interpolation. */
-const INTERPOLATED_REASON = /reason:\s*`[^`]*\$\{/;
+/**
+ * A `reason:` field built from a backtick template with an interpolation.
+ * `g` is required: the scan below uses `matchAll`, which throws on a non-global
+ * regex. The negated class spans newlines, so the match may cover several lines.
+ */
+const INTERPOLATED_REASON = /reason:\s*`[^`]*\$\{/g;
 
 function isCommentLine(line: string): boolean {
   const trimmed = line.trimStart();
@@ -86,14 +90,27 @@ function markedAbove(lines: string[], i: number): boolean {
 const violations: string[] = [];
 
 for (const file of walk(WIDGETS_DIR)) {
-  const lines = readFileSync(file, "utf8").split("\n");
-  lines.forEach((line, i) => {
-    if (!INTERPOLATED_REASON.test(line)) return;
-    if (line.includes(CLASSIFIER_CALL)) return;
-    if (isCommentLine(line)) return;
-    if (markedAbove(lines, i)) return;
-    violations.push(`${file}:${i + 1}: ${line.trim()}`);
-  });
+  const source = readFileSync(file, "utf8");
+  const lines = source.split("\n");
+
+  // Scanned over the whole SOURCE, not line-by-line: a `reason:` whose template
+  // literal wraps before its `${` interpolation is exactly the shape this check
+  // exists to catch, and a per-line scan cannot see it (PR #2702 R1). The
+  // negated class `[^`]` already spans newlines, so only the iteration had to
+  // change. Line numbers are recovered from the match offset for reporting and
+  // for the marker lookbehind, which stay line-oriented.
+  for (const match of source.matchAll(INTERPOLATED_REASON)) {
+    const index = match.index ?? 0;
+    const i = source.slice(0, index).split("\n").length - 1;
+
+    // The classifier call can land on a later line than `reason:` for the same
+    // reason the interpolation can, so test the whole matched span, not the
+    // first line of it.
+    if (match[0].includes(CLASSIFIER_CALL)) continue;
+    if (isCommentLine(lines[i] ?? "")) continue;
+    if (markedAbove(lines, i)) continue;
+    violations.push(`${file}:${i + 1}: ${(lines[i] ?? "").trim()}`);
+  }
 }
 
 if (violations.length > 0) {
