@@ -3,10 +3,9 @@
 name: marketing-site-design
 description: >-
   Myth-first design for the Minsky marketing site and adjacent surfaces —
-  microsites, launch pages, position-paper landing pages. Layers
-  marketing-specific patterns on the `minsky-brand` foundation and consumes
-  `analyze-adjacent-product`'s output. Use when designing or auditing a Minsky
-  marketing surface, or workshopping its positioning myth.
+  microsites, launch pages, position-paper landing pages. Layers marketing
+  patterns on `minsky-brand` and consumes `analyze-adjacent-product`'s output.
+  Use when designing or auditing a Minsky marketing surface.
 user-invocable: true
 ---
 
@@ -33,17 +32,17 @@ The operational tokens (typography stack, color palette with hex + OKLCH, motion
 
 The voice substance (Macx-register prose, semicolon rhythm, vocabulary precision, no-go register) lives in [`/pz-voice`](../pz-voice/SKILL.md). Compose with `minsky-brand` per its §8 (signal/channel split) — voice carries WHAT is claimed; cultural codes carry HOW it feels.
 
+**The copy source of truth (mem#895):** what a marketing surface's copy actually SAYS — not its register or layout — adapts from the [positioning corpus](https://app.notion.com/p/3b6937f03cb4811786b8c76b31226b17) (mt#1583; v1 revised 2026-08-08), never re-derived. The corpus's seven theses (T1-T7), the two-door structure (§2 run-your-organization / §3 extend-yourself), and the vocabulary bridge (§5: define a register term at first use or use its plain form) are load-bearing for any hero, section headline, or CTA drafted under this skill. Never link to the corpus from a public surface — it's internal-facing; copy from its articulations. `/minsky-brand` §1a records the corpus's own resolution of whether myth-register vocabulary and public-copy vocabulary are meant to diverge (they are, deliberately — corpus §5/§8).
+
 This skill begins where those leave off.
 
 ## 2. The Pepsi/Arnell trap (marketing-surface application)
 
-Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines lives in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2; the brand-foundation cut lives in [`/minsky-brand`](../minsky-brand/SKILL.md) §6.
-
-For marketing-surface work specifically: if you cannot explain a visual choice on a marketing page as a sign carrying a specific connotation that instantiates the locked myth (per `minsky-brand` §1), cut it.
+Canonical discussion: [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2 (the general anti-pattern). Minsky-specific application: [`/minsky-brand`](../minsky-brand/SKILL.md) §6 (the "it looks cool" tell). Same discipline, applied to marketing surfaces specifically: if you cannot explain a visual choice on a marketing page as a sign carrying a specific connotation that instantiates the locked myth, cut it.
 
 ## 3. Bridge-as-affect (marketing-surface application)
 
-The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3; Minsky-specific application in [`/minsky-brand`](../minsky-brand/SKILL.md) §3.
+Canonical discussion: [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3 (the general discipline — invoking emergent cultural codes through residual references, without going literal). Minsky-specific application: [`/minsky-brand`](../minsky-brand/SKILL.md) §3.
 
 On a marketing surface specifically: **borrow at the layer of register, never at the layer of imagery.** Specific register-borrowing rules live in `minsky-brand` §3 ("What goes on every surface" / "What never appears"). On marketing pages, the imagery-rejection rules apply with extra force because the marketing context tempts toward "more dramatic" visuals — the Iron Man / JARVIS framing, the Composio-style multicolor saturation, the WebGL-shader hero. The brand foundation forbids all of these; this skill names the marketing-format equivalents in §8 below.
 
