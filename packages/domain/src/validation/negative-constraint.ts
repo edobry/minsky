@@ -192,9 +192,20 @@ export interface NegativeConstraintReport {
   /** True when any licence-to-falsify marker appears anywhere in the text. */
   hasLicenceToFalsify: boolean;
   /**
-   * Prohibitions that are BARE — missing a nearby basis, or present in a prompt that grants no
-   * licence to falsify anywhere. Either omission alone makes the prohibition unrecoverable by
-   * the recipient, so either alone qualifies.
+   * Prohibitions that are BARE — missing a nearby basis.
+   *
+   * **Narrowed 2026-08-08 (mt#3167).** v1 also counted a prohibition as bare when the prompt
+   * granted no {@link LICENCE_PATTERNS} marker anywhere, on the theory that either omission alone
+   * makes a prohibition unrecoverable. Eleven days of calibration measured that category at
+   * **8/8 false positives** — every match was a scope decision ("those are mt#3330's
+   * deliverables"), a fan-out role constraint ("do not attempt to answer the question yourself"),
+   * or guard-backed policy ("do not try to work around the secret-file-read guard"), where
+   * licensing the recipient to falsify the instruction would be wrong rather than diligent. The
+   * requirement is sound for EMPIRICAL capability claims — mem#702's shape — and over-applies to
+   * everything else, which is what real dispatch prose overwhelmingly contains.
+   *
+   * {@link NegativeConstraintReport.hasLicenceToFalsify} is still computed and still recorded in
+   * the calibration log; it is retired from the FIRE path, not from the measurement.
    */
   bare: ProhibitionFinding[];
 }
@@ -241,7 +252,8 @@ export function analyzeNegativeConstraints(
   }
 
   findings.sort((a, b) => a.index - b.index);
-  const bare = findings.filter((f) => !f.hasBasis || !hasLicenceToFalsify);
+  // Basis only — see NegativeConstraintReport.bare for why the licence disjunct was retired.
+  const bare = findings.filter((f) => !f.hasBasis);
 
   return { findings, hasLicenceToFalsify, bare };
 }
@@ -255,16 +267,10 @@ export const BARE_PROHIBITION_PREFIX = "Bare prohibition in dispatch prompt (mt#
  * that gets worked around.
  */
 export function buildBareProhibitionMessage(report: NegativeConstraintReport): string {
+  // Every bare finding is bare for exactly one reason since mt#3167 retired the licence disjunct.
   const listed = report.bare
     .slice(0, 5)
-    .map((f) => {
-      const missing = !f.hasBasis
-        ? report.hasLicenceToFalsify
-          ? "no basis stated"
-          : "no basis stated, and no licence to falsify anywhere in the prompt"
-        : "no licence to falsify anywhere in the prompt";
-      return `  - "${f.phrase}" (${missing}) ... ${f.excerpt}`;
-    })
+    .map((f) => `  - "${f.phrase}" (no basis stated) ... ${f.excerpt}`)
     .join("\n");
 
   return [
