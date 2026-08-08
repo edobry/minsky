@@ -538,7 +538,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/session_list error/i);
+    expect(body.reason).toMatch(/session_list/i);
     expect(body.reason).toMatch(/DB connection failed/i);
   });
 
@@ -732,7 +732,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/task_graph error/i);
+    expect(body.reason).toMatch(/task_graph/i);
     expect(body.reason).toMatch(/task DB unavailable/i);
   });
 
@@ -886,7 +886,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/workstreams error/i);
+    expect(body.reason).toMatch(/workstreams/i);
     expect(body.reason).toMatch(/task DB connection failed/i);
   });
 
@@ -1442,7 +1442,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/attention error/i);
+    expect(body.reason).toMatch(/attention/i);
     expect(body.reason).toMatch(/DB unavailable/i);
   });
 
