@@ -752,23 +752,43 @@ describe("submitReview", () => {
     });
   });
 
-  test("an unanchorable inline comment is dropped, and does not take the review with it", async () => {
+  // PR #2722 R2 BLOCKING: an unanchorable finding must DEGRADE to the body, not
+  // vanish. Losing the anchor should cost the finding its location, not its
+  // existence — mt#3852 SC2.
+  test("an unanchorable inline comment degrades into the review body, keeping the review", async () => {
     const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
 
-    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
-      { path: "", line: 0, body: "no anchor" } as never,
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "original body", undefined, [
+      { path: "", line: 0, body: "no anchor but still a real finding" } as never,
       { path: "ok.ts", line: 7, body: "keeps its anchor" },
     ]);
 
-    // The review still posts, carrying only the anchorable comment.
     expect(createReviewMock.mock.calls).toHaveLength(1);
     const args = createReviewMock.mock.calls[0]?.[0] as {
+      body?: string;
       comments?: Array<Record<string, unknown>>;
     };
+
+    // Only the anchorable one rides in comments[].
     const comments = args.comments;
     if (!comments) throw new Error(COMMENTS_MISSING);
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatchObject({ path: "ok.ts", line: 7 });
+
+    // The unanchorable one survives in the body, and the caller's body is intact.
+    expect(args.body).toContain("original body");
+    expect(args.body).toContain("no anchor but still a real finding");
+  });
+
+  test("no degraded findings leaves the body byte-identical", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "untouched body", undefined, [
+      { path: "ok.ts", line: 7, body: "anchored" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { body?: string };
+    expect(args.body).toBe("untouched body");
   });
 
   // PR #2722 R1 BLOCKING: every field here arrives from parsed model output, so

@@ -305,6 +305,8 @@ export async function submitReview(
   const all = inlineComments ?? [];
   const replies = all.filter((c) => c.inReplyTo !== undefined);
   const anchorable: ReviewInlineComment[] = [];
+  /** Findings whose anchor is unusable; folded into the review body below. */
+  const degraded: ReviewInlineComment[] = [];
   for (const c of all) {
     if (c.inReplyTo !== undefined) continue;
     // Validate the anchor locally so a malformed comment cannot 422 the whole
@@ -315,12 +317,18 @@ export async function submitReview(
     if (typeof c.path !== "string" || c.path.length === 0) missing.push("path");
     if (typeof c.line !== "number" || !Number.isFinite(c.line) || c.line < 1) missing.push("line");
     if (missing.length > 0) {
-      log.warn("reviewer.inline_comment_dropped_unanchorable", {
+      // PR #2722 R2 BLOCKING: DEGRADE, don't drop. mt#3852's SC2 says an
+      // unanchorable finding becomes a body-level finding; the first pass
+      // dropped it and documented the deviation instead, which loses reviewer
+      // output silently — a smaller version of the whole-review loss this task
+      // exists to end.
+      log.warn("reviewer.inline_comment_degraded_to_body", {
         pr: prNumber,
         missing,
         path: c.path ?? null,
         line: c.line ?? null,
       });
+      degraded.push(c);
       continue;
     }
     // PR #2722 R1 BLOCKING: `side` needs the same treatment. Its TS type is
@@ -346,6 +354,27 @@ export async function submitReview(
     }
     anchorable.push(c);
   }
+
+  // PR #2722 R2: fold degraded findings into the review body so an unusable
+  // anchor costs the finding its LOCATION, not its existence. Appended after
+  // the caller's body — including the provenance HTML comment, which readers
+  // locate by marker rather than by position, so trailing content is safe.
+  const finalBody =
+    degraded.length === 0
+      ? body
+      : [
+          body,
+          "",
+          "---",
+          "",
+          "**Findings that could not be anchored to a line** — reported here so they are not lost:",
+          "",
+          ...degraded.map((c) => {
+            const where =
+              typeof c.path === "string" && c.path.length > 0 ? `\`${c.path}\`` : "_unknown file_";
+            return `- ${where}: ${c.body}`;
+          }),
+        ].join("\n");
 
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
@@ -386,7 +415,7 @@ export async function submitReview(
       repo,
       pull_number: prNumber,
       event,
-      body,
+      body: finalBody,
       ...(comments !== undefined ? { comments: comments as CreateReviewParams["comments"] } : {}),
       request: { signal },
     });
