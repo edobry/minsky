@@ -53,6 +53,7 @@ import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
+import { isSidecarLineType } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
@@ -367,8 +368,6 @@ export class AgentTranscriptIngestService {
       // discovery-backed source re-scans every transcript in the corpus to
       // resolve the id, which made `ingestAll` quadratic.
       for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
-        lineIndex++;
-
         // mt#3656: feed EVERY line to the divergence scanner before any gate
         // below can drop it. This must precede the timestamp check: a
         // `last-prompt` row — the only writer-identity trace the format offers
@@ -377,6 +376,22 @@ export class AgentTranscriptIngestService {
         // attachments table. The verdict is a whole-file property, so the
         // scanner also wants the lines the high-water-mark gate skips.
         divergenceScanner.observe(line);
+
+        // mt#3836: a sidecar row is yielded for the scanner's benefit only —
+        // it is never stored, and it must NOT consume a `lineIndex`.
+        //
+        // `lineIndex` is not a loop counter: it is half of
+        // `agent_transcript_attachments`' primary key
+        // (`primaryKey({ columns: [agentSessionId, lineIndex] })`). Counting a
+        // newly-retained type here would renumber every attachment after the
+        // first sidecar row in every transcript already ingested, changing
+        // their keys and duplicating rows on re-ingest. So the `continue`
+        // deliberately sits ABOVE the increment, and
+        // `scripts/backfill-agent-transcript-attachments.ts` — the other
+        // writer of that key — applies the identical rule.
+        if (isSidecarLineType(line)) continue;
+
+        lineIndex++;
 
         const tsStr = this.source.getJsonlTimestamp(line);
         if (!tsStr) continue;
@@ -998,8 +1013,38 @@ export class AgentTranscriptIngestService {
         .where(
           and(
             eq(agentTranscriptsTable.agentSessionId, agentSessionId as ConversationId),
+            // mt#3836: compare a canonical STRING, not the array itself.
+            //
+            // Interpolating a JS array into a `sql` template does NOT bind a
+            // `text[]` — drizzle expands it into a comma-separated parameter
+            // list, so this rendered `IS DISTINCT FROM ($4, $5)`, a row
+            // constructor. Postgres rejects `text[] IS DISTINCT FROM record`,
+            // the whole UPDATE threw, and the `catch` below swallowed it into a
+            // warn — so this write never once succeeded from the day it
+            // shipped. Joining to a string binds a single ordinary parameter
+            // and sidesteps array binding entirely.
+            //
+            // NULL-safe by construction: `array_to_string(NULL, ',')` is NULL
+            // and `NULL IS DISTINCT FROM '<anything>'` is TRUE, so a row that
+            // has never been checked still matches. An empty verdict renders
+            // `''` on BOTH sides — `array_to_string('{}', ',')` is the empty
+            // string, not NULL — and correctly does not re-write. That case is
+            // the one that would have hurt: a clean conversation re-writing on
+            // every sweep tick is precisely the amplification this guard exists
+            // to prevent, so it is asserted rather than assumed (PR #2708 R1,
+            // integration test + a live re-ingest that left the timestamp
+            // unchanged).
+            //
+            // Two couplings this comparison accepts, both safe for THIS data
+            // and both worth knowing before reusing the shape (PR #2708 R1):
+            // it is ORDER-sensitive, and the leaves are emitted in file order,
+            // which is deterministic for an append-only transcript — a
+            // reordering would cost one redundant write, never a wrong verdict;
+            // and it is DELIMITER-coupled, which is sound only because the
+            // values are uuids and cannot contain a comma.
             sql`(${agentTranscriptsTable.divergenceCheckedAt} IS NULL
-              OR ${agentTranscriptsTable.divergentTipLeaves} IS DISTINCT FROM ${divergentTips})`
+              OR array_to_string(${agentTranscriptsTable.divergentTipLeaves}, ',')
+                 IS DISTINCT FROM ${divergentTips.join(",")})`
           )
         );
     } catch (err) {
