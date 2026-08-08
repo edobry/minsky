@@ -105,6 +105,37 @@ describe("bare-entity-ref scanner — log-only carve-out (v0)", () => {
   });
 });
 
+describe("bare-entity-ref scanner — PR #2717 R1 findings", () => {
+  test("malformed percent-encoding in a task target does not throw", () => {
+    // decodeURIComponent throws URIError on `%2`. Unguarded, this took the
+    // whole scan down for the turn — and the input is arbitrary assistant
+    // prose, so half-written links are reachable in practice.
+    expect(() => scanMessage("See [mt#1](minsky://task/mt%2) for context.")).not.toThrow();
+  });
+
+  test("an undecodable task link does not count as linking the ref", () => {
+    // Degrades to "the ref looks bare" — the conservative direction for an
+    // advisory — rather than silently treating the entity as linked.
+    const r = scanMessage("See [mt#1234](minsky://task/mt%2) for context.");
+    expect(refs(r)).toContain("mt#1234");
+  });
+
+  test("a long DECIMAL short-id label is never flagged as a UUID fragment", () => {
+    // The old pattern matched any 6+ char hex-ish tail and relied on a later
+    // exemption to rescue decimals. Six-digit and longer short ids are the
+    // exact case that made the exemption load-bearing.
+    for (const label of ["ask#123456", "mem#1234567", "ws#999999"]) {
+      const r = scanMessage(`See [${label}](minsky://ask/86ac1dbe-6a20-4e76-9736-665bef1d0c59).`);
+      expect(kinds(r)).not.toContain("raw-uuid-label");
+    }
+  });
+
+  test("a non-hex word label is left alone — the class only claims what it can prove", () => {
+    const r = scanMessage("See [ask#overview](minsky://ask/86ac1dbe-6a20-4e76-9736-665bef1d0c59).");
+    expect(kinds(r)).not.toContain("raw-uuid-label");
+  });
+});
+
 describe("bare-entity-ref scanner — the R6 message shape", () => {
   // The closing report that produced R6: task and PR refs correctly linked,
   // ask refs bare. v0 must stay silent on the asks (carve-out) and must not

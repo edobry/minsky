@@ -29,25 +29,36 @@
 //      authoring burden is real and unenforced, which is what this measures
 
 import type { ClaudeHookInput } from "./types";
-import type { DispatchContext, GuardOutcome } from "./registry";
+import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
 import { extractAssistantText, extractFinalTurn } from "./transcript";
 import { scanMessage, type ScanFinding } from "./bare-entity-ref-scan";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_BARE_ENTITY_REF";
 
+export const GUARD_NAME = "turn-end-bare-ref-scan";
+
 /**
- * Ceiling for this guard's advisory text, mirrored from its registry
- * `attentionCost.denialMessageSizeChars`. `guard-feedback-shape.test.ts`
- * (mt#3479) asserts the RENDERED text against the registry declaration, so
- * drift between this constant and the registry fails there mechanically
- * rather than silently.
+ * Ceiling for this guard's advisory text, READ from its own registry
+ * declaration rather than duplicated as a literal (PR #2717 R1).
  *
- * The render below is bounded in CODE and not merely measured in a test
- * (mt#3824's lesson): the finding list is unbounded — a long closing report
- * can name many entities — so an unbounded render would grow past any
- * declared figure without anyone re-measuring.
+ * mt#3824's R1 finding on a sibling detector was exactly this duplication, and
+ * the answer there was a comment plus a test asserting the two agree. A
+ * derived value is strictly better: there is only one number, so there is
+ * nothing to drift and the test becomes a receipt rather than the only thing
+ * standing between the code and a stale literal.
+ *
+ * Safe against an import cycle: `registry.ts` reaches guard modules only
+ * through `module: () => import(...)`, a lazy dynamic import evaluated at
+ * dispatch time, so a static import in this direction closes no loop at
+ * module-eval time.
+ *
+ * The render below is bounded in CODE and not merely measured in a test: the
+ * finding list is unbounded — a long closing report can name many entities —
+ * so an unbounded render would grow past any declared figure without anyone
+ * re-measuring.
  */
-const ADVISORY_BUDGET_CHARS = 700;
+const ADVISORY_BUDGET_CHARS =
+  GUARD_REGISTRY.find((r) => r.name === GUARD_NAME)?.attentionCost?.denialMessageSizeChars ?? 700;
 
 export interface StopHookInput extends ClaudeHookInput {
   stop_hook_active?: boolean;

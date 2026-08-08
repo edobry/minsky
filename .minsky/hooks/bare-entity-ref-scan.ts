@@ -35,6 +35,25 @@ import { elideMarkdownContexts } from "./pre-narration-detector";
 /** A full 36-char canonical UUID, the only legal ask/memory/session target. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * `decodeURIComponent` that returns null instead of throwing.
+ *
+ * This scanner runs inside a Stop hook over arbitrary assistant prose, so its
+ * input includes half-written and hand-typed links. `decodeURIComponent`
+ * throws a URIError on malformed percent-encoding (`%2`, a bare `%`), and an
+ * uncaught throw here would take down the whole scan for the turn.
+ */
+function safeDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // intentional-swallow: a link whose id cannot be decoded simply does not
+    // register as linking an entity; the caller degrades to treating the ref
+    // as unlinked, which is the conservative direction for an advisory.
+    return null;
+  }
+}
+
 /** Entity classes whose deeplink target is DERIVABLE from the visible label. */
 export type FlaggedKind = "bare-ref" | "malformed-target" | "raw-uuid-label";
 
@@ -94,16 +113,25 @@ export function scanMessage(text: string): ScanResult {
   }
 
   // --- class 3: raw-UUID-fragment labels -----------------------------------
-  // A legitimate short-id label is `ask#6984` — `#` then decimal digits. A
-  // label carrying hex (with or without an ellipsis) is a UUID fragment
-  // dressed as a short id, which defeats the label's whole purpose.
-  const rawLabelRe = /^(ask|mem|ws)#\D{0,3}[0-9a-f]{6,}$/i;
+  // A legitimate short-id label is `ask#6984` — `#` then DECIMAL digits only.
+  // A label whose tail is a hex run (with or without a leading elision marker)
+  // is a UUID fragment dressed as a short id, which defeats the label's whole
+  // purpose.
+  //
+  // The decimal case is tested FIRST and returns, rather than being caught by
+  // an exemption after a broader pattern already matched (PR #2717 R1). A
+  // pattern whose correctness depends on a later `continue` is one edit away
+  // from silently over-flagging every large short id.
   for (const link of links) {
     const label = link.label.trim();
-    if (!rawLabelRe.test(label)) continue;
-    // Decimal-only labels are legitimate short ids; only flag when the tail
-    // actually contains a hex letter or an elision marker.
-    if (/^(ask|mem|ws)#\d+$/i.test(label)) continue;
+    const tail = /^(?:ask|mem|ws)#(.+)$/i.exec(label)?.[1];
+    if (tail === undefined) continue;
+    // Legitimate short id — any length.
+    if (/^\d+$/.test(tail)) continue;
+    // A UUID fragment, optionally preceded by an elision marker. Anything else
+    // (a name, a word, an unrecognized shape) is left alone: this class only
+    // claims the defect it can prove.
+    if (!/^[.…]*[0-9a-f]{6,}$/i.test(tail)) continue;
     flagged.push({
       kind: "raw-uuid-label",
       ref: label,
@@ -118,7 +146,15 @@ export function scanMessage(text: string): ScanResult {
   for (const link of links) {
     if (link.type === "task") {
       // Targets are percent-encoded: mt%233286 -> mt#3286.
-      const decoded = decodeURIComponent(link.id);
+      //
+      // GUARDED (PR #2717 R1): decodeURIComponent THROWS on malformed
+      // percent-encoding (`mt%2`, a lone `%`), and this runs inside a Stop
+      // hook over arbitrary assistant prose — a message containing a
+      // half-written link would take the whole scan down. A link we cannot
+      // decode simply does not count as linking anything, which degrades to
+      // "the ref looks bare" rather than to a crash.
+      const decoded = safeDecode(link.id);
+      if (decoded === null) continue;
       const num = /^mt#(\d+)$/i.exec(decoded)?.[1];
       if (num) linkedTaskIds.add(num);
     } else if (link.type === "changeset") {
