@@ -68,9 +68,10 @@ on:
 env:
   # Secondary hedge for the mt#3623 install flake: disables the streaming
   # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
-  # unmerged, so no release carries a fix). Effectiveness is UNVERIFIED -- the
-  # failure needs a flaky network and would not reproduce locally, so it could
-  # not be measured. The per-step retry loops are the load-bearing mitigation.
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
   # Remove both when a bun release carries the upstream fix.
   BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
 
