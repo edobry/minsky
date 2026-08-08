@@ -292,6 +292,40 @@ export async function submitReview(
   // mt#1345: optional inline comments with optional in_reply_to wiring.
   inlineComments?: ReviewInlineComment[]
 ): Promise<SubmittedReview> {
+  // mt#3852: split replies out of the review payload BEFORE building it.
+  //
+  // `createReview`'s comments[] elements are GraphQL `DraftPullRequestReviewComment`,
+  // which has no reply field and REQUIRES an anchor. The old reply variant sent
+  // `{ body, in_reply_to }` with path/line deliberately omitted, so GitHub rejected
+  // all three at once — `inReplyTo` not a field, `path` null, `position` null — and
+  // 422'd the ENTIRE review, losing every finding in it. `in_reply_to` is a real
+  // documented parameter, but of `createReviewComment` (POST /pulls/{n}/comments),
+  // not of `createReview`; mt#1345 applied it to the wrong endpoint. Replies now go
+  // to the dedicated replies endpoint after the review lands.
+  const all = inlineComments ?? [];
+  const replies = all.filter((c) => c.inReplyTo !== undefined);
+  const anchorable: ReviewInlineComment[] = [];
+  for (const c of all) {
+    if (c.inReplyTo !== undefined) continue;
+    // Validate the anchor locally so a malformed comment cannot 422 the whole
+    // review. Dropping one comment loses one finding; the pre-mt#3852 behavior
+    // lost the entire review, and surfaced only as an opaque 422 after a full
+    // model pass had already been spent.
+    const missing: string[] = [];
+    if (typeof c.path !== "string" || c.path.length === 0) missing.push("path");
+    if (typeof c.line !== "number" || !Number.isFinite(c.line) || c.line < 1) missing.push("line");
+    if (missing.length > 0) {
+      log.warn("reviewer.inline_comment_dropped_unanchorable", {
+        pr: prNumber,
+        missing,
+        path: c.path ?? null,
+        line: c.line ?? null,
+      });
+      continue;
+    }
+    anchorable.push(c);
+  }
+
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
     // Map inlineComments to the Octokit comments[] shape.
@@ -305,23 +339,22 @@ export async function submitReview(
     //     a default; sending without it risks a 422 that rejects the entire
     //     review payload.
     const comments =
-      inlineComments !== undefined && inlineComments.length > 0
-        ? inlineComments.map((c) =>
-            c.inReplyTo !== undefined
-              ? { body: c.body, in_reply_to: c.inReplyTo }
-              : { path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body }
-          )
+      anchorable.length > 0
+        ? anchorable.map((c) => ({
+            path: c.path,
+            line: c.line,
+            side: c.side ?? "RIGHT",
+            body: c.body,
+          }))
         : undefined;
 
-    // mt#1782: the inline-comments union ({reply variant} | {inline variant})
-    // doesn't structurally match Octokit's `createReview` `comments` parameter
-    // shape because Octokit's typed signature for `createReview` does not include
-    // `in_reply_to` (which is technically a `createReviewComment` parameter).
-    // mt#1345's use of `in_reply_to` against `createReview` is intentional — GitHub
-    // accepts it at the REST surface — but TS can't reconcile the union with
-    // Octokit's stricter type. Cast at the call site to satisfy the typechecker
-    // without changing behavior. See mt#1782 spec for follow-up tracking on the
-    // wider mt#1345 reply-routing question.
+    // mt#3852: the mt#1782 cast used to exist because this array was a UNION —
+    // a reply variant carrying `in_reply_to` (which Octokit's `createReview`
+    // signature rightly does not declare) plus an anchored variant. Octokit's
+    // type was correct and the union was the bug: `createReview` never accepted
+    // `in_reply_to`, and the note here claiming it did is what kept the defect
+    // legible-looking for three rounds. Every element is now the anchored shape,
+    // so the cast narrows a homogeneous array rather than papering over a union.
     type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
     return octokit.rest.pulls.createReview({
       owner,
@@ -333,6 +366,35 @@ export async function submitReview(
       request: { signal },
     });
   });
+
+  // mt#3852: post replies AFTER the review lands, via the dedicated endpoint
+  // (POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies).
+  //
+  // Ordering is deliberate: the review is the primary artifact, and a reply
+  // failure must not cost it. Each reply is independent — one failing does not
+  // stop the rest, and none of them fails the call. A dropped reply degrades to
+  // "the bot did not answer that thread"; a thrown one would discard a review
+  // that already succeeded, which is the failure mode this task exists to end.
+  for (const c of replies) {
+    try {
+      await withTimeout("github.pulls.createReplyForReviewComment", timeoutMs, (signal) =>
+        octokit.rest.pulls.createReplyForReviewComment({
+          owner,
+          repo,
+          pull_number: prNumber,
+          comment_id: c.inReplyTo as number,
+          body: c.body,
+          request: { signal },
+        })
+      );
+    } catch (err) {
+      log.warn("reviewer.inline_reply_failed", {
+        pr: prNumber,
+        inReplyTo: c.inReplyTo,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   return {
     id: response.data.id,
