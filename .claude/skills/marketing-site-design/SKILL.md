@@ -186,7 +186,7 @@ Given the selected myth, name the cultural code that carries it. **Invoke the si
 
 - Use the cultural-code-lane discussion in [`/minsky-brand`](../minsky-brand/SKILL.md) §4 as the reference for the Minsky-brand layered architecture; new codes are allowed if justified.
 - If the myth lives in an _occupied_ code, name the competitor whose visual register the brand will partially share. Decide which signs to adopt and which to reject.
-- If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `minsky-brand` SKILL.md §3 for the bridge-as-affect discipline).
+- If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see [`/minsky-brand`](../minsky-brand/SKILL.md) §3 for the bridge-as-affect discipline).
 
 Output: 1 cultural code, with 2-3 exemplars cited. If the code is layered (per `minsky-brand` §5's code-architecture), name each reference and the role it plays.
 
