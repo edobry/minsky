@@ -169,6 +169,18 @@ export interface UntakenActionMatch {
  */
 export const MAX_QUOTED_PHRASE_CHARS = 26;
 
+/**
+ * Scope note (PR #2724 R1): this cap applies to the ADVISORY text only. The
+ * calibration record keeps the FULL matched phrase, deliberately.
+ *
+ * The two have different readers and different budgets. `additionalContext` is
+ * charged against the merged injection budget and rendered into the principal's
+ * scroll, so its size is the thing being bounded. The calibration JSONL is a
+ * file that only `/calibration-review` reads, where a truncated phrase would
+ * make false-positive classification harder for no saving. Truncating there
+ * would degrade the measurement this guard's tuning depends on.
+ */
+
 function quotePhrase(phrase: string): string {
   return phrase.length <= MAX_QUOTED_PHRASE_CHARS
     ? phrase
