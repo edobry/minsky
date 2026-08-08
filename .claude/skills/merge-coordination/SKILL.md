@@ -169,9 +169,31 @@ Use `mcp__minsky__session_pr_merge`. This succeeds after reviewer-bot APPROVE or
 1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
 2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
 3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above.
-4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing.
+4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing. **Before escalating this condition, retrigger once — see §8a.**
 
 If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
+
+### 8a. Retrigger ONCE before escalating a verified false positive (mt#3729)
+
+Reviewer verdicts are **non-deterministic**. A finding you have correctly verified as false may simply not reappear on a re-review of the same commit — and when it doesn't, every downstream step (the bypass, the `authorization.approve` Ask, the operator-approved D8 grant) was avoidable.
+
+So once condition 4 above holds, and before invoking ANY override path:
+
+```
+mcp__minsky__reviewer_retrigger(pr: <n>, owner: "<owner>", repo: "<repo>")
+mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]", since: "<prior review submittedAt>")
+```
+
+- **Re-review clears it** → merge normally. No bypass, no Ask, no operator attention.
+- **Re-review re-fires the same finding** → the disagreement is durable, not a flake. NOW escalate; the re-fire is your evidence. Cite both review ids in the `bypassReason` / Ask.
+
+**Exactly once.** This is not a retry loop — a second identical finding is the signal to escalate, not to retrigger again.
+
+**This does NOT weaken §7b.** That rule forbids a *blind* retrigger that discards an unread verdict's diagnostic prose. This rung fires strictly AFTER §7b's read and after the finding has been verified false against its cited location (memory `8fdfc3d8`), so nothing diagnostic is thrown away. §7b governs *whether you may retrigger without reading*; this governs *whether you may escalate without retriggering*. Both can apply in one round, in that order.
+
+**Worked counter-example — when escalation IS right (mt#2921).** A duplicate-section false positive was retriggered; round 2 re-flagged the identical claim at a different phantom line number. That re-fire is exactly the durable-disagreement case the operator grant exists for.
+
+**Originating incident (PR #2640 / mt#3713, 2026-08-04).** One BLOCKING finding: a generated file "edited directly." Verified false — re-running the generator left `git status` on it empty — and unfixable, since the manifest is a committed generated artifact that any CLI-param PR necessarily touches. The agent escalated per the then-documented path, **paging the principal at 21:50**. A retrigger on the same HEAD returned APPROVED with zero blocking findings ~2 minutes later. Corpus correction recorded in memory `8b40f396` CORRECTION 3.
 
 **Preferred audited bypass — in-band `session_pr_merge` `forceBypass` (mt#2215):**
 
