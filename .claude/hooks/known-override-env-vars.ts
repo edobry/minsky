@@ -101,6 +101,13 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SESSIONDB_POSTGRES_URL",
   "MINSKY_SHOW_SQL",
   "MINSKY_SKIP_BRIDGE_RETIREMENT",
+  // mt#2292. Added on a reviewer finding, which also surfaced that this mirror
+  // is 40 entries behind the canonical set (94 vs 134) — the SECOND recorded
+  // drift, after mt#3084 hand-synced four. Only this task's entry is added
+  // here; syncing the other 39 by hand would be the same fix that already
+  // failed to hold, so the structural fix — a test asserting the mirror is a
+  // superset of HOOK_ONLY_ENV_VARS — is filed as mt#3882 with the measurement.
+  "MINSKY_SKIP_AGENT_DISPATCH_RECORD",
   "MINSKY_SKIP_BUNDLE_SMOKE",
   "MINSKY_SKIP_CALIBRATION_CADENCE",
   "MINSKY_SKIP_CLI_AUTORUN",
