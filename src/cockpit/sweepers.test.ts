@@ -713,6 +713,9 @@ describe("sweep domain-outcome reporting (mt#3684)", () => {
  * ADR-036 bans it.
  */
 describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
+  /** The driver error the 2026-08-07 outage produced on every connect attempt. */
+  const CONNECT_TIMEOUT_MESSAGE = "write CONNECT_TIMEOUT db.example.com:6543";
+
   const neverCalled = async (): Promise<boolean> => {
     throw new Error("refresh should not have been reached");
   };
@@ -720,7 +723,7 @@ describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
   test("(a) resolving the persistence service throwing reports a failure (AT4)", async () => {
     const result = await runProdStateRefreshTick({
       resolveRawSql: async () => {
-        throw new Error("write CONNECT_TIMEOUT db.example.com:6543");
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
       },
       refresh: neverCalled,
     });
@@ -792,7 +795,7 @@ describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
   test("an upstream failure reaches the domain tracker, not just the sweep registry (AT5)", async () => {
     for (const resolveRawSql of [
       async () => {
-        throw new Error("write CONNECT_TIMEOUT db.example.com:6543");
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
       },
       async () => null,
     ] as Array<() => Promise<(() => Promise<unknown>) | null>>) {
@@ -807,6 +810,54 @@ describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
       expect(tracker.calls.runs).toBe(1);
       expect(tracker.calls.failures).toBe(1);
     }
+  });
+
+  test("the no-raw-SQL path emits a warning where it previously emitted nothing (AT4c, PR #2746 R1)", async () => {
+    // Fact-of-emission via an injected sink, not a patched logger (ADR-036).
+    // This log IS the behavior: before mt#3684 the path returned silently, so a
+    // provider that could never refresh the cache left no trace at all.
+    const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => null,
+      refresh: neverCalled,
+      tracker: countingTracker(),
+      logWarn: (message, meta) => warnings.push({ message, meta }),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain("no raw SQL connection");
+  });
+
+  test("a thrown upstream failure carries its cause into the warning (AT4a)", async () => {
+    const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => {
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
+      },
+      refresh: neverCalled,
+      tracker: countingTracker(),
+      logWarn: (message, meta) => warnings.push({ message, meta }),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+    // The driver's message is what distinguishes a blocked port from dead DNS
+    // in the log, which is the only place that detail survives.
+    expect(warnings[0]?.meta?.message).toContain("CONNECT_TIMEOUT");
+  });
+
+  test("the happy path emits no warning", async () => {
+    const warnings: string[] = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => true,
+      tracker: countingTracker(),
+      logWarn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(warnings).toEqual([]);
   });
 
   test("the refresh path does not double-record — refreshProdStateCache owns it (AT5)", async () => {

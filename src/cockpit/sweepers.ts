@@ -777,6 +777,14 @@ export async function runProdStateRefreshTick(deps: {
   now?: () => string;
   /** Defaults to the process singleton; injectable so a test can assert on an isolated instance. */
   tracker?: Pick<ProdStateSweepTracker, "recordRun" | "recordFailure">;
+  /**
+   * Warning sink, defaulting to the real logger. Injected rather than patched
+   * because for the no-raw-SQL path the log IS the behavior under test — that
+   * path emitted nothing at all before mt#3684, so "a line is emitted" is the
+   * fix, not incidental output (`testing-boundaries.mdc` §support vs
+   * diagnostic; ADR-036 bans patching the logger to observe it).
+   */
+  logWarn?: (message: string, meta?: Record<string, unknown>) => void;
 }): Promise<SweepTickResult> {
   // The domain tracker behind /api/health.prodStateSweep is recorded HERE for
   // the paths that never reach `refreshProdStateCache` (which records itself).
@@ -786,6 +794,7 @@ export async function runProdStateRefreshTick(deps: {
   // consecutiveFailures: 0`. The paths are mutually exclusive — an upstream
   // failure never reaches the refresh — so no attempt is counted twice.
   const tracker = deps.tracker ?? ProdStateSweepTracker.getInstance();
+  const warn = deps.logWarn ?? ((message, meta) => log.warn(message, meta));
   const recordUpstreamFailure = (): void => {
     tracker.recordRun();
     tracker.recordFailure();
@@ -797,9 +806,7 @@ export async function runProdStateRefreshTick(deps: {
       // Previously a bare `return` — no log, no counter, no trace anywhere. A
       // provider without raw SQL cannot refresh the cache, so this is a
       // failure, not a quiet no-op.
-      log.warn(
-        "cockpit: prod-state refresh sweep skipped — provider exposes no raw SQL connection"
-      );
+      warn("cockpit: prod-state refresh sweep skipped — provider exposes no raw SQL connection");
       recordUpstreamFailure();
       return { ok: false };
     }
@@ -809,7 +816,7 @@ export async function runProdStateRefreshTick(deps: {
     return { ok: await deps.refresh(sql, nowIso) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn("cockpit: prod-state refresh sweep failed", { message });
+    warn("cockpit: prod-state refresh sweep failed", { message });
     recordUpstreamFailure();
     return { ok: false };
   }
