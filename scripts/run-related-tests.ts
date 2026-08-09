@@ -21,11 +21,13 @@
  *   - Zero related tests for the staged change => exit 0 (nothing to run;
  *     this is a fast *signal*, not exhaustive coverage -- the full suite at
  *     push time + CI remains authoritative).
- *   - More than RELATED_TEST_CAP related tests => exit 0 with a warning
- *     instead of running them. A widely-imported low-level module (e.g. a
- *     shared logger) can otherwise pull a large fraction of the suite into
- *     the reverse-dependency-graph walk, defeating the "fast" purpose of
- *     this gate; rely on the pre-push/CI full-suite gate for that case.
+ *   - Commit latency is bounded by a per-partition WALL-CLOCK watchdog
+ *     (mt#3765), not by a related-test COUNT. The former count cap skipped
+ *     over-cap sets entirely, which inverted the risk gradient — a larger
+ *     staged change was checked LESS than a smaller one. A partition that
+ *     overruns its budget is reported as a TIMEOUT and deferred to the
+ *     pre-push/CI full-suite gate; it does not block the commit, and it is
+ *     never rendered as a truncation (a different, silent failure).
  *   - Any related test under `src/mcp/**` runs in its own isolated `bun
  *     test` process, mirroring scripts/run-tests-mcp-isolated.ts -- per
  *     mt#2665, src/mcp test files are known to silently truncate when run
@@ -57,9 +59,23 @@
 import { join } from "node:path";
 import { evaluateBunTestSummary } from "./run-tests-gated";
 import { findRelatedTestFiles, type FsLike } from "./find-related-tests";
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  WATCHDOG_BUDGETS_MS,
+} from "./spawn-with-watchdog";
 
-/** Above this many related test files, skip the local run (see doc comment). */
-export const RELATED_TEST_CAP = 40;
+/** One partition's `bun test` outcome, plus its watchdog disposition (mt#3765). */
+export interface BunTestRunResult {
+  exitCode: number;
+  combined: string;
+  /** True when the wall-clock watchdog terminated the partition. */
+  timedOut: boolean;
+  elapsedMs: number;
+  budgetMs: number;
+  /** Operator-facing diagnostic, present only when `timedOut`. */
+  timeoutMessage?: string;
+}
 
 /**
  * Bun treats a CLI argument as a test-file PATH only when it starts with
@@ -105,13 +121,12 @@ function getStagedFiles(): string[] {
  */
 const COCKPIT_WEB_IGNORE_PATTERNS = "services/**";
 
-function runBunTest(
+async function runBunTest(
   files: string[],
   preload: string = "./tests/setup.ts",
   pathIgnorePatterns?: string,
   cwd?: string
-): { exitCode: number; combined: string } {
-  const decoder = new TextDecoder();
+): Promise<BunTestRunResult> {
   // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
   // avoided here -- evaluateBunTestSummary (scripts/run-tests-gated.ts) strips
   // ANSI escape codes before matching, so this gate is agnostic to whether the
@@ -119,24 +134,43 @@ function runBunTest(
   const ignoreArgs = pathIgnorePatterns
     ? [`--path-ignore-patterns=${pathIgnorePatterns}`]
     : ([] as string[]);
-  const proc = Bun.spawnSync(
+  // mt#3765: bounded by spawnWithWatchdog, not Bun.spawnSync's `timeout`
+  // option. That option does not enforce — mt#3156 measured a child that
+  // ignores SIGTERM running to completion under `timeout: 2000` and being
+  // reported as a PASS (elapsed=25011ms, exitCode=0, success=true). This gate
+  // was the last test-runner surface mt#3156 never migrated.
+  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_PARTITION);
+  const result = await spawnWithWatchdog(
     ["bun", "test", "--preload", preload, "--timeout=15000", ...ignoreArgs, ...files],
     {
-      env: { ...process.env, AGENT: "1" },
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 60000,
+      budgetMs,
+      env: { AGENT: "1" },
       // mt#3776: service partitions run from the service directory so the
       // root bunfig's pathIgnorePatterns (which prunes services/** even from
       // explicitly-named paths) never applies. Undefined = inherit (root).
       ...(cwd ? { cwd } : {}),
     }
   );
-  const out = decoder.decode(proc.stdout);
-  const err = decoder.decode(proc.stderr);
-  process.stdout.write(out);
-  if (err) process.stderr.write(err);
-  return { exitCode: proc.exitCode ?? 1, combined: `${out}\n${err}` };
+  process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  return {
+    exitCode: result.exitCode,
+    combined: `${result.stdout}\n${result.stderr}`,
+    timedOut: result.timedOut,
+    elapsedMs: result.elapsedMs,
+    budgetMs,
+    // Deliberately NOT formatWatchdogTimeout(): that helper frames a timeout as
+    // "a HANG, not a test failure" and tells the reader to raise the budget,
+    // which is right for the run-MUST-complete gates it was written for
+    // (mt#3156) and wrong here. This partition is allowed not to finish, and
+    // the common cause is a legitimately slow file, not a hang — telling the
+    // operator to raise a pre-commit budget past 84s would be bad advice.
+    timeoutMessage: result.timedOut
+      ? `the related-test partition hit its ${Math.round(budgetMs / 1000)}s pre-commit ` +
+        `wall-clock budget (ran ${Math.round(result.elapsedMs / 1000)}s` +
+        `${result.requiredSigkill ? ", required SIGKILL" : ""}) and was stopped.`
+      : undefined,
+  };
 }
 
 /**
@@ -145,11 +179,11 @@ function runBunTest(
  * unit testing the orchestration logic without spawning real `bun test`
  * processes (tests inject `runner`).
  */
-export function runFastRelatedTestGate(
+export async function runFastRelatedTestGate(
   changedFiles: string[],
   repoRoot: string,
   deps: { runBunTest?: typeof runBunTest; fs?: FsLike } = {}
-): { ok: boolean; reason: string; relatedCount: number; elapsedMs: number } {
+): Promise<{ ok: boolean; reason: string; relatedCount: number; elapsedMs: number }> {
   const startMs = Date.now();
   const doRun = deps.runBunTest ?? runBunTest;
 
@@ -164,17 +198,57 @@ export function runFastRelatedTestGate(
     };
   }
 
-  if (related.length > RELATED_TEST_CAP) {
-    return {
-      ok: true,
-      reason:
-        `${related.length} related test file(s) exceeds the fast-gate cap ` +
-        `(${RELATED_TEST_CAP}) -- skipping the local run to protect commit latency; ` +
-        "the full suite still runs at push time (.husky/pre-push) and in CI.",
-      relatedCount: related.length,
-      elapsedMs: Date.now() - startMs,
-    };
-  }
+  // mt#3765: the count-based cap-skip is GONE. It inverted the risk gradient —
+  // a set over the cap was skipped entirely and passed, so a LARGER staged
+  // change was checked LESS than a smaller one (observed on mt#3656: a 9-file
+  // commit passed, its 2-file follow-up was blocked). Commit latency is now
+  // bounded by the per-partition wall-clock watchdog instead, which bounds
+  // every set the same way regardless of size.
+
+  /**
+   * Terminal decision for one partition, or null to continue to the next.
+   *
+   * The TIMEOUT branch is the one deliberate policy change in mt#3765, and it
+   * is deliberately NOT fail-closed. Fail-closed exists for the mt#2632 Bun
+   * defect, where a run truncates SILENTLY and its completeness is unknowable.
+   * A watchdog kill is not silent: we know the budget, the elapsed time, and
+   * which partition stopped. Treating a known, reported timeout as a commit
+   * blocker made this gate unpassable for any change whose related set
+   * contains a slow file — with no in-tool override (session_commit cannot set
+   * MINSKY_SKIP_RELATED_TESTS, and `git commit` is denied on both Bash and
+   * session_exec), which is what stranded mt#3656 and mt#3514.
+   *
+   * Deferring an unfinished local smoke to `.husky/pre-push` + CI is exactly
+   * the under-inclusion trade find-related-tests.ts already documents as
+   * accepted. A missing summary WITHOUT a timeout still fails closed — that is
+   * the real truncation signal and it is untouched.
+   */
+  const terminalFor = (
+    result: BunTestRunResult,
+    failLabel: string
+  ): { ok: boolean; reason: string; relatedCount: number; elapsedMs: number } | null => {
+    if (result.timedOut) {
+      return {
+        ok: true,
+        reason:
+          `related tests TIMED OUT, not failed -- ${result.timeoutMessage} ` +
+          `Deferred to the authoritative full-suite gate (.husky/pre-push + CI); ` +
+          `the commit is NOT blocked. ${related.length} related file(s) were selected.`,
+        relatedCount: related.length,
+        elapsedMs: Date.now() - startMs,
+      };
+    }
+    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        reason: `${failLabel}: ${gate.reason}`,
+        relatedCount: related.length,
+        elapsedMs: Date.now() - startMs,
+      };
+    }
+    return null;
+  };
 
   const mcpFiles = related.filter((f) => f.startsWith("src/mcp/"));
   const cockpitDomFiles = related.filter((f) => f.startsWith("src/cockpit/web/"));
@@ -202,36 +276,25 @@ export function runFastRelatedTestGate(
   );
 
   if (regularFiles.length > 0) {
-    const result = doRun(regularFiles.map(toBunTestPath));
-    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
-    if (!gate.ok) {
-      return {
-        ok: false,
-        reason: `related tests FAILED (fail-closed): ${gate.reason}`,
-        relatedCount: related.length,
-        elapsedMs: Date.now() - startMs,
-      };
-    }
+    const result = await doRun(regularFiles.map(toBunTestPath));
+    const terminal = terminalFor(result, "related tests FAILED (fail-closed)");
+    if (terminal) return terminal;
   }
 
   // mt#2967: cockpit-web tests need a DOM environment (happy-dom) via
   // tests/dom-setup.ts, mirroring bunfig.toml's exclusion of this directory
   // from the default (non-DOM) preload -- see this file's module doc.
   if (cockpitDomFiles.length > 0) {
-    const result = doRun(
+    const result = await doRun(
       cockpitDomFiles.map(toBunTestPath),
       "./tests/dom-setup.ts",
       COCKPIT_WEB_IGNORE_PATTERNS
     );
-    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
-    if (!gate.ok) {
-      return {
-        ok: false,
-        reason: `related cockpit-web tests FAILED (fail-closed, DOM preload): ${gate.reason}`,
-        relatedCount: related.length,
-        elapsedMs: Date.now() - startMs,
-      };
-    }
+    const terminal = terminalFor(
+      result,
+      "related cockpit-web tests FAILED (fail-closed, DOM preload)"
+    );
+    if (terminal) return terminal;
   }
 
   // mt#3776: each service's tests run from that service's directory with the
@@ -242,30 +305,22 @@ export function runFastRelatedTestGate(
   for (const [svc, files] of serviceGroups) {
     const serviceDir = join(repoRoot, "services", svc);
     const relativePaths = files.map((f) => `./${f.slice(`services/${svc}/`.length)}`);
-    const result = doRun(relativePaths, "../../tests/setup.ts", undefined, serviceDir);
-    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
-    if (!gate.ok) {
-      return {
-        ok: false,
-        reason: `related services/${svc} tests FAILED (fail-closed, service-directory run): ${gate.reason}`,
-        relatedCount: related.length,
-        elapsedMs: Date.now() - startMs,
-      };
-    }
+    const result = await doRun(relativePaths, "../../tests/setup.ts", undefined, serviceDir);
+    const terminal = terminalFor(
+      result,
+      `related services/${svc} tests FAILED (fail-closed, service-directory run)`
+    );
+    if (terminal) return terminal;
   }
 
   // mt#2665: any related src/mcp test runs isolated, one file per process.
   for (const file of mcpFiles) {
-    const result = doRun([toBunTestPath(file)]);
-    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
-    if (!gate.ok) {
-      return {
-        ok: false,
-        reason: `related test '${file}' FAILED (fail-closed, isolated run): ${gate.reason}`,
-        relatedCount: related.length,
-        elapsedMs: Date.now() - startMs,
-      };
-    }
+    const result = await doRun([toBunTestPath(file)]);
+    const terminal = terminalFor(
+      result,
+      `related test '${file}' FAILED (fail-closed, isolated run)`
+    );
+    if (terminal) return terminal;
   }
 
   return {
@@ -286,7 +341,7 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const result = runFastRelatedTestGate(staged, repoRoot);
+  const result = await runFastRelatedTestGate(staged, repoRoot);
   console.log(`run-related-tests.ts: ${result.reason} [${result.elapsedMs}ms]`);
 
   if (!result.ok) {

@@ -2,13 +2,13 @@ import { describe, test, expect } from "bun:test";
 import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
 import {
   runFastRelatedTestGate,
-  RELATED_TEST_CAP,
   toBunTestPath,
+  type BunTestRunResult,
 } from "../../scripts/run-related-tests";
 import type { FsLike } from "../../scripts/find-related-tests";
 
 // mt#2932: these tests exercise the ORCHESTRATION logic (related-test lookup
-// -> cap check -> mcp-isolation split -> evaluateBunTestSummary gating) with
+// -> mcp-isolation split -> evaluateBunTestSummary gating) with
 // an injected `runBunTest` (no real `bun test` subprocess spawned) AND an
 // injected in-memory mock filesystem (no real disk I/O) -- mirrors how
 // tests/scripts/run-tests-gated.test.ts tests evaluateBunTestSummary directly
@@ -24,6 +24,42 @@ const SERVICE_SOURCE_FILE = "services/reviewer/src/alert-sink.ts";
 
 const ranLine = (n: number, files: number) =>
   `Ran ${n} tests across ${files} file${files === 1 ? "" : "s"}. [1.00s]`;
+
+/**
+ * mt#3765: `runBunTest` is async and returns watchdog disposition alongside the
+ * output. Tests still express the interesting part synchronously — `adapt`
+ * supplies the uninteresting fields so each fake states only what it is about.
+ */
+type SyncFake = (
+  files: string[],
+  preload?: string,
+  ignore?: string,
+  cwd?: string
+) => { exitCode: number; combined: string };
+
+const adapt =
+  (fake: SyncFake) =>
+  async (
+    files: string[],
+    preload?: string,
+    ignore?: string,
+    cwd?: string
+  ): Promise<BunTestRunResult> => ({
+    ...fake(files, preload, ignore, cwd),
+    timedOut: false,
+    elapsedMs: 10,
+    budgetMs: 60_000,
+  });
+
+/** A fake whose partition exceeded the wall-clock watchdog (mt#3765). */
+const timedOutFake = async (): Promise<BunTestRunResult> => ({
+  exitCode: 1, // spawnWithWatchdog is fail-closed on exit code even when timing out
+  combined: "bun test v1.3.14\n(pass) foo > partial [0.5ms]", // no completion summary
+  timedOut: true,
+  elapsedMs: 60_123,
+  budgetMs: 60_000,
+  timeoutMessage: "the related-test partition hit its 60s pre-commit wall-clock budget (ran 60s).",
+});
 
 function buildFixtureFs() {
   return createMockFilesystem({
@@ -46,11 +82,11 @@ function buildFixtureFs() {
 }
 
 describe("runFastRelatedTestGate (mt#2932)", () => {
-  test("no related tests -> ok:true, nothing run, zero related count", () => {
+  test("no related tests -> ok:true, nothing run, zero related count", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate(["src/untested.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/untested.ts"], repoRoot, {
       fs,
-      runBunTest: () => {
+      runBunTest: async () => {
         throw new Error("should not be called -- there are no related tests to run");
       },
     });
@@ -59,55 +95,55 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     expect(result.reason).toContain("nothing to run locally");
   });
 
-  test("a passing related test set is reported ok:true via evaluateBunTestSummary reuse", () => {
+  test("a passing related test set is reported ok:true via evaluateBunTestSummary reuse", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
       fs,
-      runBunTest: (files) => ({
+      runBunTest: adapt((files) => ({
         exitCode: 0,
         combined: [" 1 pass", " 0 fail", ranLine(1, files.length)].join("\n"),
-      }),
+      })),
     });
     expect(result.ok).toBe(true);
     expect(result.relatedCount).toBe(1);
   });
 
-  test("a failing related test set is reported ok:false with the failure reason surfaced", () => {
+  test("a failing related test set is reported ok:false with the failure reason surfaced", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
       fs,
-      runBunTest: (files) => ({
+      runBunTest: adapt((files) => ({
         exitCode: 1,
         combined: [" 0 pass", " 1 fail", ranLine(1, files.length)].join("\n"),
-      }),
+      })),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("FAILED (fail-closed)");
     expect(result.reason).toContain("1 failing test(s)");
   });
 
-  test("a truncated related-test run (no completion summary) FAILS the gate -- fail-closed", () => {
+  test("a truncated related-test run (no completion summary) FAILS the gate -- fail-closed", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
       fs,
-      runBunTest: () => ({
+      runBunTest: adapt(() => ({
         exitCode: 0, // silent truncation: bun exits 0 with no summary
         combined: "bun test v1.2.21\n(pass) foo > does a thing [0.5ms]",
-      }),
+      })),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("no completion summary");
   });
 
-  test("a related test under src/mcp/ runs isolated (its own runBunTest invocation, single file)", () => {
+  test("a related test under src/mcp/ runs isolated (its own runBunTest invocation, single file)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: string[][] = [];
-    const result = runFastRelatedTestGate(["src/mcp/server.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/mcp/server.ts"], repoRoot, {
       fs,
-      runBunTest: (files) => {
+      runBunTest: adapt((files) => {
         calls.push(files);
         return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     // Updated expectation: paths handed to bun test now carry the "./" prefix
@@ -115,15 +151,15 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     expect(calls).toEqual([["./src/mcp/server.test.ts"]]);
   });
 
-  test("a related test under src/cockpit/web/ runs with the dom-setup preload (mt#2967)", () => {
+  test("a related test under src/cockpit/web/ runs with the dom-setup preload (mt#2967)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: Array<{ files: string[]; preload?: string }> = [];
-    const result = runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
       fs,
-      runBunTest: (files, preload) => {
+      runBunTest: adapt((files, preload) => {
         calls.push({ files, preload });
         return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls).toEqual([
@@ -131,7 +167,7 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     ]);
   });
 
-  test("the cockpit-web run overrides bunfig's ignore patterns so its own files are not pruned (mt#3738)", () => {
+  test("the cockpit-web run overrides bunfig's ignore patterns so its own files are not pruned (mt#3738)", async () => {
     // Without this, bunfig.toml's `src/cockpit/web/**` entry prunes the exact
     // paths the branch just named: bun matches nothing, prints no summary, and
     // the fail-closed gate turns the silence into a blocked commit. Asserting
@@ -140,27 +176,27 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     // cockpit-web file now runs at all.
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: Array<{ files: string[]; preload?: string; ignore?: string }> = [];
-    const result = runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
       fs,
-      runBunTest: (files, preload, ignore) => {
+      runBunTest: adapt((files, preload, ignore) => {
         calls.push({ files, preload, ignore });
         return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls[0]?.ignore).toBe("services/**");
     expect(calls[0]?.ignore).not.toContain("cockpit");
   });
 
-  test("non-cockpit runs pass no ignore-pattern override (mt#3738)", () => {
+  test("non-cockpit runs pass no ignore-pattern override (mt#3738)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: Array<{ files: string[]; preload?: string; ignore?: string }> = [];
-    const result = runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
       fs,
-      runBunTest: (files, preload, ignore) => {
+      runBunTest: adapt((files, preload, ignore) => {
         calls.push({ files, preload, ignore });
         return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls[0]?.ignore).toBeUndefined();
@@ -173,15 +209,15 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
   // root subset's summary made the gate pass. The fix runs each service's
   // tests from that service's directory (no bunfig there), the way CI and the
   // service's own `test` script do.
-  test("a related test under services/<svc>/ runs from the service directory (mt#3776)", () => {
+  test("a related test under services/<svc>/ runs from the service directory (mt#3776)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: Array<{ files: string[]; preload?: string; ignore?: string; cwd?: string }> = [];
-    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+    const result = await runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
       fs,
-      runBunTest: (files, preload, ignore, cwd) => {
+      runBunTest: adapt((files, preload, ignore, cwd) => {
         calls.push({ files, preload, ignore, cwd });
         return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls).toEqual([
@@ -194,18 +230,18 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     ]);
   });
 
-  test("a mixed root + services set runs BOTH partitions, each with its own cwd (mt#3776)", () => {
+  test("a mixed root + services set runs BOTH partitions, each with its own cwd (mt#3776)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: Array<{ files: string[]; cwd?: string }> = [];
-    const result = runFastRelatedTestGate(["src/foo.ts", SERVICE_SOURCE_FILE], repoRoot, {
+    const result = await runFastRelatedTestGate(["src/foo.ts", SERVICE_SOURCE_FILE], repoRoot, {
       fs,
-      runBunTest: (files, _preload, _ignore, cwd) => {
+      runBunTest: adapt((files, _preload, _ignore, cwd) => {
         calls.push({ files, cwd });
         return {
           exitCode: 0,
           combined: [" 1 pass", " 0 fail", ranLine(1, files.length)].join("\n"),
         };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls).toEqual([
@@ -214,37 +250,83 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     ]);
   });
 
-  test("a failing services run fails the gate fail-closed with the service named (mt#3776)", () => {
+  test("a failing services run fails the gate fail-closed with the service named (mt#3776)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+    const result = await runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
       fs,
-      runBunTest: () => ({
+      runBunTest: adapt(() => ({
         exitCode: 1,
         combined: [" 0 pass", " 1 fail", ranLine(1, 1)].join("\n"),
-      }),
+      })),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("services/reviewer");
     expect(result.reason).toContain("FAILED (fail-closed, service-directory run)");
   });
 
-  test("a truncated services run (no completion summary) also fails the gate (mt#3776)", () => {
+  test("a truncated services run (no completion summary) also fails the gate (mt#3776)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
-    const result = runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
+    const result = await runFastRelatedTestGate([SERVICE_SOURCE_FILE], repoRoot, {
       fs,
-      runBunTest: () => ({
+      runBunTest: adapt(() => ({
         exitCode: 0,
         combined: "bun test v1.2.21\n", // pruned-to-nothing shape: exit 0, no summary
-      }),
+      })),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("no completion summary");
   });
 
-  test("exceeding RELATED_TEST_CAP skips the local run instead of running everything", () => {
+  // ── mt#3765: wall-clock timeout is reported, not fail-closed ──────────────
+
+  test("a TIMED-OUT partition does NOT block the commit and is reported as a timeout", async () => {
+    // The behavior change this task exists for. Before mt#3765 the same input
+    // (no completion summary) fail-closed, and because session_commit cannot
+    // set MINSKY_SKIP_RELATED_TESTS and `git commit` is denied on both Bash and
+    // session_exec, the commit could not be made at all.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: timedOutFake,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.reason).toContain("TIMED OUT");
+    expect(result.reason).toContain("NOT blocked");
+    expect(result.reason).toContain("pre-push");
+  });
+
+  test("a timeout is distinguishable from a truncation -- the message never claims truncation", async () => {
+    // mt#3765 SC2: both states have no completion summary, so the ONLY thing
+    // separating them is which message is emitted. A timeout must not be
+    // rendered in the vocabulary of the mt#2632 Bun truncation defect, which
+    // is what produced two documented wrong diagnoses.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const timedOut = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: timedOutFake,
+    });
+    const truncated = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: adapt(() => ({ exitCode: 0, combined: "bun test v1.3.14\n" })),
+    });
+
+    expect(timedOut.reason).not.toContain("truncated");
+    expect(timedOut.reason).toContain("wall-clock budget");
+    expect(truncated.reason).toContain("truncated");
+    expect(truncated.reason).not.toContain("TIMED OUT");
+    // And they disagree on the thing that matters to the operator:
+    expect(timedOut.ok).toBe(true);
+    expect(truncated.ok).toBe(false);
+  });
+
+  test("a large related set is RUN, not skipped -- monotonic in change size (mt#3765 SC3)", async () => {
+    // Replaces the RELATED_TEST_CAP skip test. The cap inverted the risk
+    // gradient: a set over it was skipped and passed, so a LARGER staged change
+    // was checked LESS than a smaller one. Commit latency is now bounded by the
+    // per-partition watchdog instead, which applies to every set equally.
     const files: Record<string, string> = {};
     const many: string[] = [];
-    for (let i = 0; i < RELATED_TEST_CAP + 5; i++) {
+    for (let i = 0; i < 45; i++) {
       const base = `capfile${i}`;
       files[`${repoRoot}/src/${base}.ts`] = `export const ${base} = ${i};\n`;
       files[`${repoRoot}/src/${base}.test.ts`] =
@@ -253,33 +335,39 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     }
     const fs = createMockFilesystem(files) as unknown as FsLike;
 
-    const result = runFastRelatedTestGate(many, repoRoot, {
+    let invocations = 0;
+    const result = await runFastRelatedTestGate(many, repoRoot, {
       fs,
-      runBunTest: () => {
-        throw new Error("should not be called -- cap should skip the local run");
-      },
+      runBunTest: adapt((f) => {
+        invocations++;
+        return {
+          exitCode: 0,
+          combined: [" 45 pass", " 0 fail", ranLine(45, f.length)].join("\n"),
+        };
+      }),
     });
+    expect(result.relatedCount).toBeGreaterThan(40);
+    expect(invocations).toBeGreaterThan(0); // it RAN — the old cap skipped here
     expect(result.ok).toBe(true);
-    expect(result.relatedCount).toBeGreaterThan(RELATED_TEST_CAP);
-    expect(result.reason).toContain("exceeds the fast-gate cap");
+    expect(result.reason).not.toContain("exceeds the fast-gate cap");
   });
 
   // Bun path-vs-filter quirk: a bare dot-directory path (".minsky/...") is a
   // NAME filter to bun test, matching nothing -> no completion summary ->
   // fail-closed failure on a fully passing change. First live hit: the
   // mt#2446 commit (related tests under .minsky/hooks/).
-  test("dot-directory related tests are passed as ./-prefixed paths to the runner", () => {
+  test("dot-directory related tests are passed as ./-prefixed paths to the runner", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: string[][] = [];
-    const result = runFastRelatedTestGate([".minsky/hooks/guard.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate([".minsky/hooks/guard.ts"], repoRoot, {
       fs,
-      runBunTest: (files) => {
+      runBunTest: adapt((files) => {
         calls.push(files);
         return {
           exitCode: 0,
           combined: [" 1 pass", " 0 fail", ranLine(1, files.length)].join("\n"),
         };
-      },
+      }),
     });
     expect(result.ok).toBe(true);
     expect(calls).toEqual([["./.minsky/hooks/guard.test.ts"]]);
