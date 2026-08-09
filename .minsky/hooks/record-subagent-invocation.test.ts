@@ -262,6 +262,61 @@ describe("record-subagent-invocation process contract (mt#3019)", () => {
     expect(stderr).not.toContain("reflect polyfill");
   }, 30_000);
 
+  test("a STAMPED dispatch reaches the record branch without a TDZ throw", async () => {
+    // The mt#3893 regression, at the process level — the only level where it
+    // exists. `import.meta.main` is false under `bun test`, so no import of the
+    // module can execute the entrypoint whose top-level `await` created the
+    // temporal dead zone.
+    //
+    // The case above cannot catch it: its cwd resolves no correlation key, so
+    // `decideRecordingAction` takes the SKIP branch, which never reads
+    // `HOOK_UNKNOWN_TASK_ID`. A stamp is what routes execution into the RECORD
+    // branch that does — which is exactly why the defect stayed latent until
+    // mt#2292 introduced stamps.
+    //
+    // HONEST LIMIT, stated because a reader will otherwise over-trust this: on a
+    // machine that cannot reach Postgres, `recordInvocation` returns early at
+    // `ensureHookDomainBootstrap()` and never reaches the branch at all — the
+    // assertion then passes vacuously. That is the same environment-dependence
+    // the sibling test above documents, and it is why the load-bearing check is
+    // the STATIC one in `record-subagent-invocation-entrypoint.test.ts`, which
+    // holds everywhere. This test adds real coverage on a developer machine and
+    // costs nothing on CI; it is a complement, not the guarantee.
+    const root = mkdtempSync(join(tmpdir(), "record-subagent-invocation-stamp-"));
+    fixtureRoots.push(root);
+    const childTranscript = join(root, "agent-mt3893.jsonl");
+    writeFileSync(
+      childTranscript,
+      `${JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: `do the thing\n\n${buildDispatchStamp({
+            parentAgentSessionId: "mt3893-parent-session",
+            parentToolUseId: "toolu_01Mt3893ProcessTest",
+          })}`,
+        },
+      })}\n`
+    );
+
+    const { exitCode, stderr } = await runHook({
+      agent_id: "mt3893-process-test-agent",
+      // The main repo, not a session dir — the raw-dispatch shape, where both
+      // pre-mt#2292 keys resolve null and only the stamp survives.
+      cwd: process.cwd(),
+      transcript_path: "",
+      agent_transcript_path: childTranscript,
+    });
+
+    expect(exitCode).toBe(0);
+
+    // The specific throw, named. A TDZ ReferenceError surfaces through the
+    // entrypoint's catch as an "unexpected top-level error", so both assertions
+    // guard it — the second is the precise one.
+    expect(stderr).not.toContain("unexpected top-level error");
+    expect(stderr).not.toContain("before initialization");
+  }, 30_000);
+
   test("missing agent_id (a main-agent Stop) exits 0 without touching the DB", async () => {
     const { exitCode, stderr } = await runHook({ cwd: "/tmp", transcript_path: "" });
 
