@@ -353,7 +353,7 @@ describe("resident-memory ceiling (mt#3886)", () => {
 
       // 0.44 GB — the top of the normal band measured across 43 processes
       // in the 2026-08-08 panic stackshot.
-      startResidentMemoryCeilingWatcher({
+      const watcher = startResidentMemoryCeilingWatcher({
         ceilingBytes: 2048 * MB,
         getResidentBytes: () => 450 * MB,
         setIntervalFn: timers.setIntervalFn,
@@ -368,7 +368,13 @@ describe("resident-memory ceiling (mt#3886)", () => {
       timers.tick();
 
       expect(fired).toBe(0);
+      // Still polling: a process under the ceiling must keep being watched,
+      // not be let go after the first clean sample.
       expect(timers.isCleared()).toBe(false);
+
+      // Leave no live interval behind (PR #2738 R1 NON-BLOCKING).
+      watcher.stop();
+      expect(timers.isCleared()).toBe(true);
     });
 
     test("fires at most once even if the ceiling stays exceeded", () => {
@@ -519,7 +525,7 @@ describe("resident-memory ceiling (mt#3886)", () => {
 
       // 3000 MB is UNDER the 4096 MB override, so it must not fire —
       // whereas it WOULD fire against the 2048 MB default.
-      wireMemoryCeilingWatcher({
+      const watcher = wireMemoryCeilingWatcher({
         initialPpid: 4242,
         processRole: "mcp start (stdio)",
         getResidentBytes: () => 3000 * MB,
@@ -536,6 +542,11 @@ describe("resident-memory ceiling (mt#3886)", () => {
 
       expect(exited).toBe(false);
       expect(3000).toBeGreaterThan(DEFAULT_MEMORY_CEILING_MB);
+
+      // Armed-but-under-ceiling: an interval is live, so release it
+      // (PR #2738 R1 NON-BLOCKING).
+      watcher.stop();
+      expect(timers.isCleared()).toBe(true);
     });
 
     test("skips arming on the hosted entrypoint signature", () => {
