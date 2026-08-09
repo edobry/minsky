@@ -812,7 +812,7 @@ export class PreCommitHook {
     }
 
     try {
-      const result = runRelatedTestsCheck(this.projectRoot);
+      const result = await runRelatedTestsCheck(this.projectRoot);
       if (result.stdout) log.cli(result.stdout);
       if (result.stderr) log.cli(result.stderr);
       return { success: result.success, message: result.message, exitCode: result.exitCode };

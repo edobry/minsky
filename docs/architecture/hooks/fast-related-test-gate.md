@@ -49,11 +49,19 @@ builds one.
    - **Zero related tests** → exit 0 (nothing to run locally; this is a fast
      _signal_, not exhaustive coverage — the full suite at push time + CI
      remains authoritative).
-   - **More than `RELATED_TEST_CAP` (40) related tests** → exit 0 with a
-     warning instead of running them. A widely-imported low-level module
-     (e.g. a shared logger) can otherwise pull a large fraction of the suite
-     into the reverse-dependency-graph walk, defeating the "fast" purpose of
-     this gate; rely on the pre-push/CI full-suite gate for that case.
+   - **Bounded by WALL-CLOCK, not by a related-test count (mt#3765).** Each
+     partition gets `RELATED_TESTS_PARTITION` (60s) and the gate as a whole
+     gets `RELATED_TESTS_TOTAL` (90s); both are enforced by
+     `spawnWithWatchdog`, not by `Bun.spawnSync`'s non-enforcing `timeout`
+     option. The former count cap (`RELATED_TEST_CAP` = 40) is **removed**: it
+     skipped over-cap sets entirely and passed them, so a LARGER staged change
+     was checked LESS than a smaller one.
+   - **A TIMEOUT is reported and does NOT block the commit (mt#3765).** The run
+     is deferred to the authoritative pre-push/CI full-suite gate. This is
+     distinct from a truncation: fail-closed exists for the mt#2632 SILENT
+     truncation defect, where completeness is unknowable, whereas a watchdog
+     kill names its budget, elapsed time, and partition. A missing completion
+     summary WITHOUT a timeout still fails closed.
    - Any related test under `src/mcp/**` runs in its own isolated `bun test`
      process, mirroring `scripts/run-tests-mcp-isolated.ts` — per mt#2665,
      `src/mcp` test files are known to silently truncate when run in
@@ -66,7 +74,10 @@ builds one.
 3. **Pre-commit wiring** (`src/hooks/pre-commit.ts`'s `runFastRelatedTests()`,
    delegating spawn+capture to `src/hooks/related-tests-check.ts`) — spawns
    `scripts/run-related-tests.ts` and blocks the commit on a non-zero exit
-   code.
+   code. That wrapper is a **backstop, not the gate's bound** (mt#3765): it
+   runs under `RELATED_TESTS_WRAPPER` (150s), comfortably above the gate's own
+   90s total, so the gate always gets to report its own disposition. If the
+   wrapper ever fires, the gate itself hung and a hard failure is correct.
 
 ## Measured latency
 
@@ -101,11 +112,20 @@ env-var-to-config dot-path parser skips it at boot (per the
 - **Regex-based import scanning, not a full TS/AST parse.** Meant to be fast
   (a pre-commit-time budget), not exhaustive. Under-inclusion (a related test
   the graph walk misses) is an accepted risk because the mt#2716 full-suite
-  gate remains the authoritative backstop; over-inclusion only costs a
-  little extra local runtime, not correctness.
-- **Bounded BFS depth (default 6) + a total related-test-count cap (40).**
-  Both exist to keep this gate fast even when a changed file sits near the
-  root of a large dependency fan-in (e.g. a shared utility).
+  gate remains the authoritative backstop.
+
+  **Over-inclusion is NOT free (corrected by mt#3765).** This section used to
+  say it "only costs a little extra local runtime, not correctness." It costs
+  passability: at BFS depth 6 a `packages/domain/src/transcripts/*` change
+  pulled in the whole cockpit server suite — 32 files / 445 tests / 80s
+  against a 60s budget — and a gate that cannot finish blocks the commit.
+
+- **Bounded BFS depth (default 3, lowered from 6 by mt#3765).** Measured
+  related-test counts by depth: `turn-writer.ts` 1/4/13/16/32/32 and
+  `agent-transcript-ingest-service.ts` 2/11/14/30/30/30 for d1..d6. Depth 3
+  keeps the sibling test plus near importers while taking the `turn-writer`
+  set from 80s to 2.5s. Latency is bounded by the wall-clock budgets above,
+  not by a count cap.
 - **`src/mcp/**`exclusion from the reverse-dependency-graph scope** mirrors`scripts/run-tests-main.ts`'s own exclusion (mt#2665 truncation risk). A
 directly-changed `src/mcp/\*.ts` file's sibling test is still found (the
   sibling heuristic operates on the changed-file path directly, independent
