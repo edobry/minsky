@@ -442,7 +442,15 @@ export interface GuardRegistration {
    * `"calibration"` (outcome.calibration set — a calibration-first detector
    * like `causal-premise-detector` with `INJECTION_ENABLED=false`), or
    * `"sessionTitle"` (outcome.sessionTitle set — `auto-session-title`'s
-   * scalar-output shape).
+   * scalar-output shape), or `"updatedInput"` (outcome.updatedInput set —
+   * `record-agent-dispatch`'s argument-rewrite shape, mt#2292).
+   *
+   * `"updatedInput"` was added because a guard whose PRIMARY output is the
+   * rewrite would otherwise be canaried on a secondary field:
+   * `record-agent-dispatch` emits both a rewrite and a calibration record, so a
+   * `"calibration"` canary would keep passing after the rewrite stopped being
+   * emitted — exactly the broken-vs-dormant blindness this mechanism exists to
+   * remove.
    */
   canary?: GuardCanary;
 
@@ -486,7 +494,7 @@ export interface GuardRegistration {
 export interface GuardCanary {
   input: Partial<ClaudeHookInput> & Record<string, unknown>;
   transcriptLines?: TranscriptLine[];
-  expects: "deny" | "warn" | "calibration" | "sessionTitle";
+  expects: "deny" | "warn" | "calibration" | "sessionTitle" | "updatedInput";
   /**
    * Optional pre-invocation priming hook for STATEFUL guards whose real
    * outcome depends on a prior invocation (e.g. `skill-staleness-detector`
@@ -676,6 +684,57 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
       expects: "calibration",
     },
+  },
+  {
+    name: "record-agent-dispatch",
+    // `invariant`: this guard has no threshold to tune. It writes an
+    // observability row and stamps a correlation key — behavior an operator
+    // turns off (the override env var) rather than adjusts.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Agent",
+    module: () => import("./record-agent-dispatch").then((m) => ({ run: m.run })),
+    // MUST stay above the module's DISPATCH_RECORD_TIMEOUT_MS (10s) so the
+    // guard's OWN deadline fires first: that path returns the stamp plus a
+    // recorded `write-failed` outcome, whereas a dispatcher kill loses the STAMP
+    // as well as the row — and the stamp is the unrecoverable half, since the
+    // prompt is sent either way. 13s keeps ~3s of margin under the dispatcher's
+    // 15s settings.json entry cap.
+    timeoutMs: 13000,
+    calibrationLog: "agent-dispatch-record",
+    // NEVER denies. An observability writer must not be able to block a
+    // dispatch — that would trade the failure this task fixes for a worse one.
+    denyCapable: false,
+    // This guard emits no agent-facing `additionalContext` at all: its outputs
+    // are `updatedInput` (consumed by the harness) and `auditLines` (stderr, for
+    // an operator reading a failure). So the attention cost is the audit line's
+    // size, not a denial message's — measured against the longest of the three,
+    // the write-failure line carrying an interpolated error message.
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    // Canaried on `updatedInput`, not `calibration`: the stamp is this guard's
+    // load-bearing output and the one whose loss is unrecoverable. `CANARY_MODE`
+    // short-circuits the DB write in the module, so this exercises the pure
+    // stamp path without reaching a live corpus (the mt#3824 lesson).
+    canary: {
+      input: {
+        tool_name: "Agent",
+        tool_use_id: "toolu_01CanaryAgentDispatch",
+        tool_input: {
+          description: "canary dispatch",
+          prompt: "Do the thing.",
+          subagent_type: "general-purpose",
+        },
+      },
+      expects: "updatedInput",
+    },
+    // No `worstCaseCanary`, and the reason is a constraint rather than a
+    // deferral: the only growth-shaped output is the write-failure audit line,
+    // which interpolates a caught driver error — and canary mode short-circuits
+    // BEFORE the write, so no canary can reach that branch to pose it. The
+    // registry's stated preference applies instead: the guard CAPS the
+    // interpolated message itself (`safeTruncate`, see AUDIT_ERROR_MAX_CHARS),
+    // so the line is bounded by construction and the annotation above is a true
+    // ceiling rather than a sample.
   },
   {
     name: "block-secret-file-read",

@@ -34,6 +34,23 @@ export interface ToolHookInput extends ClaudeHookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
   /**
+   * The harness-assigned `tool_use` id of THIS tool call — e.g.
+   * `toolu_01HFmYeonk1aZCcGM9VMt2VD`. Observed on a real `Agent` PreToolUse
+   * payload 2026-08-05 (mt#2292 Finding 2).
+   *
+   * The same key `agent_spawns.parent_tool_use_id` correlates on
+   * (`agent-spawns-pipeline.ts`), which is why `record-agent-dispatch.ts` keys
+   * the dispatch row on it rather than minting a correlation id: matching keys
+   * are what make `subagent_invocations` joinable to the spawn edge.
+   *
+   * Optional because the payload's shape is the harness's, not ours, and a
+   * guard must degrade rather than throw if a build stops sending it. Note the
+   * asymmetry that motivates the mt#2292 stamp: this is present at PreToolUse
+   * and ABSENT at SubagentStop, while `agent_id` is the reverse — so nothing in
+   * either payload alone joins a dispatch to its close.
+   */
+  tool_use_id?: string;
+  /**
    * The key this repo's hooks historically read. Production does NOT send it (mt#3308,
    * measured on Claude Code 2.1.220; mt#3182 found the absence in production for
    * `session_start` without identifying the real key) — `readInput` synthesizes it from
@@ -52,6 +69,25 @@ export interface ToolHookInput extends ClaudeHookInput {
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
   stop_hook_active?: boolean;
+  /**
+   * SubagentStop-only: path to the SUBAGENT's own transcript, as distinct from
+   * `transcript_path`, which on a background-dispatched subagent points at the
+   * PARENT's top-level file (the mt#2637 diagnosis).
+   *
+   * Observed on a real SubagentStop payload 2026-08-05 (mt#2292 Finding 3).
+   * Load-bearing for the dispatch↔close join: the payload carries `agent_id`
+   * but NOT `tool_use_id`, so this file is where the Stop side recovers the
+   * dispatch key `record-agent-dispatch.ts` stamped into the prompt.
+   *
+   * Optional because the payload's shape is the harness's, not ours — a build
+   * that stops sending it must degrade the join, not throw.
+   */
+  agent_transcript_path?: string;
+  /**
+   * SubagentStop-only: the subagent's final assistant message. Observed
+   * alongside {@link agent_transcript_path} on the same payload capture.
+   */
+  last_assistant_message?: string;
 }
 
 export interface HookOutput {
