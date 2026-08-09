@@ -121,9 +121,12 @@ is placed by cost, following common practice for large suites:
     one bun process per file and has no `--changed` equivalent, so it runs whole or not
     at all. It is skipped only when the changed-file list contains no `src/mcp/` path;
     an unreadable list runs it.
-  - **Everything fails toward the full suite.** If the merge base cannot be resolved (no
-    upstream ref, shallow clone) the gate runs unscoped. `MINSKY_PREPUSH_FULL_SUITE=1`
-    forces that too.
+  - **Everything fails toward the full suite.** Three branches run unscoped: the merge base
+    cannot be resolved (no upstream ref, shallow clone), the changed-file list cannot be
+    read, or `MINSKY_PREPUSH_FULL_SUITE=1` is set. All three also run the `src/mcp`
+    isolated runner — "unscoped main suite with a skipped `src/mcp`" is not a reachable
+    state, and a test asserts that directly. The decision lives in one function
+    (`planRun`) precisely so the two halves cannot drift apart.
 
   **Hooks tests are CI-only, and always have been.** `.minsky/hooks/**` is not in
   `run-tests-main.ts`'s `ROOTS`, so the pre-push gate has never run them — CI's

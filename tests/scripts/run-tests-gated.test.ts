@@ -4,6 +4,7 @@ import {
   resolveChangedBase,
   changedFilesSince,
   touchesMcp,
+  planRun,
   selectedNothing,
   MCP_PATH_PREFIX,
 } from "../../scripts/run-tests-gated";
@@ -243,6 +244,60 @@ describe("touchesMcp (mt#3562)", () => {
 
   test("does not fire on an empty diff", () => {
     expect(touchesMcp([])).toBe(false);
+  });
+});
+
+describe("planRun — every uncertainty resolves to the full suite (PR #2729 R1)", () => {
+  test("scopes when the base resolves and the changed-file list reads", () => {
+    const plan = planRun({ forceFull: false, base: "abc123def", changedFiles: ["src/a.ts"] });
+    expect(plan.base).toBe("abc123def");
+    expect(plan.runMcp).toBe(false);
+  });
+
+  test("runs the isolated runner when the diff reaches src/mcp", () => {
+    const plan = planRun({
+      forceFull: false,
+      base: "abc123def",
+      changedFiles: [`${MCP_PATH_PREFIX}server.ts`],
+    });
+    expect(plan.base).toBe("abc123def");
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("an unreadable changed-file list runs the FULL suite, not a scoped one", () => {
+    // The R1 finding: previously this forced the isolated runner to run
+    // (correct) while leaving the MAIN suite scoped (incorrect), so the
+    // documented fail-closed guarantee held for one half of the gate only.
+    const plan = planRun({ forceFull: false, base: "abc123def", changedFiles: null });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+    expect(plan.reason).toContain("FULL suite");
+  });
+
+  test("an unresolvable merge base runs the FULL suite", () => {
+    const plan = planRun({ forceFull: false, base: null, changedFiles: null });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("MINSKY_PREPUSH_FULL_SUITE wins over a resolvable base", () => {
+    const plan = planRun({ forceFull: true, base: "abc123def", changedFiles: ["docs/x.md"] });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("every full-suite branch also runs the isolated runner — no half-scoped state", () => {
+    // The invariant the R1 finding violated, asserted directly: base === null
+    // and runMcp === false must be unreachable.
+    const fullSuiteBranches = [
+      planRun({ forceFull: true, base: "abc", changedFiles: ["docs/x.md"] }),
+      planRun({ forceFull: false, base: null, changedFiles: null }),
+      planRun({ forceFull: false, base: "abc", changedFiles: null }),
+    ];
+    for (const plan of fullSuiteBranches) {
+      expect(plan.base).toBeNull();
+      expect(plan.runMcp).toBe(true);
+    }
   });
 });
 
