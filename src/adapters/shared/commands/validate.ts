@@ -8,7 +8,7 @@
 
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { readPinnedTsgoVersion, resolveTsgoBinary } from "../../../utils/tsgo-binary";
@@ -135,6 +135,29 @@ interface TypecheckResult {
    * diverge again, the result itself says so.
    */
   pinnedCheckerVersion: string | null;
+  /**
+   * Projects that were DISCOVERED but deliberately not run, each with why (mt#3895).
+   *
+   * Reported rather than dropped on purpose: skipping silently would trade a noisy false
+   * positive for a quiet false negative, and a reader who trusts `workspaces` as "everything
+   * that was checked" would be wrong with nothing in the result to say so. Empty in the
+   * normal case.
+   */
+  skippedProjects: SkippedTypecheckProject[];
+}
+
+/** A discovered typecheck project that was not run, and why (mt#3895). */
+export interface SkippedTypecheckProject {
+  /** The tsconfig path, as it would appear in `workspaces` had it been run. */
+  project: string;
+  /** Human-readable cause, including what to do to include it. */
+  reason: string;
+}
+
+/** What {@link discoverStandaloneTypecheckProjects} found: the runnable set, plus the skips. */
+export interface StandaloneTypecheckProjects {
+  projects: string[];
+  skipped: SkippedTypecheckProject[];
 }
 
 /**
@@ -421,10 +444,15 @@ export async function discoverTypecheckWorkspaces(
  * passed a default `validate_typecheck` and then failed CI (mt#3183).
  *
  * **Why the package.json scripts are the source of truth, not a `tsconfig.*.json` glob.** The
- * invariant that broke is "this tool checks what CI checks," and CI's `build` job runs exactly
- * these scripts as separate steps. Deriving from the same declaration makes the two agree by
- * construction. A glob would diverge in both directions: it would claim coverage for a tsconfig
- * no CI step runs, and miss a project whose script points somewhere the glob does not match.
+ * invariant that broke is "this tool checks what CI checks," and CI runs exactly these scripts.
+ * Deriving from the same declaration makes the two agree by construction. A glob would diverge
+ * in both directions: it would claim coverage for a tsconfig no CI step runs, and miss a
+ * project whose script points somewhere the glob does not match.
+ *
+ * (This used to say CI's `build` job runs them "as separate steps". `typecheck:infra` broke
+ * that clause in mt#3817 — it runs in its own JOB, after a `pulumi install` the `build` job
+ * does not perform. The invariant survives; what it needed was the local-precondition case
+ * {@link uninstalledSubProjectReason} now handles. mt#3895.)
  *
  * Returns tsconfig paths relative to `rootDir`, in script-declaration order, deduplicated.
  * `typecheck:root` (no `-p`) is skipped — the root project is always checked directly by the
@@ -433,18 +461,26 @@ export async function discoverTypecheckWorkspaces(
 export async function discoverStandaloneTypecheckProjects(
   rootDir: string,
   fsImpl: WorkspaceFs = defaultWorkspaceFs
-): Promise<string[]> {
-  let rootPkg: { scripts?: Record<string, string> };
+): Promise<StandaloneTypecheckProjects> {
+  let rootPkg: {
+    scripts?: Record<string, string>;
+    workspaces?: string[] | { packages?: string[] };
+  };
   try {
     rootPkg = JSON.parse(await fsImpl.readFile(join(rootDir, "package.json"))) as {
       scripts?: Record<string, string>;
+      workspaces?: string[] | { packages?: string[] };
     };
   } catch {
-    return [];
+    return { projects: [], skipped: [] };
   }
 
   const scripts = rootPkg.scripts ?? {};
+  const workspacePatterns: string[] = Array.isArray(rootPkg.workspaces)
+    ? rootPkg.workspaces
+    : (rootPkg.workspaces?.packages ?? []);
   const found: string[] = [];
+  const skipped: SkippedTypecheckProject[] = [];
 
   for (const [name, body] of Object.entries(scripts)) {
     if (!name.startsWith("typecheck:")) continue;
@@ -457,11 +493,82 @@ export async function discoverStandaloneTypecheckProjects(
     const projectPath = match?.[1] ?? match?.[2] ?? match?.[3];
     if (!projectPath) continue;
     if (found.includes(projectPath)) continue;
+    if (skipped.some((entry) => entry.project === projectPath)) continue;
     if (!(await fsImpl.exists(join(rootDir, projectPath)))) continue;
+
+    const reason = await uninstalledSubProjectReason(
+      rootDir,
+      projectPath,
+      workspacePatterns,
+      fsImpl
+    );
+    if (reason !== null) {
+      skipped.push({ project: projectPath, reason });
+      continue;
+    }
     found.push(projectPath);
   }
 
-  return found;
+  return { projects: found, skipped };
+}
+
+/**
+ * Why a discovered standalone project cannot be checked here, or `null` if it can.
+ *
+ * Returns a reason ONLY for a self-contained sub-project that a root `bun install` never
+ * populates and that has not been installed by hand — today that is exactly `infra/`, whose
+ * `node_modules/` and generated Pulumi SDK are gitignored and produced by `pulumi install`
+ * (mt#3817 brought it into discovery; mt#3895 is this fix). Running its project anyway
+ * reports two `TS2307` module-resolution errors against a tree the caller never touched.
+ *
+ * **All three conditions are required, and the workspaces test is the load-bearing one.**
+ * The tempting shorter rule — "has a package.json but no node_modules" — is wrong here:
+ * `packages/domain` and `packages/shared` match it, because bun HOISTS workspace deps to the
+ * root, and skipping them would silently drop the two projects mt#3102 brought under
+ * coverage. Membership in a root `workspaces` glob is what separates "installed at the root"
+ * from "never installed at all".
+ *
+ * Glob handling deliberately mirrors {@link discoverTypecheckWorkspaces}: a literal path or a
+ * single trailing `*`. A pattern this cannot parse makes the directory count as NOT a member,
+ * which fails toward running the project (a possible false error) rather than skipping it (a
+ * silent coverage hole) — the safer direction for a check whose job is to catch things.
+ */
+async function uninstalledSubProjectReason(
+  rootDir: string,
+  projectPath: string,
+  workspacePatterns: readonly string[],
+  fsImpl: WorkspaceFs
+): Promise<string | null> {
+  const projectDir = dirname(projectPath);
+  // A root-level tsconfig (`tsconfig.hooks.json`) has no sub-directory of its own; its deps
+  // are the root's, which are installed by definition if anything is running at all.
+  if (projectDir === "." || projectDir === "") return null;
+  if (!(await fsImpl.exists(join(rootDir, projectDir, "package.json")))) return null;
+  if (isWorkspaceMember(projectDir, workspacePatterns)) return null;
+  if (await fsImpl.exists(join(rootDir, projectDir, "node_modules"))) return null;
+
+  return (
+    `${projectDir}/ declares its own package.json, is not a root workspace, and has no ` +
+    `node_modules — its dependencies are not installed here, so typechecking it would ` +
+    `report module-resolution errors unrelated to the caller's changes. Install them ` +
+    `(for infra/: \`pulumi install\`) to include it. CI runs this project with its own ` +
+    `install step, so coverage is unaffected.`
+  );
+}
+
+/** Whether `dir` is matched by one of the root `workspaces` globs. */
+function isWorkspaceMember(dir: string, patterns: readonly string[]): boolean {
+  for (const pattern of patterns) {
+    if (pattern.endsWith("/*") && !pattern.slice(0, -2).includes("*")) {
+      const parent = pattern.slice(0, -2);
+      if (dir.startsWith(`${parent}/`) && !dir.slice(parent.length + 1).includes("/")) {
+        return true;
+      }
+    } else if (!pattern.includes("*") && pattern === dir) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -668,6 +775,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
             ],
             status: "fail",
             workspaces: [],
+            skippedProjects: [],
             validatedWorkspace: rootDir,
             checkerVersion: null,
             pinnedCheckerVersion: readPinnedTsgoVersion(rootDir),
@@ -682,6 +790,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
 
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
+        const skippedProjects: SkippedTypecheckProject[] = [];
 
         if (explicitWorkspace) {
           // Single-workspace mode (backward compatible). `rootDir` (now guaranteed
@@ -741,7 +850,9 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
               label === "." ? "tsconfig.json" : `${label.replace(/\/$/, "")}/tsconfig.json`
             )
           );
-          for (const projectPath of await discoverStandaloneTypecheckProjects(rootDir)) {
+          const standalone = await discoverStandaloneTypecheckProjects(rootDir);
+          skippedProjects.push(...standalone.skipped);
+          for (const projectPath of standalone.projects) {
             if (alreadyCheckedProjects.has(projectPath)) continue;
             alreadyCheckedProjects.add(projectPath);
             checked.push(projectPath);
@@ -759,6 +870,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           errors,
           status,
           workspaces: checked,
+          skippedProjects,
           validatedWorkspace: rootDir,
           checkerVersion: await readTsgoVersion(binaryPath),
           pinnedCheckerVersion: readPinnedTsgoVersion(installRoot),
