@@ -69,6 +69,40 @@ describe("classifyConnectionFailure (mt#3826)", () => {
     expect(classifyConnectionFailure(driverError("EAI_AGAIN")).kind).toBe("dns");
   });
 
+  it("classifies resolver failures as dns, not as a connect timeout (PR #2732 R1)", () => {
+    // `ESERVFAIL` is a getaddrinfo/c-ares RESOLVER failure — the DNS server
+    // answered SERVFAIL — so the connect phase is never reached. Reporting it
+    // as a timeout would tell an operator "nothing answered on the database
+    // port" about a host that was never resolved.
+    for (const code of ["ESERVFAIL", "EAI_FAIL", "ENODATA"]) {
+      expect(classifyConnectionFailure(driverError(code)).kind).toBe("dns");
+    }
+  });
+
+  it("classifies ECONNRESET as connection-lost, not refused (PR #2732 R1)", () => {
+    // A reset is a peer dropping a connection that WAS working — the transient
+    // shape a fresh pool fixes. Filing it under `refused` would put it in the
+    // escalating set and back the recycle off against a recoverable failure.
+    const failure = classifyConnectionFailure(driverError("ECONNRESET"));
+    expect(failure.kind).toBe("connection-lost");
+    expect(
+      nextRecycleIntervalMs({ failure, consecutiveRecycles: 500, baseIntervalMs: 60_000 })
+    ).toBe(60_000);
+  });
+
+  it("keeps unreachable-path codes in the escalating refused class", () => {
+    // EHOSTUNREACH/ENETUNREACH are an active ICMP rejection, not silence, and
+    // a fresh pool cannot fix either — so they classify as `refused` AND
+    // escalate, unlike ECONNRESET above.
+    for (const code of ["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH"]) {
+      const failure = classifyConnectionFailure(driverError(code));
+      expect(failure.kind).toBe("refused");
+      expect(
+        nextRecycleIntervalMs({ failure, consecutiveRecycles: 500, baseIntervalMs: 60_000 })
+      ).toBeGreaterThan(60_000);
+    }
+  });
+
   it("classifies a SQLSTATE class-28 rejection as auth", () => {
     // postgres-js surfaces server errors as PostgresError with the SQLSTATE on
     // `code`; 28P01 is invalid_password, 28000 invalid_authorization.

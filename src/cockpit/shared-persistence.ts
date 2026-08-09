@@ -230,7 +230,19 @@ export interface DbHealth {
   mode: PersistenceHealthMode;
   reason?: string;
   lastAttemptAt?: string;
-  failure?: ConnectionFailure;
+  /**
+   * The classification, WITHOUT the driver's raw message (PR #2732 R1).
+   *
+   * `ConnectionFailure.message` is the driver's own text, which for a
+   * postgres-js connection error embeds `host:port` and for a server-side
+   * `PostgresError` is arbitrary server-controlled text. `/api/health` is
+   * polled by the tray and by three webview query keys, so it is the wrong
+   * place to forward text this process did not author. `kind` and `code` are
+   * the parts a consumer branches on, `reason` is prose this module wrote, and
+   * the full message is still logged where an operator debugging the daemon
+   * will find it.
+   */
+  failure?: Omit<ConnectionFailure, "message">;
 }
 
 /**
@@ -245,7 +257,14 @@ export function getDbHealth(): DbHealth {
   const mode: PersistenceHealthMode = _dbStatus === "ok" ? "connected" : "unavailable";
   return {
     mode,
-    ...(_lastFailure ? { failure: _lastFailure, reason: describeFailure(_lastFailure) } : {}),
+    ...(_lastFailure
+      ? {
+          // Project explicitly rather than spreading — a spread would silently
+          // start re-exposing `message` if the shared type ever grows a field.
+          failure: { kind: _lastFailure.kind, code: _lastFailure.code },
+          reason: describeFailure(_lastFailure),
+        }
+      : {}),
     ...(_lastInitAttemptAt ? { lastAttemptAt: _lastInitAttemptAt } : {}),
   };
 }

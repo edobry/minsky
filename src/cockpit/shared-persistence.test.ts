@@ -781,6 +781,20 @@ describe("failure classification on the health payload (mt#3826)", () => {
     expect(getDbHealth().failure?.kind).toBe("connect-timeout");
   });
 
+  test("does not forward the driver's raw message onto the payload (PR #2732 R1)", async () => {
+    // The driver's message embeds `host:port`, and a server-side PostgresError
+    // message is arbitrary server-controlled text. /api/health is polled by the
+    // tray and three webview query keys, so it must not carry text this process
+    // did not author. `kind` + `code` are what a consumer branches on.
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+
+    const failure = getDbHealth().failure;
+    expect(failure).toEqual({ kind: "connect-timeout", code: "CONNECT_TIMEOUT" });
+    expect(Object.keys(failure ?? {})).not.toContain("message");
+    expect(JSON.stringify(getDbHealth())).not.toContain("db.example.com");
+  });
+
   test("stamps lastAttemptAt so a stuck process is distinguishable from an outage", async () => {
     // ADR-035 rule 4. Absent means "nothing tried since boot", which is the
     // distinction an operator cannot otherwise make.

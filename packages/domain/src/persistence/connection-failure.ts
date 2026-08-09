@@ -36,7 +36,12 @@
 export type ConnectionFailureKind =
   /** Nothing answered before the connect deadline. The shape of a port-level block. */
   | "connect-timeout"
-  /** Something answered and said no. A closed port on a reachable host. */
+  /**
+   * Something on the path actively rejected the attempt — a closed port on a
+   * reachable host, or a router reporting the host/network unreachable. The
+   * discriminator against `connect-timeout` is that a response came back at
+   * all, rather than silence.
+   */
   | "refused"
   /** Name resolution failed. A different problem from reachability. */
   | "dns"
@@ -63,16 +68,37 @@ export interface ConnectionFailure {
  * synthesizes rather than taking from the OS.
  */
 const DRIVER_CONNECT_TIMEOUT = "CONNECT_TIMEOUT";
-const DRIVER_CONNECTION_LOST = new Set([
+
+/**
+ * Codes meaning an established connection went away.
+ *
+ * `ECONNRESET` belongs HERE rather than with the refusals: a reset is a peer
+ * dropping a connection that was working, which is the transient shape a fresh
+ * pool genuinely fixes. Classifying it as a refusal would put it in the
+ * escalating set and back the recycle off against a recoverable failure —
+ * precisely the over-correction success criterion 4 forbids.
+ */
+const CONNECTION_LOST_CODES = new Set([
   "CONNECTION_CLOSED",
   "CONNECTION_DESTROYED",
   "CONNECTION_ENDED",
+  "ECONNRESET",
 ]);
 
 /** OS-level socket codes, as surfaced by node/bun's net module. */
-const OS_TIMEOUT = new Set(["ETIMEDOUT", "ESERVFAIL"]);
-const OS_REFUSED = new Set(["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH"]);
-const OS_DNS = new Set(["ENOTFOUND", "EAI_AGAIN"]);
+const OS_TIMEOUT = new Set(["ETIMEDOUT"]);
+const OS_REFUSED = new Set(["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH"]);
+
+/**
+ * Name-resolution failures.
+ *
+ * `ESERVFAIL` is a getaddrinfo/c-ares RESOLVER failure (the DNS server answered
+ * SERVFAIL), not a socket timeout — it never reaches the connect phase at all.
+ * Grouping it with the timeouts would report "nothing answered on the database
+ * port" for a host that was never resolved, pointing an operator at the network
+ * path instead of at DNS.
+ */
+const OS_DNS = new Set(["ENOTFOUND", "EAI_AGAIN", "ESERVFAIL", "EAI_FAIL", "ENODATA"]);
 
 /** Supavisor / pooler-level codes seen in this deployment (mem#597, gh#1761). */
 const POOLER_BREAKER = new Set(["ECIRCUITBREAKER", "EDBHANDLEREXITED"]);
@@ -137,7 +163,7 @@ export function classifyConnectionFailure(err: unknown): ConnectionFailure {
           ? "dns"
           : POOLER_BREAKER.has(code)
             ? "circuit-breaker"
-            : DRIVER_CONNECTION_LOST.has(code)
+            : CONNECTION_LOST_CODES.has(code)
               ? "connection-lost"
               : isAuthSqlState(code)
                 ? "auth"
