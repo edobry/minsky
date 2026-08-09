@@ -81,7 +81,14 @@ describe("parseDispatchWatchdogCache", () => {
 
   test("skips malformed individual flag entries but keeps the well-formed ones", () => {
     const rec = parseDispatchWatchdogCache(
-      JSON.stringify(cacheAt([flag(), { taskId: "mt#1" /* missing required fields */ }]))
+      // The second entry is malformed BY DESIGN — that is what this test asserts
+      // the parser skips — so it is cast in rather than completed (mt#2900).
+      JSON.stringify(
+        cacheAt([
+          flag(),
+          { taskId: "mt#1" } as unknown as NonNullable<Parameters<typeof cacheAt>[0]>[number],
+        ])
+      )
     );
     expect(rec?.flags).toHaveLength(1);
     expect(rec?.flags[0]?.taskId).toBe("mt#2646");

@@ -289,7 +289,11 @@ describe("checkOverride", () => {
       overridden: true,
       grantReason: GRANT_REASON,
     });
-    expect(seenArgs).toEqual(["duplicate-child-matcher", "mt#2581", 1000]);
+    // Annotated alias: `seenArgs` is only ever assigned inside the findGuardGrant
+    // callback, which control-flow analysis cannot see running, so it narrows to
+    // `null` here and `toEqual` would then only accept `null` (mt#2900).
+    const capturedArgs = seenArgs as [string, string, number] | null;
+    expect(capturedArgs).toEqual(["duplicate-child-matcher", "mt#2581", 1000]);
   });
 
   test("env-var override takes precedence over a grant match (grant lookup never invoked)", () => {
@@ -621,15 +625,27 @@ describe("logCalibrationRecord", () => {
 describe("resolveDispatchContext", () => {
   const fakeHostCap: HostCapInfo = { hostCapSec: 20, source: "settings.json" };
 
+  /**
+   * `resolveDispatchContext` takes a Pick of ToolHookInput in which `session_id`
+   * is REQUIRED — these fixtures only ever vary transcript_path/agent_id, so the
+   * id is supplied once here rather than repeated at every call site (mt#2900).
+   */
+  function dispatchInput(
+    overrides: Partial<Pick<ToolHookInput, "agent_id" | "session_id" | "transcript_path">> = {}
+  ): Pick<ToolHookInput, "agent_id" | "session_id" | "transcript_path"> {
+    return {
+      session_id: "dispatcher-test-session",
+      transcript_path: undefined,
+      agent_id: undefined,
+      ...overrides,
+    };
+  }
+
   test("no transcript_path -> empty candidates/lines, budgets still derived", () => {
-    const ctx = resolveDispatchContext(
-      "PreToolUse",
-      { transcript_path: undefined, agent_id: undefined },
-      {
-        hookFilename: DISPATCH_HOOK_FILENAME,
-        readHostCapFn: () => fakeHostCap,
-      }
-    );
+    const ctx = resolveDispatchContext("PreToolUse", dispatchInput(), {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      readHostCapFn: () => fakeHostCap,
+    });
     expect(ctx.transcriptCandidates).toEqual([]);
     expect(ctx.transcriptLines).toEqual([]);
     expect(ctx.hostCapSec).toBe(20);
@@ -642,7 +658,7 @@ describe("resolveDispatchContext", () => {
     let parseCallCount = 0;
     const ctx = resolveDispatchContext(
       "PreToolUse",
-      { transcript_path: "/t/main.jsonl", agent_id: undefined },
+      dispatchInput({ transcript_path: "/t/main.jsonl" }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -677,7 +693,7 @@ describe("resolveDispatchContext", () => {
 
     const ctx = resolveDispatchContext(
       USER_PROMPT_SUBMIT,
-      { transcript_path: parentPath, agent_id: undefined },
+      dispatchInput({ transcript_path: parentPath }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -707,7 +723,7 @@ describe("resolveDispatchContext", () => {
 
     const ctx = resolveDispatchContext(
       USER_PROMPT_SUBMIT,
-      { transcript_path: subagentPath, agent_id: "abc" },
+      dispatchInput({ transcript_path: subagentPath, agent_id: "abc" }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -725,18 +741,14 @@ describe("resolveDispatchContext", () => {
   test("passes hookFilename and events through to readHostCapFn", () => {
     let seenFilename = "";
     let seenEvents: readonly string[] | undefined;
-    resolveDispatchContext(
-      "PostToolUse",
-      {},
-      {
-        hookFilename: "dispatch-posttooluse.ts",
-        readHostCapFn: (filename, _dir, opts) => {
-          seenFilename = filename;
-          seenEvents = opts?.events;
-          return fakeHostCap;
-        },
-      }
-    );
+    resolveDispatchContext("PostToolUse", dispatchInput(), {
+      hookFilename: "dispatch-posttooluse.ts",
+      readHostCapFn: (filename, _dir, opts) => {
+        seenFilename = filename;
+        seenEvents = opts?.events;
+        return fakeHostCap;
+      },
+    });
     expect(seenFilename).toBe("dispatch-posttooluse.ts");
     expect(seenEvents).toEqual(["PostToolUse"]);
   });

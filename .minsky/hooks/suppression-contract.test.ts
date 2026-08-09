@@ -92,6 +92,7 @@ describe("mt#3207 — the sweep sees each detector's suppression outcome", () =>
       result: {
         matched: true,
         detectionRung: "1+2-lite",
+        keywordHits: [],
         researchTools: ["WebSearch"],
         loadedSkills: ["engineering-writing"],
         matchedSkill: "engineering-writing",

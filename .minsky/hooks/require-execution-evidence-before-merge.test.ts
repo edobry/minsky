@@ -796,10 +796,10 @@ function makeExecFn(responses: Array<{ match: string; exitCode: number; stdout: 
     const joined = cmd.join(" ");
     for (const r of responses) {
       if (joined.includes(r.match)) {
-        return { exitCode: r.exitCode, stdout: r.stdout };
+        return { exitCode: r.exitCode, stdout: r.stdout, stderr: "" };
       }
     }
-    return { exitCode: 1, stdout: "" };
+    return { exitCode: 1, stdout: "", stderr: "" };
   };
 }
 
@@ -862,9 +862,9 @@ describe("resolvePrNumber", () => {
     const seenCmds: string[] = [];
     const exec: ExecFn = (cmd) => {
       seenCmds.push(cmd.join(" "));
-      if (cmd.join(" ").includes("pr view")) return { exitCode: 1, stdout: "" };
-      if (cmd.join(" ").includes("pr list")) return { exitCode: 0, stdout: "42" };
-      return { exitCode: 1, stdout: "" };
+      if (cmd.join(" ").includes("pr view")) return { exitCode: 1, stdout: "", stderr: "" };
+      if (cmd.join(" ").includes("pr list")) return { exitCode: 0, stdout: "42", stderr: "" };
+      return { exitCode: 1, stdout: "", stderr: "" };
     };
     resolvePrNumber(REPO, TASK, CWD, exec);
     const listCmd = seenCmds.find((c) => c.includes("pr list"));

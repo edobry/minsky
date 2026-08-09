@@ -64,14 +64,6 @@ export interface AllowlistEntry {
 
 export const COVERAGE_ALLOWLIST: readonly AllowlistEntry[] = [
   {
-    prefix: ".minsky/",
-    reason:
-      "Source tree for the generated .claude/** outputs. tsconfig.hooks.json covers only the " +
-      "COMPILED .claude/hooks copy, so an error in a source file is not caught until it is " +
-      "compiled. This is a real gap, not a deliberate exclusion.",
-    tracking: "mt#2900",
-  },
-  {
     prefix: "tests/fixtures/",
     reason:
       "Deliberately-malformed sample inputs (e.g. a NUL-byte source file) used AS TEST DATA. " +
