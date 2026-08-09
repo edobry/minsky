@@ -1,5 +1,21 @@
 /**
- * mt#3764: HTTP-mode `mcp start` orphan/idle process exit path.
+ * Self-termination watchers for MCP server and proxy processes.
+ *
+ * Two families live here, and they are armed from different places
+ * because they answer different questions:
+ *
+ *  - mt#3764's orphan/idle watchers (1 and 2 below) are HTTP-mode only,
+ *    wired via `wireOrphanExitWatchers` from `start-command.ts`. Both are
+ *    about an abandoned HTTP listener; neither has a stdio meaning
+ *    (`hasEverConnected` is an HTTP-session concept, and stdio parent
+ *    death already arrives as `process.stdin` close).
+ *  - mt#3886's resident-memory ceiling (3 below) is TRANSPORT-INDEPENDENT
+ *    and wired via `wireMemoryCeilingWatcher` from both `start-command.ts`
+ *    and the `mcp proxy` CLI. Today's per-conversation fleet runs the
+ *    inner server over STDIO, so gating it on HTTP the way (1) and (2)
+ *    are gated would leave the entire real-world fleet unguarded.
+ *
+ * mt#3764 context:
  *
  * On 2026-08-05 an orphaned `mcp start --http` process (PPID 1, listener
  * gone, 16h38m old) was found at 4083MB RSS / 65% CPU — it ignored SIGTERM
@@ -264,4 +280,227 @@ export function wireOrphanExitWatchers(options: WireOrphanExitWatchersOptions): 
   return {
     stop: () => watchers.forEach((w) => w.stop()),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * mt#3886: resident-memory ceiling
+ * ------------------------------------------------------------------ */
+
+/**
+ * Default resident-memory ceiling, in MB.
+ *
+ * Derived from observed values per `decision-defaults.mdc §Thresholds`,
+ * not picked as a round number:
+ *
+ *   - ADR-038's live census (2026-08-06, 50 inner servers): mean 63.5 MB;
+ *     `mcp proxy` mean 55.5 MB.
+ *   - The 2026-08-08 panic stackshot: 43 of 46 `bun` processes sat at
+ *     0.38-0.44 GB — the top of the observed NORMAL band.
+ *   - mt#3811's daemon-under-load samples (N=1/5/10): an 84-257 MB band,
+ *     non-monotonic in N (GC burst-and-decay, not session count).
+ *   - The pathological tail that panicked the machine: 15.5 GB, 54.2 GB,
+ *     59.9 GB in ONE stackshot, against 64 GB of physical RAM.
+ *   - mt#3764's orphan, a case this codebase has already seen: 4083 MB.
+ *
+ * 2048 MB sits ~4.5x above the top of the observed normal band (leaving
+ * room for a heavier workload than any yet measured, including a future
+ * shared daemon per ADR-038), BELOW mt#3764's 4083 MB orphan so that a
+ * repeat of that case is caught on memory as well as on idleness, and
+ * ~7x below the SMALLEST of the three processes that took the machine
+ * down. Capping the 2026-08-08 giants here would have held them to ~6 GB
+ * combined instead of ~130 GB.
+ */
+export const DEFAULT_MEMORY_CEILING_MB = 2048;
+
+/** Default poll interval (ms) for the resident-memory ceiling watcher. */
+export const DEFAULT_MEMORY_CEILING_POLL_INTERVAL_MS = 30_000;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+/**
+ * Read the current process's resident set size in bytes.
+ *
+ * `process.memoryUsage.rss()` is the cheap variant — it reads only RSS
+ * rather than computing the whole heap breakdown, which matters because
+ * this runs on an interval for the life of the process. It is present in
+ * both Node and Bun, but the repo's ambient `process` shim
+ * (`src/types/node.d.ts`) does not describe the callable property, hence
+ * the cast — the same shim gap `getCurrentProcessPpid` above works
+ * around. Falls back to the object form if the fast path is absent.
+ */
+export function getCurrentProcessResidentBytes(): number {
+  const proc = process as typeof process & {
+    memoryUsage: (() => { rss: number }) & { rss?: () => number };
+  };
+  if (typeof proc.memoryUsage.rss === "function") {
+    return proc.memoryUsage.rss();
+  }
+  return proc.memoryUsage().rss;
+}
+
+/**
+ * Seconds this process has been running. Same ambient-shim gap as
+ * `getCurrentProcessPpid` and `getCurrentProcessResidentBytes` — hoisted
+ * here rather than cast at each call site, since both `start-command.ts`
+ * and the proxy CLI need it for the breach record.
+ */
+export function getCurrentProcessUptimeSeconds(): number {
+  return (process as typeof process & { uptime: () => number }).uptime();
+}
+
+/** Details of a ceiling breach, passed to the callback and logged before exit. */
+export interface MemoryCeilingBreach {
+  residentBytes: number;
+  ceilingBytes: number;
+}
+
+export interface ResidentMemoryCeilingWatcherOptions {
+  ceilingBytes: number;
+  /** Returns the CURRENT resident bytes. Injected so tests don't depend on the real `process`. */
+  getResidentBytes: () => number;
+  pollIntervalMs?: number;
+  /** Injectable so tests can assert without real timers. Defaults to `setInterval`/`clearInterval`. */
+  setIntervalFn?: typeof setInterval;
+  clearIntervalFn?: typeof clearInterval;
+  onCeilingExceeded: (breach: MemoryCeilingBreach) => void;
+}
+
+/**
+ * Poll resident memory and fire `onCeilingExceeded` the first time it is
+ * at or above `ceilingBytes`. Fires at most once per watcher, mirroring
+ * `startParentDeathWatcher`'s one-shot semantics — the process is exiting,
+ * so repeat firing during teardown would be noise.
+ */
+export function startResidentMemoryCeilingWatcher(
+  options: ResidentMemoryCeilingWatcherOptions
+): StoppableWatcher {
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_MEMORY_CEILING_POLL_INTERVAL_MS;
+  const setIntervalFn = options.setIntervalFn ?? setInterval;
+  const clearIntervalFn = options.clearIntervalFn ?? clearInterval;
+
+  let stopped = false;
+  const timer = setIntervalFn(() => {
+    if (stopped) return;
+    const residentBytes = options.getResidentBytes();
+    if (residentBytes >= options.ceilingBytes) {
+      stopped = true;
+      clearIntervalFn(timer);
+      options.onCeilingExceeded({ residentBytes, ceilingBytes: options.ceilingBytes });
+    }
+  }, pollIntervalMs);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearIntervalFn(timer);
+    },
+  };
+}
+
+export interface MemoryCeilingArmDecision {
+  initialPpid: number;
+  /** MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT=1 — arm even on the hosted entrypoint. */
+  forceEnable: boolean;
+  /** MINSKY_MCP_DISABLE_MEMORY_CEILING_EXIT=1 — never arm, regardless of anything else. */
+  forceDisable: boolean;
+}
+
+/**
+ * Whether the memory-ceiling watcher should be armed.
+ *
+ * Deliberately mirrors `shouldArmNeverConnectedWatcher`, including the
+ * hosted-entrypoint skip. The skip is NOT because an unbounded hosted
+ * server is safe — it is the same hazard — but because arming a new
+ * self-kill path in a shared production service is a change to
+ * production behavior that the operator authorizes, not one that rides
+ * along with a local fix (`principal-context.mdc §Decisions Eugene
+ * reserves`: authorization for shared/production state changes). The
+ * hosted deployment opts in with MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT=1
+ * once a ceiling appropriate to the container's memory limit is chosen.
+ */
+export function shouldArmMemoryCeilingWatcher(decision: MemoryCeilingArmDecision): boolean {
+  if (decision.forceDisable) return false;
+  if (decision.forceEnable) return true;
+  return !looksLikeHostedEntrypoint(decision.initialPpid);
+}
+
+export interface WireMemoryCeilingWatcherOptions {
+  initialPpid: number;
+  getResidentBytes?: () => number;
+  /**
+   * Names the process class in the breach record — `"mcp start"` or
+   * `"mcp proxy"`. The panic stackshot that motivated this carried no
+   * argv, so which of the two ballooned was never determined; recording
+   * it here is what lets mt#3885 answer that next time.
+   */
+  processRole: string;
+  /** Seconds this process has been running, at breach time. */
+  getUptimeSeconds: () => number;
+  /** Optional extra state for the breach record (e.g. HTTP ever-connected). */
+  getDiagnostics?: () => Record<string, unknown>;
+  onExit: (reason: string) => void;
+  env?: NodeJS.ProcessEnv;
+  /** Injectable so tests can assert the env-var wiring without real timers. */
+  setIntervalFn?: typeof setInterval;
+  clearIntervalFn?: typeof clearInterval;
+}
+
+/**
+ * Arm the resident-memory ceiling per the current env-var configuration.
+ *
+ * Separate from `wireOrphanExitWatchers` because that function is called
+ * only in HTTP mode, and this watcher must also cover the stdio inner
+ * server and the proxy — see the module header.
+ */
+export function wireMemoryCeilingWatcher(
+  options: WireMemoryCeilingWatcherOptions
+): StoppableWatcher {
+  const env = options.env ?? process.env;
+
+  const armed = shouldArmMemoryCeilingWatcher({
+    initialPpid: options.initialPpid,
+    forceEnable: env.MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT === "1",
+    forceDisable: env.MINSKY_MCP_DISABLE_MEMORY_CEILING_EXIT === "1",
+  });
+
+  if (!armed) {
+    log.debug(
+      "[mt#3886] Skipping resident-memory ceiling watcher (hosted-entrypoint ppid signature, or explicit override)",
+      { initialPpid: options.initialPpid, processRole: options.processRole }
+    );
+    return { stop: () => {} };
+  }
+
+  const ceilingMb =
+    parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_MB) ?? DEFAULT_MEMORY_CEILING_MB;
+
+  return startResidentMemoryCeilingWatcher({
+    ceilingBytes: ceilingMb * BYTES_PER_MB,
+    getResidentBytes: options.getResidentBytes ?? getCurrentProcessResidentBytes,
+    pollIntervalMs: parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_POLL_MS),
+    setIntervalFn: options.setIntervalFn,
+    clearIntervalFn: options.clearIntervalFn,
+    onCeilingExceeded: ({ residentBytes, ceilingBytes }) => {
+      // Emitted BEFORE the exit call: this record is the only forensic
+      // trace a breach leaves, and mt#3885 needs it to narrow which
+      // allocation path grows a server to tens of GB. Exiting first
+      // would lose exactly the evidence the exit exists to collect.
+      log.cli(
+        `[mt#3886] Resident memory ${Math.round(residentBytes / BYTES_PER_MB)}MB reached the ` +
+          `${Math.round(ceilingBytes / BYTES_PER_MB)}MB ceiling; self-terminating ${options.processRole}`
+      );
+      log.error("[mt#3886] MCP process exceeded resident-memory ceiling", {
+        processRole: options.processRole,
+        residentBytes,
+        ceilingBytes,
+        uptimeSeconds: options.getUptimeSeconds(),
+        ...(options.getDiagnostics?.() ?? {}),
+      });
+      options.onExit("memory-ceiling");
+    },
+  });
 }
