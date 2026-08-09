@@ -1,0 +1,27 @@
+[package]
+name = "minsky-mcp-shim-spike"
+version = "0.1.0"
+edition = "2021"
+
+# Spike-only crate for mt#3884 -- NOT part of the minsky repo build (no
+# workspace member entry, not referenced from any build script). Kept here as
+# the reproducibility artifact for the RSS measurement recorded in
+# docs/mcp-http-daemon-spike-findings.md and ADR-038's resource table. Built
+# and run from a scratch directory outside the repo during the actual
+# measurement; this copy is for the record.
+
+[[bin]]
+name = "minsky-mcp-shim-spike"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "macros", "io-std", "io-util"] }
+reqwest = { version = "0.12", default-features = false }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
