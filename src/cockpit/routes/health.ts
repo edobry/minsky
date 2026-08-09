@@ -26,6 +26,7 @@ import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import {
   getDbCheck,
+  getDbHealth,
   getDbRecycle,
   getDbStatus,
   refreshDbReachability,
@@ -180,6 +181,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#3826: WHY the DB is unusable, not just that it is. `db` above
+      // collapses a half-open pool wedge and a network refusing the port into
+      // the same "degraded", which is what let the 2026-08-07 incident spend
+      // ~9 hours recycling a pool against a port that was never going to open.
+      // Shape is ADR-035 rule 4's (`mode`/`reason`/`lastAttemptAt`) so this
+      // subsystem reports liveness in the same vocabulary as the others; the
+      // added `failure` field is the discriminated form of `reason`, so a
+      // consumer branches on `failure.kind` instead of parsing prose.
+      dbHealth: getDbHealth(),
       // mt#3626: uncaught exceptions this process SURVIVED rather than died on
       // (transient outbound-connect failures inside the runtime's own net
       // module). Surviving is the designed behavior, so a non-zero count does

@@ -1,8 +1,8 @@
 # ADR-033: Install channel for the Minsky CLI
 
-**Status:** Proposed (principal decision pending — routed via ask, mt#3578)
+**Status:** Accepted (ask#6804 answered "(a) npm/bun global package" by the principal, 2026-08-03T21:52Z)
 **Date:** 2026-08-03
-**Task:** mt#3578
+**Task:** mt#3578 (decision + analysis) · mt#3616 (execution)
 
 ## Decision
 
@@ -58,12 +58,12 @@ Skills/agents under `.claude/` are repo-development artifacts, not runtime asset
 
 ## External preconditions (gate n enumeration)
 
-Not provisioned today; each is a blocking precondition for EXECUTING this decision (none blocks accepting it):
+Provisioning state as of mt#3616's execution (2026-08-03):
 
-1. **npm account/organization + publish token** — owner: principal (vendor commitment). Not provisioned as of 2026-08-03.
-2. **Claim of the `minsky` package name** — follows from (1); verified available 2026-08-03.
-3. **Version source** — `package.json` has no `version` field and `src/cli.ts` hardcodes `1.0.0`; mt#233 (TODO) owns the conventional-commit bump + `v*` tag automation the publish step would consume.
-4. **Publish automation** — a `release.yml` job addition (or sibling workflow) running `npm publish`/`bun publish` on the version tag; owned by the implementation follow-up once this ADR is accepted.
+1. **npm account** — PROVISIONED: principal ran `npm login` (verified `npm whoami` → `edobry`, 2026-08-03T21:57Z). No long-lived publish token is used — see (4).
+2. **Claim of the `minsky` package name** — executed by mt#3616's manual first publish (0.1.0).
+3. **Version source** — `package.json` now carries `"version"` (added by mt#3616; `src/cli.ts` reads it, retiring the hardcoded `1.0.0`); mt#233 (TODO) owns automating the bump + `v*` tag.
+4. **Publish automation** — `.github/workflows/publish-npm.yml` (mt#3616) publishes on `v*` tags via npm **trusted publishing** (OIDC, docs.npmjs.com/trusted-publishers): short-lived workflow-specific credentials, automatic provenance, no `NPM_TOKEN` secret. ONE-TIME OPERATOR STEP still open: register the trusted publisher (repo `edobry/minsky`, workflow `publish-npm.yml`) in the package's npmjs.com settings — until then the workflow fails at the publish step by design.
 
 ## Relationship to the hosted/self-host fork
 

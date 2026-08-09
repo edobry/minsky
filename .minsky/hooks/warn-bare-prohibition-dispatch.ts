@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // PreToolUse hook: detect a BARE PROHIBITION in a raw `Agent`-tool dispatch prompt — an
-// instruction telling the subagent NOT to do something, without stating the basis and without
-// granting an explicit licence to falsify it (mt#3162).
+// instruction telling the subagent NOT to do something without stating the basis (mt#3162,
+// narrowed by mt#3167; a missing licence-to-falsify no longer qualifies on its own — see
+// "What it detects" below).
 //
 // ## Why this path is required, not optional
 //
@@ -26,8 +27,12 @@
 // `structuralCheck` uses, so the two paths cannot drift:
 //
 //   - a prohibition phrase ("do not attempt", "is blocked", "is not possible", ...), AND
-//   - no basis marker within a bidirectional window around it, OR no licence-to-falsify marker
-//     anywhere in the prompt.
+//   - no basis marker within a bidirectional window around it.
+//
+// Narrowed 2026-08-08 (mt#3167): a missing licence-to-falsify marker USED to qualify on its own.
+// Calibration measured that category at 8/8 false positives — it fired on scope decisions, fan-out
+// role constraints, and guard-backed policy, where licensing the recipient to falsify would be
+// wrong rather than diligent. `has_licence_to_falsify` is still recorded, just not fired on.
 //
 // It cannot judge whether a stated basis is TRUE, or whether a prohibition is warranted. The
 // bet is that requiring the SHAPE is cheap and that the shape is what makes a wrong negative
@@ -206,7 +211,9 @@ export function buildCalibrationRecord(
     enforcement_enabled: enforcementEnabled,
     has_licence_to_falsify: report.hasLicenceToFalsify,
     matches: report.bare.map((f) => ({
-      category: f.hasBasis ? "no-licence" : "no-basis",
+      // Constant since mt#3167 retired `no-licence` from the fire path (8/8 measured FP). The
+      // field stays so records written before and after the narrowing remain comparable.
+      category: "no-basis",
       phrase: f.phrase,
       excerpt: f.excerpt,
       hasBasis: f.hasBasis,

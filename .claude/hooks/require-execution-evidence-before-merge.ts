@@ -50,6 +50,7 @@ import { computeFenceInternalLines, collectHeadingSections } from "./markdown-se
 import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
+import { runRenderPathCalibration, RENDER_PATH_CALIBRATION_LOG } from "./render-path-evidence";
 import { isTestFile } from "./pr-file-predicates";
 import {
   captureArtifact,
@@ -1198,6 +1199,19 @@ if (import.meta.main) {
   }
   if (testFirst.warning) {
     allWarnings.push(testFirst.warning);
+  }
+
+  // mt#2421: FOURTH additive calibration surface. Like the test-first surface it is driven by
+  // the PR's FILE LIST rather than a spec section — its trigger is that the change touches a
+  // user-facing render path — but unlike every sibling it needs no spec at all, so it runs
+  // unconditionally rather than under the `specFetch.ok` guard. Log-only: never influences
+  // `result.blocked`.
+  const renderPath = runRenderPathCalibration(task, context.prNumber, prFiles, prBody);
+  if (renderPath.calibrationRecord) {
+    appendCalibrationRecord(renderPath.calibrationRecord, repoRootDir, RENDER_PATH_CALIBRATION_LOG);
+  }
+  if (renderPath.warning) {
+    allWarnings.push(renderPath.warning);
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —

@@ -1,5 +1,13 @@
 import { describe, test, expect } from "bun:test";
-import { evaluateBunTestSummary } from "../../scripts/run-tests-gated";
+import {
+  evaluateBunTestSummary,
+  resolveChangedBase,
+  changedFilesSince,
+  touchesMcp,
+  planRun,
+  selectedNothing,
+  MCP_PATH_PREFIX,
+} from "../../scripts/run-tests-gated";
 
 // mt#2716: these fixtures assert the FAIL-CLOSED behavior of the pre-push test
 // gate. The summary-block shapes below match real `bun test` 1.2.21 output
@@ -155,5 +163,164 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     const r = evaluateBunTestSummary(stackTrace, 1);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain(NO_SUMMARY_REASON);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3562 — change-scoped selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Fake git that answers from a map keyed on the joined argv, and throws for
+ * anything unlisted — matching production, where a non-zero git exit throws so
+ * callers fall back to the full suite rather than reading empty output as
+ * "nothing changed".
+ */
+const fakeGit =
+  (responses: Record<string, string>) =>
+  (args: string[]): string => {
+    const joined = args.join(" ");
+    const hit = Object.entries(responses).find(([prefix]) => joined.startsWith(prefix));
+    if (!hit) throw new Error(`fake git: unexpected argv ${joined}`);
+    return hit[1];
+  };
+
+describe("resolveChangedBase (mt#3562)", () => {
+  test("returns the merge base with origin/main", () => {
+    const git = fakeGit({ "merge-base HEAD origin/main": "abc123def\n" });
+    expect(resolveChangedBase(git)).toBe("abc123def");
+  });
+
+  test("falls back to origin/master when origin/main is absent", () => {
+    const git = fakeGit({ "merge-base HEAD origin/master": "beef42\n" });
+    expect(resolveChangedBase(git)).toBe("beef42");
+  });
+
+  test("returns null when no upstream ref resolves — caller runs the full suite", () => {
+    // Fail-closed: an unscoped run is slow but correct; a wrongly-scoped one is
+    // fast and blind, which is the failure mode worth avoiding.
+    expect(resolveChangedBase(fakeGit({}))).toBeNull();
+  });
+
+  test("treats empty git output as unresolved rather than as a valid base", () => {
+    expect(resolveChangedBase(fakeGit({ "merge-base": "   \n" }))).toBeNull();
+  });
+});
+
+describe("changedFilesSince (mt#3562)", () => {
+  test("unions the ref diff with untracked files", () => {
+    // bun's --changed=<ref> does the same union (verified 2026-08-08), so the
+    // src/mcp routing decision is made over the same set bun selects from.
+    const git = fakeGit({
+      "diff --name-only": "src/a.ts\nsrc/b.ts\n",
+      "ls-files --others": "scratch/new.ts\n",
+    });
+    expect(changedFilesSince("base", git)).toEqual(["src/a.ts", "src/b.ts", "scratch/new.ts"]);
+  });
+
+  test("returns null when git fails — caller runs everything", () => {
+    expect(changedFilesSince("base", fakeGit({}))).toBeNull();
+  });
+
+  test("drops blank lines rather than emitting empty paths", () => {
+    const git = fakeGit({
+      "diff --name-only": "src/a.ts\n\n\n",
+      "ls-files --others": "\n",
+    });
+    expect(changedFilesSince("base", git)).toEqual(["src/a.ts"]);
+  });
+});
+
+describe("touchesMcp (mt#3562)", () => {
+  test("fires on a src/mcp file", () => {
+    expect(touchesMcp(["docs/x.md", `${MCP_PATH_PREFIX}server.ts`])).toBe(true);
+  });
+
+  test("does not fire on src/adapters/mcp, which is a different directory", () => {
+    // The isolated runner's domain is src/mcp/ specifically; src/adapters/mcp
+    // is part of the main suite and must not route work to it.
+    expect(touchesMcp(["src/adapters/mcp/task-edit-tools.ts"])).toBe(false);
+  });
+
+  test("does not fire on an empty diff", () => {
+    expect(touchesMcp([])).toBe(false);
+  });
+});
+
+describe("planRun — every uncertainty resolves to the full suite (PR #2729 R1)", () => {
+  test("scopes when the base resolves and the changed-file list reads", () => {
+    const plan = planRun({ forceFull: false, base: "abc123def", changedFiles: ["src/a.ts"] });
+    expect(plan.base).toBe("abc123def");
+    expect(plan.runMcp).toBe(false);
+  });
+
+  test("runs the isolated runner when the diff reaches src/mcp", () => {
+    const plan = planRun({
+      forceFull: false,
+      base: "abc123def",
+      changedFiles: [`${MCP_PATH_PREFIX}server.ts`],
+    });
+    expect(plan.base).toBe("abc123def");
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("an unreadable changed-file list runs the FULL suite, not a scoped one", () => {
+    // The R1 finding: previously this forced the isolated runner to run
+    // (correct) while leaving the MAIN suite scoped (incorrect), so the
+    // documented fail-closed guarantee held for one half of the gate only.
+    const plan = planRun({ forceFull: false, base: "abc123def", changedFiles: null });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+    expect(plan.reason).toContain("FULL suite");
+  });
+
+  test("an unresolvable merge base runs the FULL suite", () => {
+    const plan = planRun({ forceFull: false, base: null, changedFiles: null });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("MINSKY_PREPUSH_FULL_SUITE wins over a resolvable base", () => {
+    const plan = planRun({ forceFull: true, base: "abc123def", changedFiles: ["docs/x.md"] });
+    expect(plan.base).toBeNull();
+    expect(plan.runMcp).toBe(true);
+  });
+
+  test("every full-suite branch also runs the isolated runner — no half-scoped state", () => {
+    // The invariant the R1 finding violated, asserted directly: base === null
+    // and runMcp === false must be unreachable.
+    const fullSuiteBranches = [
+      planRun({ forceFull: true, base: "abc", changedFiles: ["docs/x.md"] }),
+      planRun({ forceFull: false, base: null, changedFiles: null }),
+      planRun({ forceFull: false, base: "abc", changedFiles: null }),
+    ];
+    for (const plan of fullSuiteBranches) {
+      expect(plan.base).toBeNull();
+      expect(plan.runMcp).toBe(true);
+    }
+  });
+});
+
+describe("selectedNothing (mt#3562)", () => {
+  test("recognizes bun's legitimate zero-selection line", () => {
+    expect(selectedNothing("--changed: 107 changed files, but no test files are affected")).toBe(
+      true
+    );
+  });
+
+  test("recognizes it through ANSI colouring", () => {
+    expect(
+      selectedNothing("[2m--changed: 12 changed files, but no test files are affected[0m")
+    ).toBe(true);
+  });
+
+  test("does NOT fire on a run that selected files", () => {
+    expect(selectedNothing("--changed: 179 changed files, running 161/887 test files")).toBe(false);
+  });
+
+  test("does NOT fire on a truncated run, which emits no --changed summary at all", () => {
+    // The distinction that matters: zero-selected passes loudly, truncated
+    // fail-closes via evaluateBunTestSummary. This helper only controls wording.
+    expect(selectedNothing("bun test v1.3.14 (0d9b296a)\n")).toBe(false);
   });
 });
