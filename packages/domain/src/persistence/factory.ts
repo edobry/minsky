@@ -42,27 +42,112 @@ import { log } from "@minsky/shared/logger";
  * entire life of `record-subagent-invocation.ts`'s DB path; the one-line log
  * below is what makes that class diagnosable without re-deriving it from a bare
  * `null`.
+ *
+ * A debug log is only diagnosable where debug logs are READ, which a hook
+ * process is not (mt#3750) — prefer `resolvePersistenceProviderOrError` below
+ * when the caller needs to REPORT the cause rather than merely branch on it.
  */
 export async function resolvePersistenceProvider(): Promise<PersistenceProvider | null> {
+  const resolution = await resolvePersistenceProviderOrError();
+  if (resolution.ok) {
+    return resolution.provider;
+  }
+  log.debug("resolvePersistenceProvider: returning null after initialization error", {
+    errorClass: resolution.errorClass,
+    error: resolution.error,
+  });
+  return null;
+}
+
+/**
+ * The outcome of a one-shot provider resolution: the live provider, or the
+ * reason one could not be produced.
+ *
+ * `error` is ALWAYS credential-scrubbed. A driver or initialization message can
+ * embed the connection string, and a DSN carries a password (PR #2178 R1); this
+ * value is written into guard-health records, which are persisted and rendered
+ * into an operator-facing banner, so it reaches more sinks than the debug log
+ * that previously carried it.
+ *
+ * `errorClass` is the constructor name (or `typeof` for a non-Error throw). It
+ * survives scrubbing unconditionally, so it discriminates the failure even in
+ * the case where the message itself is redacted to nothing.
+ */
+export type PersistenceProviderResolution =
+  | { ok: true; provider: PersistenceProvider }
+  | { ok: false; error: string; errorClass: string };
+
+/**
+ * `resolvePersistenceProvider` with the failure reason preserved.
+ *
+ * A `PersistenceProvider | null` return cannot say WHY, so a caller that has to
+ * report a cause must invent one — and the invented cause outlives the situation
+ * that suggested it. `.minsky/hooks/standalone-dup-probe.ts` hardcoded
+ * "persistence provider unavailable (see mt#3019 for the config-init class)" on
+ * its null branch, a class its own control flow had already excluded (it reaches
+ * that branch only after the domain bootstrap returns ok, i.e. after
+ * configuration DID initialize). For three days a critical-escalation
+ * guard-health streak pointed every reader at config init while the actual
+ * error — a driver `CONNECT_TIMEOUT` — went only to this process's stderr, which
+ * nothing reads (mt#3750).
+ *
+ * This is the same shape mt#3636 fixed one layer over: the discriminating detail
+ * is carried on the returned value (`UnconfiguredPersistenceProvider`'s
+ * `reason` + `configuredButUnavailable` there, `error` + `errorClass` here)
+ * rather than collapsed into a flag the caller has to interpret. Per mem#769: a
+ * pre-check that can fail for more than one reason must return the reason.
+ *
+ * `resolvePersistenceProvider` above delegates here and keeps its own
+ * `| null` contract unchanged — this is additive, in the shape mt#3751 used for
+ * `PersistenceService.getProviderWithRetry()`, because the null-returning
+ * function is shared by hooks AND non-hook callers (`session start`, `asks.ts`).
+ */
+export async function resolvePersistenceProviderOrError(): Promise<PersistenceProviderResolution> {
   try {
     const { PersistenceService } = await import("./service");
     const service = new PersistenceService();
     await service.initialize();
-    return service.getProvider();
+    const provider = service.getProvider();
+    if (!provider) {
+      // Defensive: getProvider() throws when uninitialized (mt#3751 left that
+      // contract untouched), so reaching here means initialize() reported
+      // success and produced nothing — a state with no error to report, which
+      // would otherwise be indistinguishable from a connect failure.
+      return {
+        ok: false,
+        error: "persistence service initialized but produced no provider",
+        errorClass: "NoProviderAfterInitialize",
+      };
+    }
+    return { ok: true, provider };
   } catch (err) {
-    // PR #2178 R1 NON-BLOCKING: a driver/initialization error message can embed
-    // the connection string, and a DSN carries a password. Log the error CLASS
-    // unconditionally (that alone distinguishes the two cases this log exists
-    // to separate) and run the message through the credential scrubber before
-    // it reaches any sink.
-    const { scrubText } = await import("../transcripts/credential-scrubber");
-    const rawMessage = err instanceof Error ? err.message : String(err);
-    log.debug("resolvePersistenceProvider: returning null after initialization error", {
-      errorClass: err instanceof Error ? err.constructor.name : typeof err,
-      error: scrubText(rawMessage).text,
-    });
-    return null;
+    return toResolutionFailure(err);
   }
+}
+
+/**
+ * Shape a thrown value into the failure half of a `PersistenceProviderResolution`.
+ *
+ * Separate and exported because this is where the credential scrubbing the type's
+ * contract promises actually happens, and it is the only part of the resolution
+ * path exercisable without a database — `resolvePersistenceProviderOrError`'s own
+ * branch depends on ambient process state (whether configuration was initialized,
+ * whether a DB is reachable), so a test that asserts which branch it takes asserts
+ * something it does not own.
+ */
+export async function toResolutionFailure(
+  err: unknown
+): Promise<{ ok: false; error: string; errorClass: string }> {
+  // PR #2178 R1: a driver/initialization message can embed the connection
+  // string, and a DSN carries a password. The class is kept unconditionally —
+  // it discriminates the failure even when the message scrubs to nothing.
+  const { scrubText } = await import("../transcripts/credential-scrubber");
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  return {
+    ok: false,
+    error: scrubText(rawMessage).text,
+    errorClass: err instanceof Error ? err.constructor.name : typeof err,
+  };
 }
 
 /**
