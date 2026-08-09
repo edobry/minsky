@@ -16,6 +16,7 @@ import {
   _simulateDroppedTimerForTest,
   _resetSweepLivenessRegistryForTest,
   REINIT_FAILURE_THRESHOLD,
+  runProdStateRefreshTick,
 } from "./sweepers";
 
 /** Poll `condition` until it's true, or throw after `timeoutMs`. */
@@ -580,5 +581,298 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       stopWatchdog();
       stop();
     }
+  });
+});
+
+/**
+ * Domain-outcome reporting (mt#3684).
+ *
+ * The defect these pin is a READING, not a crash: on 2026-08-06 the prod-state
+ * sweep failed every tick for 13 hours while `/api/sweeps` showed a fresh
+ * `lastSuccessAt` and `consecutiveFailures: 0`. That entry was not wrong about
+ * what it measures — the timer was firing and the callback was returning — it
+ * was answering a different question from the one a reader asks.
+ */
+describe("sweep domain-outcome reporting (mt#3684)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  function entryFor(name: string) {
+    return getSweepLivenessSnapshot().find((e) => e.name === name);
+  }
+
+  test("a reported domain failure is visible while the scheduling fields stay truthful (AT1)", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-domain-failure",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      // The shape the tick contract asks for: handle your own error, return
+      // normally — and now also say that the work did not succeed.
+      tick: async () => ({ ok: false }),
+    });
+    try {
+      await waitFor(() => (entryFor("test-domain-failure")?.consecutiveDomainFailures ?? 0) >= 1);
+      const entry = entryFor("test-domain-failure");
+
+      expect(entry?.reportsDomainOutcome).toBe(true);
+      expect(entry?.lastDomainFailureAt).not.toBeNull();
+      expect(entry?.consecutiveDomainFailures).toBe(1);
+      expect(entry?.lastDomainSuccessAt).toBeNull();
+
+      // The contrast IS the fix. Scheduling succeeded — the timer fired and the
+      // callback returned — and saying so remains correct (mt#2894). What
+      // changed is that it is no longer the ONLY thing the surface says.
+      expect(entry?.lastSuccessAt).not.toBeNull();
+      expect(entry?.consecutiveFailures).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("negative control: the same tick reporting nothing leaves the failure invisible (AT2)", async () => {
+    // This is the pre-fix surface, and what an operator read for 13 hours.
+    const stop = createIntervalSweeper({
+      name: "test-domain-silent",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        /* handled its own failure and said nothing — the old contract */
+      },
+    });
+    try {
+      await waitFor(() => entryFor("test-domain-silent")?.lastSuccessAt != null);
+      const entry = entryFor("test-domain-silent");
+
+      expect(entry?.reportsDomainOutcome).toBe(false);
+      expect(entry?.lastDomainFailureAt).toBeNull();
+      expect(entry?.lastDomainSuccessAt).toBeNull();
+      expect(entry?.consecutiveDomainFailures).toBe(0);
+      // Indistinguishable from a healthy sweep on every field that exists.
+      expect(entry?.lastSuccessAt).not.toBeNull();
+      expect(entry?.consecutiveFailures).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a reported domain success records one and resets the failure run (AT6)", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-domain-success",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: true }),
+    });
+    try {
+      await waitFor(() => entryFor("test-domain-success")?.lastDomainSuccessAt != null);
+      const entry = entryFor("test-domain-success");
+
+      expect(entry?.reportsDomainOutcome).toBe(true);
+      expect(entry?.lastDomainSuccessAt).not.toBeNull();
+      expect(entry?.lastDomainFailureAt).toBeNull();
+      expect(entry?.consecutiveDomainFailures).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a domain failure does not count toward the bounded re-init (AT3)", async () => {
+    // Re-init recovers a WEDGED tick. mt#3682 established that restarting the
+    // interval is a no-op against a failure below the sweep, so restarting the
+    // timer because the database is unreachable would add churn with no path to
+    // recovery — the behavior mt#3826 exists to stop.
+    const stop = createIntervalSweeper({
+      name: "test-domain-no-reinit",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: false }),
+    });
+    try {
+      await waitFor(
+        () =>
+          (entryFor("test-domain-no-reinit")?.consecutiveDomainFailures ?? 0) >
+          REINIT_FAILURE_THRESHOLD
+      );
+      const entry = entryFor("test-domain-no-reinit");
+
+      expect(entry?.consecutiveDomainFailures).toBeGreaterThan(REINIT_FAILURE_THRESHOLD);
+      expect(entry?.reinits).toBe(0);
+      expect(entry?.consecutiveFailures).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+});
+
+/**
+ * The prod-state tick's failure paths (mt#3684).
+ *
+ * Driven through the extracted decision with its IO injected — the sweeper
+ * reaches `./shared-persistence` and `./prod-state-cache` through dynamic
+ * imports, so patching them in place would be the only alternative, and
+ * ADR-036 bans it.
+ */
+describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
+  /** The driver error the 2026-08-07 outage produced on every connect attempt. */
+  const CONNECT_TIMEOUT_MESSAGE = "write CONNECT_TIMEOUT db.example.com:6543";
+
+  const neverCalled = async (): Promise<boolean> => {
+    throw new Error("refresh should not have been reached");
+  };
+
+  test("(a) resolving the persistence service throwing reports a failure (AT4)", async () => {
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => {
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
+      },
+      refresh: neverCalled,
+    });
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("(b) the raw-SQL accessor throwing reports a failure (AT4)", async () => {
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => {
+        throw new Error("getaddrinfo ENOTFOUND aws-0-us-west-2.pooler.supabase.com");
+      },
+      refresh: neverCalled,
+    });
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("(c) a provider exposing no raw SQL reports a failure instead of returning silently (AT4)", async () => {
+    // The path that previously produced NO log, NO counter, and no trace at all.
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => null,
+      refresh: neverCalled,
+    });
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("a refresh that writes nothing is a failure, not a success (AT4)", async () => {
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => false,
+      now: () => "2026-08-09T00:00:00.000Z",
+    });
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("a refresh that writes reports success, with the injected clock (AT6)", async () => {
+    const seenIso: string[] = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async (_sql, nowIso) => {
+        seenIso.push(nowIso);
+        return true;
+      },
+      now: () => "2026-08-09T00:00:00.000Z",
+    });
+    expect(result).toEqual({ ok: true });
+    expect(seenIso).toEqual(["2026-08-09T00:00:00.000Z"]);
+  });
+
+  /**
+   * The second surface (AT5). `/api/sweeps` learning about the failure is only
+   * half the fix — `/api/health.prodStateSweep` reads a DIFFERENT instrument,
+   * and on 2026-08-06 both were simultaneously reassuring. These pin that an
+   * upstream failure now reaches the domain tracker too, so the two surfaces
+   * cannot disagree about whether the sweep is working.
+   */
+  function countingTracker() {
+    const calls = { runs: 0, failures: 0 };
+    return {
+      calls,
+      recordRun: () => {
+        calls.runs++;
+      },
+      recordFailure: () => {
+        calls.failures++;
+      },
+    };
+  }
+
+  test("an upstream failure reaches the domain tracker, not just the sweep registry (AT5)", async () => {
+    for (const resolveRawSql of [
+      async () => {
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
+      },
+      async () => null,
+    ] as Array<() => Promise<(() => Promise<unknown>) | null>>) {
+      const tracker = countingTracker();
+      const result = await runProdStateRefreshTick({
+        resolveRawSql,
+        refresh: neverCalled,
+        tracker,
+      });
+
+      expect(result).toEqual({ ok: false });
+      expect(tracker.calls.runs).toBe(1);
+      expect(tracker.calls.failures).toBe(1);
+    }
+  });
+
+  test("the no-raw-SQL path emits a warning where it previously emitted nothing (AT4c, PR #2746 R1)", async () => {
+    // Fact-of-emission via an injected sink, not a patched logger (ADR-036).
+    // This log IS the behavior: before mt#3684 the path returned silently, so a
+    // provider that could never refresh the cache left no trace at all.
+    const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => null,
+      refresh: neverCalled,
+      tracker: countingTracker(),
+      logWarn: (message, meta) => warnings.push({ message, meta }),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain("no raw SQL connection");
+  });
+
+  test("a thrown upstream failure carries its cause into the warning (AT4a)", async () => {
+    const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => {
+        throw new Error(CONNECT_TIMEOUT_MESSAGE);
+      },
+      refresh: neverCalled,
+      tracker: countingTracker(),
+      logWarn: (message, meta) => warnings.push({ message, meta }),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+    // The driver's message is what distinguishes a blocked port from dead DNS
+    // in the log, which is the only place that detail survives.
+    expect(warnings[0]?.meta?.message).toContain("CONNECT_TIMEOUT");
+  });
+
+  test("the happy path emits no warning", async () => {
+    const warnings: string[] = [];
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => true,
+      tracker: countingTracker(),
+      logWarn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(warnings).toEqual([]);
+  });
+
+  test("the refresh path does not double-record — refreshProdStateCache owns it (AT5)", async () => {
+    // The two paths are mutually exclusive by construction; this asserts it,
+    // because a double-count would inflate runsCount and make the surface wrong
+    // in the opposite direction.
+    const tracker = countingTracker();
+    const result = await runProdStateRefreshTick({
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => true,
+      tracker,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(tracker.calls.runs).toBe(0);
+    expect(tracker.calls.failures).toBe(0);
   });
 });

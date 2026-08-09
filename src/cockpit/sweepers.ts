@@ -29,6 +29,7 @@ import {
   getServerTaskService,
 } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
 import {
   getSchemaReadiness,
   isSchemaBehind,
@@ -102,6 +103,22 @@ export interface SweepLivenessSnapshot {
   reinits: number;
   /** Count of force-restarts the meta-watchdog triggered (dropped/wedged timer class). */
   metaRestarts: number;
+  /**
+   * ISO timestamp of the last tick that reported its DOMAIN work succeeded, or
+   * null when this sweep reports no domain outcome (mt#3684).
+   *
+   * Separate from `lastSuccessAt`, which answers the SCHEDULING question — did
+   * the timer fire and the callback return. The two diverge exactly when a tick
+   * applies the fail-open try/catch this factory's `tick` contract asks for: it
+   * returns normally, so scheduling is healthy, while its work failed.
+   */
+  lastDomainSuccessAt: string | null;
+  /** ISO timestamp of the last tick that reported its domain work FAILED, or null. */
+  lastDomainFailureAt: string | null;
+  /** Consecutive reported domain failures since the last reported domain success. */
+  consecutiveDomainFailures: number;
+  /** False when this sweep has never reported a domain outcome — the three fields above are then meaningless rather than healthy. */
+  reportsDomainOutcome: boolean;
 }
 
 interface SweepLivenessEntry {
@@ -113,6 +130,10 @@ interface SweepLivenessEntry {
   consecutiveFailures: number;
   reinits: number;
   metaRestarts: number;
+  lastDomainSuccessAtMs: number | null;
+  lastDomainFailureAtMs: number | null;
+  consecutiveDomainFailures: number;
+  reportsDomainOutcome: boolean;
   /**
    * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
    * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
@@ -170,6 +191,12 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
       consecutiveFailures: e.consecutiveFailures,
       reinits: e.reinits,
       metaRestarts: e.metaRestarts,
+      lastDomainSuccessAt:
+        e.lastDomainSuccessAtMs === null ? null : new Date(e.lastDomainSuccessAtMs).toISOString(),
+      lastDomainFailureAt:
+        e.lastDomainFailureAtMs === null ? null : new Date(e.lastDomainFailureAtMs).toISOString(),
+      consecutiveDomainFailures: e.consecutiveDomainFailures,
+      reportsDomainOutcome: e.reportsDomainOutcome,
     }));
 }
 
@@ -189,6 +216,20 @@ export function _resetSweepLivenessRegistryForTest(): void {
   sweepLivenessRegistry.clear();
 }
 
+/**
+ * What a tick may report about its own DOMAIN work (mt#3684).
+ *
+ * The scheduling layer cannot infer this: the `tick` contract asks each sweep
+ * to swallow its own errors, so a total domain outage and a clean run are
+ * indistinguishable from outside the callback. During the 2026-08-06 incident
+ * that produced a `/api/sweeps` entry reading `lastSuccessAt` one minute old
+ * and `consecutiveFailures: 0` while every tick had been failing for 13 hours.
+ */
+export interface SweepTickResult {
+  /** False when the tick's work did not succeed, even though it returned normally. */
+  ok: boolean;
+}
+
 /** Options accepted by {@link createIntervalSweeper}. */
 export interface IntervalSweeperOptions {
   /** Human-readable name used in log messages (e.g. "ask advancement"). */
@@ -200,8 +241,15 @@ export interface IntervalSweeperOptions {
    * fail-open try/catch with a domain-specific log message; the factory's
    * own catch (below) is only a last-resort safety net for an unexpected
    * throw escaping it.
+   *
+   * Because of that contract a tick that handled its own failure still
+   * RETURNS NORMALLY, which the scheduling bookkeeping below correctly reads
+   * as "the timer fired and the callback returned". To also report whether the
+   * WORK succeeded, return a {@link SweepTickResult} (mt#3684). Returning
+   * nothing is unchanged behavior and reports no domain outcome at all —
+   * which is why adding this did not require touching the other sweeps.
    */
-  tick: () => Promise<void>;
+  tick: () => Promise<SweepTickResult | void>;
   /**
    * Per-tick abandonment timeout in milliseconds (mt#2625). A tick that
    * hasn't settled within this window is abandoned: the `running` guard is
@@ -279,6 +327,10 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     consecutiveFailures: 0,
     reinits: 0,
     metaRestarts: 0,
+    lastDomainSuccessAtMs: null,
+    lastDomainFailureAtMs: null,
+    consecutiveDomainFailures: 0,
+    reportsDomainOutcome: false,
     stopped: false,
     restart: () => {},
     clearUnderlyingTimer: () => {
@@ -334,8 +386,17 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     });
 
     let failed = false;
+    // null = this tick reported no domain outcome (the pre-mt#3684 behavior of
+    // every sweep, and still the behavior of any tick returning nothing).
+    let domainOk: boolean | null = null;
     try {
-      const outcome = await Promise.race([tick().then(() => "completed" as const), timedOut]);
+      const outcome = await Promise.race([
+        tick().then((result) => {
+          if (result && typeof result.ok === "boolean") domainOk = result.ok;
+          return "completed" as const;
+        }),
+        timedOut,
+      ]);
       if (outcome === "timed-out") {
         log.warn(
           `cockpit: ${name} sweep tick timed out after ${tickTimeoutMs}ms — releasing guard for next tick`,
@@ -363,13 +424,37 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     // bookkept further, and a trailing failure must never trigger a re-init.
     if (stopped) return;
 
+    // Domain outcome (mt#3684), recorded BESIDE the scheduling fields below
+    // and never folded into them. mt#2894 deliberately scoped this registry to
+    // the scheduling layer and deferred domain outcome to "the per-sweep
+    // trackers (TranscriptSweepTracker etc.)" — that separation is kept, but
+    // its premise did not hold: only 3 of the 11 sweeps have such a tracker,
+    // and prod-state's sits inside a call its failing paths never reach. So a
+    // tick may now report its own outcome, and a reader sees the scheduling
+    // and domain answers as two fields instead of inferring one from the other.
+    //
+    // Deliberately NOT counted toward REINIT_FAILURE_THRESHOLD: re-init is a
+    // recovery for a wedged TICK, and mt#3682 established that restarting the
+    // interval is a no-op against a failure below the sweep. Restarting the
+    // timer because the database is unreachable is the churn mt#3826 exists to
+    // stop. Domain failures are reported, not acted on.
+    if (domainOk !== null) {
+      entry.reportsDomainOutcome = true;
+      if (domainOk) {
+        entry.lastDomainSuccessAtMs = Date.now();
+        entry.consecutiveDomainFailures = 0;
+      } else {
+        entry.lastDomainFailureAtMs = Date.now();
+        entry.consecutiveDomainFailures++;
+      }
+    }
+
     // Liveness bookkeeping + bounded re-init (mt#2894 SC "(c)"). A tick only
     // reaches here via the timeout or unexpected-throw paths above (the tick
     // callback's OWN fail-open try/catch means a domain failure it already
     // handled internally still resolves "completed" here — intentional; this
-    // registry tracks the SCHEDULING layer's health, not each sweep's domain
-    // outcome, which the per-sweep trackers (TranscriptSweepTracker etc.)
-    // already cover).
+    // registry tracks the SCHEDULING layer's health, which is a different
+    // question from the domain outcome recorded just above).
     if (failed) {
       entry.lastErrorAtMs = Date.now();
       entry.consecutiveFailures++;
@@ -667,34 +752,102 @@ const PROD_STATE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
  *
  * @returns stop function (clears the interval).
  */
+/**
+ * The prod-state tick's decision, with its IO injected (mt#3684).
+ *
+ * Extracted from the sweeper below so each failure path can be exercised
+ * without patching `./shared-persistence` or `./prod-state-cache` in place,
+ * which ADR-036 bans — the tick reaches both through dynamic imports, so there
+ * is no other seam.
+ *
+ * **Every exit reports a domain outcome.** Before this, only the final
+ * `refreshProdStateCache` call touched an instrument (it owns
+ * `ProdStateSweepTracker` internally), so the three exits above it were
+ * invisible to BOTH health surfaces — which is why `/api/health`'s
+ * `prodStateSweep` read `lastErrorAt: null, consecutiveFailures: 0` through
+ * ~130 consecutive failures on 2026-08-06. The failures never got far enough
+ * to be counted.
+ */
+export async function runProdStateRefreshTick(deps: {
+  /** Resolve the provider's raw-SQL accessor, or null when it exposes none. */
+  resolveRawSql: () => Promise<(() => Promise<unknown>) | null>;
+  /** Refresh the cache; returns whether it actually wrote. */
+  refresh: (sql: unknown, nowIso: string) => Promise<boolean>;
+  /** Injectable clock so a test need not depend on wall time. */
+  now?: () => string;
+  /** Defaults to the process singleton; injectable so a test can assert on an isolated instance. */
+  tracker?: Pick<ProdStateSweepTracker, "recordRun" | "recordFailure">;
+  /**
+   * Warning sink, defaulting to the real logger. Injected rather than patched
+   * because for the no-raw-SQL path the log IS the behavior under test — that
+   * path emitted nothing at all before mt#3684, so "a line is emitted" is the
+   * fix, not incidental output (`testing-boundaries.mdc` §support vs
+   * diagnostic; ADR-036 bans patching the logger to observe it).
+   */
+  logWarn?: (message: string, meta?: Record<string, unknown>) => void;
+}): Promise<SweepTickResult> {
+  // The domain tracker behind /api/health.prodStateSweep is recorded HERE for
+  // the paths that never reach `refreshProdStateCache` (which records itself).
+  // Without this the two health surfaces would disagree during exactly the
+  // outage this task exists to make visible: /api/sweeps would show the domain
+  // failure while /api/health still read `lastErrorAt: null,
+  // consecutiveFailures: 0`. The paths are mutually exclusive — an upstream
+  // failure never reaches the refresh — so no attempt is counted twice.
+  const tracker = deps.tracker ?? ProdStateSweepTracker.getInstance();
+  const warn = deps.logWarn ?? ((message, meta) => log.warn(message, meta));
+  const recordUpstreamFailure = (): void => {
+    tracker.recordRun();
+    tracker.recordFailure();
+  };
+
+  try {
+    const getRawSql = await deps.resolveRawSql();
+    if (!getRawSql) {
+      // Previously a bare `return` — no log, no counter, no trace anywhere. A
+      // provider without raw SQL cannot refresh the cache, so this is a
+      // failure, not a quiet no-op.
+      warn("cockpit: prod-state refresh sweep skipped — provider exposes no raw SQL connection");
+      recordUpstreamFailure();
+      return { ok: false };
+    }
+    const sql = await getRawSql();
+    const nowIso = (deps.now ?? (() => new Date().toISOString()))();
+    // From here on `refreshProdStateCache` owns the tracker bookkeeping.
+    return { ok: await deps.refresh(sql, nowIso) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    warn("cockpit: prod-state refresh sweep failed", { message });
+    recordUpstreamFailure();
+    return { ok: false };
+  }
+}
+
 export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "prod-state refresh",
     intervalMs: intervalMs ?? PROD_STATE_REFRESH_INTERVAL_MS,
-    tick: async () => {
-      try {
-        const { getSharedPersistenceService } = await import("./shared-persistence");
-        const { refreshProdStateCache } = await import("./prod-state-cache");
-        const svc = await getSharedPersistenceService();
-        const provider = svc.getProvider();
-        const getRawSql =
-          "getRawSqlConnection" in provider &&
-          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+    tick: () =>
+      runProdStateRefreshTick({
+        resolveRawSql: async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const svc = await getSharedPersistenceService();
+          const provider = svc.getProvider();
+          return "getRawSqlConnection" in provider &&
+            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
+              "function"
             ? (
                 provider as { getRawSqlConnection: () => Promise<unknown> }
               ).getRawSqlConnection.bind(provider)
             : null;
-        if (!getRawSql) return;
-        const sql = (await getRawSql()) as
-          | import("./prod-state-cache").UnsafeSql
-          | null
-          | undefined;
-        await refreshProdStateCache(sql, new Date().toISOString());
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.warn("cockpit: prod-state refresh sweep failed", { message });
-      }
-    },
+        },
+        refresh: async (sql, nowIso) => {
+          const { refreshProdStateCache } = await import("./prod-state-cache");
+          return refreshProdStateCache(
+            sql as import("./prod-state-cache").UnsafeSql | null | undefined,
+            nowIso
+          );
+        },
+      }),
   });
 }
 
