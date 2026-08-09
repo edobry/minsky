@@ -37,7 +37,24 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const MODULE_PATH = join(import.meta.dir, "record-subagent-invocation.ts");
-const ENTRYPOINT_LINE = "if (import.meta.main) {";
+
+/**
+ * The entrypoint guard, matched tolerantly (PR #2741 R1 NON-BLOCKING).
+ *
+ * An exact-string match on `"if (import.meta.main) {"` would break on formatting
+ * the linter is entitled to change — inner spacing, or the brace moving to the
+ * next line. A false NEGATIVE there is the dangerous direction: the anchor
+ * disappears, nothing is found "below" it, and the check silently passes while
+ * the hazard it guards is wide open.
+ *
+ * Anchored at column 0 so the same text inside a comment or a nested block does
+ * not match, and the "exactly once" test below turns any residual ambiguity into
+ * a loud failure rather than a wrong anchor.
+ */
+const ENTRYPOINT_PATTERN = /^if\s*\(\s*import\.meta\.main\s*\)/;
+
+/** The specific constant whose TDZ read caused mt#3893, matched the same way. */
+const BROKEN_CONST_PATTERN = /^export\s+const\s+HOOK_UNKNOWN_TASK_ID\b/;
 
 /**
  * Top-level `const` / `let` / `class` declarations — the TDZ-affected forms.
@@ -59,13 +76,19 @@ describe("record-subagent-invocation entrypoint placement (mt#3893)", () => {
     // Guards the two tests below against silently passing on a renamed or
     // removed entrypoint — a check anchored on a string that no longer appears
     // would vacuously find nothing after it.
-    const occurrences = readModuleLines().filter((l) => l.startsWith(ENTRYPOINT_LINE)).length;
-    expect(occurrences).toBe(1);
+    const occurrences = readModuleLines().filter((l) => ENTRYPOINT_PATTERN.test(l)).length;
+    expect(
+      occurrences,
+      "Expected exactly one top-level `if (import.meta.main)` guard. Zero means the anchor the " +
+        "checks below depend on has moved or been renamed — they would then scan nothing and " +
+        "pass vacuously. More than one means the anchor is ambiguous."
+    ).toBe(1);
   });
 
   test("no TDZ-affected binding is declared below the entrypoint", () => {
     const lines = readModuleLines();
-    const entryIndex = lines.findIndex((l) => l.startsWith(ENTRYPOINT_LINE));
+    const entryIndex = lines.findIndex((l) => ENTRYPOINT_PATTERN.test(l));
+    expect(entryIndex).toBeGreaterThan(-1);
 
     const offenders = lines
       .slice(entryIndex + 1)
@@ -90,8 +113,8 @@ describe("record-subagent-invocation entrypoint placement (mt#3893)", () => {
     // A regression pin on the specific instance, not just the class. If the
     // general check above is ever weakened, this still fails.
     const lines = readModuleLines();
-    const entryIndex = lines.findIndex((l) => l.startsWith(ENTRYPOINT_LINE));
-    const constIndex = lines.findIndex((l) => l.startsWith("export const HOOK_UNKNOWN_TASK_ID"));
+    const entryIndex = lines.findIndex((l) => ENTRYPOINT_PATTERN.test(l));
+    const constIndex = lines.findIndex((l) => BROKEN_CONST_PATTERN.test(l));
 
     expect(constIndex).toBeGreaterThan(-1);
     expect(constIndex).toBeLessThan(entryIndex);
