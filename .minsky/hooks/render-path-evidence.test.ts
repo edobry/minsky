@@ -70,6 +70,16 @@ describe("isRenderPathFile", () => {
     expect(isRenderPathFile(RENDERERS_TEST_TSX)).toBe(false);
   });
 
+  // PR #2730 R1 BLOCKING #1 asserted `.integration.test.tsx` was missed. It is not: the
+  // pattern is unanchored at the start, so the name ends with `.test.tsx` and matches. Pinned
+  // here so the claim is settled by a test rather than by re-reading the regex — and so a
+  // future anchoring of the pattern cannot silently reintroduce the gap the reviewer feared.
+  it("does NOT match `.integration.test.tsx` — the unanchored pattern already covers it", () => {
+    expect(isRenderPathFile("src/cockpit/web/components/Foo.integration.test.tsx")).toBe(false);
+    expect(isRenderPathFile("src/cockpit/web/components/Foo.e2e.test.tsx")).toBe(false);
+    expect(isRenderPathFile("src/cockpit/web/components/Foo.integration.spec.tsx")).toBe(false);
+  });
+
   it("does NOT match a .ts under the same tree — the distinguishing property is producing pixels", () => {
     expect(isRenderPathFile(LINKIFIER_TS)).toBe(false);
   });
@@ -121,9 +131,38 @@ describe("hasOpenableArtifact", () => {
     expect(hasOpenableArtifact(body)).toBe(false);
   });
 
-  it("counts a URL inside a fence — a fenced curl IS the check, not a quoted claim", () => {
-    const body = ["```bash", "curl -s http://127.0.0.1:3737/api/health", "```"].join("\n");
+  it("counts a URL inside a fence — a fenced check against a real route is the verification", () => {
+    const body = ["```bash", "open http://127.0.0.1:3737/conversation/03d2e32d", "```"].join("\n");
     expect(hasOpenableArtifact(body)).toBe(true);
+  });
+
+  // PR #2730 R1 BLOCKING #2. mt#3810's evidence literally included an HTTP check proving the
+  // deployed API served an image block — the machine-readable proxy that let an unlooked-at
+  // render ship. Accepting one here would pass the check on the exact artifact it exists to
+  // reject.
+  it("is false for an API or health endpoint — a 200 is not a rendered surface", () => {
+    expect(hasOpenableArtifact("curl -s http://127.0.0.1:3737/api/health")).toBe(false);
+    expect(
+      hasOpenableArtifact("https://cockpit-preview-production.up.railway.app/api/cockpit/snapshot")
+    ).toBe(false);
+    expect(hasOpenableArtifact("https://minsky-mcp-production.up.railway.app/health")).toBe(false);
+  });
+
+  it("still counts a real route on the same host as an excluded API path", () => {
+    const body = [
+      "API check: https://cockpit-preview-production.up.railway.app/api/cockpit/snapshot",
+      "Look at it: https://cockpit-preview-production.up.railway.app/conversation/03d2e32d",
+    ].join("\n");
+    expect(hasOpenableArtifact(body)).toBe(true);
+  });
+
+  it("extracts a URL cleanly out of markdown-link and angle-bracket forms", () => {
+    expect(hasOpenableArtifact("see [the surface](https://example.test/conversation/1)")).toBe(
+      true
+    );
+    expect(hasOpenableArtifact("see <https://example.test/conversation/1>")).toBe(true);
+    // The closing delimiter must not end up inside the URL and defeat an exclusion pattern.
+    expect(hasOpenableArtifact("see [the API](https://example.test/api/health)")).toBe(false);
   });
 
   it("ignores a URL that appears only in an HTML comment", () => {

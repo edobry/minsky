@@ -153,6 +153,14 @@ const NON_SURFACE_URL_PATTERNS: readonly RegExp[] = [
   /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/?$/i,
   /^https?:\/\/(?:www\.)?notion\.so\//i,
   /^https?:\/\/[^/]*\.notion\.site\//i,
+  // An API or health endpoint is not a rendered surface (PR #2730 R1, BLOCKING #2).
+  // This is the sharpest form of the whole problem: mt#3810's evidence included an HTTP
+  // check proving the deployed API served an image block, and that is precisely the proxy
+  // that let a render nobody had looked at ship. A machine-readable endpoint answering 200
+  // says the data is there; it says nothing about whether it DRAWS. Accepting one here
+  // would let the check pass on the exact artifact it exists to reject.
+  /^https?:\/\/[^/]+\/api\//i,
+  /^https?:\/\/[^/]+\/health\b/i,
 ];
 
 /** Markdown image syntax, an HTML `<img>` tag, or a URL ending in an image extension. */
@@ -172,8 +180,27 @@ function extractUrls(text: string): string[] {
  * True when the PR body carries something the principal can open.
  *
  * Satisfied by an image (a pasted screenshot IS the render) or by any http(s) URL that is not
- * repo-internal navigation. A `localhost` / `127.0.0.1` URL counts: the principal running the
- * cockpit locally can open it, and it is the form a live check most often produces.
+ * repo-internal navigation and not a machine-readable endpoint. A `localhost` / `127.0.0.1` URL
+ * counts: the principal running the cockpit locally can open it, and it is the form a live check
+ * most often produces.
+ *
+ * ## What this does NOT check, and why (PR #2730 R1, BLOCKING #2)
+ *
+ * It does not verify the URL points at the CHANGED surface. mt#2421's Success Criterion 2
+ * originally said "a URL or an image reference in the PR body naming the changed surface," and
+ * the reviewer correctly flagged that the code does not do that. The criterion was the thing
+ * that was wrong, and it has been corrected in the spec rather than chased here.
+ *
+ * Tying an artifact to a changed surface is not mechanically decidable. There is no reliable
+ * mapping from a component file to the route that renders it — `ConversationElementRenderers.tsx`
+ * appears in `/conversation/:id`, in the session film, and anywhere else `ElementView` is
+ * mounted, and no file-name token appears in the URL. Approximating it with keyword overlap
+ * would put a semantic guess at the center of a check whose entire design premise is that it
+ * asks only the mechanically decidable question. That is the arms race ADR-024 §Context names,
+ * arrived at from the other direction.
+ *
+ * What the reviewer's concrete example DID surface is a real precision bug, now fixed: a
+ * `curl /api/health` used to satisfy the check. See {@link NON_SURFACE_URL_PATTERNS}.
  *
  * ## Why this is NOT fence-gated, unlike its siblings
  *
@@ -305,6 +332,11 @@ export function runRenderPathCalibration(
       // mt#3607: the verdict is computed from a MUTABLE PR body, so a later re-check cannot
       // reconstruct what was judged unless the record carries it. This log starts empty, so
       // every record it ever accumulates is auditable — the cheapest this will ever be.
+      //
+      // PR #2730 R1 NON-BLOCKING: this captures a whole PR body with no redaction pass. Real,
+      // and deliberately NOT diverged from here — all three sibling surfaces do the same, so a
+      // one-surface fix would buy inconsistency rather than safety. The posture decision for
+      // all four is mt#3872; `captureArtifact` is the single place it would land.
       [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       judgedPrBody: captureArtifact(prBody),
       renderPathFiles: result.renderPathFiles,
