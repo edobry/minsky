@@ -276,7 +276,18 @@ async function waitForDown(port: number, attempts = 6): Promise<boolean> {
   return false;
 }
 
+/**
+ * Which lifecycle owns the daemon that is currently answering.
+ *
+ * ADR-014 makes the tray app the canonical supervisor and keeps launchd as an
+ * opt-in headless mode, so "not launchd" is a supported configuration rather
+ * than a broken install — which is why this is a separate field from
+ * `installed` instead of being inferred from it.
+ */
+export type DaemonSupervisor = "launchd" | "external";
+
 export interface DaemonStatus {
+  /** A launchd agent is installed. Independent of whether anything is serving. */
   installed: boolean;
   running: boolean;
   pid: number | null;
@@ -285,63 +296,109 @@ export interface DaemonStatus {
   commit: string | null;
   url: string | null;
   plistPath: string;
+  /** How the answering daemon is supervised; null when nothing answers. */
+  supervisor: DaemonSupervisor | null;
+}
+
+/** The three observations `resolveDaemonStatus` decides from. */
+export interface DaemonStatusProbes {
+  plistExists(plistPath: string): boolean;
+  /** PID launchd reports for our label, or null when the agent is not loaded. */
+  launchctlPid(): number | null;
+  /** Health fields when the port answers, or null when it does not. */
+  health(port: number): Promise<{ uptime: string | null; commit: string | null } | null>;
 }
 
 /**
- * Check the status of the cockpit daemon.
+ * Decide the daemon's status from three observations.
+ *
+ * Separated from the IO below so the decision is testable without patching
+ * `fs`, `execSync`, or `fetch` in place (ADR-036).
+ *
+ * The load-bearing ordering: the health probe runs REGARDLESS of whether a
+ * plist exists. Gating it on plist existence made a tray-supervised or
+ * hand-started daemon report as "not installed" while it was serving — the
+ * split-ownership symptom ADR-014 exists to end, and the state that blocked
+ * remediation during the 2026-08-04 outage (mt#3682).
  */
-export async function getDaemonStatus(port: number = DEFAULT_DAEMON_PORT): Promise<DaemonStatus> {
-  const plistPath = getPlistPath();
-  const installed = fs.existsSync(plistPath);
+export async function resolveDaemonStatus(
+  port: number,
+  plistPath: string,
+  probes: DaemonStatusProbes
+): Promise<DaemonStatus> {
+  const installed = probes.plistExists(plistPath);
+  // Only meaningful with an agent installed; without one there is no label to
+  // ask launchd about.
+  const pid = installed ? probes.launchctlPid() : null;
 
   const base: DaemonStatus = {
     installed,
     running: false,
-    pid: null,
+    pid,
     port,
     uptime: null,
     commit: null,
     url: `http://localhost:${port}`,
     plistPath,
+    supervisor: null,
   };
 
-  if (!installed) return base;
+  const health = await probes.health(port);
+  if (!health) return base;
 
-  // Check launchctl for the service status
-  let pid: number | null = null;
-  try {
-    const output = String(
-      execSync(`launchctl list ${LAUNCHD_LABEL}`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      })
-    );
-    const pidMatch = output.match(/"PID"\s*=\s*(\d+)/);
-    if (pidMatch && pidMatch[1]) {
-      pid = parseInt(pidMatch[1], 10);
+  return {
+    ...base,
+    running: true,
+    uptime: health.uptime,
+    commit: health.commit,
+    // launchd is credited only when it is actually holding the process. A
+    // loaded agent with no PID beside a port that answers means something else
+    // won the bind, which ADR-014's single-owner invariant permits.
+    supervisor: pid !== null ? "launchd" : "external",
+  };
+}
+
+const realProbes: DaemonStatusProbes = {
+  plistExists: (plistPath) => fs.existsSync(plistPath),
+  launchctlPid: () => {
+    try {
+      const output = String(
+        execSync(`launchctl list ${LAUNCHD_LABEL}`, {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        })
+      );
+      const pidMatch = output.match(/"PID"\s*=\s*(\d+)/);
+      return pidMatch && pidMatch[1] ? parseInt(pidMatch[1], 10) : null;
+    } catch {
+      // Agent not loaded, or launchctl unavailable.
+      return null;
     }
-  } catch {
-    // Service not loaded or not found
-  }
-
-  // Probe health endpoint for running status + uptime
-  try {
-    const resp = await fetch(`http://localhost:${port}/api/health`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    if (resp.ok) {
+  },
+  health: async (port) => {
+    try {
+      const resp = await fetch(`http://localhost:${port}/api/health`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!resp.ok) return null;
       const health = (await resp.json()) as Record<string, unknown>;
       return {
-        ...base,
-        running: true,
-        pid,
         uptime: typeof health["uptime"] === "string" ? health["uptime"] : null,
         commit: typeof health["commit"] === "string" ? health["commit"] : null,
       };
+    } catch {
+      // Nothing answering on the port.
+      return null;
     }
-  } catch {
-    // Not responding
-  }
+  },
+};
 
-  return { ...base, pid };
+/**
+ * Check the status of the cockpit daemon.
+ */
+export async function getDaemonStatus(
+  port: number = DEFAULT_DAEMON_PORT,
+  probes: DaemonStatusProbes = realProbes
+): Promise<DaemonStatus> {
+  return resolveDaemonStatus(port, getPlistPath(), probes);
 }

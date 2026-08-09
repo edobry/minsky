@@ -25,12 +25,10 @@ export function createStatusCommand(): Command {
         return;
       }
 
-      if (!status.installed) {
-        console.log("Cockpit daemon: not installed");
-        console.log(`  Run \`minsky cockpit install\` to set up the daemon.`);
-        return;
-      }
-
+      // "Is a daemon serving?" and "is a launchd agent installed?" are separate
+      // questions (ADR-014: the tray is the canonical supervisor, launchd an
+      // opt-in headless mode), so they are reported separately rather than the
+      // second short-circuiting the first.
       if (status.running) {
         console.log("Cockpit daemon: running");
         if (status.pid) console.log(`  PID:    ${status.pid}`);
@@ -38,15 +36,35 @@ export function createStatusCommand(): Command {
         console.log(`  URL:    ${status.url}`);
         if (status.commit) console.log(`  Commit: ${status.commit}`);
         if (status.uptime) console.log(`  Uptime: ${status.uptime}`);
-        console.log(`  Plist:  ${status.plistPath}`);
-      } else {
+        if (status.supervisor === "launchd") {
+          console.log(`  Owner:  launchd`);
+          console.log(`  Plist:  ${status.plistPath}`);
+        } else {
+          console.log(`  Owner:  not launchd (the tray app or a manual run)`);
+          if (!status.installed) {
+            console.log("\n  No launchd agent is installed. That is the supported default —");
+            console.log(
+              "  `minsky cockpit install` is only needed for the headless (no-tray) mode."
+            );
+          }
+        }
+        return;
+      }
+
+      if (status.installed) {
         console.log("Cockpit daemon: installed but not running");
         if (status.pid) console.log(`  PID:    ${status.pid} (not responding)`);
         console.log(`  Port:   ${status.port}`);
         console.log(`  Plist:  ${status.plistPath}`);
         console.log("\n  The daemon should restart automatically (KeepAlive is enabled).");
         console.log("  Check logs at ~/.local/state/minsky/logs/cockpit-*.log");
+        return;
       }
+
+      console.log("Cockpit daemon: not running");
+      console.log(`  Port:   ${status.port} (nothing answering)`);
+      console.log("\n  No launchd agent is installed. Launch the Minsky Cockpit tray app,");
+      console.log("  or run `minsky cockpit install` for the headless mode.");
     });
   return cmd;
 }

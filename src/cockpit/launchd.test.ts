@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { generatePlist, LAUNCHD_LABEL, DEFAULT_DAEMON_PORT } from "./launchd";
+import {
+  generatePlist,
+  resolveDaemonStatus,
+  LAUNCHD_LABEL,
+  DEFAULT_DAEMON_PORT,
+  type DaemonStatusProbes,
+} from "./launchd";
 
 const TEST_REPO = "/Users/test/Projects/minsky";
 
@@ -72,5 +78,123 @@ describe("launchd plist generation", () => {
     expect(plist).toContain("&lt;special&gt;");
     expect(plist).toContain("&amp;");
     expect(plist).not.toContain("<special>");
+  });
+});
+
+describe("resolveDaemonStatus (mt#3682)", () => {
+  const PLIST = "/tmp/does-not-matter/com.minsky.cockpit.plist";
+  const HEALTH = { uptime: "3h 12m", commit: "abc1234" };
+
+  /**
+   * `probes` is passed in rather than patched onto `fs`/`execSync`/`fetch`,
+   * which is why the decision was extracted from the IO in the first place
+   * (ADR-036 bans in-place patching).
+   */
+  function probes(overrides: Partial<DaemonStatusProbes> = {}): DaemonStatusProbes {
+    return {
+      plistExists: () => false,
+      launchctlPid: () => null,
+      health: async () => null,
+      ...overrides,
+    };
+  }
+
+  test("a serving daemon with no plist reports running, not 'not installed'", async () => {
+    // The reproduced defect: a tray-supervised daemon answers on :3737 while
+    // `cockpit status` prints "not installed", because the health probe used to
+    // sit behind an `installed` early return.
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ health: async () => HEALTH })
+    );
+
+    expect(status.running).toBe(true);
+    expect(status.installed).toBe(false);
+    expect(status.supervisor).toBe("external");
+    expect(status.uptime).toBe(HEALTH.uptime);
+    expect(status.commit).toBe(HEALTH.commit);
+  });
+
+  test("with no plist and nothing serving, not-running and not-installed are both reported", async () => {
+    // The two facts have to be separable: the single `installed`-gated early
+    // return could only ever express one of them.
+    const status = await resolveDaemonStatus(DEFAULT_DAEMON_PORT, PLIST, probes());
+
+    expect(status.running).toBe(false);
+    expect(status.installed).toBe(false);
+    expect(status.supervisor).toBeNull();
+    expect(status.pid).toBeNull();
+  });
+
+  test("launchd is credited only when it is actually holding the process", async () => {
+    const underLaunchd = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ plistExists: () => true, launchctlPid: () => 4242, health: async () => HEALTH })
+    );
+    expect(underLaunchd.supervisor).toBe("launchd");
+    expect(underLaunchd.pid).toBe(4242);
+
+    // An agent that is installed but not loaded, beside a port that answers:
+    // something else won the bind, which ADR-014's single-owner invariant
+    // permits. Crediting launchd here would misreport who to restart.
+    const adopted = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ plistExists: () => true, launchctlPid: () => null, health: async () => HEALTH })
+    );
+    expect(adopted.supervisor).toBe("external");
+  });
+
+  test("the launchd-managed path keeps reporting every field it did before", async () => {
+    // Regression control: the fix must not degrade the path that already worked.
+    const status = await resolveDaemonStatus(
+      8080,
+      PLIST,
+      probes({ plistExists: () => true, launchctlPid: () => 99, health: async () => HEALTH })
+    );
+
+    expect(status).toMatchObject({
+      installed: true,
+      running: true,
+      pid: 99,
+      port: 8080,
+      uptime: HEALTH.uptime,
+      commit: HEALTH.commit,
+      url: "http://localhost:8080",
+      plistPath: PLIST,
+    });
+  });
+
+  test("an installed-but-not-responding agent still surfaces its launchd pid", async () => {
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ plistExists: () => true, launchctlPid: () => 77 })
+    );
+
+    expect(status.running).toBe(false);
+    expect(status.installed).toBe(true);
+    expect(status.pid).toBe(77);
+    expect(status.supervisor).toBeNull();
+  });
+
+  test("launchd is not consulted at all when no agent is installed", async () => {
+    let launchctlCalls = 0;
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({
+        launchctlPid: () => {
+          launchctlCalls++;
+          return 1234;
+        },
+        health: async () => HEALTH,
+      })
+    );
+
+    expect(launchctlCalls).toBe(0);
+    expect(status.pid).toBeNull();
   });
 });
