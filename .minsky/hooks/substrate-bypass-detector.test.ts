@@ -23,7 +23,12 @@ import type { DispatchContext } from "./registry";
 // Transcript JSONL helpers
 // ---------------------------------------------------------------------------
 
+// Structural duplicate of `./transcript`'s TranscriptLine, kept minimal for
+// fixture ergonomics. mt#3586 owns the drift between the two; mt#2900 added
+// `isMeta` because a fixture below sets it and nothing was typechecking this
+// file until then.
 type TranscriptLine = {
+  isMeta?: boolean;
   type?: string;
   message?: {
     role?: string;

@@ -29,6 +29,7 @@ import {
   INJECTION_ENABLED,
   run,
 } from "./code-mechanism-assertion-detector";
+import type { RelayDetectionResult } from "./code-mechanism-assertion-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -1532,9 +1533,12 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       backedClaimCount: 1,
       hadWriteEchoBacking: false,
     };
-    const relay = {
+    // Annotated rather than `as const`-suffixed (mt#2900): a const assertion is
+    // not allowed on an identifier reference, and without one `reason` widens to
+    // `string` and no longer satisfies the union.
+    const relay: RelayDetectionResult = {
       relayed: true,
-      reason: REASON_RELAYED_PREAMBLE_PHRASE as const,
+      reason: REASON_RELAYED_PREAMBLE_PHRASE,
       relayedSymbols: [],
     };
     const { reasons, claimSetSignature, relayReasons } = computeSuppressionReasons(
@@ -1576,9 +1580,9 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       backedClaimCount: 0,
       hadWriteEchoBacking: false,
     };
-    const relay = {
+    const relay: RelayDetectionResult = {
       relayed: true,
-      reason: REASON_RELAYED_SUBAGENT_CONTENT as const,
+      reason: REASON_RELAYED_SUBAGENT_CONTENT,
       relayedSymbols: ["foo"],
     };
     // Dedup gate says "do not inject" — injection is suppressed for a reason

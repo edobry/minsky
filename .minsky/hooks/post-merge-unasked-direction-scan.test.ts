@@ -17,6 +17,14 @@ import {
   resolveSessionContext,
 } from "./post-merge-unasked-direction-scan";
 import type { ToolHookInput } from "./types";
+import type { ConversationId } from "../../packages/domain/src/ids";
+
+/**
+ * Brand mint for expectations (mt#2900). `resolveConversationId` returns a
+ * branded `ConversationId`, so a bare string literal is not comparable to it;
+ * this mirrors that function's own documented boundary cast.
+ */
+const conversationId = (raw: string): ConversationId => raw as ConversationId;
 import capturedPayloads from "./fixtures/session-pr-merge-payloads.json";
 
 const MERGE_TOOL_NAME = "mcp__minsky__session_pr_merge";
@@ -100,7 +108,7 @@ describe("resolveSessionContext", () => {
 describe("resolveConversationId", () => {
   it("reads the harness-supplied session_id", () => {
     const r = resolveConversationId(makeInput({ session_id: "conv-1" }));
-    expect(r).toBe("conv-1");
+    expect(r).toBe(conversationId("conv-1"));
   });
 
   it("does NOT read the workspace session id out of the tool payload", () => {
@@ -111,8 +119,8 @@ describe("resolveConversationId", () => {
     const r = resolveConversationId(
       makeInput({ session_id: "conv-1", tool_input: { sessionId: "workspace-1" } })
     );
-    expect(r).toBe("conv-1");
-    expect(r).not.toBe("workspace-1");
+    expect(r).toBe(conversationId("conv-1"));
+    expect(r).not.toBe(conversationId("workspace-1"));
   });
 
   it("returns null when the harness supplied no session_id", () => {
@@ -134,7 +142,7 @@ describe("resolveConversationId", () => {
     // The workspace id stays the findings-file key and analyzer label; only the
     // transcript lookup moved to the conversation id.
     expect(resolveSessionContext(input)).toEqual({ sessionId: "workspace-1", taskId: "mt#3066" });
-    expect(resolveConversationId(input)).toBe("conv-1");
+    expect(resolveConversationId(input)).toBe(conversationId("conv-1"));
   });
 });
 

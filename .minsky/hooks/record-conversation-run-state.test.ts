@@ -264,7 +264,9 @@ describe("postRunState — fail-open contract", () => {
         eventName: "Stop",
       });
       expect(ok).toBe(true);
-      expect(seenAuth).toBe(`Bearer ${TOKEN}`);
+      // `seenAuth` is assigned only inside the server handler, so CFA narrows it
+      // to `null` here (mt#2900).
+      expect(seenAuth as string | null).toBe(`Bearer ${TOKEN}`);
       expect(seenBody["conversationId"]).toBe("conv-1");
     } finally {
       server.stop(true);

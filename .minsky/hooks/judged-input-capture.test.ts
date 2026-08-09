@@ -357,7 +357,9 @@ describe("ask-routing-deferral context capture (ask#7052)", () => {
 
     // The matched phrase is identical in both — the bare record ask#7052 called
     // unratable.
-    expect(fromReal[0]?.matchedPhrase).toBe(fromCourtesy[0]?.matchedPhrase);
+    const courtesyPhrase = fromCourtesy[0]?.matchedPhrase;
+    expect(courtesyPhrase).toBeDefined();
+    expect(fromReal[0]?.matchedPhrase).toBe(courtesyPhrase as string);
     // The context is what tells them apart.
     expect(fromReal[0]?.context).not.toBe(fromCourtesy[0]?.context);
     expect(fromReal[0]?.context).toContain("can't settle the naming");

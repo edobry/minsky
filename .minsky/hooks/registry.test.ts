@@ -266,7 +266,8 @@ describe("GUARD_REGISTRY", () => {
       expect(reg?.matcher).toBeUndefined();
       expect(reg?.denyCapable).toBe(false);
       expect(reg?.needsTranscript).toBe(true);
-      expect(reg?.calibrationLog).toBe(calibrationLog);
+      // Object.entries widens the value to `string | undefined` (mt#2900).
+      expect(reg?.calibrationLog).toBe(calibrationLog as string);
     }
     // policy-coverage-detector is NOT part of this family — it is registered
     // on PreToolUse in .claude/settings.json (ground truth), not

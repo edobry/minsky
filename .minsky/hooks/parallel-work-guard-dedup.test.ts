@@ -399,8 +399,11 @@ describe("resolveDuplicateGuardOverride (mt#2658)", () => {
       return { overridden: false };
     };
     resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
-    expect(seenGuardName).toBe(DUPLICATE_CHILD_GUARD_NAME);
-    expect(seenScope).toBe(PARENT);
+    // Cast back to the declared union (mt#2900): these are assigned only inside
+    // `checkOverrideFn`, which control-flow analysis cannot see running, so both
+    // narrow to `null` here and `toBe` would accept nothing else.
+    expect(seenGuardName as string | null).toBe(DUPLICATE_CHILD_GUARD_NAME);
+    expect(seenScope as string | undefined | null).toBe(PARENT);
   });
 
   it("passes scope=undefined through to checkOverrideFn when there is no parent", () => {
@@ -508,8 +511,9 @@ describe("resolveOpenPrSweepOverride (mt#1637)", () => {
       return { overridden: false };
     };
     resolveOpenPrSweepOverride(TASK, {}, checkOverrideFn);
-    expect(seenGuardName).toBe(OPEN_PR_SWEEP_GUARD_NAME);
-    expect(seenScope).toBe(TASK);
+    // Same CFA narrowing as the duplicate-guard case above (mt#2900).
+    expect(seenGuardName as string | null).toBe(OPEN_PR_SWEEP_GUARD_NAME);
+    expect(seenScope as string | undefined | null).toBe(TASK);
   });
 
   it("MINSKY_FORCE_PARALLEL set to something other than '1' does not activate the env path", () => {

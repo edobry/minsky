@@ -13,10 +13,14 @@ import {
   type BatchMatch,
   type ToolUseBlock,
 } from "./constructed-identifier-batch-detector";
+import { captureArtifact } from "./judged-input-capture";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
+
+/** Shared so the excerpt and its judged-capture cannot drift apart (mt#2900). */
+const COMMIT_MESSAGE_EXCERPT = "fix(mt#9999): resolve the bug";
 
 // ---------------------------------------------------------------------------
 // Tool-name constants (custom/no-magic-string-duplication — each of these is
@@ -352,7 +356,8 @@ describe("buildReminder", () => {
         mintTool: TASKS_CREATE,
         consumeTool: SESSION_COMMIT,
         consumeField: "message",
-        excerpt: "fix(mt#9999): resolve the bug",
+        excerpt: COMMIT_MESSAGE_EXCERPT,
+        judged: captureArtifact(COMMIT_MESSAGE_EXCERPT),
       },
     ];
     const reminder = buildReminder(matches);
@@ -599,6 +604,7 @@ describe("detectConsumeBeforeMint (mt#3340)", () => {
         mintTool: TASKS_CREATE,
         mintedId: "mt#3338",
         excerpt: DOCBLOCK_WITH_WRITTEN_ID,
+        judged: captureArtifact(DOCBLOCK_WITH_WRITTEN_ID),
       },
     ]);
     expect(text).toContain("mt#3336");
