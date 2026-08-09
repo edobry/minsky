@@ -55,6 +55,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { recordMergeDeploySurface } from "./merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
@@ -594,6 +595,37 @@ if (import.meta.main) {
     };
   } else {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
+  }
+
+  // mt#3819: record this merge's deploy/build-surface verdict for the per-turn
+  // consumer (`build-claim-injection-detector`), which cannot afford the forge
+  // fetch we just did. Computed from `prFiles` directly rather than from
+  // `usabilityResult`, so the Gap A override — which zeroes `buildSurfaceFiles`
+  // to skip its own check — cannot make us under-record the local-app surface.
+  // Never throws and never affects this gate's decision.
+  {
+    const surfaceFiles = [
+      ...new Set([...findDeploySurfaceFiles(prFiles), ...findLocalAppDeploySurfaceFiles(prFiles)]),
+    ];
+    const verdict = {
+      hadDeploySurface: surfaceFiles.length > 0,
+      deploySurfaceFiles: surfaceFiles,
+      recordedAt: new Date().toISOString(),
+    };
+
+    // PR #2734 R1: record under BOTH the RESOLVED task id and the RAW ids the
+    // caller actually passed. `session_pr_merge` takes either `task` or
+    // `sessionId` (mt#3355), and the consumer can only see what is in the
+    // tool_use input — so a `sessionId`-invoked merge keyed solely by the
+    // resolved task id would be permanently unfindable, silently degrading to
+    // the old proxy for exactly the merges this task exists to fix.
+    const rawToolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+    const keys = new Set<string>([task]);
+    for (const field of ["task", "taskId", "sessionId", "session"]) {
+      const value = rawToolInput[field];
+      if (typeof value === "string" && value.length > 0) keys.add(value);
+    }
+    for (const key of keys) recordMergeDeploySurface(key, verdict);
   }
 
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];
