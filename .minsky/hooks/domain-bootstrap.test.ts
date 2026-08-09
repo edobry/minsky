@@ -10,10 +10,12 @@
 // they observe).
 
 import { describe, expect, test } from "bun:test";
-import {
-  ensureHookDomainBootstrap,
-  HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS,
-} from "./domain-bootstrap";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+
+// The default every non-hook Minsky process gets when no connect timeout is
+// configured (`postgres-provider.ts` `|| 10`, `?? 10`; `validation-operations.ts`
+// `= 10`). mt#3879 removed the hook-specific override that undercut it.
+const DRIVER_PATH_DEFAULT_SECONDS = 10;
 
 describe("hook domain bootstrap (mt#3019)", () => {
   test("layer 1: importing this module installs the tsyringe reflect polyfill", () => {
@@ -58,19 +60,40 @@ describe("hook domain bootstrap (mt#3019)", () => {
     expect(second.ok).toBe(first.ok);
   });
 
-  test("applies the mt#2982 fail-fast connect default", async () => {
-    await ensureHookDomainBootstrap();
-    // Either the operator's own value (which must win) or the hook default.
-    expect(process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBeDefined();
+  test("installs NO connect-timeout override, so hooks inherit the driver-path default (mt#3879)", async () => {
+    // The regression this pins: a hook-specific 2s cap sat below the measured
+    // 2.3-2.6s TLS-inclusive socket cost, so `resolvePersistenceProvider()`
+    // could never return a provider from a hook process and every DB-backed
+    // hook failed open. The bootstrap must not reintroduce a cap of its own.
+    const original = process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+    try {
+      delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+      await ensureHookDomainBootstrap();
+      expect(process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBeUndefined();
+    } finally {
+      if (original === undefined) {
+        delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+      } else {
+        process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = original;
+      }
+    }
   });
 
-  test("an operator-set connect timeout wins over the hook default", async () => {
+  test("any connect timeout a hook does end up with clears the measured cold-connect floor", () => {
+    // Guards the NUMBER, not just its absence: whatever a hook process
+    // ultimately resolves must exceed the socket cost measured in mt#3879
+    // (2.3-2.6s for DNS+TCP+TLS alone, 4.3-5.5s for a full cold resolve).
+    // 10s is ~1.8x the slowest observed cold resolve.
+    const MAX_OBSERVED_COLD_RESOLVE_SECONDS = 5.5;
+    expect(DRIVER_PATH_DEFAULT_SECONDS).toBeGreaterThan(MAX_OBSERVED_COLD_RESOLVE_SECONDS);
+  });
+
+  test("an operator-set connect timeout is still honored", async () => {
     const original = process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
     try {
       process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = "17";
       await ensureHookDomainBootstrap();
       expect(process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe("17");
-      expect(HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS).not.toBe("17");
     } finally {
       if (original === undefined) {
         delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
