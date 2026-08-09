@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test";
 import {
   generatePlist,
   resolveDaemonStatus,
+  readUptime,
+  formatUptime,
   LAUNCHD_LABEL,
   DEFAULT_DAEMON_PORT,
   type DaemonStatusProbes,
@@ -178,6 +180,31 @@ describe("resolveDaemonStatus (mt#3682)", () => {
     expect(status.installed).toBe(true);
     expect(status.pid).toBe(77);
     expect(status.supervisor).toBeNull();
+  });
+
+  test("uptime is read from the field the health payload actually carries (PR #2744 R1)", () => {
+    // The defect this pins: the reader asked for a string `uptime`, while
+    // `/api/health` emits a numeric `uptimeSec`. Every healthy daemon reported
+    // `uptime: null` beside a correctly-populated `commit` — visible in this
+    // PR's own live-verification output before the fix.
+    expect(readUptime({ status: "ok", commit: "abc1234", uptimeSec: 11_580 })).toBe("3h 13m");
+
+    // A string `uptime` still wins if a future payload adds one, so the reader
+    // cannot be re-broken by the reverse mismatch.
+    expect(readUptime({ uptime: "already a string", uptimeSec: 60 })).toBe("already a string");
+
+    // Neither field present, or the wrong type: null rather than a fabricated value.
+    expect(readUptime({ status: "ok" })).toBeNull();
+    expect(readUptime({ uptimeSec: "3600" })).toBeNull();
+  });
+
+  test("formatUptime renders each magnitude, and sub-minute is not blank", () => {
+    expect(formatUptime(0)).toBe("<1m");
+    expect(formatUptime(59)).toBe("<1m");
+    expect(formatUptime(60)).toBe("1m");
+    expect(formatUptime(3_600)).toBe("1h");
+    expect(formatUptime(90_000)).toBe("1d 1h");
+    expect(formatUptime(132_365)).toBe("1d 12h 46m");
   });
 
   test("launchd is not consulted at all when no agent is installed", async () => {

@@ -290,13 +290,28 @@ export interface DaemonStatus {
   /** A launchd agent is installed. Independent of whether anything is serving. */
   installed: boolean;
   running: boolean;
+  /**
+   * Null for an externally supervised daemon, deliberately rather than by
+   * oversight: launchd is the only PID source this command has, and
+   * `/api/health` does not carry one (`src/cockpit/routes/health.ts` returns
+   * status/commit/uptimeSec). Reporting a PID for the tray-supervised case
+   * needs a new health field, which belongs to the health surface's own task,
+   * not here. The CLI says so rather than leaving a bare blank.
+   */
   pid: number | null;
   port: number;
   uptime: string | null;
   commit: string | null;
   url: string | null;
+  /** The path checked for the launchd agent — reported so `installed: false` is falsifiable. */
   plistPath: string;
-  /** How the answering daemon is supervised; null when nothing answers. */
+  /**
+   * How the answering daemon is supervised; null when nothing answers.
+   *
+   * Additive to this struct, which `cockpit status --json` prints verbatim:
+   * every previously-emitted field keeps its name, type, and meaning, so a
+   * consumer reading the old shape is unaffected.
+   */
   supervisor: DaemonSupervisor | null;
 }
 
@@ -382,16 +397,44 @@ const realProbes: DaemonStatusProbes = {
       });
       if (!resp.ok) return null;
       const health = (await resp.json()) as Record<string, unknown>;
-      return {
-        uptime: typeof health["uptime"] === "string" ? health["uptime"] : null,
-        commit: typeof health["commit"] === "string" ? health["commit"] : null,
-      };
+      return { uptime: readUptime(health), commit: readCommit(health) };
     } catch {
       // Nothing answering on the port.
       return null;
     }
   },
 };
+
+/**
+ * `/api/health` reports `uptimeSec` as a NUMBER (routes/health.ts). Reading a
+ * string `uptime` — which the payload has never carried — meant this field was
+ * silently null on every healthy daemon, next to a `commit` that populated
+ * correctly. The string form is still accepted in case a future payload adds
+ * one, so the reader is not re-broken by the reverse mismatch.
+ */
+export function readUptime(health: Record<string, unknown>): string | null {
+  if (typeof health["uptime"] === "string") return health["uptime"];
+  const seconds = health["uptimeSec"];
+  return typeof seconds === "number" && Number.isFinite(seconds) ? formatUptime(seconds) : null;
+}
+
+function readCommit(health: Record<string, unknown>): string | null {
+  return typeof health["commit"] === "string" ? health["commit"] : null;
+}
+
+/** Seconds to a compact "2d 3h 4m" / "5m" form; sub-minute reads as "<1m". */
+export function formatUptime(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  return parts.length > 0 ? parts.join(" ") : "<1m";
+}
 
 /**
  * Check the status of the cockpit daemon.

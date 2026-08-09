@@ -41,11 +41,18 @@ export function createStatusCommand(): Command {
           console.log(`  Plist:  ${status.plistPath}`);
         } else {
           console.log(`  Owner:  not launchd (the tray app or a manual run)`);
+          // No PID: launchd is this command's only PID source and /api/health
+          // carries none. Say so, rather than printing nothing and leaving the
+          // operator to guess whether it is unknown or genuinely absent.
+          console.log(`  PID:    unknown (only launchd-managed daemons report one here)`);
           if (!status.installed) {
-            console.log("\n  No launchd agent is installed. That is the supported default —");
+            // Name the path checked, so "no agent found" is falsifiable rather
+            // than a bare assertion about the machine's whole configuration.
+            console.log(`\n  No launchd agent found at ${status.plistPath}.`);
             console.log(
-              "  `minsky cockpit install` is only needed for the headless (no-tray) mode."
+              "  Under the tray-supervised default that is expected; `minsky cockpit install`"
             );
+            console.log("  is only needed for the headless (no-tray) mode.");
           }
         }
         return;
@@ -63,8 +70,9 @@ export function createStatusCommand(): Command {
 
       console.log("Cockpit daemon: not running");
       console.log(`  Port:   ${status.port} (nothing answering)`);
-      console.log("\n  No launchd agent is installed. Launch the Minsky Cockpit tray app,");
-      console.log("  or run `minsky cockpit install` for the headless mode.");
+      console.log(`\n  No launchd agent found at ${status.plistPath}.`);
+      console.log("  Launch the Minsky Cockpit tray app, or run `minsky cockpit install`");
+      console.log("  for the headless mode.");
     });
   return cmd;
 }
