@@ -55,6 +55,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { recordMergeDeploySurface } from "./merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
@@ -594,6 +595,23 @@ if (import.meta.main) {
     };
   } else {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
+  }
+
+  // mt#3819: record this merge's deploy/build-surface verdict for the per-turn
+  // consumer (`build-claim-injection-detector`), which cannot afford the forge
+  // fetch we just did. Computed from `prFiles` directly rather than from
+  // `usabilityResult`, so the Gap A override — which zeroes `buildSurfaceFiles`
+  // to skip its own check — cannot make us under-record the local-app surface.
+  // Never throws and never affects this gate's decision.
+  {
+    const surfaceFiles = [
+      ...new Set([...findDeploySurfaceFiles(prFiles), ...findLocalAppDeploySurfaceFiles(prFiles)]),
+    ];
+    recordMergeDeploySurface(task, {
+      hadDeploySurface: surfaceFiles.length > 0,
+      deploySurfaceFiles: surfaceFiles,
+      recordedAt: new Date().toISOString(),
+    });
   }
 
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];

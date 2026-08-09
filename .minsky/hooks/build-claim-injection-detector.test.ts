@@ -27,6 +27,7 @@ import { extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import type { MergeDeploySurfaceStore } from "./merge-deploy-surface-record";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -356,5 +357,98 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3819 — condition (a) reads the merge-time record, not the transcript proxy
+// ---------------------------------------------------------------------------
+
+describe("mt#3819: split-transcript merges", () => {
+  const RECORD_TASK_ID = "mt#3819";
+
+  /** Inject the record store directly — no filesystem involved. */
+  function storeOf(store: MergeDeploySurfaceStore): () => MergeDeploySurfaceStore {
+    return () => store;
+  }
+
+  function recorded(files: string[]): MergeDeploySurfaceStore {
+    return {
+      [RECORD_TASK_ID]: {
+        hadDeploySurface: files.length > 0,
+        deploySurfaceFiles: files,
+        recordedAt: "2026-08-08T00:00:00.000Z",
+      },
+    };
+  }
+
+  /**
+   * The shape the old proxy could never satisfy: a main-agent conversation that
+   * MERGES but performs no file edits, because the implementation happened in a
+   * dispatched subagent's own transcript. Measured across 805 real sessions,
+   * this is why the detector fired zero times (mt#3755).
+   */
+  function splitTranscriptLines(): TranscriptLine[] {
+    return [
+      userPromptLine("merge it"),
+      assistantLine([toolUseBlock(MERGE_TOOL_NAME, { task: RECORD_TASK_ID })]),
+      userPromptLine("done?"),
+      assistantLine([textBlock(USABILITY_CLAIM_TEXT)]),
+    ];
+  }
+
+  test("a merge with NO in-transcript file edits still resolves condition (a) from the record", () => {
+    const lines = splitTranscriptLines();
+    const turn = extractLastAssistantTurn(lines);
+
+    const result = detectBuildClaimInjection(
+      extractAssistantText(turn),
+      lines,
+      storeOf(recorded([RAILWAY_SURFACE_PATH]))
+    );
+
+    expect(result.hadMerge).toBe(true);
+    expect(result.deploySurfaceFiles).toEqual([RAILWAY_SURFACE_PATH]);
+    expect(result.matched).toBe(true);
+  });
+
+  test("a recorded NEGATIVE verdict overrides an in-transcript surface edit", () => {
+    // Deliberately shaped so the OLD proxy and the NEW record disagree: the
+    // transcript edits a tray surface file (proxy says "surface present" ->
+    // would fire) while the merged PR itself touched none (record says no).
+    // The record is the authority, because it read the PR's real file list.
+    // A test that agreed with the proxy here would pass either way.
+    const lines: TranscriptLine[] = [
+      userPromptLine("ship it"),
+      assistantLine([
+        toolUseBlock(EDIT_TOOL_NAME, { path: TRAY_SURFACE_PATH }),
+        toolUseBlock(MERGE_TOOL_NAME, { task: RECORD_TASK_ID }),
+      ]),
+      userPromptLine("done?"),
+      assistantLine([textBlock(USABILITY_CLAIM_TEXT)]),
+    ];
+    const turn = extractLastAssistantTurn(lines);
+
+    const result = detectBuildClaimInjection(
+      extractAssistantText(turn),
+      lines,
+      storeOf(recorded([]))
+    );
+
+    expect(result.deploySurfaceFiles).toEqual([]);
+    expect(result.matched).toBe(false);
+  });
+
+  test("no record for this merge falls back to the transcript proxy rather than assuming clean", () => {
+    // An unrelated key: the lookup misses, so UNKNOWN -> the old proxy runs and
+    // the outcome is unchanged from pre-mt#3819 for merges that predate the
+    // producer.
+    const lines = splitTranscriptLines();
+    const turn = extractLastAssistantTurn(lines);
+
+    const result = detectBuildClaimInjection(extractAssistantText(turn), lines, storeOf({}));
+
+    expect(result.deploySurfaceFiles).toEqual([]);
+    expect(result.matched).toBe(false);
   });
 });

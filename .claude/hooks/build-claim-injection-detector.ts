@@ -101,6 +101,11 @@ import {
   isDeploySurfaceFile,
   isLocalAppDeploySurfaceFile,
 } from "../../packages/domain/src/deployment/deploy-surface";
+import {
+  lookupMergeDeploySurface,
+  readStore,
+  type MergeDeploySurfaceStore,
+} from "./merge-deploy-surface-record";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -242,6 +247,46 @@ function hadSessionPrMerge(lines: TranscriptLine[]): boolean {
 }
 
 /**
+ * Every string reachable from an in-session `*session_pr_merge` tool_use input —
+ * the candidate keys for {@link lookupMergeDeploySurface}. The merge is invoked
+ * with `task`, `sessionId`, or both, so rather than guessing the field we hand
+ * the lookup all of them.
+ */
+function mergeRecordCandidateKeys(lines: TranscriptLine[]): string[] {
+  const keys: string[] = [];
+  for (const toolName of extractToolUseNames(lines)) {
+    if (!MERGE_TOOL_NAME_RE.test(toolName)) continue;
+    for (const input of findToolUseInputs(lines, toolName)) {
+      collectStrings(input, keys);
+    }
+  }
+  return keys;
+}
+
+/**
+ * The deploy/build-surface paths for the merge this session performed (mt#3819).
+ *
+ * Reads the verdict `require-deploy-verification-before-merge` recorded at merge
+ * time from the PR's ACTUAL changed-file list. Replaces the previous proxy —
+ * scanning this transcript's own file-edit tool calls — which measured 0 fires
+ * across 805 sessions because Minsky merges in a main-agent conversation while
+ * the implementation edits live in a dispatched subagent's transcript
+ * (mt#3755).
+ *
+ * Returns null for UNKNOWN (no record for this merge), which the caller must not
+ * treat as "no deploy surface" — a missing record means the producer did not run
+ * (an older merge, or a merge that bypassed the gate), not that the PR was clean.
+ */
+function findMergeDeploySurfaceFiles(
+  lines: TranscriptLine[],
+  readRecordStore: () => MergeDeploySurfaceStore
+): string[] | null {
+  const record = lookupMergeDeploySurface(mergeRecordCandidateKeys(lines), readRecordStore());
+  if (!record) return null;
+  return record.deploySurfaceFiles;
+}
+
+/**
  * True iff rebuild/reinstall/deploy evidence appears anywhere in `lines` —
  * either a matching TOOL NAME (`deployment_wait-for-latest`/`status`/`logs`)
  * or a matching COMMAND string in a Bash/session_exec tool_use input.
@@ -334,7 +379,8 @@ export interface BuildClaimInjectionResult {
  */
 export function detectBuildClaimInjection(
   assistantText: string,
-  sessionLines: TranscriptLine[]
+  sessionLines: TranscriptLine[],
+  readRecordStore: () => MergeDeploySurfaceStore = readStore
 ): BuildClaimInjectionResult {
   const empty: BuildClaimInjectionResult = {
     matched: false,
@@ -344,7 +390,13 @@ export function detectBuildClaimInjection(
   };
   if (!assistantText) return empty;
 
-  const deploySurfaceFiles = findDeploySurfaceEditPaths(sessionLines);
+  // mt#3819: prefer the merge-time record (the PR's ACTUAL changed files) and
+  // fall back to the in-transcript edit proxy only when no record exists — a
+  // merge that predates the producer, or one that bypassed the gate. Falling
+  // back rather than treating UNKNOWN as "no surface" keeps old sessions
+  // behaving exactly as before instead of silently losing coverage.
+  const recordedSurfaceFiles = findMergeDeploySurfaceFiles(sessionLines, readRecordStore);
+  const deploySurfaceFiles = recordedSurfaceFiles ?? findDeploySurfaceEditPaths(sessionLines);
   const hadMerge = hadSessionPrMerge(sessionLines);
   if (!hadMerge || deploySurfaceFiles.length === 0) {
     return { ...empty, deploySurfaceFiles, hadMerge };
