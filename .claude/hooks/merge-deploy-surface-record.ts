@@ -22,11 +22,15 @@
 // cache: the producer pays the network cost once per merge, the consumer stays
 // local-fs only.
 //
-// Keyed by TASK ID because that is what both sides can see: the producer resolves
-// it (`resolution.taskId`), and the consumer reads the `session_pr_merge`
-// tool_use input from the transcript, which carries `task` and/or `sessionId`.
-// The consumer matches ANY string in that input against the record keys rather
-// than guessing which field was used.
+// Keying (PR #2734 R1). `session_pr_merge` takes EITHER `task` or `sessionId`
+// (mt#3355), and the two sides see different things: the producer knows the
+// RESOLVED task id, while the consumer sees only the raw tool_use input. So the
+// producer writes the verdict under the resolved task id AND under each raw id
+// it was called with, and the consumer looks up only the ID-BEARING fields of
+// that input (`task`/`taskId`/`sessionId`/`session`) — never every string in it,
+// which would let `repo` or free-text like `bypassReason` collide with another
+// merge's key. A false match is worse than a miss: a miss falls back to the old
+// proxy, a false match asserts another PR's deploy surface.
 //
 // @see mt#3819 — this module
 // @see mt#3755 — the measurement that located the defect
