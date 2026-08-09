@@ -348,8 +348,24 @@ async function main(): Promise<void> {
         )
       )
       .returning({ id: subagentInvocationsTable.id });
+    const updatedIds = new Set(updatedRows.map((row) => row.id));
     updated = updatedRows.length;
     console.log(`  updated=${updated} of ${selected.length} selected`);
+
+    // A shortfall is the guard above doing its job: a row selected moments ago
+    // no longer satisfied the eligibility predicate at UPDATE time, so it was
+    // skipped rather than clobbered. Say so — an unexplained gap between
+    // `selected` and `updated` reads as data loss, and a silent one is the
+    // failure class this repo treats as its most costly.
+    if (updated < selected.length) {
+      const skipped = selected.map((row) => row.id).filter((id) => !updatedIds.has(id));
+      console.log(
+        `  NOTE: ${selected.length - updated} row(s) were skipped by the UPDATE's eligibility ` +
+          `predicate — they stopped matching between the SELECT and the UPDATE (most likely a ` +
+          `SubagentStop closed them and wrote a real outcome). They were NOT modified:`
+      );
+      for (const id of skipped) console.log(`      ${id}`);
+    }
   } else if (execute) {
     console.log("  nothing to update.");
   } else {
