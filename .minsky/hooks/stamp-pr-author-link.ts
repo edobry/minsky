@@ -38,11 +38,16 @@ const LOG_PREFIX = "[stamp-pr-author-link]";
 /**
  * Overall budget for the DB work, well inside the hook's 20s registration.
  *
- * `ensureHookDomainBootstrap` already caps the CONNECT phase at 2s
- * (`HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS`, mt#2982), but nothing bounds the
- * two inserts afterwards. This deadline covers the whole path so a hung query
- * cannot hold PostToolUse open — the same cooperative-deadline shape mt#3019
- * added to `record-subagent-invocation`. PR #2232 R1.
+ * This deadline covers the WHOLE path — connect plus the two inserts — so a
+ * hung query cannot hold PostToolUse open; the same cooperative-deadline shape
+ * mt#3019 added to `record-subagent-invocation`. PR #2232 R1.
+ *
+ * It used to share the work with a 2s connect cap in `ensureHookDomainBootstrap`;
+ * mt#3879 removed that cap because it sat below the measured cold-connect cost
+ * (2.3-2.6s of socket alone), so this hook never reached a provider at all. This
+ * deadline is now the only bound, and a cold connect (4.3-5.5s) consumes most of
+ * it — leaving the inserts to finish inside the remainder or be abandoned, which
+ * is what the fail-open contract already expects.
  */
 const DB_DEADLINE_MS = 8000;
 

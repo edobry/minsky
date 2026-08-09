@@ -39,14 +39,37 @@
 import "reflect-metadata";
 
 /**
- * Default Postgres connect timeout (seconds) injected for hook processes.
+ * Hook processes install NO connect-timeout override (mt#3879).
  *
- * A hook runs under the harness's own host cap; a hanging DB connect would
- * otherwise burn that entire budget. mt#2982 registered
- * `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT` for exactly this, and the
- * mt#2958 probe applies the same 2s value. An operator-set value always wins.
+ * They used to force 2s. That value was set on the belief that `connect_timeout`
+ * bounds a hanging socket, so a small number looked like cheap insurance against
+ * a hook burning the harness's host budget. postgres-js documents it as bounding
+ * "the startup phase of the connection (tcp, protocol negotiation, and auth)" —
+ * the whole handshake, not a stuck socket — and measurement from a cold
+ * hook-shaped process put that handshake far above 2s:
+ *
+ *     DNS 6-353ms | TCP 866-1016ms | TLS 1406-1735ms  => 2.3-2.6s of socket alone
+ *     full resolvePersistenceProvider(): 3.3-3.7s warmed, 4.3-5.5s cold
+ *
+ * So the cap sat under half the floor and could never be reached: every
+ * DB-backed hook resolved a null provider and failed open, deterministically,
+ * for weeks — silently, because failing open is what a hook is supposed to do
+ * when the domain layer is unusable.
+ *
+ * The fix is to stop diverging rather than to pick a new number. With no
+ * override, hooks inherit the same default every other Minsky process uses
+ * (10s, applied at `postgres-provider.ts` and `validation-operations.ts`),
+ * which already bounds the hang the original 2s was reaching for and is ~1.8x
+ * the slowest observed cold resolve. An operator-set
+ * `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT` still wins, as it did before.
+ *
+ * The cost this accepts: when Postgres is genuinely unreachable, a DB-backed
+ * hook now waits ~10s instead of ~2s before failing open. That is the same
+ * exposure every other process already carries, and it buys back checks that
+ * were not running at all. Removing the per-process cold connect entirely is
+ * the structural fix — mt#2430 / ADR-038's daemon topology — and is tracked
+ * separately rather than solved by a timeout value.
  */
-export const HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS = "2";
 
 /**
  * Make the domain layer usable from a hook process.
@@ -56,9 +79,8 @@ export const HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS = "2";
  * be a no-op rather than a re-initialization).
  *
  * Must be called BEFORE the first `resolvePersistenceProvider()` /
- * `getConfiguration()` / embedding-factory call, and before anything caches a
- * view of the environment — the connect-timeout default below is only
- * effective if it is set first.
+ * `getConfiguration()` / embedding-factory call, so configuration is
+ * initialized before anything reads it.
  *
  * Never throws: a bootstrap failure is returned as a value so the caller can
  * honor its own fail-safe contract (hooks must not block the event they
@@ -68,12 +90,6 @@ export async function ensureHookDomainBootstrap(): Promise<
   { ok: true } | { ok: false; error: string }
 > {
   try {
-    // mt#2982 fail-fast connect. Set before the first configuration or
-    // persistence-provider resolution caches its view of the env; `??=` leaves
-    // an operator-set value untouched.
-    process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT ??=
-      HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS;
-
     // Layer 2. Dynamic so the domain config module tree is loaded only when a
     // hook actually reaches its DB path, not at hook-registration time.
     const { isConfigurationInitialized } = await import(
