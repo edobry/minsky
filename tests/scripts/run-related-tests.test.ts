@@ -319,6 +319,41 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     expect(truncated.ok).toBe(false);
   });
 
+  test("the TOTAL budget bounds the gate across partitions, not just per-partition (PR #2733 R1)", async () => {
+    // A per-partition budget alone leaves the total unbounded in the NUMBER of
+    // partitions, and the outer wrapper treats its own kill as a hard FAILURE
+    // — so an unbounded total reintroduces the unpassable state on the one
+    // path where a timeout is not a deferral. Here every partition burns its
+    // whole budget; the gate must stop and defer rather than run all of them.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const budgets: number[] = [];
+    const result = await runFastRelatedTestGate(
+      ["src/foo.ts", "src/mcp/server.ts", SERVICE_SOURCE_FILE],
+      repoRoot,
+      {
+        fs,
+        runBunTest: async (_files, _preload, _ignore, _cwd, budgetMs) => {
+          budgets.push(budgetMs ?? -1);
+          return {
+            exitCode: 1,
+            combined: "bun test v1.3.14\n",
+            timedOut: true,
+            elapsedMs: budgetMs ?? 0,
+            budgetMs: budgetMs ?? 0,
+            timeoutMessage: "partition stopped at its wall-clock budget.",
+          };
+        },
+      }
+    );
+    // The FIRST timed-out partition already defers, so the gate never spends
+    // an unbounded multiple of the partition budget.
+    expect(result.ok).toBe(true);
+    expect(result.reason).toContain("TIMED OUT");
+    expect(budgets.length).toBe(1);
+    // And the budget handed to a partition never exceeds the total.
+    expect(budgets[0]).toBeLessThanOrEqual(90_000);
+  });
+
   test("a large related set is RUN, not skipped -- monotonic in change size (mt#3765 SC3)", async () => {
     // Replaces the RELATED_TEST_CAP skip test. The cap inverted the risk
     // gradient: a set over it was skipped and passed, so a LARGER staged change

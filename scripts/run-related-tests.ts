@@ -125,7 +125,13 @@ async function runBunTest(
   files: string[],
   preload: string = "./tests/setup.ts",
   pathIgnorePatterns?: string,
-  cwd?: string
+  cwd?: string,
+  /**
+   * Caller-supplied wall-clock budget for THIS partition. The gate passes
+   * `min(per-partition budget, time left in the total budget)` so the sum over
+   * partitions stays bounded — see RELATED_TESTS_TOTAL.
+   */
+  budgetMsOverride?: number
 ): Promise<BunTestRunResult> {
   // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
   // avoided here -- evaluateBunTestSummary (scripts/run-tests-gated.ts) strips
@@ -139,7 +145,8 @@ async function runBunTest(
   // ignores SIGTERM running to completion under `timeout: 2000` and being
   // reported as a PASS (elapsed=25011ms, exitCode=0, success=true). This gate
   // was the last test-runner surface mt#3156 never migrated.
-  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_PARTITION);
+  const budgetMs =
+    budgetMsOverride ?? resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_PARTITION);
   const result = await spawnWithWatchdog(
     ["bun", "test", "--preload", preload, "--timeout=15000", ...ignoreArgs, ...files],
     {
@@ -151,8 +158,10 @@ async function runBunTest(
       ...(cwd ? { cwd } : {}),
     }
   );
-  process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
+  // No re-emit here: spawnWithWatchdog already writes captured stdout/stderr
+  // through to this process (spawn-with-watchdog.ts:213-214) precisely so
+  // callers that gate on the text still show it. Writing it again printed the
+  // whole partition's output twice.
   return {
     exitCode: result.exitCode,
     combined: `${result.stdout}\n${result.stderr}`,
@@ -223,20 +232,33 @@ export async function runFastRelatedTestGate(
    * accepted. A missing summary WITHOUT a timeout still fails closed — that is
    * the real truncation signal and it is untouched.
    */
+  // Total wall-clock across ALL partitions (PR #2733 R1). A per-partition
+  // budget alone leaves the gate's total unbounded in the NUMBER of
+  // partitions, and the outer wrapper in related-tests-check.ts treats its own
+  // kill as a hard FAILURE — so an unbounded total would reintroduce the
+  // unpassable state on the one path where a timeout is not a deferral.
+  const totalBudgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_TOTAL);
+  const deadlineAt = startMs + totalBudgetMs;
+  const remainingMs = () => deadlineAt - Date.now();
+
+  const deferredForTimeout = (
+    detail: string
+  ): { ok: boolean; reason: string; relatedCount: number; elapsedMs: number } => ({
+    ok: true,
+    reason:
+      `related tests TIMED OUT, not failed -- ${detail} ` +
+      `Deferred to the authoritative full-suite gate (.husky/pre-push + CI); ` +
+      `the commit is NOT blocked. ${related.length} related file(s) were selected.`,
+    relatedCount: related.length,
+    elapsedMs: Date.now() - startMs,
+  });
+
   const terminalFor = (
     result: BunTestRunResult,
     failLabel: string
   ): { ok: boolean; reason: string; relatedCount: number; elapsedMs: number } | null => {
     if (result.timedOut) {
-      return {
-        ok: true,
-        reason:
-          `related tests TIMED OUT, not failed -- ${result.timeoutMessage} ` +
-          `Deferred to the authoritative full-suite gate (.husky/pre-push + CI); ` +
-          `the commit is NOT blocked. ${related.length} related file(s) were selected.`,
-        relatedCount: related.length,
-        elapsedMs: Date.now() - startMs,
-      };
+      return deferredForTimeout(result.timeoutMessage ?? "the partition was stopped.");
     }
     const gate = evaluateBunTestSummary(result.combined, result.exitCode);
     if (!gate.ok) {
@@ -248,6 +270,32 @@ export async function runFastRelatedTestGate(
       };
     }
     return null;
+  };
+
+  /**
+   * Run one partition inside the TOTAL budget, or defer if the budget is spent.
+   * Returns a terminal gate result, or null to continue to the next partition.
+   */
+  const runPartition = async (
+    files: string[],
+    failLabel: string,
+    preload?: string,
+    ignore?: string,
+    cwd?: string
+  ) => {
+    const left = remainingMs();
+    if (left <= 0) {
+      return deferredForTimeout(
+        `the gate hit its ${Math.round(totalBudgetMs / 1000)}s TOTAL pre-commit budget before ` +
+          `every partition had run.`
+      );
+    }
+    const partitionBudget = Math.min(
+      resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_PARTITION),
+      left
+    );
+    const result = await doRun(files, preload, ignore, cwd, partitionBudget);
+    return terminalFor(result, failLabel);
   };
 
   const mcpFiles = related.filter((f) => f.startsWith("src/mcp/"));
@@ -276,8 +324,10 @@ export async function runFastRelatedTestGate(
   );
 
   if (regularFiles.length > 0) {
-    const result = await doRun(regularFiles.map(toBunTestPath));
-    const terminal = terminalFor(result, "related tests FAILED (fail-closed)");
+    const terminal = await runPartition(
+      regularFiles.map(toBunTestPath),
+      "related tests FAILED (fail-closed)"
+    );
     if (terminal) return terminal;
   }
 
@@ -285,14 +335,11 @@ export async function runFastRelatedTestGate(
   // tests/dom-setup.ts, mirroring bunfig.toml's exclusion of this directory
   // from the default (non-DOM) preload -- see this file's module doc.
   if (cockpitDomFiles.length > 0) {
-    const result = await doRun(
+    const terminal = await runPartition(
       cockpitDomFiles.map(toBunTestPath),
+      "related cockpit-web tests FAILED (fail-closed, DOM preload)",
       "./tests/dom-setup.ts",
       COCKPIT_WEB_IGNORE_PATTERNS
-    );
-    const terminal = terminalFor(
-      result,
-      "related cockpit-web tests FAILED (fail-closed, DOM preload)"
     );
     if (terminal) return terminal;
   }
@@ -305,19 +352,20 @@ export async function runFastRelatedTestGate(
   for (const [svc, files] of serviceGroups) {
     const serviceDir = join(repoRoot, "services", svc);
     const relativePaths = files.map((f) => `./${f.slice(`services/${svc}/`.length)}`);
-    const result = await doRun(relativePaths, "../../tests/setup.ts", undefined, serviceDir);
-    const terminal = terminalFor(
-      result,
-      `related services/${svc} tests FAILED (fail-closed, service-directory run)`
+    const terminal = await runPartition(
+      relativePaths,
+      `related services/${svc} tests FAILED (fail-closed, service-directory run)`,
+      "../../tests/setup.ts",
+      undefined,
+      serviceDir
     );
     if (terminal) return terminal;
   }
 
   // mt#2665: any related src/mcp test runs isolated, one file per process.
   for (const file of mcpFiles) {
-    const result = await doRun([toBunTestPath(file)]);
-    const terminal = terminalFor(
-      result,
+    const terminal = await runPartition(
+      [toBunTestPath(file)],
       `related test '${file}' FAILED (fail-closed, isolated run)`
     );
     if (terminal) return terminal;

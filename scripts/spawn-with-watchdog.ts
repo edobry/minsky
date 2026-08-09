@@ -91,6 +91,30 @@ export const WATCHDOG_BUDGETS_MS = {
    * timeout and deferred, not failed.
    */
   RELATED_TESTS_PARTITION: 60_000, // 60s
+  /**
+   * TOTAL wall-clock for the whole pre-commit related-test gate, across every
+   * partition (mt#3765, PR #2733 R1).
+   *
+   * A per-partition budget alone does not bound the gate: a set that splits
+   * into regular + cockpit-web + N services + M isolated src/mcp files can
+   * spend PARTITION_BUDGET on each, so the total is unbounded in the number of
+   * partitions. `related-tests-check.ts` wraps the whole gate at
+   * RELATED_TESTS_WRAPPER and treats a kill as a hard FAILURE — so an
+   * unbounded total would let two timed-out partitions (120s) blow the wrapper
+   * and reintroduce exactly the unpassable state this task removed, on the one
+   * path where the timeout is NOT reported as a deferral.
+   *
+   * The gate self-reports within this bound instead, leaving the wrapper as a
+   * backstop that only fires on a genuine anomaly.
+   */
+  RELATED_TESTS_TOTAL: 90_000, // 90s
+  /**
+   * The OUTER wrapper in `src/hooks/related-tests-check.ts`. Must exceed
+   * RELATED_TESTS_TOTAL with margin so the inner gate always gets to report
+   * its own disposition; if this ever fires, the gate itself hung and a hard
+   * failure is the correct answer.
+   */
+  RELATED_TESTS_WRAPPER: 150_000, // 150s
 } as const;
 
 /**
