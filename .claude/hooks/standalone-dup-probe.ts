@@ -221,13 +221,14 @@ async function runProbe(
       return degraded(`domain bootstrap failed: ${bootstrap.error}`);
     }
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
-    const provider = await resolvePersistenceProvider();
-    if (!provider) {
-      return degraded("persistence provider unavailable (see mt#3019 for the config-init class)");
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      return degraded(describeProviderResolutionFailure(resolution));
     }
+    const provider = resolution.provider;
 
     const { createConfiguredTaskService } = await import(
       "../../packages/domain/src/tasks/taskService"
@@ -335,6 +336,33 @@ async function resolveProbeProjectScope(provider: PersistenceProvider): Promise<
   } catch {
     return ALL_PROJECTS;
   }
+}
+
+/**
+ * Render a provider-resolution failure for the guard-health check-skip event.
+ *
+ * The caller threads this into `guardHealth.lastEvent.message` (mt#2958 SC2),
+ * where it is the ONLY account of the failure a reader gets — a hook process
+ * exits immediately after the decision, so its stderr, and anything the domain
+ * layer logs at debug level, is discarded unread.
+ *
+ * What this replaced named mt#3019's config-init class, which is excluded by
+ * construction at the only call site: `runProbe` reaches provider resolution
+ * only after `ensureHookDomainBootstrap()` returns ok, i.e. after configuration
+ * DID initialize. So the one explanation the message offered was the one the
+ * control flow had already ruled out, and the real error was unavailable
+ * anywhere a reader would look. A 22-invocation critical-escalation streak was
+ * read that way for three days (mt#3750).
+ *
+ * Both fields come from `resolvePersistenceProviderOrError`, which
+ * credential-scrubs `error` before returning it — guard-health records are
+ * persisted and rendered into an operator-facing banner.
+ */
+export function describeProviderResolutionFailure(failure: {
+  error: string;
+  errorClass: string;
+}): string {
+  return `persistence provider unavailable: ${failure.errorClass}: ${failure.error}`;
 }
 
 /**

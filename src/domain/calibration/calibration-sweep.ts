@@ -317,7 +317,49 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // `findInvalidLiveSinceDates` (above) only catches unparseable/future
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
-    liveSinceDate: "2026-07-23",
+    //
+    // mt#3755 (2026-08-08): re-anchored again, and the DISPOSITION is KEEP —
+    // the silence is measured DORMANCY, not breakage and not deterrence.
+    //
+    // The anchor is the LIVENESS PROOF date, per this field's own contract
+    // above ("the date the detector's full invocation path ... was PROVEN
+    // alive"). Proof: `bun scripts/run-guard-canaries.ts --json` on 2026-08-08
+    // returned `build-claim-injection-detector` `passed: true` with a real
+    // calibration outcome (timestamp 2026-08-08T23:53:07.794Z, matchedPhrases
+    // ["you can use it"]); suite 42 passed / 0 failed. mt#3755's Success
+    // Criterion 1 named the earlier 2026-08-05 canary run as the anchor; a
+    // FRESHER proof of the same property supersedes it, and dating the clock
+    // from a stale proof would understate the contract's runway. Amendment
+    // recorded in mt#3755 `## Criterion 1 amendment`.
+    //
+    // Dormancy evidence: `bun scripts/replay-build-claim-injection.ts --json`
+    // replayed the detector over all 805 transcripts since 2026-07-23
+    // (3,048 evaluation points) and it would have fired ZERO times. The corpus
+    // grows, so absolute counts drift on a re-run; the funnel SHAPE and the
+    // zero-fire result are the finding. It localizes why, and it is condition
+    // (a), not the claim patterns:
+    //
+    //     620 sessions  no in-session `*session_pr_merge` tool_use at all
+    //     176 sessions  merged, but no deploy-surface file edited in-transcript
+    //       8 sessions  merge + surface edit, but no usability claim
+    //       1 session   all three met -> correctly SUPPRESSED by real rebuild
+    //                   evidence (a true negative, not a miss)
+    //
+    // So the detector is not failing to recognize claims; its condition-(a)
+    // PROXY — "a deploy-surface file was edited via a file-edit tool in THIS
+    // transcript" — is near-unsatisfiable in Minsky's actual workflow, because
+    // `DEPLOY_SURFACE_PATTERNS` matches only deploy CONFIG files (infra/,
+    // Dockerfiles, railway.json, deploy workflows) and merges frequently
+    // happen in a main-agent conversation whose file edits live in a
+    // subagent's transcript. That defect is tracked at mt#3819 rather than
+    // fixed here.
+    //
+    // Kept rather than retired because the cost is ~zero — INJECTION_ENABLED
+    // is false, so it logs nothing and injects nothing — while retiring would
+    // re-open the mt#2707 RFC's "merged != usable" chat seam, which no other
+    // mechanism covers at the CHAT surface (the sibling mt#2545 gate covers
+    // the PR-BODY surface only).
+    liveSinceDate: "2026-08-08",
   },
   {
     path: ".minsky/knowledge-acquisition-calibration.jsonl",

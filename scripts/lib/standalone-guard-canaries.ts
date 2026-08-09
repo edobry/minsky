@@ -289,8 +289,9 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
           false
         );
 
-      // A prohibition with no basis and no licence to falsify it is the class
-      // this guard exists for...
+      // A prohibition with no basis is the class this guard exists for — since
+      // mt#3167 that is the ONLY firing category, the licence-to-falsify one
+      // having been retired at 8/8 measured false positives...
       const bare = dispatchWith(
         "Do not attempt to use the Railway CLI — it is blocked in this environment."
       );
