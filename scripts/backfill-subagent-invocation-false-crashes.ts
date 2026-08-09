@@ -32,6 +32,7 @@
  *   bun scripts/backfill-subagent-invocation-false-crashes.ts              # dry-run (default)
  *   bun scripts/backfill-subagent-invocation-false-crashes.ts --limit 1 --execute   # bounded apply
  *   bun scripts/backfill-subagent-invocation-false-crashes.ts --execute    # full apply
+ *   bun scripts/backfill-subagent-invocation-false-crashes.ts --baseline 3 --execute  # re-run, count re-stated
  *
  * Safety (CLAUDE.md §Operational Safety: Dry-Run First):
  *   - Dry-run by default; `--execute` required to mutate.
@@ -39,7 +40,8 @@
  *     measured when this script was written. A divergence beyond
  *     `SCOPE_DIVERGENCE_FACTOR` aborts rather than proceeding, per the
  *     dry-run scope-match rule (a 9x divergence once shipped 136 unintended
- *     writes — mem#622).
+ *     writes — mem#622). `--baseline N` re-confirms the check against a
+ *     re-measured count instead of skipping it; there is no way to disable it.
  *   - `--limit N` bounds an `--execute` run to the first N target rows, so the
  *     mutating branch can be exercised pre-merge without the full blast radius
  *     (mt#2776 — the sibling `backfill-close-stale-asks.ts` shipped a broken
@@ -59,8 +61,9 @@
 // polyfill — without it the documented `bun scripts/...` invocation throws
 // "tsyringe requires a reflect polyfill" (mt#2768).
 import "reflect-metadata";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 
 // ---------------------------------------------------------------------------
@@ -76,7 +79,19 @@ import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagen
  */
 export const MT1770_CUTOVER_ISO = "2026-08-01T00:00:00.000Z";
 
-/** Target rows counted against prod on 2026-08-09, recorded in mt#3173's spec. */
+/**
+ * Target rows counted against prod on 2026-08-09, recorded in mt#3173's spec.
+ *
+ * This is the expectation the scope-match guard checks against, NOT a limit. It
+ * is deliberately a fixed number rather than a re-measurement: a guard that
+ * re-derives its own expectation from the same query it is guarding cannot
+ * detect that the population changed.
+ *
+ * Because it is fixed, it goes stale the moment the sweep runs — a later run
+ * finds far fewer rows and correctly refuses. `--baseline N` is the path for a
+ * deliberate re-run: it makes the operator STATE the re-measured count, so the
+ * check is re-confirmed rather than skipped.
+ */
 export const MEASURED_BASELINE = 145;
 
 /** Matched-count divergence from the baseline that aborts instead of proceeding. */
@@ -89,47 +104,53 @@ export const FALSE_CRASH_OUTCOME = "crashed-no-output";
 export const REPLACEMENT_OUTCOME = "pending";
 
 // ---------------------------------------------------------------------------
-// Pure planning logic (unit-tested directly — no DB, no I/O)
+// Row-selection predicates (SQL — the DB, not application code, decides)
 // ---------------------------------------------------------------------------
 
 /**
- * A candidate row as fetched by the query: an OPEN row (`ended_at IS NULL`)
- * carrying the false-crash outcome. `startedAt` decides which side of the
- * cutover it falls on.
+ * A row as fetched by the queries below: an OPEN row (`ended_at IS NULL`)
+ * carrying the false-crash outcome, on one side of the cutover or the other.
  */
 export interface FalseCrashCandidateRow {
   id: string;
   startedAt: Date;
 }
 
-export interface FalseCrashBackfillPlan {
-  /** Rows to flip to `pending` — pre-cutover, so provably seeded, not classified. */
-  target: FalseCrashCandidateRow[];
-  /**
-   * Rows at or after the cutover. A live dispatch-recover classification may
-   * legitimately look like this, so they are reported and never mutated.
-   */
-  manualTriage: FalseCrashCandidateRow[];
+const CUTOVER = new Date(MT1770_CUTOVER_ISO);
+
+/**
+ * The three-clause predicate this backfill is authorized to mutate:
+ * `outcome = 'crashed-no-output' AND ended_at IS NULL AND started_at < cutover`.
+ *
+ * All three clauses live in SQL rather than being partly enforced in
+ * application code, so the database — not the planner — decides what is
+ * eligible. It is applied TWICE: once to select the candidates, and again on
+ * the UPDATE's own WHERE clause. The second application is not redundant: it
+ * closes the window between the SELECT and the UPDATE, in which a SubagentStop
+ * could legitimately close one of the selected rows and write its real terminal
+ * outcome. Keyed on `id` alone, the UPDATE would then overwrite that real
+ * outcome with `pending`.
+ */
+export function targetRowsWhere() {
+  return and(
+    eq(subagentInvocationsTable.outcome, FALSE_CRASH_OUTCOME),
+    isNull(subagentInvocationsTable.endedAt),
+    lt(subagentInvocationsTable.startedAt, CUTOVER)
+  );
 }
 
 /**
- * Partition the candidate rows around the cutover. Pure: the caller supplies
- * the rows and the cutover, so the decision is observable without a DB.
+ * The complement on the cutover axis: open false-crash rows at or after the
+ * cutover. These are REPORTED and never mutated — a live dispatch-recover
+ * classification legitimately takes this shape (see the module header), so the
+ * backfill must not touch them.
  */
-export function planFalseCrashBackfill(
-  rows: FalseCrashCandidateRow[],
-  cutoverIso: string = MT1770_CUTOVER_ISO
-): FalseCrashBackfillPlan {
-  const cutoverMs = new Date(cutoverIso).getTime();
-  const target: FalseCrashCandidateRow[] = [];
-  const manualTriage: FalseCrashCandidateRow[] = [];
-
-  for (const row of rows) {
-    if (row.startedAt.getTime() < cutoverMs) target.push(row);
-    else manualTriage.push(row);
-  }
-
-  return { target, manualTriage };
+export function manualTriageRowsWhere() {
+  return and(
+    eq(subagentInvocationsTable.outcome, FALSE_CRASH_OUTCOME),
+    isNull(subagentInvocationsTable.endedAt),
+    gte(subagentInvocationsTable.startedAt, CUTOVER)
+  );
 }
 
 export interface ScopeMatchVerdict {
@@ -195,8 +216,14 @@ async function getDb(): Promise<PostgresJsDatabase> {
   if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
-
-  const connection = await persistence.getDatabaseConnection();
+  // Narrow via SqlCapablePersistenceProvider per the base class's own doc
+  // comment ("callers that need typed connections should narrow via
+  // SqlCapablePersistenceProvider") — the runtime checks above already proved
+  // this shape. Matches the precedent in `backfill-close-stale-asks.ts`; the DI
+  // container also registers an `UnconfiguredPersistenceProvider` placeholder,
+  // which the checks above reject before this point.
+  const sqlProvider = persistence as SqlCapablePersistenceProvider;
+  const connection = await sqlProvider.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }
@@ -204,15 +231,35 @@ async function getDb(): Promise<PostgresJsDatabase> {
   return connection as PostgresJsDatabase;
 }
 
-function parseLimit(argv: string[]): number | null {
-  const index = argv.indexOf("--limit");
+/**
+ * Parse an integer-valued flag. Throws rather than silently ignoring a
+ * malformed value: a typo'd `--limit` that quietly became "no limit" would turn
+ * a run intended to be bounded into a full-population mutation.
+ *
+ * `--baseline` accepts 0 (the legitimate "I have re-measured and expect none"
+ * case); `--limit 0` is meaningless, so the minimum is per-flag.
+ */
+export function parseIntFlag(argv: string[], flag: string, minimum: number): number | null {
+  const index = argv.indexOf(flag);
   if (index === -1) return null;
   const raw = argv[index + 1];
   const parsed = Number.parseInt(raw ?? "", 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`--limit expects a positive integer, got: ${raw ?? "(missing)"}`);
+  if (!Number.isFinite(parsed) || parsed < minimum) {
+    throw new Error(`${flag} expects an integer >= ${minimum}, got: ${raw ?? "(missing)"}`);
   }
   return parsed;
+}
+
+export function parseLimit(argv: string[]): number | null {
+  return parseIntFlag(argv, "--limit", 1);
+}
+
+/**
+ * The operator-stated re-measured target count, when re-running after the
+ * original sweep has already moved the population away from `MEASURED_BASELINE`.
+ */
+export function parseBaseline(argv: string[]): number | null {
+  return parseIntFlag(argv, "--baseline", 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +270,7 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const execute = argv.includes("--execute");
   const limit = parseLimit(argv);
+  const baseline = parseBaseline(argv) ?? MEASURED_BASELINE;
 
   let db: PostgresJsDatabase;
   try {
@@ -235,36 +283,38 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Candidates: OPEN rows carrying the false-crash verdict, both sides of the
-  // cutover. The cutover partition happens in the pure planner below so the
-  // decision is unit-testable.
-  const candidates = (await db
-    .select({
-      id: subagentInvocationsTable.id,
-      startedAt: subagentInvocationsTable.startedAt,
-    })
-    .from(subagentInvocationsTable)
-    .where(
-      and(
-        eq(subagentInvocationsTable.outcome, FALSE_CRASH_OUTCOME),
-        isNull(subagentInvocationsTable.endedAt)
-      )
-    )) as FalseCrashCandidateRow[];
+  // Two queries, each carrying its full predicate in SQL. The target set is the
+  // three-clause predicate the backfill is authorized to mutate; the triage set
+  // is its complement on the cutover axis, fetched only to be REPORTED.
+  const selectColumns = {
+    id: subagentInvocationsTable.id,
+    startedAt: subagentInvocationsTable.startedAt,
+  };
 
-  const { target, manualTriage } = planFalseCrashBackfill(candidates);
+  const target = (await db
+    .select(selectColumns)
+    .from(subagentInvocationsTable)
+    .where(targetRowsWhere())) as FalseCrashCandidateRow[];
+
+  const manualTriage = (await db
+    .select(selectColumns)
+    .from(subagentInvocationsTable)
+    .where(manualTriageRowsWhere())) as FalseCrashCandidateRow[];
 
   console.log(
     `backfill-subagent-invocation-false-crashes ${execute ? "(EXECUTE)" : "(dry-run)"}` +
       `${limit === null ? "" : ` --limit ${limit}`}`
   );
-  console.log(`  open '${FALSE_CRASH_OUTCOME}' rows:            ${candidates.length}`);
+  console.log(
+    `  open '${FALSE_CRASH_OUTCOME}' rows:            ${target.length + manualTriage.length}`
+  );
   console.log(`  → flip to '${REPLACEMENT_OUTCOME}' (pre-cutover):  ${target.length}`);
   console.log(`  → manual triage (at/after cutover):  ${manualTriage.length}`);
   for (const row of manualTriage) {
     console.log(`      ${row.id} started ${row.startedAt.toISOString()} — LEFT UNTOUCHED`);
   }
 
-  const scope = checkScopeMatch(target.length);
+  const scope = checkScopeMatch(target.length, baseline);
   console.log(`  scope-match: ${scope.message}`);
   if (!scope.ok) {
     console.log(JSON.stringify({ mode: execute ? "execute" : "dry-run", aborted: "scope-match" }));
@@ -279,13 +329,22 @@ async function main(): Promise<void> {
     // laptop→Supabase round trip are the recurring killer on this class of
     // backfill (mem#758). Only `outcome` is set — `ended_at` stays NULL by
     // construction, per ask#6801.
+    //
+    // The WHERE re-asserts the full eligibility predicate alongside the id list
+    // rather than trusting the ids alone. See `targetRowsWhere`: between this
+    // statement and the SELECT that produced the ids, a SubagentStop can close
+    // one of those rows and write its real terminal outcome, and an id-only
+    // UPDATE would overwrite it with `pending`.
     const updatedRows = await db
       .update(subagentInvocationsTable)
       .set({ outcome: REPLACEMENT_OUTCOME })
       .where(
-        inArray(
-          subagentInvocationsTable.id,
-          selected.map((row) => row.id)
+        and(
+          inArray(
+            subagentInvocationsTable.id,
+            selected.map((row) => row.id)
+          ),
+          targetRowsWhere()
         )
       )
       .returning({ id: subagentInvocationsTable.id });
@@ -302,13 +361,13 @@ async function main(): Promise<void> {
   const result = {
     mode: execute ? "execute" : "dry-run",
     limit,
-    openFalseCrashRows: candidates.length,
+    openFalseCrashRows: target.length + manualTriage.length,
     target: target.length,
     manualTriage: manualTriage.length,
     manualTriageIds: manualTriage.map((row) => row.id),
     selected: selected.length,
     updated,
-    baseline: MEASURED_BASELINE,
+    baseline,
   };
   console.log(JSON.stringify(result));
 
