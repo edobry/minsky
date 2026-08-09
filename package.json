@@ -71,6 +71,7 @@
     "typecheck:hooks": "tsgo --noEmit -p tsconfig.hooks.json",
     "typecheck:scripts": "tsgo --noEmit -p tsconfig.scripts.json",
     "typecheck:packages": "tsgo --noEmit -p packages/domain/tsconfig.json && tsgo --noEmit -p packages/shared/tsconfig.json",
+    "typecheck:infra": "tsgo --noEmit -p infra/tsconfig.json",
     "check:typecheck-coverage": "bun scripts/typecheck-coverage.ts",
     "typecheck:cockpit-web": "tsgo --noEmit -p src/cockpit/web/tsconfig.json",
     "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run test:hooks && bun run test:components && bun run test:eslint-rules",
