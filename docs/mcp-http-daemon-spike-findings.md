@@ -534,6 +534,139 @@ and model behavior can (and here did) give up.
 
 ---
 
+## Rust shim measurement — mt#3884 (2026-08-09)
+
+> **Status:** Answers the question ADR-038 left open: is the shim's measured ~38MB the Bun
+> runtime's floor, or the shim's own job? A minimal Rust equivalent was built, driven with real
+> `claude` client traffic end to end through the live daemon, and its RSS measured the same way
+> mt#3811 measured the Bun shim and the daemon.
+
+**Claude Code version tested:** 2.1.226. Same daemon binary and static-bearer-token auth path as
+mt#3766/mt#3811 (`minsky mcp start --http --host 127.0.0.1`).
+
+### What was built
+
+A minimal Rust stdio→HTTP bridge — no Minsky imports, no command registry, no DB — matching the
+mt#3884 spec's "In scope" bullet exactly: read newline-delimited JSON-RPC from stdin, forward each
+message to the daemon over HTTP, stamp `_meta["io.minsky/agent_id"]` from `CLAUDE_CODE_SESSION_ID`
+on `tools/call` requests only, write the response back to stdout. No GET/SSE server-push proxying
+(out of scope: Claude Code's stdio client never asks for one). ~200 lines, `tokio` (current-thread
+runtime) + `reqwest` (no TLS features — plain `http://127.0.0.1` only) + `serde_json`, release
+profile `opt-level = "z"`, `lto = true`, `strip = true`, `panic = "abort"`.
+
+Built with the same Rust toolchain already installed for `cockpit-tray/src-tauri/` (`cargo
+1.96.0`) — no new build infrastructure was needed to compile it. Source kept at
+`docs/spikes/mt3884-rust-shim/` as the reproducibility artifact (not part of the repo build — no
+workspace membership, nothing references it).
+
+### Method
+
+Same daemon, same `--mcp-config` shape as mt#3766/mt#3811, with the shim's compiled binary as a
+`type: "stdio"` MCP server entry (`command` pointed at the release binary, `env` carrying
+`MINSKY_SHIM_DAEMON_URL` and `MINSKY_MCP_AUTH_TOKEN`) — exactly the topology ADR-038 decided on
+(Claude Code spawns the shim over stdio; the shim forwards to the shared daemon over HTTP).
+`MINSKY_MCP_DIAG_CAPTURE` was set on the daemon (the same `captureRequest` mechanism ADR-038
+Observation F used) to independently verify the identity stamp server-side.
+
+`claude -p` prompt: call `debug_echo` (message `rust-shim-call1`) → run
+`perl -e 'select(undef,undef,undef,15)'` via the Bash tool (a foreground sleep that isn't
+backgrounded by the harness's 5s grace period, per the mt#3811 methodology note) → call
+`debug_echo` again (message `rust-shim-call2`) → report both raw results. RSS was sampled via
+`ps -o rss= -p <shim-pid>` at ~2-3s intervals while the shim process was confirmed alive
+(`ps -p <pid>`) during the 15s hold.
+
+### Result — identity stamp reaches the daemon
+
+The shim's own startup self-log (a spike-only diagnostic, not part of the design) recorded the
+conversation id it read from `CLAUDE_CODE_SESSION_ID`:
+
+```
+{"pid":37013,"conversation_id":"c5a8759c-eec6-408b-91ad-8e3179dd2b98"}
+```
+
+The daemon's diagnostic capture shows **both** `tools/call` requests arriving with that exact id
+in `_meta`:
+
+```json
+{"method":"tools/call","meta":{"progressToken":4,"claudecode/toolUseId":"toolu_01BtcgmE5s4MUdL5xetZ8m1n","io.minsky/agent_id":"c5a8759c-eec6-408b-91ad-8e3179dd2b98"}}
+{"method":"tools/call","meta":{"progressToken":5,"claudecode/toolUseId":"toolu_01P7ZN2oxPYLbcnHnYhZHVnz","io.minsky/agent_id":"c5a8759c-eec6-408b-91ad-8e3179dd2b98"}}
+```
+
+Both `debug_echo` calls succeeded (verbatim client output):
+
+```json
+{"success": true, "timestamp": "2026-08-09T03:06:39.388Z", "echo": {"message": "rust-shim-call1"}, "interface": "mcp"}
+{"success": true, "timestamp": "2026-08-09T03:07:03.323Z", "echo": {"message": "rust-shim-call2"}, "interface": "mcp"}
+```
+
+23.9s elapsed between the two calls (the 15s hold plus turn overhead); the connection survived the
+gap with no reconnect prompt. **Real `claude` client traffic carried end to end through the
+compiled shim, with the identity stamp verified present at the daemon on both calls — not
+inferred, not simulated.**
+
+### Result — RSS, same method as mt#3811
+
+Nine `ps -o rss=` samples on the shim's pid, ~2-3s apart, while the `claude -p` client held the
+connection open across the 15s Bash hold:
+
+```
+2976, 2976, 2976, 2976, 3152, 3152, 3152, 3152, 3392   (KB)
+```
+
+**≈ 2.9–3.4 MB, settled** (no growth trend — the four-sample plateaus mark GC pauses between small
+allocator jumps, not a leak). Directly beside the Bun shim's own three-sample measurement from
+ADR-038 (`docs/architecture/adr-038-local-shared-mcp-daemon-architecture.md` §Question 1):
+
+| Shim runtime                              | Samples (MB)                                                  | Range           |
+| ----------------------------------------- | ------------------------------------------------------------- | --------------- |
+| Bun (measured 2026-08-06, ADR-038)        | 36.0, 36.0, 38.6                                              | ~36–39 MB       |
+| **Rust (measured 2026-08-09, this task)** | 2.976, 2.976, 2.976, 2.976, 3.152, 3.152, 3.152, 3.152, 3.392 | **~2.9–3.4 MB** |
+
+**≈ 12x smaller.** ADR-038's ~38MB was hypothesized to be mostly the Bun runtime's floor rather
+than the shim's own job — this measurement confirms it: the identical byte-pipe-plus-stamp logic
+costs single-digit MB once the interpreted-runtime floor is removed.
+
+### Cleanup
+
+Daemon bound to `127.0.0.1:48810` only. Every process this measurement spawned (daemon, the
+`claude -p` client, the shim child it spun up) was confirmed exited on its own or killed
+directly, followed by a broad sweep:
+
+```
+$ ps aux | grep -E "minsky-mcp-shim-spike|mcp start --http|claude -p" | grep -v grep
+(empty)
+$ lsof -iTCP:48810 -sTCP:LISTEN
+(empty)
+```
+
+No process from this measurement was left running (mt#3764).
+
+### Restated total and verdict
+
+At the census's ~40 conversations, using the same pessimistic-daemon convention mt#3811
+established (single highest daemon sample observed, ~257 MB — this task did not re-measure the
+daemon, per its Scope):
+
+| Topology                                  | Per-conversation shim cost | ~40 conversations (shim + pessimistic daemon) | vs ~3.4GB baseline |
+| ----------------------------------------- | -------------------------- | --------------------------------------------- | ------------------ |
+| Today (proxy + inner server)              | ~119 MB (no shared daemon) | ~3.4 GB (baseline)                            | —                  |
+| Thin shim (Bun) + shared daemon           | ~38 MB                     | ~1.78 GB                                      | ≈ -48%             |
+| **Thin shim (Rust) + shared daemon**      | **~3.2 MB**                | **~0.385 GB**                                 | **≈ -89%**         |
+| Direct HTTP + shared daemon (no identity) | 0                          | ~0.1–0.25 GB                                  | ≈ -95%             |
+
+**Verdict: the compiled shim changes ADR-038's framing substantially, though not completely.**
+ADR-038 characterized the shim topology as giving up "roughly half" of the available win (≈-48%
+to -50% vs direct HTTP's ≈-95%) as an inherent cost of preserving conversation identity. That
+framing was an artifact of measuring the shim in an interpreted runtime, not a property of the
+shim's job. A compiled shim closes most — not all — of the remaining gap: ≈-89% vs direct HTTP's
+≈-95%, leaving conversation identity (ADR-006 Layer 3) intact. The central tradeoff ADR-038 named
+— "conversation-grain identity costs a real fraction of the resource win" — **shrinks from "half"
+to "a few percentage points,"** which is a materially different number to accept than the one
+ADR-038 was decided against. See ADR-038's resource table for the folded-in figure and the
+runtime recommendation to mt#3812.
+
+---
+
 ## Summary answer (spec Acceptance Test 1)
 
 **Does the shared-daemon restart path work against Claude Code's actual client?** Yes — on

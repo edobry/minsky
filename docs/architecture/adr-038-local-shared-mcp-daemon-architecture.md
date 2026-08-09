@@ -6,11 +6,22 @@
 decision itself is already made (ask#7151, 2026-08-06 — operator chose the full build); this
 record decides the architecture, not whether to build.
 
+**Update, 2026-08-09 (mt#3884):** the ~38MB shim figure below was measured against a Bun-based
+prototype; mt#3884 measured a minimal Rust equivalent of the same job at ~2.9–3.4MB — ≈12x
+smaller, confirming the ~38MB was mostly the interpreted runtime's floor rather than the shim's
+own work. The resource table and the "gives up roughly half" framing are updated below with both
+figures; the runtime recommendation to mt#3812 (stay on Bun for v1) follows the table. See
+`docs/mcp-http-daemon-spike-findings.md` §Rust shim measurement for the full method and raw
+samples.
+
 ## The call
 
 **Put the shared daemon behind a thin per-conversation stdio→HTTP shim rather than pointing
 Claude Code at the daemon directly — because a direct HTTP connection carries no per-conversation
-identifier by any route, and the shim recovers it for the price of a ~38MB byte-pipe.**
+identifier by any route, and the shim recovers it for the price of a ~38MB byte-pipe in the
+Bun/TypeScript runtime mt#3812 will actually ship (a compiled Rust equivalent measures ~3MB —
+see the 2026-08-09 update above and §Question 1's runtime recommendation for why Bun is still the
+call).**
 
 - Measured, not assumed: a real Claude Code 2.1.222 client sends **nothing** conversation-scoped
   over HTTP — not in headers, not in `initialize` params, not in `tools/call` `_meta`. The
@@ -198,17 +209,31 @@ calls through it. Three `ps` samples at 3s intervals:
 36.0 MB   36.0 MB   38.6 MB
 ```
 
-That is essentially the Bun runtime floor.
+That is essentially the Bun runtime floor — confirmed, not just suspected, by mt#3884
+(2026-08-09): a Rust equivalent of the identical job (stdin line reader, `_meta` stamp, HTTP
+forward, stdout writer — same scope, no GET/SSE proxying either) was driven through the live
+daemon by a real `claude -p` client, with the `_meta["io.minsky/agent_id"]` stamp verified
+present at the daemon on every `tools/call`. Nine `ps` samples, ~2-3s apart, while the client held
+the connection open:
+
+```
+2.976 MB   2.976 MB   2.976 MB   2.976 MB   3.152 MB   3.152 MB   3.152 MB   3.152 MB   3.392 MB
+```
+
+**~2.9–3.4 MB, settled — ≈12x smaller than the Bun figure above.** Full method, the identity-stamp
+capture, and cleanup verification: `docs/mcp-http-daemon-spike-findings.md` §Rust shim
+measurement.
 
 ### Revised resource win, against the census baseline
 
 The mt#1713 baseline is **~40 pairs, ~3.4 GB**.
 
-| Topology                      | Per-conversation cost | ~40 conversations         | vs baseline        |
-| ----------------------------- | --------------------- | ------------------------- | ------------------ |
-| Today (proxy + inner server)  | ~119 MB               | ~3.4 GB (baseline)        | —                  |
-| **Thin shim + shared daemon** | ~38 MB                | **~1.5–1.8 GB, measured** | **≈ -48% to -50%** |
-| Direct HTTP + shared daemon   | 0                     | one daemon (~0.1–0.25 GB) | ≈ -95%             |
+| Topology                             | Per-conversation cost | ~40 conversations                 | vs baseline    |
+| ------------------------------------ | --------------------- | --------------------------------- | -------------- |
+| Today (proxy + inner server)         | ~119 MB               | ~3.4 GB (baseline)                | —              |
+| Thin shim (Bun) + shared daemon      | ~38 MB                | ~1.5–1.8 GB, measured             | ≈ -48% to -50% |
+| **Thin shim (Rust) + shared daemon** | **~3.2 MB**           | **~0.385 GB, measured (mt#3884)** | **≈ -89%**     |
+| Direct HTTP + shared daemon          | 0                     | one daemon (~0.1–0.25 GB)         | ≈ -95%         |
 
 **Daemon RSS at N sessions — measured by mt#3811 (2026-08-08), no longer unmeasured.** Driving
 N=1/5/10 concurrent HTTP-connected clients against one daemon and sampling `ps` RSS repeatedly at
@@ -227,10 +252,63 @@ measurement does not touch that number. Full methodology, all raw samples, and t
 companion restart-recovery experiments:
 `docs/mcp-http-daemon-spike-findings.md` §N-scale measurement.
 
-Stated plainly: **choosing the shim gives up roughly half of the available win.** It is still a
-real win — the shim costs ~32% of today's pair, and ~60% of today's inner server alone — and it
-buys back the whole identity layer. But the ADR should not pretend the two options are close on
-resources.
+Stated plainly (as of the 2026-08-06 Bun-only measurement): **choosing the shim gives up roughly
+half of the available win.** It is still a real win — the shim costs ~32% of today's pair, and
+~60% of today's inner server alone — and it buys back the whole identity layer. But the ADR
+should not pretend the two options are close on resources.
+
+**Revised, with the Rust figure (mt#3884, 2026-08-09): a compiled shim gives up a few percentage
+points, not half.** ≈-89% vs direct HTTP's ≈-95% is a 6-point gap, not a 45-point one. The
+"conversation identity costs half the win" framing above was true of the Bun prototype and is not
+true of the shim's job in general — see the runtime recommendation immediately below for whether
+that changes what mt#3812 should actually build.
+
+### Runtime recommendation to mt#3812
+
+The Rust figure is real and was verified end-to-end (§ above), not inferred from the Bun number.
+It does not settle the runtime choice by itself — mt#3812 must also weigh what the RSS number
+leaves out:
+
+- **Distribution, not just compilation.** `cockpit-tray/src-tauri/` gave this measurement a
+  working Rust toolchain for free, but that toolchain solves _building_ a binary on one machine.
+  The shim's job (per the Decision below) is to be spawned by Claude Code on **every developer's
+  own machine**, not shipped once to the operator's own tray install. That means a codesigned,
+  notarized, versioned binary has to reach and stay current on N machines the project does not
+  control the update cadence of — a materially different problem than cockpit-tray's own
+  single-operator Tauri bundle-and-notarize pipeline, which this measurement did not have to
+  stand up or solve.
+- **A second language in a correctness-sensitive path.** `_meta["io.minsky/agent_id"]` injection
+  is ADR-006 Layer-3 identity — the join key presence claims, dispatch attribution, and
+  transcript↔workspace correlation depend on. Today it lives in TypeScript
+  (`src/mcp/stdio-proxy/conversation-identity.ts`) alongside the rest of the codebase. A Rust
+  shim moves this logic into a second language that the same engineers maintaining everything
+  else now also have to carry — for a project explicitly run by one engineer
+  (`principal-context.mdc`: "engineering time is the scarce resource").
+- **The gap is not closed, it is narrowed, and there is already a scoped follow-on feature.**
+  mt#3811 found a real cold-start-window exposure (a call landing while the daemon is down gets a
+  hard failure, not a transparent retry) and scoped its fix — retry-with-backoff — into "mt#3812's
+  shim." That logic would need writing, testing, and maintaining twice if the shim's runtime and
+  the rest of the stack diverge, or maintained only in Rust by whoever is willing to context-switch
+  into it.
+- **Absolute, not just proportional, savings.** ~38MB → ~3.2MB is a large proportional win but a
+  modest absolute one at this N: ~35MB/conversation, ~1.4GB total at the census's ~40
+  conversations (1.78GB → 0.385GB). The Bun-shim topology was already the headline win over
+  today's ~3.4–5.7GB; the additional 1.4GB a Rust rewrite buys back is real but is not, by itself,
+  an obviously worthwhile trade for permanent cross-compilation/distribution/maintenance
+  infrastructure on a solo-engineered product.
+
+**Recommendation: stay on Bun for mt#3812's v1 shim.** The measured ~38MB/conversation cost is
+small in absolute terms (≈1.5–1.8GB total at ~40 conversations, already a ≈48–50% win over today),
+ships in the same bundle and language as the rest of the project, and needs no new distribution
+pipeline — the "command/args swap" migration path the Decision below describes stays exactly that
+simple. This is a genuinely close call, not a lopsided one, and the condition under which it
+flips is nameable: **if the daemon topology ever centralizes** (a shared multi-tenant daemon
+serving many more than ~40 concurrent conversations, rather than one developer's own local
+daemon), the per-conversation shim cost multiplies at a much larger N and the ~35MB/conversation
+difference stops being 1.4GB and starts being the dominant term. That is not this architecture —
+ADR-038 §Question 2 keeps the daemon local and per-developer — so the condition does not apply
+today, but it is worth naming so a future re-litigation of this call starts from evidence instead
+of re-running the same measurement.
 
 ### Decision
 
@@ -446,18 +524,24 @@ after:   command: minsky   args: [mcp, shim, --url, http://127.0.0.1:48765/mcp]
 Four implementation subtasks are filed under mt#1713, each with its own spec, implementable
 without re-deriving this ADR's reasoning:
 
-| Task        | Deliverable                                                                                                                                                                | Depends on                |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge, with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on                | —                         |
-| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                               | —                         |
-| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                                        | —                         |
-| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                                        | mt#3812, mt#3814, mt#3815 |
-| **mt#3811** | ~~Measure daemon RSS at N sessions and N-client restart recovery~~ — **DONE, 2026-08-08**: both figures are now measured and folded into §Question 1 and §Question 6 below | —                         |
+| Task        | Deliverable                                                                                                                                                                                                                  | Depends on                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **mt#3812** | `minsky mcp shim` — the thin stdio→HTTP bridge in **Bun/TypeScript** (runtime choice settled by mt#3884, below), with the identity-injection semantics and the RSS-thinness constraint that the whole resource case rests on | —                         |
+| **mt#3814** | Daemon lifecycle: fixed port + identity-asserting conflict detection, discovery file, bearer token, local idle-reaper tuning                                                                                                 | —                         |
+| **mt#3815** | Generalize the tray supervisor from one hardcoded daemon to a registry of N; register the MCP daemon (absorbs mt#2427 if unstarted)                                                                                          | —                         |
+| **mt#3816** | `minsky setup local-http` — idempotent config swap, coexistence, one-command revert                                                                                                                                          | mt#3812, mt#3814, mt#3815 |
+| **mt#3811** | ~~Measure daemon RSS at N sessions and N-client restart recovery~~ — **DONE, 2026-08-08**: both figures are now measured and folded into §Question 1 and §Question 6 below                                                   | —                         |
+| **mt#3884** | ~~Measure a compiled (Rust) shim's footprint before mt#3812 picks a runtime~~ — **DONE, 2026-08-09**: ~2.9–3.4MB measured end-to-end vs Bun's 36.0–38.6MB; recommendation is to stay on Bun for v1 (§Question 1)             | gates mt#3812             |
 
 mt#3811 was not optional polish: §Question 1's resource table and §Question 6's shared-fate
 argument previously carried claims this ADR explicitly declined to make, and mt#3811 is where they
 were made — driven directly against the daemon over HTTP, since the shim (mt#3812) was not yet
 built and neither measured quantity depends on it. Both sections now carry the measured numbers.
+
+mt#3884 closes the other open question in §Question 1: whether the ~38MB shim figure was the Bun
+runtime's floor or the shim's own job. It was the runtime's floor — a compiled equivalent of the
+identical job measured ~12x smaller — but the runtime recommendation is still to build mt#3812 in
+Bun/TypeScript, not Rust, per the weighing in §Question 1's "Runtime recommendation to mt#3812."
 
 ---
 
@@ -474,8 +558,11 @@ built and neither measured quantity depends on it. Both sections now carry the m
 
 **Harder / newly committed**
 
-- Only ~50% of the available resource win is realized. If the daemon's own footprint at N=40 turns
-  out to be large, the margin narrows further — hence mt#3811.
+- ~48–50% of the available resource win is realized with the Bun shim mt#3812 will actually ship
+  (the recommended runtime, per §Question 1) — not the ≈-89% a compiled shim measured in mt#3884
+  would reach. The choice to stay on Bun trades some of that closed gap back for staying in one
+  language and needing no new binary-distribution pipeline; see §Question 1's runtime
+  recommendation for the full weighing.
 - A new process class to build and maintain (the shim) that must stay genuinely thin. The measured
   ~38MB is the Bun floor; importing anything from the Minsky bundle would put it back on the
   ~55MB proxy's trajectory and erase the win. This is a standing constraint on the shim, not a
