@@ -108,10 +108,19 @@ fires from 2026-08-06 → 08-08. Its justification is the COST of the false posi
 instructed to override a correct halt — not its rate. Do not later re-read a 0-of-12 suppression
 as noise reduction that failed.
 
-**A suppressed fire is still RECORDED**, with `suppressionReasons: ["reserved-category-halt"]` and
-the matched phrases, per the mt#3207 contract. A suppression that returned `null` would be
-invisible, and the failure worth catching is this predicate swallowing a true positive. Empty
-`suppressionReasons` still means "recorded an outcome, did not suppress".
+**A suppressed fire is still RECORDED — once per distinct turn**, with
+`suppressionReasons: ["reserved-category-halt"]` and the matched phrases, per the mt#3207 contract.
+A suppression that returned `null` would be invisible, and the failure worth catching is this
+predicate swallowing a true positive. Empty `suppressionReasons` still means "recorded an outcome,
+did not suppress".
+
+The "once per distinct turn" qualifier is load-bearing and was added after PR #2731 R1 read the
+unqualified claim and checked it. The suppression is evaluated AFTER the dedup filter, so a
+re-entered turn — byte-identical text, same verdict — is suppressed with no second record, exactly
+as an INJECTING fire is not re-injected on re-entry. That ordering is deliberate: the dedup key is
+the final message's own hash, and N records for one repeated message would inflate the suppression
+rate and misstate the very measurement the record exists to support. Review's reading of the
+behavior was correct; what was wrong was the unqualified promise, not the ordering.
 
 The scan reads the WHOLE message rather than the tail the commitment scan uses — the halt basis is
 routinely stated where the reasoning is, paragraphs above the closing sentence. It runs over the

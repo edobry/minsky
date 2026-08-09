@@ -395,6 +395,17 @@ describe("mt#3768 — reserved-category halts are suppressed", () => {
     }
   });
 
+  test("negative control: the same fixtures FIRE against the un-suppressed detector", () => {
+    // SC4/AT5, automated (PR #2731 R1 flagged the criterion as met only by a
+    // manual run). No production seam is needed and none was added: the
+    // suppression lives in `run`, so `detectUntakenAction` IS the un-tuned
+    // detector. Asserting these fixtures match there proves the suppression —
+    // rather than a failure to match — is what silences them in `run`.
+    for (const message of RESERVED_CATEGORY_HALTS) {
+      expect(detectUntakenAction(message).length).toBeGreaterThan(0);
+    }
+  });
+
   test("a bare “your call” with no category named still fires", () => {
     // The signature of the confabulated halt (mem#823, mem#367 R5) — precisely
     // what this guard must keep catching. If a bare deferral phrase could

@@ -450,6 +450,22 @@ export function run(
   // failure mode worth catching here is this predicate silencing a TRUE positive.
   // An empty `suppressionReasons` means "recorded an outcome, did not suppress";
   // a populated one means the fire was swallowed and by what.
+  //
+  // ## Why this sits AFTER the dedup filter (PR #2731 R1)
+  //
+  // Review asked for it BEFORE the `newMatches.length === 0` early return, on the
+  // grounds that a re-entered turn is then suppressed with no record — which is
+  // accurate, and is the same thing that happens to an INJECTING fire on re-entry.
+  // The ordering is deliberate: the dedup key is the final message's own hash, so
+  // a second occurrence is byte-identical text reaching the same verdict. One
+  // record per distinct turn is what a calibration pass wants; N records for one
+  // repeated message would inflate the suppression rate and misstate exactly the
+  // measurement this record exists to support.
+  //
+  // What review correctly caught is that the CLAIM was unqualified. The contract
+  // is "a suppressed fire is recorded once per distinct turn, under the same dedup
+  // as an injecting fire" — not "on every Stop." Reworded here, in the doc page,
+  // and in the PR body rather than changed in behavior.
   const reservedCategory = detectReservedCategoryHalt(finalMessage);
   if (reservedCategory.length > 0) {
     return {
