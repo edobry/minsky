@@ -1367,7 +1367,15 @@ the same turn produce two.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Calibration-first (mt#3162). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP — it caught scope decisions, role constraints, and guard-backed policy); still recorded, and the policy to grant one stands. `MINSKY_ACK_BARE_PROHIBITION`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) that ALREADY appear in an active task's spec, in a task the duplicate-check record does not concede overlapping. Exact substring over `task_specs` in ONE OR-ed query, no similarity metric — the advisory embedding sibling provably cannot discriminate at the distances real duplicates sit at (mem#819). A fourth rule (cited `mt#NNNN` refs) was cut pre-ship at 4/4 false positives. The deny-tier sibling `require-duplicate-check-record` (`hook-files.mdc`) checks the record is PRESENT; this checks whether its verdicts are TRUE. Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
-- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Agent-dispatch record** (mt#2292) — PreToolUse on `Agent`: writes the `pending`
+  `subagent_invocations` row on the RAW spawn path (the one `tasks_dispatch` /
+  `session_generate_prompt` never see), and stamps the harness `(session_id, tool_use_id)` into the
+  prompt via `updatedInput` so the Stop side can find that row. The stamp is the JOIN: PreToolUse
+  has no `agent_id`, SubagentStop has no `tool_use_id`, and nothing else connects them. Never
+  denies; emits the stamp even when the DB write fails, since the prompt is sent either way.
+  `MINSKY_SKIP_AGENT_DISPATCH_RECORD`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row; recovers the mt#2292 stamp
+  from `agent_transcript_path` to close on the parent key. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-creator link** — stamps workspace↔conversation link at `session_start` (mt#3120). none.
 - **Subagent model verification** — Agent-tool PostToolUse: warns when the requested `model` mismatches `resolvedModel` (mt#3151); degraded payloads log instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.

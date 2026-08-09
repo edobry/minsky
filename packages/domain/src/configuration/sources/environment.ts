@@ -290,6 +290,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
   "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
   "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
+  "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
