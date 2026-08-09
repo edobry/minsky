@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   detectUntakenAction,
+  detectReservedCategoryHalt,
   run,
   TAIL_WINDOW_CHARS,
   OVERRIDE_ENV_VAR,
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
+  SUPPRESSION_RESERVED_CATEGORY_HALT,
 } from "./turn-end-untaken-action-scan";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { GUARD_REGISTRY, type DispatchContext } from "./registry";
@@ -32,6 +34,12 @@ const LEGITIMATE_WATCHER_MESSAGE =
   "I'll re-attempt the PR when it fires — no action needed from you.";
 
 const ctx: DispatchContext = { transcriptLines: [] } as unknown as DispatchContext;
+
+/** The advisory's shared header — the signal that the guard actually spoke. */
+const FIRED_HEADER = "named a next action and did not take it";
+
+/** mt#3207's shared calibration field; empty means "recorded, did not suppress". */
+const SUPPRESSION_REASONS_KEY = "suppressionReasons";
 
 let storeDir: string;
 
@@ -327,5 +335,145 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
       expect(ceiling).toBeGreaterThan(0);
       expect(ctxText.length).toBeLessThanOrEqual(ceiling as number);
     });
+  });
+});
+
+describe("mt#3768 — reserved-category halts are suppressed", () => {
+  function inputWith(message: string): StopHookInput {
+    return {
+      session_id: "mt3768-test",
+      last_assistant_message: message,
+    } as StopHookInput;
+  }
+
+  // Verbatim tails from `.minsky/untaken-action-calibration.jsonl`. These are the
+  // only three fires in 130 records that name a reserved category, and each is a
+  // false positive: the turn stopped because the next step was the principal's,
+  // which is what `principal-context.mdc §Decisions Eugene reserves` requires.
+  const NAMING_HALT_2026_07_30 =
+    "**Next: mt#3374 needs a call from you.** The fix is clear, but its deliverable is a " +
+    "user-facing label — what harness-origin turns should be called instead of “user.” " +
+    "Naming is yours, not mine. Options I'd consider: harness, system, or per-origin labels. " +
+    "I lean toward per-origin — but say the word and I'll build whichever.";
+
+  const NAMING_HALT_2026_07_31 =
+    "It's blocked on you picking the user-facing name — session film as-is, or something from " +
+    "the locked brand vocabulary — since that determines both the route path and the nav " +
+    "label. Tell me the name and I'll implement it.";
+
+  const PRODUCT_SURFACE_HALT_2026_08_04 =
+    "I scoped them as complementary rather than folding one into the other. Next: I'll plan " +
+    "mt#3712 unless you want to argue with the recommendation first — it's your product " +
+    "surface and the call to make it the phone default is the contestable part.";
+
+  const RESERVED_CATEGORY_HALTS = [
+    NAMING_HALT_2026_07_30,
+    NAMING_HALT_2026_07_31,
+    PRODUCT_SURFACE_HALT_2026_08_04,
+  ];
+
+  test("each real reserved-category halt is suppressed, and RECORDED as suppressed", () => {
+    for (const message of RESERVED_CATEGORY_HALTS) {
+      const outcome = run(inputWith(message), ctx, storeDir);
+
+      // Not null: a suppression that returns null is invisible to calibration,
+      // and the failure worth catching is this predicate swallowing a TRUE
+      // positive (mt#3207's contract).
+      expect(outcome).not.toBeNull();
+      expect(outcome?.additionalContext).toBeUndefined();
+      expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+        SUPPRESSION_RESERVED_CATEGORY_HALT,
+      ]);
+      // The commitment match is still recorded — this narrows the VERDICT, not
+      // what matches, so the fire must remain visible in the log.
+      expect(
+        (outcome?.calibration?.["matches"] as Array<Record<string, unknown>>).length
+      ).toBeGreaterThan(0);
+      expect(
+        (outcome?.calibration?.["reservedCategoryPhrases"] as string[]).length
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  test("a bare “your call” with no category named still fires", () => {
+    // The signature of the confabulated halt (mem#823, mem#367 R5) — precisely
+    // what this guard must keep catching. If a bare deferral phrase could
+    // suppress, the tune would hollow the detector out.
+    const outcome = run(
+      inputWith(
+        "mt#3845 could reasonably fold into mt#3130 rather than stay a separate task; I'd keep " +
+          "it separate since elapsed time is genuinely independent of turn grouping, but say " +
+          "the word if you'd rather consolidate."
+      ),
+      ctx,
+      storeDir
+    );
+
+    expect(outcome?.additionalContext).toContain(FIRED_HEADER);
+    expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([]);
+  });
+
+  test("an option set plus a recommendation, naming no category, still fires (mt#3801)", () => {
+    // mt#3801 recorded this exact shape as a TRUE positive: the agent could have
+    // walked the chain itself. An option-set discriminator would have silenced it,
+    // which is why the discriminator is a named category instead.
+    const outcome = run(
+      inputWith(
+        "Next step is /plan-task mt#3799 unless you'd rather I go straight at it — say the word."
+      ),
+      ctx,
+      storeDir
+    );
+
+    expect(outcome?.additionalContext).toContain(FIRED_HEADER);
+    expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([]);
+  });
+
+  test("the original incident anchors still fire", () => {
+    for (const message of [R3_FINAL_MESSAGE, R2_FINAL_MESSAGE]) {
+      const outcome = run(inputWith(message), ctx, storeDir);
+      expect(outcome?.additionalContext).toContain(FIRED_HEADER);
+      expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([]);
+    }
+  });
+
+  test("a category named inside a quotation cannot suppress", () => {
+    // This rule's own prose quotes the trigger vocabulary. A turn discussing the
+    // guard must not silence it — same elision posture as the commitment scan.
+    const outcome = run(
+      inputWith(
+        'The suppression fires on phrases like "Naming is yours, not mine" and "your product ' +
+          "surface\". I'll implement the fixture set for it."
+      ),
+      ctx,
+      storeDir
+    );
+
+    expect(outcome?.additionalContext).toContain(FIRED_HEADER);
+    expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([]);
+  });
+});
+
+describe("detectReservedCategoryHalt (mt#3768)", () => {
+  test("matches a category named far above the closing sentence", () => {
+    // The commitment scan reads only the TAIL; the halt basis is routinely stated
+    // where the reasoning is. A whole-message scan is why this passes.
+    const message = `Naming is yours, not mine.\n\n${"filler. ".repeat(400)}\nI'll implement the route.`;
+    expect(detectReservedCategoryHalt(message).length).toBeGreaterThan(0);
+  });
+
+  test("does not match ordinary shared-code prose", () => {
+    // "shared source contract" must not read as a shared-STATE authorization.
+    // Real tail, 2026-08-08T05:46 — classified a true positive.
+    expect(
+      detectReservedCategoryHalt(
+        "it edits a shared source contract with corpus-wide blast radius, and doing it " +
+          "carefully is worth more than doing it now. That's my call, not a blocker."
+      )
+    ).toEqual([]);
+  });
+
+  test("empty and absent input are safe", () => {
+    expect(detectReservedCategoryHalt("")).toEqual([]);
   });
 });

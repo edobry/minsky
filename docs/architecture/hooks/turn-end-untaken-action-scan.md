@@ -74,6 +74,53 @@ nothing ever rendered the case where the ceiling binds. Reclassifying it to `wor
 is what surfaced it. Headroom was bought by trimming the shared header
 ("…ended the turn without taking it" → "…did not take it"), which pays on both branches.
 
+## Reserved-category suppression (mt#3768)
+
+A turn that stops because the next step belongs to the principal is doing what
+`principal-context.mdc §Decisions Eugene reserves` requires. Firing on it tells the agent to
+override a halt the corpus mandates — training against the corpus instead of with it. So a message
+that NAMES a reserved category suppresses the injection.
+
+**The discriminator is a named category, not an offered choice.** `/plan-task` Step 4 makes the
+halt test positive: a legitimate halt can say WHICH category applies, and a rationale naming none
+is low confidence, missing information, or a decision that is simply the agent's. The patterns
+therefore match category vocabulary — "naming is yours", "user-facing name", "your product
+surface", "vendor commitment", "framework choice" — and deliberately do NOT match a bare "your
+call", "up to you", or the presence of an option set.
+
+That exclusion carries weight in both directions:
+
+- **A bare "your call" is the confabulated halt's signature** (mem#823; mem#367 R5). It is exactly
+  what this guard should keep catching, so it must never suppress.
+- **An option set is not evidence of a legitimate halt.** mt#3801 recorded a true positive —
+  _"Next step is `/plan-task mt#3799` unless you'd rather I go straight at it"_ — that an
+  option-set discriminator would have silenced. mt#3768's SC1 originally proposed exactly that
+  discriminator and was amended before implementation.
+
+**Tuned against real fires, not invented examples.** All 130 records of
+`.minsky/untaken-action-calibration.jsonl` were read; exactly three name a reserved category, and
+all three are false positives now suppressed — two naming calls (2026-07-30 "Naming is yours, not
+mine"; 2026-07-31 "blocked on you picking the user-facing name") and one product-surface call
+(2026-08-04 "it's your product surface"). All three are the test fixtures.
+
+**Three in 130 is rare, and frequency is not the argument.** The suppression covers none of the 12
+fires from 2026-08-06 → 08-08. Its justification is the COST of the false positive — the agent is
+instructed to override a correct halt — not its rate. Do not later re-read a 0-of-12 suppression
+as noise reduction that failed.
+
+**A suppressed fire is still RECORDED**, with `suppressionReasons: ["reserved-category-halt"]` and
+the matched phrases, per the mt#3207 contract. A suppression that returned `null` would be
+invisible, and the failure worth catching is this predicate swallowing a true positive. Empty
+`suppressionReasons` still means "recorded an outcome, did not suppress".
+
+The scan reads the WHOLE message rather than the tail the commitment scan uses — the halt basis is
+routinely stated where the reasoning is, paragraphs above the closing sentence. It runs over the
+same elided text, so a category named inside a quotation or code fence cannot suppress: a turn
+discussing this guard must not silence it.
+
+Because a suppression emits no text, the guard's 450-char ceiling is untouched — the offer branch
+remains the worst case.
+
 ## Overrides
 
 `MINSKY_ACK_UNTAKEN_ACTION` (registered in `HOOK_ONLY_ENV_VARS`).

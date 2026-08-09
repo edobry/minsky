@@ -145,6 +145,96 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
 ];
 
+/**
+ * Suppression reason for a halt that NAMES a principal-reserved category (mt#3768).
+ */
+export const SUPPRESSION_RESERVED_CATEGORY_HALT = "reserved-category-halt";
+
+/**
+ * Categories the principal reserves, as named in closing prose.
+ *
+ * A turn that halts because the next step belongs to the principal is behaving
+ * exactly as `principal-context.mdc §Decisions Eugene reserves` requires. Firing
+ * on it tells the agent to override a halt the corpus mandates — training against
+ * the corpus rather than with it, which is worse than staying silent.
+ *
+ * ## The discriminator is a NAMED category, not an offered choice
+ *
+ * `/plan-task` Step 4 makes this a positive citation test: a halt is legitimate
+ * when it can NAME which reserved category applies, and a rationale that names
+ * none is low confidence, missing information, or a decision that is simply the
+ * agent's. So these patterns match category VOCABULARY, never the bare
+ * "your call" / "up to you" / option-set shapes.
+ *
+ * That exclusion is load-bearing in both directions. "Your call" with no category
+ * behind it is the signature of the confabulated halt (mem#823, mem#367 R5) — the
+ * precise case this guard SHOULD keep catching. And an option set alone is not
+ * evidence of a legitimate halt: mt#3801 recorded a true positive
+ * ("Next step is `/plan-task mt#3799` unless you'd rather I go straight at it")
+ * that an option-set discriminator would have silenced.
+ *
+ * ## Tuned against the three real instances in the log, not invented examples
+ *
+ * All 130 records of `.minsky/untaken-action-calibration.jsonl` were scanned; three
+ * fires name a reserved category, and each is a false positive this suppresses:
+ *
+ *  - 2026-07-30 — "its deliverable is a user-facing *label* … Naming is yours, not
+ *    mine." (naming)
+ *  - 2026-07-31 — "blocked on you picking the user-facing name … or something from
+ *    the locked brand vocabulary" (naming)
+ *  - 2026-08-04 — "it's your product surface and the call to make it the phone
+ *    default is the contestable part" (product surface)
+ *
+ * Three in 130 is rare, and rarity is not the argument: the cost of this false
+ * positive is that the agent is told to override a correct halt, so it is a
+ * correctness property rather than noise reduction. Do not re-justify it on
+ * frequency — mt#3768's `## Planning Audit` records that it suppresses none of the
+ * 12 most recent fires.
+ */
+const RESERVED_CATEGORY_PATTERNS: ReadonlyArray<RegExp> = [
+  // Explicit citation of the rule itself.
+  /\bprincipal[-\s]reserved\b/i,
+  /\breserved\s+(?:category|decision)\b/i,
+  // Naming — a customer-facing term, not an internal identifier the agent owns.
+  /\bnaming\s+is\s+(?:yours|your\s+call|the\s+principal'?s)\b/i,
+  /\b(?:user-facing|customer-facing)\s+(?:name|label|term|copy)\b/i,
+  /\bbrand\s+vocabulary\b/i,
+  /\bproduct\s+nam(?:e|ing)\b/i,
+  // Architectural moves affecting customer experience or product surface.
+  /\b(?:your|the)\s+product\s+surface\b/i,
+  /\bcustomer\s+experience\b/i,
+  // Authorization for shared / production state changes. Scoped to "state" so an
+  // ordinary "shared source contract" or "shared module" does not qualify.
+  /\b(?:production|shared)[-\s]state\s+(?:change|write|mutation)\b/i,
+  // Scope changes to in-flight work.
+  /\bscope\s+change\s+to\s+in-?flight\b/i,
+  // Vendor commitments.
+  /\bvendor\s+commitment\b/i,
+  // Framework choices at principal-level stakes.
+  /\bframework\s+choice\b/i,
+];
+
+/**
+ * Returns the reserved-category phrases the message names, in match order.
+ *
+ * Runs over the SAME elided text the commitment scan uses, so a category named
+ * inside a quotation or code fence cannot suppress a real fire — this rule text
+ * quoting "naming is yours" must not silence the guard for the turn that quotes it.
+ * Unlike the commitment scan it reads the WHOLE message rather than the tail: the
+ * halt basis is routinely stated where the reasoning is, several paragraphs above
+ * the closing sentence that trips the commitment pattern.
+ */
+export function detectReservedCategoryHalt(finalMessage: string): string[] {
+  if (!finalMessage) return [];
+  const scanned = elideQuotedAndCodeContexts(finalMessage);
+  const named: string[] = [];
+  for (const re of RESERVED_CATEGORY_PATTERNS) {
+    const m = re.exec(scanned);
+    if (m) named.push(m[0]);
+  }
+  return named;
+}
+
 export interface UntakenActionMatch {
   family: string;
   matchedPhrase: string;
@@ -356,6 +446,30 @@ export function run(
     flagged.add(flagKey(turnKey, m.family, m.matchedPhrase));
   }
   writeFlagged(sessionId, flagged, storeDir);
+
+  // mt#3768: the turn named a category the principal reserves, so stopping was
+  // what the corpus required. Suppress the injection — but RECORD it, per the
+  // mt#3207 contract: a suppression that returns null is invisible, and the
+  // failure mode worth catching here is this predicate silencing a TRUE positive.
+  // An empty `suppressionReasons` means "recorded an outcome, did not suppress";
+  // a populated one means the fire was swallowed and by what.
+  const reservedCategory = detectReservedCategoryHalt(finalMessage);
+  if (reservedCategory.length > 0) {
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [SUPPRESSION_RESERVED_CATEGORY_HALT],
+        reservedCategoryPhrases: reservedCategory,
+      },
+    };
+  }
 
   // mt#3620: when the same final message ALSO matches the ask-routing-deferral
   // patterns ("say the word" sits in BOTH pattern sets), exactly one of the two
