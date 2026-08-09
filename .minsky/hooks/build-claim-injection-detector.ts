@@ -244,17 +244,35 @@ function hadSessionPrMerge(lines: TranscriptLine[]): boolean {
 }
 
 /**
- * Every string reachable from an in-session `*session_pr_merge` tool_use input —
- * the candidate keys for {@link lookupMergeDeploySurface}. The merge is invoked
- * with `task`, `sessionId`, or both, so rather than guessing the field we hand
- * the lookup all of them.
+ * The id-bearing fields of `session_pr_merge`'s input. ONLY these are candidate
+ * record keys.
+ *
+ * PR #2734 R1: an earlier version collected EVERY string reachable from the
+ * input, which is over-permissive — `repo`, or free-text like `bypassReason`,
+ * could coincide with another merge's key and mis-associate a verdict onto an
+ * unrelated PR. A false match here is worse than a miss: a miss falls back to
+ * the old proxy, while a false match asserts a deploy surface (or its absence)
+ * from someone else's merge.
+ */
+const MERGE_RECORD_KEY_FIELDS: readonly string[] = ["task", "taskId", "sessionId", "session"];
+
+/**
+ * Candidate keys for {@link lookupMergeDeploySurface}, read from the id fields of
+ * every in-session `*session_pr_merge` tool_use input. The merge may be invoked
+ * by `task` or by `sessionId`, so all id fields are offered rather than guessing
+ * which one the caller used.
  */
 function mergeRecordCandidateKeys(lines: TranscriptLine[]): string[] {
   const keys: string[] = [];
   for (const toolName of extractToolUseNames(lines)) {
     if (!MERGE_TOOL_NAME_RE.test(toolName)) continue;
     for (const input of findToolUseInputs(lines, toolName)) {
-      collectStrings(input, keys);
+      if (!input || typeof input !== "object") continue;
+      const record = input as Record<string, unknown>;
+      for (const field of MERGE_RECORD_KEY_FIELDS) {
+        const value = record[field];
+        if (typeof value === "string" && value.length > 0) keys.push(value);
+      }
     }
   }
   return keys;

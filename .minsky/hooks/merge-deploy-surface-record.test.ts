@@ -198,3 +198,26 @@ describe("readStore / recordMergeDeploySurface round-trip", () => {
     expect(recordMergeDeploySurface("mt#1", record(), RECORD_PATH, fs)).toBe(false);
   });
 });
+
+describe("trimStore tie-breaking (PR #2734 R1)", () => {
+  test("identical timestamps resolve deterministically by key, not by insertion order", () => {
+    const stamp = "2026-08-08T00:00:00.000Z";
+    const build = (keys: string[]): MergeDeploySurfaceStore =>
+      Object.fromEntries(keys.map((k) => [k, record({ recordedAt: stamp })]));
+
+    // Same three keys, two different insertion orders — one merge writes its
+    // resolved task id and its raw ids with the SAME recordedAt.
+    const a = trimStore(build(["aaa", "bbb", "ccc"]), 2);
+    const b = trimStore(build(["ccc", "bbb", "aaa"]), 2);
+
+    expect(Object.keys(a)).toEqual(Object.keys(b));
+  });
+
+  test("an unparseable timestamp sorts last instead of throwing", () => {
+    const store: MergeDeploySurfaceStore = {
+      good: record({ recordedAt: "2026-08-08T00:00:00.000Z" }),
+      bad: record({ recordedAt: "not-a-date" }),
+    };
+    expect(Object.keys(trimStore(store, 1))).toEqual(["good"]);
+  });
+});

@@ -452,3 +452,52 @@ describe("mt#3819: split-transcript merges", () => {
     expect(result.matched).toBe(false);
   });
 });
+
+describe("mt#3819 PR #2734 R1: record key precision", () => {
+  const RECORD_TASK_ID = "mt#3819";
+
+  function storeWith(key: string): MergeDeploySurfaceStore {
+    return {
+      [key]: {
+        hadDeploySurface: true,
+        deploySurfaceFiles: [RAILWAY_SURFACE_PATH],
+        recordedAt: "2026-08-08T00:00:00.000Z",
+      },
+    };
+  }
+
+  function linesWithMergeInput(input: Record<string, unknown>): TranscriptLine[] {
+    return [
+      userPromptLine("merge it"),
+      assistantLine([toolUseBlock(MERGE_TOOL_NAME, input)]),
+      userPromptLine("done?"),
+      assistantLine([textBlock(USABILITY_CLAIM_TEXT)]),
+    ];
+  }
+
+  test("a non-id string in the merge input is NOT used as a lookup key", () => {
+    // `repo` coincidentally equals another merge's key. Matching on it would
+    // attribute that merge's deploy surface to this one.
+    const lines = linesWithMergeInput({ sessionId: "uuid-1", repo: RECORD_TASK_ID });
+    const turn = extractLastAssistantTurn(lines);
+
+    const result = detectBuildClaimInjection(extractAssistantText(turn), lines, () =>
+      storeWith(RECORD_TASK_ID)
+    );
+
+    expect(result.deploySurfaceFiles).toEqual([]);
+    expect(result.matched).toBe(false);
+  });
+
+  test("a sessionId-invoked merge resolves via the sessionId key the producer also writes", () => {
+    const lines = linesWithMergeInput({ sessionId: "uuid-1" });
+    const turn = extractLastAssistantTurn(lines);
+
+    const result = detectBuildClaimInjection(extractAssistantText(turn), lines, () =>
+      storeWith("uuid-1")
+    );
+
+    expect(result.deploySurfaceFiles).toEqual([RAILWAY_SURFACE_PATH]);
+    expect(result.matched).toBe(true);
+  });
+});

@@ -118,7 +118,19 @@ export function trimStore(
 ): MergeDeploySurfaceStore {
   const entries = Object.entries(store);
   if (entries.length <= max) return store;
-  entries.sort((a, b) => Date.parse(b[1].recordedAt) - Date.parse(a[1].recordedAt));
+  // PR #2734 R1: tie-break by key. A single merge writes several keys with an
+  // IDENTICAL `recordedAt` (the resolved task id plus the raw ids it was called
+  // with), so timestamp alone leaves their relative order to object-key
+  // iteration — making WHICH of a merge's own keys survives the trim
+  // non-deterministic. Unparseable timestamps sort last rather than throwing.
+  entries.sort((a, b) => {
+    const at = Date.parse(a[1].recordedAt);
+    const bt = Date.parse(b[1].recordedAt);
+    const aSafe = Number.isNaN(at) ? -Infinity : at;
+    const bSafe = Number.isNaN(bt) ? -Infinity : bt;
+    if (aSafe !== bSafe) return bSafe - aSafe;
+    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+  });
   return Object.fromEntries(entries.slice(0, max));
 }
 
