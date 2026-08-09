@@ -1947,10 +1947,14 @@ export function createStartCommand(
         // Railway/Docker hosted entrypoint (its ppid is 1 from the first
         // tick, per the Dockerfile's shell-form CMD, and stays 1 for the
         // container's lifetime).
+        const {
+          wireOrphanExitWatchers,
+          wireMemoryCeilingWatcher,
+          getCurrentProcessPpid,
+          getCurrentProcessUptimeSeconds,
+        } = await import("../../mcp/orphan-exit");
+
         if (transportType === "http") {
-          const { wireOrphanExitWatchers, getCurrentProcessPpid } = await import(
-            "../../mcp/orphan-exit"
-          );
           wireOrphanExitWatchers({
             initialPpid: getCurrentProcessPpid(),
             getCurrentPpid: getCurrentProcessPpid,
@@ -1958,6 +1962,20 @@ export function createStartCommand(
             onExit: () => void cleanup(),
           });
         }
+
+        // mt#3886: resident-memory ceiling. Deliberately OUTSIDE the
+        // HTTP gate above — the per-conversation fleet that panicked the
+        // machine on 2026-08-08 (three `bun` processes at 15.5/54.2/59.9
+        // GB against 64 GB of RAM) runs this server over STDIO, so an
+        // HTTP-only guard would not have covered a single one of them.
+        wireMemoryCeilingWatcher({
+          initialPpid: getCurrentProcessPpid(),
+          processRole: `mcp start (${transportType})`,
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
+          getDiagnostics: () =>
+            transportType === "http" ? { everConnected: server.hasEverHadHttpSession() } : {},
+          onExit: () => void cleanup(),
+        });
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard
