@@ -150,6 +150,15 @@ async fn main() {
         let text = String::from_utf8_lossy(&bytes);
 
         if content_type.contains("text/event-stream") {
+            // Spike-only limitation, documented rather than fixed (non-blocking reviewer
+            // finding): per-event `data:` lines are joined with embedded "\n" if a single SSE
+            // event legitimately spans multiple `data:` lines. That is safe ONLY because every
+            // MCP JSON-RPC message the daemon emits is `JSON.stringify`'d without pretty-printing
+            // -- a single line, one `data:` per event -- which is what this measurement's real
+            // `claude` traffic actually produced (verified in the captured runs). A shim carrying
+            // production traffic from an SSE source that legitimately multi-lines its payload
+            // would need to preserve the embedded newlines correctly instead of writing them into
+            // what stdio expects to be one JSON-RPC line.
             for event in text.split("\n\n") {
                 let mut data_lines = Vec::new();
                 for l in event.lines() {

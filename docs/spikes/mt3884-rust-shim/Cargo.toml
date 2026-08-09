@@ -16,6 +16,9 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "macros", "io-std", "io-util"] }
+# default-features = false with NO tls feature enabled: verified via `cargo tree` that this
+# pulls in no TLS backend at all (no rustls, no native-tls, no openssl) -- the daemon is always
+# plain http://127.0.0.1, so no TLS crate needs to be in the RSS this measurement reports.
 reqwest = { version = "0.12", default-features = false }
 serde_json = "1"
 

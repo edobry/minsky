@@ -18,7 +18,10 @@ samples.
 
 **Put the shared daemon behind a thin per-conversation stdio→HTTP shim rather than pointing
 Claude Code at the daemon directly — because a direct HTTP connection carries no per-conversation
-identifier by any route, and the shim recovers it for the price of a ~38MB byte-pipe.**
+identifier by any route, and the shim recovers it for the price of a ~38MB byte-pipe in the
+Bun/TypeScript runtime mt#3812 will actually ship (a compiled Rust equivalent measures ~3MB —
+see the 2026-08-09 update above and §Question 1's runtime recommendation for why Bun is still the
+call).**
 
 - Measured, not assumed: a real Claude Code 2.1.222 client sends **nothing** conversation-scoped
   over HTTP — not in headers, not in `initialize` params, not in `tools/call` `_meta`. The
