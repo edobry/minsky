@@ -547,28 +547,59 @@ async function uninstalledSubProjectReason(
   if (isWorkspaceMember(projectDir, workspacePatterns)) return null;
   if (await fsImpl.exists(join(rootDir, projectDir, "node_modules"))) return null;
 
+  // The install command is directory-specific, so it is only named for a directory we
+  // actually know one for. A future sub-project gets the generic instruction rather than an
+  // inherited `pulumi install` that would be wrong for it (PR #2743 R1).
+  const installHint =
+    INSTALL_COMMAND_BY_DIR[projectDir] !== undefined
+      ? `Run \`${INSTALL_COMMAND_BY_DIR[projectDir]}\` in ${projectDir}/ to include it.`
+      : `Install its dependencies to include it.`;
+
   return (
     `${projectDir}/ declares its own package.json, is not a root workspace, and has no ` +
     `node_modules — its dependencies are not installed here, so typechecking it would ` +
-    `report module-resolution errors unrelated to the caller's changes. Install them ` +
-    `(for infra/: \`pulumi install\`) to include it. CI runs this project with its own ` +
-    `install step, so coverage is unaffected.`
+    `report module-resolution errors unrelated to the caller's changes. ${installHint} ` +
+    `CI runs this project with its own install step, so coverage is unaffected.`
   );
 }
 
-/** Whether `dir` is matched by one of the root `workspaces` globs. */
+/**
+ * Install command per non-workspace sub-project directory, for the skip reason above.
+ *
+ * Deliberately a lookup rather than a default: naming the wrong command is worse than naming
+ * none, because a reader who runs it and sees nothing change learns to distrust the message.
+ */
+const INSTALL_COMMAND_BY_DIR: Record<string, string | undefined> = {
+  infra: "pulumi install",
+};
+
+/**
+ * Whether `dir` is matched by one of the root `workspaces` globs.
+ *
+ * Both sides are normalized before comparison — a leading `./` and a trailing `/` are both
+ * legal in a `workspaces` entry (`"./packages/*"` is as valid as `"packages/*"`), and without
+ * normalizing them a legitimate workspace member reads as a non-member, which would make
+ * {@link uninstalledSubProjectReason} skip a project it must always run (PR #2743 R1).
+ */
 function isWorkspaceMember(dir: string, patterns: readonly string[]): boolean {
-  for (const pattern of patterns) {
+  const target = normalizeWorkspacePath(dir);
+  for (const raw of patterns) {
+    const pattern = normalizeWorkspacePath(raw);
     if (pattern.endsWith("/*") && !pattern.slice(0, -2).includes("*")) {
       const parent = pattern.slice(0, -2);
-      if (dir.startsWith(`${parent}/`) && !dir.slice(parent.length + 1).includes("/")) {
+      if (target.startsWith(`${parent}/`) && !target.slice(parent.length + 1).includes("/")) {
         return true;
       }
-    } else if (!pattern.includes("*") && pattern === dir) {
+    } else if (!pattern.includes("*") && pattern === target) {
       return true;
     }
   }
   return false;
+}
+
+/** Strip a leading `./` and any trailing `/` so two spellings of one path compare equal. */
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/^\.\//, "").replace(/\/+$/, "");
 }
 
 /**

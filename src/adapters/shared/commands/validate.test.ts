@@ -355,6 +355,53 @@ describe("discoverStandaloneTypecheckProjects", () => {
       expect(result.skipped).toEqual([]);
     });
 
+    // PR #2743 R1: `"./packages/*"` and `"packages/*/"` are both legal workspaces entries.
+    // Before normalization they read as non-members, which would skip a project that must
+    // always run — the false-negative direction this whole change exists to avoid.
+    test.each([
+      ["leading ./", "./packages/*"],
+      ["trailing /", "packages/*/"],
+      ["both", "./packages/*/"],
+    ])("treats a workspace glob spelled with %s as matching", async (_label, pattern) => {
+      const PACKAGES_PROJECT = "packages/domain/tsconfig.json";
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: [pattern],
+            scripts: { "typecheck:packages": `tsgo --noEmit -p ${PACKAGES_PROJECT}` },
+          }),
+          [`${ROOT}/${PACKAGES_PROJECT}`]: TSCONFIG,
+          [`${ROOT}/packages/domain/package.json`]: JSON.stringify({ name: "@minsky/domain" }),
+        })
+      );
+
+      expect(result.projects).toEqual([PACKAGES_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    // The install command is per-directory; an unknown sub-project must not inherit infra's.
+    test("names a generic install for a sub-project with no known install command", async () => {
+      const OTHER_PROJECT = "vendored/tsconfig.json";
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: ["packages/*"],
+            scripts: { "typecheck:other": `tsgo --noEmit -p ${OTHER_PROJECT}` },
+          }),
+          [`${ROOT}/${OTHER_PROJECT}`]: TSCONFIG,
+          [`${ROOT}/vendored/package.json`]: JSON.stringify({ name: "vendored" }),
+        })
+      );
+
+      expect(result.skipped[0]?.project).toBe(OTHER_PROJECT);
+      expect(result.skipped[0]?.reason).toContain("Install its dependencies");
+      expect(result.skipped[0]?.reason).not.toContain("pulumi");
+    });
+
     test("does NOT skip a non-workspace sub-project that has no package.json of its own", async () => {
       const WEB_PROJECT = "src/cockpit/web/tsconfig.json";
       const result = await discoverStandaloneTypecheckProjects(
