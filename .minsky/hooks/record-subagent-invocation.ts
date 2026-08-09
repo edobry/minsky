@@ -18,11 +18,12 @@
 // @see mt#3019 — domain bootstrap (this hook's DB path had never executed), the
 //      unresolved-taskId fix (subsumed mt#2315), and the fail-safe deadline
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
+import { findStampInTranscriptLines, type DispatchStamp } from "./agent-dispatch-stamp";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3019: STATIC — importing this module installs the tsyringe reflect
 // polyfill, which must be resolved before ANY domain module loads. Every
@@ -241,6 +242,36 @@ export type RecordingDecision =
   | { action: "record"; effectiveTaskId: string; warning?: string };
 
 /**
+ * Recover the dispatch stamp `record-agent-dispatch.ts` wrote into the prompt,
+ * by reading the subagent's OWN transcript.
+ *
+ * `agent_transcript_path` is the child's file; `transcript_path` on the same
+ * payload can point at the PARENT's (mt#2637), so this deliberately does not
+ * fall back to it — a stamp found in the parent's transcript would name whatever
+ * dispatch that conversation issued most recently, not this one, and a wrong
+ * join is worse than no join.
+ *
+ * Best-effort by construction: a missing path, an unreadable file, or a
+ * transcript with no stamp all return null, and the caller falls through to the
+ * pre-mt#2292 keys.
+ *
+ * Exported for testing.
+ */
+export function recoverDispatchStamp(
+  agentTranscriptPath: string | undefined,
+  readFile: (path: string) => string = (p) => readFileSync(p, "utf8")
+): DispatchStamp | null {
+  if (!agentTranscriptPath) return null;
+  try {
+    return findStampInTranscriptLines(readFile(agentTranscriptPath).split("\n"));
+  } catch {
+    // Unreadable transcript — the join degrades, the write still proceeds on
+    // the older keys. Not silent: the caller records which key it used.
+    return null;
+  }
+}
+
+/**
  * Decide whether a Stop event can be recorded, and under which task id.
  *
  * Extracted as a pure function so the branch table is directly testable — the
@@ -267,20 +298,31 @@ export type RecordingDecision =
 export function decideRecordingAction(
   taskId: string | null,
   subagentSessionId: string | null,
-  cwd: string | undefined
+  cwd: string | undefined,
+  dispatchStamp: DispatchStamp | null = null
 ): RecordingDecision {
-  if (!taskId && !subagentSessionId) {
+  if (!taskId && !subagentSessionId && !dispatchStamp) {
     return {
       action: "skip",
-      warning: `[record-subagent-invocation] warn: no taskId and no session correlation key for cwd=${cwd} — skipping DB write\n`,
+      warning: `[record-subagent-invocation] warn: no taskId, no session correlation key and no dispatch stamp for cwd=${cwd} — skipping DB write\n`,
     };
   }
 
   if (!taskId) {
+    // mt#2292: the dispatch stamp is now sufficient on its own, and it is the
+    // key that makes the RAW spawn path recordable at all. A bare
+    // `Explore`/`general-purpose` dispatch runs with the MAIN repo as its cwd
+    // (`prompt-generation.ts` forbids `cd`), so BOTH pre-mt#2292 keys resolve
+    // null for it and this function used to take the skip branch above — which
+    // is why ~42% of dispatches never closed. The stamp identifies the exact
+    // dispatch row regardless of cwd.
+    const key = dispatchStamp
+      ? `dispatch ${dispatchStamp.parentToolUseId}`
+      : `session ${subagentSessionId}`;
     return {
       action: "record",
       effectiveTaskId: HOOK_UNKNOWN_TASK_ID,
-      warning: `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against session ${subagentSessionId} with the unknown-task sentinel\n`,
+      warning: `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against ${key} with the unknown-task sentinel\n`,
     };
   }
 
@@ -325,11 +367,26 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   //    write land on the right row.
   const subagentSessionId = extractMinskySessionId(cwd);
 
+  //    mt#2292: the PREFERRED key. `record-agent-dispatch.ts` stamped the
+  //    harness `(session_id, tool_use_id)` of the dispatching `Agent` call into
+  //    the prompt, which lands verbatim in the child's own transcript — the one
+  //    artifact both sides of the boundary can address. Recovered before the
+  //    cwd-derived keys below because it is exact where those are structurally
+  //    unavailable on the raw spawn path (criterion 6).
+  const dispatchStamp = recoverDispatchStamp(input.agent_transcript_path);
+
   //    Session directories are named after the session ID, not the task ID, so
   //    the task ID comes from the session record (or the git branch).
+  //
+  //    DEMOTED to last-resort (mt#2292, criterion 6): this resolves from `cwd`,
+  //    which `prompt-generation.ts` guarantees is the MAIN repo for every
+  //    dispatched subagent — it forbids `cd` and instructs absolute paths. So it
+  //    returns null on exactly the traffic this hook most needs to record, and
+  //    is retained only for the pre-stamp rows still in flight and for
+  //    session-workspace subagents where it does resolve.
   const taskId = await resolveTaskId(cwd);
 
-  const decision = decideRecordingAction(taskId, subagentSessionId, cwd);
+  const decision = decideRecordingAction(taskId, subagentSessionId, cwd, dispatchStamp);
   if (decision.warning) process.stderr.write(decision.warning);
   if (decision.action === "skip") return;
 
@@ -354,6 +411,7 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
       transcriptPath,
       effectiveTaskId: decision.effectiveTaskId,
       subagentSessionId,
+      dispatchStamp,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -374,8 +432,10 @@ async function classifyAndRecord(params: {
   transcriptPath: string | undefined;
   effectiveTaskId: string;
   subagentSessionId: string | null;
+  dispatchStamp: DispatchStamp | null;
 }): Promise<void> {
-  const { cwd, agentId, transcriptPath, effectiveTaskId, subagentSessionId } = params;
+  const { cwd, agentId, transcriptPath, effectiveTaskId, subagentSessionId, dispatchStamp } =
+    params;
 
   // 2. Classify workspace outcome. The classifier uses taskId only to locate a
   //    handoff file and to look up a PR by branch name; with the sentinel both
@@ -516,6 +576,14 @@ async function classifyAndRecord(params: {
     id: markerInvocationId,
     taskId: effectiveTaskId,
     subagentSessionId,
+    // mt#2292: the dispatch key recovered from the child's transcript. The
+    // tracker resolves it AFTER the strong `id` binding and BEFORE the
+    // subagentSessionId heuristic, so a stamped dispatch closes the exact row
+    // `record-agent-dispatch.ts` opened. Passing them also BACKFILLS the pair on
+    // a row the marker resolved by id, which is what keeps `subagent_invocations`
+    // joinable to `agent_spawns` on the same key.
+    parentAgentSessionId: dispatchStamp?.parentAgentSessionId ?? null,
+    parentToolUseId: dispatchStamp?.parentToolUseId ?? null,
     agentSessionId: agentId, // harness-native conversation UUID
     outcome: classification.outcome,
     prUrl: classification.prUrl ?? null,

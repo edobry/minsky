@@ -7,6 +7,7 @@ import {
   boolean,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -136,6 +137,39 @@ export const subagentInvocationsTable = pgTable(
     /** Minsky session ID assigned to the subagent's workspace. */
     subagentSessionId: text("subagent_session_id"),
 
+    /**
+     * Harness conversation id of the PARENT agent — the `session_id` field of
+     * the `Agent` tool's PreToolUse payload (mt#2292).
+     *
+     * Distinct from `sessionId`/`parentSessionId` above, which are MINSKY
+     * session ids. This one is the harness-native id, and it exists to pair
+     * with {@link parentToolUseId}: the tool_use id is unique within a
+     * conversation, not across the corpus, so it only identifies a dispatch
+     * when scoped by the conversation that issued it.
+     *
+     * Nullable: every row written before mt#2292 has no such id, and there is
+     * nothing to derive one from.
+     */
+    parentAgentSessionId: text("parent_agent_session_id"),
+
+    /**
+     * Harness-assigned `tool_use` id of the `Agent` call that spawned this
+     * subagent (mt#2292) — the dispatch-side identity for rows written on the
+     * raw harness spawn path.
+     *
+     * Deliberately the SAME key `agent_spawns.parent_tool_use_id` already uses
+     * (`agent-spawns-pipeline.ts`), so the two tables are joinable rather than
+     * each carrying its own private correlation id. That choice is why this is
+     * not a token this hook mints: a bespoke id would have made
+     * `subagent_invocations` unjoinable to the spawn edge that the cockpit
+     * already renders.
+     *
+     * Nullable for the same reason as {@link parentAgentSessionId}, and
+     * additionally for rows written by `session_generate_prompt` before the
+     * dispatch that consumes them ever happens.
+     */
+    parentToolUseId: text("parent_tool_use_id"),
+
     // -------------------------------------------------------------------------
     // Dispatch params
     // -------------------------------------------------------------------------
@@ -256,6 +290,25 @@ export const subagentInvocationsTable = pgTable(
 
     // Retry-chain lookups (mt#2831): find the resumed row for a given original
     index("idx_subagent_invocations_resumed_from").on(table.resumedFromInvocationId),
+
+    // mt#2292: the dispatch-side natural key for rows written on the raw
+    // harness `Agent` spawn path, and the Stop-side lookup target once the
+    // stamped tool_use id is recovered from the child transcript.
+    //
+    // Composite and scoped by conversation for the same reason
+    // `idx_agent_spawns_parent_tool_use_id` is: a tool_use id is unique WITHIN
+    // a conversation, not across the corpus — the same id legitimately appears
+    // in both a parent's and a child's transcript, because a dispatching Agent
+    // call is replayed into the child's own transcript.
+    //
+    // UNIQUE is safe despite the 208 pre-existing rows that carry neither
+    // column: Postgres permits unlimited NULLs under a unique index, so those
+    // rows coexist without colliding (the same property agent_spawns relies on
+    // for its own un-backfillable rows).
+    uniqueIndex("idx_subagent_invocations_parent_tool_use_id").on(
+      table.parentAgentSessionId,
+      table.parentToolUseId
+    ),
   ]
 );
 

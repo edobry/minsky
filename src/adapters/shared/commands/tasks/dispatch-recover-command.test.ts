@@ -79,6 +79,8 @@ class FakeTracker {
       parentSessionId: row.parentSessionId ?? null,
       parentTaskId: row.parentTaskId ?? null,
       subagentSessionId: row.subagentSessionId ?? null,
+      parentAgentSessionId: row.parentAgentSessionId ?? null,
+      parentToolUseId: row.parentToolUseId ?? null,
       agentType: row.agentType ?? "implementer",
       suggestedModel: row.suggestedModel ?? null,
       actualModel: row.actualModel ?? null,
