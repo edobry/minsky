@@ -103,6 +103,37 @@ is placed by cost, following common practice for large suites:
   with a **fail-closed** completion-summary + `<N> fail` gate, so a silently-truncated
   run can never pass. Escape hatch: `MINSKY_SKIP_PREPUSH_TESTS=1` (CI stays the
   authoritative gate and cannot be skipped this way).
+
+  **Change-scoped since mt#3562.** The main suite is selected with bun's
+  `--changed=<merge-base with origin/main>` rather than run whole, so a push costs time
+  proportional to its diff. Selection is graph-derived — bun walks the import graph and
+  picks every test file transitively depending on a changed file, not just
+  filename-matched siblings. A one-file change typically runs in a couple of seconds
+  instead of minutes.
+
+  Three properties worth knowing:
+
+  - **It still fails closed.** A truncated run emits no completion summary and is
+    rejected exactly as before; a selection that legitimately matches nothing prints
+    "No affected tests" and passes _explicitly_. Those are different code paths on
+    purpose — a gate that cannot fail is not a gate.
+  - **`src/mcp` is skipped when the diff cannot reach it.** The isolated runner drives
+    one bun process per file and has no `--changed` equivalent, so it runs whole or not
+    at all. It is skipped only when the changed-file list contains no `src/mcp/` path;
+    an unreadable list runs it.
+  - **Everything fails toward the full suite.** Three branches run unscoped: the merge base
+    cannot be resolved (no upstream ref, shallow clone), the changed-file list cannot be
+    read, or `MINSKY_PREPUSH_FULL_SUITE=1` is set. All three also run the `src/mcp`
+    isolated runner — "unscoped main suite with a skipped `src/mcp`" is not a reachable
+    state, and a test asserts that directly. The decision lives in one function
+    (`planRun`) precisely so the two halves cannot drift apart.
+
+  **Hooks tests are CI-only, and always have been.** `.minsky/hooks/**` is not in
+  `run-tests-main.ts`'s `ROOTS`, so the pre-push gate has never run them — CI's
+  `test:hooks` step is their gate. Change-scoping does not alter this, but it is worth
+  stating explicitly because bun's own discovery _also_ skips dot-directories, so a
+  hooks-only diff selects zero test files for a second, independent reason.
+
 - **CI** (`.github/workflows/ci.yml`) — the authoritative full suite (main + isolated
   `src/mcp` + hooks), with the same fail-closed gate.
 
