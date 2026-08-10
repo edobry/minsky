@@ -86,6 +86,24 @@ export async function displayModelComparison(models: string[], options: Generate
       );
     });
 
+    /**
+     * Two models whose counts came from one shared encoding will report the
+     * same number, and the table gives no clue why — which reads as "these
+     * models cost the same" rather than "this comparison cannot tell them
+     * apart." Name the models whose figures are approximations (mt#3928).
+     */
+    const approximatedModels = comparisons
+      .filter(({ result }) => result.metadata.tokenizer.approximated)
+      .map(({ model }) => model);
+    if (approximatedModels.length > 0) {
+      log.cli(
+        `\nNote: ${approximatedModels.join(", ")} ${approximatedModels.length === 1 ? "has" : "have"} ` +
+          `no registered tokenizer, so ${approximatedModels.length === 1 ? "its figure is" : "their figures are"} ` +
+          "approximated with an OpenAI encoding. Identical counts across models reflect one shared " +
+          "tokenizer, not a measured equivalence."
+      );
+    }
+
     log.cli("\n📊 Component Comparison");
     log.cli("━".repeat(80));
 
