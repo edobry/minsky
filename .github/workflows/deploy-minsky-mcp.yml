@@ -328,6 +328,24 @@ jobs:
           PROJECT_ID="0e054318-7e19-4489-8e1e-de787965161d"
           ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
+          # These three are copies of values that live in
+          # services/minsky-mcp/deploy.config.ts (PR #2776 R1 NON-BLOCKING:
+          # inline ids duplicate the source of truth). This job has no bun
+          # step, so the .ts cannot simply be imported — instead the copies are
+          # ASSERTED against the source, so drift fails the deploy loudly
+          # instead of silently redeploying the wrong service. A duplicate that
+          # is checked is not a second source of truth.
+          CFG="services/minsky-mcp/deploy.config.ts"
+          for pair in "projectId:${PROJECT_ID}" "environmentId:${ENVIRONMENT_ID}" "serviceId:${SERVICE_ID}"; do
+            field="${pair%%:*}"
+            value="${pair#*:}"
+            if ! grep -q "${field}: \"${value}\"" "${CFG}"; then
+              echo "::error::${field} in this workflow (${value}) does not match ${CFG}. Update the workflow, or the id changed upstream — do not deploy against a stale id."
+              exit 1
+            fi
+          done
+          echo "Railway ids verified against ${CFG}."
+
           # mt#3925 — the CLI takes the token in a DIFFERENT env var depending
           # on the token's scope, per Railway's CLI docs:
           #
@@ -376,17 +394,37 @@ jobs:
           # `railway redeploy --help` exposes no --project/--environment, so the
           # binding has to come from `railway link`. Verified non-interactive
           # with UUID args before shipping.
+          # Each attempt runs in its OWN empty working directory (PR #2776 R1
+          # BLOCKING). `railway link` persists project context to disk in the
+          # cwd, so without this attempt 2 would inherit attempt 1's link and
+          # would NOT be testing the unlinked project-token path it claims to
+          # test — it would be a second run of attempt 1's configuration with a
+          # different env var. The first draft "asserted" the isolation by
+          # grepping that attempt 2 omitted the `link` argument, which checks
+          # the ARGUMENT rather than the resulting STATE: the very
+          # verify-outcomes-not-actions error this deploy chain has been about.
+          #
+          # `set -e` note: a non-zero from either command inside this function
+          # does not trigger errexit, because every call site is an `if`
+          # condition, which is an exempt context. The explicit `|| return 1`
+          # on `link` is therefore about ORDER (do not attempt a redeploy after
+          # a failed link), not about errexit.
           redeploy_with() {
             # $1 = env var name to carry the token
             # $2 = "link" to establish project context first (account scope)
-            if [ "${2:-}" = "link" ]; then
+            local attempt_dir
+            attempt_dir="$(mktemp -d)"
+            (
+              cd "${attempt_dir}" || exit 1
+              if [ "${2:-}" = "link" ]; then
+                env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
+                  railway link --project "${PROJECT_ID}" \
+                               --environment "${ENVIRONMENT_ID}" \
+                               --service "${SERVICE_ID}" || exit 1
+              fi
               env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
-                railway link --project "${PROJECT_ID}" \
-                             --environment "${ENVIRONMENT_ID}" \
-                             --service "${SERVICE_ID}" || return 1
-            fi
-            env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
-              railway redeploy --from-source --service "${SERVICE_ID}" -y
+                railway redeploy --from-source --service "${SERVICE_ID}" -y
+            )
           }
 
           # Diagnostic only, never fatal: prints the authenticated identity so
