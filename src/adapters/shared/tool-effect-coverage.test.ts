@@ -452,12 +452,6 @@ describe("snapshot freshness against the command sources", () => {
     const snapshot = new Set(REGISTERED_TOOL_IDS);
     // `tasks.status` is a category container, not an invocable command.
     scanned.delete("tasks.status");
-    // `session.approve` is DEFINED but never registered — its factory
-    // (`createSessionApproveCommand`) has no callers, so it appears in the
-    // sources and in no registry. Disposition: mt#3941. Until that lands, the
-    // exclusion is named here rather than letting the scan report a command
-    // that cannot be invoked.
-    scanned.delete("session.approve");
     const missing = [...scanned].filter((id) => !snapshot.has(id));
     expect(missing).toEqual([]);
   });
