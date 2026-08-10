@@ -21,6 +21,7 @@ import {
   HOOK_UNKNOWN_TASK_ID,
   recordFailureBestEffort,
   recoverDispatchStamp,
+  resolveRecordedClassification,
   __setDeadlineExceededForTest,
 } from "./record-subagent-invocation";
 import { buildDispatchStamp } from "./agent-dispatch-stamp";
@@ -549,5 +550,66 @@ describe("decideRecordingAction with a dispatch stamp (mt#2292)", () => {
 
     expect(decision.action).toBe("record");
     expect(decision.effectiveTaskId).toBe("mt#2292");
+  });
+});
+
+describe("resolveRecordedClassification (mt#3894)", () => {
+  const WORKSPACE_CLASSIFICATION = {
+    outcome: "committed-no-pr",
+    lastCommitHash: "abc123",
+    handoffWritten: true,
+  } as const;
+
+  test("no workspace: records `no-workspace` and never invokes the classifier", async () => {
+    // Both halves matter. The outcome is the fix; the classifier NOT running is what removes a
+    // `git` + `gh` subprocess round-trip from a path bounded by an 8s deadline (mt#3893).
+    let classifierCalls = 0;
+    const classification = await resolveRecordedClassification(null, async () => {
+      classifierCalls += 1;
+      return WORKSPACE_CLASSIFICATION;
+    });
+
+    expect(classifierCalls).toBe(0);
+    expect(classification.outcome).toBe("no-workspace");
+  });
+
+  test("no workspace: carries no parent-derived columns", async () => {
+    // The observed rows held main's HEAD in `last_commit_hash` and `handoff_written = true`
+    // read off the operator's own checkout — worse than uninformative, since the commit hash
+    // attributes a commit to a subagent that made none.
+    const classification = await resolveRecordedClassification(null, async () =>
+      Promise.reject(new Error("classifier must not run"))
+    );
+
+    expect(classification.lastCommitHash).toBeUndefined();
+    expect(classification.prUrl).toBeUndefined();
+    expect(classification.handoffWritten).toBe(false);
+  });
+
+  test("a session workspace still classifies exactly as before", async () => {
+    const classification = await resolveRecordedClassification(
+      "79600bf6-f265-47b3-8b2b-6f8fb7ae2db9",
+      async () => WORKSPACE_CLASSIFICATION
+    );
+
+    expect(classification).toEqual(WORKSPACE_CLASSIFICATION);
+  });
+
+  test("the discriminator is the absence of a workspace, not the state of any tree", async () => {
+    // AT2: the same no-workspace dispatch classifies identically whichever workspace-derived
+    // verdict the classifier would have produced from the cwd it happened to be sitting in.
+    const asIfDirty = await resolveRecordedClassification(null, async () => ({
+      outcome: "partial-committed-handoff-written" as const,
+      lastCommitHash: "deadbeef",
+      handoffWritten: true,
+    }));
+    const asIfClean = await resolveRecordedClassification(null, async () => ({
+      outcome: "committed-no-pr" as const,
+      lastCommitHash: "deadbeef",
+      handoffWritten: false,
+    }));
+
+    expect(asIfDirty).toEqual(asIfClean);
+    expect(asIfDirty.outcome).toBe("no-workspace");
   });
 });

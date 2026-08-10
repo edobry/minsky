@@ -18,8 +18,10 @@ directly with the SQL patterns below.
 ## Outcome taxonomy
 
 Each row in `subagent_invocations` carries an `outcome` column classifying how
-the dispatch ended. **Six TERMINAL classes**, plus one non-terminal placeholder
-(`pending`, class 7 below) that means no outcome has been observed yet:
+the dispatch ended. **Six WORKSPACE-DERIVED classes**, plus two values that are
+not classifications at all: `pending` (class 7), which means no outcome has been
+observed yet, and `no-workspace` (class 8), which means there was no workspace to
+derive a class from:
 
 1. **`completed-with-pr`** — The subagent completed its task, committed all
    changes, and created a pull request. The dispatch landed cleanly. This is
@@ -66,6 +68,27 @@ the dispatch ended. **Six TERMINAL classes**, plus one non-terminal placeholder
    bound on the phantoms (mt#2718 burned both). Only the classifier may write a
    terminal class; the `TerminalSubagentInvocationOutcome` type enforces that
    `pending` cannot be returned from classification.
+
+8. **`no-workspace`** (mt#3894) — **Also NOT a classification**, and the mirror image
+   of `pending`: the absence it records is PERMANENT, not transient. Every class 1-6
+   is a predicate over a workspace (commits, a dirty tree, a `handoff.md`, a PR), and
+   a raw harness `Agent` dispatch has none — `prompt-generation.ts` forbids `cd`, so
+   its cwd is the MAIN repo. The SubagentStop hook writes this value INSTEAD of
+   classifying, and leaves `pr_url` / `last_commit_hash` null and `handoff_written`
+   false.
+
+   **Read it as "this dispatch produced no workspace-shaped artifact to observe"** —
+   not as success and not as failure. It emits neither `subagent.completed` nor
+   `subagent.failed` (joining `rate-limited`), counts toward no escalation threshold,
+   and is not a `tasks_dispatch-recover` resumable class.
+
+   Before this value existed, such dispatches were classified against the OPERATOR's
+   own checkout: all 3 rows written that way read `partial-committed-handoff-written`
+   with main's HEAD in `last_commit_hash`, for subagents that committed nothing — and
+   the label tracked the operator's working tree rather than anything the subagent did,
+   so a distribution over those rows looked like signal. Reusing `pending` was
+   rejected because it would put a permanent fact in the placeholder for a transient
+   one, recreating the very ambiguity class 7 exists to remove.
 
 ## Escalation rule
 
@@ -178,13 +201,15 @@ The `subagentDispatches` field in `mcp__minsky__debug_systemInfo` returns:
 {
   total: number;               // All-time row count
   lastDispatch: string | null; // ISO-8601 of most recent startedAt
-  byOutcome: {                 // Count per outcome class (all 6 always present)
+  byOutcome: {                 // Count per outcome value (all 8 always present)
     "completed-with-pr": number;
     "committed-no-pr": number;
     "partial-committed-handoff-written": number;
     "partial-uncommitted-no-handoff": number;
     "crashed-no-output": number;
     "rate-limited": number;
+    "pending": number;         // class 7 — not yet observed; never a failure
+    "no-workspace": number;    // class 8 — no workspace to observe; never a failure
   };
   byAgentType: Record<string, number>; // Count per agentType string
   byHourLast24h: Array<{               // Hourly dispatch counts, last 24h

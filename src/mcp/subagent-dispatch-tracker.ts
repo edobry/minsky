@@ -145,11 +145,12 @@ export interface SubagentDispatchCadence {
   /** ISO-8601 timestamp of the most recent startedAt, or null. */
   lastDispatch: string | null;
   /**
-   * Count per outcome class. All 7 values are always present — the 6 terminal classes plus
-   * `pending` (mt#1770), which is the dispatch-time placeholder rather than a classification.
-   * The record is built by folding over `SUBAGENT_INVOCATION_OUTCOME_VALUES`, so it extends
-   * automatically with the enum; a reader summing "failures" must exclude `pending`, which
-   * means "no outcome observed yet," not a bad one.
+   * Count per outcome class. All 8 values are always present — the 6 workspace-derived classes,
+   * `pending` (mt#1770), and `no-workspace` (mt#3894). The record is built by folding over
+   * `SUBAGENT_INVOCATION_OUTCOME_VALUES`, so it extends automatically with the enum. A reader
+   * summing "failures" must exclude BOTH of the last two: `pending` means "no outcome observed
+   * yet," and `no-workspace` means "the subagent had no workspace to observe an outcome in" —
+   * neither is a bad outcome.
    */
   byOutcome: Record<SubagentInvocationOutcome, number>;
   /** Count per agentType. Only types that appear in the table. */
@@ -453,6 +454,16 @@ export class SubagentDispatchTracker {
       // Co-located with the subagent.failed branch above; the two are
       // mutually exclusive (rate-limited emits neither). Best-effort —
       // EventEmitter.emit() never throws.
+      //
+      // `no-workspace` (mt#3894) deliberately emits NEITHER event, joining
+      // `rate-limited`. This is a decision, not a fall-through, and the
+      // distinction matters because both look identical from outside: a member
+      // matching neither branch is silently absent from `subagent.failed` AND
+      // `subagent.completed`. `subagent.failed` would recreate the false-crash
+      // harm mt#1770 removed — asserting a failure nobody observed — and
+      // `subagent.completed` would assert a success nobody observed either. The
+      // row itself carries the fact; neither stream should claim more than that.
+      // Pinned by "emits neither event for no-workspace" in the sibling test.
       if (
         this.eventEmitter &&
         (input.outcome === "completed-with-pr" ||

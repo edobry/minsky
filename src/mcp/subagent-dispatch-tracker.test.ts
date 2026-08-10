@@ -57,6 +57,7 @@ const OUTCOME_PARTIAL_COMMITTED_HANDOFF: SubagentInvocationOutcome =
 const OUTCOME_PARTIAL_UNCOMMITTED: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
 const OUTCOME_CRASHED: SubagentInvocationOutcome = "crashed-no-output";
 const OUTCOME_RATE_LIMITED: SubagentInvocationOutcome = "rate-limited";
+const OUTCOME_NO_WORKSPACE: SubagentInvocationOutcome = "no-workspace";
 
 // ---------------------------------------------------------------------------
 // Row type + ID counter
@@ -1673,6 +1674,17 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
   test("emits neither completed nor failed for rate-limited", async () => {
     await tracker.recordSubagentInvocation(makeInput({ outcome: OUTCOME_RATE_LIMITED }));
     expect(emitter.emitted.length).toBe(0);
+  });
+
+  test("emits neither completed nor failed for no-workspace (mt#3894)", async () => {
+    // A deliberate decision, not a fall-through — and the two are indistinguishable from the
+    // outside, which is exactly why it is pinned here. `subagent.failed` would assert a failure
+    // nobody observed (the false-crash harm mt#1770 removed); `subagent.completed` would assert
+    // a success nobody observed. A subagent with no workspace produced no evidence for either.
+    await tracker.recordSubagentInvocation(makeInput({ outcome: OUTCOME_NO_WORKSPACE }));
+    expect(emitter.emitted.length).toBe(0);
+    // The row is still written — silence in the event streams is not silence in the record.
+    expect(store.size).toBe(1);
   });
 
   test("records the row even with no event emitter wired (emit is best-effort/optional)", async () => {

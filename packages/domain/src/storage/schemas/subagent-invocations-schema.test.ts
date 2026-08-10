@@ -2,8 +2,9 @@
  * Subagent invocations schema shape and enum tests — mt#1735
  *
  * Verifies that the Drizzle table definition has the expected column names,
- * that the outcome enum has exactly the 7 specified values (6 terminal classes plus the
- * mt#1770 `pending` placeholder), and that the SQL migration file contains the required DDL.
+ * that the outcome enum has exactly the 8 specified values (6 workspace-derived classes, the
+ * mt#1770 `pending` placeholder, and the mt#3894 `no-workspace` value), and that the SQL
+ * migration file contains the required DDL.
  *
  * These are pure unit tests — no live DB required.
  */
@@ -18,7 +19,10 @@ import {
   subagentInvocationOutcomeEnum,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "./subagent-invocations-schema";
-import type { TerminalSubagentInvocationOutcome } from "./subagent-invocations-schema";
+import type {
+  ObservedSubagentInvocationOutcome,
+  TerminalSubagentInvocationOutcome,
+} from "./subagent-invocations-schema";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
 /** The Postgres enum type name, as written in the migrations. */
@@ -31,12 +35,13 @@ const A_TERMINAL_OUTCOME = "crashed-no-output";
 // ---------------------------------------------------------------------------
 
 describe("SubagentInvocationOutcome enum", () => {
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 7 values", () => {
-    // 6 terminal classes (mt#1005) + the dispatch-time `pending` placeholder (mt#1770).
-    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(7);
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 8 values", () => {
+    // 6 workspace-derived classes (mt#1005) + the dispatch-time `pending` placeholder (mt#1770)
+    // + `no-workspace` for a subagent that had no workspace to classify (mt#3894).
+    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(8);
   });
 
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 7 specified outcome values", () => {
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 8 specified outcome values", () => {
     const expected = [
       "completed-with-pr",
       "committed-no-pr",
@@ -45,6 +50,7 @@ describe("SubagentInvocationOutcome enum", () => {
       A_TERMINAL_OUTCOME,
       "rate-limited",
       "pending",
+      "no-workspace",
     ] as string[];
     const actual: string[] = [...SUBAGENT_INVOCATION_OUTCOME_VALUES].sort();
     expect(actual).toEqual(expected.sort());
@@ -62,6 +68,40 @@ describe("SubagentInvocationOutcome enum", () => {
     // terminal union (the `@ts-expect-error` above is the actual assertion),
     // so `toBe` would otherwise reject the non-member literal.
     expect(notTerminal as string).toBe("pending");
+  });
+
+  test("`no-workspace` is excluded from TerminalSubagentInvocationOutcome (mt#3894)", () => {
+    // The workspace classifier must not be able to return it: `no-workspace` is written by the
+    // SubagentStop hook INSTEAD of classifying, so a branch inside `classifyWorkspaceOutcome`
+    // returning it would put the decision in the one place that cannot see whether a workspace
+    // exists. Compile-time constraint, compile-time assertion, plus a runtime pair.
+    // @ts-expect-error — `no-workspace` must NOT be assignable to the workspace-classifier type.
+    const notTerminal: TerminalSubagentInvocationOutcome = "no-workspace";
+    expect(notTerminal as string).toBe("no-workspace");
+    // ...but it IS assignable to what the hook may record.
+    const observed: ObservedSubagentInvocationOutcome = "no-workspace";
+    expect(observed).toBe("no-workspace");
+  });
+
+  test("`no-workspace` is present — the no-workspace-to-classify value (mt#3894)", () => {
+    // Guards the specific member rather than only the count, for the same reason the `pending`
+    // test below does: a swap keeps the length at 8 and would otherwise pass silently.
+    expect([...SUBAGENT_INVOCATION_OUTCOME_VALUES]).toContain("no-workspace");
+  });
+
+  test("`no-workspace` cannot reach an escalation threshold (mt#3894)", () => {
+    // Same source-level assertion as the `pending` test below: the tracker's threshold queries
+    // filter on SPECIFIC workspace-derived outcomes, so a dispatch with no workspace cannot
+    // contribute to a rate-limit or stranded-work escalation. Asserted against the source
+    // rather than trusted from the decision recorded in the tracker's comment.
+    const trackerSrc = readFileSync(
+      join(import.meta.dir, "../../../../../src/mcp/subagent-dispatch-tracker.ts")
+    ).toString();
+    const outcomeFilters = [
+      ...trackerSrc.matchAll(/eq\(\s*subagentInvocationsTable\.outcome,\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(outcomeFilters.length).toBeGreaterThan(0);
+    expect(outcomeFilters).not.toContain("no-workspace");
   });
 
   test("`pending` cannot reach an escalation threshold — the doc claim, pinned (PR #2501 R1)", () => {
@@ -335,6 +375,19 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
         (s) => s.includes(ENUM_TYPE_NAME) && /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s)
       );
     expect(addValueStatements.some((s) => s.includes("'pending'"))).toBe(true);
+  });
+
+  test("`no-workspace` specifically is introduced by an ALTER TYPE ... ADD VALUE (mt#3894)", () => {
+    // Same sharper check for the member mt#3894 adds, and for the same reason: retrofitting it
+    // into the already-applied base CREATE TYPE would leave every existing database without the
+    // value while these tests passed.
+    const addValueStatements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      .filter(
+        (s) => s.includes(ENUM_TYPE_NAME) && /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s)
+      );
+    expect(addValueStatements.some((s) => s.includes("'no-workspace'"))).toBe(true);
   });
 
   test("migration creates index on task_id", () => {

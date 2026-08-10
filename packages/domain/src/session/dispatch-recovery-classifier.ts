@@ -258,9 +258,14 @@ export function computeDispatchStaleness(
  * crashed-no-output"). Deliberately excludes `completed-with-pr` (that's a
  * healthy outcome, not a recovery case) and `rate-limited` (out of this
  * task's scope per its Covers/Does-NOT-cover — the tracker's own escalation
- * handles rate-limit storms). Values are exactly 4 of the 6 persisted
+ * handles rate-limit storms). Values are exactly 4 of the 6 workspace-derived
  * `SubagentInvocationOutcome` enum values, so a classification here writes
  * directly to the `outcome` column with no further mapping.
+ *
+ * `no-workspace` (mt#3894) is likewise excluded, and for the most basic reason
+ * of all: every value here names a state of a session workspace this recovery
+ * path can resume from, and a dispatch that never had a workspace has nothing
+ * to resume. Pinned by an exact-membership test rather than left to inference.
  */
 export const DISPATCH_RECOVERY_CLASSIFICATION_VALUES = [
   "committed-no-pr",
