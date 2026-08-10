@@ -91,41 +91,20 @@ const RENDER_PATH_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * Test-file predicate for the render-path surface, covering `.tsx` as well as `.ts`.
- *
- * ## Why this does not just call the shared `isTestFile`
- *
- * The shared predicate in `./pr-file-predicates` matches `/\.(test|integration\.test|spec)\.ts$/`
- * — `.ts` ONLY. It does not recognize `.test.tsx`, so every test file under `src/cockpit/web`
- * is invisible to it.
- *
- * That is not a cosmetic gap, and finding it corrected this task's own spec. The spec asserted
- * that mt#3810's PR "carried tests, so mt#1459's gate fired and was satisfied." It did not:
- * PR #2711 added exactly one test file, `ConversationElementRenderers.image.test.tsx`
- * (commit `68e7f58d0`), which the shared predicate cannot see — so `findNewTestFiles` returned
- * empty and the blocking gate never fired. The real story is worse than the spec's version:
- * not "a gate fired on weak evidence" but "no gate fired at all."
- *
- * Widening the SHARED predicate is the right fix and is deliberately NOT done here. It would
- * change a BLOCKING gate's trigger set — every cockpit-web PR adding a `.test.tsx` would newly
- * require an `Execution evidence:` block or be denied — which is a blast radius that deserves
- * its own planning pass rather than riding along inside a log-only surface. Tracked at mt#3868,
- * whose success criteria include deleting this stopgap; it keeps THIS surface correct meanwhile.
- */
-function isRenderPathTestFile(filename: string): boolean {
-  return isTestFile(filename) || /\.(test|spec)\.tsx$/.test(filename);
-}
-
-/**
  * True when a filename is a user-facing render path.
  *
  * Test files are excluded even when they match a pattern above. A PR that only touches
  * `Foo.test.tsx` changes no rendered surface, and firing on it would be pure noise — the
  * mem#719 failure mode, where a detector's unmatchable output trains readers to discount its
  * correct output too.
+ *
+ * This calls the SHARED `isTestFile` again as of mt#3868. It briefly used a local `.tsx`-aware
+ * stopgap, because the shared predicate matched `.ts` only and this surface could not afford to
+ * treat every cockpit-web test file as a render change. mt#3868 widened the shared predicate, so
+ * the stopgap is deleted rather than left to drift out of sync with it.
  */
 export function isRenderPathFile(filename: string): boolean {
-  if (isRenderPathTestFile(filename)) return false;
+  if (isTestFile(filename)) return false;
   return RENDER_PATH_PATTERNS.some((p) => p.test(filename));
 }
 
@@ -252,10 +231,11 @@ export function checkRenderPathEvidence(files: PrFile[], prBody: string): Render
     applicable: true,
     renderPathFiles,
     hasArtifact: hasOpenableArtifact(prBody),
-    // The `.tsx`-aware predicate, not the shared one — otherwise the mt#3810 shape (whose only
-    // test file was a `.test.tsx`) would record `hasTests: false` and the calibration log would
-    // misattribute the very case that widened this trigger.
-    hasTests: files.some((f) => isRenderPathTestFile(f.filename)),
+    // The shared predicate, `.tsx`-aware as of mt#3868. Before that widening this had to use a
+    // local stopgap: the mt#3810 shape, whose only test file was a `.test.tsx`, would otherwise
+    // have recorded `hasTests: false` and the calibration log would have misattributed the very
+    // case that widened this trigger.
+    hasTests: files.some((f) => isTestFile(f.filename)),
   };
 }
 

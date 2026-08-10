@@ -107,9 +107,10 @@ describe("isTestFile", () => {
     expect(isTestFile("src/testHelpers.ts")).toBe(false);
   });
 
-  it("does not match .test.tsx", () => {
-    expect(isTestFile("src/components/Foo.test.tsx")).toBe(false);
-  });
+  // The `.tsx` cases moved to `./pr-file-predicates.test.ts` when mt#3868 widened the predicate
+  // — this file was already at the max-lines ceiling, and the predicate had no test file of its
+  // own. A case asserting `isTestFile(".test.tsx") === false` used to live here; mt#3868 reverses
+  // it, and that reversal is documented at its new home.
 });
 
 // ---------------------------------------------------------------------------
