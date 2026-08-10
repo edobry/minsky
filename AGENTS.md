@@ -1675,10 +1675,27 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   - "can't verify until X" / "needs X first" / "blocked on X landing"
   - "verification deferred" with no named actor
 
-  **The probe question is availability-NOW, regardless of what the deferral defers TO.** Both
-  shapes assert the same thing — *I am unable to do this at this moment* — and both are checked
-  the same way: try it. A deferral to a later time is not self-justifying just because it names
-  no person; it is a claim about your present capability and needs the same evidence.
+  *Deferring because a STANDING INSTRUCTION forbids it (mt#3930) — the probe is a question, not a tool call:*
+  - "the standing instruction is not to X" / "I'm not supposed to X unless asked"
+  - "X requires your authorization, so I've left it" / "rather than X, I filed a follow-up"
+  - any restriction cited as settling the matter, in a turn where you are already writing to the principal
+
+  **The probe question is availability-NOW, regardless of what the deferral defers TO.** All three
+  shapes assert the same thing — *I am unable to do this at this moment* — and all three are
+  checked the same way: try it. A deferral to a later time is not self-justifying just because it
+  names no person; it is a claim about your present capability and needs the same evidence.
+
+  **For the third shape the probe is: ASK, in this turn.** A restriction is a default, not a wall.
+  If you are already composing a message to the principal, the cost of adding the question is one
+  sentence; the cost of not asking is a round-trip plus an artifact that should not exist. The tell
+  is that the deferral reads as compliance — the sentence is TRUE, which is why it survives your own
+  review, and what it omits is that the principal was right there. **Filing a follow-up task to own
+  work you were not actually blocked on is the failure, not the mitigation.**
+
+  **Where it genuinely stops:** an action that is destructive, or that falls under a nameable
+  category in `principal-context.mdc §Decisions Eugene reserves`. The test is whether the principal
+  would plausibly just say yes — if so it is a question, not a boundary. This shape does not license
+  acting through real boundaries; it licenses asking about them instead of building around them.
 
   **Canonical probe sequence** (run in order; first hit unblocks):
   1. **CLI probe** — `which <cli> && <cli> whoami` (or equivalent auth-check) for the relevant tool.
