@@ -736,7 +736,7 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
  * sweep keeps the injected snapshot labelled "fresh"; only a stalled/absent sweep trips the
  * hook's STALE path.
  */
-const PROD_STATE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+export const PROD_STATE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
  * Start the periodic prod-state cache refresh in this cockpit process (mt#2506).
