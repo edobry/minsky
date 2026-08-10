@@ -41,7 +41,8 @@
  *
  * @see mt#3896 — the decision this implements (its `## Outcome` carries the full alternatives set)
  * @see src/cockpit/prod-state-cache.ts — `refreshProdStateCache`, the shared refresh
- * @see .claude/hooks/inject-prod-state.ts — the consumer; unchanged and unaware of who wrote
+ * @see .minsky/hooks/inject-prod-state.ts — the consumer; unchanged and unaware of who wrote
+ *      it. That is the SOURCE; `.claude/hooks/` holds the generated copy.
  */
 import * as fs from "fs";
 import { log } from "@minsky/shared/logger";
