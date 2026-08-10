@@ -491,7 +491,9 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
-  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`).
+  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
+  mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
+  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
   `MINSKY_ALLOW_SECRET_FILE_READ`.
 - **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
   `Duplicate check:` line (either named candidates + reconciliation, or the literal
