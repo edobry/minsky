@@ -1800,6 +1800,89 @@ export function clearResolvedAskIds(
 }
 
 /**
+ * Outcome of reconciling a pass's intended watermark write against the store
+ * as it stands at write time (mt#3899).
+ */
+export interface WatermarkMergeResult {
+  /** The store to persist: `fresh`, with this pass's non-drifted edits applied. */
+  merged: WatermarkStore;
+  /**
+   * Target paths whose entry changed under the pass between its read and its
+   * write. Their intended edit was DROPPED — the concurrent writer's value
+   * stands. Sorted, so callers and tests get a stable order.
+   */
+  driftedPaths: string[];
+}
+
+/** True when two entries carry identical review state (absent === absent). */
+function watermarkEntriesEqual(a?: LogWatermark, b?: LogWatermark): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.lastReviewedCount === b.lastReviewedCount &&
+    a.lastReviewedAt === b.lastReviewedAt &&
+    a.openAskId === b.openAskId
+  );
+}
+
+/**
+ * Reconcile a pass's intended watermark write against the store re-read
+ * immediately before persisting (mt#3899).
+ *
+ * The command reads the store once, sweeps every calibration log — tens of
+ * seconds of IO — decides what to advance, then writes the whole store back.
+ * With concurrent agent sessions that read-modify-write races: a second pass
+ * that acks mid-sweep is invisible to the first, whose whole-store write then
+ * silently reverts it. The observed instance advanced one log's watermark to
+ * its full fire count while another pass was mid-classification on exactly
+ * those fires; nothing surfaced, because the losing write reported success.
+ *
+ * Two rules, both required:
+ *
+ * - **Start from `fresh`, not from the pass's stale snapshot.** An entry the
+ *   pass never intended to touch keeps whatever the concurrent writer left
+ *   there, so a whole-store rewrite cannot clobber an unrelated log.
+ * - **Drop a target whose entry moved.** If `fresh` disagrees with `base` for
+ *   a path this pass meant to change, another writer got there first; its
+ *   value stands and the path is REPORTED rather than overwritten. Silently
+ *   winning the race is the failure mode — a dropped edit the caller can see
+ *   is recoverable, one it cannot is not.
+ *
+ * Last-writer-wins is preserved deliberately for the no-contention case: when
+ * nothing changed underneath, `fresh` equals `base` and every intended edit
+ * applies.
+ *
+ * @param base Store snapshot the pass computed its decisions from.
+ * @param intended `base` with this pass's edits applied.
+ * @param fresh Store as re-read immediately before writing.
+ * @param targetPaths Paths this pass intends to change.
+ */
+export function mergeWatermarkWrite(
+  base: WatermarkStore,
+  intended: WatermarkStore,
+  fresh: WatermarkStore,
+  targetPaths: ReadonlySet<string>
+): WatermarkMergeResult {
+  const merged: WatermarkStore = { ...fresh };
+  const driftedPaths: string[] = [];
+
+  for (const path of targetPaths) {
+    if (!watermarkEntriesEqual(base[path], fresh[path])) {
+      driftedPaths.push(path);
+      continue;
+    }
+    const next = intended[path];
+    if (next) {
+      merged[path] = next;
+    } else {
+      delete merged[path];
+    }
+  }
+
+  driftedPaths.sort();
+  return { merged, driftedPaths };
+}
+
+/**
  * Result of `selectAckablePaths` — which review-due logs may be advanced
  * (acked) this pass, and which must be skipped.
  */

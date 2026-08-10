@@ -35,6 +35,7 @@ import {
   computeReviewDueLogs,
   advanceWatermarks,
   clearResolvedAskIds,
+  mergeWatermarkWrite,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
@@ -48,6 +49,18 @@ import {
 // ---------------------------------------------------------------------------
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
+
+/**
+ * Lock guarding the watermark store's read-merge-write critical section
+ * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
+ * platform we run on — no dependency, no partial-create state.
+ */
+const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+/** A holder older than this is treated as dead; the section is ~2 file ops. */
+const WATERMARK_LOCK_STALE_MS = 10_000;
+/** Give up waiting and proceed unlocked rather than lose the pass's work. */
+const WATERMARK_LOCK_MAX_WAIT_MS = 5_000;
+const WATERMARK_LOCK_RETRY_MS = 15;
 
 // ---------------------------------------------------------------------------
 // Per-record context rendering (mt#3289)
@@ -164,6 +177,68 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
   const { join } = await import("node:path");
   const storePath = join(workspacePath, WATERMARK_STORE_PATH);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
+}
+
+/**
+ * Run `critical` with exclusive access to the watermark store (mt#3899).
+ *
+ * Re-reading before writing narrows the race but does not close it: another
+ * pass can still write in the gap between this pass's re-read and its own
+ * write. That gap is small — two file operations — but it is exactly where two
+ * in-process passes land, and it is where the originating incident's write
+ * would have landed too. The lock makes read-merge-write indivisible.
+ *
+ * **Failure mode, stated because a lock has one.** The lock is a directory, so
+ * a process that dies mid-section leaves it behind. Two bounds keep that from
+ * wedging the loop: a holder older than `WATERMARK_LOCK_STALE_MS` is removed as
+ * dead, and a waiter that has spun for `WATERMARK_LOCK_MAX_WAIT_MS` proceeds
+ * WITHOUT the lock rather than failing. Proceeding unlocked degrades to
+ * re-read-and-merge — the narrow race — which is strictly better than throwing
+ * away a pass's classification work over a stale directory. The section holds
+ * the lock for two file ops, never for the multi-second sweep, so contention is
+ * brief by construction.
+ */
+async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
+  const { join } = await import("node:path");
+  const { mkdir, rm, stat } = await import("node:fs/promises");
+  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
+  let held = false;
+  while (Date.now() < deadline) {
+    try {
+      await mkdir(lockPath, { recursive: false });
+      held = true;
+      break;
+    } catch {
+      // Held by someone. Reap it if the holder looks dead, then retry.
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > WATERMARK_LOCK_STALE_MS) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // Vanished between the failed mkdir and the stat — the holder released
+        // it, so retry immediately rather than sleeping.
+        continue;
+      }
+      await sleep(WATERMARK_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await critical();
+  } finally {
+    if (held) {
+      await rm(lockPath, { recursive: true, force: true }).catch(() => {
+        // intentional-swallow: releasing a lock we hold is best-effort. A
+        // failure here leaves a directory the staleness reaper collects; it
+        // must not mask the critical section's own result or error.
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -377,15 +452,62 @@ export function registerCalibrationCommands(): void {
 
         let watermarks = await loadWatermarks(workspacePath);
 
+        // Every write below goes through `persistWatermarks` (mt#3899), which
+        // re-reads the store and drops any target another pass changed
+        // underneath us. Drifted paths accumulate here and are reported.
+        const driftedPaths: string[] = [];
+
+        /**
+         * Persist `intended` against the store as it stands NOW, not against
+         * the snapshot this pass read (mt#3899). Returns the paths whose edit
+         * was dropped because a concurrent writer got there first; the caller
+         * decides what that means for its own success flag.
+         */
+        const persistWatermarks = async (
+          base: WatermarkStore,
+          intended: WatermarkStore,
+          targetPaths: ReadonlySet<string>
+        ): Promise<{ store: WatermarkStore; drifted: string[] }> =>
+          // The re-read and the write must be indivisible: re-reading alone
+          // still loses to a writer that lands in between, which is where two
+          // in-process passes reliably collide (measured — the AT1 test failed
+          // against the re-read-only version of this fix).
+          withWatermarkLock(workspacePath, async () => {
+            const fresh = await loadWatermarks(workspacePath);
+            const { merged, driftedPaths: drifted } = mergeWatermarkWrite(
+              base,
+              intended,
+              fresh,
+              targetPaths
+            );
+            await saveWatermarks(workspacePath, merged);
+            driftedPaths.push(...drifted);
+            return { store: merged, drifted };
+          });
+
         // Clear a resolved disposition-ask reference first (mt#2659) — this
         // is independent of --ack and does not touch lastReviewedCount/At.
         let clearedAskId = false;
         if (params.clearAskId) {
-          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
-          if (clearedWatermarks !== watermarks) {
-            watermarks = clearedWatermarks;
-            await saveWatermarks(workspacePath, watermarks);
-            clearedAskId = true;
+          // Select the entries FIRST, and gate on that rather than on
+          // `clearResolvedAskIds`'s return reference: it copies the store
+          // whenever the id set is non-empty, so reference-inequality holds even
+          // when the id matches no entry — which would otherwise read+write the
+          // whole store to change nothing (PR #2753 R1).
+          const targets = new Set(
+            Object.keys(watermarks).filter((p) => watermarks[p]?.openAskId === params.clearAskId)
+          );
+          if (targets.size > 0) {
+            const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
+            const { store, drifted } = await persistWatermarks(
+              watermarks,
+              clearedWatermarks,
+              targets
+            );
+            watermarks = store;
+            // Honest reporting: a clear whose every target drifted cleared
+            // nothing, so it must not claim it did.
+            clearedAskId = drifted.length < targets.size;
           }
         }
 
@@ -443,8 +565,14 @@ export function registerCalibrationCommands(): void {
               new Date().toISOString(),
               params.askId
             );
-            await saveWatermarks(workspacePath, updated);
-            watermarkAdvanced = true;
+            const { drifted } = await persistWatermarks(
+              watermarks,
+              updated,
+              selection.ackablePaths
+            );
+            // An ack whose every target drifted advanced nothing. Reporting it
+            // as advanced is what makes the race silent (mt#3899).
+            watermarkAdvanced = drifted.length < selection.ackablePaths.size;
           }
         }
 
@@ -486,6 +614,9 @@ export function registerCalibrationCommands(): void {
             watermarkAdvanced,
             clearedAskId,
             skippedOpenAskPaths,
+            // mt#3899: paths whose intended write was dropped because another
+            // pass changed them mid-sweep. Empty on every uncontended run.
+            driftedPaths,
           };
         }
 
@@ -501,14 +632,23 @@ export function registerCalibrationCommands(): void {
             ? `\nSkipped ${skippedOpenAskPaths.length} log(s) with a still-open disposition ask ` +
               `(no askId supplied): ${skippedOpenAskPaths.join(", ")}`
             : "";
+        // mt#3899: name the dropped writes. A pass that silently loses the race
+        // reads identically to one that won it, which is what made the
+        // originating incident invisible until the counts were compared by hand.
+        const driftedSuffix =
+          driftedPaths.length > 0
+            ? `\nDropped ${driftedPaths.length} write(s) — another pass changed these logs ` +
+              `mid-sweep; their values stand: ${driftedPaths.join(", ")}`
+            : "";
 
         return {
           success: true,
           json: false,
-          message: text + suffix + clearedSuffix + skippedSuffix,
+          message: text + suffix + clearedSuffix + skippedSuffix + driftedSuffix,
           watermarkAdvanced,
           clearedAskId,
           skippedOpenAskPaths,
+          driftedPaths,
         };
       } catch (error) {
         return {
