@@ -551,6 +551,22 @@ describe("mt#3917 precision fixes", () => {
       expect(detectUntakenAction("Next step is to rerun the migration.").length).toBeGreaterThan(0);
     });
 
+    test("attribution ADJACENT to a first-person commitment does not suppress it (PR #2784 R2)", () => {
+      // The first draft ran the attribution filter on every family, so this
+      // sentence was silenced entirely.
+      //
+      // The fixture is chosen, not guessed. "Per the plan, I'll implement the
+      // fix" reads like the right control and is NOT one: the comma falls
+      // outside `[\w\s.'-]`, so the attribution pattern never matches and the
+      // case passes with or without the fix. Verified against
+      // `isAttributedStep` directly before writing this — the form below
+      // returns true at the match index, so it is the one that exercises the
+      // condition. Same trap as the bug: a test can agree with a defect by
+      // accidentally avoiding it.
+      const adjacent = "According to the runbook I'll implement the fix.";
+      expect(detectUntakenAction(adjacent).map((m) => m.family)).toContain("ill-action");
+    });
+
     test("attribution suppresses only its own match, not a real commitment beside it", () => {
       // Per-match, not global: the quoted procedure must not silence the
       // commitment that follows it.

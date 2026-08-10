@@ -369,11 +369,30 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   for (const { family, re } of COMMITMENT_PATTERNS) {
     const m = re.exec(tail);
     if (!m) continue;
-    if (isAttributedStep(tail, m.index)) continue;
+    if (ATTRIBUTABLE_FAMILIES.has(family) && isAttributedStep(tail, m.index)) continue;
     matches.push({ family, matchedPhrase: m[0] });
   }
   return matches;
 }
+
+/**
+ * Families whose match can legitimately belong to a DOCUMENT rather than the
+ * speaker (PR #2784 R2).
+ *
+ * `next step is` / `that's the next step` are impersonal: a runbook has a next
+ * step, so naming one is as often description as commitment. Every other family
+ * is first-person by construction — `I'll …`, `I'm going to …`, `moving on to`,
+ * `say the word`. Nothing preceding those changes who is committing: "per the
+ * plan, I'll implement the fix" is still the agent saying it will implement the
+ * fix.
+ *
+ * The first draft applied the attribution filter to ALL families, which would
+ * have silenced exactly that sentence. The bundled test did not catch it — its
+ * attribution sat outside the 40-char lookback of the `ill-action` match, so the
+ * check never ran on the case it was supposed to protect. A test can agree with
+ * a bug when it accidentally avoids the condition.
+ */
+const ATTRIBUTABLE_FAMILIES: ReadonlySet<string> = new Set(["next-up", "next-step"]);
 
 /**
  * Words that attribute a next step to a DOCUMENT or PROCEDURE rather than to the
