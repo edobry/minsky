@@ -1,6 +1,6 @@
 name: Publish to npm
 
-# mt#3616 — ADR-033 execution: publish the `minsky` package on every `v*` tag.
+# mt#3616 — ADR-033 execution: publish the `@edobry/minsky` package on every `v*` tag.
 #
 # Auth is npm TRUSTED PUBLISHING (OIDC), per docs.npmjs.com/trusted-publishers:
 # no NPM_TOKEN secret exists or is needed — GitHub mints a short-lived,
@@ -8,12 +8,21 @@ name: Publish to npm
 # workflow filename are registered as the package's trusted publisher.
 # Provenance attestations are generated automatically on this path.
 #
-# EXTERNAL PRECONDITION (one-time, operator): on npmjs.com → package `minsky`
-# → Settings → Trusted Publisher, register GitHub repo `edobry/minsky` with
-# workflow filename `publish-npm.yml`. Until that registration exists, this
-# workflow FAILS at the publish step with an auth error — that failure means
-# "precondition not yet configured", not a code defect. The package itself was
-# created by mt#3616's manual first publish (0.1.0, name claim).
+# EXTERNAL PRECONDITION (one-time, operator) — SATISFIED 2026-08-10 (mt#3874):
+# `@edobry/minsky` → Settings → Trusted Publisher lists GitHub repo
+# `edobry/minsky` with workflow filename `publish-npm.yml`. The evidence is
+# 0.1.1: this workflow published it and it carries a provenance attestation,
+# which npm generates on the OIDC path only — and no NPM_TOKEN secret exists to
+# have taken any other path. If the registration is ever removed, this workflow
+# FAILS at the publish step with an auth error; that means "precondition gone",
+# not a code defect.
+#
+# The package was NOT created by mt#3616 — that task shipped this workflow and
+# closed without publishing anything. `@edobry/minsky@0.1.0` was published
+# manually on 2026-08-10 under mt#3874. The unscoped name `minsky` is
+# unavailable: npm rejects it at PUT as too similar to `minify` (mt#3915), so
+# `registry.npmjs.org/minsky` returning 404 is the expected steady state, not a
+# signal that the name is claimable.
 #
 # Version source: package.json's `version` field. mt#233 owns automating the
 # bump + tag; this workflow only reacts to the tag.
