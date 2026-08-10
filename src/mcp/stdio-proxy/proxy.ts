@@ -44,9 +44,11 @@ import {
 } from "./tools";
 import {
   resolveConversationAgentId,
+  resolveLiveConversationAgentId,
   injectAgentIdMeta,
   redactAgentId,
 } from "./conversation-identity";
+import { resolveHarnessPid } from "@minsky/shared/conversation-pid-map";
 
 /** Default command for the inner MCP server. */
 const DEFAULT_CHILD_COMMAND = "minsky";
@@ -107,6 +109,13 @@ export interface ProxyOptions {
    * string or null to bypass env resolution (tests, embedding callers).
    */
   conversationAgentId?: string | null;
+  /**
+   * Harness pid override (mt#3900). When omitted, the proxy walks its own
+   * ancestry to the nearest `claude` process. Pass an explicit number or null
+   * to bypass the walk (tests, embedding callers) — null disables the
+   * mapping lookup and keeps the spawn-time env value as the only source.
+   */
+  harnessPid?: number | null;
 }
 
 /**
@@ -251,6 +260,14 @@ export class MinskyStdioProxy {
   private readonly conversationAgentId: string | null;
 
   /**
+   * Harness (claude) pid this proxy is a descendant of, or null when no
+   * harness ancestor was found (mt#3900). Resolved once at construction — the
+   * ancestry cannot change for this process — and used to look up the
+   * SessionStart-written conversation mapping per frame.
+   */
+  private readonly harnessPid: number | null;
+
+  /**
    * Bounded tail of the current child's stderr output (mt#2830). Reset on
    * each new spawn (`spawnChild()`); appended to as stderr chunks arrive;
    * truncated to `STDERR_TAIL_MAX_CHARS`. Read by `onChildClose` to attach
@@ -300,6 +317,25 @@ export class MinskyStdioProxy {
       options.conversationAgentId !== undefined
         ? options.conversationAgentId
         : resolveConversationAgentId();
+
+    // mt#3900: the ancestor walk shells out to `ps`, and the answer cannot
+    // change for this process's lifetime — so resolve it once here, never per
+    // frame. null means "no harness ancestor found" (manual invocation, a
+    // non-Claude-Code parent, tests), in which case the per-frame resolution
+    // below degrades to the spawn-time env value exactly as before.
+    this.harnessPid = options.harnessPid !== undefined ? options.harnessPid : resolveHarnessPid();
+  }
+
+  /**
+   * The conversation agentId to stamp on the NEXT frame (mt#3900).
+   *
+   * `conversationAgentId` is the spawn-time env value and goes stale on an
+   * in-process conversation switch; this prefers the SessionStart-written
+   * mapping and falls back to it. Cached internally, so calling it per frame is
+   * cheap.
+   */
+  private currentConversationAgentId(): string | null {
+    return resolveLiveConversationAgentId(this.harnessPid, this.conversationAgentId);
   }
 
   /**
@@ -742,8 +778,11 @@ export class MinskyStdioProxy {
           // Injection returns null for everything it doesn't apply to
           // (non-tools/call frames, already-declared identity), in which
           // case the raw line passes through byte-identical below.
-          if (proxy.conversationAgentId) {
-            const injected = injectAgentIdMeta(msg, proxy.conversationAgentId);
+          // mt#3900: resolved per frame (cached) so an in-process conversation
+          // switch is picked up without a respawn — NOT the spawn-time field.
+          const liveAgentId = proxy.currentConversationAgentId();
+          if (liveAgentId) {
+            const injected = injectAgentIdMeta(msg, liveAgentId);
             if (injected) {
               t.push(`${JSON.stringify(injected)}\n`);
               continue;

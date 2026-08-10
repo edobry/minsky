@@ -18,10 +18,13 @@
  * already parses every inbound line, so injection is a serialize-instead-of-
  * raw-push at an existing parse point. See ADR-006 §Implementation Phase 2.
  *
- * Known limitation: the env value is fixed at proxy spawn. An in-process
- * conversation switch (/clear, in-process resume) changes the conversation id
- * without respawning MCP servers, so calls attribute to the pre-switch
- * conversation until the next reconnect respawns the proxy.
+ * The env value is fixed at proxy spawn, so on its own it goes stale the moment
+ * an in-process conversation switch (`/clear`, resume, fork) changes the
+ * conversation without respawning MCP servers. mt#3900 closes that: a
+ * SessionStart hook records `<harness pid> → conversation id`, and
+ * {@link resolveLiveConversationAgentId} prefers that mapping, falling back to
+ * the spawn-time env value when no mapping exists. The env path remains the
+ * only source in hookless environments.
  *
  * @see docs/architecture/adr-006-agent-identity.md §Implementation Phase 2
  * @see packages/domain/src/agent-identity/layer2.ts — the reader this feeds
@@ -30,6 +33,7 @@
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import { isValidAgentId } from "@minsky/domain/agent-identity/format";
 import { KNOWN_KINDS } from "@minsky/domain/agent-identity/kinds";
+import { readConversationMapping } from "@minsky/shared/conversation-pid-map";
 import type { JsonRpcMessage } from "./tools";
 
 /** Env var Claude Code sets on spawned MCP server processes. */
@@ -68,6 +72,84 @@ export function resolveConversationAgentId(
   // Defensive round-trip through the canonical validator so a drift in the
   // format rules can never make the proxy emit an id the reader rejects.
   return isValidAgentId(agentId) ? agentId : null;
+}
+
+/**
+ * Build the Layer-2/3 agentId for a raw conversation UUID, or null when the
+ * value is not UUID-shaped.
+ *
+ * Shared by the env path and the pid-mapping path so both emit an id the
+ * canonical validator accepts — a divergence here would be invisible until an
+ * agentId was silently dropped downstream.
+ */
+function toConversationAgentId(sessionId: string): string | null {
+  if (!UUID_RE.test(sessionId)) return null;
+  const agentId = `${KNOWN_KINDS.CLAUDE_CODE}:conv:${sessionId.toLowerCase()}`;
+  return isValidAgentId(agentId) ? agentId : null;
+}
+
+/**
+ * How long a resolved conversation id is reused before the mapping file is
+ * re-read.
+ *
+ * The read sits on every `tools/call` frame, so it is cached; but the whole
+ * point is to notice a switch, so the cache has to expire. 2s is far below the
+ * gap between a `/clear` and the next tool call (a human types a prompt first),
+ * and far above any plausible burst of frames, so a switch is picked up on the
+ * first call after it while a batch of calls pays one `stat`+read between them.
+ */
+export const CONVERSATION_MAPPING_TTL_MS = 2_000;
+
+interface MappingCache {
+  agentId: string | null;
+  readAtMs: number;
+}
+
+let mappingCache: MappingCache | null = null;
+
+/** Drop the memoized mapping read. Tests only. */
+export function resetConversationMappingCache(): void {
+  mappingCache = null;
+}
+
+/**
+ * Resolve the CURRENT conversation-scoped agentId (mt#3900).
+ *
+ * Precedence, highest first:
+ *   1. the `<harness pid> → conversation id` mapping a SessionStart hook wrote
+ *   2. `CLAUDE_CODE_SESSION_ID` captured at proxy spawn
+ *
+ * (1) beats (2) because (2) cannot change without a respawn, so whenever they
+ * disagree it is (2) that is stale — that disagreement IS the defect this
+ * closes. Returns null when neither source yields a valid id; the caller then
+ * stamps nothing rather than fabricating an identity.
+ *
+ * `harnessPid` is resolved ONCE by the caller and passed in: it cannot change
+ * for the life of the process, and the ancestor walk shells out to `ps`, which
+ * has no business running per frame.
+ */
+export function resolveLiveConversationAgentId(
+  harnessPid: number | null,
+  fallbackAgentId: string | null,
+  deps: {
+    readMapping?: (pid: number) => string | null;
+    now?: () => number;
+  } = {}
+): string | null {
+  const { readMapping = readConversationMapping, now = Date.now } = deps;
+
+  if (harnessPid === null) return fallbackAgentId;
+
+  const nowMs = now();
+  if (mappingCache && nowMs - mappingCache.readAtMs < CONVERSATION_MAPPING_TTL_MS) {
+    return mappingCache.agentId ?? fallbackAgentId;
+  }
+
+  const mapped = readMapping(harnessPid);
+  const agentId = mapped ? toConversationAgentId(mapped) : null;
+  mappingCache = { agentId, readAtMs: nowMs };
+
+  return agentId ?? fallbackAgentId;
 }
 
 /**
