@@ -66,6 +66,12 @@ import {
 
 export const ROOTS = [
   "./src",
+  // mt#1084: `scripts/` holds 20 colocated `*.test.ts` files that ran in NO
+  // suite before this entry -- neither this gate nor CI targeted the directory.
+  // Three of them test the gate machinery itself (run-tests-main,
+  // run-tests-mcp-isolated, spawn-with-watchdog), so the runner deciding what
+  // the pre-push gate executes had tests the pre-push gate did not execute.
+  "./scripts",
   "./tests/adapters",
   "./tests/domain",
   "./tests/scripts",
