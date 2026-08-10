@@ -26,6 +26,36 @@ interface OpenAIModelsListResponse {
 }
 
 /**
+ * Human-readable display names for well-known model ids (mt#3457, PR #2752 R1).
+ *
+ * DISPLAY ONLY — deliberately separate from token limits, which come from the community catalog.
+ * The distinction is the whole point of keeping this table while deleting the old one: a stale
+ * display name is COSMETIC ("gpt-4o" instead of "GPT-4o"), whereas a stale token limit is a wrong
+ * number that silently changes routing and truncation decisions. The old `modelSpecs` table
+ * conflated the two, so its rot produced a 128x context-window error rather than an ugly label.
+ *
+ * Goes stale when OpenAI ships a model whose id is not listed here. The failure mode is bounded
+ * by construction: an unlisted id falls back to the raw id, which is exactly what the retired
+ * generic fallback already did for most models. **Nothing numeric depends on this map.** To
+ * refresh, add the id; there is nothing to verify beyond spelling.
+ *
+ * OpenAI's `GET /v1/models` carries no display-name field (unlike Anthropic's, which supplies
+ * `display_name` — see `anthropic-fetcher.ts`), which is why this cannot be sourced from the API.
+ */
+const DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  "gpt-4o": "GPT-4o",
+  "gpt-4o-mini": "GPT-4o Mini",
+  "gpt-4-turbo": "GPT-4 Turbo",
+  "gpt-4": "GPT-4",
+  "gpt-4.1": "GPT-4.1",
+  "gpt-4.1-mini": "GPT-4.1 Mini",
+  "gpt-4.1-nano": "GPT-4.1 Nano",
+  "gpt-3.5-turbo": "GPT-3.5 Turbo",
+  "o1-preview": "o1 Preview",
+  "o1-mini": "o1 Mini",
+};
+
+/**
  * OpenAI model fetcher implementation
  */
 export class OpenAIModelFetcher implements ModelFetcher {
@@ -231,8 +261,8 @@ export class OpenAIModelFetcher implements ModelFetcher {
     return {
       id: apiModel.id,
       provider: this.provider,
-      name: apiModel.id,
-      description: `OpenAI's ${apiModel.id}`,
+      name: DISPLAY_NAMES[apiModel.id] ?? apiModel.id,
+      description: `OpenAI's ${DISPLAY_NAMES[apiModel.id] ?? apiModel.id}`,
       capabilities: this.getStaticCapabilities(apiModel.id),
       contextWindow: limits.contextWindow,
       maxOutputTokens: limits.maxOutputTokens,

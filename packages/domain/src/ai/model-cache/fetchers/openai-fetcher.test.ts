@@ -20,6 +20,9 @@ import type { ModelFetchConfig } from "../types";
 
 const CONFIG: ModelFetchConfig = { apiKey: "test-key" };
 
+/** An id no DISPLAY_NAMES entry covers, used to exercise the unlisted-model paths. */
+const UNLISTED_ID = "gpt-4-some-future-variant";
+
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -68,7 +71,7 @@ describe("OpenAIModelFetcher limits sourcing (mt#3457)", () => {
   });
 
   test("omits a model the catalog does not cover instead of inventing a limit", async () => {
-    stubListing(["gpt-4o", "gpt-4-some-future-variant"]);
+    stubListing(["gpt-4o", UNLISTED_ID]);
     const models = await fetcherWithCatalog(
       catalogWith({ "gpt-4o": { ctx: 128000, out: 16384 } })
     ).fetchModels(CONFIG);
@@ -76,7 +79,7 @@ describe("OpenAIModelFetcher limits sourcing (mt#3457)", () => {
     expect(models.map((m) => m.id)).toEqual(["gpt-4o"]);
     // Under the old generic/startsWith fallbacks this id would have been present with a
     // fabricated window rather than absent.
-    expect(models.some((m) => m.id === "gpt-4-some-future-variant")).toBe(false);
+    expect(models.some((m) => m.id === UNLISTED_ID)).toBe(false);
   });
 
   test("returns no models at all when the catalog is unavailable", async () => {
@@ -104,6 +107,29 @@ describe("OpenAIModelFetcher limits sourcing (mt#3457)", () => {
     }).fetchModels(CONFIG);
 
     expect(models[0]?.costPer1kTokens).toEqual({ input: 0.002, output: 0.008 });
+  });
+
+  // PR #2752 R1: removing the old table dropped the human-readable name, so the CLI would have
+  // shown "gpt-4o" where it previously showed "GPT-4o" — a user-visible regression.
+  test("keeps the human-readable display name for well-known ids", async () => {
+    stubListing(["gpt-4o"]);
+    const models = await fetcherWithCatalog(
+      catalogWith({ "gpt-4o": { ctx: 128000, out: 16384 } })
+    ).fetchModels(CONFIG);
+
+    expect(models[0]?.name).toBe("GPT-4o");
+    expect(models[0]?.description).toContain("GPT-4o");
+  });
+
+  test("falls back to the raw id for an unlisted model rather than inventing a label", async () => {
+    stubListing([UNLISTED_ID]);
+    const models = await fetcherWithCatalog(
+      catalogWith({ [UNLISTED_ID]: { ctx: 128000, out: 4096 } })
+    ).fetchModels(CONFIG);
+
+    // The retired branch would have called this "GPT-4 (gpt-4-some-future-variant)", labelling a
+    // non-GPT-4 model as GPT-4. The bare id is honest.
+    expect(models[0]?.name).toBe(UNLISTED_ID);
   });
 
   test("still applies the supported-model filter before consulting the catalog", async () => {
