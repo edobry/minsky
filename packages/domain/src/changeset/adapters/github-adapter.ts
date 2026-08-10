@@ -37,12 +37,52 @@ import { log } from "@minsky/shared/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
 import { createOctokit } from "../../repository/github-pr-operations";
-import { FallbackTokenProvider, type TokenProvider } from "../../auth";
+import { FallbackTokenProvider, createTokenProvider, type TokenProvider } from "../../auth";
+import { getConfiguration, isConfigurationInitialized } from "../../configuration/index";
+
+/**
+ * Thrown by `getOctokit()` when every credential path resolved to an empty
+ * token (mt#3606). A dedicated subclass — rather than matching on
+ * `MinskyError`'s message text — lets `isAvailable()`'s failure logging
+ * attach a stable structured `reason` without depending on error-message
+ * wording (PR #2588 R1).
+ */
+export class GitHubTokenUnavailableError extends MinskyError {}
 
 /** Union of simplified and full PR types from Octokit responses */
 type OctokitPR =
   | RestEndpointMethodTypes["pulls"]["list"]["response"]["data"][number]
   | RestEndpointMethodTypes["pulls"]["get"]["response"]["data"];
+
+/**
+ * The slice of ambient configuration the default token resolution needs.
+ *
+ * `null` from a `GithubConfigSource` means "the global configuration provider is
+ * not initialized" — a distinct case from "initialized, but carrying no GitHub
+ * credentials", and the two resolve differently below.
+ */
+export interface GithubConfigSnapshot {
+  github?: Parameters<typeof createTokenProvider>[0];
+}
+
+/**
+ * Injectable read of the ambient configuration (mt#3669).
+ *
+ * The default implementation consults the process-global configuration
+ * singleton (`packages/domain/src/configuration/index.ts`'s `globalProvider`),
+ * which has no reset API and is set by any test file that calls
+ * `initializeConfiguration()`. Because `bun test` shares ONE process across
+ * files, that made this class's default token resolution depend on which other
+ * test files had already run: the mt#3606 refusal test passed alone and failed
+ * in a full `packages/domain` run, where an earlier file's
+ * `initializeConfiguration(new CustomConfigFactory())` exposed the developer's
+ * real config (and its real GitHub token), so the refusal never fired.
+ *
+ * Making the read injectable lets a test state its own precondition instead of
+ * inheriting whatever ran before it — the mechanism ADR-036 prescribes
+ * (inject a fake; never patch the collaborator in place).
+ */
+export type GithubConfigSource = () => GithubConfigSnapshot | null;
 
 /**
  * GitHub changeset adapter that maps GitHub PRs to changeset abstraction
@@ -120,9 +160,81 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private async getOctokit(): Promise<Octokit> {
     if (!this._octokit) {
       const token = await this.tokenProvider.getServiceToken();
+      if (!token) {
+        // mt#3606: refuse loudly instead of constructing an unauthenticated
+        // Octokit. An empty token here means every credential path came up
+        // empty — silently proceeding makes unauthenticated GitHub API calls,
+        // which trip GitHub's 60/hr IP-scoped rate limit (vs 5,000/hr
+        // authenticated) with no indication of which credential was missing.
+        throw new GitHubTokenUnavailableError(
+          "GitHubChangesetAdapter has no GitHub authentication token available. " +
+            "Checked, in order: an injected TokenProvider, constructor config.token, " +
+            "a configured github.serviceAccount (GitHub App), and the GITHUB_TOKEN/GH_TOKEN " +
+            "environment variables — all are absent or unconfigured. Proceeding without a " +
+            "token would run unauthenticated and trip GitHub's 60/hr IP-based rate limit " +
+            "(vs 5,000/hr authenticated). Fix by setting GITHUB_TOKEN, passing config.token " +
+            "when constructing the adapter, or configuring github.serviceAccount."
+        );
+      }
       this._octokit = createOctokit(token);
     }
     return this._octokit;
+  }
+
+  /**
+   * The default `GithubConfigSource`: reads the process-global configuration
+   * singleton, returning `null` when it is not initialized.
+   *
+   * Lookup is best-effort: `getConfiguration()` throws when the global provider
+   * hasn't been initialized (many unit-test and standalone contexts never call
+   * `initializeConfiguration()`), so a failure returns `null` — letting the
+   * caller fall back to env-vars-only resolution — rather than crashing
+   * construction. In production, configuration is initialized before any
+   * changeset tool runs, the same precondition `createRepositoryBackend`
+   * already relies on.
+   */
+  private static readAmbientGithubConfig(): GithubConfigSnapshot | null {
+    try {
+      if (isConfigurationInitialized()) {
+        return { github: getConfiguration().github ?? {} };
+      }
+    } catch (error) {
+      log.debug(
+        "GitHubChangesetAdapter: configuration lookup failed while resolving the default " +
+          "token provider; falling back to env-var-only resolution",
+        { error: getErrorMessage(error) }
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Resolves the default (non-injected) TokenProvider the same way
+   * `createRepositoryBackend` does (repository/index.ts) — via
+   * `createTokenProvider(cfg.github, userToken)`, which returns a
+   * `GitHubAppTokenProvider` when `github.serviceAccount` is configured, or a
+   * `FallbackTokenProvider` otherwise (mt#3606).
+   *
+   * `readConfig` defaults to the ambient singleton read; tests inject their own
+   * so the resolution does not depend on which other test file ran first
+   * (mt#3669).
+   */
+  private static resolveDefaultTokenProvider(
+    configToken?: string,
+    readConfig: GithubConfigSource = GitHubChangesetAdapter.readAmbientGithubConfig
+  ): TokenProvider {
+    const snapshot = readConfig();
+    if (snapshot) {
+      const userToken =
+        configToken ||
+        snapshot.github?.token ||
+        process.env.GITHUB_TOKEN ||
+        process.env.GH_TOKEN ||
+        "";
+      return createTokenProvider(snapshot.github || {}, userToken);
+    }
+    const fallbackToken = configToken || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+    return new FallbackTokenProvider(fallbackToken);
   }
 
   constructor(
@@ -144,6 +256,15 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
        * GitHub-backend construction so those flows can be exercised against a fake.
        */
       repositoryBackendOverride?: RepositoryBackend;
+      /**
+       * Test-only DI seam for the ambient configuration read used by the
+       * DEFAULT (non-injected) token resolution (mt#3669). Distinct from
+       * `tokenProvider` above: that one replaces the resolution entirely, so it
+       * cannot be used to test the default path itself. Pass `() => null` for
+       * "configuration not initialized", or `() => ({ github: {} })` for
+       * "initialized but carrying no GitHub credentials".
+       */
+      githubConfigSource?: GithubConfigSource;
     }
   ) {
     // Extract GitHub owner/repo from URL
@@ -161,12 +282,19 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     const provider = deps?.sessionProvider;
     this.resolveSessionProvider = provider ? () => Promise.resolve(provider) : null;
 
-    // Resolve token provider: injected > config token > env vars
+    // Resolve token provider: injected > config-driven resolution (mt#3606).
+    // The config-driven path mirrors createRepositoryBackend's token resolution
+    // (repository/index.ts) — the same one the working PR-tool paths (e.g.
+    // session_pr_list) use — so this adapter picks up a configured GitHub App
+    // service account instead of the previous env-vars-or-empty-only resolution
+    // that missed both the config file's token AND any App service account.
     if (deps?.tokenProvider) {
       this.tokenProvider = deps.tokenProvider;
     } else {
-      const token = config?.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
-      this.tokenProvider = new FallbackTokenProvider(token);
+      this.tokenProvider = GitHubChangesetAdapter.resolveDefaultTokenProvider(
+        config?.token,
+        deps?.githubConfigSource
+      );
     }
 
     this._octokit = deps?.octokitOverride;
@@ -194,7 +322,13 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 
       return true;
     } catch (error) {
+      // Structured `reason` (mt#3606 PR #2588 R1) so a log consumer can
+      // distinguish "no credential configured" from any other reachability
+      // failure (network error, 404, revoked token, etc.) without parsing
+      // the error message.
+      const reason = error instanceof GitHubTokenUnavailableError ? "no-token" : "unreachable";
       log.debug("GitHub adapter not available", {
+        reason,
         error: getErrorMessage(error),
         owner: this.owner,
         repo: this.repo,

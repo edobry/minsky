@@ -9,6 +9,28 @@ import type {
 export type { TaskBackend } from "./types";
 import type { TaskServiceInterface } from "../tasks";
 import { log } from "@minsky/shared/logger";
+import { MultiBackendError, TaskBackendUnavailableError } from "./multi-backend-errors";
+
+/**
+ * Why no task backend could be registered (mt#3636).
+ *
+ * Recorded by `createConfiguredTaskService` when backend registration fails, so
+ * that a later zero-backend read can name the underlying cause instead of
+ * answering with an empty list. Without this the failure is only in the boot
+ * log — which an MCP client never sees.
+ */
+export interface TaskBackendUnavailability {
+  /** The underlying initialization error, verbatim from the persistence layer. */
+  reason: string;
+  /**
+   * `true` when a backend WAS configured but failed to initialize (a genuine
+   * outage); `false` when nothing was configured at all (mt#2349's deliberate
+   * offline boot). Mirrors `UnconfiguredPersistenceProvider.configuredButUnavailable`.
+   */
+  configured: boolean;
+  /** The configured backend's name, e.g. `"postgres"`. */
+  backend?: string;
+}
 
 // Multi-backend specific interface - different from the main TaskBackend interface
 export interface MultiBackendTaskBackend {
@@ -73,6 +95,14 @@ export interface TaskService extends TaskServiceInterface {
   registerBackend(backend: TaskBackend): void;
   listBackends(): TaskBackend[];
 
+  /**
+   * Record why no backend could be registered (mt#3636). Purely informational:
+   * it does not itself disable anything — the zero-backend guard fires on
+   * `backends.length === 0` regardless — it only supplies the cause the guard's
+   * error message names.
+   */
+  setBackendUnavailable(unavailability: TaskBackendUnavailability): void;
+
   // Additional multi-backend methods
   updateTask(taskId: string, updates: Partial<Task>): Promise<Task>;
 }
@@ -83,6 +113,8 @@ export class TaskServiceImpl implements TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly workspacePath: string;
   private defaultBackend: TaskBackend | null = null;
+  /** Why registration failed, when it did — see `setBackendUnavailable` (mt#3636). */
+  private unavailability: TaskBackendUnavailability | null = null;
 
   constructor(options: { workspacePath: string }) {
     this.workspacePath = options.workspacePath;
@@ -109,6 +141,58 @@ export class TaskServiceImpl implements TaskService {
 
   listBackends(): TaskBackend[] {
     return [...this.backends];
+  }
+
+  setBackendUnavailable(unavailability: TaskBackendUnavailability): void {
+    this.unavailability = unavailability;
+  }
+
+  /**
+   * Fail closed when there is no backend to answer an operation (mt#3636).
+   *
+   * The write path has always guarded this — `createTaskFromTitleAndSpec`
+   * throws "No backends registered" — but the read path did not, so `listTasks`
+   * iterated an empty array and returned `[]` while `getTask` fell through the
+   * same empty loop and returned `null`. Both are byte-identical to the
+   * truthful answers for an empty database and a nonexistent task, so a failed
+   * Postgres boot presented as an empty task graph. That is strictly more
+   * dangerous than an error: an erroring tool stops an agent, whereas "no
+   * tasks" invites it to act on the emptiness — re-create tasks that already
+   * exist, or conclude a dependency is missing.
+   *
+   * Fires only when ZERO backends are registered. A healthy service always has
+   * at least one, so the working path is untouched.
+   */
+  private assertBackendAvailable(operation: string): void {
+    if (this.backends.length > 0) return;
+    throw new TaskBackendUnavailableError(operation, this.describeUnavailability());
+  }
+
+  /**
+   * Build the actionable half of the guard's message: the backend, the degraded
+   * state, and the underlying cause — matching what `persistence check` already
+   * reports for the same failure.
+   */
+  private describeUnavailability(): string {
+    const unavailability = this.unavailability;
+    if (!unavailability) {
+      return "no task backend is registered.";
+    }
+    if (unavailability.configured) {
+      return (
+        `the '${unavailability.backend ?? "postgres"}' persistence backend is configured but ` +
+        `failed to initialize at boot (${unavailability.reason}), so no task backend is ` +
+        "registered. The database is unreachable — this is NOT an empty database, and an empty " +
+        "result here would be indistinguishable from a real one. Check the boot logs and " +
+        "restart once the database is reachable; `minsky persistence check` reports the same " +
+        "failure."
+      );
+    }
+    return (
+      `no task backend is registered because persistence is not configured ` +
+      `(${unavailability.reason}). Set persistence.postgres.connectionString in config, or ` +
+      "export MINSKY_PERSISTENCE_POSTGRES_URL."
+    );
   }
 
   private parsePrefixFromId(taskId: string): string | null {
@@ -138,6 +222,7 @@ export class TaskServiceImpl implements TaskService {
   }
 
   async getTask(taskId: string): Promise<Task | null> {
+    this.assertBackendAvailable(`read task ${taskId}`);
     const backend = this.getBackendByPrefix(this.parsePrefixFromId(taskId));
     if (backend) {
       const t = await backend.getTask(taskId);
@@ -153,6 +238,7 @@ export class TaskServiceImpl implements TaskService {
 
   // TaskServiceInterface implementation
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    this.assertBackendAvailable("list tasks");
     const results: Task[] = [];
     for (const b of this.backends) {
       const list = await b.listTasks(options);
@@ -224,7 +310,10 @@ export class TaskServiceImpl implements TaskService {
   }
 
   async getTasks(ids: string[]): Promise<Task[]> {
+    // An empty request is truthfully answered with an empty result without
+    // touching a backend, so the guard belongs after this early return.
     if (ids.length === 0) return [];
+    this.assertBackendAvailable(`read ${ids.length} task(s)`);
 
     // Partition IDs by backend prefix
     const byBackend = new Map<TaskBackend, string[]>();
@@ -279,6 +368,8 @@ export class TaskServiceImpl implements TaskService {
   }
 
   async deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean> {
+    // `false` here means "not found", which is the same lie the read path told.
+    this.assertBackendAvailable(`delete task ${taskId}`);
     const prefix = this.parsePrefixFromId(taskId);
     const backend = this.getBackendByPrefix(prefix);
 
@@ -376,6 +467,13 @@ export class TaskServiceImpl implements TaskService {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
+    // Fail closed BEFORE any routing decision (mt#3636, PR #2596 R2). With zero
+    // backends the cause is unavailability, not a bad backend name — and the
+    // explicit-backend lookup below would otherwise answer "Requested backend
+    // 'minsky' is not registered. Available backends: none.", which describes
+    // the symptom and hides that the database is unreachable.
+    this.assertBackendAvailable("create a task");
+
     // If the caller requested a specific backend, route there instead of using the
     // configured default.  This is the fix for mt#2572 Bug 4: when the minsky DB
     // backend is down, GitHub becomes the effective defaultBackend, so tasks_create
@@ -398,7 +496,20 @@ export class TaskServiceImpl implements TaskService {
     }
 
     if (!backend) {
-      throw new Error("No backends registered");
+      // Zero backends is already handled by the guard at the top of this
+      // method, so reaching here means backends ARE registered but no default
+      // was selected. Unreachable today — `registerBackend` sets
+      // `defaultBackend` on the first registration and nothing clears it — so
+      // this is a defensive branch only, kept because TS still needs the
+      // narrowing. It gets its own message because reusing "No backends
+      // registered" here would state something plainly false about a service
+      // that has backends (PR #2596 R1).
+      const available = this.backends.map((b) => `${b.name}(${b.prefix}#)`).join(", ");
+      throw new MultiBackendError(
+        `No default task backend is selected, though backends are registered: ${available}. ` +
+          "Set tasks.backend in configuration, or pass an explicit backend to this call.",
+        "create_task"
+      );
     }
 
     const created = await backend.createTaskFromTitleAndSpec(title, spec, options);

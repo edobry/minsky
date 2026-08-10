@@ -23,6 +23,12 @@
  *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+ *   GET /api/engprod/proposals — EngProd toil-miner proposal digest: filed
+ *                               proposal tasks + recent miner runs (mt#3331)
+ *   POST /api/engprod/proposals/:taskId/accept — accept a proposal (unblock +
+ *                               ledger verdict=accepted, atomically, mt#3331)
+ *   POST /api/engprod/proposals/:taskId/reject — reject a proposal (close +
+ *                               ledger verdict=rejected+reason, atomically, mt#3331)
  *   POST /api/driven-session  — spawn a driven session (genuine `claude`
  *                               child, local daemon only, mt#2750)
  *   POST /api/driven-session/:id/stop — graceful stop of a driven session
@@ -72,6 +78,7 @@ import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
+import { mountEngprodProposalRoutes } from "./routes/engprod-proposals";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountSessionFilmRoutes } from "./routes/session-film";
@@ -86,6 +93,7 @@ import type { ConversationPresenceRoutesOptions } from "./routes/conversation-pr
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
+  buildOffBoxHostSet,
   cookieBootstrapMiddleware,
   getOrCreateCockpitToken,
   hostAllowlistMiddleware,
@@ -93,6 +101,8 @@ import {
   mutationAuthMiddleware,
 } from "./auth";
 import { cspMiddleware } from "./csp";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { log } from "@minsky/shared/logger";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -101,6 +111,68 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Path to the built SPA assets — bundle-aware (cwd + module-dir walk, mt#2283). */
 const WEB_DIST_DIR = cockpitWebDistDir(__dirname);
 const INDEX_HTML = cockpitIndexHtml(__dirname);
+
+/**
+ * Accepted JSON request-body ceiling (mt#3539). Sits above the run-state
+ * writer hook's own 64kb body bound (`MAX_BODY_CHARS` in
+ * `.minsky/hooks/record-conversation-run-state.ts`) with headroom for the
+ * other POST routes, and is stated here rather than inherited from
+ * body-parser's 100kb default. See the `express.json` callsite below.
+ */
+export const JSON_BODY_LIMIT = "256kb";
+
+/**
+ * Resolve the operator-configured extra Host-header allowlist entries
+ * (mt#3641). `override` (test-only, `CockpitServerOptions.extraAllowedHosts`)
+ * takes precedence; otherwise reads `cockpit.allowedHosts` from Minsky
+ * configuration. An unavailable/unparseable config degrades to no extra
+ * hosts — the same restrictive default the daemon had before this option
+ * existed — mirroring the fail-open posture `principal-channel-launch.ts`'s
+ * `readPrincipalChannelSection` takes for a missing/broken config: the
+ * daemon must still boot.
+ */
+function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
+  if (override) return [...override];
+  try {
+    return [...(getConfiguration().cockpit?.allowedHosts ?? [])];
+  } catch (err) {
+    log.warn("[cockpit] could not read cockpit.allowedHosts config; no extra hosts allowed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+/**
+ * `app.locals` key the resolved Host-header allowlist is published under
+ * (mt#3641 PR #2721 R1). `createCockpitServer` is the ONE place that resolves
+ * `cockpit.allowedHosts` config into a concrete `Set<string>` — every other
+ * consumer of that resolved set (today: `start-command.ts`'s WS-attach call)
+ * must read it back via {@link getResolvedAllowedHosts} rather than calling
+ * `buildAllowedHosts`/`resolveExtraAllowedHosts` a second time. Two
+ * independent derivations of the same fact drift the moment either call site
+ * grows an argument; a single resolution consumed by reference cannot.
+ */
+const ALLOWED_HOSTS_LOCALS_KEY = "cockpitAllowedHosts";
+
+/**
+ * Read back the Host-header allowlist `createCockpitServer` resolved for
+ * `app` — the SAME `Set<string>` instance `hostAllowlistMiddleware` and
+ * `cookieBootstrapMiddleware`'s `offBoxHosts` gate are enforcing against, not
+ * a re-derivation. Throws if called on an app `createCockpitServer` never
+ * built (a programming error, not a runtime condition to degrade from).
+ */
+export function getResolvedAllowedHosts(app: express.Express): Set<string> {
+  const value: unknown = app.locals[ALLOWED_HOSTS_LOCALS_KEY];
+  if (!(value instanceof Set)) {
+    throw new Error(
+      "getResolvedAllowedHosts: app.locals.cockpitAllowedHosts is missing — " +
+        "this app was not built by createCockpitServer, or createCockpitServer " +
+        "no longer populates it."
+    );
+  }
+  return value;
+}
 
 /** Options accepted by createCockpitServer */
 export interface CockpitServerOptions {
@@ -146,6 +218,15 @@ export interface CockpitServerOptions {
    * doesn't get rejected by its own daemon.
    */
   host?: string;
+  /**
+   * Test-only override for the operator-configured extra Host-header
+   * allowlist entries (mt#3641). When absent (production), these are read
+   * from `cockpit.allowedHosts` config (`MINSKY_COCKPIT_ALLOWED_HOSTS`) —
+   * see `resolveExtraAllowedHosts` below. Passing this directly lets tests
+   * exercise the tailnet-Host allowlist addition and the off-box cookie gate
+   * without writing a real config file. Never set in production.
+   */
+  extraAllowedHosts?: readonly string[];
   /**
    * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
    * entrypoint — a separate consumer of this shared factory that binds
@@ -255,7 +336,17 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // and no-CORS policy are additive/response-only, so they still apply.
   const localAuthEnabled = !opts.isPublicDeployment;
   const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
-  const allowedHosts = buildAllowedHosts(opts.host);
+  // Operator-configured extra Host name(s) — e.g. a Tailscale MagicDNS name
+  // (mt#3641) — layered onto the allowlist ADDITIVELY (never a wildcard/bypass;
+  // see buildAllowedHosts's docblock). Resolved once here so both the
+  // allowlist and the off-box cookie gate below agree on the same list.
+  const extraAllowedHosts = resolveExtraAllowedHosts(opts.extraAllowedHosts);
+  const allowedHosts = buildAllowedHosts(opts.host, extraAllowedHosts);
+  // Publish the resolved allowlist for out-of-band consumers (mt#3641 PR
+  // #2721 R1) — start-command.ts's WS-attach call reads this back via
+  // `getResolvedAllowedHosts` instead of re-deriving it, so the HTTP path
+  // and the WS path are the same Set BY CONSTRUCTION, not by convention.
+  app.locals[ALLOWED_HOSTS_LOCALS_KEY] = allowedHosts;
   // Loopback bind unless `--host` opted into a routable address. Gates the
   // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
   // explicit Authorization header rather than a Secure-less cookie.
@@ -267,7 +358,18 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use(hostAllowlistMiddleware(allowedHosts));
   }
 
-  app.use(express.json());
+  /**
+   * Body limit stated DELIBERATELY rather than inherited (mt#3539).
+   *
+   * body-parser's default is 100kb. Nothing chose it, and nothing surfaced
+   * what it rejected: the run-state writer hook forwarded harness payloads
+   * whole, so every `PostToolUse` carrying a large `tool_response` was
+   * rejected 413 and dropped by a hook that treats any failure as
+   * "daemon down". The hook now bounds its body (MAX_BODY_CHARS, 64kb);
+   * this ceiling sits comfortably above that so a bounded body always fits,
+   * while still refusing a genuinely unbounded one rather than buffering it.
+   */
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   // Content-Security-Policy on every GET/HEAD response (harmless on JSON API
   // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
@@ -277,8 +379,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
     // the SPA's same-origin mutation fetches work without any URL/localStorage
     // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
-    // future non-loopback opt-in consumer. See ./auth.ts.
-    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
+    // future non-loopback opt-in consumer. See ./auth.ts. `buildOffBoxHostSet`
+    // (mt#3641) withholds the cookie for a request whose Host matches one of
+    // the operator-configured extra hosts, regardless of `isLoopbackBind` —
+    // once a tailnet name is allowlisted the daemon is reachable off-box by
+    // construction, even while bound to loopback (Tailscale's own recommended
+    // posture, see this file's docblock).
+    app.use(
+      cookieBootstrapMiddleware(cockpitToken, isLoopbackBind, buildOffBoxHostSet(extraAllowedHosts))
+    );
 
     // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
     // token (Authorization header) or the bootstrap cookie. Read-only
@@ -333,6 +442,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
+  mountEngprodProposalRoutes(app); // mt#3331 — EngProd toil-miner proposal digest
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
   mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}

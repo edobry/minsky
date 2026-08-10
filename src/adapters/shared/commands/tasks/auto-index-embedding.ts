@@ -14,6 +14,38 @@ export interface AutoIndexDeps {
   ) => Promise<{ indexTask: (id: string) => Promise<boolean> }>;
   getPersistenceProvider: () => BasePersistenceProvider;
   getTaskService: () => TaskServiceInterface;
+  /**
+   * Injectable warn sink, defaulting to the shared logger (mt#3629). Tests
+   * inject a collector here instead of spying on `log.warn` to verify the
+   * wiring: that this shell forwards what {@link classifyAutoIndexFailure}
+   * decided.
+   */
+  warn?: (message: string, context?: Record<string, unknown>) => void;
+}
+
+/** Result of {@link classifyAutoIndexFailure}. */
+export interface AutoIndexFailureSignal {
+  message: string;
+  context: { taskId: string; error: string };
+}
+
+/**
+ * Pure core: build the warn signal for a failed auto-index attempt (mt#3370
+ * degraded-path reporting; extracted mt#3629 / mt#3565 §Reframe).
+ *
+ * Deliberately at `warn`, never `debug` — a failure here leaves the task
+ * PERMANENTLY unindexed (no retry short of the next startup sweep), so this
+ * is asserted by return value rather than by spying on which logger method
+ * fired.
+ */
+export function classifyAutoIndexFailure(taskId: string, err: unknown): AutoIndexFailureSignal {
+  const error = err instanceof Error ? err.message : String(err);
+  return {
+    message:
+      `Auto-index FAILED for ${taskId} — the task is not in the embeddings index ` +
+      `and will stay out until the next startup sweep re-indexes it`,
+    context: { taskId, error },
+  };
 }
 
 /**
@@ -50,12 +82,9 @@ export function autoIndexTaskEmbedding(taskId: string, deps: AutoIndexDeps): voi
       const service = await createTaskSimilarityService(persistenceProvider, taskService);
       await service.indexTask(taskId);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn(
-        `Auto-index FAILED for ${taskId} — the task is not in the embeddings index ` +
-          `and will stay out until the next startup sweep re-indexes it`,
-        { taskId, error: msg }
-      );
+      const signal = classifyAutoIndexFailure(taskId, err);
+      const warn = deps.warn ?? log.warn;
+      warn(signal.message, signal.context);
     }
   })();
 }

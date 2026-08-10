@@ -14,6 +14,10 @@ import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { createInFlightGate } from "./lib/in-flight-gate";
 import { HomePage } from "./pages/HomePage";
+// Eager, like HomePage: the catch-all must render immediately rather than
+// flashing the Suspense fallback while a chunk loads for a URL that is
+// already known to be wrong. It is a handful of elements.
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 const AgentsPage = lazy(() =>
@@ -38,6 +42,9 @@ const WorkstreamsPage = lazy(() =>
   import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
 );
 const DigestPage = lazy(() => import("./pages/DigestPage").then((m) => ({ default: m.DigestPage })));
+const ProposalsPage = lazy(() =>
+  import("./pages/ProposalsPage").then((m) => ({ default: m.ProposalsPage }))
+);
 const TasksLayout = lazy(() =>
   import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
 );
@@ -484,6 +491,17 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* EngProd toil-miner proposal digest (mt#3331): the operator-facing
+              half of the curation gate — grouped-by-run proposal review with
+              accept/reject wiring to task status + ledger verdict. */}
+          <Route
+            path="/proposals"
+            element={
+              <ErrorBoundary id="proposals-page">
+                <ProposalsPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/tasks"
             element={
@@ -584,6 +602,20 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Catch-all (mt#3470). Without it an unmatched path rendered the
+              shell around an empty <main>, which reads as a broken page
+              rather than a wrong address.
+
+              Declared last by convention and to mirror the server-side SPA
+              fallback (server.ts) — but note that placement is NOT what keeps
+              it from shadowing a real route. React Router v7 ranks branches by
+              computed score (`rankRouteBranches` -> `computeScore`), applying
+              `splatPenalty = -2` to any path containing a `*` segment; a splat
+              scores below every concrete route from any position, and
+              declaration order is only the tiebreaker between equal scores.
+              Express, by contrast, IS first-match-wins — hence the "must be
+              registered LAST" note on the server's own `app.get("*")`. */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
     </Layout>

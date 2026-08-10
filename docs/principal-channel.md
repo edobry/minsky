@@ -38,28 +38,162 @@ reads, so that script reports "no chats visible" — expected, not a regression.
 
 ## What answers you
 
-One **standing driven session** — a long-lived `claude` conversation, reused
-across messages, that is your counterpart on the phone. It holds full MCP access
-to the substrate and commands the swarm on your behalf.
+A **driven session** — a long-lived `claude` conversation that is your
+counterpart on the phone. It holds full MCP access to the substrate and commands
+the swarm on your behalf.
 
 Reuse is a grounding requirement, not an optimization: "focus on that one" only
 resolves against what was just said. A session per message would force you to
 restate context every time.
 
-The router does not classify intent. Free text goes to that conversation, which
-works out what you meant. Only two cases take a deterministic path, where
-determinism beats an agent turn:
+## How to tell the channel is even running
+
+The acks below tell you a message was picked up. They cannot tell you the
+channel is **alive** — every one of them is set by the poller, so if the poller
+never started, none of them fire and an unanswered message looks exactly like an
+agent with nothing to say. That is not hypothetical: on 2026-08-03 a transient
+DNS failure against the Pulumi backend stopped the channel from starting **five
+times**, and each was noticed only when a message went unanswered (mt#3608).
+
+`GET /api/health` therefore reports the channel's own state, independent of the
+poller:
+
+```json
+{ "principalChannel": { "state": "running", "chatId": "167346572" } }
+```
+
+| `state`        | Means                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up and consuming updates. Carries the `chatId`.                                                 |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                 |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                        |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                  |
+| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.** |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                      |
+
+**`failed` and `unconfigured` are deliberately different states.** The first
+means the credentials probably exist but could not be READ — a fault, usually
+transient, and retrying is the right response. The second means they were never
+set — an operator has to act. Before mt#3608 both reported the same
+"not configured" message, which reads as an operator oversight and is why five
+faults in one day went unexamined.
+
+The tray does not parse this field (it reads only `db` and
+`processStartedAtMs`), so it is for operators and the cockpit UI.
+
+## How to tell it heard you
+
+An agent turn can run for a minute or more, so the channel marks progress on
+your own message rather than leaving you watching an empty chat.
+
+| Signal             | Means                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 👀 on your message | The message reached the actuator; a turn is starting.                                                                                         |
+| "typing…"          | A turn is running. Refreshed continuously for its whole duration.                                                                             |
+| 👌 on your message | The turn finished and the reply was delivered.                                                                                                |
+| 🤨 on your message | The turn failed, or its reply never reached you. If a reply did arrive, it says what went wrong; if none did, delivery itself is what failed. |
+
+Replies are rendered — bold, italic, code, fenced blocks, links, quotes — via
+Telegram's HTML mode. Tables become monospace blocks and headings become bold
+lines, because Telegram has no markup for either.
+
+**Replies stream.** Rather than arriving as one blob when the turn ends, the
+answer appears as soon as there is any of it and fills in as it is written. It
+is a single message being edited in place, roughly once a second — so your phone
+notifies you ONCE, when the reply first appears, not on every update. A reply
+too long for one Telegram message continues into a second one, split at a
+paragraph or line break rather than mid-word.
+
+Two things worth knowing about how it settles:
+
+- **What you see mid-stream can change.** A turn that uses tools writes text
+  around each step; the message settles on the turn's final answer when it
+  finishes, which is not always the concatenation of everything that flickered
+  past.
+- **Streaming can never cost you the reply.** If editing fails partway, the
+  complete answer is sent as a fresh message rather than left half-drawn — you
+  may see some text twice, which is the deliberate trade. A half-written reply
+  that never finishes would be worse than the blob this replaced.
+
+**Telegram's ✓ / ✓✓ checkmarks mean nothing here.** They are a client
+affordance between Telegram's servers and your app: the Bot API exposes no
+read-receipt or tick state at all, so the bot can neither read nor set them, and
+no Minsky pipeline stage can be bound to them. The reactions above are the real
+signal — they are the only mechanism that can mark a _specific_ message as
+having reached a _specific_ stage.
+
+Every one of these is best-effort by design: a reaction or an indicator can fail
+without affecting the reply. That is deliberate — the ack reports on the
+pipeline, so it must never be able to break what it is reporting on. The
+consequence worth knowing is that a failed ack is SILENT, which is why
+`scripts/principal-channel/verify-reaction-emoji.ts` exists: Telegram's reaction
+emoji are a fixed allowlist it can revise, and that script re-checks membership
+rather than trusting a remembered list.
+
+### One conversation per topic
+
+Telegram supports **forum topics inside a private bot chat** (Bot API 9.3/9.4),
+and this channel uses them: **each topic you create gets its own conversation**,
+with its own history. Talking about three things means three topics, not three
+interleaved threads in one chat you disambiguate by reply-quoting.
+
+Messages in different topics are handled **concurrently**; messages within one
+topic stay strictly ordered. A message sent outside any topic goes to the
+**standing conversation** — the original single conversation, still there and
+unchanged.
+
+Creating a topic is entirely your move. Nothing else opens one: an agent cannot,
+and this version of the channel never does. That is deliberate — a new topic is
+a push notification plus a durable list entry, so the ability to mint one is the
+ability to spend your attention.
+
+Requires two @BotFather toggles on the bot: topic mode, and "allow users to
+create topics." With them off, Telegram simply never sends a thread id and the
+channel behaves exactly as it did before topics existed.
+
+### Binding a topic to a task
+
+A topic starts **unbound** — it is just a thread about something. Send
+`/bind mt#NNNN` inside it to bind it to a task. Binding is in place: the
+conversation does not move, fork, or lose history; only the mapping gains the
+task reference. Once bound, agent notifications about that task land in that
+topic instead of the main chat.
+
+Bind refuses, with an explanation, if the task does not exist or if you send it
+outside a topic. It never creates the task.
+
+### Commands
+
+The router does not classify intent. Free text goes to that topic's
+conversation, which works out what you meant. Only these cases take a
+deterministic path, where determinism beats an agent turn:
 
 | You send                  | What happens                                                                                   |
 | ------------------------- | ---------------------------------------------------------------------------------------------- |
 | `/answer <ask-id> <text>` | Answers that ask directly; the existing wake-bridge resumes whichever agent was waiting on it. |
+| `/bind mt#NNNN`           | Binds the current topic to that task, so notifications about it arrive here.                   |
 | `/stop` or `/halt`        | Interrupts the current turn.                                                                   |
 | `/new` or `/reset`        | Abandons the conversation; the next message starts fresh.                                      |
-| anything else             | Goes to the standing conversation.                                                             |
+| anything else             | Goes to this topic's conversation.                                                             |
+
+`/answer`, `/stop`, and `/new` all act on **the topic you sent them in** — a
+`/new` in one topic does not disturb any other conversation.
 
 An unrecognized `/command` is _not_ an error — it falls through to the agent,
 which can explain itself. A channel that answers "unknown command" to a human
 typing naturally is a channel you stop using.
+
+### If you delete a topic
+
+Telegram offers bots no way to list their own topics, so the channel keeps its
+own record of which topic maps to what. Deleting a topic on your phone makes
+that record stale, and the next message aimed at it comes back
+`Bad Request: message thread not found`.
+
+That case is reconciled rather than dropped: the stale mapping is discarded and
+the message is **re-delivered to the standing conversation** with a note saying
+it fell back. A notification is never silently lost to a topic that no longer
+exists.
 
 ## Setup
 

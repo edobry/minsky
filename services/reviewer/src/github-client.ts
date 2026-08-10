@@ -292,47 +292,175 @@ export async function submitReview(
   // mt#1345: optional inline comments with optional in_reply_to wiring.
   inlineComments?: ReviewInlineComment[]
 ): Promise<SubmittedReview> {
+  // mt#3852: split replies out of the review payload BEFORE building it.
+  //
+  // `createReview`'s comments[] elements are GraphQL `DraftPullRequestReviewComment`,
+  // which has no reply field and REQUIRES an anchor. The old reply variant sent
+  // `{ body, in_reply_to }` with path/line deliberately omitted, so GitHub rejected
+  // all three at once — `inReplyTo` not a field, `path` null, `position` null — and
+  // 422'd the ENTIRE review, losing every finding in it. `in_reply_to` is a real
+  // documented parameter, but of `createReviewComment` (POST /pulls/{n}/comments),
+  // not of `createReview`; mt#1345 applied it to the wrong endpoint. Replies now go
+  // to the dedicated replies endpoint after the review lands.
+  const all = inlineComments ?? [];
+  const replies = all.filter((c) => c.inReplyTo !== undefined);
+  const anchorable: ReviewInlineComment[] = [];
+  /** Findings whose anchor is unusable; folded into the review body below. */
+  const degraded: ReviewInlineComment[] = [];
+  for (const c of all) {
+    if (c.inReplyTo !== undefined) continue;
+    // Validate the anchor locally so a malformed comment cannot 422 the whole
+    // review. Dropping one comment loses one finding; the pre-mt#3852 behavior
+    // lost the entire review, and surfaced only as an opaque 422 after a full
+    // model pass had already been spent.
+    const missing: string[] = [];
+    if (typeof c.path !== "string" || c.path.length === 0) missing.push("path");
+    if (typeof c.line !== "number" || !Number.isFinite(c.line) || c.line < 1) missing.push("line");
+    if (missing.length > 0) {
+      // PR #2722 R2 BLOCKING: DEGRADE, don't drop. mt#3852's SC2 says an
+      // unanchorable finding becomes a body-level finding; the first pass
+      // dropped it and documented the deviation instead, which loses reviewer
+      // output silently — a smaller version of the whole-review loss this task
+      // exists to end.
+      log.warn("reviewer.inline_comment_degraded_to_body", {
+        pr: prNumber,
+        missing,
+        path: c.path ?? null,
+        line: c.line ?? null,
+      });
+      degraded.push(c);
+      continue;
+    }
+    // PR #2722 R1 BLOCKING: `side` needs the same treatment. Its TS type is
+    // `"LEFT" | "RIGHT"`, but every field on this interface arrives from PARSED
+    // MODEL OUTPUT at runtime, where the compiler guarantees nothing — the same
+    // reason path/line are checked above. An out-of-enum `side` 422s the whole
+    // review exactly like a null anchor did.
+    //
+    // Coerced rather than dropped: an unusable `side` still leaves a usable
+    // anchor, and "RIGHT" is what omitting it already means, so the finding
+    // survives instead of being discarded over a field that carries the least
+    // information of the three.
+    if (c.side !== undefined && c.side !== "LEFT" && c.side !== "RIGHT") {
+      log.warn("reviewer.inline_comment_side_coerced", {
+        pr: prNumber,
+        path: c.path,
+        line: c.line,
+        received: String(c.side),
+        coercedTo: "RIGHT",
+      });
+      anchorable.push({ ...c, side: "RIGHT" });
+      continue;
+    }
+    anchorable.push(c);
+  }
+
+  // PR #2722 R2: fold degraded findings into the review body so an unusable
+  // anchor costs the finding its LOCATION, not its existence. Appended after
+  // the caller's body — including the provenance HTML comment, which readers
+  // locate by marker rather than by position, so trailing content is safe.
+  const finalBody =
+    degraded.length === 0
+      ? body
+      : [
+          body,
+          "",
+          "---",
+          "",
+          "**Findings that could not be anchored to a line** — reported here so they are not lost:",
+          "",
+          ...degraded.map((c) => {
+            const where =
+              typeof c.path === "string" && c.path.length > 0 ? `\`${c.path}\`` : "_unknown file_";
+            return `- ${where}: ${c.body}`;
+          }),
+        ].join("\n");
+
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
-    // Map inlineComments to the Octokit comments[] shape.
+    // Map the already-validated anchorable comments to Octokit's shape.
     //
-    // Two branches per comment (PR #1069 R1 BLOCKING #2):
-    //   - inReplyTo set: GitHub anchors via the parent comment; omit
-    //     path/line/side from the payload. Only body + in_reply_to are
-    //     required.
-    //   - inReplyTo NOT set: top-level comment anchored by file+line+side.
-    //     side defaults to "RIGHT" because the GitHub API does not guarantee
-    //     a default; sending without it risks a 422 that rejects the entire
-    //     review payload.
+    // ONE branch now (mt#3852). The second branch this comment used to describe
+    // — inReplyTo set, path/line/side omitted — is the defect: `createReview`
+    // has no reply field, so that payload 422'd the whole review. Replies are
+    // partitioned out above and posted separately.
+    //
+    // `side` still defaults to "RIGHT" because the GitHub API does not guarantee
+    // a default, and sending without it risks the same review-wide 422.
     const comments =
-      inlineComments !== undefined && inlineComments.length > 0
-        ? inlineComments.map((c) =>
-            c.inReplyTo !== undefined
-              ? { body: c.body, in_reply_to: c.inReplyTo }
-              : { path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body }
-          )
+      anchorable.length > 0
+        ? anchorable.map((c) => ({
+            path: c.path,
+            line: c.line,
+            side: c.side ?? "RIGHT",
+            body: c.body,
+          }))
         : undefined;
 
-    // mt#1782: the inline-comments union ({reply variant} | {inline variant})
-    // doesn't structurally match Octokit's `createReview` `comments` parameter
-    // shape because Octokit's typed signature for `createReview` does not include
-    // `in_reply_to` (which is technically a `createReviewComment` parameter).
-    // mt#1345's use of `in_reply_to` against `createReview` is intentional — GitHub
-    // accepts it at the REST surface — but TS can't reconcile the union with
-    // Octokit's stricter type. Cast at the call site to satisfy the typechecker
-    // without changing behavior. See mt#1782 spec for follow-up tracking on the
-    // wider mt#1345 reply-routing question.
+    // mt#3852: the mt#1782 cast used to exist because this array was a UNION —
+    // a reply variant carrying `in_reply_to` (which Octokit's `createReview`
+    // signature rightly does not declare) plus an anchored variant. Octokit's
+    // type was correct and the union was the bug: `createReview` never accepted
+    // `in_reply_to`, and the note here claiming it did is what kept the defect
+    // legible-looking for three rounds.
+    //
+    // PR #2722 R1: the cast is still REQUIRED, so do not read the above as
+    // saying it is now vestigial. `side` widens to `string` through the map,
+    // while Octokit wants the literal union — that is what the cast bridges.
+    // It no longer hides a structurally wrong element, which is the part that
+    // mattered; it still hides a literal-widening, which is the ordinary kind.
     type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
     return octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number: prNumber,
       event,
-      body,
+      body: finalBody,
       ...(comments !== undefined ? { comments: comments as CreateReviewParams["comments"] } : {}),
       request: { signal },
     });
   });
+
+  // mt#3852: post replies AFTER the review lands, via the dedicated endpoint
+  // (POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies).
+  //
+  // Ordering is deliberate: the review is the primary artifact, and a reply
+  // failure must not cost it. Each reply is independent — one failing does not
+  // stop the rest, and none of them fails the call. A dropped reply degrades to
+  // "the bot did not answer that thread"; a thrown one would discard a review
+  // that already succeeded, which is the failure mode this task exists to end.
+  for (const c of replies) {
+    // PR #2722 R1: same class as the anchor validation above — `inReplyTo` is
+    // typed `number` but arrives from parsed model output, so the type is not a
+    // runtime guarantee. A non-numeric id would reach GitHub as a malformed
+    // comment_id; check it here rather than casting and hoping.
+    const commentId = c.inReplyTo;
+    if (typeof commentId !== "number" || !Number.isInteger(commentId) || commentId < 1) {
+      log.warn("reviewer.inline_reply_dropped_bad_id", {
+        pr: prNumber,
+        received: String(c.inReplyTo),
+      });
+      continue;
+    }
+    try {
+      await withTimeout("github.pulls.createReplyForReviewComment", timeoutMs, (signal) =>
+        octokit.rest.pulls.createReplyForReviewComment({
+          owner,
+          repo,
+          pull_number: prNumber,
+          comment_id: commentId,
+          body: c.body,
+          request: { signal },
+        })
+      );
+    } catch (err) {
+      log.warn("reviewer.inline_reply_failed", {
+        pr: prNumber,
+        inReplyTo: c.inReplyTo,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   return {
     id: response.data.id,
@@ -443,9 +571,11 @@ const MAX_COMMITS_FETCHED = 500;
  * Filtering is done on the commit's own authored/committed date rather than
  * by SHA-diffing against the prior review's `commitId`, so a rebase or
  * force-push that changes SHAs without changing intent still resolves
- * correctly — the same tradeoff `diff-scoper.ts`'s fix-commit-diff
- * extraction currently approximates with the full PR diff (see its module
- * doc). When `sinceIso` is omitted, all commits on the PR are returned
+ * correctly. Note the deliberate contrast with `fetchIncrementalDiffSince`
+ * (mt#3471), which resolves by SHA instead: over-including an unrelated commit
+ * MESSAGE is harmless to a topical-overlap heuristic, whereas silently scoping
+ * a review's DIFF to the wrong commit range is not, so that path prefers a
+ * loud 404 to a lenient match. When `sinceIso` is omitted, all commits on the PR are returned
  * (bounded by MAX_COMMITS_FETCHED) — used for the first-review case where
  * there is no prior review to bound against, though callers typically skip
  * calling this at all in that case (there is nothing to respond to yet).
@@ -534,9 +664,33 @@ const GITHUB_COMPARE_FILES_CAP = 300;
  *
  * Returns `[]` immediately when `baseSha === headSha` (nothing to compare).
  * Returns `undefined` on any API failure (e.g. the base/head pair is
- * unreachable after a force-push rewrote history) or a possibly-truncated
- * response (see `GITHUB_COMPARE_FILES_CAP`) — callers must treat this as
- * "cannot determine," never as "no files changed."
+ * unreachable after a force-push rewrote history), a possibly-truncated
+ * response (see `GITHUB_COMPARE_FILES_CAP`), or a range containing a merge
+ * commit (see below) — callers must treat this as "cannot determine," never as
+ * "no files changed."
+ *
+ * ## Why a merge commit in range yields "cannot determine" (mt#3663)
+ *
+ * `baseSha` is a commit on the PR branch, so `base...head` collapses to
+ * `base..head` and a merge-from-main commit in that range contributes every
+ * file the BASE BRANCH touched, indistinguishably from files this PR's author
+ * touched. The caller's question is whether the PR ADDRESSED a finding, and a
+ * base-branch edit to the finding's cited file is not an answer to it — so the
+ * range stops carrying the signal the caller needs.
+ *
+ * Filtering the file list against the PR's own file list does NOT rescue this:
+ * a merge-from-main routinely touches the very files the PR touches (that is
+ * what a conflict resolution IS), so the cited file survives any such filter
+ * while the only edit to it came from the base branch. There is no cheap way to
+ * recover the PR-authored subset from one compare call, and the classifier's
+ * standing rule is to fail toward ambiguity rather than toward an unsupported
+ * "argued out" accusation — so this returns `undefined` and the caller records
+ * `unknown`.
+ *
+ * This is deliberately a DIFFERENT remedy from the one `incremental-diff-scope.ts`
+ * applies to the same wrong-base compare: that consumer asks "what should the
+ * model be shown," which the PR's own merge-base entries answer exactly; this
+ * one asks "did the author change this file," which they cannot answer at all.
  */
 export async function fetchChangedFilesSince(
   octokit: Octokit,
@@ -570,11 +724,134 @@ export async function fetchChangedFilesSince(
       });
       return undefined;
     }
+    const mergeCommits = (resp.data.commits ?? []).filter((c) => (c.parents?.length ?? 0) > 1);
+    if (mergeCommits.length > 0) {
+      log.info("reviewer.compare_commits_merge_in_range", {
+        event: "reviewer.compare_commits_merge_in_range",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        mergeCommitCount: mergeCommits.length,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
     return files.map((f) => ({ filename: f.filename }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("reviewer.compare_commits_failed", {
       event: "reviewer.compare_commits_failed",
+      owner,
+      repo,
+      baseSha,
+      headSha,
+      error: message,
+    });
+    return undefined;
+  }
+}
+
+/**
+ * The diff of the commits a PR gained since a given base SHA, in both the
+ * forms the review pipeline consumes (mt#3471).
+ */
+export interface IncrementalDiffResult {
+  /** Raw unified diff, as produced by GitHub's own diff media type. */
+  diff: string;
+  /** Per-file entries for the same commit range, for chunked-review packing. */
+  fileEntries: PrFileEntry[];
+}
+
+/**
+ * Fetch the diff of the commits added between `baseSha` and `headSha` (mt#3471).
+ *
+ * Used to give a re-review round (R>=2) only the delta pushed since the last
+ * posted review, instead of re-sending the entire PR diff every round. `baseSha`
+ * is the prior review's `commit_id` — resolving by SHA rather than by commit
+ * date means a rebase that rewrites author/committer dates cannot silently
+ * produce a wrong scope: an unreachable base yields a clean 404, which routes
+ * to the caller's full-diff fallback.
+ *
+ * Both forms come from the same `compare` call so they cannot disagree about
+ * the commit range: the raw diff (GitHub's `application/vnd.github.diff` media
+ * type, so the prompt sees byte-identical formatting to `pr.diff`) and the JSON
+ * `files` array (which `runChunkedReview` packs per file).
+ *
+ * Returns `undefined` — meaning "cannot scope; use the full diff" — when:
+ *   - `baseSha` is empty or equals `headSha` (no new commits to review);
+ *   - either request fails (force-push made the base unreachable; GitHub 5xx on
+ *     a large comparison, which its docs call out explicitly);
+ *   - the `files` array hit `GITHUB_COMPARE_FILES_CAP` and may be truncated;
+ *   - the comparison resolves but carries no diff text.
+ * It never returns a partial or empty scope — narrowing a review to nothing is
+ * strictly worse than reviewing the full diff again.
+ */
+export async function fetchIncrementalDiffSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseSha: string,
+  headSha: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<IncrementalDiffResult | undefined> {
+  if (!baseSha || baseSha === headSha) return undefined;
+
+  try {
+    const [diffResponse, jsonResponse] = await Promise.all([
+      withTimeout("github.repos.compareCommits.diff", timeoutMs, (signal) =>
+        octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+          owner,
+          repo,
+          basehead: `${baseSha}...${headSha}`,
+          mediaType: { format: "diff" },
+          request: { signal },
+        })
+      ),
+      withTimeout("github.repos.compareCommits", timeoutMs, (signal) =>
+        octokit.rest.repos.compareCommits({
+          owner,
+          repo,
+          base: baseSha,
+          head: headSha,
+          request: { signal },
+        })
+      ),
+    ]);
+
+    const files = jsonResponse.data.files ?? [];
+    if (files.length >= GITHUB_COMPARE_FILES_CAP) {
+      log.warn("reviewer.incremental_diff_possibly_truncated", {
+        event: "reviewer.incremental_diff_possibly_truncated",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
+
+    // mediaType: { format: "diff" } makes Octokit return the body as a raw
+    // string at runtime even though the typed response is the comparison object.
+    const diff = String(diffResponse.data);
+    if (!diff.trim()) return undefined;
+
+    return {
+      diff,
+      fileEntries: files.map((f) => ({
+        filename: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        patch: f.patch,
+        ...(f.previous_filename ? { previousFilename: f.previous_filename } : {}),
+      })),
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("reviewer.incremental_diff_failed", {
+      event: "reviewer.incremental_diff_failed",
       owner,
       repo,
       baseSha,

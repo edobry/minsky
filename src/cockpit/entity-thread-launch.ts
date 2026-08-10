@@ -42,6 +42,7 @@ import {
   startDrivenSession,
   sendDrivenSessionInput,
   drivenSessionRegistry,
+  hasLiveActuator,
   DEFAULT_PERMISSION_MODE,
   type DrivenSessionCostSummary,
   type DrivenSessionEvent,
@@ -53,6 +54,7 @@ import {
 import {
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
+  orchestrateDrivenSessionResume,
 } from "./driven-session-launch";
 import {
   appendEntityThreadTurn,
@@ -161,6 +163,22 @@ export function buildEntityThreadSeedPrompt(seed: EntitySeedContext): string {
     "above, read related memories, and pull in whatever else bears on it, rather than",
     "restating the text above, which the principal has already read and found unclear.",
     "",
+    // ⚠️ THIS SENTENCE IS THE ONLY BARRIER (mt#3435). It is a prompt-level
+    // constraint on a STRUCTURALLY CAPABLE agent, not a guarantee.
+    //
+    // A thread child spawns with `DEFAULT_PERMISSION_MODE` →
+    // `--dangerously-skip-permissions` and, via mt#3377, the COMPLETE Minsky MCP
+    // server with no `--allowedTools`/`--disallowedTools`. So the agent asked to
+    // EXPLAIN an ask can also call `asks_respond` on it, `session_pr_merge`,
+    // `tasks_status_set` — anything. Nothing below the prompt stops it.
+    //
+    // Do not read mt#3368's confirm step as containment either: that guards the
+    // PANEL's resolve path, and the agent never needs the panel.
+    //
+    // The principal reviewed four containment options on 2026-07-30 and chose to
+    // ACCEPT this risk and document it. mt#3435 holds the decision, the verified
+    // capability surface, the revisit triggers, and the option set — read it
+    // before weakening this line or concluding something else already guards it.
     "Do NOT take action on this entity. Do not resolve, close, edit, or respond to it.",
     "Explain it. Any action is the principal's own, taken through the cockpit's own",
     "controls.",
@@ -367,42 +385,163 @@ export interface StartEntityThreadSessionOptions {
   onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the per-turn cost observer (mt#3402). Same seam convention. */
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /**
+   * Override the resume orchestration (mt#3550) — the same seam convention as
+   * the observers above. Production omits it and gets
+   * `orchestrateDrivenSessionResume`, which reads the persisted row and takes a
+   * cross-process advisory lock; tests inject a fake so the re-spawn decision
+   * is exercisable without a database.
+   */
+  resumeSession?: typeof orchestrateDrivenSessionResume;
 }
 
 export interface EntityThreadSession {
   localId: string;
   record: DrivenSessionRecord;
-  /** True when this call spawned the session; false when one was already live. */
+  /**
+   * True when this call put a NEW actuator behind the thread — a first spawn, a
+   * resume-respawn, or a fresh replacement for a dead one. False only when an
+   * already-live session was reused.
+   *
+   * The route keys the reply-recorder subscription on this: a swapped-in record
+   * carries none of the old record's subscribers (`registry.replace` tells them
+   * to swap away), so anything that must observe the new actuator has to be
+   * re-attached whenever this is true.
+   */
   spawned: boolean;
   /**
-   * True when the seed prompt was accepted by the child's stdin. False means
-   * the spawn succeeded but the child was not writable — the session exists
-   * but its agent has NOT been told what entity it is discussing, so the
-   * caller must surface that rather than treating the session as ready.
+   * True when a reachable agent is scoped to this entity — i.e. the returned
+   * record has a live actuator AND its conversation carries the seed prompt.
+   *
+   * Per branch: a fresh spawn reports whether the child's stdin actually
+   * accepted the prompt (false means the spawn succeeded but the child was not
+   * writable — the agent has NOT been told what entity it is discussing); a
+   * reused live record and a resumed conversation are both already scoped; and
+   * a record handed back with NO actuator behind it is false regardless of
+   * what its conversation once held, because nothing is reachable to have been
+   * seeded (PR #2601 R1 BLOCKING).
+   *
+   * A false here means the caller must surface the state rather than treat the
+   * session as ready.
    */
   seeded: boolean;
+}
+
+/** What {@link respawnThreadActuator} decided to do about a dead record. */
+type ThreadActuatorRespawn =
+  | { kind: "resumed"; record: DrivenSessionRecord }
+  /** Nothing to resume — the caller should spawn a fresh seeded child. */
+  | { kind: "spawn-fresh" }
+  /** Another process holds the resume lock for this conversation right now. */
+  | { kind: "held-elsewhere" };
+
+/**
+ * Put a live actuator back behind a thread whose child has exited (mt#3550).
+ *
+ * Resume FIRST, because the thread's earlier turns are the point: the seed
+ * prompt carries the ENTITY's content and no discussion history, so a fresh
+ * child answers the principal's follow-up having never seen the exchange the
+ * panel is still showing them. `claude --resume` keeps that context, and
+ * `orchestrateDrivenSessionResume` is the path mt#3038 already built for
+ * exactly this shape — persisted-row lookup, cross-process advisory lock,
+ * orphan-PID cleanup, `registry.replace` — so this reuses it rather than
+ * inventing a second recovery mechanism.
+ *
+ * Everything that is not a successful resume falls back to a fresh seeded
+ * spawn, EXCEPT a lock held by another process: there, spawning would start a
+ * second conversation for a thread another daemon is in the middle of
+ * recovering, so the dead record is handed back and the message reports itself
+ * undelivered. The panel's "send again" is the right advice in that one case —
+ * the lock is released in seconds.
+ */
+async function respawnThreadActuator(
+  localId: string,
+  opts: StartEntityThreadSessionOptions
+): Promise<ThreadActuatorRespawn> {
+  const resume = opts.resumeSession ?? orchestrateDrivenSessionResume;
+  let outcome: Awaited<ReturnType<typeof orchestrateDrivenSessionResume>>;
+  try {
+    outcome = await resume(localId, {
+      ...(opts.registry ? { registry: opts.registry } : {}),
+      ...(opts.spawnFn ? { spawnFn: opts.spawnFn } : {}),
+      ...(opts.command ? { command: opts.command } : {}),
+    });
+  } catch (err) {
+    // A resume that THREW says nothing about whether a fresh child can run —
+    // the store may simply be unreachable — so this degrades to the fallback
+    // rather than leaving the thread with no agent at all.
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(`entity-thread: resume attempt failed for ${localId}: ${message}`);
+    return { kind: "spawn-fresh" };
+  }
+
+  switch (outcome.outcome) {
+    case "resumed":
+      log.info(`entity-thread: resumed the dead actuator for ${localId}`);
+      return { kind: "resumed", record: outcome.record };
+    case "locked":
+      log.info(`entity-thread: another process is resuming ${localId} — not spawning a rival`);
+      return { kind: "held-elsewhere" };
+    case "not-found":
+    case "unrecoverable":
+    default:
+      // `not-found` covers the never-persisted and no-database cases;
+      // `unrecoverable` covers a child that died before `init` (no harness
+      // session id to resume) and a vanished cwd. Both are answered the same
+      // way — start over and re-seed.
+      log.info(
+        `entity-thread: ${localId} is not resumable (${outcome.outcome}) — spawning a fresh seeded child`
+      );
+      return { kind: "spawn-fresh" };
+  }
 }
 
 /**
  * Get the live driven session for an entity's thread, spawning a seeded one if
  * none is running.
  *
- * Idempotent by `localId`: a second call while the first session is still
- * registered returns the existing record rather than spawning a competing
- * child against the same conversation. That matters beyond tidiness — two
- * concurrent writers on one conversation is the DAG-fork corruption mt#3095
- * exists to prevent, and the registry lookup is what keeps this path from
- * being a way to cause it.
+ * Idempotent by `localId`: a second call while the first session is still LIVE
+ * returns the existing record rather than spawning a competing child against
+ * the same conversation. That matters beyond tidiness — two concurrent writers
+ * on one conversation is the DAG-fork corruption mt#3095 exists to prevent, and
+ * the registry lookup is what keeps this path from being a way to cause it.
+ *
+ * "Still live" is {@link hasLiveActuator}, NOT "a record exists" (mt#3550).
+ * A record whose child has exited stays in the registry with a terminal status,
+ * and reusing it produced a thread that could never answer again: the turn was
+ * stored, `sendDrivenSessionInput` refused the dead stdin, and nothing
+ * re-spawned — so the panel's own "send again to ask" advice was futile
+ * forever. This is the same predicate the liveness report uses, so the spawn
+ * guard and the panel can no longer disagree about whether an agent is there.
  */
-export function startEntityThreadSession(
+export async function startEntityThreadSession(
   opts: StartEntityThreadSessionOptions
-): EntityThreadSession {
+): Promise<EntityThreadSession> {
   const registry = opts.registry ?? drivenSessionRegistry;
   const localId = entityThreadLocalId(opts.seed.entityType, opts.seed.entityId);
 
   const existing = registry.get(localId);
-  if (existing) {
+  if (existing && hasLiveActuator(existing)) {
     return { localId, record: existing, spawned: false, seeded: true };
+  }
+
+  if (existing) {
+    const respawn = await respawnThreadActuator(localId, opts);
+    if (respawn.kind === "resumed") {
+      // Already seeded — a resume continues the conversation the seed prompt
+      // scoped, so re-sending it would repeat the whole scoping instruction to
+      // an agent that has it.
+      return { localId, record: respawn.record, spawned: true, seeded: true };
+    }
+    if (respawn.kind === "held-elsewhere") {
+      // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
+      // record, so nothing accepted anything. The thread's conversation WAS
+      // scoped once, but reporting that as `seeded` here would tell the caller
+      // an agent is ready when none is reachable until the other process
+      // releases the lock — which is how a stuck thread gets masked, the exact
+      // failure this task exists to end.
+      return { localId, record: existing, spawned: false, seeded: false };
+    }
   }
 
   log.debug(`startEntityThreadSession: spawning for ${localId}`);
@@ -423,6 +562,11 @@ export function startEntityThreadSession(
     // would add a permanent no-op, not a link.
     onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
     onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
+    // mt#3550: only when this spawn is REPLACING a dead record. `register`
+    // would drop that record out of the registry without telling its
+    // subscribers anything, and they would go on observing a record no child
+    // writes to.
+    ...(existing ? { replacePrevious: true } : {}),
     ...(opts.spawnFn ? { spawnFn: opts.spawnFn } : {}),
     ...(opts.registry ? { registry: opts.registry } : {}),
     ...(opts.command ? { command: opts.command } : {}),

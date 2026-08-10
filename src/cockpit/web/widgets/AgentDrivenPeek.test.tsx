@@ -87,7 +87,7 @@ describe("AgentDrivenPeek (mt#2912)", () => {
     firstStubWs().simulateOpen();
     firstStubWs().simulateMessage({ type: "system", subtype: "init", session_id: "harness-2" });
 
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "go ahead" } });
     fireEvent.click(screen.getByText("Send"));
 

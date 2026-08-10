@@ -123,6 +123,13 @@ export interface PushDependencies {
     command: string,
     options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Clock seam for the mt#3480 elapsed-time reporting. Optional — production
+   * omits it and gets `Date.now`. Injectable so a test can assert an exact
+   * `elapsedMs` instead of a range, which would otherwise make the assertion
+   * timing-dependent and flaky on a loaded machine.
+   */
+  now?: () => number;
 }
 
 // POSIX shell single-quote escape: wrap in '...', and replace each ' with '\''.
@@ -256,6 +263,14 @@ export interface RemoteRefVerification {
    * NOT evidence the push failed — only that verification was inconclusive.
    */
   checkError?: string;
+  /**
+   * Set when the check was inconclusive specifically because IT ran out of
+   * time, as distinct from a network failure or a missing ref (mt#3480,
+   * PR #2506 R1). Structured rather than inferred from `checkError`'s wording,
+   * so the caller can report which phase timed out without string-matching a
+   * message that is free to change.
+   */
+  timedOut?: boolean;
 }
 
 /**
@@ -291,7 +306,11 @@ export async function verifyRemoteRefAdvanced(
       timeoutMs
     );
     if (raced.timedOut) {
-      return { confirmed: false, checkError: `ls-remote check exceeded ${timeoutMs}ms` };
+      return {
+        confirmed: false,
+        checkError: `ls-remote check exceeded ${timeoutMs}ms`,
+        timedOut: true,
+      };
     }
     const firstLine = raced.value.stdout
       .split("\n")
@@ -312,13 +331,33 @@ export async function verifyRemoteRefAdvanced(
 
 /**
  * Default bound for the push call itself inside `pushWithConfirmation`
- * (mt#3177). Matches `DEFAULT_PUSH_PHASE_TIMEOUT_MS` in
- * `session-commands.ts` (mt#3049) — the two constants are independently
- * configurable (different callers, different override params) but share the
- * same rationale: a push that genuinely needs longer than 2 minutes on a
- * healthy network is itself diagnostic-worthy.
+ * (mt#3177), raised from 2 to 10 minutes by mt#3480.
+ *
+ * The original 2 minutes rested on "a push that needs longer than 2 minutes on
+ * a healthy network is itself diagnostic-worthy." That premise is FALSE in this
+ * repo, and measurably so: `.husky/pre-push` (mt#2716) runs the full local test
+ * suite on every push — deliberately, as the tier that replaced a slow
+ * pre-commit gate. Measured 2026-07-31 from a session workspace:
+ *
+ *   Ran 10865 tests across 770 files. [209.71s]     <- main suite
+ *   + ~19 further suites                             <- ~15s
+ *
+ * So a HEALTHY push here costs ~4 minutes before a single byte moves. The bound
+ * was structurally shorter than the gate it had to wait for, which made every
+ * session push a coin flip and PR creation fail outright (mt#3367 was blocked
+ * for an hour by exactly this).
+ *
+ * 10 minutes is chosen to clear the measured cost with headroom for a loaded
+ * machine, and matches the commit-phase default's order of magnitude. The cost
+ * of the larger bound is that a GENUINELY stuck push now blocks longer — which
+ * is why mt#3480 also added `elapsedMs`/`pushTimeoutMs`/`timedOutDuring` to the
+ * result: a slow push is now distinguishable from a stuck one without re-running
+ * it. The mt#3177 remote-ref check still runs on timeout regardless.
+ *
+ * `MINSKY_SKIP_PREPUSH_TESTS=1` (the hook's own documented escape hatch) makes
+ * pushes fast again when the caller has already run the suite.
  */
-export const DEFAULT_PUSH_CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
+export const DEFAULT_PUSH_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * Result of `pushWithConfirmation` — a superset of `PushResult` (all
@@ -362,6 +401,41 @@ export interface PushWithConfirmationResult extends PushResult {
    * clean/synced-implying-pushed result while this is set.
    */
   pushUnconfirmed?: boolean;
+  /**
+   * Wall-clock milliseconds the push call itself consumed, always set (mt#3480).
+   *
+   * Added because a bare `pushTimedOut: true` is not diagnosable. On 2026-07-31
+   * a routine one-commit session push repeatedly hit the 2-minute bound; the
+   * result said only "timed out", which reads as "hung" and sent an
+   * investigation through GitHub status, credential helpers, orphaned
+   * processes, and an MCP restart before a longer bound revealed the push was
+   * merely SLOW (it succeeded at 400s, unchanged). Had the result reported
+   * "elapsed 120000ms, bound 120000ms", the first question would have been "how
+   * much longer does it need?" instead of "what is broken?".
+   *
+   * This is wall time for the WHOLE call, always — including, on the timeout
+   * path, the remote-ref verification that runs after the push is abandoned.
+   * So a timed-out result's `elapsedMs` is `pushTimeoutMs` PLUS the verify
+   * time, not the bound alone (PR #2506 R1 non-blocking corrected an earlier
+   * version of this comment that claimed otherwise).
+   *
+   * What it is NOT, on that path, is the push's true duration: the call is
+   * abandoned at the bound and the underlying push may still be running, so
+   * its real cost is unobservable from here. `pushTimeoutMs` is reported
+   * alongside precisely so a reader can separate the two — a push that
+   * finished just under the wire shows `elapsedMs < pushTimeoutMs`, one that
+   * was cut off shows `elapsedMs >= pushTimeoutMs`.
+   */
+  elapsedMs?: number;
+  /** The bound that applied, so `elapsedMs` can be read against it (mt#3480). */
+  pushTimeoutMs?: number;
+  /**
+   * How far the call got (mt#3480). `"push"` means the push itself was still
+   * running when the bound elapsed; `"remote-verify"` means the push was
+   * abandoned and the follow-up remote-ref check is what did not settle.
+   * Absent on a clean success, where there is no phase to disambiguate.
+   */
+  timedOutDuring?: "push" | "remote-verify";
 }
 
 /** Config for `pushWithConfirmation` — all fields optional/overridable. */
@@ -468,6 +542,10 @@ export async function pushWithConfirmation(
 ): Promise<PushWithConfirmationResult> {
   const pushTimeoutMs = config.pushTimeoutMs ?? DEFAULT_PUSH_CONFIRM_TIMEOUT_MS;
   const workdir = options.repoPath ?? validateProcess(process).cwd();
+  // mt#3480: every return path reports how long it took and against what bound,
+  // so a slow push is distinguishable from a stuck one WITHOUT re-running it.
+  const startedAt = deps.now?.() ?? Date.now();
+  const elapsed = (): number => (deps.now?.() ?? Date.now()) - startedAt;
 
   let pushed = false;
   let pushTimedOut = false;
@@ -492,6 +570,8 @@ export async function pushWithConfirmation(
     return {
       workdir: resolvedWorkdir,
       pushed,
+      elapsedMs: elapsed(),
+      pushTimeoutMs,
       ...(pushError !== undefined ? { pushError } : {}),
     };
   }
@@ -512,6 +592,9 @@ export async function pushWithConfirmation(
       pushed: true,
       pushTimedOut: true,
       pushConfirmedVia: "remote-check",
+      elapsedMs: elapsed(),
+      pushTimeoutMs,
+      timedOutDuring: "push",
     };
   }
 
@@ -520,5 +603,16 @@ export async function pushWithConfirmation(
     pushed: false,
     pushTimedOut: true,
     pushUnconfirmed: true,
+    elapsedMs: elapsed(),
+    pushTimeoutMs,
+    // Which phase actually ran out of time (PR #2506 R1 BLOCKING: this field
+    // previously advertised "remote-verify" in its type while the code could
+    // only ever emit "push" — a value no caller could observe).
+    //
+    // "remote-verify" when the ls-remote check ITSELF timed out, leaving the
+    // outcome doubly unknown; "push" when the check completed and simply did
+    // not find the ref, which is the common case and must not read as though
+    // the verification were the slow part.
+    timedOutDuring: verification?.timedOut ? "remote-verify" : "push",
   };
 }

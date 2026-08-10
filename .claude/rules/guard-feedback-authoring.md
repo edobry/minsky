@@ -26,7 +26,7 @@ Four parts, nothing else:
    say instead. Without this the guard pressures the agent into acting when stopping was right.
 
 ```
-[turn-end-untaken-action] You named a next action and ended the turn without taking it.
+[turn-end-untaken-action] You named a next action and did not take it.
 
   - ill-action: "I'll implement it"
 
@@ -34,6 +34,29 @@ Take it now in this continuation, then report the result. If it genuinely cannot
 are blocked on a principal decision, a red check, or an external condition you have already
 armed a watcher for — name which in one line and end.
 ```
+
+## The directive has to fit the shape of the fire, not just the guard
+
+Part 3 above says "what to do now" — but a guard that matches more than one SHAPE of input owes
+each shape its own directive. A directive that does not fit is worse than a vague one: it invites
+the agent to read a TRUE positive as a false one, and a detector whose correct output gets
+dismissed has lost the thing it exists for (the mem#719 dynamic, arrived at from the other
+direction).
+
+This binds hardest where a guard has taken over a sibling's slot. A dedup between guards on
+different events is a **handoff** (mem#831), and a handoff transfers an obligation, not just a
+speaking turn: the winner has to carry the loser's REMEDY for the inputs it absorbed. mt#3620 gave
+`turn-end-untaken-action` the overlap with `ask-routing-deferral` and kept only its own
+commitment-shaped "take it now" — so an offer-shaped closing sentence, whose correct disposition
+is usually to retract the sentence, was told to perform the action instead. mt#3767 split the
+directive; the fix is one conditional, and the discipline is to notice the obligation at handoff
+time rather than a fix later.
+
+**When you add a branch, it becomes the guard's worst case.** Declare a `worstCaseCanary` posed at
+it — saturated on EVERY axis at once (the longest branch AND the evidence list at its cap), not
+just the axis you changed. Posing it on one axis is how mt#3767's first attempt measured 383 on a
+branch whose real worst case was 474, over a 450 ceiling; the same under-posing had already hidden
+that the guard's ORIGINAL directive was over the ceiling at cap.
 
 ## Keep out of advisory text
 
@@ -54,6 +77,30 @@ agent does next, and all of it is paid for on every fire — in the agent's cont
 **Deny messages are exempt from the last one.** An operator reading a block needs the override
 string — there it is the actionable remedy. `check-guessed-session-path`'s deny message names
 `MINSKY_SKIP_SESSION_PATH_CHECK=1` and is correct to.
+
+## A third channel: `auditLines` goes to stderr, and that is load-bearing
+
+`GuardOutcome.auditLines` is the raw-line channel — a guard's own diagnostic, written verbatim
+rather than folded into the merged context block. The dispatcher writes it to **stderr**.
+
+Not a style choice (mt#3625): Claude Code discards a PreToolUse hook's **entire output** when
+stdout carries anything besides the single JSON object. An audit line on stdout therefore voids
+the dispatch's JSON — including a *different* guard's `deny`, which then never fires, with nothing
+logged anywhere. Measured live: with the pre-fix dispatcher, overriding one guard let a second
+guard's deny be silently dropped and the tool ran.
+
+That measurement was real, and it could not have come from a unit test — `dispatcher.test.ts`
+injects the fire-log writer and the context resolver, so it never exercises the path the bug
+lived on. But it was taken by hand-registering fixture guards into the LIVE dispatcher, which
+wrote 19 records into the production fire-log and ran an unreviewed `deny` against the
+operator's own tool calls (mt#3756). **Re-run it with `bun scripts/run-dispatcher-scenario.ts
+--scenario override-deny-precedence`**, which ships that exact scenario against an isolated
+state dir. Add a scenario there rather than hand-rolling a harness.
+
+So: **never write to stdout from a guard.** Return `auditLines` and let the dispatcher place it.
+The dispatcher deliberately exposes no general-purpose stdout writer beside its JSON emitter, so
+there is no correct way to do otherwise — if you find yourself reaching for `process.stdout.write`
+in a guard, the answer is `auditLines` (diagnostic) or `additionalContext` (agent-facing).
 
 ## The size ceiling is enforced
 

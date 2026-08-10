@@ -42,6 +42,29 @@ export class BackendNotFoundError extends MultiBackendError {
   }
 }
 
+/**
+ * Raised when a task operation is attempted against a service that has NO
+ * registered backend (mt#3636).
+ *
+ * The write path has always failed loudly in this state; the read path used to
+ * return `[]` from `listTasks` and `null` from `getTask`, which are
+ * byte-identical to the truthful answers for an empty database and a
+ * nonexistent task. That asymmetry is what made a failed Postgres boot look
+ * like an empty task graph.
+ *
+ * `detail` carries the underlying cause (the persistence initialization error,
+ * when one was recorded) so the message is actionable rather than just loud.
+ */
+export class TaskBackendUnavailableError extends MultiBackendError {
+  constructor(
+    operation: string,
+    public readonly detail: string
+  ) {
+    super(`Task backend unavailable — cannot ${operation}: ${detail}`, operation);
+    this.name = "TaskBackendUnavailableError";
+  }
+}
+
 export class TaskRoutingError extends MultiBackendError {
   constructor(taskId: string, reason: string) {
     super(`Failed to route task '${taskId}': ${reason}`, "task_routing", undefined, taskId);

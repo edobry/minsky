@@ -379,8 +379,9 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
   });
 
   test(
-    "mt#3432 AT1: collapses + refines a >=10k synthetic cluster population (worst-case " +
-      "shape) in bounded time — guards against a reintroduced O(n^2) blowup",
+    "mt#3432 AT1: collapses + refines a >=10k all-distinct cluster population (worst-case " +
+      "shape) and pins the exact comparison count — detects redundant scanning, not " +
+      "asymptotic regression (mt#3588)",
     () => {
       // Worst case for collapseToMaximalClusters: every cluster carries a
       // UNIQUE tool-name vocabulary per position, so essentially none
@@ -392,9 +393,15 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
       // collapse=49ms), together falsify mt#3432's hypothesis 1 as the
       // actual cause of the reported 25min+ hang — see
       // toil-miner-tick.ts's docstring for the real root cause (N
-      // sequential per-cluster ledger writes, now batched). This test
-      // still guards the O(n^2) CPU shape of collapse+refinement
-      // independently of that fix, per this task's AT1.
+      // sequential per-cluster ledger writes, now batched).
+      //
+      // What this test does NOT do (mt#3588): detect an asymptotic
+      // regression. On this shape the scan IS quadratic — the count
+      // asserted below is exactly N(N-1)/2 — so the value being pinned is
+      // the quadratic value itself, and a guard cannot detect a change
+      // into a regime it already sits in. What it DOES detect is any
+      // change to the comparison count at this input size; the assertion
+      // comment below names the regression classes that covers.
       const N = 12704;
       const clusters: MinedCluster[] = [];
       for (let i = 0; i < N; i++) {
@@ -418,8 +425,7 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
         });
       }
 
-      const start = performance.now();
-      const { maximal, suppressed } = collapseToMaximalClusters(clusters);
+      const { maximal, suppressed, comparisons } = collapseToMaximalClusters(clusters);
       let refinedCount = 0;
       let excludedCount = 0;
       for (const c of maximal) {
@@ -427,15 +433,97 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
         if (outcome.kind === "excluded") excludedCount++;
         else refinedCount++;
       }
-      const elapsed = performance.now() - start;
 
       // Every candidate accounted for — collapse never silently drops one.
       expect(maximal.length + suppressed.length).toBe(N);
       expect(refinedCount + excludedCount).toBe(maximal.length);
-      // Generous bound (the measured worst case is ~1.4s): a real O(n^2)
-      // regression would land in tens of seconds to minutes, not here.
-      expect(elapsed).toBeLessThan(10000);
+
+      // The comparison count, asserted exactly (mt#3494).
+      //
+      // This assertion replaces `expect(elapsed).toBeLessThan(10000)`. That
+      // bound measured the HOST as much as the algorithm: this exact fixture
+      // was observed at 1406ms and 5032ms in two runs minutes apart on one
+      // idle machine, and at ~10.3-10.6s inside the full 769-file suite —
+      // tripping the 10s bound and failing the fail-closed pre-push gate on
+      // branches that touch nothing near this code. A count is a function of
+      // the input alone: same clusters, same number, every machine, every
+      // load, standalone or in-suite.
+      //
+      // Shape of THIS fixture: every cluster carries a unique token
+      // vocabulary, so nothing nests, nothing is suppressed, and `maximal`
+      // grows to N. That is the genuine worst case, and it pins the count
+      // exactly — each candidate is compared against every already-kept
+      // cluster and nothing more, so the loop performs precisely N(N-1)/2
+      // comparisons. Any redundant re-scan (a second pass, a lost
+      // short-circuit on a shape where matches DO occur, a nested loop added
+      // above this one) moves the number off this value.
+      expect(suppressed.length).toBe(0);
+      expect(maximal.length).toBe(N);
+      expect(comparisons).toBe((N * (N - 1)) / 2);
     },
     20000
   );
+
+  test("mt#3494: the collapse scan short-circuits on the first match — comparisons stay bounded by N x |maximal| when clusters DO nest", () => {
+    // The companion to the worst-case fixture above. There, nothing nests, so
+    // the short-circuit never fires and its loss would be invisible. Here most
+    // candidates ARE suppressed — the shape the live corpus actually has
+    // (mt#3432 measured ~11,220 suppressions of 12,694 real clusters) — so the
+    // early exit is load-bearing and its removal is observable.
+    const N = 12704;
+    const FAMILIES = 50;
+    const clusters: MinedCluster[] = [];
+    for (let i = 0; i < N; i++) {
+      const fam = i % FAMILIES;
+      // The first FAMILIES entries are long family heads; every later cluster
+      // is a prefix of its family's head, so it nests and is suppressed.
+      const len = i < FAMILIES ? 6 : 2 + (i % 4);
+      const toolSequence = Array.from({ length: len }, (_, j) => `fam${fam}_${j}`);
+      clusters.push({
+        signature: computeClusterSignature(toolSequence),
+        toolSequence,
+        frequency: N - i,
+        sessionCount: N - i,
+        chainLength: len,
+        score: (N - i) * (N - i) * len,
+        sampleRefs: [],
+        fingerprintProfile: {
+          sequence: toolSequence.map((t, j) => `fp:${t}:${j}`),
+          frequency: Math.max(1, Math.floor((N - i) * 0.1)),
+          sessionCount: Math.max(1, Math.floor((N - i) * 0.1)),
+          concentration: 0.1,
+          sampleRefs: [],
+        },
+      });
+    }
+
+    const { maximal, suppressed, comparisons } = collapseToMaximalClusters(clusters);
+
+    // Collapse actually collapsed: one survivor per family.
+    expect(maximal.length).toBe(FAMILIES);
+    expect(suppressed.length).toBe(N - FAMILIES);
+
+    // Exact expected count, derived from the fixture's structure rather than
+    // picked as a threshold.
+    //
+    // Family heads are inserted into `maximal` in family order, so candidate i
+    // (i >= FAMILIES) finds its head at index i % FAMILIES and stops there —
+    // costing (i % FAMILIES) + 1 comparisons. Head j itself scans the j heads
+    // already kept, matching none, costing j.
+    //
+    //   heads:      sum(j for j in 0..49)                      =   1,225
+    //   candidates: 253 whole cycles x sum(k+1 for k in 0..49)
+    //               = 253 x 1,275                              = 322,575
+    //               + 4 leftover candidates (k = 0..3)         =      10
+    //                                                            -------
+    //                                                            323,810
+    //
+    // Asserting the exact value rather than an upper bound is what makes this
+    // a guard: removing the `break` makes each of the 12,654 suppressed
+    // candidates scan all 50 survivors, giving 12,654 x 50 + 1,225 = 633,925.
+    // Verified by running it both ways (mt#3494).
+    const HEAD_SCANS = (FAMILIES * (FAMILIES - 1)) / 2;
+    expect(comparisons).toBe(323810);
+    expect(comparisons).toBeLessThan(N * FAMILIES + HEAD_SCANS);
+  }, 20000);
 });

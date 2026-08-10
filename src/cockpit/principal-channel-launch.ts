@@ -25,15 +25,31 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import type { PrincipalChannelConfig } from "@minsky/domain/configuration/schemas/principal-channel";
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  markTelegramChannelTopicDead,
+  resolvePrincipalChannel,
+  type PrincipalChannelResolution,
+} from "@minsky/domain/notify/principal-channel";
 import {
   inboundEventToken,
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
-import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
-import { createDrivenSessionActuator } from "./principal-channel-actuator";
+import { getTelegramMe, type TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
+import { parseTaskId } from "@minsky/domain/tasks/task-id";
+import {
+  createCachedSqlDbGetter,
+  getServerAskRepository,
+  getServerTaskService,
+  describeServerPersistenceUnavailability,
+} from "./db-providers";
+import {
+  createDrivenSessionActuator,
+  createTopicActuatorRegistry,
+} from "./principal-channel-actuator";
 import {
   startPrincipalChannelPoller,
+  type BindTopicOutcome,
+  type ChannelActuator,
   type InboundEventRecorder,
   type PollCursor,
   type PollerHandle,
@@ -212,6 +228,502 @@ export async function respondToAskFromChannel(askRef: string, text: string): Pro
   }
 }
 
+// ---------------------------------------------------------------------------
+// Topic mapping + per-topic actuators (mt#3505, parent mt#3500)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic `driven_sessions.local_id` for one Telegram DM forum topic.
+ *
+ * Lives in the SAME keyspace `entityThreadLocalId` established
+ * (`packages/domain/src/transcripts/entity-thread-store.ts`) — readable, not
+ * hashed, deterministic from stable identifiers Telegram itself assigns
+ * (`chatId`, `messageThreadId`), per the mt#3505 spec's explicit instruction.
+ * Deterministic on purpose: the id needs no lookup to derive, only the
+ * mapping row (see {@link ensureTelegramChannelTopic}) needs a lookup, and
+ * that row's whole job is to say "have I seen this topic before", not to
+ * hand back an id that could otherwise only be looked up.
+ */
+export function telegramTopicLocalId(chatId: string, messageThreadId: number): string {
+  return `telegram-topic:${chatId}:${messageThreadId}`;
+}
+
+/** Deps {@link ensureTelegramChannelTopic} needs — just a DB getter, injected for tests. */
+export interface EnsureTelegramChannelTopicDeps {
+  getDb: DbGetter;
+}
+
+/**
+ * Ensure a `telegram_channel_topics` mapping row exists for (chatId,
+ * messageThreadId), returning the topic's deterministic `localId` either way.
+ *
+ * Best-effort: a DB outage or a failed insert logs a warning and still
+ * returns the localId rather than throwing — the mapping table is the bot's
+ * ONLY inventory of topics (Telegram exposes no `getForumTopics`), but a
+ * transient persistence hiccup must not stop the principal's message from
+ * being answered. The insert itself is idempotent (`ON CONFLICT ... DO
+ * NOTHING` on the unique `(chat_id, message_thread_id)` index), so a
+ * redelivered Telegram update racing a fresh one is harmless.
+ */
+export async function ensureTelegramChannelTopic(
+  chatId: string,
+  messageThreadId: number,
+  deps: EnsureTelegramChannelTopicDeps
+): Promise<string> {
+  const localId = telegramTopicLocalId(chatId, messageThreadId);
+  const db = await deps.getDb();
+  if (!db) {
+    log.warn(
+      "[principal-channel] could not persist a topic mapping (no DB); continuing without it",
+      { chatId, messageThreadId }
+    );
+    return localId;
+  }
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO telegram_channel_topics (local_id, chat_id, message_thread_id)
+      VALUES (${localId}, ${chatId}, ${messageThreadId})
+      ON CONFLICT (chat_id, message_thread_id) DO NOTHING
+    `);
+  } catch (err: unknown) {
+    log.warn("[principal-channel] failed to record a topic mapping", {
+      chatId,
+      messageThreadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return localId;
+}
+
+/** Deps {@link bindTelegramChannelTopicToTask} needs. */
+export interface BindTelegramChannelTopicDeps {
+  getDb: DbGetter;
+  /**
+   * Resolve a task by id, or null if it does not exist. Defaults to the real
+   * TaskService; overridable so a test never spins up a real one.
+   */
+  getTask?: (taskId: string) => Promise<unknown | null>;
+}
+
+/**
+ * Bind (chatId, messageThreadId)'s topic mapping to a task (mt#3507's
+ * `/bind` command).
+ *
+ * All-or-nothing: the task id is validated (parseable) and confirmed to
+ * exist BEFORE any write happens, so a malformed or nonexistent task id never
+ * leaves a half-written row — the spec's explicit requirement. Never creates
+ * the task; a task that does not exist is refused, not conjured.
+ *
+ * The write itself is an upsert (`INSERT ... ON CONFLICT DO UPDATE`), not an
+ * `UPDATE`-only statement: `/bind` is the FIRST message in a topic often
+ * enough (a principal opening a fresh topic and immediately naming its task)
+ * that the mapping row may not exist yet — `ensureTelegramChannelTopic` is
+ * normally what creates it, but that only runs when a message is routed
+ * through `resolveActuatorForMessage`, which a `bind` route deliberately
+ * skips (see `principal-channel-poller.ts`'s `handleBind`). Only the
+ * `entity_type`/`entity_id` columns are ever touched here — `local_id`
+ * (and therefore `driven_sessions.local_id`, which shares that keyspace) is
+ * never written to by this function, which is what keeps the bound
+ * conversation's identity unchanged before and after a bind.
+ */
+export async function bindTelegramChannelTopicToTask(
+  chatId: string,
+  messageThreadId: number,
+  taskRef: string,
+  deps: BindTelegramChannelTopicDeps
+): Promise<BindTopicOutcome> {
+  const parsed = parseTaskId(taskRef.trim());
+  if (!parsed) {
+    return {
+      kind: "invalid-task",
+      detail: `"${taskRef}" isn't a task id I recognize (expected e.g. mt#123).`,
+    };
+  }
+  const taskId = parsed.full;
+
+  const getTask = deps.getTask ?? defaultGetTask;
+  const task = await getTask(taskId);
+  if (!task) {
+    return { kind: "invalid-task", detail: `${taskId} does not exist.` };
+  }
+
+  const db = await deps.getDb();
+  if (!db) {
+    return {
+      kind: "invalid-task",
+      detail: "the topic mapping store is unavailable right now — try again shortly.",
+    };
+  }
+
+  const localId = telegramTopicLocalId(chatId, messageThreadId);
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO telegram_channel_topics (local_id, chat_id, message_thread_id, entity_type, entity_id)
+      VALUES (${localId}, ${chatId}, ${messageThreadId}, 'task', ${taskId})
+      ON CONFLICT (chat_id, message_thread_id)
+      DO UPDATE SET entity_type = 'task', entity_id = ${taskId}, updated_at = now()
+    `);
+  } catch (err: unknown) {
+    log.warn("[principal-channel] failed to bind a topic to a task", {
+      chatId,
+      messageThreadId,
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      kind: "invalid-task",
+      detail: "could not save the binding — try again shortly.",
+    };
+  }
+  return { kind: "bound", taskId };
+}
+
+async function defaultGetTask(taskId: string): Promise<unknown | null> {
+  const service = await getServerTaskService();
+  if (!service) return null;
+  return service.getTask(taskId);
+}
+
+/** Deps {@link createTopicActuatorResolver} needs to build and cache per-topic actuators. */
+export interface TopicActuatorResolverDeps {
+  chatId: string;
+  getDb: DbGetter;
+  /**
+   * Build a fresh actuator bound to `localId`. Production wraps
+   * `createDrivenSessionActuator` with the channel's `cwd`/`permissionMode`/
+   * `respondToAsk` fixed and only `localId` varying per topic; tests inject a
+   * stub so no `claude` process is ever spawned.
+   */
+  buildActuator: (localId: string) => ChannelActuator;
+}
+
+/**
+ * Build the poller's `resolveTopicActuator` dependency (mt#3505).
+ *
+ * The registry (`createTopicActuatorRegistry`) is what makes this safe to
+ * call once per inbound message rather than once per topic: the SAME
+ * actuator instance is returned for a topic across calls, preserving that
+ * instance's own "one caller at a time" concurrency contract (see
+ * `./principal-channel-actuator.ts`'s docblock) while different topics get
+ * independent instances and therefore run concurrently.
+ */
+export function createTopicActuatorResolver(
+  deps: TopicActuatorResolverDeps
+): (messageThreadId: number) => Promise<ChannelActuator> {
+  const registry = createTopicActuatorRegistry();
+  return async (messageThreadId: number) => {
+    const localId = await ensureTelegramChannelTopic(deps.chatId, messageThreadId, {
+      getDb: deps.getDb,
+    });
+    return registry.getOrCreate(localId, () => deps.buildActuator(localId));
+  };
+}
+
+/**
+ * Log the bot's topic-mode capability at startup (mt#3505 success criterion).
+ *
+ * Diagnostic only — it NEVER gates or fails channel startup, in either
+ * direction. When `has_topics_enabled` is false, Telegram simply never sends
+ * a `message_thread_id` on any inbound message, so the channel degrades to
+ * today's single-conversation behavior automatically; this only makes that
+ * state legible to whoever is reading the daemon's log, per the spec's
+ * "operator-legible log line rather than failing."
+ */
+export async function logTopicModeCapability(
+  token: string,
+  getMe: (opts: { token: string }) => Promise<TelegramGetMeResult> = getTelegramMe
+): Promise<void> {
+  const result = await getMe({ token });
+  if (!result.ok) {
+    log.warn(
+      "[principal-channel] could not probe topic-mode capability via getMe; continuing without it",
+      { detail: result.detail }
+    );
+    return;
+  }
+  log.info("[principal-channel] topic-mode capability probe", {
+    hasTopicsEnabled: result.hasTopicsEnabled,
+    allowsUsersToCreateTopics: result.allowsUsersToCreateTopics,
+  });
+  if (!result.hasTopicsEnabled) {
+    log.warn(
+      "[principal-channel] topic mode is OFF for this bot — the channel behaves as a single " +
+        "standing conversation until it is enabled for this bot in @BotFather",
+      {}
+    );
+  }
+}
+
+/**
+ * What the channel is actually doing, for the `/api/health` surface (mt#3608,
+ * retry ceiling removed mt#3683).
+ *
+ * Mirrors {@link getDbStatus}'s shape deliberately: a module-level last-known
+ * state a health endpoint can read on every request without probing anything.
+ *
+ * The states an operator needs to tell apart:
+ * - `unconfigured` — the credentials are genuinely absent. Operator action.
+ * - `retrying` — a read failed and the fault is classified TRANSIENT. Per
+ *   ADR-035 rule 1, this never gives up on its own: past mt#3608's original
+ *   ~2-minute/6-attempt schedule it keeps retrying on a widening, capped
+ *   backoff (see {@link resolveWithRetry}) rather than settling into
+ *   `failed`. `lastAttemptAt`/`nextAttemptAt` (ADR-035 rule 4) are what make
+ *   "still actively retrying" legible against "gave up" without reading the
+ *   reason prose.
+ * - `failed` — a DIFFERENT fault class: an exception raised AFTER
+ *   credentials resolved (poller/actuator construction — see
+ *   {@link startPrincipalChannel}'s catch block). No longer reachable from a
+ *   credential-read failure, since that path no longer exhausts.
+ *
+ * `attempts` belongs to `retrying` ONLY (mt#3689). It used to appear on
+ * `failed` too, always as the literal `1`, which made one field carry two
+ * meanings across two fault classes: on `retrying` it is a live count of
+ * credential reads, on `failed` it counted nothing — the failure happened once,
+ * after credentials had already resolved. That is an invitation to misread, and
+ * the misreading is not hypothetical: mt#3683's root cause was established by
+ * reading `attempts: 7` against a six-entry schedule, so this counter is
+ * load-bearing for diagnosis precisely when an operator is under pressure.
+ * `state` already separates the two classes, so dropping the field loses no
+ * information. ADR-035 rule 4 requires `mode`/`reason`/`lastAttemptAt` at
+ * MINIMUM and does not name `attempts`, so omitting it here stays within the
+ * rule — which sets a floor on the status shape, not a ceiling.
+ */
+export type PrincipalChannelStatus =
+  | { state: "disabled" }
+  | { state: "starting" }
+  | { state: "running"; chatId: string }
+  | { state: "unconfigured"; reason: string }
+  | {
+      state: "retrying";
+      reason: string;
+      attempts: number;
+      /** ISO timestamp of the attempt that just failed. */
+      lastAttemptAt: string;
+      /**
+       * ISO timestamp of the next scheduled attempt (mt#3683 SC3) — the
+       * field that makes "actively retrying" distinguishable from "gave
+       * up" without inferring it from `attempts` alone.
+       */
+      nextAttemptAt: string;
+    }
+  | { state: "failed"; reason: string };
+
+let channelStatus: PrincipalChannelStatus = { state: "disabled" };
+
+/**
+ * Last-known channel status. Read-only; never triggers work. Safe to call from
+ * a health endpoint on every request.
+ */
+export function getPrincipalChannelStatus(): PrincipalChannelStatus {
+  return channelStatus;
+}
+
+/** Reset to the pre-start state. For tests. */
+export function resetPrincipalChannelStatus(): void {
+  channelStatus = { state: "disabled" };
+}
+
+/**
+ * Seed schedule for a FAILED credential read's backoff (mt#3608, revised
+ * mt#3683 — the ceiling this schedule used to impose is gone).
+ *
+ * Six attempts on a doubling backoff from 2s spans ~2 minutes. mt#3608 read
+ * exhausting this schedule as proof the fault was not the transient class it
+ * exists for, and gave up permanently. That premise did not hold: the
+ * 2026-08-04 outage stayed down for ~5 hours and cleared on its own at the
+ * next daemon restart with NO environment change — a fault a fixed schedule
+ * cannot outlast is not evidence it was never transient, only that the
+ * schedule was too short. (Its `exit null` signature was checked directly
+ * against this runtime — see {@link resolvePrincipalChannel}'s caller,
+ * `readPulumiChatId` in `packages/domain/src/notify/principal-channel.ts` —
+ * and reproduces the Pulumi subprocess's 5s `timeout` firing, not a
+ * PATH/spawn failure: `Bun.spawnSync` throws synchronously with a distinct
+ * `ENOENT`/"Executable not found in $PATH" message when the binary itself is
+ * unresolvable, verified live in this Bun runtime, so a killed-by-timeout
+ * process — which DOES produce `exitCode: null` with empty stderr, also
+ * verified live — is the only way this exact reason string is produced. No
+ * binary-resolution fix is warranted.)
+ *
+ * This array is now only the SEED: {@link resolveWithRetry} never stops
+ * retrying on its own while the failure stays classified `transient` — past
+ * this schedule it keeps doubling the last delay, capped at
+ * {@link CREDENTIAL_RETRY_MAX_DELAY_MS}, per ADR-035 rule 1 ("register the
+ * retry", not "bound the attempt count") and mirroring mt#3635's
+ * container-retry cap (`packages/domain/src/composition/container.ts`'s
+ * `RETRY_MAX_INTERVAL_MS`).
+ */
+export const CREDENTIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
+
+/**
+ * Ceiling for the backoff once the seed schedule above is exhausted
+ * (mt#3683). Bounds the RATE of a long outage, not the attempt COUNT: a
+ * multi-hour fault settles at one attempt per 5 minutes instead of doubling
+ * into hour-long gaps, while a restart-recovering fault (this task's
+ * originating incident) is still retried well within the window an operator
+ * would notice. Mirrors mt#3635's `RETRY_MAX_INTERVAL_MS` — the same class of
+ * transient Pulumi/network fault, the same chosen cap.
+ */
+export const CREDENTIAL_RETRY_MAX_DELAY_MS = 5 * 60_000;
+
+/**
+ * Floor for any retry wait (mt#3689).
+ *
+ * The backoff past the seed schedule widens by MULTIPLYING the previous delay,
+ * so a non-positive seed multiplies to itself forever: a `[0]` schedule yields
+ * an unbroken run of zero-length waits — a busy loop inside the mechanism that
+ * exists to stop hammering a failing dependency. The invariant was held only by
+ * the literal value of {@link CREDENTIAL_RETRY_DELAYS_MS}, not by the code, so
+ * any future edit to that array (or the injected `retryDelaysMs` test seam)
+ * could reintroduce it silently.
+ *
+ * Applied at BOTH ends, which is what makes it hold: as a floor on the base
+ * {@link nextRetryDelayMs} doubles from (so the sequence actually widens rather
+ * than pinning at the floor), and as a floor on the delay finally slept
+ * (so a non-positive entry read straight out of the seed schedule, which never
+ * reaches `nextRetryDelayMs`, cannot produce a zero wait either).
+ *
+ * Inert for production: every entry in the shipped schedule is >= 2000ms, so
+ * this clamp never binds there. The value is bounded from below by what it is
+ * protecting against — a spin — and from above by not wanting to slow a real
+ * recovery: each attempt already costs up to the 5s Pulumi spawn timeout in
+ * `packages/domain/src/notify/principal-channel.ts`, so a 1s floor is small
+ * against the work an attempt does while still guaranteeing forward progress.
+ */
+export const CREDENTIAL_RETRY_MIN_DELAY_MS = 1_000;
+
+/**
+ * Clamp a retry wait into `[CREDENTIAL_RETRY_MIN_DELAY_MS, maxDelayMs]`.
+ *
+ * Non-finite input resolves to `maxDelayMs` rather than propagating: `NaN`
+ * would survive `Math.max`/`Math.min` unchanged and reach `sleep()` as a wait
+ * of unspecified length, which is the failure this guard exists to rule out.
+ *
+ * **The floor is applied LAST, and wins when the interval is empty** (PR #2662
+ * R1). A caller may set `maxDelayMs` BELOW the floor, which asks for two
+ * incompatible things; applying the cap last would return a sub-floor delay and
+ * make this function's own contract false. The floor wins because the two
+ * bounds are not the same kind of constraint: the floor rules out a spin, which
+ * is a correctness property of the retry, while the cap expresses a preferred
+ * rate for a long outage. Losing the preference is survivable; reintroducing
+ * the busy loop this guard exists to prevent is not.
+ */
+function clampRetryDelayMs(delayMs: number, maxDelayMs: number): number {
+  if (!Number.isFinite(delayMs)) return Math.max(maxDelayMs, CREDENTIAL_RETRY_MIN_DELAY_MS);
+  return Math.max(Math.min(delayMs, maxDelayMs), CREDENTIAL_RETRY_MIN_DELAY_MS);
+}
+
+/**
+ * Resolve credentials, retrying only while the failure is one a retry can fix.
+ *
+ * A genuinely-unconfigured channel returns immediately: retrying an absent
+ * credential just delays a message the operator needs to see.
+ *
+ * No attempt ceiling (mt#3683 / ADR-035 rule 1). While the failure stays
+ * classified `transient`, this loop never gives up on its own — the only way
+ * out besides success is a definitive non-transient verdict (checked above)
+ * or a process restart. `delaysMs` seeds the schedule; {@link nextRetryDelayMs}
+ * takes over once it's exhausted, so the return type stays a plain
+ * {@link PrincipalChannelResolution} with `configured: false, transient: true`
+ * now structurally unreachable in practice rather than a state callers have
+ * to keep handling (see the defensive comment on that branch in
+ * {@link startPrincipalChannel}).
+ */
+export async function resolveWithRetry(deps: {
+  resolve: typeof resolvePrincipalChannel;
+  sleep: (ms: number) => Promise<void>;
+  delaysMs: readonly number[];
+  /** Ceiling once `delaysMs` is exhausted. Defaults to {@link CREDENTIAL_RETRY_MAX_DELAY_MS}; overridable for tests. */
+  maxDelayMs?: number;
+  /** Injected clock for `lastAttemptAt`/`nextAttemptAt` so tests don't depend on wall time. */
+  now?: () => number;
+}): Promise<PrincipalChannelResolution> {
+  const maxDelayMs = deps.maxDelayMs ?? CREDENTIAL_RETRY_MAX_DELAY_MS;
+  const now = deps.now ?? Date.now;
+  let attempt = 0;
+  // Fires once, the moment an outage crosses what mt#3608's schedule used to
+  // treat as "exhausted" — an elevated, self-driven signal (mt#3683 SC4) that
+  // does not depend on anyone polling /api/health: the ordinary per-attempt
+  // log.warn below already fires at every interval regardless of whether
+  // anyone is watching, but this marks the specific moment worth a louder
+  // line in any log-based alerting.
+  let loggedPastOriginalWindow = false;
+  for (;;) {
+    const resolution = await deps.resolve();
+    if (resolution.configured || !resolution.transient) {
+      // Clear a stale `retrying` before returning (PR #2582 R1). Without this,
+      // a resolution that SUCCEEDED on attempt 2 left the status reading
+      // "retrying" — a health field describing a retry that already finished.
+      // `starting` is the honest neutral: the caller sets `running` (or the
+      // unconfigured verdict) immediately after this returns.
+      if (channelStatus.state === "retrying") channelStatus = { state: "starting" };
+      return resolution;
+    }
+
+    const scheduled = deps.delaysMs[attempt];
+    // mt#3689: the clamp wraps BOTH paths. A seeded entry is read straight out
+    // of `delaysMs` and never reaches `nextRetryDelayMs`, so flooring only the
+    // computed path would still sleep 0ms for a `[0]` schedule's first attempt.
+    const delayMs = clampRetryDelayMs(
+      scheduled !== undefined ? scheduled : nextRetryDelayMs(attempt, deps.delaysMs, maxDelayMs),
+      maxDelayMs
+    );
+
+    if (scheduled === undefined && !loggedPastOriginalWindow) {
+      loggedPastOriginalWindow = true;
+      log.error(
+        "[principal-channel] credential read still failing past the original ~2-minute " +
+          "retry window; continuing on a widening, capped backoff rather than giving up",
+        { reason: resolution.reason, attempt: attempt + 1 }
+      );
+    }
+
+    const nowMs = now();
+    channelStatus = {
+      state: "retrying",
+      reason: resolution.reason,
+      attempts: attempt + 1,
+      lastAttemptAt: new Date(nowMs).toISOString(),
+      nextAttemptAt: new Date(nowMs + delayMs).toISOString(),
+    };
+    log.warn("[principal-channel] credential read failed; retrying", {
+      reason: resolution.reason,
+      attempt: attempt + 1,
+      nextRetryMs: delayMs,
+    });
+    await deps.sleep(delayMs);
+    attempt += 1;
+  }
+}
+
+/**
+ * Delay for an attempt past the end of the seeded schedule (mt#3683).
+ *
+ * Keeps doubling the schedule's LAST entry rather than restarting the
+ * doubling from scratch, so the transition out of the seed schedule is
+ * continuous (no downward jump back to a short delay) — capped at
+ * `maxDelayMs` so a long outage settles at a fixed rate instead of doubling
+ * into ever-longer gaps. `2 ** n` growing past `Number.MAX_VALUE` for an
+ * extremely long outage safely evaluates to `Infinity`, and `Math.min` still
+ * clamps that to `maxDelayMs` — no overflow, no special-case needed.
+ */
+function nextRetryDelayMs(
+  attempt: number,
+  delaysMs: readonly number[],
+  maxDelayMs: number
+): number {
+  // mt#3689: floor the BASE, not just the result. Doubling a non-positive base
+  // yields that base forever, so clamping only the output would pin every wait
+  // at the floor instead of widening — positive, but still not a backoff.
+  const lastSeeded = Math.max(
+    delaysMs[delaysMs.length - 1] ?? maxDelayMs,
+    CREDENTIAL_RETRY_MIN_DELAY_MS
+  );
+  const doublingsPastSchedule = attempt - delaysMs.length + 1;
+  return Math.min(lastSeeded * 2 ** doublingsPastSchedule, maxDelayMs);
+}
+
 /**
  * Start the channel, or explain why it did not start.
  *
@@ -225,23 +737,101 @@ export async function startPrincipalChannel(opts: {
   recordEvent: InboundEventRecorder;
   readHighestUpdateId: () => Promise<number | undefined>;
   onStarted?: (chatId: string) => void;
+  /** Injected for tests so a retry sequence does not actually wait. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injected for tests; production uses {@link CREDENTIAL_RETRY_DELAYS_MS}. */
+  retryDelaysMs?: readonly number[];
 }): Promise<PollerHandle | null> {
   const config = opts.config ?? loadPrincipalChannelLaunchConfig();
-  if (!config.enabled) return null;
+  if (!config.enabled) {
+    channelStatus = { state: "disabled" };
+    return null;
+  }
 
-  const resolution = await resolvePrincipalChannel();
+  channelStatus = { state: "starting" };
+  const resolution = await resolveWithRetry({
+    resolve: resolvePrincipalChannel,
+    sleep: opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    delaysMs: opts.retryDelaysMs ?? CREDENTIAL_RETRY_DELAYS_MS,
+  });
+
   if (!resolution.configured) {
-    log.warn("[principal-channel] enabled but not configured; not starting", {
-      reason: resolution.reason,
-    });
+    // Two different situations, deliberately logged differently (mt#3608). The
+    // old single warn said "enabled but not configured" for both, which reads
+    // as an operator oversight and is why a repeating fault looked like a
+    // settled config state.
+    //
+    // The `transient` branch is now DEFENSIVE, not a live path (mt#3683):
+    // resolveWithRetry never returns while `transient` is true — it retries
+    // indefinitely instead (see its own docblock). Kept because the return
+    // type still expresses `{configured: false, transient: true}` as a value
+    // TypeScript can't statically rule out here, and a silent behavior change
+    // if that contract is ever loosened is worse than one unreachable branch.
+    if (resolution.transient) {
+      log.error("[principal-channel] credentials could not be read; channel NOT running", {
+        reason: resolution.reason,
+      });
+    } else {
+      channelStatus = { state: "unconfigured", reason: resolution.reason };
+      log.warn("[principal-channel] enabled but not configured; not starting", {
+        reason: resolution.reason,
+      });
+    }
     return null;
   }
 
   const { token, chatId } = resolution.config;
+
+  // Same class as the stale-`retrying` fix above (PR #2582 R1): every path out
+  // of here must leave a status that is TRUE. Credentials resolved, but the
+  // steps below can still throw — and an escaping exception would leave the
+  // health field reading `starting` forever, which is the same "reports a
+  // state it is not in" defect one step later.
+  try {
+    return await startResolvedChannel({ opts, config, token, chatId });
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    channelStatus = { state: "failed", reason };
+    throw err;
+  }
+}
+
+/** The post-credential half of {@link startPrincipalChannel}. */
+async function startResolvedChannel(args: {
+  opts: {
+    respondToAsk: (askRef: string, text: string) => Promise<string>;
+    recordEvent: InboundEventRecorder;
+    readHighestUpdateId: () => Promise<number | undefined>;
+    onStarted?: (chatId: string) => void;
+  };
+  config: PrincipalChannelLaunchConfig;
+  token: string;
+  chatId: string;
+}): Promise<PollerHandle | null> {
+  const { opts, config, token, chatId } = args;
+
+  // Diagnostic only (mt#3505) — never gates startup either way. See
+  // logTopicModeCapability's own docblock for why: when topic mode is off,
+  // Telegram simply never sends a message_thread_id, so the channel degrades
+  // automatically. Fire-and-forget-adjacent but still awaited so the log line
+  // reliably lands before the "inbound poller started" line below it.
+  await logTopicModeCapability(token);
+
   const actuator = createDrivenSessionActuator({
     cwd: config.cwd,
     permissionMode: config.permissionMode,
     respondToAsk: opts.respondToAsk,
+  });
+  const resolveTopicActuator = createTopicActuatorResolver({
+    chatId,
+    getDb: getPrincipalChannelDb,
+    buildActuator: (localId) =>
+      createDrivenSessionActuator({
+        cwd: config.cwd,
+        permissionMode: config.permissionMode,
+        respondToAsk: opts.respondToAsk,
+        localId,
+      }),
   });
 
   const allowedUserIds = resolveAllowedUserIds(chatId, config.allowedUserIds);
@@ -259,6 +849,7 @@ export async function startPrincipalChannel(opts: {
     permissionMode: config.permissionMode,
     senderAllowlistSize: allowedUserIds.length,
   });
+  channelStatus = { state: "running", chatId };
   opts.onStarted?.(chatId);
 
   return startPrincipalChannelPoller({
@@ -266,6 +857,13 @@ export async function startPrincipalChannel(opts: {
     chatId,
     auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
+    resolveTopicActuator,
+    bindTopic: (messageThreadId, taskRef) =>
+      bindTelegramChannelTopicToTask(chatId, messageThreadId, taskRef, {
+        getDb: getPrincipalChannelDb,
+      }),
+    markTopicDead: (deadChatId, messageThreadId) =>
+      markTelegramChannelTopicDead(deadChatId, messageThreadId, { getDb: getPrincipalChannelDb }),
     cursor: createEventLogCursor(opts.readHighestUpdateId, async (updateId) => {
       await opts.recordEvent("principal.poll_advanced", {
         // A distinct token so the recorder's dedupe does not confuse this with
@@ -327,7 +925,11 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
 export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorder {
   return async (eventType, payload: PrincipalMessageEventPayload) => {
     const db = await getDb();
-    if (!db) throw new Error("persistence unavailable — cannot record the inbound audit event");
+    if (!db) {
+      throw new Error(
+        `persistence unavailable — cannot record the inbound audit event. ${await describeServerPersistenceUnavailability()}`
+      );
+    }
 
     const { sql } = await import("drizzle-orm");
     // The payload's own token, not one derived from the update id: the

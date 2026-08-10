@@ -1,0 +1,9 @@
+{
+  "_comment": "Hand-classified labels for mt#3772's Rung-2 measurement. Keys are `<lexicalKeyword>-><lexicalSkill>` — the pairing the lexical gate produced. The label answers: did that keyword establish that the research was ABOUT that skill's domain? Committed so the FP rate is recomputable rather than asserted, and so mt#3783's confirm-stage pilot inherits a labeled corpus instead of re-deriving one.",
+  "plan->plan-task": "FP",
+  "task->plan-task": "FP",
+  "surface->plan-task": "FP",
+  "pattern->research-sandwich": "FP",
+  "agent->handoff": "FP",
+  "artifacts->retrospective": "TP"
+}

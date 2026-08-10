@@ -60,10 +60,11 @@ const LOG_PREFIX = `[${HOOK_NAME}]`;
 /**
  * Overall budget for the DB work, well inside the hook's own timeout.
  *
- * Mirrors `stamp-pr-author-link.ts`'s deadline: `ensureHookDomainBootstrap`
- * caps the CONNECT phase at 2s (mt#2982), but nothing bounds the queries
- * afterwards. This deadline covers the whole path so a hung query cannot hold
- * PostToolUse open.
+ * Mirrors `stamp-pr-author-link.ts`'s deadline, and carries the same mt#3879
+ * note: the 2s connect cap this budget was originally sized alongside is gone
+ * (it sat below the measured cold-connect cost, so no hook ever reached a
+ * provider). This deadline is now the only bound on the whole path — connect
+ * plus queries — so a hung query cannot hold PostToolUse open.
  */
 const DB_DEADLINE_MS = 8000;
 

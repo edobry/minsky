@@ -7,7 +7,7 @@ Six TypeScript hooks (in `.claude/hooks/`) forming two subsystems:
 1. **Typecheck subsystem** (3 files, shared state): informational feedback on edit, blocking gate on stop
 2. **Workflow subsystem** (3 files, independent): review gate, auto-pull, remote bootstrap
 
-All hooks share types and a sync exec helper from `types.ts`. They are self-contained — no imports from `src/` — so they work even when the main codebase has type errors.
+All hooks share types and a sync exec helper from `types.ts`. The design convention is self-containment — no imports from `src/` — so hooks keep working even when the main codebase has type errors. In practice this is a TARGET, not the current state: ~18 hooks import from `src/` or `packages/domain` today (verified 2026-08-01, mt#3503 review). What IS enforced is the two-tier form below.
 
 **`@minsky/shared` is an allowed exception, not a violation of this rule.** It is a
 dependency-free leaf package (not `src/`), so it carries no risk of pulling in a
@@ -18,9 +18,55 @@ share vocabulary with the `asks_create` authoring-time guard rather than
 maintain a second copy). Importing `@minsky/shared/*` from a hook is
 consistent with this convention; importing `packages/domain` or `src/*` is not.
 
+**Self-containment, checkable form (mt#3503).** Two tiers:
+
+1. **All hooks (target convention, NOT yet enforced):** no imports from `src/` or
+   `packages/domain`. ~18 hooks currently violate this (e.g.
+   `parallel-work-guard-standalone.ts` → `src/utils/safe-truncate`,
+   `policy-coverage-detector.ts` → `packages/domain/...`); the enforcement path
+   is mt#2456 (ESLint rule forbidding out-of-package relative imports), and the
+   violations are acceptable in the meantime ONLY because those hooks are
+   plant-only — they run in this repo, where the paths resolve.
+   `task-statuses.ts` is one such plant-only domain bridge, split out of
+   `types.ts` precisely so the CONTRACT module stays clean; that constant living
+   in `types.ts` is what broke tier 2 (verified: a vendored copy failed module
+   resolution on every event).
+2. **The observability baseline** (`record-conversation-run-state.ts`,
+   `transcript-ingest-on-session-end.ts`, and their contract module `types.ts` —
+   the set `minsky init` vendors into foreign projects, mt#3499): the transitive
+   import closure must be node stdlib + same-directory files ONLY. No
+   `@minsky/shared` either — the exception above assumes this repo's
+   `node_modules`, which a foreign project does not have. Enforced by
+   `self-containment.test.ts`, which walks the closure statically AND executes
+   each baseline hook from a bare temp directory.
+
 Additional standalone hooks beyond the original two subsystems (e.g.,
 `transcript-ingest-on-session-end.ts`) are documented in their own sections
 below; the guard/detector hooks live in `.minsky/rules/hook-files.mdc`.
+
+### Verifying dispatcher behavior end to end (mt#3756)
+
+**Do not register fixture guards into the live dispatcher to test it.** Use
+`scripts/run-dispatcher-scenario.ts`, which runs the real `runDispatcher`
+against synthetic registrations inside an isolated `MINSKY_STATE_DIR` /
+`CLAUDE_PROJECT_DIR`.
+
+This exists because the obvious alternatives each fail in a specific way:
+
+- **A unit test in `dispatcher.test.ts`** injects `recordFireLogFn` and
+  `resolveDispatchContextFn`, so it never exercises the real fire-log writer or
+  the real context resolution. Correct for a unit test; useless for the
+  questions that need the real path.
+- **Hand-rolling a harness against the live dispatcher** writes into the
+  operator's production `fire-log.jsonl` and — if any fixture guard is
+  `denyCapable` — runs an unreviewed deny against the operator's real tool
+  calls. This happened three times in one day on 2026-08-03 (mt#3756) before
+  the harness existed.
+
+Add a scenario to that script rather than writing a new harness; two ship with
+it, covering `updatedInput` precedence (mt#3612) and audit-line/deny
+interaction (mt#3625). `scripts/audit-fire-log.ts` is the read-side check that
+catches fixture names reaching the real log.
 
 ## `session-start.ts`
 

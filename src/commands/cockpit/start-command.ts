@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
-import { createCockpitServer } from "../../cockpit/server";
+import { createCockpitServer, getResolvedAllowedHosts } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
@@ -21,6 +21,11 @@ import {
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
+import {
+  classifyUncaughtException,
+  createSurvivedErrorLogger,
+  formatErrorForLog,
+} from "../../cockpit/daemon-error-policy";
 import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
 import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
@@ -33,12 +38,7 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
-import {
-  getCockpitTokenPath,
-  isLoopbackHost,
-  getOrCreateCockpitToken,
-  buildAllowedHosts,
-} from "../../cockpit/auth";
+import { getCockpitTokenPath, isLoopbackHost, getOrCreateCockpitToken } from "../../cockpit/auth";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
 import {
   createHighestUpdateIdReader,
@@ -303,13 +303,17 @@ export function createStartCommand(): Command {
       // WS upgrades bypass Express's request pipeline entirely (they're
       // plain HTTP GETs with `Connection: Upgrade`, handled by a listener on
       // the raw http.Server), so this is attached directly to the `server`
-      // handle rather than threaded through createCockpitServer(). Re-derives
-      // the SAME token/allowedHosts createCockpitServer computed internally
-      // (same persisted token file, same --host value) — a cheap,
-      // deterministic re-read, not a new source of truth.
+      // handle rather than threaded through createCockpitServer(). The
+      // TOKEN is a cheap, deterministic re-read of the same persisted file
+      // (idempotent — reading it twice is not a second derivation of
+      // anything). `allowedHosts`, by contrast, is a RESOLVED VALUE
+      // (bind host + cockpit.allowedHosts config), so it is read back from
+      // `app.locals` via `getResolvedAllowedHosts` rather than re-derived —
+      // createCockpitServer is the only place that resolves it, and this
+      // call site consumes that exact Set instance (mt#3641 PR #2721 R1).
       attachDrivenSessionWebSocket(server, {
         token: getOrCreateCockpitToken(),
-        allowedHosts: buildAllowedHosts(host),
+        allowedHosts: getResolvedAllowedHosts(app),
       });
 
       // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
@@ -501,10 +505,21 @@ export function createStartCommand(): Command {
       // Uncaught error paths: clean up best-effort, then exit non-zero so the
       // failure isn't silently swallowed. The `exit` listener above fires
       // after process.exit(1) and is the second line of defence.
+      //
+      // mt#3626: a failed outbound connection attempt inside the RUNTIME's own
+      // net module is not a defect in daemon state, so it no longer exits —
+      // see `daemon-error-policy.ts` for the classification and why the crash
+      // message text is not what it is matched on. The survivable branch must
+      // NOT call cleanupSync(): the daemon keeps serving, so its sweepers and
+      // its state file have to stay in place.
+      const logSurvivedError = createSurvivedErrorLogger((line) => console.error(line));
       proc.on("uncaughtException", (err: unknown) => {
+        if (classifyUncaughtException(err) === "survive") {
+          logSurvivedError(err);
+          return;
+        }
         cleanupSync();
-        const e = err instanceof Error ? err : new Error(String(err));
-        console.error(`Cockpit: uncaught exception: ${e.message}`);
+        console.error(`Cockpit: uncaught exception: ${formatErrorForLog(err)}`);
         process.exit(1);
       });
       // gh#1761: postgres-js ECIRCUITBREAKER / EDBHANDLEREXITED reach this
@@ -528,8 +543,10 @@ export function createStartCommand(): Command {
           return; // do NOT exit — daemon stays up
         }
         cleanupSync();
-        const r = reason instanceof Error ? reason.message : String(reason);
-        console.error(`Cockpit: unhandled rejection: ${r}`);
+        // mt#3626: the DB-degradation branch above keeps its message-only line
+        // (its errors are classified, and their text is the useful part); this
+        // fatal branch records the stack, same as `uncaughtException`.
+        console.error(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
         process.exit(1);
       });
 

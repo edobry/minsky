@@ -47,11 +47,43 @@ they need a spatially stable strip, which the working-set model does not guarant
 Two id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate; vocabulary per ADR-022 stage 1,
 mt#2686): `/agents` and `/agents/:id` are keyed by the **Minsky workspace sessionId**
 (`SessionRecord`); `/conversations` and `/conversation/:id` are keyed by the **harness
-agentSessionId** (ingested transcript). The workspace detail page bridges the two — when the
-workspace directory resolves to an ingested transcript's cwd, it links to the conversation at
-`/conversation/:agentSessionId` (served by `GET /api/agents/:id`). (`/agents` and `/agents/:id`
-keep their existing names — the Agents list/detail pair is a separate naming decision, out of
-scope for the ADR-022 rename.)
+agentSessionId** (ingested transcript). The workspace detail page bridges the two, linking to the
+conversation at `/conversation/:agentSessionId` (served by `GET /api/agents/:id`). (`/agents` and
+`/agents/:id` keep their existing names — the Agents list/detail pair is a separate naming
+decision, out of scope for the ADR-022 rename.)
+
+### How the workspace ↔ conversation link resolves (mt#2768, mt#3529)
+
+`GET /api/agents/:id` returns a `conversations[]` array of candidates, each
+`{ agentSessionId, startedAt, source }`. **`source` is the provenance discriminator** and takes
+one of two values — the union is declared once, in `src/cockpit/conversation-link-source.ts`, and
+imported by both the server route and the SPA type:
+
+| `source`           | Meaning                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `link-row`         | A row a writer stamped in `minsky_session_links` (`session_creator`, `pr_author`, `subagent_spawn`, `driven_spawn`, `cwd_match`). The authoritative case.     |
+| `derived-agent-id` | Derived from the workspace record's own `agentId` when NO writer stamped a row (mt#3529). Existence-checked against `agent_transcripts` before being emitted. |
+
+Resolution order: link rows first; the derived fallback runs **only when the link-row query
+returns empty**, so a stamped row always wins and the two can never both appear for one workspace.
+The derived candidate carries `confidence: null` — there is no writer confidence to report, and
+inventing one would let it sort against real values.
+
+Two properties keep a derived link honest, and both are deliberate rather than incidental. It is
+**existence-checked**, so it can never point the Conversation tab at a conversation this
+deployment has not ingested. And it is **marked rather than folded in**, because ADR-006
+§Consequences states the identity scheme has _"No forgery defense"_ — a self-declared `agentId`
+is a weaker basis than a row a writer stamped, and a consumer that cares about the difference must
+be able to see it. Only ADR-006's `conv` scope yields a candidate: `unknown:hash:*`, `proc`,
+`inst`, and `run` name something that is not a conversation, so those workspaces keep reporting
+an empty `conversations[]`.
+
+Note for consumers: `source` was ADDED to existing `conversations[]` elements; no field was
+removed or renamed. Clients that ignore unknown properties are unaffected. The SPA reads it via
+`ConversationCandidate` in `web/widgets/RunDetail.tsx`. `mt#2768` deleted an earlier `cwd LIKE`
+fallback — that was a heuristic, and nothing here reinstates one; `SessionRecord.agentId` is a
+recorded fact about the workspace, which is why it is an admissible source where cwd-matching was
+not.
 
 ## Routes
 
@@ -65,6 +97,7 @@ scope for the ADR-022 rename.)
 | `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
 | `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
 | `/asks`                    | Asks              | Interactive ask management                                                                                                                                                                                                                                                                                               |
+| `/proposals`               | Proposals         | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                               |
 | `/activity`                | Activity          | Event stream                                                                                                                                                                                                                                                                                                             |
 | `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
 | `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
@@ -378,7 +411,11 @@ POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
 registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
-(next section) under the name `"scheduled follow-ups"`.
+(next section) under the name `"scheduled follow-ups"`. Those fields cover the
+SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
+`reportsDomainOutcome` is `false` and whether its work is succeeding is not
+currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
+it is separate work).
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -408,23 +445,48 @@ GET /api/sweeps
     {
       "name": "prod-state refresh",
       "intervalMs": 600000,
+      // Scheduling layer: did the timer fire, and did the callback return?
       "lastAttemptAt": "2026-07-17T13:00:00.000Z",
       "lastSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastErrorAt": null,
       "consecutiveFailures": 0,
       "reinits": 0,
       "metaRestarts": 0,
+      // Domain layer (mt#3684): did the sweep's WORK succeed?
+      "reportsDomainOutcome": true,
+      "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastDomainFailureAt": null,
+      "consecutiveDomainFailures": 0,
     },
   ],
 }
 ```
 
+**The two groups of fields answer different questions, and reading one for the
+other is what made a 13-hour outage invisible (mt#3684).** The scheduling
+fields report that the timer fired and the tick function returned. Because the
+factory's `tick` contract asks each sweep to apply its own fail-open try/catch,
+a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
+`lastSuccessAt` one minute old and `consecutiveFailures: 0` while the
+prod-state sweep had been failing every tick for 13 hours. That reading was
+correct about scheduling and silent about the outage.
+
+A tick may therefore also report its own outcome (return `{ ok: boolean }`),
+recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
+sweep that reports nothing — read the other three as meaningless in that case,
+NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
+deliberately drives neither: re-init recovers a wedged tick, and mt#3682
+established that restarting the interval does nothing for a failure below the
+sweep.
+
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
-(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
-layer's liveness uniformly across all six sweeps, including the three (ask
-advancement, topology, deploy.smoke) that have no domain-specific tracker of
-their own. `reinits` counts a sweep's own bounded self re-init (below);
-`metaRestarts` counts a meta-watchdog-triggered force-restart.
+(`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
+of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
+topology, deploy.smoke, scheduled follow-ups, conversation presence,
+conversation title, conversation summary — have no domain-specific tracker of
+their own, which is why the domain fields above exist on the shared registry
+rather than being deferred to a per-sweep tracker that may not exist.
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the

@@ -3,9 +3,9 @@ import { defineSkill } from "../../../packages/domain/src/definitions/factories"
 export default defineSkill({
   name: "orchestrate",
   description:
-    "Multi-task coordination: parent+subtask decomposition, parallel dispatch planning, dependency-graph navigation, and cross-task scope assessment. " +
-    "Use when: 'decompose mt#X', 'break this down into subtasks', 'coordinate mt#A and mt#B', 'dispatch in parallel', 'dependency order', \"what's the order for...\", 'run X Y Z in parallel'. " +
-    "Does NOT own single-task lifecycle transitions — those belong to /plan-task, /implement-task, and /verify-task.",
+    "Multi-task coordination: parent+subtask decomposition, parallel dispatch planning, dependency-graph navigation, cross-task scope assessment. " +
+    "Use for 'decompose mt#X', 'coordinate mt#A and mt#B', 'dispatch in parallel', 'what's the order for...'. " +
+    "Does NOT own single-task lifecycle transitions.",
   userInvocable: true,
   content: `
 # Orchestrate
@@ -416,6 +416,12 @@ Branch on the returned \`status\`:
    to the operator and stop.
 4. **\`"not-in-flight"\`** / **\`"no-dispatch"\`** — nothing to recover (the dispatch already has a
    terminal outcome, or never existed).
+5. **\`"contested"\`** (mt#3121) — the dispatch is silent, but a DIFFERENT actor holds a fresh
+   task-grain presence claim (or the claim store was unreadable and the check failed closed). Do
+   NOT redispatch — putting a second agent into a live actor's session workspace is the
+   mt#3086/mt#3718 double-dispatch collision. No attempt was consumed. Surface the peer
+   (\`peerActorId\`, \`peerLastRefreshedAt\`) to the operator, and confirm the peer is genuinely done
+   (message it via SendMessage, or check its session) before any manual recovery.
 
 This replaces the prior ad hoc probe-then-decide sequence (a separate \`session.status
 probe:true\` read, then a manual SendMessage-vs-fresh-dispatch judgment call) — the

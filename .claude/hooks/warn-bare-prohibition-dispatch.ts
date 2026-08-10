@@ -3,8 +3,9 @@
 // Source: .minsky/hooks/warn-bare-prohibition-dispatch.ts
 
 // PreToolUse hook: detect a BARE PROHIBITION in a raw `Agent`-tool dispatch prompt — an
-// instruction telling the subagent NOT to do something, without stating the basis and without
-// granting an explicit licence to falsify it (mt#3162).
+// instruction telling the subagent NOT to do something without stating the basis (mt#3162,
+// narrowed by mt#3167; a missing licence-to-falsify no longer qualifies on its own — see
+// "What it detects" below).
 //
 // ## Why this path is required, not optional
 //
@@ -29,8 +30,12 @@
 // `structuralCheck` uses, so the two paths cannot drift:
 //
 //   - a prohibition phrase ("do not attempt", "is blocked", "is not possible", ...), AND
-//   - no basis marker within a bidirectional window around it, OR no licence-to-falsify marker
-//     anywhere in the prompt.
+//   - no basis marker within a bidirectional window around it.
+//
+// Narrowed 2026-08-08 (mt#3167): a missing licence-to-falsify marker USED to qualify on its own.
+// Calibration measured that category at 8/8 false positives — it fired on scope decisions, fan-out
+// role constraints, and guard-backed policy, where licensing the recipient to falsify would be
+// wrong rather than diligent. `has_licence_to_falsify` is still recorded, just not fired on.
 //
 // It cannot judge whether a stated basis is TRUE, or whether a prohibition is warranted. The
 // bet is that requiring the SHAPE is cheap and that the shape is what makes a wrong negative
@@ -63,6 +68,7 @@
 
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
 import {
   analyzeNegativeConstraints,
   buildBareProhibitionMessage,
@@ -208,7 +214,9 @@ export function buildCalibrationRecord(
     enforcement_enabled: enforcementEnabled,
     has_licence_to_falsify: report.hasLicenceToFalsify,
     matches: report.bare.map((f) => ({
-      category: f.hasBasis ? "no-licence" : "no-basis",
+      // Constant since mt#3167 retired `no-licence` from the fire path (8/8 measured FP). The
+      // field stays so records written before and after the narrowing remain comparable.
+      category: "no-basis",
       phrase: f.phrase,
       excerpt: f.excerpt,
       hasBasis: f.hasBasis,
@@ -217,12 +225,49 @@ export function buildCalibrationRecord(
 }
 
 if (import.meta.main) {
+  const startedAt = Date.now();
+
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
     process.exit(0);
   }
+
+  /**
+   * mt#3519: record every INVOCATION in the fire log, not just every fire.
+   *
+   * This guard is standalone (wired directly in `.claude/settings.json`), so it
+   * never got the dispatcher's automatic recording — it appeared zero times in
+   * the fire log. Without invocation evidence the coverage-receipt check cannot
+   * tell "running with nothing to say" from "not running at all" (mt#3502's
+   * three-state model), so `bare-prohibition` could only ever be reported as
+   * unmapped, and would flag the moment its records aged out of the window.
+   *
+   * Mirrors `policy-coverage-detector.ts`'s `finishRun` — recorded on EVERY
+   * exit path including the fail-open ones, since an invocation that bailed
+   * early is still an invocation. `recordFireLogEntry` swallows its own errors,
+   * so this can never break a dispatch.
+   */
+  const overrideActive = isOverrideActive();
+  const finishRun: (decision: "allow" | "deny") => never = (decision) => {
+    recordFireLogEntry({
+      guardName: "bare-prohibition",
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startedAt,
+      toolName: input.tool_name,
+      ...(input.session_id ? { sessionId: input.session_id } : {}),
+      ...(overrideActive
+        ? {
+            overrideEnvVar: OVERRIDE_ENV_VAR,
+            overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+            overrideSource: "env" as const,
+          }
+        : {}),
+    });
+    process.exit(0);
+  };
 
   let decision: BareProhibitionDecision;
   try {
@@ -232,7 +277,7 @@ if (import.meta.main) {
     process.stderr.write(
       `[warn-bare-prohibition-dispatch] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    process.exit(0);
+    finishRun("allow");
   }
 
   if (decision.report && decision.report.bare.length > 0) {
@@ -243,7 +288,7 @@ if (import.meta.main) {
   }
 
   if (decision.decision === "allow") {
-    process.exit(0);
+    finishRun("allow");
   }
 
   writeOutput({
@@ -253,5 +298,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  finishRun("deny");
 }

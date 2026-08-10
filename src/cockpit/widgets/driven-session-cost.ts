@@ -21,7 +21,7 @@
  * full-table fetch becomes expensive; not needed at current volume.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { getContextInspectorDb } from "../db-providers";
+import { getContextInspectorDb, describeWidgetDegradedReason } from "../db-providers";
 import {
   drivenSessionCostTable,
   type DrivenSessionCostRecord,
@@ -241,8 +241,10 @@ export const drivenSessionCostWidget: WidgetModule = {
       const payload = aggregateDrivenSessionCost(rows);
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `driven-session-cost error: ${message}` };
+      return {
+        state: "degraded",
+        reason: describeWidgetDegradedReason("driven-session-cost", err),
+      };
     }
   },
 };

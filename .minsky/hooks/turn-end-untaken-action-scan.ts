@@ -31,12 +31,30 @@
 
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
+import {
+  STOP_INJECTED_OVERLAP_FAMILY,
+  flagKey,
+  overlapTurnKey,
+  readFlagged,
+  writeFlagged,
+} from "./turn-end-scan-store";
 import { createHash } from "node:crypto";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
+
+/**
+ * RETIRED as an active suppression reason (mt#3620). This guard no longer
+ * yields to the prompt-time ask-routing-deferral detector — see the inversion
+ * rationale at the overlap block in {@link run}.
+ *
+ * The string is kept exported because it appears in ~18 pre-mt#3620 calibration
+ * records that the review cadence still reads; deleting it would make those
+ * records unclassifiable. No code path emits it any more.
+ */
+export const SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL = "deduped-by-ask-routing-deferral";
 
 /**
  * How much of the final message's tail to scan. The failure shape is a
@@ -52,6 +70,25 @@ export const TAIL_WINDOW_CHARS = 600;
  *   R2: "say the word and I'll merge"        (deferral-shaped stop)
  *   R3: "I'm taking it forward … that's the next step, not a question"
  */
+/**
+ * Action verbs an announcement can attach to. Shared by the `I'll …` and
+ * `I'm going to …` families so a verb added here is covered in both forms —
+ * mt#3853's miss was partly that they could drift apart.
+ */
+const ACTION_VERB = String.raw`merge|implement|plan|file|fix|ship|land|write|open|build|patch|send|create|add|draft|wire|run|PR`;
+
+/**
+ * What the announced action is performed ON. Anaphora (`it`/`that`/`this`) and
+ * task ids were the original set; mt#3853 adds NAMED artifacts, because a
+ * commitment to a named thing ("I'm going to write and PR option 1") is the
+ * most concrete kind and was the one that escaped.
+ *
+ * Deliberately NOT `.+` — an object-less verb ("I'm going to think about how
+ * this works") is not an announcement of an immediately-executable action, and
+ * matching it would fire on ordinary reasoning prose.
+ */
+const ACTION_OBJECT = String.raw`it|that|this|mt#\d+|the\s+\w+|a\s+PR|option\s+\d+|both|these|them`;
+
 const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   {
     family: "taking-forward",
@@ -66,7 +103,20 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   },
   {
     family: "ill-action",
-    re: /\bi'?ll\s+(?:merge|implement|plan|file|fix|ship|land)\s+(?:it|that|this|mt#\d+)\b/i,
+    re: new RegExp(
+      String.raw`\bi'?ll\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
+  },
+  // mt#3853: `I'm going to X` was matched by NOTHING. It is at least as common
+  // a commitment form as `I'll X`, and the missed turn used it. `gonna` and the
+  // uncontracted `I am going to` are the same speech act.
+  {
+    family: "going-to",
+    re: new RegExp(
+      String.raw`\bi'?(?:m|\s+am)\s+(?:going\s+to|gonna)\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
   },
   { family: "moving-on", re: /\bmoving\s+on\s+to\b/i },
   { family: "say-the-word", re: /\bsay\s+the\s+word\b/i },
@@ -92,9 +142,136 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
 ];
 
+/**
+ * Suppression reason for a halt that NAMES a principal-reserved category (mt#3768).
+ */
+export const SUPPRESSION_RESERVED_CATEGORY_HALT = "reserved-category-halt";
+
+/**
+ * Categories the principal reserves, as named in closing prose.
+ *
+ * A turn that halts because the next step belongs to the principal is behaving
+ * exactly as `principal-context.mdc §Decisions Eugene reserves` requires. Firing
+ * on it tells the agent to override a halt the corpus mandates — training against
+ * the corpus rather than with it, which is worse than staying silent.
+ *
+ * ## The discriminator is a NAMED category, not an offered choice
+ *
+ * `/plan-task` Step 4 makes this a positive citation test: a halt is legitimate
+ * when it can NAME which reserved category applies, and a rationale that names
+ * none is low confidence, missing information, or a decision that is simply the
+ * agent's. So these patterns match category VOCABULARY, never the bare
+ * "your call" / "up to you" / option-set shapes.
+ *
+ * That exclusion is load-bearing in both directions. "Your call" with no category
+ * behind it is the signature of the confabulated halt (mem#823, mem#367 R5) — the
+ * precise case this guard SHOULD keep catching. And an option set alone is not
+ * evidence of a legitimate halt: mt#3801 recorded a true positive
+ * ("Next step is `/plan-task mt#3799` unless you'd rather I go straight at it")
+ * that an option-set discriminator would have silenced.
+ *
+ * ## Tuned against the three real instances in the log, not invented examples
+ *
+ * All 130 records of `.minsky/untaken-action-calibration.jsonl` were scanned; three
+ * fires name a reserved category, and each is a false positive this suppresses:
+ *
+ *  - 2026-07-30 — "its deliverable is a user-facing *label* … Naming is yours, not
+ *    mine." (naming)
+ *  - 2026-07-31 — "blocked on you picking the user-facing name … or something from
+ *    the locked brand vocabulary" (naming)
+ *  - 2026-08-04 — "it's your product surface and the call to make it the phone
+ *    default is the contestable part" (product surface)
+ *
+ * Three in 130 is rare, and rarity is not the argument: the cost of this false
+ * positive is that the agent is told to override a correct halt, so it is a
+ * correctness property rather than noise reduction. Do not re-justify it on
+ * frequency — mt#3768's `## Planning Audit` records that it suppresses none of the
+ * 12 most recent fires.
+ */
+const RESERVED_CATEGORY_PATTERNS: ReadonlyArray<RegExp> = [
+  // Explicit citation of the rule itself.
+  /\bprincipal[-\s]reserved\b/i,
+  /\breserved\s+(?:category|decision)\b/i,
+  // Naming — a customer-facing term, not an internal identifier the agent owns.
+  /\bnaming\s+is\s+(?:yours|your\s+call|the\s+principal'?s)\b/i,
+  /\b(?:user-facing|customer-facing)\s+(?:name|label|term|copy)\b/i,
+  /\bbrand\s+vocabulary\b/i,
+  /\bproduct\s+nam(?:e|ing)\b/i,
+  // Architectural moves affecting customer experience or product surface.
+  /\b(?:your|the)\s+product\s+surface\b/i,
+  /\bcustomer\s+experience\b/i,
+  // Authorization for shared / production state changes. Scoped to "state" so an
+  // ordinary "shared source contract" or "shared module" does not qualify.
+  /\b(?:production|shared)[-\s]state\s+(?:change|write|mutation)\b/i,
+  // Scope changes to in-flight work.
+  /\bscope\s+change\s+to\s+in-?flight\b/i,
+  // Vendor commitments.
+  /\bvendor\s+commitment\b/i,
+  // Framework choices at principal-level stakes.
+  /\bframework\s+choice\b/i,
+];
+
+/**
+ * Returns the reserved-category phrases the message names, in match order.
+ *
+ * Runs over the SAME elided text the commitment scan uses, so a category named
+ * inside a quotation or code fence cannot suppress a real fire — this rule text
+ * quoting "naming is yours" must not silence the guard for the turn that quotes it.
+ * Unlike the commitment scan it reads the WHOLE message rather than the tail: the
+ * halt basis is routinely stated where the reasoning is, several paragraphs above
+ * the closing sentence that trips the commitment pattern.
+ */
+export function detectReservedCategoryHalt(finalMessage: string): string[] {
+  if (!finalMessage) return [];
+  const scanned = elideQuotedAndCodeContexts(finalMessage);
+  const named: string[] = [];
+  for (const re of RESERVED_CATEGORY_PATTERNS) {
+    const m = re.exec(scanned);
+    if (m) named.push(m[0]);
+  }
+  return named;
+}
+
 export interface UntakenActionMatch {
   family: string;
   matchedPhrase: string;
+}
+
+/**
+ * Longest quoted phrase an evidence line may carry (mt#3853).
+ *
+ * The evidence lines exist so the agent can recognize WHICH text tripped the
+ * guard; 26 chars is enough to do that for every pattern here (the longest
+ * pattern prefix is `I'm going to ` at 13), and the tail is elided rather than
+ * dropped. Chosen by MEASUREMENT, not preference: 32 still rendered 451 against
+ * the 450 ceiling on the worst-case canary; 26 renders 443.
+ *
+ * Why a cap at all: matched-phrase length is a function of the PATTERN SET, so
+ * without one, every future verb or object added to `ACTION_VERB` /
+ * `ACTION_OBJECT` silently grows the rendered worst case. mt#3853's own
+ * widening pushed it from 430 to 457 against a 450 ceiling — measured on a
+ * canary posed so the long families occupy all three capped slots. Bounding the
+ * phrase makes the ceiling a property of the FORMAT rather than of the corpus,
+ * so widening the patterns can no longer breach it.
+ */
+export const MAX_QUOTED_PHRASE_CHARS = 26;
+
+/**
+ * Scope note (PR #2724 R1): this cap applies to the ADVISORY text only. The
+ * calibration record keeps the FULL matched phrase, deliberately.
+ *
+ * The two have different readers and different budgets. `additionalContext` is
+ * charged against the merged injection budget and rendered into the principal's
+ * scroll, so its size is the thing being bounded. The calibration JSONL is a
+ * file that only `/calibration-review` reads, where a truncated phrase would
+ * make false-positive classification harder for no saving. Truncating there
+ * would degrade the measurement this guard's tuning depends on.
+ */
+
+function quotePhrase(phrase: string): string {
+  return phrase.length <= MAX_QUOTED_PHRASE_CHARS
+    ? phrase
+    : `${phrase.slice(0, MAX_QUOTED_PHRASE_CHARS - 1).trimEnd()}…`;
 }
 
 /**
@@ -132,20 +309,64 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   return matches;
 }
 
-function buildReminder(matches: UntakenActionMatch[]): string {
+/**
+ * The directive for an ordinary commitment fire — the agent said it would do a
+ * thing and then did not.
+ */
+const COMMITMENT_DIRECTIVE =
+  "Take it now in this continuation, then report the result. If it genuinely cannot " +
+  "proceed — you are blocked on a principal decision, a red check, or an external " +
+  "condition you have already armed a watcher for — name which in one line and end.";
+
+/**
+ * The directive for a fire whose phrase ALSO matches the deferral corpus (mt#3767).
+ *
+ * mt#3620 made this guard win the overlap and silenced the prompt-time sibling,
+ * because Stop is the earlier event and only an earlier warning can prevent the
+ * round-trip. But the remedy for an OFFER lives in the sibling that was silenced:
+ * a menu handed back to the principal is not an omission to correct by acting, it
+ * is a sentence to retract. Emitting the commitment directive here tells the agent
+ * to perform an action whose correct disposition is often to un-name it — and an
+ * instruction that does not fit is what teaches a reader to dismiss a true
+ * positive, which is exactly what happened in this task's originating occurrence.
+ *
+ * So the handoff now carries the TEXT as well as the speaking rights. mem#831
+ * stated the rule for the speaking half — "a dedup between guards on DIFFERENT
+ * events is not a dedup, it is a handoff, and it must hand off toward the EARLIER
+ * event"; this is the other half of it.
+ *
+ * Kept to one classify-then-act sentence set rather than restating
+ * `/classify-before-deferring` — the skill owns the taxonomy, this names the branch
+ * the agent is most likely to have missed (that it already decided).
+ *
+ * ## Ceiling
+ *
+ * This branch is the guard's WORST CASE and the registry's `worstCaseCanary` is
+ * posed at it. Measured with the evidence list at its cap of 3 plus the
+ * "…and N more" line: 430 chars against a 450 ceiling. Any addition here has to
+ * be paid for by a trim elsewhere, NOT by raising
+ * `attentionCost.denialMessageSizeChars` — `dispatcher.ts` derives the whole
+ * turn's merged-injection budget from the sum of those annotations, so raising
+ * one taxes every turn in the repo (mem#865, learned on the mt#3699 sibling).
+ */
+const DEFERRAL_DIRECTIVE =
+  "You OFFERED this rather than doing it. If you already decided against it, the " +
+  "naming was the defect — drop the offer and state the decision. If a lookup or " +
+  "standing default settles it, act. Ask only for a principal-reserved category.";
+
+function buildReminder(matches: UntakenActionMatch[], deferralShaped: boolean): string {
   const lines: string[] = [
-    "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
+    // Trimmed by mt#3767 from "…and ended the turn without taking it." The guard
+    // is Stop-keyed, so "ended the turn" was already implied by when it fires;
+    // the 17 chars buy headroom the SATURATED case needs. Do not re-expand — see
+    // the ceiling note on `DEFERRAL_DIRECTIVE`.
+    "[turn-end-untaken-action] You named a next action and did not take it.",
     "",
   ];
-  for (const m of matches) {
-    lines.push(`  - ${m.family}: "${m.matchedPhrase}"`);
-  }
   lines.push(
-    "",
-    "Take it now in this continuation, then report the result. If it genuinely cannot " +
-      "proceed — you are blocked on a principal decision, a red check, or an external " +
-      "condition you have already armed a watcher for — name which in one line and end."
+    ...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${quotePhrase(m.matchedPhrase)}"`)
   );
+  lines.push("", deferralShaped ? DEFERRAL_DIRECTIVE : COMMITMENT_DIRECTIVE);
   return lines.join("\n");
 }
 
@@ -171,8 +392,12 @@ function buildReminder(matches: UntakenActionMatch[]): string {
  * dedup to one warning. That is the right call — identical sign-off, identical
  * advice — and is bounded to a single suppressed beat rather than a session.
  */
+function sha1Short(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 16);
+}
+
 function turnKeyForMessage(finalMessage: string): string {
-  return createHash("sha1").update(finalMessage).digest("hex").slice(0, 16);
+  return sha1Short(finalMessage);
 }
 
 /**
@@ -219,15 +444,69 @@ export function run(
   }
   writeFlagged(sessionId, flagged, storeDir);
 
-  // mt#3336 (ask#6448 disposition): when the same final message ALSO matches
-  // the ask-routing-deferral patterns, that live detector will inject its own
-  // reminder at the next UserPromptSubmit for this exact text — two
-  // injections about one closing sentence ("say the word" sits in BOTH
-  // pattern sets). Suppress THIS guard's injection — the deferral guidance
-  // (route it through an ask / classify-before-deferring) is the more
-  // specific of the two — but keep the calibration record, with the
-  // suppression named, so the overlap stays measurable.
-  const suppressedByAskRoutingDeferral = detectDeferralPhrases(finalMessage).length > 0;
+  // mt#3768: the turn named a category the principal reserves, so stopping was
+  // what the corpus required. Suppress the injection — but RECORD it, per the
+  // mt#3207 contract: a suppression that returns null is invisible, and the
+  // failure mode worth catching here is this predicate silencing a TRUE positive.
+  // An empty `suppressionReasons` means "recorded an outcome, did not suppress";
+  // a populated one means the fire was swallowed and by what.
+  //
+  // ## Why this sits AFTER the dedup filter (PR #2731 R1)
+  //
+  // Review asked for it BEFORE the `newMatches.length === 0` early return, on the
+  // grounds that a re-entered turn is then suppressed with no record — which is
+  // accurate, and is the same thing that happens to an INJECTING fire on re-entry.
+  // The ordering is deliberate: the dedup key is the final message's own hash, so
+  // a second occurrence is byte-identical text reaching the same verdict. One
+  // record per distinct turn is what a calibration pass wants; N records for one
+  // repeated message would inflate the suppression rate and misstate exactly the
+  // measurement this record exists to support.
+  //
+  // What review correctly caught is that the CLAIM was unqualified. The contract
+  // is "a suppressed fire is recorded once per distinct turn, under the same dedup
+  // as an injecting fire" — not "on every Stop." Reworded here, in the doc page,
+  // and in the PR body rather than changed in behavior.
+  const reservedCategory = detectReservedCategoryHalt(finalMessage);
+  if (reservedCategory.length > 0) {
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [SUPPRESSION_RESERVED_CATEGORY_HALT],
+        reservedCategoryPhrases: reservedCategory,
+      },
+    };
+  }
+
+  // mt#3620: when the same final message ALSO matches the ask-routing-deferral
+  // patterns ("say the word" sits in BOTH pattern sets), exactly one of the two
+  // guards should speak. THIS one does.
+  //
+  // mt#3336 originally made this guard yield instead, on the reasoning that the
+  // deferral guidance is the more specific of the two. The reasoning holds; the
+  // direction did not. The sibling runs on `UserPromptSubmit`, an event that by
+  // construction occurs only AFTER the principal has read the closing sentence
+  // and typed a reply — so yielding to it traded a warning that could prevent
+  // the round-trip for one that can only comment on it afterwards. A dedup
+  // between guards on DIFFERENT events is a handoff, and it has to hand toward
+  // the EARLIER event.
+  //
+  // The overlap is recorded in the store instead, and the prompt-time sibling
+  // reads it and stays quiet — one closing sentence, one injection, as intended.
+  const deferralOverlap = detectDeferralPhrases(finalMessage);
+  if (deferralOverlap.length > 0) {
+    const overlapKey = overlapTurnKey(finalMessage, sha1Short);
+    for (const m of deferralOverlap) {
+      flagged.add(flagKey(overlapKey, STOP_INJECTED_OVERLAP_FAMILY, m.matchedPhrase));
+    }
+    writeFlagged(sessionId, flagged, storeDir);
+  }
 
   return {
     calibration: {
@@ -238,8 +517,18 @@ export function run(
       stop_hook_active: input.stop_hook_active === true,
       matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-      suppressedByAskRoutingDeferral,
+      // Retained (mt#3620) so the overlap rate stays measurable across the
+      // direction change — but it no longer suppresses, so it is reported
+      // under its own name and NOT as a suppression reason.
+      deferralOverlap: deferralOverlap.length > 0,
+      // mt#3207: the shared contract the sweep actually reads. This guard now
+      // always injects when it has new matches, so the list is always empty —
+      // empty (not absent) still means "recorded an outcome, did not suppress".
+      suppressionReasons: [] as string[],
     },
-    ...(suppressedByAskRoutingDeferral ? {} : { additionalContext: buildReminder(newMatches) }),
+    // The overlap flag selects the DIRECTIVE, not just the calibration field
+    // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
+    // the silenced sibling's remedy and not only its speaking slot.
+    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
   };
 }

@@ -26,6 +26,7 @@
  * on that channel is harness-origin and classifies accordingly.
  *
  * @see mt#3374 — this module
+ * @see mt#3809 — the precedence fix documented on `classifyTurnOrigin` below
  * @see ./injected-content.ts — the span-level classifier this consumes
  * @see ../widgets/ConversationView.tsx — the consumer (turn label + accent)
  */
@@ -70,6 +71,23 @@ function isOperatorProse(element: PreparedElement): boolean {
 }
 
 /**
+ * The single harness label the turn's elements agree on: the one span label
+ * when they all carry the same origin, the general term when they disagree, and
+ * `null` when no element carries a harness origin at all.
+ */
+function harnessLabelOfTurn(elements: PreparedElement[]): string | null {
+  const labels = new Set<string>();
+  for (const element of elements) {
+    const label = harnessLabelOf(element);
+    if (label !== null) labels.add(label);
+  }
+  if (labels.size === 0) return null;
+  if (labels.size > 1) return MIXED_HARNESS_LABEL;
+  const [only] = [...labels];
+  return only as string;
+}
+
+/**
  * Classify who authored `turn`.
  *
  * Returns `null` when the turn carries no origin signal at all — a non-`user`
@@ -79,10 +97,28 @@ function isOperatorProse(element: PreparedElement): boolean {
  * unclassifiable turn to the operator's label is the exact failure this module
  * exists to remove.
  *
- * Prose wins over harness content when both are present. A mixed turn — an
- * injected prefix plus the operator's own typed continuation — IS the
- * operator's message; the injected span still collapses on its own, so nothing
- * is hidden by labeling the turn theirs.
+ * ## Precedence, in order (mt#3809)
+ *
+ * 1. **Line-level `isMeta`** — the harness's own assertion that IT produced this
+ *    whole JSONL line. First-party and whole-line, so it outranks everything
+ *    below; span classification is still consulted, but only to name the turn
+ *    more precisely than the general term.
+ * 2. **Operator prose** — text the operator actually typed.
+ * 3. **Span classification** — what `splitInjectedContent` recognized.
+ *
+ * Prose beating span classification (2 over 3) is deliberate and load-bearing: a
+ * mixed turn — an injected prefix plus the operator's own typed continuation —
+ * IS the operator's message; the injected span still collapses on its own, so
+ * nothing is hidden by labeling the turn theirs.
+ *
+ * `isMeta` beating prose (1 over 2) is what mt#3809 fixed. The prose-over-spans
+ * rationale does not reach a line the harness wrote in full: there is no
+ * operator continuation to protect, and its "text" is addressed to the model
+ * rather than to a reader. The originating report was a pasted screenshot's
+ * coordinate-mapping note, which the harness writes as its own `isMeta` line and
+ * which therefore rendered under the operator's label. Ordering `isMeta` last
+ * left that branch unreachable for any meta line carrying text — which is nearly
+ * all of them (74 across the 12 most recent local conversations; 69 carry text).
  */
 export function classifyTurnOrigin(turn: {
   role: string;
@@ -91,24 +127,13 @@ export function classifyTurnOrigin(turn: {
 }): TurnOrigin | null {
   if (turn.role !== "user") return null;
 
+  const spanLabel = harnessLabelOfTurn(turn.elements);
+
+  if (turn.isMeta === true) return { kind: "harness", label: spanLabel ?? MIXED_HARNESS_LABEL };
+
   if (turn.elements.some(isOperatorProse)) return { kind: "operator" };
 
-  const labels = new Set<string>();
-  for (const element of turn.elements) {
-    const label = harnessLabelOf(element);
-    if (label !== null) labels.add(label);
-  }
-
-  if (labels.size === 1) {
-    const [label] = [...labels];
-    return { kind: "harness", label: label as string };
-  }
-  if (labels.size > 1) return { kind: "harness", label: MIXED_HARNESS_LABEL };
-
-  // No recognizable content. `isMeta` is the harness's OWN structural marker
-  // for a line it generated (mt#3322) — weaker than a classified span, but it
-  // is first-party evidence and beats leaving the turn labeled `user`.
-  if (turn.isMeta === true) return { kind: "harness", label: MIXED_HARNESS_LABEL };
+  if (spanLabel !== null) return { kind: "harness", label: spanLabel };
 
   return null;
 }

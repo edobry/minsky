@@ -34,6 +34,91 @@ export function safeShellQuote(s: string): string {
 }
 
 /**
+ * How a command failed, as distinct from whether it failed (mt#3909).
+ *
+ * - `exit`      — the command ran and exited non-zero. Its exit code is real.
+ * - `timeout`   — WE killed it because the `timeout` option elapsed. There is no
+ *                 exit code; the command never chose to stop.
+ * - `maxbuffer` — WE killed it because output exceeded `maxBuffer`. Also not the
+ *                 command's choice, and a different remedy from `timeout`.
+ * - `signal`    — something else signalled it (an operator, the OOM killer).
+ * - `unknown`   — the error carried no shape we recognize.
+ */
+export type ExecFailureKind = "exit" | "timeout" | "maxbuffer" | "signal" | "unknown";
+
+export interface ExecFailure {
+  kind: ExecFailureKind;
+  /** Present only for `kind: "exit"` — the command's real exit code. */
+  exitCode?: number;
+  /** The signal used, when one was involved. */
+  signal?: string;
+}
+
+/**
+ * Classify a caught `exec` error by HOW the command ended.
+ *
+ * Pure over the error's shape so it can be tested without spawning anything;
+ * the integration tests that DO spawn exist to pin that Node's real errors have
+ * the shape assumed here, which is the half a pure test cannot establish.
+ *
+ * ## Why this exists (mt#3909)
+ *
+ * Node distinguishes these cases on the error object and callers routinely
+ * flatten them. `session_exec` did `execError.code ?? 1`, which turns every
+ * non-exit failure into a bare `1` — indistinguishable from a command that
+ * genuinely exited 1. An agent reading that cannot tell "your command failed"
+ * from "we killed your command," and those have opposite remedies: fix the
+ * command, versus split the work or run it detached. Guessing wrong in the
+ * second direction means re-running a command that already ran.
+ *
+ * ## The shapes, and why the order of checks matters
+ *
+ * On a timeout or maxBuffer kill Node sets `killed: true` and leaves `code`
+ * null, so `killed` alone cannot separate them. maxBuffer is distinguished by
+ * its STRING `code` (`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) — which is also why
+ * `code` must never be assigned to a numeric `exitCode` without a typeof check.
+ * That conflation is a real latent bug in any caller doing `code ?? 1`: a
+ * maxBuffer overrun would put a string where a number is declared.
+ */
+export function classifyExecFailure(error: unknown): ExecFailure {
+  const err = error as {
+    code?: number | string | null;
+    killed?: boolean;
+    signal?: string | null;
+  } | null;
+
+  if (!err || typeof err !== "object") return { kind: "unknown" };
+
+  const signal = typeof err.signal === "string" ? err.signal : undefined;
+
+  // A string `code` is a Node error identifier, never a process exit code.
+  if (typeof err.code === "string") {
+    const kind = err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? "maxbuffer" : "unknown";
+    return signal === undefined ? { kind } : { kind, signal };
+  }
+
+  // A numeric code means the process chose its own exit status, even if a
+  // signal is also reported — the exit code is the more specific fact.
+  if (typeof err.code === "number") {
+    return signal === undefined
+      ? { kind: "exit", exitCode: err.code }
+      : { kind: "exit", exitCode: err.code, signal };
+  }
+
+  // No exit code. `killed` is Node telling us IT did the killing, which for
+  // this helper means the `timeout` option elapsed (maxBuffer already returned
+  // above on its string code).
+  if (err.killed === true) {
+    return signal === undefined ? { kind: "timeout" } : { kind: "timeout", signal };
+  }
+
+  // Signalled by something outside this process.
+  if (signal !== undefined) return { kind: "signal", signal };
+
+  return { kind: "unknown" };
+}
+
+/**
  * Execute a command with proper cleanup to prevent hanging
  * Ensures child processes and their stdio streams are properly closed
  */

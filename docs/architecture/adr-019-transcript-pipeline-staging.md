@@ -14,11 +14,11 @@ seam between the pipeline's stages sits** — an orthogonal axis ADR-017 left op
 
 The three operations, and their very different cost / dependency profiles:
 
-| #   | Operation   | Reads → writes                                                 | Cost                 | External dependency | Feeds                               |
-| --- | ----------- | -------------------------------------------------------------- | -------------------- | ------------------- | ----------------------------------- |
-| 1   | **Ingest**  | JSONL → `agent_transcripts.transcript` (JSONB)                 | cheap                | none                | (nothing searchable yet)            |
-| 2   | **Extract** | JSONB → `agent_transcript_turns` rows + `fts_text` (GENERATED) | cheap, deterministic | **none**            | **FTS** (`transcripts_search-text`) |
-| 3   | **Embed**   | turn text → vector → `agent_transcript_turns.embedding`        | expensive            | **embedding API**   | **semantic** (`transcripts_search`) |
+| #   | Operation   | Reads → writes                                                 | Cost                                              | External dependency | Feeds                               |
+| --- | ----------- | -------------------------------------------------------------- | ------------------------------------------------- | ------------------- | ----------------------------------- |
+| 1   | **Ingest**  | JSONL → `agent_transcripts.transcript` (JSONB)                 | cheap                                             | none                | (nothing searchable yet)            |
+| 2   | **Extract** | JSONB → `agent_transcript_turns` rows + `fts_text` (GENERATED) | deterministic; the WRITE is NOT cheap — see below | **none**            | **FTS** (`transcripts_search-text`) |
+| 3   | **Embed**   | turn text → vector → `agent_transcript_turns.embedding`        | expensive                                         | **embedding API**   | **semantic** (`transcripts_search`) |
 
 **Where the seam sits today.** The code cuts between **(1)** and **(2+3)**: `transcripts ingest`
 (`AgentTranscriptIngestService`) writes only the raw JSONB at stage 1, and
@@ -186,6 +186,45 @@ the full corpus:
   invocations for the largest legacy sessions); zero-turn non-null-transcript rows in the
   2026-04-27 – 2026-06-08 window went from 650 to 0.
 
+## Implementation notes (mt#3514) — extraction is a REPLACE, not an additive upsert
+
+This ADR's Decision says extraction "materializes per-turn rows." Until mt#3514 that was implemented
+as an additive upsert and nothing more: `writeTurnsForTranscript` upserted on
+`(agent_session_id, turn_index)` and **nothing in the codebase ever deleted a turn row**. So the
+write only reached the indexes the CURRENT extraction produced; any index a PREVIOUS extraction
+wrote and this one does not re-emit survived indefinitely with its stale content.
+
+Measured against prod 2026-08-08: **107** `(session, tool_use_id)` pairs appeared in more than one
+turn row across **27** conversations, **104 of them byte-identical** in both `user_text` and
+`assistant_text`, at turn-index spreads up to **704**. The raw `agent_transcripts.transcript` is
+clean — each affected `tool_use` id appears exactly once — so this stage CREATES the duplication
+rather than inheriting it from capture.
+
+**The reconciliation.** After a clean write of N turns, the writer deletes that session's rows at
+`turn_index >= N`. `turn_index` is contiguous 0..N-1 over the whole transcript, so every row at or
+beyond N belongs to a superseded extraction. Two safety properties, both deliberate:
+
+- The delete sits AFTER the non-empty-yielded-zero early return. At zero extracted turns "delete
+  everything this extraction did not emit" would erase the session's whole turn history, turning a
+  suspected extractor regression into data loss.
+- It is skipped when any chunk upsert failed — the write is already known-degraded, and compounding
+  it with a delete makes the resulting state harder to reason about. A later clean run reconciles.
+
+**Serialization.** The upsert and the delete run in ONE transaction holding a transaction-scoped
+advisory lock keyed on the session (`pg_advisory_xact_lock`), extending the convention
+`withDrivenSessionResumeLock` already uses. Without it, overlapping writers for the same session —
+the ingest service, the `--all` sweep, and `--session` indexing can all run concurrently — could
+have one run delete rows a longer-running peer had just written. Each chunk upsert is wrapped in a
+SAVEPOINT so mt#2457's tolerated PARTIAL write is preserved rather than being rolled back whole.
+
+**Result-shape change.** `WriteTurnsResult` gains `orphansDeleted` (rows removed) and
+`orphanDeleteFailed`. A failed delete is classified as an **error**, not a success: a write that
+upserted cleanly but could not remove stale rows has left exactly the state this mechanism exists
+to prevent. `ExtractAllTurnsResult` aggregates `orphansDeleted` across the sweep. All three callers
+— the sweep, `transcripts index-embeddings --session`, and the ingest service — derive their
+verdict from the shared `classifyWriteOutcome` rather than restating its conditions, which is how
+the ingest path had already fallen out of step with a newly-added error condition.
+
 ## Cross-references
 
 - Related tasks: **mt#2234** (cockpit-daemon transcript capture — owns and implements this split),
@@ -207,3 +246,40 @@ the full corpus:
   paths); `agent-transcript-turns-schema.ts` (`fts_text` GENERATED, nullable `embedding`).
 - Memory: `10690591-10f9-448b-a9b7-f78e6e8e969c` (the two-stage-pipeline investigation).
 - Origin: 2026-06-08 mt#2319 close-out — Socratic review of why "FTS works after ingest" was false.
+
+## Correction: "Extract is cheap" was wrong about the WRITE (mt#3911)
+
+The operation table above originally rated Extract **"cheap, deterministic"** against Embed's
+**"expensive"**. That contrast is right about the _external dependency_ — extraction needs no
+embedding API — and wrong about the _database cost_, and the error was load-bearing.
+
+Measured against prod 2026-08-10 (`statement_timeout` = 30s), upserting turn rows:
+
+| rows per statement | session WITH embeddings | session WITHOUT |
+| ------------------ | ----------------------- | --------------- |
+| 100                | 9.5–17.5s               | 2.4–6.6s        |
+| 250                | 20.5–24.8s              | —               |
+| 500                | FAILS at 31.2s          | —               |
+
+That is ~100ms/row with embeddings present and ~35ms/row without — so a 600-turn session costs
+20–60s of database time, not the "cheap" the table implied.
+
+**Why.** The upsert changes `user_text`/`assistant_text`, so it cannot be a HOT update: each row's
+new tuple version must be inserted into every index on the table — the GIN index on the GENERATED
+`fts_text` column and, when the row already carries a vector, the HNSW index on `embedding`. The
+embedding column is never WRITTEN by extraction (the ADR's own preservation invariant), but its
+index is still MAINTAINED, which is where the ~3x gap between the two columns above comes from.
+
+**What the mis-costing caused.** `CHUNK_SIZE` was chosen as 500 and justified in its own comment
+solely against Postgres's ~65535 bind-parameter ceiling — a limit this write never approaches. No
+one sized it against time, because the ADR said the stage was cheap. Every session with >= 500
+turns therefore issued a 500-row statement that exceeded the timeout, wrote nothing for that
+chunk, and — because a failed chunk correctly suppresses the orphan DELETE — silently kept its
+stale rows forever while reporting an ordinary success. 49 sessions were in that population.
+
+**Consequence for future work.** Treat extraction as cheap in DEPENDENCIES and expensive in
+DATABASE WRITES. Anything that re-materializes turn rows in bulk (a corpus sweep, a re-extraction
+after an extractor change, mt#3883's tree-aware rewrite) is a long-running database operation and
+must be sized against the statement timeout. `DEFAULT_TURN_CHUNK_SIZE` in `turn-writer.ts` now
+carries the measurements, and a chunk that exceeds the timeout is split and retried rather than
+abandoned.

@@ -33,6 +33,8 @@ import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index"
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
+import { resolveDerivedConversationLinks } from "../derived-conversation-link";
+import { describeWidgetDegradedReason } from "../db-providers";
 import {
   deriveRowAttachState,
   groupAttachmentsBySessionId,
@@ -595,34 +597,61 @@ export function createAgentsWidget(
         // workspace rows above. Degrades silently to "workspace rows only"
         // when no conversation DB is configured or the merge itself fails.
         let standaloneRows: AgentRow[] = [];
-        if (getConversationDb && cachedMerge) {
+        if (getConversationDb) {
           const db = await getConversationDb().catch(() => null);
           if (db) {
-            const merge = await cachedMerge.getMerge(
-              db,
-              workspaceRows.map((r) => r.sessionId)
-            );
-            for (const row of workspaceRows) {
-              const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);
-              if (attrs) {
-                row.conversationId = attrs.conversationId;
-                row.cwd = attrs.cwd;
-                row.subagents = attrs.subagents;
-                row.model = attrs.model;
+            // The standalone-row merge is the only part that needs `cachedMerge`.
+            // The mt#3529 derived fallback below needs the transcripts DB and
+            // nothing else, so it is NOT nested under this guard — coupling the
+            // two would let the list disagree with /api/agents/:id (which has no
+            // merge) whenever the merge is unavailable but the DB is not.
+            if (cachedMerge) {
+              const merge = await cachedMerge.getMerge(
+                db,
+                workspaceRows.map((r) => r.sessionId)
+              );
+              for (const row of workspaceRows) {
+                const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);
+                if (attrs) {
+                  row.conversationId = attrs.conversationId;
+                  row.cwd = attrs.cwd;
+                  row.subagents = attrs.subagents;
+                  row.model = attrs.model;
+                }
+              }
+              standaloneRows = merge.standaloneRows.map((r) => ({
+                ...r,
+                driven: null,
+                // Conversation-derived rows have no Minsky workspace sessionId
+                // — attachState (mt#2284/mt#2286) doesn't apply.
+                attachState: null,
+                // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
+                interfaceBinding: null,
+                // Nor a `ws#N` short id (mt#3259) — that is a workspace handle,
+                // and these rows are conversations.
+                shortId: null,
+              }));
+            }
+
+            // mt#3529 — rows still unresolved (whether because the merge found
+            // no link row, or because there was no merge at all) fall back to
+            // the conversation their own agentId names (existence-checked).
+            // Runs AFTER the merge, over only the still-null rows, so a stamped
+            // link always wins. This keeps the list in agreement with
+            // /api/agents/:id, which applies the same fallback — a row showing
+            // null here while the detail page resolved a conversation would be
+            // a worse bug than the one being fixed.
+            const unresolved = workspaceRows.filter((r) => r.conversationId == null);
+            if (unresolved.length > 0) {
+              const derived = await resolveDerivedConversationLinks(
+                db,
+                unresolved.map((r) => ({ sessionId: r.sessionId, agentId: r.agentId }))
+              );
+              for (const row of unresolved) {
+                const link = derived.get(row.sessionId);
+                if (link) row.conversationId = link.agentSessionId;
               }
             }
-            standaloneRows = merge.standaloneRows.map((r) => ({
-              ...r,
-              driven: null,
-              // Conversation-derived rows have no Minsky workspace sessionId
-              // — attachState (mt#2284/mt#2286) doesn't apply.
-              attachState: null,
-              // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
-              interfaceBinding: null,
-              // Nor a `ws#N` short id (mt#3259) — that is a workspace handle,
-              // and these rows are conversations.
-              shortId: null,
-            }));
           }
         }
 
@@ -645,8 +674,7 @@ export function createAgentsWidget(
         const payload: AgentsPayload = { agents, totalCount, hiddenInactiveCount };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `session_list error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("session_list", err) };
       }
     },
   };
@@ -660,27 +688,37 @@ export function createAgentsWidget(
 // fetch(); subsequent calls reuse the cached instance.
 // ---------------------------------------------------------------------------
 
-import { getSharedPersistenceService } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
-let _cachedProvider: SessionProviderInterface | null = null;
+/**
+ * mt#3638: a pool recycle bumps the persistence epoch; serving the old provider
+ * past that point pins a torn-down pool (the mt#2362 staleness this closes).
+ *
+ * mt#3721 moved the epoch bookkeeping — including the rebuild-until-stable loop
+ * this file introduced in PR #2586 R1 — into `createEpochKeyedCache`, so the
+ * discipline is inherited rather than re-derived here. This was the only
+ * consumer that had it; eight others had no epoch check at all, which is the
+ * gap that motivated extracting it.
+ */
+const defaultProviderFactory = createEpochKeyedCache(
+  async (): Promise<SessionProviderInterface> => {
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
 
-async function defaultProviderFactory(): Promise<SessionProviderInterface> {
-  if (_cachedProvider) return _cachedProvider;
-
-  const { createSessionProvider } = await import(
-    "@minsky/domain/session/drizzle-session-repository"
-  );
-
-  const svc = await getSharedPersistenceService();
-  const provider = await createSessionProvider(undefined, {
-    persistenceService: {
-      isInitialized: () => true,
-      getProvider: () => svc.getProvider(),
-    },
-  });
-  _cachedProvider = provider;
-  return provider;
-}
+    const svc = await getSharedPersistenceService();
+    // Awaited rather than returned directly: `custom/no-unwaited-async-factory`
+    // requires an async factory's result to be awaited at its call site, so a
+    // rejection surfaces here rather than inside the caller's own await.
+    const provider = await createSessionProvider(undefined, {
+      persistenceService: {
+        isInitialized: () => true,
+        getProvider: () => svc.getProvider(),
+      },
+    });
+    return provider;
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Default task provider — lazy singleton sharing PersistenceService with
@@ -690,26 +728,18 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 // benefits from multi-backend task resolution (mt# Minsky DB + gh# GitHub).
 // ---------------------------------------------------------------------------
 
-let _cachedTaskProvider: TaskProviderLike | null = null;
-
-async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
-  if (_cachedTaskProvider) return _cachedTaskProvider;
-
+/** mt#3638: same epoch discipline as `defaultProviderFactory` above. */
+const defaultTaskProviderFactory = createEpochKeyedCache(async (): Promise<TaskProviderLike> => {
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
   const svc = await getSharedPersistenceService();
   const persistenceProvider = svc.getProvider();
 
-  const workspacePath = process.cwd();
-
-  const taskService = await createConfiguredTaskService({
-    workspacePath,
+  return createConfiguredTaskService({
+    workspacePath: process.cwd(),
     persistenceProvider,
   });
-
-  _cachedTaskProvider = taskService;
-  return _cachedTaskProvider;
-}
+});
 
 // ---------------------------------------------------------------------------
 // Default conversation-merge DB factory (mt#2767) — reuses the cockpit-wide

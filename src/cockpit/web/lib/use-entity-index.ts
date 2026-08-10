@@ -19,8 +19,32 @@
  * DO share keys with CommandPalette because their shapes are compatible
  * (both extract only ids from the WidgetData wrapper).
  *
+ * FRESHNESS (mt#3732): every query below sets `refetchInterval`, not just
+ * `staleTime`. Linkification is id-set gated — `resolveEntityId` returns null for
+ * an id the index doesn't hold, and the ref renders as plain text — so an id-set
+ * that never revalidates makes every entity created AFTER mount permanently
+ * unlinkable in that view. `staleTime` alone does not revalidate anything: it only
+ * says how long cached data counts as fresh, and the three triggers that would
+ * refetch a stale query (query mount, window refocus, network reconnect) never fire
+ * on a long-mounted page whose app disables `refetchOnWindowFocus` (`main.tsx`).
+ * Measured before the fix: `/api/tasks/ids` fired exactly once over ~4 minutes on a
+ * live page whose sibling widget queries polled throughout.
+ *
+ * The driven-session view is the surface that made this visible, because it is the
+ * one where an agent mints ids in front of the operator and then references them
+ * seconds later.
+ *
+ * Cadence: 60s, matching the two existing hooks over the same data class —
+ * `useReadyCount` and `useTaskBacklogCounts`, both `staleTime: 30s` /
+ * `refetchInterval: 60s` ("breath-clock"). This is the baseline layer mt#1148
+ * ("polling v0 with SSE migration adapter") assumes; `sse-client.ts` can later
+ * invalidate these keys for faster-than-polling freshness without changing this.
+ * `refetchIntervalInBackground` is deliberately left at its `false` default, so a
+ * hidden tab stops polling.
+ *
  * @see entity-linkifier.tsx — the tokenizer + rehype plugin that consume the index
  * @see mt#2518 — original linkifier; mt#2550 — Markdown rendering that reuses this
+ * @see mt#3732 — the mount-time-snapshot bug the refetchIntervals below fix
  */
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -29,6 +53,14 @@ import type { RoutableEntityType } from "./entity-codec";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 import { extractConversationRows } from "./conversations-source";
+
+/**
+ * Revalidation cadence for every id-set query `useEntityIndex` composes — the
+ * "breath-clock" 60s this codebase already uses for task-shaped data
+ * (`useReadyCount`, `useTaskBacklogCounts`). See the module header for why an
+ * interval is required at all and why 60s rather than a fresh number.
+ */
+const ENTITY_INDEX_REFETCH_MS = 60_000;
 
 /**
  * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
@@ -217,22 +249,35 @@ function labelsFromChangesetEntries(
 export function useEntityLabels(): EntityLabelIndex {
   const [agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ] = useQueries({
     queries: [
-      { queryKey: ["agents"], queryFn: () => fetchWidgetData("agents"), staleTime: 30_000 },
-      { queryKey: ["attention"], queryFn: () => fetchWidgetData("attention"), staleTime: 30_000 },
+      {
+        queryKey: ["agents"],
+        queryFn: () => fetchWidgetData("agents"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        queryKey: ["attention"],
+        queryFn: () => fetchWidgetData("attention"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
       {
         queryKey: ["widget", "memories-list", "", "", true],
         queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["entity-index", "changesets"],
         queryFn: fetchChangesetEntries,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["context-inspector", "sessions"],
         queryFn: () => fetchWidgetData("context-inspector"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
     ],
   });
@@ -371,21 +416,25 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["entity-index", "tasks"],
         queryFn: fetchAllTaskIds,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["agents"],
         queryFn: () => fetchWidgetData("agents"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["attention"],
         queryFn: () => fetchWidgetData("attention"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["widget", "memories-list", "", "", true],
         queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         // Distinct key from ChangesetsPage's ["changesets"] — different shape
@@ -397,6 +446,7 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["entity-index", "changesets"],
         queryFn: fetchChangesetEntries,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         // Shared key with ConversationPage's ["context-inspector", "sessions"]
@@ -407,6 +457,7 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["context-inspector", "sessions"],
         queryFn: () => fetchWidgetData("context-inspector"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
     ],
   });

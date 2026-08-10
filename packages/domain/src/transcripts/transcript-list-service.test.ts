@@ -52,11 +52,10 @@ function makeChain(cols: Record<string, unknown>, rows: FakeDbRows) {
     where: () => chain,
     groupBy: () => chain,
     orderBy: () => chain,
-    then: (resolve, reject) =>
-      new Promise<FakeRow[]>((res) => res(resolveRowsForCols(cols, rows))).then(
-        resolve,
-        reject as ((e: unknown) => unknown) | undefined
-      ),
+    // Generic in the IMPLEMENTATION too — `T` is nameable only if declared
+    // here, and without it the `.then(...)` result widened to `Promise<unknown>`.
+    then: <T>(resolve: (v: FakeRow[]) => T, reject?: (e: unknown) => T): Promise<T> =>
+      new Promise<FakeRow[]>((res) => res(resolveRowsForCols(cols, rows))).then(resolve, reject),
   };
   return chain;
 }

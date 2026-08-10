@@ -70,6 +70,17 @@ export interface TranscriptTurnResult {
    * MCP, cockpit) renders the identical string.
    */
   resumeHint: string;
+  /**
+   * Bounded excerpt around the match, with matched spans delimited by `[` and
+   * `]` (mt#3713). Present on full-text search results; absent on paths that
+   * do not match against text (semantic search, whole-session reads).
+   *
+   * Additive to the pre-mt#3713 shape: `userText` / `assistantText` still
+   * carry the turn in full, so an existing consumer is unaffected. Prefer this
+   * field when displaying results — a transcript turn can run to tens of
+   * kilobytes, which is why search results were unscannable before it existed.
+   */
+  snippet?: string;
 }
 
 /**

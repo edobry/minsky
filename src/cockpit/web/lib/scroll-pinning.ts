@@ -1,5 +1,11 @@
 /**
- * Scroll-pinning helpers for the live conversation tail (mt#3376).
+ * Scroll-geometry helpers for the conversation thread (mt#3376, mt#3688).
+ *
+ * The module name records where it started — pinning the live tail — and is kept
+ * because every consumer imports from this path; mt#3688 widened it to the
+ * thread's other scroll-geometry questions (are we near the top? how far through
+ * are we?), which are the same kind of pure, DOM-in/answer-out decision and want
+ * the same test harness.
  *
  * The conversation view scrolled to the newest turn on EVERY live append, with
  * no check for where the operator actually was. Reading back through an active
@@ -88,6 +94,28 @@ export function isPinnedToBottom(
 }
 
 /**
+ * True when `scrollport` is within one viewport-height of its TOP (mt#3688).
+ *
+ * The trigger for revealing older turns as the operator scrolls back through a
+ * conversation. The threshold is the scrollport's OWN `clientHeight` rather than
+ * a fixed pixel count, for the reason a prefetch uses a screenful of runway: the
+ * reveal has to land before the reader arrives at the boundary, and how much
+ * warning that takes is a function of how much they can see at once, not of a
+ * number chosen in the abstract. A 4K display gets proportionally more runway
+ * than a laptop half-window, automatically.
+ *
+ * A scrollport with nothing to scroll is NOT near the top — it has no top to be
+ * near, and reporting one would fire a reveal for a thread the operator never
+ * scrolled. The manual control stays available for that case.
+ */
+export function isNearTop(scrollport: Element | null, viewportsOfRunway: number = 1): boolean {
+  if (!scrollport) return false;
+  const { scrollTop, scrollHeight, clientHeight } = scrollport;
+  if (scrollHeight <= clientHeight) return false;
+  return scrollTop <= clientHeight * viewportsOfRunway;
+}
+
+/**
  * Whether a scrollport's content got TALLER between two measurements (mt#3445).
  *
  * The live tail's "something arrived below you" signal cannot be a turn count:
@@ -107,4 +135,56 @@ export function isPinnedToBottom(
 export function hasGrown(previousHeight: number | null, currentHeight: number): boolean {
   if (previousHeight === null) return false;
   return currentHeight > previousHeight;
+}
+
+/**
+ * How far through its scrollable range a scrollport sits, as `0..1` (mt#3688).
+ *
+ * A scrollport with nothing to scroll answers `1`, not `0`: the operator can see
+ * the whole thread at once, and the thread's own convention is that the resting
+ * position is the newest turn (the mount scrolls there). Answering `0` would
+ * render a short conversation as "you are at the beginning" when the reader is
+ * equally at the end.
+ */
+export function scrollFraction(scrollport: Element | null): number {
+  if (!scrollport) return 1;
+  const { scrollTop, scrollHeight, clientHeight } = scrollport;
+  const range = scrollHeight - clientHeight;
+  if (range <= 0) return 1;
+  return Math.min(1, Math.max(0, scrollTop / range));
+}
+
+/**
+ * Which turn of the WHOLE transcript the viewport is looking at (mt#3688).
+ *
+ * `hiddenBefore` turns are not rendered at all, so they occupy zero scroll
+ * height: the scrollport's range covers only the rendered tail, and the answer
+ * is that range's fraction mapped onto the rendered turns, offset past the
+ * hidden ones. That makes the two ends exact — top of the rendered content IS
+ * turn `hiddenBefore`, bottom IS `total` — and the middle an estimate, because
+ * turns are wildly different heights (a one-line prompt and an expanded tool
+ * block are the same one turn). Callers render it with a `~` for that reason;
+ * an operator asking "where am I" is asking within a few percent, not within a
+ * turn.
+ */
+export function threadPositionFromScroll(
+  fraction: number,
+  hiddenBefore: number,
+  totalTurns: number,
+  renderedTurns?: number
+): number {
+  if (totalTurns <= 0) return 0;
+  // `renderedTurns` defaults to "everything from `hiddenBefore` to the end",
+  // which is the window's shape whenever it reaches the newest turn. It is
+  // passed explicitly when the frozen window is capped and therefore stops
+  // short of the tail (mt#3736) — the scrollport's range then covers fewer
+  // turns than the subtraction would suggest.
+  const rendered = renderedTurns ?? Math.max(0, totalTurns - hiddenBefore);
+  const within = Math.round(Math.min(1, Math.max(0, fraction)) * rendered);
+  return Math.min(totalTurns, hiddenBefore + within);
+}
+
+/** The thread's position readout — `~340 / 512`. */
+export function formatThreadPosition(position: number, totalTurns: number): string {
+  return `~${position} / ${totalTurns}`;
 }

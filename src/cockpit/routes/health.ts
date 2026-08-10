@@ -24,7 +24,15 @@ import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
-import { getDbStatus } from "../shared-persistence";
+import {
+  getDbCheck,
+  getDbHealth,
+  getDbRecycle,
+  getDbStatus,
+  refreshDbReachability,
+} from "../shared-persistence";
+import { getSurvivedExceptions } from "../daemon-error-policy";
+import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
 import type { WidgetModule } from "../types";
 
@@ -118,6 +126,16 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // two can diverge for hours with no other visible signal.
     const prodStateSweepTracker = ProdStateSweepTracker.getInstance();
 
+    // mt#3563: kick a live reachability probe, but do NOT await it. Awaiting
+    // would make this route as slow as the database it is reporting on — and a
+    // wedged database is exactly when the tray most needs a fast answer, since
+    // ADR-014 makes this endpoint its liveness and adoption signal. So the
+    // handler stays synchronous and reads the value the PREVIOUS poll's probe
+    // produced; the cost is a one-poll lag into (and out of) degraded, which
+    // `dbCheck.checkedAt` makes visible. refreshDbReachability never throws and
+    // never issues more than one concurrent probe.
+    void refreshDbReachability();
+
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
     const dbStatus = getDbStatus();
@@ -139,11 +157,55 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       version,
       commit: getGitCommit(),
       uptimeSec,
-      // gh#1761: last-known DB connection status. "ok" after a successful init;
-      // "degraded" when a circuit-breaker or auth error has been received and
-      // the retry loop is running; "unreachable" before any init attempt.
-      // Read-only: does NOT probe the DB on every health poll.
+      // gh#1761, semantics widened by mt#3563: DB reachability as of the last
+      // probe. "ok" means a query actually completed through the SHARED pool
+      // within the probe deadline; "degraded" means one did not (it timed out,
+      // errored, or a previously issued probe still has not come back — the
+      // never-settling-query wedge); "unreachable" means no init has succeeded.
+      //
+      // Until mt#3563 this was set ONCE at init and only ever left "ok" via a
+      // circuit-breaker rejection, so a pool that stopped answering entirely
+      // reported "ok" forever. Both the 2026-08-01 and 2026-08-03 incidents ran
+      // with every DB route hanging and this field green, which is why the
+      // tray's DB-degraded watchdog (supervisor.rs) never fired. The value is
+      // still read cheaply here — the probe runs out-of-band, see above.
       db: dbStatus,
+      // mt#3563: when that probe last finished, and how long the last
+      // successful one took. `checkedAt` is what distinguishes "ok, just
+      // measured" from a stale "ok" — without it this field would be another
+      // value a reader cannot date. Rising `latencyMs` is the early warning
+      // ahead of an outright wedge.
+      dbCheck: getDbCheck(),
+      // mt#3638: wedge-recycle telemetry. `recycleCount > 0` means this
+      // process detected a wedged pool and tore it down in place; a RISING
+      // count across polls is the recurrence signal that used to require log
+      // spelunking (or a 40-minute outage) to see.
+      dbRecycle: getDbRecycle(),
+      // mt#3826: WHY the DB is unusable, not just that it is. `db` above
+      // collapses a half-open pool wedge and a network refusing the port into
+      // the same "degraded", which is what let the 2026-08-07 incident spend
+      // ~9 hours recycling a pool against a port that was never going to open.
+      // Shape is ADR-035 rule 4's (`mode`/`reason`/`lastAttemptAt`) so this
+      // subsystem reports liveness in the same vocabulary as the others; the
+      // added `failure` field is the discriminated form of `reason`, so a
+      // consumer branches on `failure.kind` instead of parsing prose.
+      dbHealth: getDbHealth(),
+      // mt#3626: uncaught exceptions this process SURVIVED rather than died on
+      // (transient outbound-connect failures inside the runtime's own net
+      // module). Surviving is the designed behavior, so a non-zero count does
+      // NOT degrade `status` — but it must be visible, because the failure it
+      // replaces used to be loud (the process died) and is now quiet. A RISING
+      // `count` across polls is the recurrence signal.
+      survivedExceptions: getSurvivedExceptions(),
+      // mt#3608: whether the Telegram principal channel is actually RUNNING.
+      // It launches once at boot and, before this, a failed credential read
+      // left it permanently off with nothing but a single startup `warn` to
+      // say so — five times on 2026-08-03, each discovered only when the
+      // principal noticed a message going unanswered. The channel's own acks
+      // cannot report this, because the poller that sets them is the thing
+      // that did not start. `state` distinguishes "the operator never
+      // configured it" from "it is configured and the read FAILED".
+      principalChannel: getPrincipalChannelStatus(),
       // mt#2578 watchdog fields — consumed by the tray's self-health watchdog.
       // processStartedAtMs: monotonic epoch-ms of when THIS process started.
       // A change between successive polls means the daemon restarted.
@@ -151,9 +213,22 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
+      // mt#3857: `activeSessions` carries the LIVE subset only, and the registry
+      // total rides alongside as a scalar. This endpoint is the most-polled surface
+      // in the system — every 5s by the tray supervisor, 3x/15s by the webview — so
+      // an unbounded array here is multiplied by ~12 requests a minute forever. It
+      // had grown to 1,380 entries / 209 KB per response (99.5% of the payload)
+      // before this filter; the full registry is still available via
+      // `getActiveSessions()` for any caller that wants it.
+      //
+      // Emitting a count next to a bounded list also matches the convention ADR-017
+      // set for the sibling `transcriptSweep` field ("counts + ISO timestamps only"),
+      // and matches what `contract/cockpit-health-shape.json`'s sample already
+      // assumed this field looked like.
       transcriptWatcher: {
         ...watcherTracker.getSummary(),
-        activeSessions: watcherTracker.getActiveSessions(),
+        activeSessionCount: watcherTracker.trackedSessionCount,
+        activeSessions: watcherTracker.getLiveSessions(),
       },
       // mt#3297: whether the DB has the schema this build expects. The status
       // code cannot carry this — the daemon boots fine and answers 200 whether

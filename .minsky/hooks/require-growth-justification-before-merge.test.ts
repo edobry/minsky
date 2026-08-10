@@ -15,12 +15,18 @@ import {
   GROWTH_THRESHOLD_BYTES,
   OVERRIDE_ENV_VAR,
   RULES_DIR_PREFIX,
+  ruleIdFromRulesPath,
+  findTouchedCeilingBreaches,
+  buildPerRuleCeilingDenyMessage,
 } from "./require-growth-justification-before-merge";
 import type { PrFile } from "./pr-context";
 
 function makeFile(filename: string, status: PrFile["status"] = "modified"): PrFile {
   return { filename, status, previous_filename: null };
 }
+
+/** The marker label both size checks accept (lint: no-magic-string-duplication). */
+const JUSTIFICATION_LABEL = "Size-budget justification:";
 
 /** Shared fixture path, reused across several describe blocks below (lint: no-magic-string-duplication). */
 const HOOK_FILES_RULE = ".minsky/rules/hook-files.mdc";
@@ -94,6 +100,23 @@ describe("findRulesDirFiles", () => {
 // ---------------------------------------------------------------------------
 // hasSizeBudgetJustification — mt#2648 marker forms
 // ---------------------------------------------------------------------------
+
+describe("hasSizeBudgetJustification — fenced content scan (PR #2533 R1)", () => {
+  // Third instance of the mt#3530 class. This gate's MARKER scan already rejects a
+  // fence-quoted marker, so mt#3530 scoped it out on that question — but its CONTENT
+  // scan had the same truncate-on-heading-like-line bug the R1 review surfaced in the
+  // two siblings, so it is fixed in the same round.
+  // As with `hasExecutionEvidence`, the fenced-`#` truncation is UNREACHABLE here —
+  // this gate only checks that the collected content is non-empty, and the fence's
+  // opening ``` line already satisfies that. Measured both ways: unfixed=true,
+  // fixed=true. So no test asserts a verdict change from the content-scan gating;
+  // one would pass either way and assert nothing. The gating is kept for consistency
+  // with the family, and the boundary case below is the part that can actually fail.
+  test("still stops at a REAL heading, so an empty section stays empty", () => {
+    const body = ["Size-budget justification:", "", "## Next", "", "text"].join("\n");
+    expect(hasSizeBudgetJustification(body)).toBe(false);
+  });
+});
 
 describe("hasSizeBudgetJustification", () => {
   test("accepts the plain-label form with a colon", () => {
@@ -207,7 +230,7 @@ describe("checkGrowthJustification", () => {
     expect(result.deltaBytes).toBe(3000);
     expect(result.blocked).toBe(true);
     expect(result.reason).toContain("3000 bytes");
-    expect(result.reason).toContain("Size-budget justification:");
+    expect(result.reason).toContain(JUSTIFICATION_LABEL);
     expect(result.reason).toContain("Rule-admission ladder");
     expect(result.reason).toContain(OVERRIDE_ENV_VAR);
   });
@@ -308,5 +331,101 @@ describe("isOverrideSet", () => {
   test("is false for an unrecognized value", () => {
     process.env[OVERRIDE_ENV_VAR] = "nope";
     expect(isOverrideSet()).toBe(false);
+  });
+});
+
+describe("per-rule ceiling priced at the authoring PR (mt#3676)", () => {
+  const OVER_RULE = "hook-observers";
+  const OTHER_OVER_RULE = "decision-defaults";
+  const rulePath = (id: string): string => `${RULES_DIR_PREFIX}${id}.mdc`;
+  /** A non-rules source path, reused below (lint: no-magic-string-duplication). */
+  const NON_RULE_FILE = "src/hooks/pre-commit.ts";
+
+  describe("ruleIdFromRulesPath", () => {
+    test("extracts the rule id from a rules-dir .mdc path", () => {
+      expect(ruleIdFromRulesPath(rulePath(OVER_RULE))).toBe(OVER_RULE);
+    });
+
+    test("returns null for a non-rules path or a non-.mdc file", () => {
+      expect(ruleIdFromRulesPath(`docs/${OVER_RULE}.mdc`)).toBeNull();
+      expect(ruleIdFromRulesPath(`${RULES_DIR_PREFIX}${OVER_RULE}.md`)).toBeNull();
+      expect(ruleIdFromRulesPath(NON_RULE_FILE)).toBeNull();
+    });
+
+    test("returns null for a NESTED path — it is not a rule (PR #2652 R1)", () => {
+      // The loader reads .minsky/rules non-recursively, so nothing under a
+      // subdirectory is a rule. A greedy capture returned "sub/hook-observers",
+      // an id no violation can carry — so a real breach would go unbilled.
+      expect(ruleIdFromRulesPath(`${RULES_DIR_PREFIX}sub/${OVER_RULE}.mdc`)).toBeNull();
+    });
+
+    test("a nested file does not bill the PR for the same-named top-level rule", () => {
+      expect(
+        findTouchedCeilingBreaches(
+          [{ id: OVER_RULE, size: 15170 }],
+          [makeFile(`${RULES_DIR_PREFIX}sub/${OVER_RULE}.mdc`)]
+        )
+      ).toEqual([]);
+    });
+  });
+
+  describe("findTouchedCeilingBreaches", () => {
+    test("bills a PR for a rule it actually edited", () => {
+      const breaches = findTouchedCeilingBreaches(
+        [{ id: OVER_RULE, size: 15170 }],
+        [makeFile(rulePath(OVER_RULE))]
+      );
+      expect(breaches).toEqual([{ id: OVER_RULE, size: 15170 }]);
+    });
+
+    test("does NOT bill a PR for a pre-existing breach it never touched", () => {
+      // The mispricing this task exists to remove: the breach belongs to
+      // whoever authored it, not to the next PR through the gate.
+      expect(
+        findTouchedCeilingBreaches(
+          [{ id: OVER_RULE, size: 15170 }],
+          [makeFile(NON_RULE_FILE), makeFile(rulePath("code-style"))]
+        )
+      ).toEqual([]);
+    });
+
+    test("bills only the touched subset when several rules are over", () => {
+      const breaches = findTouchedCeilingBreaches(
+        [
+          { id: OVER_RULE, size: 15170 },
+          { id: OTHER_OVER_RULE, size: 15004 },
+        ],
+        [makeFile(rulePath(OTHER_OVER_RULE))]
+      );
+      expect(breaches).toEqual([{ id: OTHER_OVER_RULE, size: 15004 }]);
+    });
+
+    test("allows a rules PR when nothing is over the ceiling", () => {
+      expect(findTouchedCeilingBreaches([], [makeFile(rulePath(OVER_RULE))])).toEqual([]);
+    });
+  });
+
+  describe("buildPerRuleCeilingDenyMessage", () => {
+    test("names the rule and its measured size", () => {
+      const msg = buildPerRuleCeilingDenyMessage([{ id: OVER_RULE, size: 15170 }]);
+      expect(msg).toContain(OVER_RULE);
+      expect(msg).toContain("15170");
+    });
+
+    test("offers the split remedy and the same override as the aggregate check", () => {
+      const msg = buildPerRuleCeilingDenyMessage([{ id: OVER_RULE, size: 15170 }]);
+      expect(msg).toContain("SPLIT");
+      expect(msg).toContain(OVERRIDE_ENV_VAR);
+      expect(msg).toContain(JUSTIFICATION_LABEL);
+    });
+
+    test("pluralizes across multiple breaches", () => {
+      const msg = buildPerRuleCeilingDenyMessage([
+        { id: OVER_RULE, size: 15170 },
+        { id: OTHER_OVER_RULE, size: 15004 },
+      ]);
+      expect(msg).toContain("rules past the");
+      expect(msg).toContain(OTHER_OVER_RULE);
+    });
   });
 });

@@ -2,7 +2,8 @@
  * Subagent invocations schema shape and enum tests — mt#1735
  *
  * Verifies that the Drizzle table definition has the expected column names,
- * that the outcome enum has exactly the 6 specified values, and that the SQL
+ * that the outcome enum has exactly the 8 specified values (6 workspace-derived classes, the
+ * mt#1770 `pending` placeholder, and the mt#3894 `no-workspace` value), and that the SQL
  * migration file contains the required DDL.
  *
  * These are pure unit tests — no live DB required.
@@ -11,36 +12,117 @@
 /* eslint-disable custom/no-real-fs-in-tests -- reading shipped migration SQL IS the point of drift checks */
 
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import {
   subagentInvocationsTable,
   subagentInvocationOutcomeEnum,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "./subagent-invocations-schema";
+import type {
+  ObservedSubagentInvocationOutcome,
+  TerminalSubagentInvocationOutcome,
+} from "./subagent-invocations-schema";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
+/** The Postgres enum type name, as written in the migrations. */
+const ENUM_TYPE_NAME = "subagent_invocation_outcome";
+/** A representative TERMINAL outcome, used where the value itself is not what's under test. */
+const A_TERMINAL_OUTCOME = "crashed-no-output";
 
 // ---------------------------------------------------------------------------
 // Outcome enum
 // ---------------------------------------------------------------------------
 
 describe("SubagentInvocationOutcome enum", () => {
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 6 values", () => {
-    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(6);
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 8 values", () => {
+    // 6 workspace-derived classes (mt#1005) + the dispatch-time `pending` placeholder (mt#1770)
+    // + `no-workspace` for a subagent that had no workspace to classify (mt#3894).
+    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(8);
   });
 
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 6 specified outcome values", () => {
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 8 specified outcome values", () => {
     const expected = [
       "completed-with-pr",
       "committed-no-pr",
       "partial-committed-handoff-written",
       "partial-uncommitted-no-handoff",
-      "crashed-no-output",
+      A_TERMINAL_OUTCOME,
       "rate-limited",
+      "pending",
+      "no-workspace",
     ] as string[];
     const actual: string[] = [...SUBAGENT_INVOCATION_OUTCOME_VALUES].sort();
     expect(actual).toEqual(expected.sort());
+  });
+
+  test("`pending` is excluded from TerminalSubagentInvocationOutcome (mt#1770)", () => {
+    // The classifier's return type. A compile-time constraint needs a compile-time assertion:
+    // if `pending` ever became assignable, this stops compiling. Paired with a runtime
+    // assertion so the test still exercises executable behavior (placeholder-test policy).
+    const terminal: TerminalSubagentInvocationOutcome = A_TERMINAL_OUTCOME;
+    // @ts-expect-error — `pending` must NOT be assignable to the terminal (classifier) type.
+    const notTerminal: TerminalSubagentInvocationOutcome = "pending";
+    expect(terminal).toBe(A_TERMINAL_OUTCOME);
+    // Widen for the runtime comparison: `notTerminal` is declared as the
+    // terminal union (the `@ts-expect-error` above is the actual assertion),
+    // so `toBe` would otherwise reject the non-member literal.
+    expect(notTerminal as string).toBe("pending");
+  });
+
+  test("`no-workspace` is excluded from TerminalSubagentInvocationOutcome (mt#3894)", () => {
+    // The workspace classifier must not be able to return it: `no-workspace` is written by the
+    // SubagentStop hook INSTEAD of classifying, so a branch inside `classifyWorkspaceOutcome`
+    // returning it would put the decision in the one place that cannot see whether a workspace
+    // exists. Compile-time constraint, compile-time assertion, plus a runtime pair.
+    // @ts-expect-error — `no-workspace` must NOT be assignable to the workspace-classifier type.
+    const notTerminal: TerminalSubagentInvocationOutcome = "no-workspace";
+    expect(notTerminal as string).toBe("no-workspace");
+    // ...but it IS assignable to what the hook may record.
+    const observed: ObservedSubagentInvocationOutcome = "no-workspace";
+    expect(observed).toBe("no-workspace");
+  });
+
+  test("`no-workspace` is present — the no-workspace-to-classify value (mt#3894)", () => {
+    // Guards the specific member rather than only the count, for the same reason the `pending`
+    // test below does: a swap keeps the length at 8 and would otherwise pass silently.
+    expect([...SUBAGENT_INVOCATION_OUTCOME_VALUES]).toContain("no-workspace");
+  });
+
+  test("`no-workspace` cannot reach an escalation threshold (mt#3894)", () => {
+    // Same source-level assertion as the `pending` test below: the tracker's threshold queries
+    // filter on SPECIFIC workspace-derived outcomes, so a dispatch with no workspace cannot
+    // contribute to a rate-limit or stranded-work escalation. Asserted against the source
+    // rather than trusted from the decision recorded in the tracker's comment.
+    const trackerSrc = readFileSync(
+      join(import.meta.dir, "../../../../../src/mcp/subagent-dispatch-tracker.ts")
+    ).toString();
+    const outcomeFilters = [
+      ...trackerSrc.matchAll(/eq\(\s*subagentInvocationsTable\.outcome,\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(outcomeFilters.length).toBeGreaterThan(0);
+    expect(outcomeFilters).not.toContain("no-workspace");
+  });
+
+  test("`pending` cannot reach an escalation threshold — the doc claim, pinned (PR #2501 R1)", () => {
+    // `subagent-dispatch-cadence.mdc` class 7 says pending must not count toward any escalation
+    // threshold. The tracker enforces that structurally: its threshold queries filter on
+    // SPECIFIC terminal outcomes rather than "not completed", so pending is excluded by
+    // construction. This asserts the doc claim against the source rather than trusting prose.
+    const trackerSrc = readFileSync(
+      join(import.meta.dir, "../../../../../src/mcp/subagent-dispatch-tracker.ts")
+    ).toString();
+    const outcomeFilters = [
+      ...trackerSrc.matchAll(/eq\(\s*subagentInvocationsTable\.outcome,\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(outcomeFilters.length).toBeGreaterThan(0);
+    expect(outcomeFilters).not.toContain("pending");
+  });
+
+  test("`pending` is present — the dispatch-time placeholder (mt#1770)", () => {
+    // Guards the specific member rather than only the count: a future edit that swaps one
+    // value for another keeps the length at 7 and would otherwise pass silently.
+    expect([...SUBAGENT_INVOCATION_OUTCOME_VALUES]).toContain("pending");
   });
 
   test("pgEnum enumValues matches SUBAGENT_INVOCATION_OUTCOME_VALUES", () => {
@@ -216,11 +298,96 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
     expect(sql).toContain("duplicate_object");
   });
 
-  test("migration enum contains all 6 outcome values", () => {
+  test("migration enum contains the 6 ORIGINAL outcome values", () => {
+    // Scoped to the values 0033 actually created. `pending` is deliberately absent here —
+    // Postgres cannot add an enum member retroactively to an already-applied migration, so
+    // mt#1770 added it in its own migration (asserted separately below). Asserting the full
+    // current value list against 0033 would fail every time the enum is extended, which is
+    // what it did when `pending` landed.
+    const ORIGINAL_VALUES = [
+      "completed-with-pr",
+      "committed-no-pr",
+      "partial-committed-handoff-written",
+      "partial-uncommitted-no-handoff",
+      "crashed-no-output",
+      "rate-limited",
+    ];
     const sql = readFileSync(migrationPath).toString();
-    for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
+    for (const value of ORIGINAL_VALUES) {
       expect(sql).toContain(`'${value}'`);
     }
+  });
+
+  test("every enum value is created by SOME migration for THIS enum (mt#1770)", () => {
+    // The real invariant the 0033-scoped test was reaching for: no value can exist in the TS
+    // enum without a migration that adds it to the Postgres type, or a fresh database would
+    // reject the insert at runtime while every unit test passed.
+    //
+    // Two rounds of tightening, both driven by a false pass:
+    //
+    // 1. A repo-wide grep for the quoted value is not a check — `'pending'` also appears in 0060
+    //    as a member of the unrelated `follow_up_status` enum, so that version passed with THIS
+    //    enum's own migration deleted (verified by deleting it).
+    // 2. Scoping to statements that merely NAME the enum is still too loose (PR #2501 R1): it
+    //    proves the value appears somewhere near the name, not that any statement ADDS it. The
+    //    CREATE TABLE in 0033 names the enum as a column type, so an unrelated quoted literal
+    //    sharing a future value's spelling would satisfy it.
+    //
+    // The real invariant: every value is introduced either by the base `CREATE TYPE ... AS ENUM`
+    // or by an `ALTER TYPE ... ADD VALUE`. Anything else means a fresh database would reject the
+    // insert at runtime while every unit test passed.
+    const statements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      // Comment lines cannot introduce a value; drop them so a value merely MENTIONED in a
+      // backout note or rationale never counts as its declaration.
+      .map((stmt) =>
+        stmt
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+      )
+      .filter((stmt) => stmt.includes(ENUM_TYPE_NAME));
+
+    const baseCreate = statements.filter((s) => /CREATE\s+TYPE/i.test(s));
+    const addValues = statements.filter((s) => /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s));
+    expect(baseCreate.length).toBeGreaterThan(0);
+
+    for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
+      const introducedByCreate = baseCreate.some((s) => s.includes(`'${value}'`));
+      const introducedByAlter = addValues.some((s) => s.includes(`'${value}'`));
+      // Reported per-value so a failure names WHICH member has no migration.
+      expect({ value, introduced: introducedByCreate || introducedByAlter }).toEqual({
+        value,
+        introduced: true,
+      });
+    }
+  });
+
+  test("`pending` specifically is introduced by an ALTER TYPE ... ADD VALUE (mt#1770)", () => {
+    // Sharper than the loop above for the member this task adds: it must arrive via ADD VALUE,
+    // not by being retrofitted into the base CREATE TYPE — editing an already-applied migration
+    // would leave every existing database without the value while tests passed.
+    const addValueStatements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      .filter(
+        (s) => s.includes(ENUM_TYPE_NAME) && /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s)
+      );
+    expect(addValueStatements.some((s) => s.includes("'pending'"))).toBe(true);
+  });
+
+  test("`no-workspace` specifically is introduced by an ALTER TYPE ... ADD VALUE (mt#3894)", () => {
+    // Same sharper check for the member mt#3894 adds, and for the same reason: retrofitting it
+    // into the already-applied base CREATE TYPE would leave every existing database without the
+    // value while these tests passed.
+    const addValueStatements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      .filter(
+        (s) => s.includes(ENUM_TYPE_NAME) && /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s)
+      );
+    expect(addValueStatements.some((s) => s.includes("'no-workspace'"))).toBe(true);
   });
 
   test("migration creates index on task_id", () => {

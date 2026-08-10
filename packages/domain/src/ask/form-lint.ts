@@ -43,6 +43,24 @@
  * See `docs/rules-rationale/communication-contract.md §Severity transport
  * binding` for the originating incident (mt#3433 / mem#779).
  *
+ * **Graduation re-evaluated and DECLINED at mt#3595 — the argument for it
+ * does not survive the design that shipped.** mt#3595's spec anticipated
+ * graduating this check to blocking on the reasoning that `forceImmediate`
+ * would come to control TRANSPORT rather than merely windowing, which would
+ * raise the stakes of missing it. That premise is false as built: mt#3595
+ * introduced a SEPARATE `severity` field to drive the notification precisely
+ * so paging would not be a side effect of a scheduling flag the
+ * service-window reaper sets autonomously (mem#268). `forceImmediate` still
+ * means only "do not hold this for the next window", so the stakes of this
+ * check are unchanged and the original calibration-first rationale stands.
+ *
+ * The check that WOULD carry transport stakes is a severity-aware successor —
+ * incident vocabulary present, `severity` absent. It is deliberately not
+ * added here: it would have zero calibration history on day one, and the
+ * ladder that governs this family (ADR-024, and the five mt#3326 checks'
+ * own history) says a new check earns a blocking leg from measured fires,
+ * not from an author's confidence at authoring time.
+ *
  * **A seventh check, blocking from the start (mt#3477).**
  * `missing-decision-options` fires when a decision-shaped ask
  * (`direction.decide`) is created with no options — absent array or empty
@@ -75,6 +93,7 @@ import {
   hasRedundantOptionLetterPrefix,
   isOverOptionLabelBudget,
 } from "@minsky/shared/ask-option-label";
+import { linkifyExternalRefs } from "./external-refs";
 import type { AskKind } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -196,7 +215,8 @@ export type FormLintCheck =
   | "long-option-label"
   | "letter-prefixed-option-label"
   | "missing-force-immediate"
-  | "missing-decision-options";
+  | "missing-decision-options"
+  | "unlinkified-reference";
 
 /** A single fired check, with its human-readable warning message. */
 export interface FormLintMatch {
@@ -355,10 +375,11 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
       check: "missing-force-immediate",
       message:
         "question reads like an operator-only incident but forceImmediate is not set — " +
-        "severity events should page the principal (communication-contract.mdc §Severity " +
-        "pierces the register); pass forceImmediate: true and send a principal_notify " +
-        "pointing at this ask, unless the principal is already actively responding " +
-        "in-conversation",
+        "pass forceImmediate: true so it is not held for the next service window, and " +
+        'severity: "incident" so the substrate notifies the principal once (mt#3595). ' +
+        "Do NOT also send a separate principal_notify — the ask carries its own " +
+        "notification now. Skip both only when the principal is already actively " +
+        "responding in-conversation (communication-contract.mdc §Severity transport binding)",
     });
   }
 
@@ -373,6 +394,24 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         "CLI; supply an options array with one entry per choice, rather than " +
         "writing the choices as [a]/[b]/[c] prose in the question body " +
         "(humility.mdc Escalation packaging, Form rule 6: options are the buttons)",
+    });
+  }
+
+  // mt#2918: an external artifact the reader needs, cited in a form they
+  // cannot click. Reports only that the reference could not be linkified —
+  // never that a destination was checked; see `external-refs.ts` for why no
+  // probe runs here. Advisory by construction: it is on
+  // `filterBlockingFormLintMatches`'s exclusion list at the asks.create
+  // boundary, so an unlinkifiable citation warns and still creates.
+  const { unlinkified } = linkifyExternalRefs(question);
+  if (unlinkified.length > 0) {
+    matches.push({
+      check: "unlinkified-reference",
+      message:
+        `${unlinkified.length} artifact reference(s) could not be turned into a link ` +
+        `(${unlinkified.join("; ")}) — the reader cannot open them from the ask. ` +
+        `Supply the full URL. Note this says the reference was not linkified, not ` +
+        `that a destination was checked: nothing here probes reachability`,
     });
   }
 

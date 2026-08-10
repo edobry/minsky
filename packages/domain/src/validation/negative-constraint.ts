@@ -36,11 +36,17 @@
  *
  * ## Scope of the claim this module makes
  *
- * It detects the SHAPE of a bare prohibition — a prohibition phrase without a nearby basis, or
- * without any licence-to-falsify anywhere in the prompt. It cannot judge whether a stated basis
- * is TRUE or whether a prohibition is warranted; those are not mechanically checkable. The
- * design bet is that requiring the shape is cheap and that the shape is what makes a wrong
- * negative conclusion recoverable.
+ * It detects the SHAPE of a bare prohibition — a prohibition phrase without a nearby basis. It
+ * cannot judge whether a stated basis is TRUE or whether a prohibition is warranted; those are
+ * not mechanically checkable. The design bet is that requiring the shape is cheap and that the
+ * shape is what makes a wrong negative conclusion recoverable.
+ *
+ * **The module encodes HALF the asymmetry above, deliberately (mt#3167).** A missing
+ * licence-to-falsify used to qualify a prohibition as bare on its own; calibration measured that
+ * category at 8/8 false positives and the principal retired it from the fire path. The POLICY —
+ * state the basis AND grant the licence — is unchanged and is still what
+ * {@link buildBareProhibitionMessage} asks callers for; only the mechanical verdict narrowed.
+ * {@link NegativeConstraintReport.bare} carries the full reasoning.
  *
  * @see mt#3162 — this task
  * @see mem#702 (`e437d993`) — the originating incident + the asymmetry
@@ -192,9 +198,20 @@ export interface NegativeConstraintReport {
   /** True when any licence-to-falsify marker appears anywhere in the text. */
   hasLicenceToFalsify: boolean;
   /**
-   * Prohibitions that are BARE — missing a nearby basis, or present in a prompt that grants no
-   * licence to falsify anywhere. Either omission alone makes the prohibition unrecoverable by
-   * the recipient, so either alone qualifies.
+   * Prohibitions that are BARE — missing a nearby basis.
+   *
+   * **Narrowed 2026-08-08 (mt#3167).** v1 also counted a prohibition as bare when the prompt
+   * granted no {@link LICENCE_PATTERNS} marker anywhere, on the theory that either omission alone
+   * makes a prohibition unrecoverable. Eleven days of calibration measured that category at
+   * **8/8 false positives** — every match was a scope decision ("those are mt#3330's
+   * deliverables"), a fan-out role constraint ("do not attempt to answer the question yourself"),
+   * or guard-backed policy ("do not try to work around the secret-file-read guard"), where
+   * licensing the recipient to falsify the instruction would be wrong rather than diligent. The
+   * requirement is sound for EMPIRICAL capability claims — mem#702's shape — and over-applies to
+   * everything else, which is what real dispatch prose overwhelmingly contains.
+   *
+   * {@link NegativeConstraintReport.hasLicenceToFalsify} is still computed and still recorded in
+   * the calibration log; it is retired from the FIRE path, not from the measurement.
    */
   bare: ProhibitionFinding[];
 }
@@ -241,7 +258,8 @@ export function analyzeNegativeConstraints(
   }
 
   findings.sort((a, b) => a.index - b.index);
-  const bare = findings.filter((f) => !f.hasBasis || !hasLicenceToFalsify);
+  // Basis only — see NegativeConstraintReport.bare for why the licence disjunct was retired.
+  const bare = findings.filter((f) => !f.hasBasis);
 
   return { findings, hasLicenceToFalsify, bare };
 }
@@ -255,16 +273,10 @@ export const BARE_PROHIBITION_PREFIX = "Bare prohibition in dispatch prompt (mt#
  * that gets worked around.
  */
 export function buildBareProhibitionMessage(report: NegativeConstraintReport): string {
+  // Every bare finding is bare for exactly one reason since mt#3167 retired the licence disjunct.
   const listed = report.bare
     .slice(0, 5)
-    .map((f) => {
-      const missing = !f.hasBasis
-        ? report.hasLicenceToFalsify
-          ? "no basis stated"
-          : "no basis stated, and no licence to falsify anywhere in the prompt"
-        : "no licence to falsify anywhere in the prompt";
-      return `  - "${f.phrase}" (${missing}) ... ${f.excerpt}`;
-    })
+    .map((f) => `  - "${f.phrase}" (no basis stated) ... ${f.excerpt}`)
     .join("\n");
 
   return [

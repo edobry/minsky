@@ -106,6 +106,35 @@ export const STALE_ESCALATION_WINDOW_MS = 60 * 60 * 1000;
 
 export type GuardEscalation = "none" | "attention" | "critical";
 
+/**
+ * mt#3892 — a guard's OBSERVED state, which `escalation` alone cannot express.
+ * MUST stay in sync with .minsky/hooks/guard-health.ts, which carries the full
+ * rationale; the short version is that `escalation` answers "how bad were the
+ * failures?" and this answers "is it still broken?".
+ *
+ * - `"failing"`   — failures recorded, and NO clean run since the last one.
+ * - `"recovered"` — failures recorded, but the guard has decided cleanly since.
+ * - `"dormant"`   — no clean-run evidence; nothing says it ran. Also the answer
+ *                   when the only fire-log records predate the `guardOutcome`
+ *                   marker, since those cannot distinguish a clean decision
+ *                   from a crashed fail-open.
+ */
+export type GuardLiveness = "failing" | "recovered" | "dormant";
+
+/**
+ * mt#3892 — minimal projection of a fire-log record: which guard ran cleanly,
+ * and when. Only `guardOutcome: "decided"` records belong here.
+ *
+ * This module cannot import `.minsky/hooks/fire-log.ts` (the hooks tree is
+ * outside the root tsconfig's program, the same constraint that makes this
+ * whole module a hand-synced duplicate), so it inlines its own reader below and
+ * feeds the identical computation.
+ */
+export interface GuardInvocation {
+  guardName: string;
+  timestamp: string;
+}
+
 export interface GuardHealthEntry {
   failureCount24h: number;
   failureCount7d: number;
@@ -119,8 +148,25 @@ export interface GuardHealthEntry {
    * True when `escalation` is non-"none" but the most recent failure is older
    * than STALE_ESCALATION_WINDOW_MS — likely recovered/dormant, not active.
    * Optional (always set by computeGuardHealthSummary). mt#2969.
+   *
+   * SUPERSEDED IN PRACTICE by `liveness` (mt#3892), which separates the two
+   * cases this boolean conflates. Kept for existing consumers.
    */
   stale?: boolean;
+  /**
+   * mt#3892 — the observed state; see {@link GuardLiveness}. Optional so
+   * hand-built entries stay valid, but always set by
+   * computeGuardHealthSummary. This is the field an acceptance test can name:
+   * it reads `"recovered"` as soon as a guard starts working, with no window
+   * to wait out.
+   */
+  liveness?: GuardLiveness;
+  /**
+   * mt#3892 — timestamp of the most recent run in which this guard REACHED a
+   * decision, or null when no such evidence exists. Null means "nothing proves
+   * a clean run", NOT "never ran".
+   */
+  lastCleanRunAt?: string | null;
 }
 
 export interface GuardHealthSummary {
@@ -139,11 +185,25 @@ function guardEscalationFor(streak: number): GuardEscalation {
 /** Pure aggregation — given events + "now", compute the summary. Exported for direct unit testing. */
 export function computeGuardHealthSummary(
   events: readonly GuardHealthEvent[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  invocations: readonly GuardInvocation[] = []
 ): GuardHealthSummary {
   const nowMs = now.getTime();
   const cutoff24h = nowMs - 24 * 60 * 60 * 1000;
   const cutoff7d = nowMs - 7 * 24 * 60 * 60 * 1000;
+
+  // mt#3892: latest CLEAN run per guard — see .minsky/hooks/guard-health.ts's
+  // matching computation (kept in sync manually). Callers pass only
+  // `guardOutcome: "decided"` records, so an entry here is evidence the guard
+  // reached a decision, never evidence that it crashed and its fail-open
+  // outcome got logged.
+  const lastCleanRunMsByGuard = new Map<string, number>();
+  for (const inv of invocations) {
+    const ms = new Date(inv.timestamp).getTime();
+    if (Number.isNaN(ms)) continue;
+    const prev = lastCleanRunMsByGuard.get(inv.guardName);
+    if (prev === undefined || ms > prev) lastCleanRunMsByGuard.set(inv.guardName, ms);
+  }
 
   const byGuardEvents = new Map<string, GuardHealthEvent[]>();
   for (const ev of events) {
@@ -191,6 +251,19 @@ export function computeGuardHealthSummary(
       streak = 0;
     }
 
+    // mt#3892: the streak also resets on EVIDENCE OF RECOVERY, not only by
+    // waiting out the age-out above — see .minsky/hooks/guard-health.ts's
+    // matching computation (kept in sync manually).
+    const lastFailureMs = lastEvent ? new Date(lastEvent.timestamp).getTime() : null;
+    const lastCleanRunMs = lastCleanRunMsByGuard.get(guardName) ?? null;
+    const liveness: GuardLiveness =
+      lastCleanRunMs === null
+        ? "dormant"
+        : lastFailureMs === null || lastCleanRunMs > lastFailureMs
+          ? "recovered"
+          : "failing";
+    if (liveness === "recovered") streak = 0;
+
     const escalation = guardEscalationFor(streak);
 
     // mt#2969: stale-escalation flag — see .minsky/hooks/guard-health.ts's
@@ -209,6 +282,8 @@ export function computeGuardHealthSummary(
       escalation,
       lastFailureAgeMs,
       stale,
+      liveness,
+      lastCleanRunAt: lastCleanRunMs === null ? null : new Date(lastCleanRunMs).toISOString(),
     };
 
     if (escalation === "critical") criticalGuards.push(guardName);
@@ -248,6 +323,57 @@ function getStateDir(): string {
 /** Path to the persistent guard-health event log. */
 function getLogPath(): string {
   return path.join(getStateDir(), "guard-health-log.jsonl");
+}
+
+/**
+ * mt#3892 — path to the fire-log, the SIBLING store holding the clean-run
+ * (success) half. Same state dir, same filename convention as
+ * `.minsky/hooks/fire-log.ts`'s `getFireLogPath`, resolved independently here
+ * for the same reason the rest of this module is duplicated: the hooks tree is
+ * outside this program.
+ */
+function getFireLogPath(): string {
+  return path.join(getStateDir(), "fire-log.jsonl");
+}
+
+/**
+ * mt#3892 — read the fire-log and project its CLEAN runs.
+ *
+ * The `guardOutcome === "decided"` filter is the whole point, not a detail: a
+ * `"crashed"` record is the fail-open outcome of a guard that did NOT work, and
+ * a legacy record with no marker cannot be told apart from one. Counting either
+ * would let a continuously crashing guard report itself recovered.
+ *
+ * Fail-safe by construction — any read or parse problem yields `[]`, which
+ * renders every guard `dormant` rather than falsely `recovered`.
+ */
+function readCleanGuardInvocations(): GuardInvocation[] {
+  try {
+    const logPath = getFireLogPath();
+    if (!fs.existsSync(logPath)) return [];
+    const raw = fs.readFileSync(logPath, { encoding: "utf-8" }) as string;
+    const invocations: GuardInvocation[] = [];
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (!parsed || typeof parsed !== "object") continue;
+        const r = parsed as Record<string, unknown>;
+        if (r.guardOutcome !== "decided") continue;
+        if (typeof r.guardName !== "string" || typeof r.timestamp !== "string") continue;
+        invocations.push({ guardName: r.guardName, timestamp: r.timestamp });
+      } catch {
+        // Skip malformed line — same posture as readEvents below.
+      }
+    }
+    return invocations;
+  } catch (err) {
+    log.debug("guard_health_tracker: failed to read fire-log (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
 }
 
 /**
@@ -330,7 +456,12 @@ export class GuardHealthTracker {
   getSummary(now: Date = new Date()): GuardHealthSummary {
     try {
       const events = this.readEvents();
-      return computeGuardHealthSummary(events, now);
+      // mt#3892: the clean-run half lives in the fire-log, a separate store.
+      // Reading it here rather than writing successes into the guard-health log
+      // follows ADR-032 §Context (which classifies `fire-log.jsonl` as the
+      // record of decision outcomes) and D3's warning that a second parallel
+      // path forks the corpus's interpretation.
+      return computeGuardHealthSummary(events, now, readCleanGuardInvocations());
     } catch (err) {
       log.warn("guard_health_tracker: getSummary failed, returning zero-filled default", {
         error: err instanceof Error ? err.message : String(err),

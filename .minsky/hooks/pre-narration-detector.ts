@@ -44,7 +44,7 @@
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
+  resolveParentTranscriptLinesForPath,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
@@ -53,6 +53,13 @@ import {
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+  MATCH_CONTEXT_MAX_CHARS,
+} from "./judged-input-capture";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -72,10 +79,17 @@ const CALIBRATION_LOG = ".minsky/pre-narration-calibration.jsonl";
  * the mt#2255 discrimination — tool_result lines do not split turns). When a
  * completion-shaped claim has no backing tool call in the SAME turn, the
  * detector scans this many trailing turns for the category's requiredTools;
- * a hit suppresses the fire entirely (no injection, no calibration record —
- * suppressed fires are the legitimate-back-reference FP class confirmed in
- * the 2026-07-08 calibration review, and logging them would keep polluting
- * FP math, same principle as mt#2670's exception-only logging).
+ * a hit suppresses the INJECTION (the legitimate-back-reference FP class
+ * confirmed in the 2026-07-08 calibration review).
+ *
+ * mt#3207 reverses the "no calibration record" half of that disposition. It
+ * was chosen because logging a suppressed fire "would keep polluting FP math"
+ * — true when every record counted equally, which is no longer the case:
+ * mt#3197 made `suppressionReasons` part of the shared record contract and
+ * keys the review thresholds off `injectedFiresSinceLastReview`, so a
+ * suppressed record is excluded from the FP math BY CONSTRUCTION. Not logging
+ * it now costs what it used to buy: the gate's own fire rate is unmeasurable,
+ * and a suppressed detection is indistinguishable from no detection at all.
  *
  * Why 12: the observed FP range is a verdict fetched 1-10 turns before the
  * back-reference (disposition analysis on ask 0147caa5), plus 2 boundary
@@ -187,6 +201,43 @@ export interface ClaimMatch {
   category: string;
   matchedPhrase: string;
   expectedTool: string;
+  /**
+   * The sentence or clause containing `matchedPhrase` (mt#3198).
+   *
+   * SEPARATE from `matchedPhrase` on purpose. `matchedPhrase` is the diversity
+   * axis the calibration sweep keys on — `extractDistinctPhrases` in
+   * `src/domain/calibration/calibration-sweep.ts` derives `matchedPhrases`
+   * from `matches[].phrase`, so widening THAT field would make every record a
+   * distinct "phrase" (sentences are near-unique) and silently destroy the
+   * distinct-count that drives the review-due threshold.
+   */
+  context: string;
+}
+
+/**
+ * Reason strings for this detector's suppression gate (mt#3207).
+ *
+ * The gate is one condition — the category's `requiredTools` appear — but it
+ * has two sources with different FP profiles, so they get different reasons:
+ * a same-turn tool call is proof the claim was backed as it was written, while
+ * a trailing-window hit (mt#2671) is the weaker back-reference inference. A
+ * calibration reviewer needs to tell them apart from the record alone.
+ */
+export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
+export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
+
+/** A claim that matched its category's patterns but was backed by a real tool call. */
+export interface SuppressedClaimMatch extends ClaimMatch {
+  /** One of the SUPPRESSION_* reason strings above. */
+  reason: string;
+}
+
+/** Both halves of one detection pass: what fired, and what a gate swallowed. */
+export interface PreNarrationDetection {
+  /** Unbacked claims — these inject. */
+  matches: ClaimMatch[];
+  /** Backed claims — detected, then suppressed. Recorded, never injected. */
+  suppressed: SuppressedClaimMatch[];
 }
 
 /**
@@ -205,6 +256,29 @@ export function elideMarkdownContexts(text: string): string {
   result = result.replace(/^[ \t]{0,3}>+.*$/gm, (m) => " ".repeat(m.length));
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Match context capture (mt#3198)
+// ---------------------------------------------------------------------------
+
+/**
+ * The context-capture implementation moved to the shared
+ * `./judged-input-capture` module (mt#3607) and is re-exported here, so this
+ * detector's public API and tests are unchanged — the same move `elision.ts`
+ * (mt#2672) made for the elision helpers. Values and behavior are identical;
+ * the other turn-text detectors now REUSE this implementation instead of
+ * growing a second copy of it.
+ */
+export { extractMatchContext, MATCH_CONTEXT_MAX_CHARS };
+
+/**
+ * Cap on the matched phrase itself, in UTF-16 code units. Pre-existing bound
+ * (it shipped with the detector as a bare `.slice(0, 200)`); named here, and
+ * routed through `safeTruncate`, so a match ending on an emoji cannot leave a
+ * lone surrogate in the JSONL — `JSON.stringify` emits it and the re-parse a
+ * calibration sweep does then rejects the line (mt#1598).
+ */
+export const MATCHED_PHRASE_MAX_CHARS = 200;
 
 // ---------------------------------------------------------------------------
 // Detection (pure, exported for testing)
@@ -260,32 +334,118 @@ export function detectPreNarration(
   turnLines: TranscriptLine[],
   windowToolNames?: ReadonlySet<string>
 ): ClaimMatch[] {
+  return detectPreNarrationWithSuppression(turnLines, windowToolNames).matches;
+}
+
+/**
+ * The same pass as `detectPreNarration`, keeping BOTH halves (mt#3207).
+ *
+ * The pattern scan now runs BEFORE the backed-by-tool check rather than after
+ * it. Previously a backed category was `continue`d before its patterns were
+ * ever tested, so a suppressed claim and a turn that made no claim at all
+ * produced identical output — nothing. Running the patterns first costs one
+ * regex pass per backed category and is what makes the gate measurable.
+ */
+export function detectPreNarrationWithSuppression(
+  turnLines: TranscriptLine[],
+  windowToolNames?: ReadonlySet<string>
+): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
-  if (!rawText) return [];
+  if (!rawText) return { matches: [], suppressed: [] };
 
   const text = elideMarkdownContexts(rawText);
   const toolNames = new Set(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];
+  const suppressed: SuppressedClaimMatch[] = [];
   for (const category of OUTCOME_CATEGORIES) {
-    const hasRequiredTool = category.requiredTools.some(
-      (t) => toolNames.has(t) || (windowToolNames?.has(t) ?? false)
-    );
-    if (hasRequiredTool) continue; // claim was backed by a real tool call (this turn or in-window)
-
+    let matched: ClaimMatch | undefined;
     for (const pattern of category.patterns) {
       const m = pattern.exec(text);
       if (m) {
-        matches.push({
+        matched = {
           category: category.key,
-          matchedPhrase: m[0].slice(0, 200),
+          matchedPhrase: safeTruncate(m[0], MATCHED_PHRASE_MAX_CHARS, "head"),
           expectedTool: category.expectedTool,
-        });
+          // `text` is the ELIDED text the match ran against — see
+          // extractMatchContext's contract for why that matters.
+          context: extractMatchContext(text, m.index, m[0].length),
+        };
         break; // one match per category is enough
       }
     }
+    if (!matched) continue;
+
+    // Backed by a real tool call — this turn, or in the trailing window
+    // (mt#2671). Same-turn wins when both hold: it is the stronger evidence.
+    const sameTurn = category.requiredTools.some((t) => toolNames.has(t));
+    const inWindow = category.requiredTools.some((t) => windowToolNames?.has(t) ?? false);
+    if (sameTurn || inWindow) {
+      suppressed.push({
+        ...matched,
+        reason: sameTurn ? SUPPRESSION_SAME_TURN_TOOL_CALL : SUPPRESSION_WINDOW_TOOL_CALL,
+      });
+      continue;
+    }
+    matches.push(matched);
   }
-  return matches;
+  return { matches, suppressed };
+}
+
+/**
+ * One calibration record for a detection pass (mt#3207).
+ *
+ * `matches` carries BOTH halves so a suppressed fire stays classifiable —
+ * `hadMatchingTool` (already in the shape, previously hard-coded `false`) is
+ * now the per-claim discriminator. Top-level `suppressionReasons` is the
+ * shared contract `isSuppressedRecord` reads: populated only when the pass
+ * injected NOTHING, because a record with even one live match is a fire the
+ * operator saw and must count as injected.
+ *
+ * `context` (mt#3198) is what makes a record classifiable by a HUMAN rather
+ * than only by the machine. `hadMatchingTool` answers "was a backing tool call
+ * present"; it cannot answer "was this a claim at all". The bare phrase
+ * `merged PR` is equally consistent with pre-narration ("I merged the PR") and
+ * with ordinary retrospective reference ("the merged PR touches X") — the
+ * dominant false-positive shape in this log, and indistinguishable without the
+ * surrounding sentence. Added as a NEW key; `phrase` keeps its exact prior
+ * meaning because the calibration sweep's diversity axis is keyed on it.
+ */
+export function buildPreNarrationRecord(
+  sessionId: string | undefined,
+  detection: PreNarrationDetection
+): Record<string, unknown> {
+  const suppressionReasons =
+    detection.matches.length === 0
+      ? [...new Set(detection.suppressed.map((s) => s.reason))].sort()
+      : [];
+  return {
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    // mt#3607: this surface has captured its judged input since mt#3198; the
+    // marker says so explicitly, so a corpus-wide auditability check reads the
+    // same field everywhere instead of special-casing the surfaces that shipped
+    // capture before the marker existed.
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    matches: [
+      ...detection.matches.map((m) => ({
+        category: m.category,
+        phrase: m.matchedPhrase,
+        context: m.context,
+        expectedTool: m.expectedTool,
+        hadMatchingTool: false,
+      })),
+      ...detection.suppressed.map((m) => ({
+        category: m.category,
+        phrase: m.matchedPhrase,
+        context: m.context,
+        expectedTool: m.expectedTool,
+        hadMatchingTool: true,
+        suppressionReason: m.reason,
+      })),
+    ],
+    suppressionReasons,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +473,18 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Reminder builder
 // ---------------------------------------------------------------------------
 
+/**
+ * Advisory-text provenance, kept here rather than in the injection per
+ * `.minsky/rules/guard-feedback-authoring.mdc` (mt#3485): the detector is
+ * mt#2197 and the anti-pattern it targets is memory `30f5d164` — narrating a
+ * result (PR created, review approved, merged, build clean, HTTP 200) before
+ * the result is in hand.
+ *
+ * The claim taxonomy that used to be enumerated inline lives in
+ * `CLAIM_PATTERNS` above, which is both the authority and the source of the
+ * matched-claim evidence lines — restating it in the injection told the agent
+ * nothing the evidence lines did not already say more precisely.
+ */
 function buildReminder(matches: ClaimMatch[]): string {
   const lines = matches
     .map(
@@ -322,24 +494,18 @@ function buildReminder(matches: ClaimMatch[]): string {
     .join("\n");
 
   return [
-    "**Possible pre-narrated / fabricated tool outcome (mt#2197 / pre-narration-detector.ts)**",
-    "",
-    "The previous assistant turn asserted a concrete tool outcome, but no matching",
-    "tool call for that outcome appears in the same turn. This is the anti-pattern",
-    "in memory 30f5d164: narrating a result (PR created, review approved, merged,",
-    "build clean, HTTP 200) before the result is in hand.",
+    "[pre-narration-detector] The previous turn asserted a tool outcome with no",
+    "matching tool call in the same turn.",
     "",
     "**Matched claims:**",
     lines,
     "",
-    "**Required next action:** before restating any of these outcomes, run the",
-    "minting tool and READ its real result this turn. Never state an outcome",
-    "(created / approved / merged / built clean / tests pass / HTTP status) in chat",
-    "OR in durable artifacts before the tool result is in hand. If the outcome did",
-    "occur in an earlier turn, cite the tool result you are relying on.",
+    "Run the minting tool and READ its real result this turn before restating the",
+    "outcome — in chat or in a durable artifact. If it did occur in an earlier turn,",
+    "cite the tool result you are relying on.",
     "",
-    "If the claim was legitimate — the tool ran in an earlier turn, or the phrase",
-    "was a quote or an example — no action is needed.",
+    "If the claim was legitimate — the tool ran earlier, or the phrase was a quote",
+    "or an example — no action is needed.",
   ].join("\n");
 }
 
@@ -374,14 +540,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
-  let matches: ClaimMatch[];
+  let detection: PreNarrationDetection;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    matches = detectPreNarration(turnLines, windowToolNames);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -389,21 +555,17 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     return null;
   }
 
-  if (matches.length === 0) return null;
+  // mt#3207: a pass with ONLY suppressed claims still records — that is the
+  // gap this task closes. Nothing detected at all still stays silent.
+  if (detection.matches.length === 0 && detection.suppressed.length === 0) return null;
 
-  return {
-    calibration: {
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      matches: matches.map((m) => ({
-        category: m.category,
-        phrase: m.matchedPhrase,
-        expectedTool: m.expectedTool,
-        hadMatchingTool: false,
-      })),
-    },
-    additionalContext: buildReminder(matches),
+  const outcome: GuardOutcome = {
+    calibration: buildPreNarrationRecord(input.session_id, detection),
   };
+  if (detection.matches.length > 0) {
+    outcome.additionalContext = buildReminder(detection.matches);
+  }
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,7 +606,7 @@ export async function main(): Promise<void> {
 
   let lines: TranscriptLine[];
   try {
-    lines = parseTranscript(transcriptPath);
+    lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`
@@ -456,7 +618,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  let matches: ClaimMatch[];
+  let detection: PreNarrationDetection;
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) {
@@ -465,7 +627,7 @@ export async function main(): Promise<void> {
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
     // tool calls so legitimate back-references don't fire.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    matches = detectPreNarration(turnLines, windowToolNames);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -473,22 +635,18 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (matches.length === 0) {
+  if (detection.matches.length === 0 && detection.suppressed.length === 0) {
     process.exit(0);
   }
 
-  appendCalibrationRecord(input.cwd, {
-    timestamp: new Date().toISOString(),
-    session_id: input.session_id,
-    matches: matches.map((m) => ({
-      category: m.category,
-      phrase: m.matchedPhrase,
-      expectedTool: m.expectedTool,
-      hadMatchingTool: false,
-    })),
-  });
+  appendCalibrationRecord(input.cwd, buildPreNarrationRecord(input.session_id, detection));
 
-  const reminder = buildReminder(matches);
+  // mt#3207: suppressed-only passes record but never inject (mirrors `run()`).
+  if (detection.matches.length === 0) {
+    process.exit(0);
+  }
+
+  const reminder = buildReminder(detection.matches);
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",

@@ -11,6 +11,16 @@ on:
   # explicitly; without it, this dispatches against `main`. mt#1469.
   workflow_dispatch:
 
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,7 +30,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
@@ -31,7 +41,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a RUNTIME dependency of session.grep_search (mt#3163), which
       # spawns `rg` directly — it is not a test-only convenience. ubuntu-latest
@@ -52,6 +62,14 @@ jobs:
       # (mt#2424) — the cockpit frontend has its own dedicated typecheck project since
       # the root tsconfig excludes it (browser-only lib/DOM settings) and `vite build`
       # transpiles it without type-checking.
+      # mt#3476: the injected skill listing is charged against a shared cumulative
+      # budget, and going over it silently drops descriptions — a skill listed
+      # name-only cannot be routed to. Fails on an OWNED description over the cap or
+      # on the listing total; vendored descriptions are reported, not gated (their
+      # text is upstream-owned and reverts on refetch, per ADR-015).
+      - name: Skill listing description budget
+        run: bun run skills:budget:check
+
       - name: Type check
         run: bun run typecheck
 
@@ -61,6 +79,26 @@ jobs:
       - name: Type check (scripts)
         run: bun run typecheck:scripts
 
+      # mt#3102: `packages/**` test files were in NO tsconfig program — the root
+      # `include` omits `packages`, and package SOURCE only entered a program via
+      # import reachability from `src/` (which never reaches a test file, nor a
+      # source file exported only through a barrel). A compile-time assertion
+      # written there was therefore inert. `if: always()` mirrors the reviewer
+      # steps so the gate holds regardless of earlier-step failures.
+      - name: Type check (packages)
+        if: ${{ always() }}
+        run: bun run typecheck:packages
+
+      # mt#3780: the steps above each run ONE project; nothing asserted the set
+      # of projects is COMPLETE. Four trees had been found checked-by-nothing
+      # (mt#3082/mt#3088, mt#2900, mt#3498, mt#3102), three of them only because
+      # someone hand-ran a negative control. This step fails when a tracked
+      # .ts/.tsx file is claimed by no project CI runs and is not explicitly
+      # allowlisted with a reason.
+      - name: Typecheck coverage invariant
+        if: ${{ always() }}
+        run: bun run check:typecheck-coverage
+
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.
@@ -68,8 +106,22 @@ jobs:
         if: ${{ always() }}
         working-directory: services/reviewer
         run: |
-          bun install --frozen-lockfile --no-progress
+          for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
           bun run typecheck
+
+      # mt#3817: services/site shipped a tsconfig but no `typecheck` script and
+      # no CI step, so five .ts files (astro.config, the Bun static server and
+      # its logger, the og-cover tool) were checked by nothing. `astro check`
+      # rather than `tsgo -p` because Astro's docs are explicit that `tsc`
+      # "ignores .astro files entirely" while `astro check` checks both .astro
+      # and .ts (https://docs.astro.build/en/guides/typescript/); it also runs
+      # its own content sync, so no separate `astro sync` step is needed.
+      # No install step: services/site is a root workspace, so the root
+      # `bun install` above already hoisted its deps.
+      - name: Type check (services/site)
+        if: ${{ always() }}
+        working-directory: services/site
+        run: bun run typecheck
 
       # Run the reviewer unit suite (mt#2367). It lives in
       # services/reviewer/src/*.test.ts and ran nowhere else in CI before this
@@ -81,7 +133,7 @@ jobs:
       - name: Test (services/reviewer)
         if: ${{ always() }}
         run: |
-          bun install --cwd services/reviewer --frozen-lockfile --no-progress
+          for i in 1 2 3; do if bun install --cwd services/reviewer --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
           bun run test:reviewer
 
       # Reviewer-image module-resolution smoke (mt#2453): replicates the
@@ -205,6 +257,64 @@ jobs:
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
 
+  # Infra typecheck leg (mt#3817). `infra/index.ts` is the Pulumi program and was
+  # checked by nothing: infra ships a tsconfig but declares no `typecheck` script
+  # and had no CI step, and it cannot fold into a root project because it is NOT
+  # an npm workspace (root `workspaces` is packages/* + services/*), its
+  # node_modules/ and generated sdks/ are gitignored, and index.ts imports
+  # @pulumi/pulumi plus the local @pulumi/railway SDK that `pulumi install`
+  # regenerates from Pulumi.yaml's `packages:` block.
+  #
+  # Separate job (not a step in `build`) so the Pulumi CLI install + `pulumi
+  # install` run in parallel rather than serializing onto the critical path.
+  # The install sequence mirrors infra-preview.yml, which has been running it
+  # since mt#2738; PULUMI_ACCESS_TOKEN is the same already-provisioned secret.
+  #
+  # It must live in ci.yml specifically: scripts/typecheck-coverage.ts resolves
+  # the set of projects CI runs by reading THIS file only, so the same step in
+  # the path-filtered infra-preview.yml would be real coverage the invariant
+  # could not see.
+  typecheck-infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun install (shared root + services/reviewer)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+
+      # Regenerates the gitignored Railway terraform-bridge provider SDK and
+      # installs infra's npm deps — without them, @pulumi/* does not resolve.
+      - name: Install infra dependencies + provider SDK
+        working-directory: infra
+        run: pulumi install
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Type check (infra)
+        run: bun run typecheck:infra
+
   # Forced-TZ leg (mt#3299, gate 5 of the mt#3295 corpus-derived gate wave).
   # Runs the main unit suite + hooks suite under a non-UTC, non-US timezone to
   # catch tests whose assertions implicitly assume UTC or the author's local
@@ -226,7 +336,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
@@ -237,7 +347,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a runtime dependency of session.grep_search (mt#3163); see
       # the identical step in the `build` job above for rationale.

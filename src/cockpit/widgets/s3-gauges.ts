@@ -30,6 +30,7 @@ import { promises as fsPromises, existsSync } from "fs";
 import * as path from "path";
 import * as os from "os";
 import { getSharedPersistenceService } from "../shared-persistence";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Payload shape — mirrored by useS3Gauges.ts on the frontend.
@@ -235,8 +236,7 @@ export const s3GaugesWidget: WidgetModule = {
 
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `s3-gauges error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("s3-gauges", err) };
     }
   },
 };

@@ -34,10 +34,26 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+// Static (not dynamic) per `no-dynamic-imports`: this module is types + a pure
+// string builder, so it carries none of the weight that keeps PersistenceService
+// behind the dynamic import in getCachedPersistenceProvider below.
+import {
+  describePersistenceUnavailability,
+  PersistenceUnavailableError,
+} from "@minsky/domain/persistence/unconfigured-provider";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
 import { log } from "@minsky/shared/logger";
+// Static import is safe here (shared-persistence pulls in only types + the
+// logger); the heavyweight PersistenceService itself stays behind the dynamic
+// import in getCachedPersistenceProvider below.
+import {
+  getPersistenceEpoch,
+  getDbStatus,
+  PersistenceInitTimeoutError,
+  type DbStatus,
+} from "./shared-persistence";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -56,6 +72,198 @@ export async function getCachedPersistenceProvider() {
   const { getSharedPersistenceService } = await import("./shared-persistence");
   const svc = await getSharedPersistenceService();
   return svc.getProvider();
+}
+
+/**
+ * Describe WHY a DB-backed cockpit route cannot serve this request (mt#3661).
+ *
+ * Every such route already fails LOUDLY — a 503, never a plausible-looking empty
+ * result — so this is message quality, not correctness. What the bare
+ * "provider does not support SQL" text costs is the OPERATOR'S NEXT MOVE:
+ * ADR-035 rule 3 requires "configured but failing" to stay distinguishable from
+ * "not configured", because the first is an outage to wait out and the second is
+ * a config to fix. Both produce identical capability flags, so a route that
+ * reports only the flag has erased the distinction the provider still holds.
+ *
+ * Lives here rather than at each route because `getCachedPersistenceProvider`
+ * is already the cockpit's single provider access point — the alternative was
+ * repeating a provider-fetch + describe + fallback dance at ~10 call sites.
+ *
+ * NEVER throws: a diagnosis step that fails must not replace the failure it was
+ * called to describe (the same contract `requireAskRepository` states in
+ * `src/adapters/shared/commands/asks.ts`).
+ *
+ * The catch below is NOT merely defensive — on the cockpit it is the LIVE PATH,
+ * which the mt#3661 acceptance test caught. Unlike `createDomainContainer`, which
+ * converts a failed init into an `UnconfiguredPersistenceProvider` VALUE (so the
+ * MCP/CLI adapters find the cause sitting on the provider),
+ * `getSharedPersistenceService` PROPAGATES the failure — it rejects with the init
+ * error, or `PersistenceInitTimeoutError`. So in a degraded cockpit there is no
+ * provider to interrogate and the boot error arrives HERE, as a throw. That error
+ * IS the cause; returning the generic "not SQL-capable" sentence instead would
+ * discard the one detail this task exists to surface.
+ */
+export async function describeServerPersistenceUnavailability(): Promise<string> {
+  try {
+    return describePersistenceUnavailability(await getCachedPersistenceProvider());
+  } catch (err: unknown) {
+    log.warn("cockpit: persistence unavailable", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return describeFailedPersistenceInit(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Driver-level connection-error classification (mt#3825)
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-readable phrases for the postgres.js / Node socket connection-error
+ * codes that produce the `undefined:undefined` artifact (mt#3825).
+ *
+ * `node_modules/postgres/src/errors.js`'s `connection()` builder always
+ * writes `write ${code} ${host}:${port}` (`function connection(x, options,
+ * socket) { const { host, port } = socket || options; ... }`), and a
+ * pre-connection `net.Socket` has neither `host` nor `port` — so EVERY
+ * connect-level failure renders `write CONNECT_TIMEOUT undefined:undefined`
+ * regardless of how the connection is configured. The fragment reads as "a
+ * config value is missing," which is exactly backwards, while carrying zero
+ * actual diagnostic signal. Keyed on `err.code` (the field this same
+ * `connection()` builder assigns), never on matching the message text, so
+ * the raw artifact is never re-embedded even by this classification itself.
+ */
+const DRIVER_CONNECTION_ERROR_PHRASES: Record<string, string> = {
+  CONNECT_TIMEOUT: "timed out connecting to the database",
+  ETIMEDOUT: "timed out connecting to the database",
+  ECONNREFUSED: "the database refused the connection",
+  ENOTFOUND: "the database host could not be resolved",
+  EHOSTUNREACH: "the database host is unreachable",
+  ECONNRESET: "the database connection was reset",
+  EPIPE: "the database connection was broken",
+};
+
+/**
+ * Classify a caught error as a driver-level connection failure, returning a
+ * clean human-readable phrase — or `undefined` when it isn't one.
+ *
+ * Exported so a caller that already has a raw driver error (rather than a
+ * widget's generic catch-all) can reuse the same phrase table instead of
+ * re-deriving it.
+ */
+export function classifyDriverConnectionError(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code !== "string") return undefined;
+  return DRIVER_CONNECTION_ERROR_PHRASES[code];
+}
+
+/**
+ * Render the cause when the cockpit's persistence bootstrap REJECTED (mt#3661).
+ *
+ * Split out as a pure function so the live path above is testable without
+ * patching the module-level `getCachedPersistenceProvider` import — the
+ * functional-core / imperative-shell split `testing-standards.mdc §Testable
+ * Design` asks for. This is the branch that actually runs on a degraded cockpit,
+ * so it is the one that most needs a test.
+ *
+ * Mirrors the wording `describePersistenceUnavailability` uses for the
+ * configured-but-failed case, because it describes the SAME state — the two
+ * differ only in whether the bootstrap handed back a placeholder or threw.
+ */
+export function describeFailedPersistenceInit(err: unknown): string {
+  const reason =
+    classifyDriverConnectionError(err) ?? (err instanceof Error ? err.message : String(err));
+  return (
+    `Postgres IS configured, but persistence failed to initialize: ${reason}. ` +
+    "The database is unreachable — this is a degraded provider, not a missing " +
+    "configuration. Check the boot logs and restart once the database is " +
+    "reachable; `minsky persistence check` reports the same failure."
+  );
+}
+
+// ---------------------------------------------------------------------------
+// describeWidgetDegradedReason — widget catch-all classifier (mt#3825)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a caught error from a cockpit widget's top-level catch-all into an
+ * operator-meaningful, cause-carrying reason (mt#3825).
+ *
+ * Replaces the bare `${widgetName} error: ${message}` template that every
+ * DB-backed widget used to interpolate a caught error's `.message` verbatim —
+ * which, for a connect-level driver failure, IS the `write CONNECT_TIMEOUT
+ * undefined:undefined` artifact (see {@link DRIVER_CONNECTION_ERROR_PHRASES}).
+ * That fragment carries no diagnostic signal while looking like it carries
+ * the most: it reads as "a config value is missing," which is what the
+ * originating incident's principal first suspected — and is not.
+ *
+ * Distinguishes three states, extending ADR-035 rule 3's two ("configured but
+ * failing" MUST be distinguishable from "not configured") with the third
+ * class ADR-035's own scope (the initializer) does not name:
+ *
+ *   A. **Not configured** — mt#2349's boot-tolerant `UnconfiguredProvider`
+ *      placeholder threw on use (`PersistenceUnavailableError`). Its own
+ *      message already names the missing config keys, so it is passed
+ *      through rather than re-derived.
+ *   B. **Configured but unavailable at boot** — the shared
+ *      `PersistenceService` itself failed to (re-)initialize
+ *      (`PersistenceInitTimeoutError`, or a raw driver connect failure
+ *      thrown by `getSharedPersistenceService()` — which PROPAGATES rather
+ *      than converting the failure into a value; see
+ *      {@link describeServerPersistenceUnavailability}'s own docstring for
+ *      why that asymmetry matters here too). Delegates to
+ *      {@link describeFailedPersistenceInit}, the mt#3661 helper for exactly
+ *      this state, rather than duplicating its wording.
+ *   C. **Connectivity/driver failure on an ALREADY-INITIALIZED provider** —
+ *      what the originating incident actually was: the shared service had
+ *      already initialized successfully in this process, and a LATER query
+ *      hit a driver-level connection error. `getDbStatus()` only leaves
+ *      `"ok"` via the init/reachability/recycle paths in
+ *      `shared-persistence.ts` — none of which an ordinary per-query failure
+ *      touches — so `getDbStatus() === "ok"` at the moment of this catch is
+ *      exactly the signal that distinguishes this state from B without
+ *      needing any new tracking state.
+ *
+ * An error that matches none of the above (an unrelated widget bug, not a
+ * persistence signal) is passed through unclassified — reclassifying every
+ * possible widget error as a database problem would be its own defect.
+ *
+ * @param options.getDbStatus Test seam: override the DB-status read.
+ *   Defaults to {@link getDbStatus}. Production callers never set this.
+ */
+export function describeWidgetDegradedReason(
+  widgetName: string,
+  err: unknown,
+  options?: { getDbStatus?: () => DbStatus }
+): string {
+  const readDbStatus = options?.getDbStatus ?? getDbStatus;
+  const message = err instanceof Error ? err.message : String(err);
+
+  // Case A — see docstring above.
+  if (err instanceof PersistenceUnavailableError) {
+    return `${widgetName}: ${message}`;
+  }
+
+  const driverPhrase = classifyDriverConnectionError(err);
+  if (driverPhrase !== undefined || err instanceof PersistenceInitTimeoutError) {
+    // Case C — see docstring above.
+    if (readDbStatus() === "ok") {
+      return (
+        `${widgetName}: the database connection ${driverPhrase ?? "failed"} mid-request. ` +
+        "The connection was already established for this process — this is a " +
+        "live connectivity/driver failure, not a missing or invalid " +
+        "configuration. It should clear automatically once the network path " +
+        "to Postgres is reachable again; `minsky persistence check` reports " +
+        "the same failure."
+      );
+    }
+    // Case B — see docstring above.
+    return `${widgetName}: ${describeFailedPersistenceInit(err)}`;
+  }
+
+  // Not a recognized persistence signal.
+  return `${widgetName}: ${message}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,17 +362,25 @@ export function shouldRefuseTestEnvironmentDb(input: {
  *   Defaults to {@link getCachedPersistenceProvider}. Production callers never
  *   set this — it exists so unit tests can exercise the caching behavior
  *   above against a fake/failing provider without a real DB.
+ * @param options.getEpoch Test seam: override the persistence-epoch read
+ *   (mt#3638). Defaults to {@link getPersistenceEpoch}. A cache entry is only
+ *   served while the epoch it was created under is still current; a recycle
+ *   or degraded-reset bumps the epoch and forces a re-resolve, so no getter
+ *   can pin a torn-down pool.
  */
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
+  getEpoch?: () => number;
 }): CachedSqlDbGetter {
   // A getter built without `getProvider` resolves the REAL configured
   // database; that is what the mt#3254 guard keys on.
   const isProductionResolution = options.getProvider === undefined;
   const getProvider = options.getProvider ?? getCachedPersistenceProvider;
+  const getEpoch = options.getEpoch ?? getPersistenceEpoch;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
+  let cachedAtEpoch = -1;
 
   const getCachedSqlDb = async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
     // FIRST statement, before the caches and before any provider work (PR #2342
@@ -192,6 +408,18 @@ export function createCachedSqlDbGetter(options: {
           "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
       );
     }
+    // mt#3638: a recycle/degraded-reset bumps the epoch; anything cached under
+    // an older epoch is derived from a torn-down pool and must be dropped —
+    // INCLUDING a cached negative, since the recycle may have fixed exactly
+    // what made the probe fail.
+    if (cachedAtEpoch !== getEpoch()) {
+      cachedDb = null;
+      probedAndFailed = false;
+    }
+    // Stamp BEFORE resolving: if the epoch moves while this call is in flight,
+    // the stale stamp forces the NEXT call to re-resolve — conservative in the
+    // right direction.
+    cachedAtEpoch = getEpoch();
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
@@ -232,6 +460,7 @@ export function createCachedSqlDbGetter(options: {
     assertTestEnvironment("__resetForTests");
     cachedDb = null;
     probedAndFailed = false;
+    cachedAtEpoch = -1;
   };
 
   _allCachedSqlDbGetters.push(getCachedSqlDb);
@@ -258,7 +487,31 @@ export const getContextInspectorDb = createCachedSqlDbGetter({ cacheNegative: tr
 const getAskDb = createCachedSqlDbGetter({ cacheNegative: false });
 let _cachedServerAskRepo: AskRepository | null = null;
 
+/**
+ * Epoch the module-level SERVICE caches below were built under (mt#3638).
+ *
+ * The `createCachedSqlDbGetter` instances handle their own epoch checks, but
+ * the service singletons (`_cachedServerAskRepo`, `_cachedTaskService`, …)
+ * wrap a db handle captured at construction — a bumped epoch means that
+ * handle belongs to a torn-down pool, so every service cache drops together.
+ * (`_cachedChangesetReadDeps` is deliberately exempt: it caches GitHub
+ * repo/token resolution, which does not touch the DB pool.)
+ */
+let _serviceCachesEpoch = -1;
+
+function dropServiceCachesOnEpochChange(): void {
+  const epoch = getPersistenceEpoch();
+  if (epoch === _serviceCachesEpoch) return;
+  _serviceCachesEpoch = epoch;
+  _cachedServerAskRepo = null;
+  _cachedFollowUpService = null;
+  _cachedTaskService = null;
+  _cachedTaskDetailDeps = null;
+  _cachedServerSessionProvider = null;
+}
+
 export async function getServerAskRepository(): Promise<AskRepository | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedServerAskRepo) return _cachedServerAskRepo;
   try {
     const db = await getAskDb();
@@ -283,9 +536,25 @@ let _cachedFollowUpService:
   | import("@minsky/domain/scheduler/follow-up-service").FollowUpService
   | null = null;
 
+// ---------------------------------------------------------------------------
+// EngProd proposal-digest raw db handle (mt#3331) — uses cockpit-wide
+// PersistenceService singleton. cacheNegative: false, same rationale as
+// getServerAskRepository/getFollowUpDb: a failed probe retries on every
+// call. The raw handle (not a wrapped service) is needed here because the
+// accept/reject mutation writes BOTH `tasksTable` and
+// `engprodProposalLedgerTable` inside a single `db.transaction()` — the
+// atomicity the task/ledger writes need per spec SC2 ("if the two writes
+// diverge, the gate's memory is broken") is not expressible through the
+// abstracted TaskServiceInterface, which has no cross-table transaction
+// seam. See ./routes/engprod-proposals.ts.
+// ---------------------------------------------------------------------------
+
+export const getServerEngprodDb = createCachedSqlDbGetter({ cacheNegative: false });
+
 export async function getServerFollowUpService(): Promise<
   import("@minsky/domain/scheduler/follow-up-service").FollowUpService | null
 > {
+  dropServiceCachesOnEpochChange();
   if (_cachedFollowUpService) return _cachedFollowUpService;
   try {
     const db = await getFollowUpDb();
@@ -311,6 +580,7 @@ let _cachedTaskService: TaskServiceInterface | null = null;
 let _cachedTaskDetailDeps: TaskDetailDeps | null = null;
 
 export async function getServerTaskService(): Promise<TaskServiceInterface | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedTaskService) return _cachedTaskService;
   try {
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
@@ -334,6 +604,7 @@ export async function getServerTaskService(): Promise<TaskServiceInterface | nul
  * SUCCESSFUL result.
  */
 export async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedTaskDetailDeps) return _cachedTaskDetailDeps;
   try {
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
@@ -371,6 +642,7 @@ export async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> 
 let _cachedServerSessionProvider: SessionProviderInterface | null = null;
 
 export async function getServerSessionProvider(): Promise<SessionProviderInterface | null> {
+  dropServiceCachesOnEpochChange();
   if (_cachedServerSessionProvider) return _cachedServerSessionProvider;
   try {
     const { createSessionProvider } = await import(
@@ -576,4 +848,5 @@ export function __resetDbProvidersForTests(): void {
   _cachedTaskDetailDeps = null;
   _cachedServerSessionProvider = null;
   _cachedChangesetReadDeps = null;
+  _serviceCachesEpoch = -1;
 }

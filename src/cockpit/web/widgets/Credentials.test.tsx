@@ -31,7 +31,22 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
-const MOCK_CREDENTIALS = [
+/**
+ * Mirrors the widget's `CredentialListing`. Declared explicitly so `source` is a
+ * known property: without it TypeScript infers the array's element type from these
+ * literals alone, and a fixture adding `source` fails to typecheck (mt#3569).
+ */
+type MockCredentialListing = {
+  provider: string;
+  displayName: string;
+  configPath: string;
+  configured: boolean;
+  source?: "provider" | "schema";
+  lastValidatedAt?: string;
+  lastValidationDetail?: string;
+};
+
+const MOCK_CREDENTIALS: MockCredentialListing[] = [
   {
     provider: "github",
     displayName: "GitHub",
@@ -298,5 +313,56 @@ describe("Credentials widget", () => {
       const removeBtn = within(supabaseRow as HTMLElement).getByText("Remove") as HTMLButtonElement;
       expect(removeBtn.disabled).toBe(true);
     }
+  });
+
+  // mt#3569: schema-derived rows are presence-only. `removeCredential` throws
+  // "Unknown credential provider" for them, so the row must not offer the action.
+  test("a schema-derived row offers no Remove action", async () => {
+    mockFetchCredentials([
+      ...MOCK_CREDENTIALS,
+      {
+        provider: "openai",
+        displayName: "OpenAI",
+        configPath: "ai.providers.openai.apiKey",
+        configured: true,
+        source: "schema",
+      },
+    ]);
+    renderWithQuery(<CredentialsManager />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    const openaiLabel = screen
+      .getAllByText("OpenAI")
+      .find((el) => el.classList.contains("font-medium"));
+    expect(openaiLabel).toBeDefined();
+
+    const openaiRow = openaiLabel!.closest("div[class*='flex items-center']") as HTMLElement;
+    expect(openaiRow).toBeDefined();
+    // No Remove button at all — not merely disabled. A disabled button would still
+    // suggest the action exists for this row.
+    expect(within(openaiRow).queryByText("Remove")).toBeNull();
+    expect(within(openaiRow).getByText("config-only")).toBeDefined();
+  });
+
+  test("a row without an explicit source keeps its Remove action", async () => {
+    // Wire-compat: a server predating `source` has no schema-derived rows, so every
+    // row it sends is manageable. The first draft treated absence as unmanaged and
+    // stripped Remove from every row — MOCK_CREDENTIALS omits `source`, which is
+    // what caught it.
+    mockFetchCredentials();
+    renderWithQuery(<CredentialsManager />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    const githubLabel = screen
+      .getAllByText("GitHub")
+      .find((el) => el.classList.contains("font-medium"));
+    const githubRow = githubLabel!.closest("div[class*='flex items-center']") as HTMLElement;
+    expect(within(githubRow).getByText("Remove")).toBeDefined();
   });
 });

@@ -40,6 +40,8 @@ interface ConversationSearchTurn {
   startedAt: string | null;
   score: number;
   resumeHint: string;
+  /** Server-built excerpt around the match, matched spans in [brackets] (mt#3713). */
+  snippet?: string;
   sessionMetadata: {
     startedAt: string | null;
     model: string | null;
@@ -66,11 +68,15 @@ function isConversationSearchResponse(payload: unknown): payload is Conversation
   );
 }
 
+/** How the FTS backend matches the query. Ignored when `semantic` is set. */
+type TextMatchMode = "websearch" | "plain" | "exact";
+
 interface SearchParams {
   query: string;
   from: string;
   to: string;
   semantic: boolean;
+  textMode: TextMatchMode;
 }
 
 async function runConversationSearch(params: SearchParams): Promise<ConversationSearchResponse> {
@@ -79,6 +85,7 @@ async function runConversationSearch(params: SearchParams): Promise<Conversation
   if (params.from) qs.set("from", params.from);
   if (params.to) qs.set("to", params.to);
   if (params.semantic) qs.set("mode", "semantic");
+  if (!params.semantic) qs.set("textMode", params.textMode);
 
   const res = await fetch(`/api/conversations/search?${qs.toString()}`);
   const body: unknown = await res.json().catch(() => null);
@@ -116,7 +123,11 @@ function formatRelative(iso: string | null): string {
 }
 
 function snippetFor(turn: ConversationSearchTurn): string {
-  const text = (turn.userText ?? turn.assistantText ?? "").trim().replace(/\s+/g, " ");
+  // Prefer the server-built excerpt (mt#3713): it is cut around the MATCH,
+  // where the local fallback below only takes the head of the turn and so can
+  // show nothing related to the query at all.
+  const source = turn.snippet?.trim() || (turn.userText ?? turn.assistantText ?? "");
+  const text = source.trim().replace(/\s+/g, " ");
   return text.length > 180 ? `${text.slice(0, 180)}…` : text;
 }
 
@@ -194,6 +205,7 @@ export function ConversationSearchPanel() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [semantic, setSemantic] = useState(false);
+  const [textMode, setTextMode] = useState<TextMatchMode>("websearch");
   const [submitted, setSubmitted] = useState(false);
 
   const mutation = useMutation({ mutationFn: runConversationSearch });
@@ -204,9 +216,9 @@ export function ConversationSearchPanel() {
       const trimmed = query.trim();
       if (!trimmed) return;
       setSubmitted(true);
-      mutation.mutate({ query: trimmed, from, to, semantic });
+      mutation.mutate({ query: trimmed, from, to, semantic, textMode });
     },
-    [query, from, to, semantic]
+    [query, from, to, semantic, textMode]
   );
 
   return (
@@ -233,7 +245,13 @@ export function ConversationSearchPanel() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search conversation content…"
+              placeholder={
+                semantic
+                  ? "Search conversation content…"
+                  : textMode === "exact"
+                    ? "Exact text, e.g. MINSKY_SKIP_FRESHNESS"
+                    : 'Words, or "an exact phrase" in quotes'
+              }
               className="flex-1 min-w-[12rem] text-xs bg-background border border-border rounded px-2 py-1 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
               aria-label="Search query"
             />
@@ -252,6 +270,20 @@ export function ConversationSearchPanel() {
               className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               aria-label="To date"
             />
+            {/* Match mode applies to the text backend only — semantic search
+                embeds the whole query and has no notion of phrase or literal. */}
+            {!semantic && (
+              <select
+                value={textMode}
+                onChange={(e) => setTextMode(e.target.value as TextMatchMode)}
+                className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                aria-label="Text match mode"
+              >
+                <option value="websearch">Phrase</option>
+                <option value="plain">All words</option>
+                <option value="exact">Exact</option>
+              </select>
+            )}
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
               <Checkbox checked={semantic} onCheckedChange={(v) => setSemantic(v === true)} />
               Semantic

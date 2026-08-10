@@ -63,13 +63,14 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   measureWallOfText,
   extractFinalAssistantText,
-  resolveTurnLines,
   hashText,
   sessionHasLoggedHash,
   readCalibrationLogText,
   MAX_DEDUPE_READ_BYTES,
   WORD_COUNT_THRESHOLD,
   LEAD_WINDOW_WORDS,
+  EXCERPT_MAX_CHARS,
+  EXCERPT_TRUNCATION_MARKER,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   DEPTH_REQUEST_LOOKBACK_TURNS,
@@ -79,6 +80,11 @@ import {
   findOpeningPromptIndex,
   resolveDepthCheck,
   sessionHasLoggedTextAndSuppression,
+  SUPPRESSION_DEPTH_REQUEST,
+  SUPPRESSION_QUESTION_ANSWER,
+  QUESTION_MIN_WORDS,
+  detectSubstantiveQuestion,
+  resolveQuestionAnswerCheck,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
@@ -92,7 +98,6 @@ import type { DispatchContext } from "./registry";
 
 // Shared path constants (custom/no-magic-string-duplication).
 const FAKE_TRANSCRIPT_PATH = "/tmp/fake-transcript.jsonl";
-const PARENT_TRANSCRIPT_PATH = "/tmp/parent.jsonl";
 const SUBAGENT_TRANSCRIPT_PATH = "/tmp/subagents/agent-fake.jsonl";
 // Shared generic opening-prompt text (custom/no-magic-string-duplication) — used
 // wherever a fixture's opening prompt content is not itself under test.
@@ -100,6 +105,12 @@ const OPENING_PROMPT_TEXT = "please do the thing";
 // Shared depth-request phrase fixtures (custom/no-magic-string-duplication).
 const DEPTH_REQUEST_PHRASE = "walk me through everything in detail";
 const DEPTH_REQUEST_PHRASE_BARE = "walk me through everything";
+// Shared question-answer phrase fixtures (custom/no-magic-string-duplication) —
+// mt#3718. The two ask#6891 FP shapes: a plain interrogative and a
+// multi-question prompt.
+const QUESTION_ANSWER_PHRASE = "what happened with the deploy?";
+const QUESTION_ANSWER_PHRASE_BUN_BUG =
+  "Is this a known, reported Bun bug, or something specific to our setup?";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -324,6 +335,65 @@ describe("measureWallOfText", () => {
 });
 
 // ---------------------------------------------------------------------------
+// measureWallOfText — excerpt (mt#3576)
+// ---------------------------------------------------------------------------
+
+describe("measureWallOfText — excerpt (mt#3576)", () => {
+  test("a lead-labels fire retains the text its leadLabelHits were computed from", () => {
+    // The gap this closes: `leadLabelHits: ["gate-letter"]` names the pattern
+    // but never the text, so a reviewer could not tell an audit-vocabulary
+    // lead from an incidental token without rebuilding the transcript.
+    const m = measureWallOfText(`Gate (l) blocked promotion. ${words(150)}`);
+    expect(m.trigger).toBe("lead-labels");
+    expect(m.leadLabelHits).toEqual(["gate-letter"]);
+    expect(m.excerpt).toContain("Gate (l) blocked promotion.");
+  });
+
+  test("the excerpt IS the scanned lead, so every label hit is visible in it", () => {
+    // Identity, not approximation: whatever slice the patterns are tested
+    // against is exactly what the record retains. Asserted by re-running the
+    // detector on the excerpt alone and getting the same hits back.
+    const m = measureWallOfText(labelHeavyReport());
+    expect(m.leadLabelHits.length).toBeGreaterThan(0);
+    expect(measureWallOfText(m.excerpt).leadLabelHits).toEqual(m.leadLabelHits);
+  });
+
+  test("an over-budget report is recognizable from its excerpt (mt#3028 contamination class)", () => {
+    // wordCount alone cannot separate a genuine long report from one measured
+    // against a subagent's transcript; the opening text can.
+    const m = measureWallOfText(pointerFreeOverBudgetReport());
+    expect(m.trigger).toBe("over-budget");
+    expect(m.excerpt.startsWith("Status update, no pointers at all.")).toBe(true);
+  });
+
+  test("the excerpt never exceeds EXCERPT_MAX_CHARS, and marks that it was cut", () => {
+    // A pathological single token: under the word bound (1 word), far past the
+    // char bound — the case the cap exists for.
+    const m = measureWallOfText(`${"x".repeat(EXCERPT_MAX_CHARS * 3)} ${words(400)}`);
+    expect(m.excerpt.length).toBe(EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length);
+    expect(m.excerpt.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
+  });
+
+  test("a label at the END of the lead window survives into the excerpt", () => {
+    // The class this covers that the fixtures above do not: a label sitting
+    // LATE in the scanned window. Any excerpt shorter than the full lead —
+    // an opening line, a fixed char prefix — drops it, and the record would
+    // then name a pattern whose text it does not carry. The label is placed
+    // at word ~145 of a 150-word window, still inside the scan, so it must
+    // appear in the retained text.
+    const m = measureWallOfText(`${words(LEAD_WINDOW_WORDS - 5)} gate (l) verdict ${words(400)}`);
+    expect(m.leadLabelHits).toEqual(["gate-letter"]);
+    expect(m.excerpt).toContain("gate (l)");
+  });
+
+  test("a lead shorter than the cap is retained whole, with no truncation marker", () => {
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD));
+    expect(m.excerpt.length).toBeLessThanOrEqual(EXCERPT_MAX_CHARS);
+    expect(m.excerpt.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // extractFinalAssistantText
 // ---------------------------------------------------------------------------
 
@@ -371,6 +441,20 @@ describe("run", () => {
   test("contract-conforming report -> null", () => {
     const lines = transcriptWithFinalReport(conformingReport());
     expect(run(makeInput(), makeCtx(lines), noDedupeDeps())).toBeNull();
+  });
+
+  // mt#3576: the written record — not just the measurement — carries the
+  // excerpt, and it is the same string the label patterns matched against.
+  test("mt#3576: the logged record carries the excerpt, matching the measurement", () => {
+    const lines = transcriptWithFinalReport(labelHeavyReport());
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(typeof cal.excerpt).toBe("string");
+    expect(cal.excerpt).toBe(measureWallOfText(labelHeavyReport()).excerpt);
+    expect(cal.excerpt as string).toContain("Gate (l)");
+    expect((cal.excerpt as string).length).toBeLessThanOrEqual(
+      EXCERPT_MAX_CHARS + EXCERPT_TRUNCATION_MARKER.length
+    );
   });
 
   test("override env var -> audit line, no measurement", () => {
@@ -428,6 +512,28 @@ describe("run — mt#3112 depth-request override", () => {
     const cal = outcome?.calibration as Record<string, unknown>;
     expect(cal).toBeDefined();
     expect(cal.suppressedByDepthRequest).toBe(true);
+    // mt#3207: the SHARED field is what `isSuppressedRecord` reads — the
+    // boolean above has always been invisible to the sweep, so the override's
+    // real-world fire rate (ask#5425's stated payoff) never reached it.
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+
+  test("(mt#3207) an INJECTED report records an empty suppressionReasons, not an absent one", () => {
+    // mt#3718: the opening prompt here MUST NOT be a substantive question —
+    // it would then trip the new question-answer override and suppress the
+    // fire, defeating this test's purpose (demonstrating the UNSUPPRESSED,
+    // injected shape). "what happened with the deploy?" (the original
+    // fixture) is itself a substantive question under the new logic, so a
+    // plain non-question opening prompt is used instead.
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      OPENING_PROMPT_TEXT,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressionReasons).toEqual([]);
+    expect(Object.keys(cal)).toContain("suppressionReasons");
   });
 
   test("a depth request several turns back (within lookback) still suppresses", () => {
@@ -528,6 +634,166 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// mt#3718 — question-answer override widening
+// ---------------------------------------------------------------------------
+
+describe("detectSubstantiveQuestion", () => {
+  test("matches a plain interrogative", () => {
+    expect(detectSubstantiveQuestion(QUESTION_ANSWER_PHRASE).matched).toBe(true);
+  });
+
+  test("matches a multi-question prompt", () => {
+    expect(
+      detectSubstantiveQuestion(
+        "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?"
+      ).matched
+    ).toBe(true);
+  });
+
+  test("does not match a brief affirmative with no question mark", () => {
+    expect(detectSubstantiveQuestion("proceed").matched).toBe(false);
+  });
+
+  test("does not match a bare 'ok?' below the word floor", () => {
+    expect(detectSubstantiveQuestion("ok?").matched).toBe(false);
+  });
+
+  test("does not match an empty string", () => {
+    expect(detectSubstantiveQuestion("").matched).toBe(false);
+    expect(detectSubstantiveQuestion("   ").matched).toBe(false);
+  });
+
+  test("QUESTION_MIN_WORDS is the floor separating 'ok?' from a real question", () => {
+    const belowFloor = Array.from({ length: QUESTION_MIN_WORDS - 1 }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${belowFloor}?`).matched).toBe(false);
+    const atFloor = Array.from({ length: QUESTION_MIN_WORDS }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${atFloor}?`).matched).toBe(true);
+  });
+});
+
+describe("resolveQuestionAnswerCheck", () => {
+  test("anchors on the OPENING prompt only — a question outside the opening does not suppress", () => {
+    // Contrast with the depth-request override's multi-turn lookback: this
+    // gate has no lookback window at all. A question several turns back
+    // (not the opening prompt of the measured turn) must NOT suppress.
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, OPENING_PROMPT_TEXT),
+      assistantToolUseLine(4),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+
+  test("matches when the OPENING prompt itself is a substantive question", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("fails CLOSED when findOpeningPromptIndex cannot anchor", () => {
+    expect(resolveQuestionAnswerCheck([userPromptLine(0, "only one prompt?")]).matched).toBe(false);
+  });
+});
+
+describe("run — mt#3718 question-answer override", () => {
+  // AT1 — the 2026-08-03T21:48Z FP shape (ask#6891).
+  test("(AT1) over-budget report answering a substantive opening question -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressedByDepthRequest).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // AT2 — the 2026-08-03T22:38Z FP shape (multi-question Telegram reply).
+  test("(AT2) over-budget report answering a multi-question opening prompt -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  test("a brief affirmative opening prompt ('proceed') -> fires as today, not suppressed", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "proceed",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3 — a label-led report is never excused by a preceding question, even
+  // though the trigger is "both" (over-budget AND lead-labels).
+  test("a label-led report preceded by a substantive question -> STILL fires (SC3)", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      labelHeavyReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("both");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3, pure lead-labels leg (under budget, label hit only) — extra
+  // coverage that the question-answer gate never applies outside the pure
+  // over-budget trigger.
+  test("a PURE lead-labels report (under budget) preceded by a substantive question -> still fires", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      `Gate (l) blocked promotion. ${words(150)}`
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("lead-labels");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  test("both gates can suppress independently: a depth-request opening prompt is unaffected", () => {
+    // Regression guard: the question-answer gate is ADDITIVE, not a
+    // replacement — a depth-request phrase (no "?") still suppresses via
+    // suppressedByDepthRequest, with suppressedByQuestionAnswer false.
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      DEPTH_REQUEST_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByDepthRequest).toBe(true);
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+});
+
 describe("recentUserPromptTexts", () => {
   test("bounds the lookback to DEPTH_REQUEST_LOOKBACK_TURNS prompts at or before throughIndex", () => {
     const lines: TranscriptLine[] = [
@@ -611,87 +877,103 @@ describe("resolveDepthCheck", () => {
 // ---------------------------------------------------------------------------
 
 describe("sessionHasLoggedTextAndSuppression", () => {
-  test("matches when both textHash AND suppressedByDepthRequest agree", () => {
+  test("matches when both textHash AND the legacy suppressedByDepthRequest agree", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: true,
     })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(true);
+    // Legacy (pre-mt#3207) shape: no `suppressionReasons` array, so the
+    // record's implied reason set is derived from the boolean alone.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(true);
   });
 
-  test("does NOT match when textHash agrees but suppressedByDepthRequest differs (the R1 fix)", () => {
+  test("does NOT match when textHash agrees but the legacy suppressedByDepthRequest differs (the R1 fix)", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: false,
     })}\n`;
-    // Same text, but this occurrence's suppression state is TRUE while the
-    // logged record's is FALSE — a genuinely different depth-request context
-    // coincidentally producing identical text; must NOT be treated as a
-    // stale re-measurement.
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    // Same text, but this occurrence's suppression state is non-empty while
+    // the logged record's is empty — a genuinely different depth-request
+    // context coincidentally producing identical text; must NOT be treated
+    // as a stale re-measurement.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
-  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as suppressed=false", () => {
+  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as an empty reason set", () => {
     const log = `${JSON.stringify({ session_id: "s", textHash: "hash-A" })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", false)).toBe(true);
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
   test("undefined log text / session id -> false", () => {
-    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", false)).toBe(false);
-    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", false)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", [])).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", [])).toBe(false);
+  });
+
+  // mt#3718 R1 fix (PR #2651 review round 1): the case a collapsed boolean
+  // could not distinguish — same "suppressed" verdict, DIFFERENT gate.
+  describe("mt#3718 R1 — reason-SET-aware, not just suppressed-or-not", () => {
+    test("a differing reason SET is NOT a duplicate, even though both are non-empty", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+      })}\n`;
+      // Both this occurrence and the logged record are "suppressed" (a
+      // non-empty reason set) — the pre-R1 collapsed-boolean comparison
+      // would have matched these as duplicates. They must NOT match: the
+      // gates differ.
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
+
+    test("reason sets compare order-independently", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST, SUPPRESSION_QUESTION_ANSWER],
+      })}\n`;
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [
+          SUPPRESSION_QUESTION_ANSWER,
+          SUPPRESSION_DEPTH_REQUEST,
+        ])
+      ).toBe(true);
+    });
+
+    test("an empty suppressionReasons array (injected) matches an empty query, not a non-empty one", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [],
+      })}\n`;
+      expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
 // resolveTurnLines — mt#3028 fix (1): cross-transcript contamination defense
+//
+// RETIRED by mt#3293, along with the function itself. Its three cases —
+// single-candidate pass-through, absent candidates array, and re-parsing the parent
+// when a subagent transcript is present — now live in `dispatcher.test.ts`, which is
+// where the resolution happens for every guard rather than for this one. The
+// end-to-end contamination case below still runs here, against the parent-only lines
+// the dispatcher now guarantees.
 // ---------------------------------------------------------------------------
-
-describe("resolveTurnLines", () => {
-  test("<=1 transcript candidate -> trusts ctx.transcriptLines as-is (no re-parse)", () => {
-    const lines = transcriptWithFinalReport(conformingReport());
-    const ctx = makeCtxWithCandidates(lines, [FAKE_TRANSCRIPT_PATH]);
-    // The injected parse function returns something OBVIOUSLY different —
-    // if it were called, the assertion below would fail. It must NOT be
-    // called when there is only one candidate.
-    const poisoned = () => {
-      throw new Error("parseTranscriptFn must not be called for a single candidate");
-    };
-    expect(resolveTurnLines(makeInput(), ctx, poisoned)).toBe(lines);
-  });
-
-  test("undefined transcriptCandidates -> trusts ctx.transcriptLines as-is (existing-test compatibility)", () => {
-    const lines = transcriptWithFinalReport(conformingReport());
-    const ctx = makeCtx(lines); // no transcriptCandidates field at all
-    const poisoned = () => {
-      throw new Error("parseTranscriptFn must not be called with no candidates array");
-    };
-    expect(resolveTurnLines(makeInput(), ctx, poisoned)).toBe(lines);
-  });
-
-  test(">1 transcript candidates -> re-parses the PARENT candidate, ignoring the merged array", () => {
-    // Simulate the empirically-confirmed contamination: ctx.transcriptLines
-    // is "parent + subagent" concatenated, and the subagent's own final
-    // report (label-heavy, over-budget) lands last in the flat array — the
-    // exact shape that misattributed a subagent's report as the parent's
-    // turn-end report in session e1a0c941.
-    const parentLines = transcriptWithFinalReport(conformingReport());
-    const subagentLines = transcriptWithFinalReport(labelHeavyReport());
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [
-      PARENT_TRANSCRIPT_PATH,
-      SUBAGENT_TRANSCRIPT_PATH,
-    ]);
-    const parseTranscriptFn = (path: string): TranscriptLine[] => {
-      expect(path).toBe(PARENT_TRANSCRIPT_PATH); // always candidates[0] / input.transcript_path
-      return parentLines;
-    };
-    const input = makeInput({ transcript_path: PARENT_TRANSCRIPT_PATH });
-    expect(resolveTurnLines(input, ctx, parseTranscriptFn)).toBe(parentLines);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // hashText / sessionHasLoggedHash — mt#3028 fix (2): dedupe primitives
@@ -854,25 +1136,19 @@ describe("run — mt#3028 regressions", () => {
     expect(outcome3).toBeNull();
   });
 
-  test("subagent-contaminated ctx (>1 candidates) does NOT fire on the subagent's report when the parent's own report is conforming", () => {
-    // End-to-end version of the resolveTurnLines contamination test, run
-    // through run() itself. The naive ctx.transcriptLines (parent + a
-    // dispatched subagent's own label-heavy final report appended after)
-    // WOULD fire if used directly; run() must measure only the parent.
+  test("does NOT fire on a subagent's label-heavy report, given the dispatcher's parent-only lines", () => {
+    // The end-to-end half of the contamination defense. Pre-mt#3293 `ctx.transcriptLines`
+    // for a session that dispatched subagents was "parent + subagent" concatenated, and the
+    // subagent's own label-heavy final report landed LAST — so a naive scan measured the
+    // subagent's report as this session's turn-end report (the misattribution observed in
+    // session e1a0c941). The dispatcher now hands over the parent's lines alone, and run()
+    // consumes them as-is; the parent's own report is conforming, so nothing fires.
     const parentLines = transcriptWithFinalReport(conformingReport());
-    const subagentLines = transcriptWithFinalReport(labelHeavyReport());
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [
+    const ctx = makeCtxWithCandidates(parentLines, [
       FAKE_TRANSCRIPT_PATH,
       SUBAGENT_TRANSCRIPT_PATH,
     ]);
-    const deps: RunDeps = {
-      parseTranscriptFn: (path) => {
-        expect(path).toBe(FAKE_TRANSCRIPT_PATH);
-        return parentLines;
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const deps: RunDeps = { readCalibrationLogTextFn: () => undefined };
     expect(run(makeInput(), ctx, deps)).toBeNull();
   });
 });
@@ -931,6 +1207,54 @@ describe("run — mt#3112 R1 dedupe-vs-suppression interaction", () => {
     // Same lines, same suppression state -> genuine re-measurement, deduped.
     const outcome2 = run(input, makeCtx(lines), { readCalibrationLogTextFn: () => priorLogText });
     expect(outcome2).toBeNull();
+  });
+});
+
+describe("run — mt#3718 R1 dedupe-vs-suppression interaction (reason-set-aware dedupe)", () => {
+  test("same text suppressed by DIFFERENT gates across occurrences logs BOTH (reason-set collapse fix)", () => {
+    const input = makeInput();
+    const report = pointerFreeOverBudgetReport();
+
+    // Occurrence 1: opening prompt is a depth-request phrase -> suppressed by
+    // the depth-request gate.
+    const lines1 = transcriptWithFinalReportAndOpeningPrompt(DEPTH_REQUEST_PHRASE, report);
+    const outcome1 = run(input, makeCtx(lines1), noDedupeDeps());
+    expect(outcome1?.calibration).toBeDefined();
+    const cal1 = outcome1?.calibration as Record<string, unknown>;
+    expect(cal1.suppressedByDepthRequest).toBe(true);
+    expect(cal1.suppressedByQuestionAnswer).toBe(false);
+    expect(cal1.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+    const hash1 = cal1.textHash as string;
+
+    // Simulate occurrence 1 having been appended to the calibration log.
+    const priorLogText = `${JSON.stringify({
+      session_id: input.session_id,
+      textHash: hash1,
+      suppressedByDepthRequest: true,
+      suppressedByQuestionAnswer: false,
+      suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+    })}\n`;
+
+    // Occurrence 2: BYTE-IDENTICAL report text, but this time the opening
+    // prompt is a substantive QUESTION rather than a depth-request phrase
+    // -> suppressed by the OTHER gate. Before the R1 fix, the dedupe check
+    // compared only the combined `suppressed` boolean (true in both cases),
+    // so this record was wrongly treated as an unchanged duplicate and
+    // dropped -- losing the fact that a DIFFERENT gate suppressed it.
+    const lines2 = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      report
+    );
+    const outcome2 = run(input, makeCtx(lines2), {
+      readCalibrationLogTextFn: () => priorLogText,
+    });
+    expect(outcome2?.calibration).toBeDefined();
+    const cal2 = outcome2?.calibration as Record<string, unknown>;
+    expect(cal2.suppressedByDepthRequest).toBe(false);
+    expect(cal2.suppressedByQuestionAnswer).toBe(true);
+    expect(cal2.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+    expect(cal2.textHash).toBe(hash1); // same text, confirmed via identical hash
+    expect(outcome2?.additionalContext).toBeUndefined();
   });
 });
 

@@ -31,6 +31,33 @@ error.
 **Root incident:** mt#2542 (PR #2136 merged with proxy evidence while the spec's literal AT —
 "services boot on the role" — was silently deferred and crashed production post-merge).
 
+### The absent-vs-present-elsewhere partition (mt#3339, FP-4)
+
+An unaddressed AT is additionally CLASSIFIED into one of two kinds, recorded as
+`presentElsewhereAts` on `AtCoverageResult` and on the calibration record:
+
+- **absent** — the AT's number appears nowhere in the PR body. A real coverage gap.
+- **present-elsewhere** — the number IS referenced in the body, just not inside the block the
+  scanner reads. A LOCATION gap: the author documented it, under a heading the extractor has
+  no notion of (`## Testing`, `## Design/Approach`, …).
+
+The two were previously indistinguishable, which made the flagged count uninterpretable — the
+mt#3316 `--full` re-measurement reported "N of M pairs still flagged" with no way to tell how
+many were real. That count is the input to mt#3059's 0-known-FP graduation bar, so partitioning
+it is a precondition for the graduation decision rather than a reporting nicety.
+
+**The probe is number-reference-only, deliberately.** Running the KEYWORD matcher over a whole
+PR body would be near-certainly all-positive (a body reliably mentions its own subject matter,
+and any ≥5-char non-stopword token counts), classifying substantially everything as a location
+gap and carrying no signal.
+
+**Log-only, and it does NOT widen the scan.** A present-elsewhere AT is still counted
+unaddressed and still warned about; nothing branches on the field. Accepting these locations as
+evidence is a separate decision that this partition exists to inform, because widening carries
+a false-negative risk — an AT number named in a `### Does NOT cover` bullet is not evidence.
+Mirrored on the success-criteria surface as `presentElsewhereCriteria`; `scripts/at-coverage-reclassify.ts --full`
+reports the split. Precedent: `negativeControlUnmatched` (mt#3511, `test-first-evidence.ts`).
+
 ## Cross-references
 
 - mt#1459 — the original execution-evidence gate (test-file / script surface)

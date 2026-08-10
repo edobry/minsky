@@ -27,6 +27,10 @@ function makeFakeDb(rows: ProjectRecord[]): ProjectsRepositoryDb {
         },
       };
     },
+    // `listProjects` never inserts; fail loudly if a future test path does.
+    insert() {
+      throw new Error("insert is not exercised by these tests");
+    },
   };
 }
 
@@ -71,6 +75,10 @@ describe("listProjects", () => {
             };
           },
         };
+      },
+      // `listProjects` never inserts; fail loudly if a future test path does.
+      insert() {
+        throw new Error("insert is not exercised by these tests");
       },
     };
     await expect(listProjects(failingDb)).rejects.toThrow("connection lost");
@@ -232,7 +240,11 @@ describe("ensureProjectRow -> resolveProjectScope round trip (mt#2934 acceptance
 
     const after = await resolveProjectScope(identity, db);
     expect(after).not.toBe(ALL_PROJECTS);
-    expect(after).toBe(db.rows()[0]?.id);
+    const insertedId = db.rows()[0]?.id;
+    // Assert presence separately — `toBe(undefined)` would pass vacuously if
+    // `ensureProjectRow` had inserted nothing at all.
+    if (insertedId === undefined) throw new Error("expected ensureProjectRow to insert a row");
+    expect(after).toBe(insertedId);
   });
 
   it("provisioning a different slug does not affect this project's scope resolution", async () => {

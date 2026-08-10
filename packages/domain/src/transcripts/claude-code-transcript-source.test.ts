@@ -13,14 +13,18 @@ import {
   ClaudeCodeTranscriptSource,
   MAX_SUBAGENT_TREE_DEPTH,
 } from "./claude-code-transcript-source";
+import type { ConversationId } from "../ids";
 import type { RawTurnLine } from "./transcript-source";
+
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
 
 const PROJECT_DIR_NAME = "-Users-edobry-Projects-minsky";
 const PROJECT_DIR_GLOB = `${PROJECT_DIR_NAME}*`;
 /** What `PROJECT_DIR_NAME` derives to via the project-dir fallback (`-` → `/`). */
 const DERIVED_PROJECT_CWD = "/Users/edobry/Projects/minsky";
-const TOP_SESSION_ID = "abc-123";
-const SUB_SESSION_ID = "agent-deadbeef";
+const TOP_SESSION_ID = conv("abc-123");
+const SUB_SESSION_ID = conv("agent-deadbeef");
 /** Mirrors `SUBAGENTS_DIR` in the source; the fixtures build real paths. */
 const SUBAGENTS_DIR_NAME = "subagents";
 
@@ -337,9 +341,8 @@ describe("ClaudeCodeTranscriptSource — nested subagent transcripts (mt#3294)",
         .sort();
 
       // Levels 0..MAX inclusive are reachable; the next one is not.
-      const expected = Array.from(
-        { length: MAX_SUBAGENT_TREE_DEPTH + 1 },
-        (_, level) => `agent-level-${level}`
+      const expected = Array.from({ length: MAX_SUBAGENT_TREE_DEPTH + 1 }, (_, level) =>
+        conv(`agent-level-${level}`)
       ).sort();
       expect(found).toEqual(expected);
       expect(found).not.toContain(`agent-level-${MAX_SUBAGENT_TREE_DEPTH + 1}`);
@@ -359,12 +362,12 @@ describe("ClaudeCodeTranscriptSource.readSession — jsonlPath passthrough (mt#3
       const path = join(outside, "elsewhere.jsonl");
       await writeFile(path, `${[USER_LINE, ASSISTANT_LINE].join("\n")}\n`);
 
-      const viaPath = await collect(makeSource().readSession("unfindable-id", path));
+      const viaPath = await collect(makeSource().readSession(conv("unfindable-id"), path));
       expect(viaPath.map((l) => l.type)).toEqual(["user", "assistant"]);
 
       // Same id without the path finds nothing — confirms the id really is
       // unresolvable via discovery, so the assertion above isn't vacuous.
-      expect(await collect(makeSource().readSession("unfindable-id"))).toHaveLength(0);
+      expect(await collect(makeSource().readSession(conv("unfindable-id")))).toHaveLength(0);
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
@@ -476,7 +479,7 @@ describe("ClaudeCodeTranscriptSource.readSession", () => {
   });
 
   test("yields nothing for unknown session id", async () => {
-    const lines = await collect(makeSource().readSession("does-not-exist"));
+    const lines = await collect(makeSource().readSession(conv("does-not-exist")));
     expect(lines).toHaveLength(0);
   });
 
@@ -499,7 +502,7 @@ describe("ClaudeCodeTranscriptSource.readSession", () => {
         claudeProjectsDir: dir,
         projectDirGlob: PROJECT_DIR_GLOB,
       });
-      const lines = await collect(src.readSession("bad"));
+      const lines = await collect(src.readSession(conv("bad")));
       expect(lines).toHaveLength(1);
       expect(lines[0]?.type).toBe("user");
     } finally {
@@ -517,7 +520,7 @@ describe("ClaudeCodeTranscriptSource.readSession", () => {
         claudeProjectsDir: dir,
         projectDirGlob: PROJECT_DIR_GLOB,
       });
-      expect(await collect(src.readSession("empty"))).toHaveLength(0);
+      expect(await collect(src.readSession(conv("empty")))).toHaveLength(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -576,7 +579,7 @@ describe("ClaudeCodeTranscriptSource.readSession — defensive", () => {
     class StubSource extends ClaudeCodeTranscriptSource {
       async *discoverSessions() {
         yield {
-          agentSessionId: "fake",
+          agentSessionId: conv("fake"),
           jsonlPath: fakePath,
           harness: "claude_code",
           isSubagent: false,
@@ -586,7 +589,7 @@ describe("ClaudeCodeTranscriptSource.readSession — defensive", () => {
     }
     const src = new StubSource();
     const lines: unknown[] = [];
-    for await (const line of src.readSession("fake")) {
+    for await (const line of src.readSession(conv("fake"))) {
       lines.push(line);
     }
     expect(lines).toEqual([]);

@@ -24,6 +24,7 @@
 import { z } from "zod";
 import { createInterface as createReadlineInterface } from "node:readline";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../../command-registry";
+import { describeContainerPersistenceUnavailability } from "../persistence-unavailability";
 import { log } from "@minsky/shared/logger";
 import {
   loadAttentionWindowsOrThrow,
@@ -1033,7 +1034,7 @@ export function registerWindowCommands(
         const repo = await buildAskRepository(ctx.container ?? container);
         if (!repo) {
           throw new Error(
-            "window.service: AskRepository unavailable — persistence provider does not support SQL"
+            `window.service: AskRepository unavailable — ${await describeContainerPersistenceUnavailability(ctx.container ?? container, "window")}`
           );
         }
 

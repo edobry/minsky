@@ -36,6 +36,11 @@
 // @see mem#736 — "a spec you authored yourself this session is the one you're least likely to re-read"
 
 import { computeFenceInternalLines, isMarkdownHeading } from "./markdown-sections";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
 
 /** One item parsed from a task spec's `## Success Criteria` section. */
 export interface SuccessCriterionItem {
@@ -280,6 +285,17 @@ export interface ScCoverageResult {
   executableCriteria: SuccessCriterionItem[];
   /** Executable criteria neither addressed in the evidence nor deferred. */
   unaddressedCriteria: SuccessCriterionItem[];
+  /**
+   * The subset of `unaddressedCriteria` that IS referenced by number somewhere in the PR
+   * body, just not in the evidence text the gate reads (mt#3339, mt#3566 design note 2).
+   *
+   * The sibling of `AtCoverageResult.presentElsewhereAts` — same absent-vs-location-gap
+   * partition, same number-reference-only probe, same log-only posture. Carried here
+   * deliberately rather than left for a later task: this surface had produced ZERO
+   * calibration records when mt#3339 was planned, so its rate is only measurable
+   * PROSPECTIVELY. A field added after the corpus accumulates cannot retro-classify it.
+   */
+  presentElsewhereCriteria: SuccessCriterionItem[];
 }
 
 /**
@@ -303,7 +319,12 @@ export function checkSuccessCriteriaCoverage(
   const executableCriteria = all.filter((c) => isExecutableSuccessCriterion(c.text));
 
   if (executableCriteria.length === 0) {
-    return { applicable: false, executableCriteria: [], unaddressedCriteria: [] };
+    return {
+      applicable: false,
+      executableCriteria: [],
+      unaddressedCriteria: [],
+      presentElsewhereCriteria: [],
+    };
   }
 
   const scHeadings = findScHeadingNumbers(prBody);
@@ -315,7 +336,18 @@ export function checkSuccessCriteriaCoverage(
     return true;
   });
 
-  return { applicable: true, executableCriteria, unaddressedCriteria };
+  // Number-reference-only against the FULL body, per mt#3566 design note 1 — the keyword
+  // matcher over a whole PR body is near-certainly all-positive and would carry no signal.
+  const presentElsewhereCriteria = unaddressedCriteria.filter((c) =>
+    isCriterionReferencedByNumber(c, prBody)
+  );
+
+  return {
+    applicable: true,
+    executableCriteria,
+    unaddressedCriteria,
+    presentElsewhereCriteria,
+  };
 }
 
 /** Override env var (registered in `HOOK_ONLY_ENV_VARS`) — skips the SC-coverage check. */
@@ -393,8 +425,22 @@ export function runScCoverageCalibration(
       task,
       prNumber,
       surface: "execution-evidence-sc-coverage",
+      // mt#3607: same capture as the AT sibling, and for the same reason — the
+      // verdict is computed from a mutable spec and a mutable PR body. This log
+      // held ZERO records at capture time, so every record it ever accumulates
+      // is auditable; that is the cheapest moment this fix will ever be
+      // available, not a reason to skip it.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedPrBody: captureArtifact(prBody),
+      judgedSpec: captureArtifact(specContent),
+      judgedEvidenceText: captureArtifact(evidenceText),
       executableCriterionCount: coverage.executableCriteria.length,
       unaddressedCriteria: coverage.unaddressedCriteria.map((c) => ({
+        number: c.number,
+        text: c.text,
+      })),
+      // mt#3339 (FP-4 partition), sibling of the AT surface's `presentElsewhereAts`.
+      presentElsewhereCriteria: coverage.presentElsewhereCriteria.map((c) => ({
         number: c.number,
         text: c.text,
       })),

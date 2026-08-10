@@ -126,19 +126,48 @@ export async function validatePostgresBackend(
       // Masking this as "initialized successfully" is exactly why
       // `persistence_check` reported SUCCESS during the 2026-07-19 outage
       // while every session tool was dead. Fail — do not mask.
+      // sql-capability-message: this IS the diagnostic report — `persistence_check`
+      // is where the cause is rendered for the operator (it reads `provider.reason`
+      // directly below, and mt#3635 added the retry state under it). Routing it
+      // through the consumer-facing helper would make the report describe itself.
       const underlyingReason =
         provider instanceof UnconfiguredPersistenceProvider
           ? provider.reason
           : "provider is not SQL-capable";
       issues.push(
+        // sql-capability-message: cause-carrying — `underlyingReason` above is
+        // interpolated directly into this sentence.
         "PostgreSQL connection is configured, but the active persistence provider is " +
           `not SQL-capable — initialization failed at boot: ${underlyingReason}`
       );
-      suggestions.push(
-        "Check server boot logs for the underlying persistence initialization error " +
-          "(migration failure, connection failure, bad credentials) and restart/redeploy " +
-          "once resolved."
-      );
+      // mt#3635 / ADR-035 rule 4: report the RETRY state, not only the boot
+      // failure. "Failed at boot and has not retried since" is a stuck process;
+      // "retried at <ts> and still failing" is a live outage. Both looked
+      // identical here before, so an operator could not tell which lever to
+      // reach for — restart, or wait for the database.
+      const retryState = provider instanceof UnconfiguredPersistenceProvider ? provider : undefined;
+      if (retryState?.lastAttemptAt) {
+        issues.push(
+          `Last re-initialization attempt ${retryState.lastAttemptAt} also failed` +
+            `${retryState.lastAttemptError ? `: ${retryState.lastAttemptError}` : ""} — ` +
+            "the provider is retrying on use, so this is a live outage rather than a " +
+            "stuck process."
+        );
+        suggestions.push(
+          "The provider re-attempts initialization on use with backoff; no restart is " +
+            "needed. Investigate why the database is unreachable."
+        );
+      } else {
+        issues.push(
+          "No re-initialization has been attempted since boot — the provider is stuck " +
+            "in its boot-time failure state."
+        );
+        suggestions.push(
+          "Check server boot logs for the underlying persistence initialization error " +
+            "(migration failure, connection failure, bad credentials) and restart/redeploy " +
+            "once resolved."
+        );
+      }
       return {
         success: false,
         details: "PostgreSQL backend is configured but not actually available",

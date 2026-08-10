@@ -152,7 +152,7 @@ describe("DrivenSessionPage (mt#2751)", () => {
     await waitFor(() => expect(screen.getByText("hello operator")).toBeDefined());
     expect(screen.getByText("Live")).toBeDefined();
 
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "continue please" } });
     fireEvent.click(screen.getByText("Send"));
 
@@ -208,10 +208,13 @@ describe("DrivenSessionPage (mt#2751)", () => {
     });
     firstWs().simulateMessage({ type: "minsky_exit", code: 0, signal: null, status: "exited" });
 
-    await waitFor(() => expect(screen.getByText("Exited")).toBeDefined());
+    // "Completed", not "Exited" (mt#3132): terminal conditions now read from
+    // the shared outcome vocabulary both pipelines classify against, so a clean
+    // exit is named the same thing here and on the transcript surface.
+    await waitFor(() => expect(screen.getByText("Completed")).toBeDefined());
     expect(screen.getByText("1.2s · $0.0100 · 1 turn")).toBeDefined();
 
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(true);
   });
 
@@ -286,7 +289,7 @@ describe("DrivenSessionPage — launch prefill auto-send (mt#3375)", () => {
     firstWs().simulateOpen();
 
     const textarea = (await screen.findByLabelText(
-      "Message to the driven session"
+      "Message to this session"
     )) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });

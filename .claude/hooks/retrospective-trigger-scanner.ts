@@ -33,7 +33,7 @@
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
+  resolveParentTranscriptLinesForPath,
   extractLastAssistantTurn,
   extractAssistantText,
   extractLastUserMessage,
@@ -59,8 +59,24 @@ const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedAndCodeContexts } from "./elision";
+import {
+  nominate,
+  type DegradedReason,
+  type ExemplarSet,
+  type NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  confirmNominations,
+  type ConfirmDegradedReason,
+  type ConfirmDeps,
+} from "../../packages/domain/src/detectors/llm-confirm";
+import { resolveConfirmDeps } from "../../packages/domain/src/detectors/llm-confirm-factory";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
+import { cappedEvidenceLines } from "./guard-feedback-format";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -69,6 +85,25 @@ import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_RETROSPECTIVE_TRIGGER";
 
 const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
+
+/**
+ * Evaluation stream (mt#3652): EVERY evaluated turn, fired or not, with
+ * per-rung outcomes. Deliberately a SEPARATE file from the calibration log —
+ * `coverage-receipt.ts` reads a calibration record's existence as evidence the
+ * detector FIRED, and its discovery glob is `.minsky/*-calibration.jsonl`
+ * (the mt#3583 silent-stretch precedent, applied here). This is what closes
+ * the fire-only-corpus gap: before it, a Rung-1 miss wrote nothing at all, so
+ * every recall miss on record reached the log only because a human noticed
+ * (mt#3521's corrected measurement premise).
+ */
+export const EVALUATION_LOG = ".minsky/retrospective-trigger-evaluations.jsonl";
+
+/**
+ * Logical stream name for `logEvaluationRecord` (mt#3745) — the same
+ * name/path split `calibrationLog` uses in the registry. `EVALUATION_LOG`
+ * above stays as the repo-relative path the docblocks and readers refer to.
+ */
+const EVALUATION_LOG_NAME = "retrospective-trigger";
 
 // ---------------------------------------------------------------------------
 // Trigger family types
@@ -453,6 +488,309 @@ export function detectTriggerPhrases(text: string): TriggerMatch[] {
   return matches;
 }
 
+// ---------------------------------------------------------------------------
+// Rung 2: embedding nomination (mt#3408, ADR-024)
+// ---------------------------------------------------------------------------
+
+/**
+ * Curated exemplars per family, embedded and compared against the turn's
+ * sentences so a paraphrase no regex spells out can still be nominated.
+ *
+ * These describe the SHAPE of each family, deliberately NOT the verbatim text
+ * of any known miss. Seeding an exemplar with the mt#3341 sentence itself would
+ * make its recall fixture pass by memorization and prove nothing about the
+ * paraphrases the next miss will actually be phrased in.
+ */
+export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
+  {
+    family: "R1",
+    exemplars: [
+      "I owe you an apology for that.",
+      "That was my mistake and I should have caught it.",
+      "I conflated two separate things.",
+      "I asserted that without checking it first.",
+      "I referenced an identifier that did not exist yet.",
+      "I wrote down a value I had never actually obtained.",
+      "I invented a number instead of looking it up.",
+      "My earlier statement about that was incorrect.",
+    ],
+  },
+  {
+    family: "R2",
+    exemplars: [
+      "I didn't think it through before acting.",
+      "I went straight to the fix without checking the cause.",
+      "I defaulted to the familiar approach and didn't pause to consider it.",
+      "I skipped the verification step that would have caught this.",
+      // mt#3652 pilot: the evidence-without-decision admission shape died at
+      // nomination (the "catalogued the gaps but never decided" miss). A
+      // paraphrase of the shape, deliberately not the miss verbatim.
+      "I described the problem and stopped without deciding anything.",
+    ],
+  },
+  {
+    family: "R3",
+    exemplars: [
+      "Going forward I'll check that first.",
+      "Next time I will not make that assumption.",
+      "From now on I'll verify the result before claiming it.",
+    ],
+  },
+  {
+    family: "R4",
+    exemplars: [
+      "I'll skip the retrospective for this one.",
+      "This is a one-off and doesn't warrant a retrospective.",
+    ],
+  },
+  {
+    family: "R5",
+    exemplars: [
+      "The approach I was using turns out to be a documented anti-pattern.",
+      "Community consensus is against the pattern I chose.",
+    ],
+  },
+];
+
+/** Operator kill switch for the Rung-2 stage (mt#3408). */
+export const NOMINATION_DISABLE_ENV_VAR = "MINSKY_DISABLE_RUNG2_NOMINATION";
+
+/**
+ * Opt-in to letting Rung-2 nominations actually CONTRIBUTE to the injected
+ * reminder. Unset, the stage runs and records but does not fire.
+ *
+ * Log-only is the default because the measurement said so, not as caution for
+ * its own sake. `scripts/replay-retrospective-trigger-corpus.ts --rung2` over a
+ * 40-turn real-transcript sample produced 3 new-only fires, and all 3
+ * hand-classified as FALSE POSITIVES ("Dereferencing it.", "Investigation is
+ * complete and it changed the fix.", "Probing both for live claims before I
+ * touch either…") — none is an admission. Rung 1 fired 0 times on the same
+ * turns, so enforcing would have been a pure 7.5%-of-turns noise addition.
+ *
+ * ADR-024's sign-off (b) sets the bar at "0 known-FP"; 3/3 fails it. Per the
+ * mt#2263 ladder a stage in that state runs calibration-first, so nominations
+ * land in the calibration log — where the FP rate keeps being measurable — and
+ * nowhere else. Flip this on only when a tuned threshold or exemplar set
+ * demonstrably clears the bar on a real sample.
+ */
+export const NOMINATION_ENFORCE_ENV_VAR = "MINSKY_RUNG2_NOMINATION_ENFORCE";
+
+/**
+ * Operator kill switch for the Rung-3 confirm stage (mt#3652).
+ *
+ * Unlike Rung 2's enforce flag — which stays OFF, and untouched, per
+ * mt#3408's 3/3-FP measurement — the confirm stage ships ENABLED: a
+ * confirmed nomination injects. That is the mt#3521 option-(b) principal
+ * decision (2026-08-03), grounded in the pilot's 6/6-positive / 0/7-FP
+ * result (`scripts/pilot-rung3-confirm.ts`; full table in the mt#3652 spec).
+ * The two flags are independent gates on independent paths: raw nominations
+ * still never fire without RUNG2_NOMINATION_ENFORCE; confirmed ones fire
+ * unless THIS switch turns the stage off.
+ */
+export const RUNG3_DISABLE_ENV_VAR = "MINSKY_DISABLE_RUNG3_CONFIRM";
+
+function isEnvFlagSet(name: string): boolean {
+  const value = process.env[name];
+  return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
+}
+
+function isNominationDisabled(): boolean {
+  return isEnvFlagSet(NOMINATION_DISABLE_ENV_VAR);
+}
+
+/** True when nominations may contribute to the injected reminder (default: false). */
+export function isNominationEnforcing(): boolean {
+  return isEnvFlagSet(NOMINATION_ENFORCE_ENV_VAR);
+}
+
+export interface NominatedDetection {
+  matches: TriggerMatch[];
+  /** Set when the Rung-2 stage could not run; the caller still injects on Rung 1. */
+  degradedReason?: DegradedReason;
+  /** Specifics for the degradation, when the reason alone is not actionable. */
+  degradedDetail?: string;
+  /**
+   * Rung-2 nominations that were NOT already covered by a Rung-1 match.
+   *
+   * Populated regardless of mode. In the default log-only mode these are
+   * REPORTED but deliberately absent from `matches`, so they reach the
+   * calibration log without reaching the injected reminder.
+   */
+  nominatedFamilies: string[];
+  /** True when nominations were allowed to contribute to `matches`. */
+  enforcing?: boolean;
+  /**
+   * Families the Rung-3 confirm stage endorsed (mt#3652). Confirmed families
+   * ARE in `matches` — a confirmed nomination injects — which is the whole
+   * point of the stage: it converts Rung 2's recall into fires without
+   * inheriting Rung 2's measured 0/3 precision.
+   */
+  confirmedFamilies: string[];
+  /** Rung-3 stage outcome, recorded whenever the stage had candidates to judge. */
+  rung3?: {
+    attempted: boolean;
+    degraded?: boolean;
+    degradedReason?: ConfirmDegradedReason;
+    latencyMs?: number;
+  };
+}
+
+/**
+ * Rung 1 + Rung 2. The deterministic result is authoritative and always
+ * returned; nomination only ADDS families Rung 1 did not already match.
+ *
+ * Both consuming hooks call this rather than re-implementing the union, so
+ * `turn-end-retro-scan.ts` inherits Rung 2 by construction — mt#3341's absorbed
+ * constraint 4 asked for that to be verified rather than assumed, and routing
+ * both through one function is the verification.
+ *
+ * Never throws: every Rung-2 failure degrades to the Rung-1 result.
+ */
+export async function detectTriggerPhrasesWithNomination(
+  text: string,
+  deps?: NominationDeps | null,
+  confirmDeps?: ConfirmDeps | null
+): Promise<NominatedDetection> {
+  const rung1 = detectTriggerPhrases(text);
+
+  // Kill switch. mt#3341's SC5 asked for a staged-rollout posture and noted
+  // neither hook had one; this is it. Distinct from a DEGRADED result on
+  // purpose: an operator turning Rung 2 off is not a provider failure, so it
+  // records no `degraded` marker and does not pollute the calibration signal.
+  // Turning Rung 2 off also turns Rung 3 off — the confirm stage only ever
+  // judges nominations, so it has no input without them.
+  if (isNominationDisabled()) {
+    return { matches: rung1, nominatedFamilies: [], confirmedFamilies: [] };
+  }
+
+  // Rung 1 suppresses meta-discussion turns entirely; Rung 2 must honour the
+  // same suppression or it would re-fire on exactly the text mt#2672 taught the
+  // detector to ignore.
+  if (isDetectorMetaDiscussion(text)) {
+    return { matches: rung1, nominatedFamilies: [], confirmedFamilies: [] };
+  }
+
+  let resolved: NominationDeps | null;
+  if (deps === undefined) {
+    // A hook is its own entry point: it inherits neither the reflect polyfill
+    // nor the process-global configuration the CLI and MCP server set up at
+    // boot. `resolveNominationDeps` reaches the embedding factory, which needs
+    // both — without this the resolver would throw, return null, and Rung 2
+    // would degrade on EVERY turn in production while every test passed. That
+    // is the mt#3019 dead-path shape, and `domain-bootstrap`'s own docblock
+    // names the embedding-factory call as one of the three it must precede.
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      return {
+        matches: rung1,
+        degradedReason: "provider-unconfigured",
+        nominatedFamilies: [],
+        confirmedFamilies: [],
+      };
+    }
+    resolved = await resolveNominationDeps();
+  } else {
+    resolved = deps;
+  }
+  if (resolved === null) {
+    return {
+      matches: rung1,
+      degradedReason: "provider-unconfigured",
+      nominatedFamilies: [],
+      confirmedFamilies: [],
+    };
+  }
+
+  // Score against the SAME elided text Rung 1 scans: a trigger phrase inside
+  // backticks or a blockquote is being described, not asserted, at either rung.
+  const elided = elideQuotedAndCodeContexts(text);
+  const result = await nominate(elided, NOMINATION_EXEMPLARS, resolved);
+
+  if (result.degraded) {
+    return {
+      matches: rung1,
+      degradedReason: result.degradedReason,
+      degradedDetail: result.degradedDetail,
+      nominatedFamilies: [],
+      confirmedFamilies: [],
+    };
+  }
+
+  // Log-only unless explicitly enforcing. Nominations are always REPORTED (the
+  // caller writes them to the calibration line, which is what keeps the FP rate
+  // measurable), but raw nominations only join `matches` — and therefore the
+  // injected reminder — when the operator has opted in. See
+  // NOMINATION_ENFORCE_ENV_VAR for the measured 3/3-false-positive result this
+  // default encodes.
+  const enforcing = isNominationEnforcing();
+  const alreadyMatched = new Set(rung1.map((m) => m.family as string));
+  const matches = [...rung1];
+  const nominatedFamilies: string[] = [];
+  const pendingCandidates: { family: string; segment: string }[] = [];
+  for (const nomination of result.nominations) {
+    if (alreadyMatched.has(nomination.family)) continue;
+    alreadyMatched.add(nomination.family);
+    nominatedFamilies.push(nomination.family);
+    if (enforcing) {
+      matches.push({
+        family: nomination.family as TriggerFamily,
+        matchedPhrase: nomination.segment,
+      });
+    } else {
+      pendingCandidates.push({ family: nomination.family, segment: nomination.segment });
+    }
+  }
+
+  // Rung 3 (mt#3652): a Haiku confirm over the log-only nominations. Confirmed
+  // candidates DO inject. Skipped entirely when raw-enforcement is on (the
+  // nominations already joined `matches` — confirming them would only add
+  // latency) and under the operator kill switch. Every failure path keeps the
+  // pre-confirm behavior: nominations stay log-only, Rung-1 matches still
+  // inject — ADR-024's fail-to-Rung-1 invariant, one rung up.
+  const confirmedFamilies: string[] = [];
+  let rung3: NominatedDetection["rung3"];
+  if (pendingCandidates.length > 0 && !isEnvFlagSet(RUNG3_DISABLE_ENV_VAR)) {
+    let resolvedConfirm: ConfirmDeps | null;
+    if (confirmDeps === undefined) {
+      if (deps !== undefined) {
+        // A caller that INJECTED nomination deps controls both stages
+        // explicitly — auto-resolving the confirm service here would make an
+        // injected-deps unit test reach a live provider on any machine with
+        // credentials configured. This branch is unreachable from the live
+        // hooks, which pass neither parameter.
+        return { matches, nominatedFamilies, enforcing, confirmedFamilies: [] };
+      }
+      // Same entry-point reasoning as the nomination resolver above; the
+      // bootstrap is memoized, so this is a no-op when Rung 2 already ran it.
+      const bootstrap = await ensureHookDomainBootstrap();
+      resolvedConfirm = bootstrap.ok ? await resolveConfirmDeps() : null;
+    } else {
+      resolvedConfirm = confirmDeps;
+    }
+    if (resolvedConfirm === null) {
+      rung3 = { attempted: true, degraded: true, degradedReason: "provider-unconfigured" };
+    } else {
+      const confirmResult = await confirmNominations(elided, pendingCandidates, resolvedConfirm);
+      rung3 = {
+        attempted: true,
+        ...(confirmResult.degraded
+          ? { degraded: true, degradedReason: confirmResult.degradedReason }
+          : {}),
+        ...(confirmResult.latencyMs !== undefined ? { latencyMs: confirmResult.latencyMs } : {}),
+      };
+      for (const confirmation of confirmResult.confirmations) {
+        confirmedFamilies.push(confirmation.family);
+        matches.push({
+          family: confirmation.family as TriggerFamily,
+          matchedPhrase: confirmation.segment,
+        });
+      }
+    }
+  }
+
+  return { matches, nominatedFamilies, enforcing, confirmedFamilies, rung3 };
+}
+
 export function detectUserCorrection(userText: string): TriggerMatch[] {
   // Same quoted/code elision as the assistant side (mt#2672) — a user
   // QUOTING a correction phrase while discussing it is not a correction.
@@ -561,6 +899,21 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
   }
 }
 
+/**
+ * Evaluation-stream writer (mt#3652) — one record per EVALUATED turn, fired
+ * or not. Thin wrapper over the shared `logEvaluationRecord` (mt#3745); kept as
+ * a named export because the `appendEvaluationRecordFn` deps seam and the
+ * `run()` default bind to this signature. See EVALUATION_LOG's docblock for why
+ * this is a separate file from the calibration log.
+ */
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  // This used to be `resolve(findRepoRoot(cwd), EVALUATION_LOG)`, which
+  // scattered the stream into session workspaces while the calibration log —
+  // routed through the dispatcher — landed correctly in the repo.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
 // ---------------------------------------------------------------------------
 // Reminder builder
 // ---------------------------------------------------------------------------
@@ -583,9 +936,12 @@ function buildReminder(matches: TriggerMatch[]): string {
         "Your next response MUST invoke `/retrospective` before any other action."
     );
     lines.push("");
-    for (const m of assistantMatches) {
-      lines.push(`  - Family ${m.family}: "${m.matchedPhrase}"`);
-    }
+    lines.push(
+      ...cappedEvidenceLines(
+        assistantMatches,
+        (m) => `  - Family ${m.family}: "${m.matchedPhrase}"`
+      )
+    );
     lines.push("");
   }
 
@@ -595,9 +951,7 @@ function buildReminder(matches: TriggerMatch[]): string {
         "Invoke `/retrospective` immediately."
     );
     lines.push("");
-    for (const m of userMatches) {
-      lines.push(`  - Signal: "${m.matchedPhrase}"`);
-    }
+    lines.push(...cappedEvidenceLines(userMatches, (m) => `  - Signal: "${m.matchedPhrase}"`));
     lines.push("");
   }
 
@@ -607,9 +961,9 @@ function buildReminder(matches: TriggerMatch[]): string {
         "run /retrospective triage on why the design was produced without the research."
     );
     lines.push("");
-    for (const m of methodRedirectMatches) {
-      lines.push(`  - Signal: "${m.matchedPhrase}"`);
-    }
+    lines.push(
+      ...cappedEvidenceLines(methodRedirectMatches, (m) => `  - Signal: "${m.matchedPhrase}"`)
+    );
     lines.push("");
   }
 
@@ -625,12 +979,23 @@ function buildReminder(matches: TriggerMatch[]): string {
 // Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
 // ---------------------------------------------------------------------------
 
+/** Injectable overrides for `run()` — tests substitute an in-memory capture for the evaluation-stream seam (`custom/no-real-fs-in-tests`; the silent-stretch RunDeps precedent, mt#3583). */
+export interface RunDeps {
+  /** Defaults to the real `appendEvaluationRecord`. */
+  appendEvaluationRecordFn?: (cwd: string, record: Record<string, unknown>) => void;
+}
+
 /**
  * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
  * a `GuardOutcome` instead of writing to stdout/`process.exit`. Reuses
  * `ctx.transcriptLines` (D6) instead of re-parsing the transcript itself.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  runDeps: RunDeps = {}
+): Promise<GuardOutcome | null> {
+  const appendEvaluation = runDeps.appendEvaluationRecordFn ?? appendEvaluationRecord;
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -669,18 +1034,34 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   }
 
   const allMatches: TriggerMatch[] = [];
+  let nominationDegradedReason: DegradedReason | undefined;
+  let nominatedFamilies: string[] = [];
+  let nominationEnforcing = false;
+  let confirmedFamilies: string[] = [];
+  let rung3Outcome: NominatedDetection["rung3"];
+  let assistantScanned = false;
 
   let runAssistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       // Assistant-side R-family scan: suppressed when a recent
       // `/retrospective` invocation covers this turn's output.
       if (runAssistantText && !retrospectiveAlreadyInvoked) {
-        allMatches.push(
-          ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
-        );
+        // Rung 1 + Rung 2 (mt#3408) + Rung 3 (mt#3652). Nomination only ADDS
+        // families; the confirm stage only judges nominations; a degraded
+        // provider at either rung leaves the deterministic result untouched
+        // and is recorded on the calibration line rather than silently
+        // dropped.
+        assistantScanned = true;
+        const detected = await detectTriggerPhrasesWithNomination(runAssistantText);
+        nominationDegradedReason = detected.degradedReason;
+        nominatedFamilies = detected.nominatedFamilies;
+        nominationEnforcing = detected.enforcing === true;
+        confirmedFamilies = detected.confirmedFamilies;
+        rung3Outcome = detected.rung3;
+        allMatches.push(...filterStopFlagged(input.session_id, lines, detected.matches));
       }
     }
   } catch (err) {
@@ -705,13 +1086,66 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
   }
 
-  if (allMatches.length === 0) return null;
+  // Evaluation stream (mt#3652): one record per evaluated turn, FIRED OR NOT.
+  // Written directly (not via the GuardOutcome calibration channel) because a
+  // calibration record's existence is read as fire-evidence by
+  // coverage-receipt.ts — see EVALUATION_LOG's docblock. This is the half a
+  // fire-only corpus cannot say: "it stopped happening."
+  appendEvaluation(input.cwd, {
+    source: "live",
+    timestamp: new Date().toISOString(),
+    session_id: input.session_id,
+    hook: "retrospective-trigger-scanner",
+    assistant_scanned: assistantScanned,
+    suppressed_by_recent_retro: retrospectiveAlreadyInvoked,
+    match_families: allMatches.map((m) => m.family),
+    nominated_families: nominatedFamilies,
+    confirmed_families: confirmedFamilies,
+    ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
+    ...(nominationDegradedReason !== undefined
+      ? { nomination_degraded: nominationDegradedReason }
+      : {}),
+    fired: allMatches.length > 0,
+  });
+
+  if (allMatches.length === 0) {
+    // Two things still have to be recorded when nothing is injectable:
+    //
+    //  - a DEGRADED Rung 2, or a provider that is down looks identical to a
+    //    clean turn (ADR-024's fail-to-Rung-1 invariant: never silent-skip);
+    //  - a LOG-ONLY nomination, which by construction never reaches `matches`.
+    //    Dropping it here would discard the only signal the calibration review
+    //    has to work from, leaving the stage permanently unmeasurable — the
+    //    exact shape of a mechanism that exists and produces nothing.
+    if (nominationDegradedReason !== undefined || nominatedFamilies.length > 0) {
+      return {
+        calibration: {
+          source: "live",
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          matches: [],
+          nominated_families: nominatedFamilies,
+          nomination_enforcing: nominationEnforcing,
+          // mt#3652: a populated confirmed_families cannot occur on this
+          // branch (a confirmation joins `matches`), but the rung-3 outcome
+          // can — e.g. every nomination judged and rejected, or the stage
+          // degraded. Both are the stage's precision signal.
+          confirmed_families: confirmedFamilies,
+          ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
+          ...(nominationDegradedReason !== undefined
+            ? { nomination_degraded: nominationDegradedReason }
+            : {}),
+        },
+      };
+    }
+    return null;
+  }
 
   const firstMatch = allMatches[0];
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
+      const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
@@ -736,6 +1170,23 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       session_id: input.session_id,
       matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       transcript_excerpt: transcriptExcerpt,
+      // mt#3408: which families Rung 2 contributed that Rung 1 missed, and
+      // whether the stage degraded. Both are what the precision/recall delta
+      // is measured from — a fire with an empty `nominated_families` is a
+      // pure Rung-1 fire and unchanged from the pre-Rung-2 baseline.
+      // `nomination_enforcing` disambiguates the two readings of a populated
+      // list: enforcing means those families CONTRIBUTED to this fire, log-only
+      // means they were recorded and deliberately withheld from it.
+      nominated_families: nominatedFamilies,
+      nomination_enforcing: nominationEnforcing,
+      // mt#3652: families whose fire came through the Rung-3 confirm. A fire
+      // with empty confirmed_families and empty nominated_families is a pure
+      // Rung-1 fire, unchanged from the pre-ladder baseline.
+      confirmed_families: confirmedFamilies,
+      ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
+      ...(nominationDegradedReason !== undefined
+        ? { nomination_degraded: nominationDegradedReason }
+        : {}),
     },
     additionalContext: buildReminder(allMatches),
   };
@@ -774,7 +1225,7 @@ export async function main(): Promise<void> {
 
   let lines: TranscriptLine[];
   try {
-    lines = parseTranscript(transcriptPath);
+    lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch {
     process.exit(0);
   }

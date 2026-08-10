@@ -98,3 +98,96 @@ export function fingerprintError(toolName: string, error: unknown): ErrorFingerp
 
   return { hash, toolName, errorType, normalizedMessage };
 }
+
+/**
+ * Which surface an observation came from (mt#3802).
+ *
+ * Kept as a discriminator on the record rather than as two separate streams:
+ * the two surfaces answer the same question ("has the agent now repeated
+ * itself?") and pooling them would be right for that question — but their
+ * BASE RATES differ, and calibration read across a pooled stream cannot tell
+ * a noisy surface from a quiet one. One stream, one field.
+ */
+export type ObservationSource = "tool-error" | "guard-denial";
+
+/** A guard denial's fingerprint, plus the input tell that is not part of the key. */
+export interface DenialFingerprint extends ErrorFingerprint {
+  source: "guard-denial";
+  /** The guard that denied — part of the hash, so two guards never collapse. */
+  guardName: string;
+  /**
+   * Hash of the tool input that was denied.
+   *
+   * Deliberately NOT part of `hash`. The streak key is (guard, reason) per this
+   * task's SC1, because an agent that varies its input and still gets the same
+   * denial is repeating itself just as surely. The input hash rides along as
+   * the STRONGER tell (SC3): in the originating incident the `command` string
+   * was byte-identical four times, which is a sharper signal than the shared
+   * denial text and is worth having in the record even though it does not gate
+   * the streak.
+   */
+  inputHash: string;
+}
+
+/**
+ * Stable stringification for the input hash.
+ *
+ * Key order is sorted so two structurally identical inputs hash alike
+ * regardless of how the harness happened to serialize them. Values are
+ * included: the whole point is to detect a byte-identical REPEAT, and a
+ * key-only digest would call every `Bash` call identical.
+ */
+export function stableStringify(value: unknown, seen: Set<object> = new Set()): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
+  // Cycle guard (PR #2770 R1). Tool input arrives as parsed JSON and so should
+  // be acyclic, but this is an exported helper and unbounded recursion on a
+  // cycle would throw a RangeError up through a guard's DENY path — the one
+  // path that must never fail for a bookkeeping reason.
+  if (seen.has(value as object)) return '"[cycle]"';
+  seen.add(value as object);
+  try {
+    if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    );
+    return `{${entries
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v, seen)}`)
+      .join(",")}}`;
+  } finally {
+    // Released so a value repeated across SIBLING branches still serializes,
+    // rather than being mistaken for a cycle after its first appearance.
+    seen.delete(value as object);
+  }
+}
+
+/**
+ * Fingerprint a PreToolUse guard denial.
+ *
+ * `guardName` is in the hash so AT3 holds by construction — two denials from
+ * DIFFERENT guards on the same tool produce different hashes and therefore do
+ * not accumulate into one streak.
+ */
+export function fingerprintGuardDenial(input: {
+  toolName: string;
+  guardName: string;
+  reason: unknown;
+  toolInput: unknown;
+}): DenialFingerprint {
+  const normalizedMessage = normalizeErrorMessage(input.reason);
+  const errorType = `guard-denial:${input.guardName}`;
+
+  const hash = createHash("sha1")
+    .update(`${input.toolName}::${errorType}::${normalizedMessage}`)
+    .digest("hex");
+  const inputHash = createHash("sha1").update(stableStringify(input.toolInput)).digest("hex");
+
+  return {
+    hash,
+    toolName: input.toolName,
+    errorType,
+    normalizedMessage,
+    source: "guard-denial",
+    guardName: input.guardName,
+    inputHash,
+  };
+}

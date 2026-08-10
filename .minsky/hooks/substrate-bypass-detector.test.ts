@@ -1,7 +1,7 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the hook reads real transcript files via fs.readFileSync and E2E tests must write real transcript JSONL files so Bun.spawn can read them */
 /* eslint-disable custom/no-magic-string-duplication -- test fixture strings (transcript text, heading names, section markers) are intentionally repeated across test cases for clarity and isolation */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +13,7 @@ import {
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
   run,
+  buildReminder,
 } from "./substrate-bypass-detector";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
@@ -22,7 +23,12 @@ import type { DispatchContext } from "./registry";
 // Transcript JSONL helpers
 // ---------------------------------------------------------------------------
 
+// Structural duplicate of `./transcript`'s TranscriptLine, kept minimal for
+// fixture ergonomics. mt#3586 owns the drift between the two; mt#2900 added
+// `isMeta` because a fixture below sets it and nothing was typechecking this
+// file until then.
 type TranscriptLine = {
+  isMeta?: boolean;
   type?: string;
   message?: {
     role?: string;
@@ -1120,6 +1126,105 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+
+  // mt#3485: the reminder used to emit remediation for ALL five bypass
+  // surfaces on every fire — 768 of its 1518 measured chars were instructions
+  // for surfaces the turn never tripped. These two tests are the pair: one
+  // asserts the matched surface's remediation is present, the other that the
+  // unmatched surfaces' remediation is absent. Without the second, rendering
+  // every bullet again would still pass.
+  describe("mt#3485: only the MATCHED surfaces' remediation renders", () => {
+    test("a single-surface fire carries that surface's remediation and no other's", () => {
+      const transcriptPath = writeTranscript([
+        makeUserLine(),
+        makeAssistantLine("I'd update memory X to reflect this new finding."),
+        makeUserLine(),
+      ]);
+      const text = run(makeHookInput(transcriptPath), makeCtx(transcriptPath))?.additionalContext;
+      expect(text).toContain("verbal-commitment");
+      expect(text).toContain("describing what you would save or file is not doing it");
+      // The other surfaces' remediation must NOT appear.
+      expect(text).not.toContain("Invoke the named skill");
+      expect(text).not.toContain("do NOT read JSONL files directly");
+      expect(text).not.toContain("there is no mechanism");
+    });
+
+    // PR #2499 R1: every detection surface the guard can emit must have a
+    // remediation entry, or the reminder renders an empty action list. This
+    // asserts the invariant at the registry level rather than waiting for a
+    // future surface to ship a silently-actionless reminder. The runtime
+    // fallback (GENERIC_REMEDIATION) is the belt; this is the braces.
+    test("every surface the detector can emit has a remediation entry", () => {
+      // Surfaces are string literals at the four `run()` match sites plus the
+      // log-only operator-instruction path; pinned here so adding one without a
+      // remediation line fails loudly.
+      const emittableSurfaces = [
+        "verbal-commitment",
+        "skill-bypass",
+        "db-substrate-bypass",
+        "passive-outcome-as-mechanism",
+        "operator-instruction-after-merge",
+      ];
+      const source = readFileSync(join(import.meta.dir, "substrate-bypass-detector.ts"), "utf8");
+      for (const surface of emittableSurfaces) {
+        // Present as a detection-site literal AND as a remediation-map key.
+        expect(source).toContain(`surface: "${surface}"`);
+        expect(source).toContain(`"${surface}":`);
+      }
+    });
+
+    test("an unmapped surface still yields an actionable directive, not an empty list", () => {
+      // Drives the REAL builder with a surface key that has no
+      // REMEDIATION_BY_SURFACE entry — unreachable through run(), since every
+      // surface run() emits is one the detector names. Asserting against a
+      // re-implementation of the fallback expression would only test the
+      // test's own copy, which is why buildReminder is exported.
+      const text = buildReminder([
+        {
+          surface: "a-brand-new-surface",
+          matchedPhrase: "some phrase",
+          canonicalSubstrate: "mcp__minsky__some_tool",
+        },
+      ]);
+
+      // The action list must not be empty — the pre-fix behavior rendered the
+      // "Required next action:" heading followed by a blank line.
+      const actionBlock = text.split("**Required next action:**")[1] ?? "";
+      expect(actionBlock.trim().length).toBeGreaterThan(0);
+      expect(actionBlock).toContain("- Call the canonical substrate named above");
+
+      // And a known surface still gets its SPECIFIC line, not the fallback —
+      // otherwise the fix could have degraded every surface to the generic one.
+      const known = buildReminder([
+        {
+          surface: "verbal-commitment",
+          matchedPhrase: "I'll save",
+          canonicalSubstrate: "mcp__minsky__memory_create",
+        },
+      ]);
+      expect(known).toContain("describing what you would save or file is not doing it");
+      expect(known).not.toContain("Call the canonical substrate named above");
+    });
+
+    test("a two-surface fire carries BOTH matched remediations", () => {
+      const transcriptPath = writeTranscript([
+        makeUserLine(),
+        makeAssistantLine(
+          [
+            "I'd update memory X to reflect this.",
+            "",
+            "It'll happen naturally over time as a side effect.",
+          ].join("\n")
+        ),
+        makeUserLine(),
+      ]);
+      const text = run(makeHookInput(transcriptPath), makeCtx(transcriptPath))?.additionalContext;
+      expect(text).toContain("describing what you would save or file is not doing it");
+      expect(text).toContain("there is no mechanism");
+      // Still nothing for the surfaces that did not match.
+      expect(text).not.toContain("do NOT read JSONL files directly");
+    });
   });
 });
 

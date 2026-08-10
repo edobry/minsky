@@ -25,7 +25,9 @@ import {
   compareAskPriority,
 } from "@minsky/domain/ask/pending-asks-for-window";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
-import { getSharedPersistenceService } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
+import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public payload shapes — mirrored in Attention.tsx; keep in sync.
@@ -180,8 +182,7 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
 
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `attention error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("attention", err) };
       }
     },
   };
@@ -201,14 +202,21 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
 // broker is available (non-Postgres provider, offline mode).
 // ---------------------------------------------------------------------------
 
-let _cachedRepo: AskRepository | null = null;
-let _cachedBroker: import("../sse-broker").SseBroker | null = null;
-
 const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
 const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
-async function defaultDepsFactory(): Promise<AttentionDeps> {
-  if (!_cachedRepo) {
+/**
+ * AskRepository cached per persistence epoch (mt#3721).
+ *
+ * `DrizzleAskRepository` closes over the `db` handle it was constructed with,
+ * so a pool recycle (`recycleSharedPersistence`, mt#3638) leaves it querying a
+ * torn-down pool — which postgres-js rejects forever, since `CONNECTION_ENDED`
+ * is raised off an `ending` flag nothing clears. Before mt#3721 this cache had
+ * no epoch check and this widget served `degraded` indefinitely after a recycle
+ * that had already restored the pool.
+ */
+const getCachedAskRepo = createEpochKeyedCache(async (): Promise<AskRepository> => {
+  {
     const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
 
     const svc = await getSharedPersistenceService();
@@ -219,7 +227,9 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
       !("getDatabaseConnection" in provider) ||
       typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
     ) {
-      throw new Error("Persistence provider does not support SQL — AskRepository unavailable");
+      // The provider is already in hand here, so call the domain helper
+      // directly rather than db-providers' re-fetching wrapper (mt#3661).
+      throw new Error(`AskRepository unavailable — ${describePersistenceUnavailability(provider)}`);
     }
 
     const sqlProvider = provider as {
@@ -227,27 +237,41 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
     };
     const db = await sqlProvider.getDatabaseConnection();
     if (!db) {
-      throw new Error("getDatabaseConnection returned null — AskRepository unavailable");
+      // Same class as the capability check above, and just as cause-free before
+      // mt#3661 — a null connection from a provider that CLAIMED SQL capability.
+      throw new Error(
+        `AskRepository unavailable — getDatabaseConnection returned null. ${describePersistenceUnavailability(provider)}`
+      );
     }
-    _cachedRepo = new DrizzleAskRepository(db);
+    return new DrizzleAskRepository(db);
   }
+});
 
-  // Lazy-load the shared SSE broker to read the current active window key.
-  // The broker is initialised eagerly at server startup (initServerSseBroker);
-  // if that hasn't happened yet (e.g. widget fetch called before server init),
-  // fall back to null and retry on the next fetch().
-  if (!_cachedBroker) {
-    try {
-      const { getServerSseBrokerForWidget } = await import("../routes/events");
-      _cachedBroker = (await getServerSseBrokerForWidget()) ?? null;
-    } catch {
-      // Broker unavailable — will retry on next fetch()
-    }
+async function defaultDepsFactory(): Promise<AttentionDeps> {
+  const repo = await getCachedAskRepo();
+
+  // Read the shared SSE broker to get the current active window key. The broker
+  // is initialised eagerly at server startup (initServerSseBroker); if that
+  // hasn't happened yet (e.g. widget fetch called before server init), fall back
+  // to null and retry on the next fetch().
+  //
+  // Deliberately NOT cached here (mt#3721): `getServerSseBrokerForWidget` is
+  // already a cached accessor, and that cache is epoch-keyed at the source since
+  // the broker holds a LISTEN connection from the provider. A second copy of the
+  // reference here would pin the CLOSED broker across a recycle while the
+  // accessor served the live one — the same latch this task exists to remove,
+  // reintroduced one layer up.
+  let broker: import("../sse-broker").SseBroker | null = null;
+  try {
+    const { getServerSseBrokerForWidget } = await import("../routes/events");
+    broker = (await getServerSseBrokerForWidget()) ?? null;
+  } catch {
+    // Broker unavailable — will retry on next fetch()
   }
 
   let activeWindowKey: string | null = null;
-  if (_cachedBroker) {
-    const latestOpenEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_OPENED);
+  if (broker) {
+    const latestOpenEvent = broker.latestForChannel(CHANNEL_ATTENTION_OPENED);
     if (latestOpenEvent) {
       const openPayload = latestOpenEvent.payload as { windowKey?: string } | undefined;
       const openWindowKey = openPayload?.windowKey ?? null;
@@ -260,7 +284,7 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
         //   (a) the close event targets the SAME windowKey as the latest open, AND
         //   (b) the close event is newer than the open event by numeric event ID.
         // This way: open(A) → close(B) does NOT clear A's active state.
-        const latestCloseEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_CLOSED);
+        const latestCloseEvent = broker.latestForChannel(CHANNEL_ATTENTION_CLOSED);
         let windowStillOpen = true;
         if (latestCloseEvent) {
           const closePayload = latestCloseEvent.payload as { windowKey?: string } | undefined;
@@ -275,7 +299,7 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
     }
   }
 
-  return { repo: _cachedRepo, activeWindowKey };
+  return { repo, activeWindowKey };
 }
 
 /** Default attention widget — ready to drop into WIDGET_REGISTRY */

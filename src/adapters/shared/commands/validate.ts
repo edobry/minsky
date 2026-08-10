@@ -8,9 +8,10 @@
 
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import { readPinnedTsgoVersion, resolveTsgoBinary } from "../../../utils/tsgo-binary";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SessionProviderInterface } from "@minsky/domain/session";
 
@@ -118,6 +119,45 @@ interface TypecheckResult {
   workspaces: string[];
   /** The base directory that was actually validated — prevents silent main-repo checks. */
   validatedWorkspace: string;
+  /**
+   * The checker version that ACTUALLY ran (mt#3657), or null when the checker could not be
+   * resolved or would not report one.
+   *
+   * Recorded because for three months it was not what this repo pinned, and nothing in any
+   * result said so: `bunx @typescript/native-preview` fetched `@latest` while `package.json`
+   * declared a version three months older. An anomaly can now be attributed to a compiler
+   * rather than re-litigated as a code problem.
+   */
+  checkerVersion: string | null;
+  /**
+   * What `package.json` DECLARES the checker version should be. Reported beside
+   * `checkerVersion` so the two can be compared without reading the manifest — if they ever
+   * diverge again, the result itself says so.
+   */
+  pinnedCheckerVersion: string | null;
+  /**
+   * Projects that were DISCOVERED but deliberately not run, each with why (mt#3895).
+   *
+   * Reported rather than dropped on purpose: skipping silently would trade a noisy false
+   * positive for a quiet false negative, and a reader who trusts `workspaces` as "everything
+   * that was checked" would be wrong with nothing in the result to say so. Empty in the
+   * normal case.
+   */
+  skippedProjects: SkippedTypecheckProject[];
+}
+
+/** A discovered typecheck project that was not run, and why (mt#3895). */
+export interface SkippedTypecheckProject {
+  /** The tsconfig path, as it would appear in `workspaces` had it been run. */
+  project: string;
+  /** Human-readable cause, including what to do to include it. */
+  reason: string;
+}
+
+/** What {@link discoverStandaloneTypecheckProjects} found: the runnable set, plus the skips. */
+export interface StandaloneTypecheckProjects {
+  projects: string[];
+  skipped: SkippedTypecheckProject[];
 }
 
 /**
@@ -168,19 +208,50 @@ export async function resolveValidateWorkspace(
 }
 
 /**
+ * The version string `tsgo --version` reports, e.g. `7.0.0-dev.20260419.1`.
+ *
+ * Null when the checker cannot be asked (spawn failure, unexpected output). A missing version
+ * never fails the run: it degrades the ATTRIBUTION of a future anomaly, not the typecheck.
+ */
+export function parseTsgoVersionOutput(output: string): string | null {
+  const match = /Version\s+(\S+)/i.exec(output);
+  return match?.[1] ?? null;
+}
+
+/** {@link parseTsgoVersionOutput} against a real checker binary. */
+async function readTsgoVersion(binaryPath: string): Promise<string | null> {
+  try {
+    const proc = Bun.spawn([binaryPath, "--version"], { stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    await proc.exited;
+    return parseTsgoVersionOutput(stdout) ?? parseTsgoVersionOutput(stderr);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Run `tsgo --noEmit` for one target and parse its errors.
  *
  * @param cwd            Directory to spawn the checker in.
  * @param workspaceLabel Label attributed to every error produced (e.g. "." or "services/reviewer").
+ * @param binaryPath     The checker binary, resolved ONCE by the caller (mt#3657). Passing it in
+ *                       rather than resolving per target is what makes every project in a run use
+ *                       the same compiler — the property the `bunx` path could not offer, since
+ *                       each invocation re-resolved `@latest` independently.
  * @param projectPath    Optional `-p <tsconfig>` path (relative to `cwd`). When omitted, the
  *                       checker uses `cwd`'s own `tsconfig.json`.
  */
 async function runTypecheckTarget(
   cwd: string,
   workspaceLabel: string,
+  binaryPath: string,
   projectPath?: string
 ): Promise<TypecheckError[]> {
-  const args = ["bunx", "@typescript/native-preview", "--noEmit"];
+  const args = [binaryPath, "--noEmit"];
   if (projectPath) {
     args.push("-p", projectPath);
   }
@@ -222,13 +293,23 @@ async function runTypecheckTarget(
   // (When type errors WERE parsed, tsgo's non-zero exit is the normal "found errors" path.)
   if (exitCode !== 0 && errors.length === 0) {
     const diagnostic = (stderr.trim() || stdout.trim() || "no output").slice(0, 2000);
+    // Name the SIGNAL when there is one (mt#3657). A killed checker and a checker that
+    // exited with a config error are both "the check did not run", but only the first is
+    // worth retrying, and reading `code null` left that undiagnosable — the mt#1383 →
+    // mt#3546 → mt#3657 chain spent three months on "likely OOM" partly for want of this.
+    const cause = proc.signalCode
+      ? `was killed by ${proc.signalCode}`
+      : `exited with code ${exitCode}`;
     errors.push({
       workspace: workspaceLabel,
       file: projectPath ?? cwd,
       line: 0,
       column: 0,
       code: "TSGO_RUNNER",
-      message: `Type checker exited with code ${exitCode} and produced no parseable errors: ${diagnostic}`,
+      message:
+        `The type checker did not run: it ${cause} and produced no parseable errors. ` +
+        `This is a TOOL failure — it says nothing about whether the code has type errors. ` +
+        `Diagnostic: ${diagnostic}`,
     });
   }
 
@@ -363,10 +444,15 @@ export async function discoverTypecheckWorkspaces(
  * passed a default `validate_typecheck` and then failed CI (mt#3183).
  *
  * **Why the package.json scripts are the source of truth, not a `tsconfig.*.json` glob.** The
- * invariant that broke is "this tool checks what CI checks," and CI's `build` job runs exactly
- * these scripts as separate steps. Deriving from the same declaration makes the two agree by
- * construction. A glob would diverge in both directions: it would claim coverage for a tsconfig
- * no CI step runs, and miss a project whose script points somewhere the glob does not match.
+ * invariant that broke is "this tool checks what CI checks," and CI runs exactly these scripts.
+ * Deriving from the same declaration makes the two agree by construction. A glob would diverge
+ * in both directions: it would claim coverage for a tsconfig no CI step runs, and miss a
+ * project whose script points somewhere the glob does not match.
+ *
+ * (This used to say CI's `build` job runs them "as separate steps". `typecheck:infra` broke
+ * that clause in mt#3817 — it runs in its own JOB, after a `pulumi install` the `build` job
+ * does not perform. The invariant survives; what it needed was the local-precondition case
+ * {@link uninstalledSubProjectReason} now handles. mt#3895.)
  *
  * Returns tsconfig paths relative to `rootDir`, in script-declaration order, deduplicated.
  * `typecheck:root` (no `-p`) is skipped — the root project is always checked directly by the
@@ -375,18 +461,26 @@ export async function discoverTypecheckWorkspaces(
 export async function discoverStandaloneTypecheckProjects(
   rootDir: string,
   fsImpl: WorkspaceFs = defaultWorkspaceFs
-): Promise<string[]> {
-  let rootPkg: { scripts?: Record<string, string> };
+): Promise<StandaloneTypecheckProjects> {
+  let rootPkg: {
+    scripts?: Record<string, string>;
+    workspaces?: string[] | { packages?: string[] };
+  };
   try {
     rootPkg = JSON.parse(await fsImpl.readFile(join(rootDir, "package.json"))) as {
       scripts?: Record<string, string>;
+      workspaces?: string[] | { packages?: string[] };
     };
   } catch {
-    return [];
+    return { projects: [], skipped: [] };
   }
 
   const scripts = rootPkg.scripts ?? {};
+  const workspacePatterns: string[] = Array.isArray(rootPkg.workspaces)
+    ? rootPkg.workspaces
+    : (rootPkg.workspaces?.packages ?? []);
   const found: string[] = [];
+  const skipped: SkippedTypecheckProject[] = [];
 
   for (const [name, body] of Object.entries(scripts)) {
     if (!name.startsWith("typecheck:")) continue;
@@ -399,11 +493,113 @@ export async function discoverStandaloneTypecheckProjects(
     const projectPath = match?.[1] ?? match?.[2] ?? match?.[3];
     if (!projectPath) continue;
     if (found.includes(projectPath)) continue;
+    if (skipped.some((entry) => entry.project === projectPath)) continue;
     if (!(await fsImpl.exists(join(rootDir, projectPath)))) continue;
+
+    const reason = await uninstalledSubProjectReason(
+      rootDir,
+      projectPath,
+      workspacePatterns,
+      fsImpl
+    );
+    if (reason !== null) {
+      skipped.push({ project: projectPath, reason });
+      continue;
+    }
     found.push(projectPath);
   }
 
-  return found;
+  return { projects: found, skipped };
+}
+
+/**
+ * Why a discovered standalone project cannot be checked here, or `null` if it can.
+ *
+ * Returns a reason ONLY for a self-contained sub-project that a root `bun install` never
+ * populates and that has not been installed by hand — today that is exactly `infra/`, whose
+ * `node_modules/` and generated Pulumi SDK are gitignored and produced by `pulumi install`
+ * (mt#3817 brought it into discovery; mt#3895 is this fix). Running its project anyway
+ * reports two `TS2307` module-resolution errors against a tree the caller never touched.
+ *
+ * **All three conditions are required, and the workspaces test is the load-bearing one.**
+ * The tempting shorter rule — "has a package.json but no node_modules" — is wrong here:
+ * `packages/domain` and `packages/shared` match it, because bun HOISTS workspace deps to the
+ * root, and skipping them would silently drop the two projects mt#3102 brought under
+ * coverage. Membership in a root `workspaces` glob is what separates "installed at the root"
+ * from "never installed at all".
+ *
+ * Glob handling deliberately mirrors {@link discoverTypecheckWorkspaces}: a literal path or a
+ * single trailing `*`. A pattern this cannot parse makes the directory count as NOT a member,
+ * which fails toward running the project (a possible false error) rather than skipping it (a
+ * silent coverage hole) — the safer direction for a check whose job is to catch things.
+ */
+async function uninstalledSubProjectReason(
+  rootDir: string,
+  projectPath: string,
+  workspacePatterns: readonly string[],
+  fsImpl: WorkspaceFs
+): Promise<string | null> {
+  const projectDir = dirname(projectPath);
+  // A root-level tsconfig (`tsconfig.hooks.json`) has no sub-directory of its own; its deps
+  // are the root's, which are installed by definition if anything is running at all.
+  if (projectDir === "." || projectDir === "") return null;
+  if (!(await fsImpl.exists(join(rootDir, projectDir, "package.json")))) return null;
+  if (isWorkspaceMember(projectDir, workspacePatterns)) return null;
+  if (await fsImpl.exists(join(rootDir, projectDir, "node_modules"))) return null;
+
+  // The install command is directory-specific, so it is only named for a directory we
+  // actually know one for. A future sub-project gets the generic instruction rather than an
+  // inherited `pulumi install` that would be wrong for it (PR #2743 R1).
+  const installHint =
+    INSTALL_COMMAND_BY_DIR[projectDir] !== undefined
+      ? `Run \`${INSTALL_COMMAND_BY_DIR[projectDir]}\` in ${projectDir}/ to include it.`
+      : `Install its dependencies to include it.`;
+
+  return (
+    `${projectDir}/ declares its own package.json, is not a root workspace, and has no ` +
+    `node_modules — its dependencies are not installed here, so typechecking it would ` +
+    `report module-resolution errors unrelated to the caller's changes. ${installHint} ` +
+    `CI runs this project with its own install step, so coverage is unaffected.`
+  );
+}
+
+/**
+ * Install command per non-workspace sub-project directory, for the skip reason above.
+ *
+ * Deliberately a lookup rather than a default: naming the wrong command is worse than naming
+ * none, because a reader who runs it and sees nothing change learns to distrust the message.
+ */
+const INSTALL_COMMAND_BY_DIR: Record<string, string | undefined> = {
+  infra: "pulumi install",
+};
+
+/**
+ * Whether `dir` is matched by one of the root `workspaces` globs.
+ *
+ * Both sides are normalized before comparison — a leading `./` and a trailing `/` are both
+ * legal in a `workspaces` entry (`"./packages/*"` is as valid as `"packages/*"`), and without
+ * normalizing them a legitimate workspace member reads as a non-member, which would make
+ * {@link uninstalledSubProjectReason} skip a project it must always run (PR #2743 R1).
+ */
+function isWorkspaceMember(dir: string, patterns: readonly string[]): boolean {
+  const target = normalizeWorkspacePath(dir);
+  for (const raw of patterns) {
+    const pattern = normalizeWorkspacePath(raw);
+    if (pattern.endsWith("/*") && !pattern.slice(0, -2).includes("*")) {
+      const parent = pattern.slice(0, -2);
+      if (target.startsWith(`${parent}/`) && !target.slice(parent.length + 1).includes("/")) {
+        return true;
+      }
+    } else if (!pattern.includes("*") && pattern === target) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Strip a leading `./` and any trailing `/` so two spellings of one path compare equal. */
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/^\.\//, "").replace(/\/+$/, "");
 }
 
 /**
@@ -588,28 +784,66 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           )
         );
 
+        // Resolve the checker ONCE for the whole run (mt#3657). Every target below shares
+        // this binary, so a multi-project run can no longer typecheck project A with one
+        // compiler and project B with another — which is what `bunx @latest` per target
+        // allowed, and what produced a 4260-error `lib` explosion in one project beside
+        // clean results in the rest.
+        const resolution = resolveTsgoBinary(rootDir);
+        if (resolution.kind === "missing") {
+          return {
+            success: false,
+            errorCount: 1,
+            errors: [
+              {
+                workspace: ".",
+                file: resolution.searchedPaths[0] ?? rootDir,
+                line: 0,
+                column: 0,
+                code: "TSGO_MISSING",
+                message: resolution.message,
+              },
+            ],
+            status: "fail",
+            workspaces: [],
+            skippedProjects: [],
+            validatedWorkspace: rootDir,
+            checkerVersion: null,
+            pinnedCheckerVersion: readPinnedTsgoVersion(rootDir),
+          };
+        }
+        const binaryPath = resolution.binaryPath;
+        // The pin is read from the directory that actually PROVIDED the binary, not from the
+        // target — a workspace like `services/reviewer` declares no checker of its own and
+        // uses the hoisted root install, so reading its package.json would report "no pin"
+        // for a checker that is very much pinned.
+        const installRoot = resolution.installRoot;
+
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
+        const skippedProjects: SkippedTypecheckProject[] = [];
 
         if (explicitWorkspace) {
           // Single-workspace mode (backward compatible). `rootDir` (now guaranteed
           // absolute, see above) already IS the target workspace directory itself — no
           // `-p` needed, tsgo picks up that directory's own tsconfig.json, mirroring the
-          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".")`)
+          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".", binaryPath)`)
           // below.
           checked.push(explicitWorkspace);
-          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace)));
+          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace, binaryPath)));
         } else {
           // Multi-workspace mode: root tsconfig + every workspace with its own `typecheck`
           // script. When task/sessionId was given, rootDir is the session workspace; otherwise
           // it is process.cwd() (the main repo).
           checked.push(".");
-          errors.push(...(await runTypecheckTarget(rootDir, ".")));
+          errors.push(...(await runTypecheckTarget(rootDir, ".", binaryPath)));
 
           const workspaces = await discoverTypecheckWorkspaces(rootDir);
           for (const ws of workspaces) {
             checked.push(ws);
-            errors.push(...(await runTypecheckTarget(rootDir, ws, `${ws}/tsconfig.json`)));
+            errors.push(
+              ...(await runTypecheckTarget(rootDir, ws, binaryPath, `${ws}/tsconfig.json`))
+            );
           }
 
           // src/cockpit/web (mt#2424) is a dedicated typecheck project but NOT a
@@ -626,6 +860,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
               ...(await runTypecheckTarget(
                 rootDir,
                 COCKPIT_WEB_TSCONFIG_REL,
+                binaryPath,
                 `${COCKPIT_WEB_TSCONFIG_REL}/tsconfig.json`
               ))
             );
@@ -646,11 +881,15 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
               label === "." ? "tsconfig.json" : `${label.replace(/\/$/, "")}/tsconfig.json`
             )
           );
-          for (const projectPath of await discoverStandaloneTypecheckProjects(rootDir)) {
+          const standalone = await discoverStandaloneTypecheckProjects(rootDir);
+          skippedProjects.push(...standalone.skipped);
+          for (const projectPath of standalone.projects) {
             if (alreadyCheckedProjects.has(projectPath)) continue;
             alreadyCheckedProjects.add(projectPath);
             checked.push(projectPath);
-            errors.push(...(await runTypecheckTarget(rootDir, projectPath, projectPath)));
+            errors.push(
+              ...(await runTypecheckTarget(rootDir, projectPath, binaryPath, projectPath))
+            );
           }
         }
 
@@ -662,7 +901,10 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           errors,
           status,
           workspaces: checked,
+          skippedProjects,
           validatedWorkspace: rootDir,
+          checkerVersion: await readTsgoVersion(binaryPath),
+          pinnedCheckerVersion: readPinnedTsgoVersion(installRoot),
         };
       },
     })

@@ -12,6 +12,11 @@
 
 import { Command } from "commander";
 import { runProxy } from "./proxy";
+import {
+  wireMemoryCeilingWatcher,
+  getCurrentProcessPpid,
+  getCurrentProcessUptimeSeconds,
+} from "../orphan-exit";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { exit } from "@minsky/shared/process";
@@ -117,6 +122,35 @@ export function createProxyCommand(): Command {
         log.debug("[proxy-cli] Starting stdio respawn proxy", {
           childCommand: options.childCommand,
           childArgs,
+        });
+
+        // mt#3886: bound this process's own resident memory. The proxy
+        // runs the full Minsky bundle (ADR-038's census measures it at a
+        // ~55MB mean, not a byte-pipe), so it can hold the same runaway
+        // allocation the inner server can. The 2026-08-08 panic stackshot
+        // carried no argv, so which of the two ballooned to 40-60GB was
+        // never determined — guarding only the server would rest on an
+        // assumption the evidence does not support.
+        //
+        // Exit via SIGTERM rather than `exit()`: the proxy's own signal
+        // handlers tear down the pipes and SIGTERM-then-SIGKILL the child
+        // (`MinskyStdioProxy.killChild`). Calling `exit()` here would skip
+        // that and orphan the inner server — replacing one runaway process
+        // with a parentless one.
+        wireMemoryCeilingWatcher({
+          initialPpid: getCurrentProcessPpid(),
+          processRole: "mcp proxy",
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
+          onExit: () => {
+            // Called as a METHOD, not destructured: `process.kill` is
+            // documented to signal `pid`, but detaching it from `process`
+            // is not a contract Node/Bun guarantee.
+            const proc = process as typeof process & {
+              kill: (pid: number, signal: string) => void;
+              pid: number;
+            };
+            proc.kill(proc.pid, "SIGTERM");
+          },
         });
 
         await runProxy({

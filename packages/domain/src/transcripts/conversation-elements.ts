@@ -36,6 +36,17 @@ import type { SessionContextSnapshotBlock } from "../context/types";
 /** The Agent tool's name in the Claude Code harness (spawn-boundary signal). */
 export const AGENT_TOOL_NAME = "Agent";
 
+/**
+ * Resolved child conversation ids, keyed by the spawning Agent call's harness
+ * `tool_use` id (mt#3692).
+ *
+ * Assembled server-side from `agent_spawns` and carried on the snapshot, because
+ * this module is deliberately pure (type-only imports) so it can bundle into the
+ * browser. A missing entry means the spawn's child was never resolved — the
+ * common case today, at roughly 30% resolved — and renders as a static badge.
+ */
+export type SpawnChildrenByToolUseId = Readonly<Record<string, string>>;
+
 /** One conversational sub-element extracted from a turn's message content. */
 export type ConversationElement =
   | { kind: "text"; text: string }
@@ -53,8 +64,12 @@ export type ConversationElement =
        * `agentKind` is the real subagent type when the harness recorded one,
        * else `undefined` (older Agent-tool shapes) — the renderer shows a bare
        * "→ subagent" label in that case rather than echoing a placeholder.
+       *
+       * `childAgentSessionId` is the conversation this call spawned, when it
+       * resolved (mt#3692); `undefined` means unresolved, and the renderer keeps
+       * the badge static rather than linking somewhere it cannot reach.
        */
-      spawn?: { agentKind?: string };
+      spawn?: { agentKind?: string; childAgentSessionId?: string };
     }
   | {
       kind: "tool-result";
@@ -76,6 +91,23 @@ export type ConversationElement =
        */
       isInterruptionRejection: boolean;
     }
+  | {
+      kind: "image";
+      /**
+       * The Anthropic content-block source discriminator — `base64`, `url`, or
+       * `file` (docs.claude.com, Messages API image blocks). Kept as a plain
+       * string rather than a union: this parses a THIRD-PARTY payload, and a
+       * source type we don't know yet must degrade to the placeholder rather
+       * than fail to parse.
+       */
+      sourceType: string;
+      /** e.g. `image/png`. Present on `base64` sources; absent otherwise. */
+      mediaType?: string;
+      /** Base64 payload — present only when `sourceType === "base64"`. */
+      data?: string;
+      /** Remote URL — present only when `sourceType === "url"`. */
+      url?: string;
+    }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
 /** Conversational role of a turn. */
@@ -96,6 +128,13 @@ export interface ConversationTurn {
   isSpawnBoundary: boolean;
   /** Agent kind for the spawn boundary (e.g. `Explore`, `general-purpose`). */
   spawnAgentKind?: string;
+  /**
+   * Child conversation for the turn-level spawn badge (mt#3692) — the FIRST
+   * spawn on the turn, matching how `spawnAgentKind` above is derived. Per-call
+   * children live on each `tool-call` element's `spawn`, which is what a
+   * multi-spawn turn needs.
+   */
+  spawnChildAgentSessionId?: string;
   /**
    * True when this turn IS Claude Code's context-compaction summary (mt#3260).
    * Renders as a labeled boundary rather than as an unmarked giant user turn.
@@ -200,7 +239,44 @@ export function spawnAgentKindFromInput(input: unknown): string | undefined {
   return undefined;
 }
 
-function blockToElement(block: ContentBlock): ConversationElement {
+/**
+ * Expand an Anthropic `image` content block into an image element.
+ *
+ * Every field is read defensively and the block is NEVER rejected: this parses
+ * a third-party payload whose shape we do not control, and a turn that carried
+ * an image must not disappear from the transcript because its source shape was
+ * unfamiliar. An unrecognized or malformed source yields an element with a
+ * `sourceType` but no `data`/`url`, which the renderer draws as a labeled
+ * placeholder rather than a broken image.
+ */
+function imageBlockToElement(block: ContentBlock): ConversationElement {
+  const source = block.source;
+  if (source === null || typeof source !== "object") {
+    return { kind: "image", sourceType: "" };
+  }
+  const s = source as Record<string, unknown>;
+  const sourceType = asString(s.type);
+  const element: ConversationElement = { kind: "image", sourceType };
+
+  if (sourceType === "base64") {
+    const mediaType = asString(s.media_type);
+    const data = asString(s.data);
+    if (mediaType) element.mediaType = mediaType;
+    // An empty `data` stays absent so the renderer's placeholder branch fires
+    // rather than emitting a `data:` URI with nothing after the comma.
+    if (data) element.data = data;
+  } else if (sourceType === "url") {
+    const url = asString(s.url);
+    if (url) element.url = url;
+  }
+
+  return element;
+}
+
+function blockToElement(
+  block: ContentBlock,
+  spawnChildren?: SpawnChildrenByToolUseId
+): ConversationElement {
   switch (block.type) {
     case "text":
       return { kind: "text", text: asString(block.text) };
@@ -209,14 +285,21 @@ function blockToElement(block: ContentBlock): ConversationElement {
       return { kind: "thinking", thinking: asString(block.thinking) };
     case "tool_use": {
       const name = asString(block.name);
+      const id = typeof block.id === "string" ? block.id : undefined;
       const el: ConversationElement = {
         kind: "tool-call",
-        id: typeof block.id === "string" ? block.id : undefined,
+        id,
         name,
         input: block.input,
       };
       if (name === AGENT_TOOL_NAME) {
-        el.spawn = { agentKind: spawnAgentKindFromInput(block.input) };
+        // The tool_use id is what `agent_spawns` is keyed on (mt#3692), so the
+        // child resolves per CALL — a turn dispatching several subagents links
+        // each badge to its own child, and an unresolved sibling stays static.
+        el.spawn = {
+          agentKind: spawnAgentKindFromInput(block.input),
+          childAgentSessionId: id ? spawnChildren?.[id] : undefined,
+        };
       }
       return el;
     }
@@ -228,6 +311,8 @@ function blockToElement(block: ContentBlock): ConversationElement {
         isError: block.is_error === true,
         isInterruptionRejection: isInterruptionRejectionContent(block.content),
       };
+    case "image":
+      return imageBlockToElement(block);
     default:
       return { kind: "unknown", rawType: asString(block.type), raw: block };
   }
@@ -239,7 +324,8 @@ function blockToElement(block: ContentBlock): ConversationElement {
  * lines) — only `user` / `assistant` raw lines carry a conversation.
  */
 export function snapshotBlockToConversationTurn(
-  block: SessionContextSnapshotBlock
+  block: SessionContextSnapshotBlock,
+  spawnChildren?: SpawnChildrenByToolUseId
 ): ConversationTurn | null {
   const role: ConversationRole =
     block.rawJsonlType === "user"
@@ -249,14 +335,16 @@ export function snapshotBlockToConversationTurn(
         : "other";
   if (role === "other") return null;
 
-  const elements = resolveContentBlocks(block.content).map(blockToElement);
+  const elements = resolveContentBlocks(block.content).map((b) => blockToElement(b, spawnChildren));
 
   let isSpawnBoundary = false;
   let spawnAgentKind: string | undefined;
+  let spawnChildAgentSessionId: string | undefined;
   for (const el of elements) {
     if (el.kind === "tool-call" && el.spawn) {
       isSpawnBoundary = true;
       spawnAgentKind = el.spawn.agentKind;
+      spawnChildAgentSessionId = el.spawn.childAgentSessionId;
       break;
     }
   }
@@ -269,6 +357,7 @@ export function snapshotBlockToConversationTurn(
     elements,
     isSpawnBoundary,
     spawnAgentKind,
+    spawnChildAgentSessionId,
     isCompactSummary: block.isCompactSummary,
     isMeta: block.isMeta,
     model: block.model,
@@ -281,11 +370,12 @@ export function snapshotBlockToConversationTurn(
  * by timestamp (the assembler guarantees this).
  */
 export function snapshotBlocksToConversation(
-  blocks: SessionContextSnapshotBlock[]
+  blocks: SessionContextSnapshotBlock[],
+  spawnChildren?: SpawnChildrenByToolUseId
 ): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   for (const block of blocks) {
-    const turn = snapshotBlockToConversationTurn(block);
+    const turn = snapshotBlockToConversationTurn(block, spawnChildren);
     if (turn !== null) turns.push(turn);
   }
   return turns;

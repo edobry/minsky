@@ -39,7 +39,25 @@
     "noImplicitAny": false,
     "types": ["bun"]
   },
-  "include": ["src", "types", "tests", ".eslintrc.cjs", ".prettierrc.cjs"],
+  "include": [
+    "src",
+    "types",
+    "tests",
+    ".eslintrc.cjs",
+    ".prettierrc.cjs",
+    // mt#3817: nothing IMPORTS these, so import-reachability never pulled them
+    // into a program and no project's `include` claimed them either. They are
+    // application/deploy code, not build tooling, so they belong to the root
+    // project rather than tsconfig.scripts.json:
+    //   - services/*/deploy.config.ts is the deploy surface the mt#2353 merge
+    //     gate fires on; each only imports @minsky/shared/deployment-config,
+    //     so claiming them here does not drag service source into the program.
+    //   - services/cockpit has its own tsconfig.json but no `typecheck` script
+    //     and no CI step, so nothing ran it (one file). Folding it in here
+    //     avoids a whole CI step for a single file.
+    "services/*/deploy.config.ts",
+    "services/cockpit/src"
+  ],
   "exclude": [
     "node_modules",
     "dist",

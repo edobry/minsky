@@ -34,6 +34,7 @@ import { eq } from "drizzle-orm";
 
 import { ClaudeCodeTranscriptSource } from "@minsky/domain/transcripts/claude-code-transcript-source";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+import { isSidecarLineType } from "@minsky/domain/transcripts/transcript-source";
 import {
   type AttachmentRow,
   buildAttachmentRow,
@@ -66,6 +67,12 @@ async function backfillSession(
   let scanned = 0;
 
   for await (const line of source.readSession(agentSessionId)) {
+    // mt#3836: skip sidecar lines BEFORE the increment. This counter is half of
+    // the attachments primary key, and `ingestSession` — the other writer of
+    // that key — applies the identical rule, so the two must never disagree
+    // about which lines are countable for the same file.
+    if (isSidecarLineType(line)) continue;
+
     lineIndex++;
     scanned++;
 

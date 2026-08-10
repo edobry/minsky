@@ -432,6 +432,39 @@ mt#2662 incident.
   bare `bun test`; see the note in the file itself on why `src/mcp` is excluded via the
   wrapper scripts rather than `pathIgnorePatterns`
 
+## Test order is NOT randomized right now (mt#3561, temporary — mt#3575 restores it)
+
+`bunfig.toml` sets `randomize = false`. Do not read that as "test order does not matter."
+
+The setting was `true` for a long time, but it was a **no-op on Bun 1.2.21** — that version prints
+no seed and exposes neither `--seed` nor `--randomize`. The suite ran in declaration order the whole
+time while declaring otherwise. The Bun 1.3.14 upgrade (mt#3561) made the setting real, which
+immediately surfaced roughly **nine clusters** of order-dependent tests. They were fixed one at a
+time and a different cluster appeared each run, so the setting was turned off deliberately rather
+than blocking the upgrade on an open-ended sweep.
+
+**mt#3575 owns fixing the population and restoring `true`**, plus a CI seed rotation so the next
+order-dependence fails loudly instead of lying dormant. Escalate if it is still open 10 days after
+mt#3561 merged.
+
+**Write order-independent tests anyway.** The four failure shapes found, as a checklist for what to
+avoid:
+
+1. **Reassigning a spy handle.** `spy = mock(...)` over a `spyOn` handle means `afterEach`'s
+   `mockRestore()` restores the replacement — which restores nothing — and leaks the spy onto the
+   real object for every later test.
+2. **A shared fixture mutated in sequence.** A repo/db/dir built once in `beforeAll` where test 2
+   changes what test 1 asserts. Build per-test state in `beforeEach` instead.
+3. **A sequential narrative split across `test()` calls.** If a test's comment says "still X from the
+   previous test," it is one scenario — write it as one test with phases. Separate `test()` calls
+   buy no isolation when none of them can run alone.
+4. **A module-global reset only in `afterEach`.** `bun test` shares one process across FILES, so
+   this makes your test depend on every predecessor in the whole suite tidying up. Reset in
+   `beforeEach` too — establish your own precondition rather than trusting the one you inherited.
+
+To check a file is genuinely order-independent, force randomization on regardless of the config:
+`bun test --randomize --seed=$i <file>` across a range of seeds.
+
 ## mt#2990: opt-in parallel-sharded test runner (`bun run test:sharded`)
 
 The main suite (`bun run test` / `scripts/run-tests-main.ts`) runs strictly sequentially in

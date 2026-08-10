@@ -68,12 +68,25 @@ import { ErrorState } from "../components/ErrorState";
 import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
 import {
   ElementView,
-  isApiErrorText,
+  SpawnBadge,
   type ExpandSignal,
   type PreparedElement,
   type ToolCallElement,
   type ToolResultElement,
 } from "../components/ConversationElementRenderers";
+import { SpawnParentBacklink } from "../components/SpawnParentBacklink";
+import {
+  SupersededPromptMarker,
+  supersededMarkerKey,
+  supersededPromptText,
+  type SupersededGroup,
+  type SupersededPrompt,
+} from "../components/SupersededPromptMarker";
+import {
+  classifyOutcome,
+  OUTCOME_TONE,
+  type ConversationOutcome,
+} from "../lib/conversation-outcome";
 import {
   classifySnapshotError,
   fetchSnapshot,
@@ -81,18 +94,84 @@ import {
   snapshotRetry,
 } from "../lib/conversation-snapshot";
 import {
-  splitInjectedContent,
-  type InjectedContentKind,
-  type InjectedSpan,
-} from "../lib/injected-content";
+  ADDRESSED_MARK_CLASS,
+  TURN_ANCHOR_ATTR,
+  type TurnAddress,
+} from "../lib/conversation-turn-address";
+import { useTurnAddressLanding } from "../hooks/useTurnAddressLanding";
+import { FilmMomentLink } from "../components/FilmMomentLink";
+import {
+  hasRenderablePreparedElement,
+  mergeCommandInvocations,
+  pairToolInvocations,
+  type PreparedTurn,
+} from "../lib/conversation-turn-assembly";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
-import { findScrollParent, hasGrown, isPinnedToBottom } from "../lib/scroll-pinning";
+import { findScrollParent, hasGrown, isNearTop, isPinnedToBottom } from "../lib/scroll-pinning";
+import { INITIAL_TURNS, useThreadWindow } from "../hooks/useThreadWindow";
+import {
+  ThreadPositionPill,
+  ThreadStartBoundary,
+  TurnSeparatorRow,
+} from "../components/ThreadOrientation";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-type ConversationViewProps =
-  | {
+/**
+ * Props every variant carries (mt#3791).
+ *
+ * Intersected onto the union below rather than repeated in each arm: a turn
+ * address is orthogonal to WHERE the blocks come from — a fetched conversation,
+ * a pre-fetched snapshot, and a driven session can all be arrived at with one
+ * turn named.
+ */
+type ConversationViewCommonProps = {
+  /**
+   * Land on this turn instead of the newest exchange, and mark it. Resolved from
+   * the URL by a router-aware host (`RunDetail`), never read from the router
+   * here — several existing callers render this component with no router at all.
+   */
+  turnTarget?: TurnAddress;
+  /**
+   * Path of the film tab showing this same conversation, WITHOUT a query string
+   * (mt#3794) — supplying it turns on the per-row "watch this moment" affordance.
+   *
+   * Same reason as `turnTarget` for arriving as a prop (callers with no router),
+   * plus one this direction has and that one does not: a film is reachable only
+   * in the conversation keyspace (mt#3468), so `/agents/:id/conversation` — the
+   * same thread, rendered under a workspace — supplies nothing and shows no
+   * affordance. That asymmetry with `turnTarget`, which is deliberately NOT
+   * keyspace-scoped, is intended: an address means the same thing wherever the
+   * thread is shown, but the film it would link to does not exist there.
+   */
+  filmPath?: string;
+  /**
+   * Chrome the host pins to the BOTTOM of the thread — today the activity line
+   * ("Running <tool> · <elapsed>", mt#3344). Arrives as a prop for a reason the
+   * other two do not share: it has to be RENDERED INSIDE the thread, not beside
+   * it (mt#3843).
+   *
+   * The thread already pins two controls of its own to the bottom edge (the
+   * position pill and the return-to-newest button). While the host mounted its
+   * tail as a SIBLING of this component, all three resolved into one stacking
+   * context at the same `z-10`, so which one won was decided by DOM order — and
+   * the host's tail, being last and opaquely backgrounded, painted over the
+   * pill. Measured: 16.5px of the pill's 25px height covered, and a hit test at
+   * the centre of the pill's "↑ start" button landed on the tail, so the
+   * control was not merely hidden but unclickable.
+   *
+   * Passing the tail IN lets `ThreadFooter` lay all three out as one flex
+   * column, which stacks by construction. The host still decides WHAT the tail
+   * is; the thread decides WHERE it sits relative to its own controls, which is
+   * the only place that knowledge exists.
+   */
+  tail?: ReactNode;
+};
+
+type ConversationViewProps = ConversationViewCommonProps &
+  (
+    | {
       sessionId: ConversationId;
       snapshot?: undefined;
       className?: string;
@@ -157,7 +236,8 @@ type ConversationViewProps =
       workspaceSessionId?: never;
       liveByConversationId?: never;
       className?: string;
-    };
+    }
+  );
 
 // ── Snapshot fetch — shared with ContextBlockView via lib/conversation-snapshot ──
 // (mt#2768 "one snapshot query key" success criterion; see that module's docblock)
@@ -187,348 +267,42 @@ function formatTime(iso: string): string {
 // above, not redefined here, so the session-film ribbon's expanded row can
 // share the exact same rendering code.
 
-// ── Tool-invocation pairing (mt#2790) ───────────────────────────────────────────
+// ── Pre-render turn assembly ───────────────────────────────────────────────────
 //
-// A pre-render assembly pass that merges each tool-call with its matching
-// tool-result (found via `toolUseId`), so the pair renders as ONE block
-// instead of two turn-level blocks (a call under ASSISTANT, a result under
-// USER). Pairing is scoped to the turns actually being rendered ("the
-// rendered window") — a result whose call fell outside that set (windowing/
-// pagination cut it, or mt#2789's subagent-transcript duplication) is an
-// ORPHAN and keeps the pre-redesign standalone treatment; it is never
-// silently dropped.
-
-// `ToolCallElement` / `ToolResultElement` / `PreparedElement` are imported
-// above from `../components/ConversationElementRenderers` (mt#3262 SC 2) —
-// the shared module the session-film ribbon's expanded row also builds
-// `PreparedElement`s against.
-
-interface PreparedTurn {
-  blockId: string;
-  role: ConversationRole;
-  timestamp: string;
-  elements: PreparedElement[];
-  isSpawnBoundary: boolean;
-  spawnAgentKind?: string;
-  /** This turn IS the context-compaction summary (mt#3260). */
-  isCompactSummary?: boolean;
-  /** The harness, not the operator, generated this turn (mt#3322). */
-  isMeta?: boolean;
-  /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
-  model?: string;
-}
-
-/**
- * Merge tool-calls with their matching tool-results across `turns` (the
- * turns actually being rendered — see module docblock). `callNameByToolUseId`
- * is built over the FULL, unwindowed transcript (unchanged pre-existing
- * behavior) so an orphan can still show which tool it answers even when that
- * tool's call turn isn't in the current set.
- */
-function pairToolInvocations(
-  turns: ConversationTurn[],
-  callNameByToolUseId: Map<string, string>
-): PreparedTurn[] {
-  const callById = new Map<string, ToolCallElement>();
-  const resultById = new Map<string, ToolResultElement>();
-  for (const turn of turns) {
-    for (const el of turn.elements) {
-      if (el.kind === "tool-call" && el.id) callById.set(el.id, el);
-      if (el.kind === "tool-result" && el.toolUseId) resultById.set(el.toolUseId, el);
-    }
-  }
-
-  return turns.map((turn) => {
-    const elements: PreparedElement[] = [];
-
-    // Injected-content detection is scoped to USER turns (mt#2791) — command
-    // wrappers, skill-body preambles, and system reminders are ALWAYS
-    // harness-injected into a user turn, never assistant-authored, so
-    // scoping here (rather than substring-matching everywhere) keeps
-    // detection conservative per the module's anchored-pattern design.
-    // Non-user turns keep the pre-mt#2791 pass-through, unchanged below.
-    if (turn.role !== "user") {
-      for (const el of turn.elements) {
-        switch (el.kind) {
-          case "tool-call": {
-            const result = el.id ? resultById.get(el.id) : undefined;
-            elements.push({ kind: "tool-invocation", call: el, result });
-            break;
-          }
-          case "tool-result": {
-            const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
-            if (pairedInWindow) break;
-            elements.push({
-              kind: "tool-result-orphan",
-              result: el,
-              callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
-            });
-            break;
-          }
-          default:
-            elements.push(el);
-        }
-      }
-    } else {
-      // Consecutive `text` elements are concatenated into one run BEFORE
-      // injected-content detection (mt#2791). The harness sometimes splits
-      // one logical injection across adjacent text sub-blocks in a turn's
-      // message content array — e.g. a skill invocation arrives as TWO
-      // parts: `<command-message>…</command-message><command-name>…</command-name>
-      // <skill-format>true</skill-format>` as one block, then
-      // "Base directory for this skill: <path>\n\n<body>" as the next
-      // (verified against a live transcript). Splitting each part in
-      // isolation misses the cross-element join: the first part fails the
-      // skill-body pattern (no "Base directory..." follows it WITHIN that
-      // block) and falls back to a bare "command:" match, leaking the raw
-      // `<skill-format>` tag as literal prose between two mis-split blocks.
-      // Concatenating the run first reconstructs the single contiguous
-      // string the harness effectively injected, so the pair renders as ONE
-      // correctly-labeled "skill body: <name>" block.
-      let textRun = "";
-      let hasTextRun = false;
-      const flushTextRun = () => {
-        if (!hasTextRun) return;
-        for (const seg of splitInjectedContent(textRun)) {
-          if (seg.type === "injected") {
-            elements.push({ kind: "injected", span: seg.span });
-          } else if (seg.text.trim().length > 0) {
-            // A mixed turn splits: only the injected span collapses, the
-            // genuine prose renders exactly as it would have unsplit.
-            elements.push({ kind: "text", text: seg.text });
-          }
-        }
-        textRun = "";
-        hasTextRun = false;
-      };
-
-      for (const el of turn.elements) {
-        switch (el.kind) {
-          case "text":
-            textRun += el.text;
-            hasTextRun = true;
-            break;
-          case "tool-call": {
-            flushTextRun();
-            const result = el.id ? resultById.get(el.id) : undefined;
-            elements.push({ kind: "tool-invocation", call: el, result });
-            break;
-          }
-          case "tool-result": {
-            flushTextRun();
-            const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
-            if (pairedInWindow) break;
-            elements.push({
-              kind: "tool-result-orphan",
-              result: el,
-              callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
-            });
-            break;
-          }
-          default:
-            flushTextRun();
-            elements.push(el);
-        }
-      }
-      flushTextRun();
-    }
-
-    return {
-      blockId: turn.blockId,
-      role: turn.role,
-      timestamp: turn.timestamp,
-      elements,
-      isSpawnBoundary: turn.isSpawnBoundary,
-      spawnAgentKind: turn.spawnAgentKind,
-      isCompactSummary: turn.isCompactSummary,
-      isMeta: turn.isMeta,
-      model: turn.model,
-    };
-  });
-}
-
-// ── Command-invocation merging (mt#3322) ────────────────────────────────────
-//
-// The harness emits ONE slash command as up to three user turns: the command
-// wrapper, the captured stdout, and a model-directed caveat (`isMeta: true`).
-// Rendered turn-by-turn that is three USER bubbles of raw harness plumbing
-// above the operator's actual message.
-//
-// This pass is the command analogue of `pairToolInvocations` above: it folds
-// the output and caveat INTO the command element, then leaves the drained
-// turns with no renderable elements so the existing
-// `hasRenderablePreparedElement` filter drops them. Nothing is discarded —
-// the wrapper markup and the caveat both remain reachable behind the command
-// element's disclosure toggle.
-//
-// **The parts FOLLOW their command, and the scan stops at the first turn that
-// is not one of them.** Turns render in TIMESTAMP order, not JSONL file order
-// — in conversation 77c6ca4f the caveat is the first line in the file but
-// carries the latest timestamp (.486 vs the command's and stdout's .481), so
-// the rendered group is command -> stdout -> caveat. Two hard boundaries keep
-// the association unambiguous when several commands run in quick succession
-// (PR #2403 R1): the scan stops at the NEXT command wrapper, which owns
-// everything after it, and at any turn that is not an absorbable part, since
-// the group is contiguous. Without those, a `/model` followed closely by
-// `/error-handling` could silently cross-wire one command's output onto the
-// other and drain the wrong turn.
-//
-// Scoped to the rendered window like its sibling: a command whose output turn
-// fell outside the window simply renders without output, and an orphaned
-// output turn keeps its standalone collapsed treatment rather than vanishing.
-
-/**
- * How far past a command turn to look for its parts. An invocation
- * contributes at most two (stdout + caveat); the extra slot is slack for an
- * unexpected additional part, and the boundary checks below — not this
- * number — are what prevent mis-association.
- */
-const COMMAND_PART_LOOKAHEAD = 3;
-
-/** The injected-span kinds a command turn may absorb, in no particular order. */
-const ABSORBABLE_PART_KINDS = ["local-command-output", "local-command-caveat"] as const;
-
-/** Index of the `command` injected element in a user turn, or -1. */
-function commandElementIndex(turn: PreparedTurn): number {
-  if (turn.role !== "user") return -1;
-  return turn.elements.findIndex((el) => el.kind === "injected" && el.span.kind === "command");
-}
-
-function soleInjectedSpan(turn: PreparedTurn, kind: InjectedContentKind): InjectedSpan | null {
-  if (turn.role !== "user" || turn.elements.length !== 1) return null;
-  const [only] = turn.elements;
-  if (!only || only.kind !== "injected" || only.span.kind !== kind) return null;
-  return only.span;
-}
-
-function mergeCommandInvocations(turns: PreparedTurn[]): PreparedTurn[] {
-  // Elements are removed from their origin turns as they are absorbed; a copy
-  // per turn keeps this pass non-mutating with respect to its input.
-  const working = turns.map((t) => ({ ...t, elements: [...t.elements] }));
-
-  for (let i = 0; i < working.length; i++) {
-    const turn = working[i];
-    if (!turn) continue;
-
-    const commandIndex = commandElementIndex(turn);
-    if (commandIndex === -1) continue;
-    const commandElement = turn.elements[commandIndex];
-    if (!commandElement || commandElement.kind !== "injected") continue;
-
-    const absorbed = new Map<InjectedContentKind, InjectedSpan>();
-
-    // Forward-only, with two hard stops (see the section comment above):
-    // the next command wrapper, and any turn that is not an absorbable part.
-    // Absorbing is further restricted to SINGLE-element turns — a turn
-    // carrying anything else keeps its own rendering rather than being
-    // silently drained.
-    for (let j = i + 1; j <= i + COMMAND_PART_LOOKAHEAD && j < working.length; j++) {
-      const candidate = working[j];
-      if (!candidate) break;
-      // The next command owns everything from here on.
-      if (commandElementIndex(candidate) !== -1) break;
-
-      const part = ABSORBABLE_PART_KINDS.map(
-        (kind) => [kind, soleInjectedSpan(candidate, kind)] as const
-      ).find(([, span]) => span !== null);
-      // Not a part at all (operator prose, an assistant turn, a tool result):
-      // the contiguous invocation group has ended.
-      if (!part) break;
-
-      const [kind, span] = part;
-      // A second part of a kind already absorbed is not ours — leave it to
-      // render standalone rather than overwriting the nearer one.
-      if (span && !absorbed.has(kind)) {
-        absorbed.set(kind, span);
-        candidate.elements = [];
-      }
-    }
-
-    const output = absorbed.get("local-command-output");
-    const caveat = absorbed.get("local-command-caveat");
-
-    turn.elements[commandIndex] = {
-      kind: "command-invocation",
-      command: commandElement.span,
-      ...(output ? { output } : {}),
-      ...(caveat ? { caveat } : {}),
-    };
-  }
-
-  return working;
-}
-
-function hasRenderablePreparedElement(el: PreparedElement): boolean {
-  switch (el.kind) {
-    case "text":
-      return el.text.trim().length > 0;
-    case "thinking":
-      return el.thinking.trim().length > 0;
-    // "injected" / "tool-invocation" / "tool-result-orphan" / "unknown" all
-    // fall to the default: always renderable (mirrors pre-mt#2791 behavior).
-    default:
-      return true;
-  }
-}
-
-// `isApiErrorText` is imported above from `../components/
-// ConversationElementRenderers` (mt#3262 SC 2) — `turnOutcome` below and the
-// shared `ElementView`'s text-case both need the SAME detection.
+// Tool-call/result pairing (mt#2790) and slash-command folding (mt#3322) live in
+// `../lib/conversation-turn-assembly.ts` — pure functions over turns, moved out
+// verbatim when this file hit its 1500-line ceiling (mt#3791), the same way the
+// per-element renderers went to `ConversationElementRenderers.tsx` before them.
+// `PreparedTurn` is defined there too, since both passes are typed on it.
 
 /**
  * The per-turn Outcome chip's value, or `null` when none is evidenced.
  *
- * mt#3130's Outcome register has six values (`Completed` · `Interrupted` ·
- * `Errored` · `Rate-limited` · `Crashed` · `Stalled`). Two are evidenced by the
- * transcript as parsed today:
+ * The vocabulary, the precedence rules, and the `Errored`-vs-`Rate-limited`
+ * split all live in `../lib/conversation-outcome.ts` (mt#3132) — ONE
+ * terminal-condition taxonomy shared with the actuator channel's status
+ * readout, replacing the per-pipeline enums that had drifted apart. This
+ * function is now only the transcript ADAPTER: it extracts the evidence a turn
+ * carries and hands it to the shared classifier.
  *
- *  - **`Interrupted`** — a tool-result carrying `isInterruptionRejection`
- *    (`conversation-elements.ts`), i.e. the operator cancelled a pending tool
- *    call. mt#3260.
- *  - **`Errored`** — assistant text starting with the API-error prefix.
- *
- * The rest need signals that do not exist in the persisted transcript
- * (`Completed` has no terminator field; `Rate-limited`/`Crashed`/`Stalled` are
- * run-state, not transcript, facts).
- *
- * So an unremarkable turn returns `null` rather than `Completed` — deliberate,
- * not a stub. Labeling a turn `Completed` without a completion signal would
- * assert completion for turns that were actually cut off. An absent chip says
- * "nothing to report"; a wrong `Completed` chip is the falsely-confident
- * derived field this umbrella exists to remove.
+ * An unremarkable turn still yields `null` rather than `Completed` — see that
+ * module's docblock for why asserting completion without a completion signal is
+ * the falsely-confident derived field this umbrella exists to remove.
  */
-type TurnOutcome = "Interrupted" | "Errored";
-
 function elementIsInterruption(element: PreparedElement): boolean {
   if (element.kind === "tool-invocation") return element.result?.isInterruptionRejection === true;
   if (element.kind === "tool-result-orphan") return element.result.isInterruptionRejection === true;
   return false;
 }
 
-function turnOutcome(turn: PreparedTurn): TurnOutcome | null {
+function turnOutcome(turn: PreparedTurn): ConversationOutcome | null {
   if (turn.role !== "assistant") return null;
-  let errored = false;
-  for (const element of turn.elements) {
-    // Interruption WINS over error, and the precedence is load-bearing: the
-    // harness marks a cancelled tool call `isError`, but the operator
-    // cancelling is not a failure. Reporting it as `Errored` is exactly the
-    // miscount mt#3131 removed from the tallies — this keeps the RENDER
-    // consistent with those already-corrected counts.
-    if (elementIsInterruption(element)) return "Interrupted";
-    if (element.kind === "text" && isApiErrorText(element.text)) errored = true;
-  }
-  return errored ? "Errored" : null;
+  return classifyOutcome({
+    source: "transcript",
+    interrupted: turn.elements.some(elementIsInterruption),
+    texts: turn.elements.flatMap((el) => (el.kind === "text" ? [el.text] : [])),
+  });
 }
-
-/**
- * `Interrupted` is amber, never red — `docs/design-system.md`'s red-scarcity
- * rule reserves the destructive tone for genuine failures, and mt#3130 calls
- * out this exact distinction ("amber, NOT red — distinct from error").
- */
-const OUTCOME_STYLES: Record<TurnOutcome, string> = {
-  Interrupted: "bg-warn-amber/15 text-warn-amber",
-  Errored: "bg-destructive/15 text-destructive",
-};
 
 /**
  * The model value Claude Code records on a harness-generated retry turn rather
@@ -606,10 +380,23 @@ function TurnView({
   turn,
   entityIndex,
   expandSignal,
+  turnIndex,
+  address,
+  filmPath,
 }: {
   turn: PreparedTurn;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /**
+   * The transcript position this turn came from, when known (mt#3791) — the
+   * anchor a turn address resolves against. `undefined` for a live-tail block
+   * the snapshot never stamped, which is simply unaddressable.
+   */
+  turnIndex?: number;
+  /** Set only on the turn an address named; every other turn gets `undefined`. */
+  address?: TurnAddress;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
   // A `user`-role turn may be the operator's message OR harness plumbing the
@@ -637,23 +424,49 @@ function TurnView({
           role={turn.role}
           entityIndex={entityIndex}
           expandSignal={expandSignal}
+          addressedToolUseId={address?.toolUseId}
+          filmPath={filmPath}
+          turnIndex={turnIndex}
         />
       );
       return node;
     })
     .filter(Boolean);
 
+  // A tool-grain address marks the CALL, not the turn around it — the reader
+  // asked for one action out of a batch, and ringing the whole turn would put
+  // the mark on the wrong grain. A turn-grain address has no finer target, so
+  // the turn itself carries it.
+  const marked = address !== undefined && address.toolUseId === undefined;
+
   // A turn with no renderable elements (e.g. an empty pairing) is skipped by the caller.
   return (
-    <div className={cn("flex flex-col gap-2 border-l-2 pl-3", accent)}>
+    <div
+      {...(turnIndex === undefined ? {} : { [TURN_ANCHOR_ATTR]: turnIndex })}
+      className={cn(
+        // NAMED group (mt#3794): a tool call inside this turn has its own
+        // hover-revealed film link, and an unnamed `group` would make hovering
+        // anywhere in the turn reveal every call's link at once.
+        "group/turn flex flex-col gap-2 border-l-2 pl-3",
+        accent,
+        marked && ADDRESSED_MARK_CLASS,
+        // Keeps the landing clear of the sticky header a scroll-into-view would
+        // otherwise tuck the turn under (the same reason the tail sentinel
+        // carries `scroll-mb-8`, mt#3344).
+        "scroll-mt-16"
+      )}
+    >
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
         <span className="font-semibold" data-testid="turn-role-label">
           {label}
         </span>
         {turn.isSpawnBoundary && (
-          <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-violet-300">
-            → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
-          </span>
+          <SpawnBadge
+            spawn={{
+              agentKind: turn.spawnAgentKind,
+              childAgentSessionId: turn.spawnChildAgentSessionId,
+            }}
+          />
         )}
         {isRetry && (
           <span
@@ -668,7 +481,7 @@ function TurnView({
           <span
             className={cn(
               "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
-              OUTCOME_STYLES[outcome]
+              OUTCOME_TONE[outcome]
             )}
             data-testid="turn-outcome"
           >
@@ -678,6 +491,19 @@ function TurnView({
         <span className="ml-auto tabular-nums text-muted-foreground/60">
           {formatTime(turn.timestamp)}
         </span>
+        {/*
+          Turn-grain film link (mt#3794). Gated on a KNOWN `turnIndex`: a
+          live-tail block the snapshot never stamped has no address, so there is
+          no moment to link to — the same condition that makes it unaddressable
+          from the film's side.
+        */}
+        {filmPath !== undefined && turnIndex !== undefined && (
+          <FilmMomentLink
+            address={{ turnIndex }}
+            filmPath={filmPath}
+            className="group-hover/turn:opacity-100"
+          />
+        )}
       </div>
       <div className="flex flex-col gap-2">{rendered}</div>
     </div>
@@ -685,141 +511,6 @@ function TurnView({
 }
 
 // ── Thread (pure, snapshot-in) ──────────────────────────────────────────────────
-
-/**
- * Tail-first window (mt#2433): the measured cost on long sessions is the eager
- * MOUNT of every formatted block (265 blocks / ~1MB took >20s to first content;
- * the snapshot fetch itself is ~1s), so only the most recent INITIAL_TURNS
- * turns render on mount — the chat idiom: the operator cares about the newest
- * exchange. "Show older" reveals earlier turns in OLDER_CHUNK increments.
- */
-const INITIAL_TURNS = 50;
-const OLDER_CHUNK = 100;
-
-/**
- * A day boundary or a long-gap marker between two turns. Renders as a quiet
- * rule with a centered label — it is orientation, not content, so it must not
- * compete with the turns on either side.
- */
-function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
-  const isDay = separator.kind === "day";
-  return (
-    <div
-      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70"
-      data-testid={isDay ? "turn-day-divider" : "turn-gap-divider"}
-    >
-      <span className="h-px flex-1 bg-border" />
-      <span className={cn("tabular-nums", isDay && "font-medium text-muted-foreground")}>
-        {isDay ? separator.label : `${separator.label} gap`}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
-}
-
-/** One operator prompt the operator rewrote before the agent ever saw it. */
-interface SupersededPrompt {
-  /** The abandoned block's id — a stable React key. */
-  blockId: string;
-  /** The prompt as the operator originally typed it. */
-  text: string;
-}
-
-/**
- * A run of superseded prompts, positioned by the live block that replaced them.
- *
- * `anchorIndex` is an index into `allBlocks`, not into the rendered turns: the
- * turn stream is filtered and windowed downstream, so an index into it would
- * not survive. Every downstream stage preserves ORDER, which is all the render
- * needs to interleave markers back into position.
- */
-interface SupersededGroup {
-  anchorIndex: number;
-  prompts: SupersededPrompt[];
-}
-
-/**
- * A marker's React identity.
- *
- * Keyed on the first abandoned prompt's block id, NOT on `anchorIndex`: the
- * index is positional and shifts whenever `allBlocks` changes shape — a
- * re-fetched snapshot carrying earlier blocks, or live-tail appends ahead of a
- * trailing group. A shifting key remounts the marker and silently discards the
- * operator's expanded state, which is the one thing they opened it to read
- * (PR #2449 R1). Block ids are stable per session.
- */
-function supersededMarkerKey(group: SupersededGroup): string {
-  return `superseded-${group.prompts[0]?.blockId ?? `anchor-${group.anchorIndex}`}`;
-}
-
-/** The prompt's text, recovered by running the abandoned block through the same
- * block→turn transform the live blocks take. */
-function supersededPromptText(block: SessionContextSnapshotBlock): string {
-  const elements = snapshotBlocksToConversation([block])[0]?.elements ?? [];
-  return elements
-    .filter((e): e is Extract<ConversationElement, { kind: "text" }> => e.kind === "text")
-    .map((e) => e.text.trim())
-    .filter((t) => t.length > 0)
-    .join("\n\n");
-}
-
-/**
- * An inline marker for a rewind, at the point in the thread where it happened.
- *
- * mt#3323 shipped this as one global tally at the top of the view, which
- * reports that a rewind occurred but not WHERE — in the originating
- * conversation the two rewinds are ~700 turns apart and the view said "2".
- *
- * Collapsed by default: a superseded prompt is not part of the conversation the
- * agent had, so it must not compete with real turns. Expandable because the
- * abandoned draft is sometimes the one worth reading — in the originating
- * incident it read BETTER than the live version, which the dictation pipeline
- * had mangled (mem#759).
- */
-function SupersededPromptMarker({ prompts }: { prompts: SupersededPrompt[] }) {
-  const [open, setOpen] = useState(false);
-  const count =
-    prompts.length === 1 ? "1 superseded message" : `${prompts.length} superseded messages`;
-
-  return (
-    <div data-testid="superseded-prompt-marker" className="flex flex-col gap-1 py-1">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex items-center gap-2 self-start text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
-      >
-        <span aria-hidden className="text-[9px]">
-          {open ? "▼" : "▶"}
-        </span>
-        <span>
-          {count} — the operator rewrote {prompts.length === 1 ? "this prompt" : "these prompts"};
-          the agent never received {prompts.length === 1 ? "it" : "them"}.
-        </span>
-      </button>
-      {open && (
-        <div
-          data-testid="superseded-prompt-text"
-          className="ml-3 flex flex-col gap-2 border-l-2 border-dashed border-border pl-3"
-        >
-          {/* Labeled on the content itself, not only on the toggle: an expanded
-              block scrolled away from its own marker must still say what it is. */}
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">
-            superseded — the agent never received this
-          </p>
-          {prompts.map((p) => (
-            <p
-              key={p.blockId}
-              className="whitespace-pre-wrap text-xs italic text-muted-foreground/80"
-            >
-              {p.text.length > 0 ? p.text : "(no text recorded for this prompt)"}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * Interleave the rewind markers back into the rendered turn stream.
@@ -834,14 +525,31 @@ function buildTurnNodes({
   preparedTurns,
   supersededGroups,
   blockIndexById,
+  turnIndexByBlockId,
   entityIndex,
   expandSignal,
+  address,
+  addressedBlockId,
+  filmPath,
 }: {
   preparedTurns: PreparedTurn[];
+  /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
+  filmPath?: string;
   supersededGroups: SupersededGroup[];
   blockIndexById: Map<string, number>;
+  /**
+   * Block id → the transcript position the snapshot stamped on it (mt#3791).
+   * Distinct from `blockIndexById`, which is a position in the FILTERED block
+   * array and is used for marker ordering — an address is not expressed on that
+   * scale and the two must not be conflated.
+   */
+  turnIndexByBlockId: Map<string, number>;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /** The address being served, when one resolved (mt#3791). */
+  address?: TurnAddress;
+  /** Which block that address resolved to; only that turn gets `address`. */
+  addressedBlockId?: string;
 }): ReactNode[] {
   const nodes: ReactNode[] = [];
   // With no rendered turn there is no window to be outside OF, so `0` here
@@ -885,6 +593,9 @@ function buildTurnNodes({
         turn={turn}
         entityIndex={entityIndex}
         expandSignal={expandSignal}
+        turnIndex={turnIndexByBlockId.get(turn.blockId)}
+        address={turn.blockId === addressedBlockId ? address : undefined}
+        filmPath={filmPath}
       />
     );
   });
@@ -899,12 +610,65 @@ function buildTurnNodes({
   return nodes;
 }
 
+/**
+ * The thread's bottom-edge chrome, as ONE sticky stack (mt#3843).
+ *
+ * Everything that pins to the bottom of the scrollport goes through here: the
+ * thread's own floating controls (return-to-newest, position pill) and the
+ * host's `tail`. Before this they were three independently-`sticky` elements —
+ * two inside the thread, one mounted by the host as a SIBLING of it — all at
+ * `z-10` in a single stacking context. That made their paint order DOM order
+ * and their non-overlap an accident of horizontal alignment (`mx-auto` vs
+ * `ml-auto`), and it did not hold: the host's tail, last and opaquely
+ * backgrounded, covered 16.5px of the pill's 25px and took the click aimed at
+ * the pill's "↑ start" button, leaving that control unreachable whenever a tool
+ * was running. A flex column orders them by construction.
+ *
+ * Renders nothing at all when it holds nothing — an empty sticky box would
+ * still claim the band and still eat clicks.
+ */
+function ThreadFooter({ floating, tail }: { floating?: ReactNode; tail?: ReactNode }) {
+  if (!floating && !tail) return null;
+  return (
+    // `pointer-events-none` so the footer's transparent regions never eat a
+    // click meant for the turn scrolling underneath; each member opts back in
+    // for itself.
+    <div
+      className="pointer-events-none sticky bottom-0 z-10 flex flex-col"
+      data-testid="thread-footer"
+    >
+      {/* The floating controls sit ABOVE the tail, and `pb-2` keeps them clear
+          of the scrollport's bottom edge when no tail follows. The tail
+          deliberately gets no such padding: its background has to reach the
+          edge, because transcript text scrolls under it. */}
+      {floating && <div className="flex flex-col gap-2 pb-2">{floating}</div>}
+      {/* Restores the tail's ordinary hit-testing, which the footer's
+          `pointer-events-none` would otherwise strip. It is opaque and
+          full-width, so letting clicks fall through it to the transcript
+          underneath would be the surprising behavior. */}
+      {tail && <div className="pointer-events-auto">{tail}</div>}
+    </div>
+  );
+}
+
 function ConversationThread({
   snapshot,
   extraBlocks,
   className,
+  turnTarget,
+  filmPath,
+  tail,
 }: {
   snapshot: SessionContextSnapshot;
+  /** Host chrome pinned to the thread's bottom edge — see `ConversationViewCommonProps.tail`. */
+  tail?: ReactNode;
+  /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /**
+   * A turn to land on instead of the newest exchange (mt#3791) — resolved from
+   * the URL by the router-aware caller, so this component stays snapshot-in.
+   */
+  turnTarget?: TurnAddress;
   /**
    * Live-tail blocks to append after the snapshot's historical blocks (mt#2232).
    * When non-empty, they are merged into the block list before turn conversion.
@@ -948,10 +712,17 @@ function ConversationThread({
    * render can put a marker where the rewind actually happened instead of one
    * tally at the top of the view.
    */
-  const { renderableBlocks, supersededGroups, blockIndexById } = useMemo(() => {
+  const { renderableBlocks, supersededGroups, blockIndexById, turnIndexByBlockId, blockIdByTurnIndex } =
+    useMemo(() => {
     const kept: SessionContextSnapshotBlock[] = [];
     const groups: SupersededGroup[] = [];
     const indexById = new Map<string, number>();
+    // The two address maps (mt#3791). Keyed on the block's own `turnIndex`
+    // rather than its position in this array: `turnIndex` is optional on the
+    // block type, and a live-tail or unstamped block would otherwise be given
+    // an address that points at somebody else's line.
+    const turnIndexById = new Map<string, number>();
+    const idByTurnIndex = new Map<number, string>();
     let pending: SupersededPrompt[] = [];
 
     allBlocks.forEach((block, index) => {
@@ -969,6 +740,10 @@ function ConversationThread({
       }
 
       indexById.set(block.id, index);
+      if (block.turnIndex !== undefined) {
+        turnIndexById.set(block.id, block.turnIndex);
+        idByTurnIndex.set(block.turnIndex, block.id);
+      }
       kept.push(block);
       if (pending.length > 0) {
         groups.push({ anchorIndex: index, prompts: pending });
@@ -982,10 +757,23 @@ function ConversationThread({
       groups.push({ anchorIndex: allBlocks.length, prompts: pending });
     }
 
-    return { renderableBlocks: kept, supersededGroups: groups, blockIndexById: indexById };
+    return {
+      renderableBlocks: kept,
+      supersededGroups: groups,
+      blockIndexById: indexById,
+      turnIndexByBlockId: turnIndexById,
+      blockIdByTurnIndex: idByTurnIndex,
+    };
   }, [allBlocks]);
 
-  const turns = useMemo(() => snapshotBlocksToConversation(renderableBlocks), [renderableBlocks]);
+  // The spawn→child map is resolved server-side and rides on the snapshot
+  // (mt#3692) — the join is keyed on each Agent call's tool_use id, which is the
+  // only identity shared by `agent_spawns` and the blocks rendered here.
+  const spawnChildren = snapshot.spawnChildrenByToolUseId;
+  const turns = useMemo(
+    () => snapshotBlocksToConversation(renderableBlocks, spawnChildren),
+    [renderableBlocks, spawnChildren]
+  );
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
   // Computed over ALL turns (not the window): a windowed tool-result may answer
@@ -1015,32 +803,116 @@ function ConversationThread({
     [turns]
   );
 
-  const [visibleCount, setVisibleCount] = useState(INITIAL_TURNS);
-  // Persistent "Show all" mode: once chosen it tracks transcript GROWTH too —
-  // a fixed count would silently re-clip the oldest turns (and resurface the
-  // control) when a refetch adds turns to the same session (PR #1667 R1).
-  const [showAll, setShowAll] = useState(false);
-
+  /**
+   * Where the rendered window STARTS, as an index into `visibleTurns` — `null`
+   * until the operator has revealed anything.
+   *
+   * The null-vs-index distinction is load-bearing. While `null` the window is
+   * DERIVED (`length - INITIAL_TURNS`) and therefore tracks the tail, so a live
+   * session appending turns keeps showing the newest fifty — right for a reader
+   * who has not scrolled. The first reveal turns it into an INDEX, which stops
+   * moving, so later appends cannot push revealed history back out of the
+   * window.
+   *
+   * Before mt#3688 both this and the separate "show all" flag were counts from
+   * the TAIL, and `slice(length - count)` shifts forward as the tail grows: each
+   * arriving turn silently re-hid one the operator had explicitly asked for. The
+   * old "show all" carried a comment about exactly this hazard (PR #1667 R1) and
+   * solved it only for itself; an index solves it for both, which is why the two
+   * states collapse into this one — "show all" is just `revealedFrom === 0`.
+   */
   // One-shot gate for the initial scroll-to-newest. Declared before the
   // session-change effect below, which re-arms it.
   const didInitialScrollRef = useRef(false);
 
-  // New session in the same mounted component → window back to the tail.
-  useEffect(() => {
-    setVisibleCount(INITIAL_TURNS);
-    setShowAll(false);
-    // Each session load lands on the tail — including in-place session swaps
-    // (same mounted component, new agentSessionId), so the one-shot scroll
-    // gate re-arms here (PR #1667 R2 non-blocking).
+  /**
+   * Re-arm the one-shot on a genuine session SWAP — not on mount.
+   *
+   * Two details are load-bearing, and getting either wrong disables the
+   * scroll-driven reveal silently (found by
+   * `scripts/verify-conversation-orientation.ts`, which is the only place it is
+   * observable — happy-dom cannot scroll):
+   *
+   *   - It compares the key rather than firing on every run of the effect. As a
+   *     plain mount effect it re-armed on MOUNT too, landing AFTER the layout
+   *     effect below had set the gate — so the gate read false for the entire
+   *     session and `isNearTop` was never consulted.
+   *   - It is a LAYOUT effect, so on a real swap the reset lands before the
+   *     scroll effect below reads the gate. As a passive effect it would run
+   *     after, clobbering the flag that effect had just set.
+   *
+   * The render window resets on the same key, inside `useThreadWindow`.
+   */
+  const lastSessionKeyRef = useRef(snapshot.agentSessionId);
+  useLayoutEffect(() => {
+    if (lastSessionKeyRef.current === snapshot.agentSessionId) return;
+    lastSessionKeyRef.current = snapshot.agentSessionId;
     didInitialScrollRef.current = false;
   }, [snapshot.agentSessionId]);
 
-  const effectiveCount = showAll ? visibleTurns.length : visibleCount;
+  /**
+   * Whether the live tail should follow new content — false once the operator
+   * has scrolled up to read history (mt#3376). Declared here, ahead of the
+   * window hook, because a reveal that jumps to the start clears it.
+   */
+  const pinnedRef = useRef(true);
+
+  /**
+   * The resolved scrollport, as STATE so that everything depending on it — the
+   * scroll listener below, the measurement effect further down — moves together
+   * the moment the resolution changes (mt#3445).
+   *
+   * It is state rather than a ref because the resolution genuinely changes
+   * mid-session and nothing else announces it: `findScrollParent` only accepts
+   * an ancestor that ALREADY overflows, and a live thread spends its first
+   * seconds too short to overflow anything, so the first answer is always the
+   * document fallback. Keying the listener on a ref left it bound to an element
+   * that does not scroll — the reader's scrolling was then never heard, and
+   * whether it ever corrected depended on a ResizeObserver bump landing at the
+   * right moment (observed: it often did not, for a whole session).
+   *
+   * The REF half is what the window hook and the measurement effect read, since
+   * both run outside render and want the resolution as of right now.
+   */
+  const scrollportRef = useRef<Element | null>(null);
+  const [scrollport, setScrollport] = useState<Element | null>(null);
+
+  const {
+    hiddenBefore,
+    renderEnd,
+    isRevealing,
+    revealingCount,
+    revealOlder,
+    notePinned,
+    revealFromStart,
+    revealTo,
+    paintPosition,
+    positionFillRef,
+    positionReadoutRef,
+  } = useThreadWindow({
+    totalTurns: visibleTurns.length,
+    sessionKey: snapshot.agentSessionId,
+    scrollportRef,
+    pinnedRef,
+  });
+
+  // Serving an incoming turn address — resolve, reveal, land (mt#3791). Called
+  // after the window hook because its landing must run after that hook's
+  // post-reveal scroll correction; see the hook's own docblock.
+  const { addressed, addressedTurn, threadRef } = useTurnAddressLanding({
+    turnTarget,
+    blockIdByTurnIndex,
+    visibleTurns,
+    hiddenBefore,
+    revealTo,
+    didInitialScrollRef,
+    pinnedRef,
+  });
+
   const windowedTurns = useMemo(
-    () => visibleTurns.slice(Math.max(0, visibleTurns.length - effectiveCount)),
-    [visibleTurns, effectiveCount]
+    () => visibleTurns.slice(hiddenBefore, renderEnd),
+    [visibleTurns, hiddenBefore, renderEnd]
   );
-  const hiddenCount = visibleTurns.length - windowedTurns.length;
 
   // Merge call+result pairs within the rendered window (mt#2790), then drop
   // any turn that has nothing left to render (a pure-tool-result USER turn
@@ -1074,12 +946,20 @@ function ConversationThread({
   }, []);
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
+    // An address is a more specific instruction than "land on the newest"
+    // (mt#3791), and both want to own the arrival. Yield without consuming the
+    // one-shot: if the address turns out to resolve to no element, this effect
+    // is still owed its landing on a later commit.
+    if (addressedTurn) return;
     if (preparedTurns.length === 0) return;
     didInitialScrollRef.current = true;
-    if (hiddenCount > 0) {
+    if (hiddenBefore > 0) {
       endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [preparedTurns.length, hiddenCount]);
+    // Keyed on the session too, so a swap whose new transcript happens to have
+    // the same turn count and window still re-runs this and re-lands on its
+    // newest turn — and re-sets the gate the reset above just cleared.
+  }, [preparedTurns.length, hiddenBefore, snapshot.agentSessionId, addressedTurn]);
 
   // Live-tail auto-scroll: when live content arrives (the SSE stream, mt#2232,
   // or a driven session's WS frames), scroll to the bottom so the operator sees
@@ -1087,7 +967,6 @@ function ConversationThread({
   // Scrolling unconditionally yanked the view out from under anyone reading
   // back through an active session, once per arriving tool call or message.
   const extraBlocksLen = extraBlocks?.length ?? 0;
-  const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
   // Forces a re-render whenever the thread's own box changes size — the signal
@@ -1120,33 +999,42 @@ function ConversationThread({
     // rest of the session (mt#3445).
   }, [endNode]);
 
-  // The resolved scrollport, as STATE so that everything depending on it —
-  // the scroll listener below, the measurement effect further down — moves
-  // together the moment the resolution changes (mt#3445).
-  //
-  // It is state rather than a ref because the resolution genuinely changes
-  // mid-session and nothing else announces it: `findScrollParent` only accepts
-  // an ancestor that ALREADY overflows, and a live thread spends its first
-  // seconds too short to overflow anything, so the first answer is always the
-  // document fallback. Keying the listener on a ref left it bound to an element
-  // that does not scroll — the reader's scrolling was then never heard, and
-  // whether it ever corrected depended on a ResizeObserver bump landing at the
-  // right moment (observed: it often did not, for a whole session).
-  const scrollportRef = useRef<Element | null>(null);
-  const [scrollport, setScrollport] = useState<Element | null>(null);
-
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
     if (!scrollport) return;
-    const onScroll = () => {
+    /** Sample the scrollport. Runs on mount AND on every scroll. */
+    const sample = () => {
       const pinned = isPinnedToBottom(scrollport);
       pinnedRef.current = pinned;
+      // The window has to hear this too, not just the live tail (mt#3736).
+      // Holding the scroll position is not enough on its own: while the window
+      // tracks the tail, every arriving turn unmounts the oldest rendered one
+      // and the reader's content slides up by that turn's height without any
+      // scroll happening at all.
+      notePinned(pinned);
       // Scrolling back down by hand dismisses the affordance too — the
       // operator has caught up, so there is nothing left to point at.
       if (pinned) setHasNewBelow(false);
+      paintPosition(scrollport);
     };
-    onScroll();
+    /**
+     * Reveal older turns as the reader approaches the top.
+     *
+     * Bound to the EVENT only, deliberately never to the priming call below. A
+     * reveal answers the reader scrolling; it must not answer this component
+     * re-resolving its scrollport, which happens on a schedule of its own (the
+     * resolution effect re-runs on every render, and the resolution genuinely
+     * moves mid-session — mt#3445). Priming at scrollTop 0 would read as "near
+     * the top" every time that happened, and since each reveal re-renders, the
+     * result was a loop that unwound the whole window in one mount — mounting
+     * the entire transcript, the precise cost the window exists to avoid.
+     */
+    const onScroll = () => {
+      sample();
+      if (didInitialScrollRef.current && isNearTop(scrollport)) revealOlder();
+    };
+    sample();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollport.removeEventListener("scroll", onScroll);
     // Just the resolved element. Whether an element scrolls is a LAYOUT fact,
@@ -1154,7 +1042,11 @@ function ConversationThread({
     // effect below already re-runs on every render, so a re-resolution reaches
     // this listener by changing the thing it is keyed on, rather than by this
     // effect guessing which inputs might have moved it.
-  }, [scrollport]);
+    //
+    // The two callbacks are stable by construction (`useCallback` over refs, not
+    // over the window state), so listing them satisfies exhaustive-deps without
+    // reintroducing the per-chunk re-binding this key deliberately avoids.
+  }, [scrollport, paintPosition, revealOlder, notePinned]);
 
   const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -1230,11 +1122,12 @@ function ConversationThread({
   });
 
   if (visibleTurns.length === 0) {
-    // A transcript can be ALL superseded prompts — the operator rewrote every
-    // message before the agent answered any of them. Returning the bare
-    // empty-state here would silently discard the only content the session
-    // has, which is the exact failure this marker exists to prevent (PR #2449
-    // R1). The markers render on their own instead.
+    // Both empty states still render the host's tail (mt#3843). A conversation
+    // with no turns can be running RIGHT NOW — "Running <tool>" is precisely
+    // what explains why there is nothing to show yet — and before the tail
+    // became a prop the host rendered it as a sibling, so it appeared here.
+    // There are no floating controls to collide with, so `ThreadFooter` holds
+    // the tail alone.
     if (supersededGroups.length > 0) {
       return (
         <div className={cn("flex flex-col gap-3", className)}>
@@ -1245,18 +1138,84 @@ function ConversationThread({
           {supersededGroups.map((group) => (
             <SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />
           ))}
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
     return (
-      <p className={cn("text-sm text-muted-foreground", className)}>
-        This session has no conversational turns to display.
-      </p>
+      <div className={cn("flex flex-col gap-3", className)}>
+        <p className="text-sm text-muted-foreground">
+          This session has no conversational turns to display.
+        </p>
+        <ThreadFooter tail={tail} />
+      </div>
     );
   }
 
+  // Shown only once the conversation is long enough that the window mechanism
+  // engaged at all (mt#3688). Below INITIAL_TURNS every turn is rendered, so the
+  // native scrollbar already tells the truth and a floating readout would be
+  // chrome for its own sake.
+  const showPositionPill = visibleTurns.length > INITIAL_TURNS;
+  // Built as one node so `ThreadFooter` can distinguish "no floating controls"
+  // from "controls that happen to render nothing" — a `children` array of
+  // `false`s is still truthy, which would leave an empty padded box in the stack.
+  const floatingControls =
+    hasNewBelow || showPositionPill ? (
+      <>
+        {/* Return-to-newest (mt#3376). Rendered only while the operator is
+            scrolled up AND live content has arrived since — the two conditions
+            that together mean "you are missing something below". */}
+        {hasNewBelow && (
+          <button
+            type="button"
+            onClick={scrollToNewest}
+            data-testid="jump-to-newest"
+            className="pointer-events-auto mx-auto w-fit rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            New messages below ↓
+          </button>
+        )}
+        {showPositionPill && (
+          <ThreadPositionPill
+            fillRef={positionFillRef}
+            readoutRef={positionReadoutRef}
+            totalTurns={visibleTurns.length}
+            hiddenBefore={hiddenBefore}
+            onRevealFromStart={revealFromStart}
+          />
+        )}
+      </>
+    ) : null;
+
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    // `[overflow-anchor:none]` opts the thread OUT of the browser's scroll
+    // anchoring (mt#3688). The reveal corrects the scroll itself, because the
+    // platform mechanism does not exist in WebKit — the engine the tray's macOS
+    // window uses — and a correction competing with an anchor on the engines
+    // that DO implement it would double-count the prepended height.
+    <div
+      ref={threadRef}
+      // An app-owned marker for the out-of-process verify scripts (PR #2693 R1).
+      // They used to find this element by its `scroll-mb-8` sentinel child and a
+      // parentElement hop, so an unrelated class or wrapper change broke the
+      // geometry checks silently. A testid is a contract; a class fragment is not.
+      data-testid="conversation-thread"
+      className={cn("flex flex-col gap-4 [overflow-anchor:none]", className)}
+    >
+      <SpawnParentBacklink parent={snapshot.spawnParent} />
+      {/* An address that names no rendered turn says so (mt#3791). Silence here
+          is the failure this task was filed on: the reader followed a link to a
+          specific action and cannot tell whether it landed. */}
+      {addressed === "unresolved" && (
+        <p
+          data-testid="turn-address-unresolved"
+          className="text-xs italic text-muted-foreground/70"
+        >
+          Couldn&apos;t find that turn in this conversation — it may have been rewound, or the link
+          may predate a re-ingest of this transcript. Showing the whole thread instead.
+        </p>
+      )}
       <div className="flex items-center justify-end gap-3 text-[11px] text-muted-foreground/70">
         <button
           type="button"
@@ -1273,52 +1232,42 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
-      {hiddenCount > 0 && !showAll && (
-        <div className="flex items-center justify-center gap-3 py-1">
-          <button
-            type="button"
-            onClick={() => setVisibleCount((c) => c + OLDER_CHUNK)}
-            className="rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-          >
-            Show older ({hiddenCount} more)
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            className="text-xs text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline"
-          >
-            Show all
-          </button>
-        </div>
-      )}
+      <ThreadStartBoundary
+        hiddenBefore={hiddenBefore}
+        isRevealing={isRevealing}
+        revealingCount={revealingCount}
+        firstTurnAt={visibleTurns[0]?.timestamp}
+        onRevealOlder={revealOlder}
+        onRevealFromStart={revealFromStart}
+      />
       {buildTurnNodes({
         preparedTurns,
         supersededGroups,
         blockIndexById,
+        turnIndexByBlockId,
         entityIndex,
         expandSignal,
+        address: addressedTurn ? turnTarget : undefined,
+        addressedBlockId: addressedTurn?.blockId,
+        filmPath,
       })}
-      {/* Return-to-newest (mt#3376). Rendered only while the operator is
-          scrolled up AND live content has arrived since — the two conditions
-          that together mean "you are missing something below". Sticky so it
-          stays reachable while they keep reading. */}
-      {hasNewBelow && (
-        <button
-          type="button"
-          onClick={scrollToNewest}
-          data-testid="jump-to-newest"
-          className="sticky bottom-2 z-10 mx-auto w-fit rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          New messages below ↓
-        </button>
-      )}
-      {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
-          `scrollIntoView({block:"end"})` calls above align THIS sentinel's
-          bottom edge to the scrollport's bottom edge, which would park the
-          newest turn exactly where the tail's `sticky bottom-0` activity strip
-          floats — so the strip would cover the turn it is reporting on.
-          `scroll-margin-bottom` is honored by `scrollIntoView`, so this
-          reserves the strip's height without shifting anything in normal flow. */}
+      <ThreadFooter tail={tail} floating={floatingControls} />
+      {/* The end sentinel both `scrollIntoView({block:"end"})` calls target.
+          
+          `scroll-mb-8` was load-bearing under mt#3344, when the activity strip
+          was mounted BELOW this sentinel by the host: aligning the sentinel's
+          bottom to the scrollport's bottom would have parked the newest turn
+          exactly where the strip floated, so the reservation kept the strip
+          off the turn it reports on. mt#3843 moved the strip ABOVE the
+          sentinel into `thread-footer`, which removes that condition — the
+          sentinel is now the last element in the scrollport, so the margin has
+          no room left to consume and is inert.
+          
+          It is kept rather than deleted because `PINNED_THRESHOLD_PX`
+          (`lib/scroll-pinning.ts`) documents itself as this 32px plus 16px of
+          slack, and re-deriving that constant is mt#3455's subject, not this
+          task's. Retiring the class belongs in the same change that corrects
+          that derivation. */}
       <div ref={attachEnd} aria-hidden className="scroll-mb-8" />
     </div>
   );
@@ -1344,7 +1293,10 @@ function DrivenSessionThread({
   drivenSessionId,
   drivenBlocks,
   className,
-}: {
+  turnTarget,
+  filmPath,
+  tail,
+}: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
   className?: string;
@@ -1368,6 +1320,9 @@ function DrivenSessionThread({
       snapshot={baseSnapshot}
       extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
       className={className}
+      turnTarget={turnTarget}
+      filmPath={filmPath}
+      tail={tail}
     />
   );
 }
@@ -1380,7 +1335,10 @@ function ConversationFetcher({
   liveByConversationId,
   onNotFound,
   className,
-}: {
+  turnTarget,
+  filmPath,
+  tail,
+}: ConversationViewCommonProps & {
   sessionId: ConversationId;
   /**
    * When provided, opens a live-tail SSE connection and appends new turns to
@@ -1462,6 +1420,7 @@ function ConversationFetcher({
             </Link>{" "}
             and use its &ldquo;View conversation&rdquo; link to reach the transcript.
           </p>
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
@@ -1476,6 +1435,7 @@ function ConversationFetcher({
           <p className="max-w-md text-xs text-muted-foreground/70">
             &ldquo;{sessionId}&rdquo; is not a valid conversation id.
           </p>
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
@@ -1489,21 +1449,38 @@ function ConversationFetcher({
             Transcripts are ingested when a Claude Code session ends; this one may still be running,
             or its transcript was never ingested.
           </p>
+          {/* The most load-bearing of these branches for the tail (mt#3843):
+              a transcript is ingested when the harness session ENDS, so a
+              conversation that is running right now routinely has none — and
+              "Running <tool>" is the line that says the emptiness is liveness,
+              not absence. */}
+          <ThreadFooter tail={tail} />
         </div>
       );
     }
     return (
-      <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+      <>
+        <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+        <ThreadFooter tail={tail} />
+      </>
     );
   }
   if (query.isLoading || !query.data) {
-    return <LoadingState message="Loading conversation…" className={className} />;
+    return (
+      <>
+        <LoadingState message="Loading conversation…" className={className} />
+        <ThreadFooter tail={tail} />
+      </>
+    );
   }
   return (
     <ConversationThread
       snapshot={query.data}
       extraBlocks={liveBlocks.length > 0 ? liveBlocks : undefined}
       className={className}
+      turnTarget={turnTarget}
+      filmPath={filmPath}
+      tail={tail}
     />
   );
 }
@@ -1532,7 +1509,15 @@ function ConversationFetcher({
  */
 export function ConversationView(props: ConversationViewProps) {
   if (props.snapshot !== undefined) {
-    return <ConversationThread snapshot={props.snapshot} className={props.className} />;
+    return (
+      <ConversationThread
+        snapshot={props.snapshot}
+        className={props.className}
+        turnTarget={props.turnTarget}
+        filmPath={props.filmPath}
+        tail={props.tail}
+      />
+    );
   }
   if (props.drivenSessionId !== undefined) {
     return (
@@ -1540,6 +1525,9 @@ export function ConversationView(props: ConversationViewProps) {
         drivenSessionId={props.drivenSessionId}
         drivenBlocks={props.drivenBlocks}
         className={props.className}
+        turnTarget={props.turnTarget}
+        filmPath={props.filmPath}
+        tail={props.tail}
       />
     );
   }
@@ -1550,6 +1538,9 @@ export function ConversationView(props: ConversationViewProps) {
       liveByConversationId={props.liveByConversationId}
       onNotFound={props.onNotFound}
       className={props.className}
+      turnTarget={props.turnTarget}
+      filmPath={props.filmPath}
+      tail={props.tail}
     />
   );
 }

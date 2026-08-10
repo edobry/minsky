@@ -13,6 +13,7 @@ import {
   buildReviewThreadsSection,
   buildMigrationBaselineSection,
   buildOutOfRepoSection,
+  INCREMENTAL_DIFF_SCOPE_NOTICE,
 } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -322,7 +323,9 @@ ${baseInput.prBody || "(empty)"}
 
 ${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
-## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
+## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})${
+    baseInput.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""
+  }
 
 ${chunkDiff}
 
@@ -426,6 +429,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+  let totalCachedTokens = 0;
   // mt#2739: accumulate every non-empty chunk's free-text scratch (output.text),
   // not just the last chunk's. This aggregate feeds only the defensive CoT-leak
   // scratch logging (review-worker.ts:960, sanitizeReviewBody(output.text)) — the
@@ -454,6 +458,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
     totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
     totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
     totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
+    totalCachedTokens += chunkResult.output.usage?.cachedTokens ?? 0;
     // Trim each chunk's scratch before collecting (mt#2739, PR #1884 R1): skips
     // whitespace-only chunks (which would inject leading/dangling separators) and
     // prevents a chunk's trailing blank lines + the next chunk's leading blank
@@ -488,6 +493,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       reasoningTokens: totalReasoningTokens,
+      cachedTokens: totalCachedTokens,
       totalTokens,
     },
     provider: config.provider,

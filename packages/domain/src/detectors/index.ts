@@ -26,3 +26,23 @@ export { DismissalStore, InMemoryDismissalStore, detectorDismissalsTable } from 
 
 export type { Severity, DismissalStats, SeverityOptions } from "./severity-downgrade";
 export { computeEffectiveSeverity, DEFAULT_DOWNGRADE_THRESHOLD } from "./severity-downgrade";
+
+export type {
+  DegradedReason,
+  ExemplarSet,
+  Nomination,
+  NominationResult,
+  NominationDeps,
+  NominateOptions,
+} from "./embedding-nomination";
+export {
+  nominate,
+  cosineSimilarity,
+  splitCandidateSegments,
+  isSemanticProvider,
+  DEFAULT_NOMINATION_TIMEOUT_MS,
+  DEFAULT_SIMILARITY_THRESHOLD,
+  MAX_CANDIDATE_SEGMENTS,
+  MAX_SEGMENT_CHARS,
+} from "./embedding-nomination";
+export { resolveNominationDeps } from "./embedding-nomination-factory";

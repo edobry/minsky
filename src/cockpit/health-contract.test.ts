@@ -25,7 +25,13 @@ import { createCockpitServer } from "./server";
 // custom/no-real-fs-in-tests rule stays satisfied without an exception).
 import healthShapeFixtureJson from "../../contract/cockpit-health-shape.json";
 import { refreshProdStateCache, type UnsafeSql } from "./prod-state-cache";
+import {
+  refreshDbReachability,
+  getDbStatus,
+  __resetSharedPersistenceForTests,
+} from "./shared-persistence";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
+import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 /* eslint-disable custom/no-real-fs-in-tests -- the acceptance-test-2 case below writes to an
    explicit tmp path (never the real default cache path) to prove refreshProdStateCache's
    write-then-read round trip through the live /api/health route; mirrors prod-state-cache.test.ts */
@@ -118,6 +124,80 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     }
   });
 
+  // mt#3857. The rest of this fixture pins only the TOP-LEVEL field set, so
+  // `transcriptWatcher: "object"` was satisfied by any contents whatsoever —
+  // which is how a 1,380-entry / 209 KB array rode inside it, on the endpoint
+  // the tray polls every 5s. These three tests are the CI teeth: the nested
+  // type pin, and the two semantic invariants a re-inflation would break.
+  test("transcriptWatcher's nested field set and types match the fixture", async () => {
+    const parsed = healthShapeFixtureJson as unknown as {
+      transcriptWatcherFields: Record<string, string>;
+    };
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as { transcriptWatcher: Record<string, unknown> };
+
+    expect(Object.keys(body.transcriptWatcher).sort()).toEqual(
+      Object.keys(parsed.transcriptWatcherFields).sort()
+    );
+    for (const [field, expectedType] of Object.entries(parsed.transcriptWatcherFields)) {
+      expect(body.transcriptWatcher).toHaveProperty(field);
+      expect(typeOf(body.transcriptWatcher[field])).toBe(expectedType);
+    }
+  });
+
+  test("activeSessions is bounded by the live window, not the registry size", async () => {
+    // The exact shape of the defect: a large registry of sessions the watcher
+    // knows about but has seen no recent activity in. Pre-mt#3857 all of these
+    // shipped in the response; now none of them may.
+    const tracker = TranscriptWatcherTracker.resetForTest();
+    for (let i = 0; i < 500; i++) {
+      tracker.recordSessionSeeded(`contract-seeded-${i}`, false);
+    }
+    tracker.recordSessionEvent("contract-genuinely-live", false);
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as {
+      transcriptWatcher: {
+        activeSessionCount: number;
+        activeSessions: Array<{ agentSessionId: string }>;
+      };
+    };
+
+    // The registry still knows about all 501 ...
+    expect(body.transcriptWatcher.activeSessionCount).toBe(501);
+    // ... but only the one with real activity is on the wire.
+    expect(body.transcriptWatcher.activeSessions).toHaveLength(1);
+    expect(body.transcriptWatcher.activeSessions[0]?.agentSessionId).toBe(
+      "contract-genuinely-live"
+    );
+  });
+
+  test("the health payload does not grow with transcript history", async () => {
+    // Size assertion in bytes, because the invariant that matters to the tray is
+    // "this response stays small", and a field-shape test cannot express that.
+    // Threshold is mt#3857's SC1 (4 KB); the measured post-fix payload against a
+    // 1,380-file history was 1,642 bytes.
+    const tracker = TranscriptWatcherTracker.resetForTest();
+    for (let i = 0; i < 2000; i++) {
+      tracker.recordSessionSeeded(`contract-history-${i}`, false);
+    }
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const text = await res.text();
+
+    expect(JSON.parse(text).transcriptWatcher.activeSessionCount).toBe(2000);
+    expect(text.length).toBeLessThan(4096);
+  });
+
   test("prodStateSweep block reflects real sweep outcomes under normal operation (mt#3039 acceptance test 2)", async () => {
     ProdStateSweepTracker.resetForTest();
     const okSql: UnsafeSql = {
@@ -150,5 +230,47 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
         /* ignore */
       }
     }
+  });
+});
+
+describe("/api/health while the database is wedged (mt#3563)", () => {
+  const closeList: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    for (const close of closeList.splice(0)) {
+      await close();
+    }
+    __resetSharedPersistenceForTests();
+  });
+
+  // Scope note (mem#704 — a probe must be able to fail): the elapsed-time
+  // assertion below does NOT discriminate awaiting-vs-not, because with a probe
+  // already outstanding refreshDbReachability returns early either way. What
+  // this test pins is the wedged-state RESPONSE CONTRACT: still 200, and `db`
+  // no longer "ok". The non-blocking property is evidenced separately by the
+  // live run recorded in the task spec, where the probe measured 223–353 ms
+  // while /api/health answered in ~2 ms — an awaiting handler could not.
+  test("still answers 200 but reports a non-ok db when a probe is outstanding", async () => {
+    // Put the module into the exact state the incidents produced: a probe was
+    // issued and never came back. This is the state in which the route must
+    // NOT block — awaiting the probe here would make /api/health as slow as
+    // the database it reports on, and ADR-014 makes this endpoint the tray's
+    // liveness/adoption signal.
+    await refreshDbReachability(() => new Promise<never>(() => {}), 20);
+    expect(getDbStatus()).not.toBe("ok");
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const startedAt = Date.now();
+    const res = await fetch(`${url}/api/health`);
+    const elapsedMs = Date.now() - startedAt;
+    const body = (await res.json()) as Record<string, unknown>;
+
+    // HTTP 200 regardless of DB state — the status code is the tray's liveness
+    // signal, so DB truth rides in the body (same split as `schema`).
+    expect(res.status).toBe(200);
+    expect(body.db).not.toBe("ok");
+    expect(elapsedMs).toBeLessThan(1000);
   });
 });

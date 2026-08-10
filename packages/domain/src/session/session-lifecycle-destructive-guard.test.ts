@@ -136,7 +136,9 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
-    const insertValues = mock(() => Promise.resolve());
+    // The row param is declared so `mock.calls` is typed `[row][]`; without it
+    // it is `[][]` and reading `calls[0][0]` below indexes an empty tuple.
+    const insertValues = mock((_row: Record<string, unknown>) => Promise.resolve());
     const fakeDb = { insert: () => ({ values: insertValues }) } as any;
     const persistenceProvider = { getDatabaseConnection: async () => fakeDb } as any;
 

@@ -39,17 +39,30 @@ pattern after `inject-current-time` (mt#2181), `inject-git-state` (mt#2275), and
 **Output shape (only emitted when ≥1 dispatch is flagged):**
 
 ```
-DISPATCH WATCHDOG: 1 in-flight subagent dispatch(es) appear stalled (no commit / PR event /
-subagent_invocations activity past the stale window, last checked 2026-07-07T12:00:00.000Z):
-  - mt#2646 (IN-PROGRESS, agentType=implementer, session=session-1): silent for 1h (last activity 2026-07-07T11:00:00.000Z)
-Do NOT hand-roll a probe-then-decide sequence. Call the tasks.dispatch-recover MCP tool
-(mt#2831) with the flagged taskId — it captures session state, classifies the outcome, and
-enforces the 2-attempt bound server-side. Branch on its `status` field: "healthy" -> no action;
-"recover" -> redispatch the returned `continuationPrompt` VERBATIM into the SAME session;
-"escalate" -> the 2-attempt bound is reached, surface the escalation summary instead of
-retrying again; "not-in-flight" / "no-dispatch" -> nothing to recover. See the /orchestrate
-skill's "Dispatch watchdog and resume protocol" section for the full walkthrough.
+DISPATCH WATCHDOG: 1 in-flight subagent dispatch(es) silent past the stale window (checked 2026-07-07T12:00:00.000Z):
+  - mt#2646 (IN-PROGRESS, agentType=implementer, session=session-1): silent 1h, source=dispatch-start
+Call the tasks.dispatch-recover MCP tool with each flagged taskId — do not hand-roll a
+probe-then-decide sequence — and branch on its `status`: `recover` -> redispatch the returned
+`continuationPrompt` VERBATIM via the Agent tool into the SAME session; `escalate` -> read
+`escalation.probe` first, because `dirtyFileCount` / `gitStatus` / `workspaceMtimeAgoMs`
+discriminate 'working locally' from 'dead' and push/PR/review quiet does not. `contested` -> do
+NOT redispatch: a live peer holds the task's claim (or the claim store was unreadable and this
+failed closed), so a redispatch would collide with a live actor — surface `peerActorId` to the
+operator instead. If it returns `healthy` or `not-in-flight`, the flag was a false positive and
+no action is needed. Full protocol: the /orchestrate skill's "Dispatch watchdog and resume protocol".
 ```
+
+**Size is bounded (mt#3485).** The per-dispatch enumeration caps at
+`MAX_ENUMERATED_FLAGS = 5`, with the excess elided as `... +N more (5 of N shown)` — the
+header still reports the TRUE total, so nothing is silently dropped. The cap is grounded in
+observed cadence: the largest simultaneous flag set on record is four (mt#3193), and the
+largest dispatch fleet is mt#2607's ~14 with 5 problematic. This makes the guard's declared
+`attentionCost` a genuine worst-case bound (1550, measured max 1488 with every field
+saturated) rather than a canary sample — it is the only always-registered guard whose output
+would otherwise scale with fleet activity. The rationale for the `tasks.dispatch-recover`
+branch semantics (mt#2831) and the `escalation.probe` discriminators (mt#3204) lives in
+`formatDispatchWatchdogState`'s doc comment, not in the injected text, per
+`.minsky/rules/guard-feedback-authoring.mdc`.
 
 **Paired recovery mechanisms:**
 
@@ -75,7 +88,9 @@ skill's "Dispatch watchdog and resume protocol" section for the full walkthrough
   "Dispatch watchdog and resume protocol" section documents the walkthrough: call
   `tasks.dispatch-recover`, then act on its `status` — redispatch `continuationPrompt` verbatim
   via the Agent tool into the SAME session on `"recover"`, do nothing on `"healthy"`, surface the
-  escalation summary to the operator on `"escalate"`.
+  escalation summary to the operator on `"escalate"`, and on `"contested"` (mt#3121) do NOT
+  redispatch — a peer conversation holds a fresh task-grain claim (or the claim store was
+  unreadable and it failed closed), so surface the peer to the operator instead.
 
 **Why this exists.** During the mt#2607 burndown (~14 implementer dispatches, 2026-07-06/07), 5
 dispatches ended without a usable completion report — two stalled silently mid-review-convergence

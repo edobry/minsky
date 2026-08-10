@@ -141,6 +141,51 @@ export interface MinskyMCPServerOptions {
  * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
  * underscore names — `debug_echo` — and the allowlist never matched.)
  */
+/**
+ * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
+ * The request handler injects the resolved caller agentId into ONLY this tool's
+ * args (matched exactly against this name and its `toClaudeDesktopName` underscore
+ * alias) so its contested-check can exclude the caller's own task-grain claims.
+ */
+const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
+
+/**
+ * Tools that READ presence, and therefore must never WRITE it (mt#3889).
+ *
+ * Task presence is deliberately touch-based — a claim means "this actor touched
+ * this task recently" — so an ordinary `tasks.get` writing one is by design.
+ * Reading the claims themselves is the exception: an observation that mutates
+ * what it observes cannot answer the question it was asked.
+ *
+ * Concretely, `tasks.claims.list` is the first step of the collision probe in
+ * `user-preferences.mdc §Probe before claiming a shared resource`. Before this
+ * exemption, probing task T upserted a claim on T, so `lastRefreshedAt` advanced
+ * to the moment of the probe and a long-stale claim reported `stale: false` —
+ * the probe manufactured the freshness it was checking for. Measured 2026-08-09:
+ * two reads of the same task 3 minutes apart, no other actor running, each
+ * moving `lastRefreshedAt` to its own timestamp.
+ *
+ * Matched EXACTLY against the canonical dotted name and its Claude-Desktop
+ * underscore alias, never as a substring — same discipline as
+ * `DISPATCH_RECOVER_TOOL_NAME` above.
+ *
+ * KNOWN LIMITATION (mt#3903): this is a hand-maintained list, so the fact that
+ * a tool reads presence lives here rather than at the tool's definition. A
+ * future presence-reading tool added without a line here silently reintroduces
+ * the defect. The obvious fix — reuse `CommandDefinition.mutating` — is wrong:
+ * that flag is scoped to staleness-gating external side effects and only 13
+ * session/PR commands set it. Deriving this from a purpose-built registry field
+ * is mt#3903.
+ */
+const PRESENCE_READING_TOOL_NAMES: readonly string[] = ["tasks.claims.list"];
+
+/** True when `toolName` is a presence-READ tool under either registered spelling. */
+function isPresenceReadingTool(toolName: string): boolean {
+  return PRESENCE_READING_TOOL_NAMES.some(
+    (name) => toolName === name || toolName === toClaudeDesktopName(name)
+  );
+}
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -397,6 +442,14 @@ export class MinskyMCPServer {
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
   private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+
+  // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
+  // ever registered. Deliberately distinct from `httpSessions.size > 0`,
+  // which reflects only CURRENTLY-open sessions: a client that connected
+  // and later cleanly disconnected (or was reaped) must not be
+  // indistinguishable from "no client ever connected" to the
+  // never-connected idle-exit watcher in `orphan-exit.ts`.
+  private hasEverHadAnyHttpSession = false;
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
@@ -889,6 +942,7 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
+          this.hasEverHadAnyHttpSession = true;
           const newCount = this.httpSessions.size;
           log.debug("mcp_session_admit", {
             sessionId: id,
@@ -911,6 +965,7 @@ export class MinskyMCPServer {
     // catches that path.
     if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
       this.httpSessions.set(session.transport.sessionId, session);
+      this.hasEverHadAnyHttpSession = true;
       log.debug("Registered new HTTP session (post-handle fallback)", {
         sessionId: session.transport.sessionId,
       });
@@ -1147,6 +1202,22 @@ export class MinskyMCPServer {
             ._meta?.progressToken;
           const progress = buildProgressReporter(progressToken, extra.sendNotification);
 
+          // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
+          // arguments so its contested-check can EXCLUDE the caller's own task-grain
+          // presence claims (SC4 — a caller must never be flagged as its own peer). Matched
+          // EXACTLY against this tool's canonical dotted name and its Claude-Desktop underscore
+          // alias (both registered) — never a substring, so no other tool whose name merely
+          // contains "dispatch-recover" can receive the param. The server overwrites any
+          // caller-supplied value, so it cannot be spoofed here.
+          if (
+            request.params.name === DISPATCH_RECOVER_TOOL_NAME ||
+            request.params.name === toClaudeDesktopName(DISPATCH_RECOVER_TOOL_NAME)
+          ) {
+            const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
+            dispatchArgs.callerActorId = agentId;
+            request.params.arguments = dispatchArgs;
+          }
+
           const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
@@ -1159,12 +1230,16 @@ export class MinskyMCPServer {
 
           // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
           // Fires whenever args.task or args.taskId is present — no Minsky session required.
-          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
-            log.debug("presence claim write failed (non-blocking)", {
-              error: getErrorMessage(err),
-              tool: request.params.name,
-            });
-          });
+          // mt#3889: except for presence-READ tools, which must not refresh the very
+          // claims they were asked to report.
+          this.writeTaskClaim(request.params.arguments || {}, agentId, request.params.name).catch(
+            (err) => {
+              log.debug("presence claim write failed (non-blocking)", {
+                error: getErrorMessage(err),
+                tool: request.params.name,
+              });
+            }
+          );
 
           // mt#2284: Write session-grain runtime-attachment claim (fire-and-forget).
           // Session-SCOPED (unlike writeTaskClaim) — requires a resolvable session,
@@ -1562,7 +1637,22 @@ export class MinskyMCPServer {
    * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
    * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
-  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+  private async writeTaskClaim(
+    args: Record<string, unknown>,
+    actorId: string,
+    toolName?: string
+  ): Promise<void> {
+    // mt#3889: a presence READ must not write presence. Checked before the repo
+    // is resolved so the probe costs nothing it did not already cost.
+    //
+    // `toolName` is optional for TEST callers only. The single production
+    // callsite (the tools/call handler above) always passes
+    // `request.params.name`, which the MCP protocol requires on every
+    // tools/call request — so the exemption cannot be silently skipped in
+    // production by omitting it. Verified: `writeTaskClaim` has exactly one
+    // non-test callsite.
+    if (toolName && isPresenceReadingTool(toolName)) return;
+
     const repo = await this.getPresenceClaimRepo();
     if (!repo) return;
 
@@ -2273,6 +2363,17 @@ export class MinskyMCPServer {
    */
   getMaxSessions(): number | null {
     return this.MAX_HTTP_SESSIONS;
+  }
+
+  /**
+   * mt#3764: true once the first HTTP MCP session has EVER been
+   * established, and stays true afterward even if all sessions later
+   * close/reap. Feeds the never-connected idle-exit watcher in
+   * `orphan-exit.ts` — deliberately NOT the same as `getSessionCount() > 0`,
+   * which only reflects currently-open sessions.
+   */
+  hasEverHadHttpSession(): boolean {
+    return this.hasEverHadAnyHttpSession;
   }
 
   /**

@@ -4,17 +4,22 @@
   "description": "Shared utilities used across Minsky packages and separately-deployed services.",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./safe-truncate": "./src/safe-truncate.ts",
     "./strip-ansi": "./src/strip-ansi.ts",
     "./harness-markup": "./src/harness-markup.ts",
+    "./minsky-notices": "./src/minsky-notices.ts",
     "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts",
     "./deployment-config": "./src/deployment/config.ts",
     "./logger": "./src/logger.ts",
     "./exec": "./src/exec.ts",
     "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
+    "./conversation-pid-map": "./src/conversation-pid-map.ts",
     "./process": "./src/process.ts",
     "./stdout-sync": "./src/stdout-sync.ts",
     "./fs": "./src/fs.ts",

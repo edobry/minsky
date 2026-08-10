@@ -8,7 +8,10 @@
  *
  * Resolution criteria: a review on the PR with `submittedAt > since`
  * (strictly after — an exactly-equal `submittedAt` counts as already-seen,
- * mt#2656), optionally filtered by reviewer login.
+ * mt#2656), optionally filtered by reviewer login. When several reviews pass
+ * those filters, the one returned is the reviewer's STANDING VERDICT — their
+ * latest decision-bearing review — not the first in listing order
+ * (mt#3555); see `findMatchingReview`.
  *
  * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
  * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
@@ -40,6 +43,11 @@ import {
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
+import {
+  type ReviewVerdictFields,
+  pickLatestDecisionPerReviewer,
+  pickLatestSubmitted,
+} from "../../repository/review-verdict";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
 import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
@@ -56,6 +64,23 @@ export interface SessionPrWaitForReviewDependencies {
   now?: () => number;
   /** Test seam: override the delay between polls. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Test seam: override the TOTAL budget for the mt#2777 SC#1 final
+   * authoritative check. Defaults to `FINAL_CHECK_DEADLINE_MS` (10s).
+   *
+   * Exists for tests that must run the final check against REAL timers
+   * (`now`/`sleep` left un-stubbed, because the point is to prove a real
+   * `setTimeout`-based deadline bounds a stalled call). Such a test otherwise
+   * has to spend the full production budget in wall-clock time: the mt#3551
+   * instance sat at ~11s against bun's 15s per-test ceiling, and already
+   * failed outright under bun's 5s DEFAULT — which is what any invocation
+   * that omits `--timeout` gets. Shrinking the budget keeps the real timer
+   * and drops the cost.
+   *
+   * Not a production knob: no CLI/MCP parameter maps to it, which is why it
+   * lives here rather than on `SessionPrWaitForReviewParams`.
+   */
+  finalCheckDeadlineMs?: number;
   /**
    * Test seam: override the TokenProvider used for role resolution
    * (`reviewer: "reviewer" | "implementer"`). Defaults to a provider
@@ -656,11 +681,51 @@ export function explainReviewRejection(
 }
 
 /**
- * Pick the first review, in listing order, that matches the filter criteria.
+ * Projects `ReviewListEntry` onto the fields the shared ordering rule reads
+ * (`repository/review-verdict.ts`).
+ */
+const REVIEW_LIST_ENTRY_FIELDS: ReviewVerdictFields<ReviewListEntry> = {
+  reviewerLogin: (review) => review.reviewerLogin,
+  submittedAt: (review) => review.submittedAt,
+  state: (review) => review.state,
+};
+
+/**
+ * Pick the review representing the reviewer's STANDING VERDICT among those
+ * matching the filter criteria.
  *
- * Exported for unit tests — keeps the filter logic independent of the polling
- * loop so corner cases (missing submittedAt, case-sensitive reviewer match,
- * since boundary) can be exercised in isolation.
+ * Before mt#3555 this returned the FIRST match in listing order. Because
+ * `listReviews` returns GitHub's chronological (oldest-first) order, that
+ * meant the EARLIEST qualifying review won: on PR #2525 an APPROVED at
+ * 18:59:48Z beat the same reviewer's CHANGES_REQUESTED at 19:07:55Z **on the
+ * same commit**, and `/implement-task` §9 reads an APPROVED on current HEAD as
+ * the authorization to merge. `requireCurrentHead` could not disambiguate:
+ * both reviews were on HEAD, so the head filter admitted both and scan order
+ * decided. The head check answers "is this review about the current code",
+ * never "is this the reviewer's current verdict".
+ *
+ * Resolution order, applied to the reviews that pass the filters:
+ *
+ *   1. Reduce to the latest DECISION-BEARING review per reviewer
+ *      (`pickLatestDecisionPerReviewer`) — the same rule the approval path
+ *      uses, correct in both directions: a CHANGES_REQUESTED the reviewer
+ *      later resolved does not win, and an APPROVED they later retracted does
+ *      not either.
+ *   2. If any reviewer's standing verdict is CHANGES_REQUESTED, return the
+ *      latest of those. Only reachable without a `reviewer` filter (with one,
+ *      there is a single reviewer to reduce). Without it, returning a second
+ *      reviewer's later APPROVED while a first reviewer's rejection stands
+ *      would reproduce this same defect in multi-reviewer shape.
+ *   3. Otherwise return the latest standing verdict.
+ *   4. When NO candidate is decision-bearing — a COMMENTED-only wait — return
+ *      the latest candidate, so a caller waiting on a COMMENT still resolves.
+ *      COMMENTED is informational: it never supersedes a decision (step 1
+ *      filters it out), but it is still a review the wait tool must be able to
+ *      return, and `pr-drive-subcommand` branches on it.
+ *
+ * Exported for unit tests — keeps the resolution logic independent of the
+ * polling loop so corner cases (missing submittedAt, case-insensitive reviewer
+ * match, since boundary, supersession) can be exercised in isolation.
  */
 export function findMatchingReview(
   reviews: ReviewListEntry[],
@@ -668,12 +733,18 @@ export function findMatchingReview(
   reviewer: string | undefined,
   headSha?: string
 ): ReviewListEntry | undefined {
-  for (const review of reviews) {
-    if (explainReviewRejection(review, since, reviewer, headSha) === null) {
-      return review;
-    }
+  const candidates = reviews.filter(
+    (review) => explainReviewRejection(review, since, reviewer, headSha) === null
+  );
+  if (candidates.length === 0) return undefined;
+
+  const standing = pickLatestDecisionPerReviewer(candidates, REVIEW_LIST_ENTRY_FIELDS);
+  if (standing.length === 0) {
+    return pickLatestSubmitted(candidates, REVIEW_LIST_ENTRY_FIELDS);
   }
-  return undefined;
+
+  const blocking = standing.filter((review) => review.state === "CHANGES_REQUESTED");
+  return pickLatestSubmitted(blocking.length > 0 ? blocking : standing, REVIEW_LIST_ENTRY_FIELDS);
 }
 
 /**
@@ -708,7 +779,9 @@ export function annotateReviewRejections(
  * Contract:
  * - Resolves the session's PR via `resolveSessionContextWithFeedback`.
  * - Calls `backend.review.listReviews` at each poll tick.
- * - Returns the first review matching `since` and optional `reviewer` filter.
+ * - Returns the standing verdict among the reviews matching `since` and the
+ *   optional `reviewer` filter — the reviewer's latest decision-bearing
+ *   review, not the first in listing order (mt#3555).
  * - `since` default (mt#2043): when the caller does not pass `since`, the
  *   default is the PR's `created_at` timestamp (looked up via
  *   `backend.review.getPullRequestCreatedAt`). This makes pre-existing
@@ -736,6 +809,23 @@ export async function sessionPrWaitForReview(
     deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const createBackend = deps.createBackend ?? createRepositoryBackendFromSession;
   const getTokenProvider = deps.getTokenProvider ?? defaultGetTokenProvider;
+
+  // PR #2571 R1 (non-blocking): validate the mt#3551 final-check budget seam
+  // eagerly, and THROW rather than clamp. A non-positive budget would make
+  // every final-check call exceed its deadline instantly; that error is caught
+  // downstream and degrades to `finalCheckPerformed: false` — indistinguishable
+  // from a legitimately-unavailable check. Silently accepting a bad value would
+  // therefore turn a typo into a test that passes while verifying nothing (the
+  // fail-open trap in mem#620). Validated here, at setup, so it lands outside
+  // `finalizeTimeout`'s try/catch and cannot be swallowed.
+  const finalCheckBudgetMs = deps.finalCheckDeadlineMs ?? FINAL_CHECK_DEADLINE_MS;
+  if (!Number.isFinite(finalCheckBudgetMs) || finalCheckBudgetMs <= 0) {
+    throw new ValidationError(
+      `deps.finalCheckDeadlineMs must be a finite number greater than 0 (got ${String(
+        deps.finalCheckDeadlineMs
+      )})`
+    );
+  }
 
   // Parameter schema enforces the outer cap of 1800s; clamp defensively here.
   const timeoutMs = clamp(params.timeoutSeconds ?? 600, 1, 1800) * 1000;
@@ -879,8 +969,9 @@ export async function sessionPrWaitForReview(
      * diagnostic read must never turn an otherwise-legitimate timeout into
      * a thrown error.
      *
-     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` is a TOTAL budget
-     * for the whole sequence below, not a per-call cap — a single
+     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` — or the
+     * `deps.finalCheckDeadlineMs` test-seam override (mt#3551) — is a TOTAL
+     * budget for the whole sequence below, not a per-call cap — a single
      * `finalCheckDeadline` timestamp is computed once, and each of the
      * three sequential calls (`getHeadSha`, `listReviews`,
      * `fetchReviewerCheckRunState`) is bounded to whatever remains of it
@@ -891,7 +982,7 @@ export async function sessionPrWaitForReview(
      */
     const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
       let finalCheckPerformed = false;
-      const finalCheckDeadline = now() + FINAL_CHECK_DEADLINE_MS;
+      const finalCheckDeadline = now() + finalCheckBudgetMs;
       try {
         if (getHeadSha) {
           headSha = await withDeadline(

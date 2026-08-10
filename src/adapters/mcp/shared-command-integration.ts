@@ -24,6 +24,19 @@ import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 
 /**
+ * Build the safe-to-log form of a command execution context: strips the DI
+ * container (holds the full container graph — expensive to serialize and
+ * produces `[Circular]`-laden output) and redacts any remaining sensitive
+ * keys via {@link redact}. Pure — asserted directly by return value
+ * (mt#3629 / mt#3565 §Reframe), so the redaction CONTRACT no longer needs a
+ * logger spy to verify.
+ */
+export function buildSafeDebugContext(context: CommandExecutionContext): Record<string, unknown> {
+  const { container: _container, ...safeCtx } = context;
+  return redact(safeCtx) as Record<string, unknown>;
+}
+
+/**
  * Test whether a Zod schema accepts boolean values.
  *
  * Used to gate the MCP bridge's `params.json = true` override so it only
@@ -307,6 +320,13 @@ export interface McpSharedCommandConfig {
    * Failures are best-effort — they never block the command error path.
    */
   askRepository?: AskRepository;
+  /**
+   * Injectable sink for the sanitized-execution-context debug lines,
+   * defaulting to the shared logger (mt#3629). Tests inject a collector
+   * here instead of spying on `log.debug` to verify the wiring: that the
+   * bridge actually forwards {@link buildSafeDebugContext}'s output.
+   */
+  debugContextLog?: (message: string, meta: { context: Record<string, unknown> }) => void;
 }
 
 /** Classifier version tag for 2-strikes `stuck.unblock` Asks (mt#1464). */
@@ -529,9 +549,15 @@ export function registerSharedCommandsWithMcp(
             };
             // Omit `container` from debug logs: it holds the full DI container,
             // which is expensive to walk and produces huge [Circular]-laden output.
-            const { container: _container, ...safeCtx } = context;
-            log.debug(`[MCP] Created execution context: ${command.id}`, {
-              context: redact(safeCtx),
+            // buildSafeDebugContext is the pure core (mt#3629); this shell only
+            // forwards its output to the injectable sink below.
+            const safeDebugContext = buildSafeDebugContext(context);
+            const debugContextLog =
+              config.debugContextLog ??
+              ((message: string, meta: { context: Record<string, unknown> }) =>
+                log.debug(message, meta));
+            debugContextLog(`[MCP] Created execution context: ${command.id}`, {
+              context: safeDebugContext,
             });
 
             // Convert MCP args to expected parameter format.
@@ -604,8 +630,9 @@ export function registerSharedCommandsWithMcp(
             // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
             log.debug(`[MCP] Parameters being passed:`, redact(parameters));
-            // Re-use safeCtx (container already stripped) for the second log site.
-            log.debug(`[MCP] Context being passed:`, { context: redact(safeCtx) });
+            // Re-use safeDebugContext (container already stripped, already
+            // redacted) for the second log site.
+            debugContextLog(`[MCP] Context being passed:`, { context: safeDebugContext });
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const result = await command.execute(parameters, context, validatedCtx as any);

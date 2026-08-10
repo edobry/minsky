@@ -10,7 +10,7 @@
  * @see mt#2101 — implementation task
  */
 
-import { describe, expect, test, spyOn, mock } from "bun:test";
+import { describe, expect, test, mock } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
 import { gzipSync } from "node:zlib";
@@ -19,6 +19,10 @@ import {
   adoptionSweeperTick,
   adoptionSweeperPositiveControlCanary,
   ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME,
+  classifyCallsiteCheckUnavailable,
+  classifyDryRunProposedFiling,
+  type EmitEventFn,
+  type CallsiteCheckResult,
 } from "./start-command";
 import {
   checkCallsitesInSnapshot,
@@ -26,8 +30,20 @@ import {
   fetchRepoSourceSnapshot,
   type RepoSourceSnapshot,
 } from "./adoption-sweeper-callsite-check";
-import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+
+/**
+ * Test-local helper: build an `EmitEventFn` that records every call into
+ * `events`, for asserting on emitted structured events without spying on
+ * the shared logger (mt#3629).
+ */
+function collectingEmitEvent(
+  events: Array<{ level: "info" | "error"; event: string; payload: Record<string, unknown> }>
+): EmitEventFn {
+  return (level, event, payload) => {
+    events.push({ level, event, payload });
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Unit tests: parsePositiveIntEnv
@@ -271,6 +287,8 @@ const REPO_ROOT = path.resolve(__dirname, "../../..");
  * `custom/no-magic-string-duplication`.
  */
 const CALLSITE_CHECK_UNAVAILABLE_EVENT = "adoption_sweeper.callsite_check_unavailable";
+const DRY_RUN_PROPOSED_FILING_EVENT = "adoption_sweeper.dry_run_proposed_filing";
+const POSITIVE_CONTROL_SOURCE = "positive_control";
 
 describe("adoptionSweeperTick", () => {
   test("local git-grep command failure hard-skips: distinct log event, no task creation, tick rejects", async () => {
@@ -301,27 +319,26 @@ describe("adoptionSweeperTick", () => {
       return Promise.reject(err);
     });
 
-    const errorSpy = spyOn(log, "error");
-    errorSpy.mockClear();
+    const events: Array<{
+      level: "info" | "error";
+      event: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const emitEvent = collectingEmitEvent(events);
 
-    try {
-      await expect(adoptionSweeperTick(container, { execAsyncFn })).rejects.toThrow(
-        /callsite check unavailable/
-      );
+    await expect(adoptionSweeperTick(container, { execAsyncFn, emitEvent })).rejects.toThrow(
+      /callsite check unavailable/
+    );
 
-      // Distinct structured log event fired for the positive-control failure
-      // (never converted into a silent "zero callsites" outcome).
-      const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
-      );
-      expect(unavailableCalls.length).toBeGreaterThan(0);
-      expect(unavailableCalls[0]?.[1]).toMatchObject({ source: "positive_control" });
+    // Distinct structured event fired for the positive-control failure (never
+    // converted into a silent "zero callsites" outcome). Asserted via the
+    // injected sink, not a logger spy (mt#3629).
+    const unavailableCalls = events.filter((e) => e.event === CALLSITE_CHECK_UNAVAILABLE_EVENT);
+    expect(unavailableCalls.length).toBeGreaterThan(0);
+    expect(unavailableCalls[0]?.payload).toMatchObject({ source: POSITIVE_CONTROL_SOURCE });
 
-      // Never files a task when the check could not run.
-      expect(createTaskSpy.mock.calls.length).toBe(0);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    // Never files a task when the check could not run.
+    expect(createTaskSpy.mock.calls.length).toBe(0);
   });
 
   test("zero-match grep on a real repo preserves the existing unadopted (file-a-task) path", async () => {
@@ -354,29 +371,27 @@ describe("adoptionSweeperTick", () => {
     };
     const container = makeFakeContainer(taskService);
 
-    const errorSpy = spyOn(log, "error");
-    errorSpy.mockClear();
+    const events: Array<{
+      level: "info" | "error";
+      event: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const emitEvent = collectingEmitEvent(events);
 
-    try {
-      // No execAsyncFn override: exercises the REAL git grep against the
-      // real repo. The positive control (self-referential canary) succeeds
-      // because its own function is committed to start-command.ts; the
-      // invented signal name is guaranteed absent from the tree, exercising
-      // the genuine zero-match path (not the unavailable path).
-      // executeOverride: true selects the execute (not dry-run) branch
-      // directly, without touching process.env (mt#3328 review R1).
-      await adoptionSweeperTick(container, { executeOverride: true });
+    // No execAsyncFn override: exercises the REAL git grep against the
+    // real repo. The positive control (self-referential canary) succeeds
+    // because its own function is committed to start-command.ts; the
+    // invented signal name is guaranteed absent from the tree, exercising
+    // the genuine zero-match path (not the unavailable path).
+    // executeOverride: true selects the execute (not dry-run) branch
+    // directly, without touching process.env (mt#3328 review R1).
+    await adoptionSweeperTick(container, { executeOverride: true, emitEvent });
 
-      const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
-      );
-      expect(unavailableCalls.length).toBe(0);
+    const unavailableCalls = events.filter((e) => e.event === CALLSITE_CHECK_UNAVAILABLE_EVENT);
+    expect(unavailableCalls.length).toBe(0);
 
-      expect(createTaskSpy.mock.calls.length).toBe(1);
-      expect(createTaskSpy.mock.calls[0]?.[0]).toBe(`mt#12345 adoption: ${signalName}`);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    expect(createTaskSpy.mock.calls.length).toBe(1);
+    expect(createTaskSpy.mock.calls[0]?.[0]).toBe(`mt#12345 adoption: ${signalName}`);
   }, 30_000);
 
   test("dry-run mode (default) logs a proposed filing without creating a task", async () => {
@@ -399,28 +414,26 @@ describe("adoptionSweeperTick", () => {
     };
     const container = makeFakeContainer(taskService);
 
-    const infoSpy = spyOn(log, "info");
-    infoSpy.mockClear();
+    const events: Array<{
+      level: "info" | "error";
+      event: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const emitEvent = collectingEmitEvent(events);
 
-    try {
-      // No executeOverride: exercises the real default (dry-run) directly,
-      // without touching process.env (mt#3328 review R1).
-      await adoptionSweeperTick(container);
+    // No executeOverride: exercises the real default (dry-run) directly,
+    // without touching process.env (mt#3328 review R1).
+    await adoptionSweeperTick(container, { emitEvent });
 
-      // Dry-run never calls createTaskFromTitleAndSpec.
-      expect(createTaskSpy.mock.calls.length).toBe(0);
+    // Dry-run never calls createTaskFromTitleAndSpec.
+    expect(createTaskSpy.mock.calls.length).toBe(0);
 
-      const proposedCalls = infoSpy.mock.calls.filter(
-        (call) => call[0] === "adoption_sweeper.dry_run_proposed_filing"
-      );
-      expect(proposedCalls.length).toBe(1);
-      expect(proposedCalls[0]?.[1]).toMatchObject({
-        parentTaskId: "mt#54321",
-        signalName,
-      });
-    } finally {
-      infoSpy.mockRestore();
-    }
+    const proposedCalls = events.filter((e) => e.event === DRY_RUN_PROPOSED_FILING_EVENT);
+    expect(proposedCalls.length).toBe(1);
+    expect(proposedCalls[0]?.payload).toMatchObject({
+      parentTaskId: "mt#54321",
+      signalName,
+    });
   }, 30_000);
 });
 
@@ -728,31 +741,30 @@ describe("adoptionSweeperTick — container path (mt#3351, no local .git)", () =
     };
     const container = makeFakeContainer(taskService);
 
-    const errorSpy = spyOn(log, "error");
-    errorSpy.mockClear();
+    const events: Array<{
+      level: "info" | "error";
+      event: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const emitEvent = collectingEmitEvent(events);
 
-    try {
-      await expect(
-        adoptionSweeperTick(container, {
-          hasLocalRepoOverride: false, // force the container (API) path
-          fetchRepoSourceSnapshotFn: async () => ({
-            status: "unavailable",
-            reason: "GitHub tarball fetch failed: 403 Forbidden (rate limit exceeded)",
-          }),
-        })
-      ).rejects.toThrow(/callsite check unavailable/);
+    await expect(
+      adoptionSweeperTick(container, {
+        hasLocalRepoOverride: false, // force the container (API) path
+        fetchRepoSourceSnapshotFn: async () => ({
+          status: "unavailable",
+          reason: "GitHub tarball fetch failed: 403 Forbidden (rate limit exceeded)",
+        }),
+        emitEvent,
+      })
+    ).rejects.toThrow(/callsite check unavailable/);
 
-      const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
-      );
-      expect(unavailableCalls.length).toBeGreaterThan(0);
-      expect(unavailableCalls[0]?.[1]).toMatchObject({ source: "positive_control" });
+    const unavailableCalls = events.filter((e) => e.event === CALLSITE_CHECK_UNAVAILABLE_EVENT);
+    expect(unavailableCalls.length).toBeGreaterThan(0);
+    expect(unavailableCalls[0]?.payload).toMatchObject({ source: POSITIVE_CONTROL_SOURCE });
 
-      // Never files a task when the check could not run.
-      expect(createTaskSpy.mock.calls.length).toBe(0);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    // Never files a task when the check could not run.
+    expect(createTaskSpy.mock.calls.length).toBe(0);
   });
 
   test("API-path snapshot containing the canary + a zero-callsite signal completes normally (dry-run)", async () => {
@@ -773,10 +785,12 @@ describe("adoptionSweeperTick — container path (mt#3351, no local .git)", () =
     };
     const container = makeFakeContainer(taskService);
 
-    const infoSpy = spyOn(log, "info");
-    const errorSpy = spyOn(log, "error");
-    infoSpy.mockClear();
-    errorSpy.mockClear();
+    const events: Array<{
+      level: "info" | "error";
+      event: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const emitEvent = collectingEmitEvent(events);
 
     // The snapshot's own source contains the positive-control canary's name
     // — via the EXPORTED `ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME`
@@ -791,28 +805,96 @@ describe("adoptionSweeperTick — container path (mt#3351, no local .git)", () =
       ]),
     };
 
-    try {
-      await adoptionSweeperTick(container, {
-        hasLocalRepoOverride: false,
-        fetchRepoSourceSnapshotFn: async () => ({ status: "ok", snapshot: fakeSnapshot }),
-      });
+    await adoptionSweeperTick(container, {
+      hasLocalRepoOverride: false,
+      fetchRepoSourceSnapshotFn: async () => ({ status: "ok", snapshot: fakeSnapshot }),
+      emitEvent,
+    });
 
-      const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
-      );
-      expect(unavailableCalls.length).toBe(0);
+    const unavailableCalls = events.filter((e) => e.event === CALLSITE_CHECK_UNAVAILABLE_EVENT);
+    expect(unavailableCalls.length).toBe(0);
 
-      const proposedCalls = infoSpy.mock.calls.filter(
-        (call) => call[0] === "adoption_sweeper.dry_run_proposed_filing"
-      );
-      expect(proposedCalls.length).toBe(1);
-      expect(proposedCalls[0]?.[1]).toMatchObject({
-        parentTaskId: "mt#67890",
-        signalName,
-      });
-    } finally {
-      infoSpy.mockRestore();
-      errorSpy.mockRestore();
-    }
+    const proposedCalls = events.filter((e) => e.event === DRY_RUN_PROPOSED_FILING_EVENT);
+    expect(proposedCalls.length).toBe(1);
+    expect(proposedCalls[0]?.payload).toMatchObject({
+      parentTaskId: "mt#67890",
+      signalName,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pure-core tests: structured-event payload classification (mt#3629)
+// ---------------------------------------------------------------------------
+
+describe("classifyCallsiteCheckUnavailable (pure core)", () => {
+  test("positive_control source carries the mechanism-broken explanatory message", () => {
+    const result: CallsiteCheckResult = { status: "unavailable", reason: "boom" };
+    const event = classifyCallsiteCheckUnavailable(POSITIVE_CONTROL_SOURCE, result);
+    expect(event).toMatchObject({
+      event: CALLSITE_CHECK_UNAVAILABLE_EVENT,
+      source: POSITIVE_CONTROL_SOURCE,
+      result,
+    });
+    expect(event.message).toMatch(/Positive control failed/);
+    expect(event.taskId).toBeUndefined();
+  });
+
+  test("per_task_signal source carries the context fields, no mechanism message", () => {
+    const result: CallsiteCheckResult = { status: "unavailable", reason: "boom" };
+    const event = classifyCallsiteCheckUnavailable("per_task_signal", result, {
+      taskId: "mt#1",
+      signalKind: "export",
+      signalName: "foo",
+    });
+    expect(event).toEqual({
+      event: CALLSITE_CHECK_UNAVAILABLE_EVENT,
+      source: "per_task_signal",
+      result,
+      reason: "boom",
+      taskId: "mt#1",
+      signalKind: "export",
+      signalName: "foo",
+    });
+    expect(event.message).toBeUndefined();
+  });
+
+  // Reviewer-bot R1/R2 (PR #2597): the pre-extraction per-task-signal payload
+  // carried `reason` at the TOP LEVEL (and had no `result` field at all) —
+  // any downstream consumer (dashboard, alert, log parser) matching on a
+  // top-level `reason` must keep seeing it. Pinning both directions: present
+  // when the result IS "unavailable" (has a reason to mirror), absent when
+  // it is not (nothing to mirror — never a bare `reason: undefined`).
+  test("mirrors result.reason at the top level when the result is unavailable (backward-compat)", () => {
+    const result: CallsiteCheckResult = { status: "unavailable", reason: "network timeout" };
+    const event = classifyCallsiteCheckUnavailable("per_task_signal", result, {
+      taskId: "mt#1",
+      signalKind: "export",
+      signalName: "foo",
+    });
+    expect(event.reason).toBe("network timeout");
+  });
+
+  test('carries no top-level reason when the result is not unavailable (e.g. status "zero")', () => {
+    const result: CallsiteCheckResult = { status: "zero" };
+    const event = classifyCallsiteCheckUnavailable(POSITIVE_CONTROL_SOURCE, result);
+    expect("reason" in event).toBe(false);
+  });
+});
+
+describe("classifyDryRunProposedFiling (pure core)", () => {
+  test("builds the proposed-filing event payload", () => {
+    const event = classifyDryRunProposedFiling(
+      "mt#123",
+      { kind: "export", name: "foo" },
+      "mt#123 adoption: foo"
+    );
+    expect(event).toEqual({
+      event: DRY_RUN_PROPOSED_FILING_EVENT,
+      parentTaskId: "mt#123",
+      signalKind: "export",
+      signalName: "foo",
+      proposedTitle: "mt#123 adoption: foo",
+    });
   });
 });

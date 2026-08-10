@@ -23,7 +23,8 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, inArray, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import {
@@ -35,6 +36,27 @@ import { getLoggableErrorSummary } from "../errors/index";
 import type { MinedCluster } from "./types";
 
 export type ProposalVerdict = "proposed" | "accepted" | "rejected" | "superseded" | "suppressed";
+
+/**
+ * ON CONFLICT set-expression that keeps the TARGET row's existing value when
+ * that row has ever been proposed, and otherwise takes the incoming one
+ * (mt#3510).
+ *
+ * Used by the suppression upsert for `verdict` and every column bound to it.
+ * `column` is the drizzle column (drizzle renders it table-qualified, which
+ * inside `ON CONFLICT DO UPDATE` resolves to the pre-update target row);
+ * `excludedColumn` is that same column's snake_case DB name, needed because
+ * `EXCLUDED.<name>` is raw SQL with no drizzle-side representation.
+ *
+ * The two arguments must name the SAME column — passing mismatched ones would
+ * silently write one column's incoming value over another's existing value.
+ * The resulting behavior of both suppression write paths is asserted against a
+ * real Postgres in
+ * `tests/integration/engprod-ledger-suppression-verdict.integration.test.ts`.
+ */
+function preserveWhenProposed(column: AnyPgColumn, excludedColumn: string): SQL {
+  return sql`CASE WHEN ${engprodProposalLedgerTable.everProposed} THEN ${column} ELSE EXCLUDED.${sql.raw(excludedColumn)} END`;
+}
 
 export interface ShouldProposeDecision {
   propose: boolean;
@@ -91,9 +113,72 @@ export function decideReconciliation(status: string | undefined): Reconciliation
   return "accepted";
 }
 
+/** Injectable warn/error sink for ProposalLedgerService (mt#3628). */
+export interface LedgerServiceLogSink {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  error: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultLedgerServiceLogSink: LedgerServiceLogSink = { warn: log.warn, error: log.error };
+
+/** A single structured log event, described independent of WHERE it's emitted. */
+export interface SuppressedFailureLogEvent {
+  level: "warn" | "error";
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Pure decision core (mt#3628): describe the log event for a failed
+ * bulk-chunk upsert that is about to fall back to per-row narrowing. No
+ * I/O, no logger — testable entirely by return value.
+ */
+export function describeChunkFailure(
+  chunkSize: number,
+  chunkStartIndex: number,
+  error: unknown
+): SuppressedFailureLogEvent {
+  return {
+    level: "warn",
+    event: "engprod_ledger.suppressed_batch_chunk_failed",
+    payload: {
+      event: "engprod_ledger.suppressed_batch_chunk_failed",
+      chunkSize,
+      chunkStartIndex,
+      error: getLoggableErrorSummary(error),
+    },
+  };
+}
+
+/**
+ * Pure decision core (mt#3628): describe the log event for a single row
+ * that failed even on its own 1-row narrowing retry (a genuinely poisoned
+ * row). No I/O, no logger — testable entirely by return value.
+ */
+export function describeRowFailure(
+  signature: string,
+  suppressedReason: string,
+  error: unknown
+): SuppressedFailureLogEvent {
+  return {
+    level: "error",
+    event: "engprod_ledger.suppressed_write_failed",
+    payload: {
+      event: "engprod_ledger.suppressed_write_failed",
+      signature,
+      suppressedReason,
+      error: getLoggableErrorSummary(error),
+    },
+  };
+}
+
 @injectable()
 export class ProposalLedgerService {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    /** Injectable warn/error sink (mt#3628); defaults to the real shared logger. */
+    private readonly logSink: LedgerServiceLogSink = defaultLedgerServiceLogSink
+  ) {}
 
   async getBySignature(signature: string): Promise<ProposalLedgerRow | null> {
     const rows = await this.db
@@ -123,6 +208,7 @@ export class ProposalLedgerService {
     extra: { rejectionReason?: string; suppressedReason?: string; filedTaskId?: string } = {}
   ): Promise<void> {
     const now = new Date();
+    const isSuppression = verdict === "suppressed";
     await this.db
       .insert(engprodProposalLedgerTable)
       .values({
@@ -141,24 +227,61 @@ export class ProposalLedgerService {
         },
         filedTaskId: extra.filedTaskId ?? null,
         everProposed: verdict === "proposed",
+        lastSuppressedAt: isSuppression ? now : null,
+        suppressionCount: isSuppression ? 1 : 0,
         createdAt: now,
         updatedAt: now,
       })
       .onConflictDoUpdate({
         target: engprodProposalLedgerTable.clusterSignature,
         set: {
-          verdict,
-          rejectionReason: extra.rejectionReason ?? null,
+          // mt#3510: `recordSuppressedByBudget` reaches this path with
+          // verdict="suppressed", so it carries the SAME defect the batch
+          // path did — a budget-cap suppression of an already-filed
+          // signature would overwrite its verdict. Only the batched
+          // collapse pass happened to fire in production; this path is the
+          // sibling site, fixed in the same round rather than left for the
+          // next incident. `proposed` and `superseded` are unaffected:
+          // both are deliberate verdict transitions, not incidental
+          // side-effects of a suppression sweep.
+          verdict: isSuppression
+            ? preserveWhenProposed(engprodProposalLedgerTable.verdict, "verdict")
+            : verdict,
+          rejectionReason: isSuppression
+            ? preserveWhenProposed(engprodProposalLedgerTable.rejectionReason, "rejection_reason")
+            : (extra.rejectionReason ?? null),
           suppressedReason: extra.suppressedReason ?? null,
-          toolSequence: cluster.toolSequence,
-          evidenceFrequency: cluster.frequency,
-          evidenceSessions: cluster.sessionCount,
-          evidenceChainLength: cluster.chainLength,
-          evidenceSnapshot: {
-            sampleRefs: cluster.sampleRefs,
-            score: cluster.score,
-            capturedAt: now.toISOString(),
-          },
+          toolSequence: isSuppression
+            ? preserveWhenProposed(engprodProposalLedgerTable.toolSequence, "tool_sequence")
+            : cluster.toolSequence,
+          evidenceFrequency: isSuppression
+            ? preserveWhenProposed(
+                engprodProposalLedgerTable.evidenceFrequency,
+                "evidence_frequency"
+              )
+            : cluster.frequency,
+          evidenceSessions: isSuppression
+            ? preserveWhenProposed(engprodProposalLedgerTable.evidenceSessions, "evidence_sessions")
+            : cluster.sessionCount,
+          evidenceChainLength: isSuppression
+            ? preserveWhenProposed(
+                engprodProposalLedgerTable.evidenceChainLength,
+                "evidence_chain_length"
+              )
+            : cluster.chainLength,
+          evidenceSnapshot: isSuppression
+            ? preserveWhenProposed(engprodProposalLedgerTable.evidenceSnapshot, "evidence_snapshot")
+            : {
+                sampleRefs: cluster.sampleRefs,
+                score: cluster.score,
+                capturedAt: now.toISOString(),
+              },
+          ...(isSuppression
+            ? {
+                lastSuppressedAt: now,
+                suppressionCount: sql`${engprodProposalLedgerTable.suppressionCount} + 1`,
+              }
+            : {}),
           // Preserve the prior filedTaskId when this call doesn't supply one
           // (e.g. a suppressed/superseded verdict on a signature that was
           // previously proposed) — never clobber the audit trail.
@@ -277,22 +400,18 @@ export class ProposalLedgerService {
       try {
         await this.upsertSuppressedChunk(chunk, now);
       } catch (err) {
-        log.warn("engprod_ledger.suppressed_batch_chunk_failed", {
-          event: "engprod_ledger.suppressed_batch_chunk_failed",
-          chunkSize: chunk.length,
-          chunkStartIndex: i,
-          error: getLoggableErrorSummary(err),
-        });
+        const chunkEvent = describeChunkFailure(chunk.length, i, err);
+        this.logSink.warn(chunkEvent.event, chunkEvent.payload);
         for (const entry of chunk) {
           try {
             await this.upsertSuppressedChunk([entry], now);
           } catch (rowErr) {
-            log.error("engprod_ledger.suppressed_write_failed", {
-              event: "engprod_ledger.suppressed_write_failed",
-              signature: entry.cluster.signature,
-              suppressedReason: entry.suppressedReason,
-              error: getLoggableErrorSummary(rowErr),
-            });
+            const rowEvent = describeRowFailure(
+              entry.cluster.signature,
+              entry.suppressedReason,
+              rowErr
+            );
+            this.logSink.error(rowEvent.event, rowEvent.payload);
           }
         }
       }
@@ -305,6 +424,10 @@ export class ProposalLedgerService {
    * single-entry "chunk") in `recordSuppressedBatch` above — one
    * implementation of the `EXCLUDED.<column>` upsert shape, exercised at
    * either granularity.
+   *
+   * Because both paths share this one statement, the mt#3510 verdict-
+   * preservation below covers the fallback too; a fix applied only to the
+   * bulk path would silently leave the narrowing retry corrupting rows.
    */
   private async upsertSuppressedChunk(
     chunk: readonly {
@@ -330,6 +453,8 @@ export class ProposalLedgerService {
       },
       filedTaskId: null,
       everProposed: false,
+      lastSuppressedAt: now,
+      suppressionCount: 1,
       createdAt: now,
       updatedAt: now,
     }));
@@ -340,14 +465,64 @@ export class ProposalLedgerService {
       .onConflictDoUpdate({
         target: engprodProposalLedgerTable.clusterSignature,
         set: {
-          verdict: sql`EXCLUDED.verdict`,
-          rejectionReason: sql`EXCLUDED.rejection_reason`,
+          // A suppression pass may legitimately match a signature an
+          // EARLIER run already filed a proposal for — the cluster recurred
+          // and was collapsed into a higher-ranked one. When that happens
+          // the suppression is real signal, but it must NOT land on the
+          // row's verdict or on the evidence bound to that verdict.
+          //
+          // mt#3510: this set clause previously took `verdict` straight
+          // from EXCLUDED, which overwrote 10 live filed proposals
+          // (mt#3419-mt#3428) to "suppressed" while their tasks were still
+          // BLOCKED. That destroys the gate's memory of the proposal, and
+          // would destroy an `accepted`/`rejected` verdict exactly the same
+          // way — which is what would make rejection non-durable.
+          //
+          // `everProposed` is the discriminator: true for any row ever
+          // filed, false for a pure suppression row. It is reliable here
+          // precisely BECAUSE it is preserved unconditionally below (as it
+          // already was before this fix).
+          verdict: preserveWhenProposed(engprodProposalLedgerTable.verdict, "verdict"),
+
+          // Bound to `verdict` and preserved with it. The schema documents
+          // the evidence quartet as "the window that produced the CURRENT
+          // verdict", and the re-surface threshold re-proposes a rejected
+          // cluster once frequency at least DOUBLES against this snapshot.
+          // Re-baselining it on every suppression would silently raise that
+          // bar to match current evidence, so the threshold could never
+          // fire — and mt#3331's digest would show a pending proposal's
+          // numbers drifting with no change to the proposal itself.
+          rejectionReason: preserveWhenProposed(
+            engprodProposalLedgerTable.rejectionReason,
+            "rejection_reason"
+          ),
+          toolSequence: preserveWhenProposed(
+            engprodProposalLedgerTable.toolSequence,
+            "tool_sequence"
+          ),
+          evidenceFrequency: preserveWhenProposed(
+            engprodProposalLedgerTable.evidenceFrequency,
+            "evidence_frequency"
+          ),
+          evidenceSessions: preserveWhenProposed(
+            engprodProposalLedgerTable.evidenceSessions,
+            "evidence_sessions"
+          ),
+          evidenceChainLength: preserveWhenProposed(
+            engprodProposalLedgerTable.evidenceChainLength,
+            "evidence_chain_length"
+          ),
+          evidenceSnapshot: preserveWhenProposed(
+            engprodProposalLedgerTable.evidenceSnapshot,
+            "evidence_snapshot"
+          ),
+
+          // Recorded unconditionally — this is HOW a suppression against an
+          // already-filed row survives without touching the verdict.
           suppressedReason: sql`EXCLUDED.suppressed_reason`,
-          toolSequence: sql`EXCLUDED.tool_sequence`,
-          evidenceFrequency: sql`EXCLUDED.evidence_frequency`,
-          evidenceSessions: sql`EXCLUDED.evidence_sessions`,
-          evidenceChainLength: sql`EXCLUDED.evidence_chain_length`,
-          evidenceSnapshot: sql`EXCLUDED.evidence_snapshot`,
+          lastSuppressedAt: sql`EXCLUDED.last_suppressed_at`,
+          suppressionCount: sql`${engprodProposalLedgerTable.suppressionCount} + 1`,
+
           // Same discipline as the single-row `upsert` above: never
           // clobber a prior filedTaskId / everProposed=true when this
           // batch's verdict is always "suppressed" — reference the
@@ -435,5 +610,36 @@ export class ProposalLedgerService {
       .from(engprodProposalLedgerTable)
       .orderBy(desc(engprodProposalLedgerTable.updatedAt))
       .limit(limit);
+  }
+
+  /**
+   * Bulk read: ledger rows for a batch of filed task ids (mt#3331 cockpit
+   * proposal digest). Used to join the EVIDENCE block (tool sequence,
+   * frequency, sessions, chain length, rank score) onto each `engprod-proposal`
+   * task the digest lists.
+   *
+   * Deliberately NOT used to derive accepted/rejected/pending disposition —
+   * the digest reads the TASK's own current status for that (mirroring
+   * `decideReconciliation` above exactly), not this row's `verdict` column.
+   *
+   * That started as a WORKAROUND: the suppression upsert used to set
+   * `verdict: EXCLUDED.verdict` unconditionally, so a signature previously
+   * `proposed` (or `accepted`/`rejected`) that recurred in a later run's
+   * suppression sweep had its verdict silently overwritten. Observed live
+   * 2026-07-31 on mt#3419-3428, whose tasks were still BLOCKED.
+   *
+   * mt#3510 FIXED that write path (suppression now preserves the verdict of
+   * any `everProposed` row) and repaired the ten corrupted rows, so the
+   * verdict column is trustworthy again. Reading task status is KEPT
+   * anyway, as defense in depth: task status is the source of truth for
+   * "has the principal triaged this", and deriving from it means the digest
+   * cannot be wrong even if some future write path regresses the same way.
+   */
+  async getByFiledTaskIds(taskIds: readonly string[]): Promise<ProposalLedgerRow[]> {
+    if (taskIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(engprodProposalLedgerTable)
+      .where(inArray(engprodProposalLedgerTable.filedTaskId, [...taskIds]));
   }
 }

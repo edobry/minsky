@@ -42,6 +42,11 @@ import {
   buildSearchResponse,
   type TranscriptSearchResponse,
 } from "@minsky/domain/transcripts/transcript-search-filters";
+import {
+  DEFAULT_FTS_SEARCH_MODE,
+  parseSearchMode,
+} from "@minsky/domain/transcripts/transcript-fts-search-query";
+import { resolveTranscriptProjectScope } from "./resolve-transcript-project-scope";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -63,10 +68,15 @@ export function registerTranscriptSearchTextCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "search-text",
     description:
-      "Search agent transcript turns by full-text search (FTS). " +
-      "Uses Postgres plainto_tsquery against the fts_text GENERATED column. " +
-      "Results are ranked by ts_rank (higher = more relevant). " +
+      "Search agent transcript turns by full-text search (FTS) against the fts_text column. " +
+      'Set mode to control matching: "websearch" (default) supports "quoted phrases" (matched by ' +
+      'adjacency), or, and -negation; "plain" ANDs the words with no adjacency; "exact" matches a ' +
+      "literal substring with no stemming, for identifiers and punctuation-bearing strings. " +
+      "Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by " +
+      "recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — " +
+      "so a hit can be read without pulling the whole turn. " +
       "Optionally filter by role (user/assistant), date range, or session UUID. " +
+      "Scoped to the current project by default; pass allProjects to search every project. " +
       "Date filters bind the turn's own timestamp, so turns from long-running " +
       "sessions are matched by when the turn happened, not when the session started. " +
       "Returns { results, coverage }: when a date window contains sessions not yet " +
@@ -106,6 +116,21 @@ export function registerTranscriptSearchTextCommand(
         "Restrict results to a single harness conversation by its id (agent-session UUID)"
       ),
       session: deprecatedConversationAlias("session"),
+      mode: {
+        schema: z.enum(["websearch", "plain", "exact"]),
+        description:
+          "How the query is matched. 'websearch' (default) supports \"quoted phrases\", or, and -negation; " +
+          "'plain' ANDs the words with no adjacency; 'exact' matches a literal substring without stemming.",
+        required: false,
+        defaultValue: DEFAULT_FTS_SEARCH_MODE,
+      },
+      allProjects: {
+        schema: z.boolean(),
+        description:
+          "Return results across all projects (default: scoped to the resolved current project, mt#2417)",
+        required: false,
+        defaultValue: false,
+      },
     },
 
     async execute(params, context): Promise<TranscriptSearchResponse> {
@@ -115,6 +140,8 @@ export function registerTranscriptSearchTextCommand(
       const from = params.from as string | undefined;
       const to = params.to as string | undefined;
       const sessionId = resolveConversationId(params);
+      const mode = parseSearchMode(params.mode);
+      const allProjects = params.allProjects as boolean | undefined;
 
       // ── Resolve DB from DI container ─────────────────────────────────────
       const persistenceProvider = (() => {
@@ -160,11 +187,18 @@ export function registerTranscriptSearchTextCommand(
 
       const windowed = Object.keys(dateRange).length > 0 ? dateRange : undefined;
 
+      // Scoped to the resolved current project unless allProjects is set —
+      // matching transcripts.search / transcripts.similar. Until mt#3713 this
+      // surface applied no project filter at all (mt#2417 Phase 1.4 gap).
+      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+
       const results = await svc.searchText(query, {
         limit,
         role,
         dateRange: windowed,
         sessionId,
+        mode,
+        projectId,
       });
 
       // When a date window is supplied, report whether in-window sessions exist

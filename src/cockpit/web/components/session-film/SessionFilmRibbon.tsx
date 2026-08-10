@@ -122,9 +122,10 @@
  * @see ../lib/session-film-client.ts — fetchSessionFilmContent / resolveEventContent
  * @see ../ConversationElementRenderers.tsx — the shared ElementView this reuses
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import { isPointEventVerb } from "@minsky/domain/transcripts/event-schema";
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import type { BatchRow, ChapterMarker } from "../../lib/session-film-batches";
 import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
@@ -136,8 +137,18 @@ import {
 } from "../../lib/session-film-virtualization";
 import { formatDurationShort } from "../../lib/format-duration";
 import { cn } from "../../lib/utils";
-import { actorIconFor, BATCH_ROW_ICON, BATCH_ROW_LABEL, verbIconFor, verbLabelFor } from "../../lib/tool-icon";
-import { realmColorStyle } from "../../lib/session-film-config";
+import {
+  actorIconFor,
+  BATCH_ROW_ICON,
+  BATCH_ROW_LABEL,
+  verbIconFor,
+  verbLabelFor,
+} from "../../lib/tool-icon";
+import {
+  POINT_EVENT_DURATION_LABEL,
+  realmColorStyle,
+  UNRESOLVED_OUTCOME_LABEL,
+} from "../../lib/session-film-config";
 import {
   deriveFilmSubjectAgentId,
   isSelfReferenceTarget,
@@ -155,6 +166,7 @@ import {
   resolveEventContent,
   sessionFilmContentQueryKey,
 } from "../../lib/session-film-client";
+import { turnAddressSearch } from "../../lib/conversation-turn-address";
 
 /** Fixed collapsed-row height, px — see the module doc's uniform-height rationale. */
 export const ROW_HEIGHT_PX = 32;
@@ -175,6 +187,14 @@ export interface SessionFilmRibbonProps {
   onScrollRowChange: (rowIndex: number) => void;
   className?: string;
   /**
+   * Inline styles for the scroll container. Exists for the ONE thing a class
+   * cannot express: the operator's dragged width (mt#3701), which is a live
+   * pixel value rather than one of Tailwind's steps. See the `w-full` note on
+   * the root element below for why width in particular has to reach this
+   * element and cannot be applied by a wrapper.
+   */
+  style?: CSSProperties;
+  /**
    * Asserts the film subject's session was verified re-scrubbed, for the
    * content endpoint's scrub gate (mt#3262 SC 5) — mirrors the `events`
    * fetch's own `verifiedRescrubbed` query param, which the host owns and does
@@ -190,8 +210,21 @@ export interface SessionFilmRibbonProps {
   verifiedRescrubbed?: boolean;
 }
 
+/** An event's outcome as the operator reads it — see `session-film-config.ts`'s label doc (mt#3795). */
+function outcomeLabel(outcome: SemanticEvent["outcome"]): string {
+  return outcome ?? UNRESOLVED_OUTCOME_LABEL;
+}
+
+/** An event's duration, distinguishing a point event from an unresolved interval (mt#3795). */
+function durationLabel(event: SemanticEvent): string {
+  if (event.tEnd !== undefined) {
+    return formatDurationShort(Date.parse(event.tEnd) - Date.parse(event.tStart));
+  }
+  return isPointEventVerb(event.verb) ? POINT_EVENT_DURATION_LABEL : UNRESOLVED_OUTCOME_LABEL;
+}
+
 function outcomeSuffix(outcome: SemanticEvent["outcome"]): string {
-  if (outcome === undefined) return " [in-flight]";
+  if (outcome === undefined) return ` [${UNRESOLVED_OUTCOME_LABEL}]`;
   if (outcome !== "ok") return ` [${outcome}]`;
   return "";
 }
@@ -229,7 +262,9 @@ function EventTargetLabel({
   }
   const routableTarget = parseRoutableTarget(event.target);
   if (routableTarget) {
-    return <EntityRef type={routableTarget.type} id={routableTarget.id} className="truncate text-xs" />;
+    return (
+      <EntityRef type={routableTarget.type} id={routableTarget.id} className="truncate text-xs" />
+    );
   }
   // Unknown-realm fallback (mt#3258 SC 3): a clean generic tool-name label
   // (never the literal "unknown:" — see targetDisplayLabel's doc comment),
@@ -238,7 +273,10 @@ function EventTargetLabel({
   return (
     <span
       data-testid={isUnknownRealmTarget(event.target) ? "session-film-unknown-target" : undefined}
-      className={cn("truncate", isUnknownRealmTarget(event.target) && "italic text-muted-foreground/60")}
+      className={cn(
+        "truncate",
+        isUnknownRealmTarget(event.target) && "italic text-muted-foreground/60"
+      )}
     >
       {targetDisplayLabel(event.target)}
     </span>
@@ -269,15 +307,28 @@ interface ContentFetchState {
  * Always renders SOMETHING (loading / unavailable / not-recorded / no-content
  * / the real content) — never a bare loading state left hanging (mem#561).
  *
- * The `think` verb gets its own honest empty-state (mt#3276): a thinking block
- * ALWAYS arrives with empty text (the signature is kept for API replay; the
- * reasoning text is withheld server-side and never reaches the client — see
- * `event-schema.ts`'s EVENT_VERBS note for the evidence). Rendering that
- * through `ElementView` would produce a blank box, and the generic "No content
- * captured" copy would misattribute a harness limitation to a Minsky capture
- * gap. Both read as "something went wrong"; neither is true.
+ * The `think` verb gets its own honest empty-state (mt#3276, copy corrected
+ * mt#3790): on the models this project runs, a thinking block arrives with
+ * empty text because `thinking.display` defaults to `"omitted"` — the request
+ * never asks for a summary, so the API returns the signature (kept for replay)
+ * and no prose. See `event-schema.ts`'s EVENT_VERBS note for the vendor-doc
+ * citation and the dated per-model measurement, including the Haiku 4.5 case
+ * where the text IS returned and this branch correctly does not fire.
+ *
+ * Rendering an empty block through `ElementView` would produce a blank box, and
+ * the generic "No content captured" copy would read as a Minsky capture gap.
+ * Both say "something went wrong"; neither is true. The copy must also avoid
+ * the opposite error of blaming the harness or implying the reasoning is gone
+ * for good — what is permanently unavailable is the RAW chain of thought; a
+ * summary is available whenever it is requested.
  */
-function EventContentView({ event, content }: { event: SemanticEvent; content: ContentFetchState }) {
+function EventContentView({
+  event,
+  content,
+}: {
+  event: SemanticEvent;
+  content: ContentFetchState;
+}) {
   const resolved = useMemo(
     () => resolveEventContent(content.blocks, event),
     [content.blocks, event]
@@ -297,19 +348,26 @@ function EventContentView({ event, content }: { event: SemanticEvent; content: C
         Content
       </div>
       {content.isLoading ? (
-        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-loading">
+        <div
+          className="text-[11px] italic text-muted-foreground/60"
+          data-testid="session-film-row-content-loading"
+        >
           Loading content…
         </div>
       ) : content.isError ? (
-        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-error">
+        <div
+          className="text-[11px] italic text-muted-foreground/60"
+          data-testid="session-film-row-content-error"
+        >
           Content unavailable.
         </div>
       ) : isUnrecordedThinking ? (
         <div
           className="text-[11px] italic text-muted-foreground/60"
-          data-testid="session-film-row-content-thinking-not-recorded"
+          data-testid="session-film-row-content-thinking-not-requested"
         >
-          This harness does not record thinking text — only that thinking happened.
+          Thinking happened here, but its text was never requested — the API returns thinking
+          blocks empty unless a summary is asked for.
         </div>
       ) : resolved ? (
         <div className="text-[11px] text-foreground" data-testid="session-film-row-content-body">
@@ -321,12 +379,31 @@ function EventContentView({ event, content }: { event: SemanticEvent; content: C
           />
         </div>
       ) : (
-        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-empty">
+        <div
+          className="text-[11px] italic text-muted-foreground/60"
+          data-testid="session-film-row-content-empty"
+        >
           No content captured for this event.
         </div>
       )}
       {content.conversationId ? (
-        <EntityRef type="conversation" id={content.conversationId} className="text-[11px]">
+        <EntityRef
+          type="conversation"
+          id={content.conversationId}
+          // The address of THIS event, not just of the conversation (mt#3791).
+          // Without it the reader lands on the newest exchange and has to find
+          // the action by hand — which is what mt#3262 SC 3 asked for and what
+          // this link did not do for its first ten days.
+          search={
+            event.sourceRef
+              ? turnAddressSearch({
+                  turnIndex: event.sourceRef.turnIndex,
+                  toolUseId: event.sourceRef.toolUseId,
+                })
+              : undefined
+          }
+          className="text-[11px]"
+        >
           open in conversation view →
         </EntityRef>
       ) : null}
@@ -355,7 +432,7 @@ function EventDetailRow({
         <span className="min-w-0 flex-1 truncate">
           <EventTargetLabel event={event} subjectAgentId={subjectAgentId} />
         </span>
-        <span className="shrink-0">{event.outcome ?? "in-flight"}</span>
+        <span className="shrink-0">{outcomeLabel(event.outcome)}</span>
       </div>
       <EventContentView event={event} content={content} />
     </div>
@@ -397,10 +474,7 @@ function RowDetail({
   }
   const event = soleEvent(events, row);
   if (!event) return null;
-  const duration =
-    event.tEnd !== undefined
-      ? formatDurationShort(Date.parse(event.tEnd) - Date.parse(event.tStart))
-      : "in-flight";
+  const duration = durationLabel(event);
   return (
     <div
       data-testid={`session-film-row-detail-${row.rowIndex}`}
@@ -416,7 +490,8 @@ function RowDetail({
         <span className="font-semibold text-foreground">Verb:</span> {verbLabelFor(event.verb)}
       </div>
       <div>
-        <span className="font-semibold text-foreground">Outcome:</span> {event.outcome ?? "in-flight"}
+        <span className="font-semibold text-foreground">Outcome:</span>{" "}
+        {outcomeLabel(event.outcome)}
       </div>
       <div>
         <span className="font-semibold text-foreground">Duration:</span> {duration}
@@ -435,6 +510,7 @@ export function SessionFilmRibbon({
   onSelectRow,
   onScrollRowChange,
   className,
+  style,
   verifiedRescrubbed = false,
 }: SessionFilmRibbonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -540,7 +616,15 @@ export function SessionFilmRibbon({
   }, []);
 
   const range = useMemo(
-    () => computeVisibleRowRange(scrollTop, viewportHeightPx, ROW_HEIGHT_PX, batchRows.length, 6, expandedRowExtra),
+    () =>
+      computeVisibleRowRange(
+        scrollTop,
+        viewportHeightPx,
+        ROW_HEIGHT_PX,
+        batchRows.length,
+        6,
+        expandedRowExtra
+      ),
     [scrollTop, viewportHeightPx, batchRows.length, expandedRowExtra]
   );
 
@@ -627,10 +711,7 @@ export function SessionFilmRibbon({
   // batchRows array (not just the virtualized window) — "did the actor
   // change from the PRECEDING row" is only answerable with full context, and
   // must stay stable regardless of which window happens to be mounted.
-  const actorChangeRows = useMemo(
-    () => deriveActorChanges(events, batchRows),
-    [events, batchRows]
-  );
+  const actorChangeRows = useMemo(() => deriveActorChanges(events, batchRows), [events, batchRows]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -657,6 +738,7 @@ export function SessionFilmRibbon({
     <div
       ref={containerRef}
       onScroll={handleScroll}
+      style={style}
       data-testid="session-film-ribbon"
       role="group"
       aria-label="Session event ribbon"
@@ -668,9 +750,13 @@ export function SessionFilmRibbon({
       // passed — the mt#3226 SC1 "fixed-width narrow rail" design intent was
       // silently defeated by this component's own base classes. `w-full` is
       // the sane standalone default (a caller with no width override still
-      // fills its container); the ONE real caller (SessionFilm.tsx)
-      // overrides it with `w-64 shrink-0`, and tailwind-merge correctly
-      // dedupes width-vs-width (unlike flex-vs-width, which it can't model).
+      // fills its container); the ONE real caller (SessionFilm.tsx) passes
+      // `shrink-0` plus an inline `width` (mt#3701 — the operator's dragged
+      // width is a live pixel value, not one of Tailwind's steps). An inline
+      // style beats any class, so this stays true whichever way the width
+      // arrives; when a caller passes a width CLASS instead, tailwind-merge
+      // still dedupes width-vs-width (unlike flex-vs-width, which it can't
+      // model).
       className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
     >
       <div style={{ height: range.totalHeightPx, position: "relative" }}>
@@ -701,7 +787,13 @@ export function SessionFilmRibbon({
         </div>
         <div
           data-testid="session-film-end-marker"
-          style={{ position: "absolute", bottom: 0, height: viewportHeightPx / 2, left: 0, right: 0 }}
+          style={{
+            position: "absolute",
+            bottom: 0,
+            height: viewportHeightPx / 2,
+            left: 0,
+            right: 0,
+          }}
           className="pointer-events-none flex items-start justify-center pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/30"
         >
           end of session
@@ -719,7 +811,11 @@ export function SessionFilmRibbon({
             const event = row.isParallelBatch ? undefined : firstEvent;
             const showActorMarker = actorChangeRows.has(row.rowIndex) && firstEvent !== undefined;
             const ActorIcon = firstEvent ? actorIconFor(firstEvent.actor.kind) : undefined;
-            const RowIcon = row.isParallelBatch ? BATCH_ROW_ICON : event ? verbIconFor(event.verb) : undefined;
+            const RowIcon = row.isParallelBatch
+              ? BATCH_ROW_ICON
+              : event
+                ? verbIconFor(event.verb)
+                : undefined;
             const verbLabel = row.isParallelBatch
               ? BATCH_ROW_LABEL
               : event

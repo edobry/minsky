@@ -7,7 +7,7 @@
  * real git infrastructure.
  */
 
-import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createHash } from "crypto";
 import { join } from "path";
 // Only used by the hash-scheme-drift-guard test below, which reads real
@@ -24,10 +24,10 @@ import {
   formatPendingMigrationsListing,
   resolvePgMigrationsFolder,
   UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV,
+  type ExecFileAsync,
   type JournalEntry,
   type Journal,
 } from "./postgres-migration-operations";
-import * as childProcess from "child_process";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures for the mt#2936 / PR #2088 hash-based pending-migration
@@ -49,8 +49,21 @@ function fakeReader(contents: Record<string, string>): (absPath: string) => stri
     if (!tag) {
       throw new Error(`fakeReader: no fixture content for path ${absPath}`);
     }
-    return contents[tag];
+    return fixture(contents, tag);
   };
+}
+
+/**
+ * Fixture lookup that fails loudly rather than yielding `undefined`.
+ *
+ * Indexing a `Record<string, string>` is `string | undefined` under
+ * `noUncheckedIndexedAccess`, and hashing `undefined` would silently produce a
+ * hash that matches nothing — a green test asserting the wrong thing.
+ */
+function fixture(contents: Record<string, string>, tag: string): string {
+  const sql = contents[tag];
+  if (sql === undefined) throw new Error(`fixture: no content for tag ${tag}`);
+  return sql;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,8 +178,9 @@ function makeEntry(idx: number, tag: string): JournalEntry {
 }
 
 describe("checkUnmergedMigrations", () => {
-  // We spy on child_process.execFile and util.promisify chain so we can
-  // control git's exit code without a real git repo or real filesystem.
+  // We inject a fake execFileAsync directly (mt#3622) so we can control
+  // git's exit code without a real git repo, real filesystem, or spying on
+  // the child_process module namespace object.
 
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -193,76 +207,46 @@ describe("checkUnmergedMigrations", () => {
   });
 
   test("returns not-blocked when all pending entries are present on origin/main", async () => {
-    // Inject a git that always succeeds (all files present on main)
-    const execFileMock = mock(
-      (
-        _file: string,
-        _args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        callback(null, "", "");
-      }
-    );
+    // Inject a git fake that always succeeds (all files present on main)
+    const execFileAsync: ExecFileAsync = async () => ({ stdout: "", stderr: "" });
 
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-
-    try {
-      const entries = [makeEntry(0, "0000_initial"), makeEntry(1, "0001_second")];
-      // 0 applied → both are pending; mock says both are on main
-      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
-      expect(result.blocked).toBe(false);
-      expect(result.unmergedTags).toEqual([]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const entries = [makeEntry(0, "0000_initial"), makeEntry(1, "0001_second")];
+    // 0 applied → both are pending; fake says both are on main
+    const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.unmergedTags).toEqual([]);
   });
 
-  // Args-aware mock: `git rev-parse ... origin/main` succeeds (ref resolves);
+  // Args-aware fake: `git rev-parse ... origin/main` succeeds (ref resolves);
   // `git cat-file -e origin/main:<path>` succeeds unless the path is in `absent`.
-  function gitMock(absentTags: string[]) {
-    return mock(
-      (
-        _file: string,
-        args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args[0] === "rev-parse") {
-          // `--show-toplevel` returns the repo root; `--verify origin/main` resolves.
-          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
-          return;
-        }
-        const target = args[2] ?? ""; // "origin/main:<path>"
-        if (absentTags.some((tag) => target.includes(tag))) {
-          callback(new Error("not found") as any, "", "");
-        } else {
-          callback(null, "", "");
-        }
+  function gitMock(absentTags: string[]): ExecFileAsync {
+    return async (_file, args) => {
+      if (args[0] === "rev-parse") {
+        // `--show-toplevel` returns the repo root; `--verify origin/main` resolves.
+        return { stdout: args[1] === "--show-toplevel" ? "/repo\n" : "", stderr: "" };
       }
-    );
+      const target = args[2] ?? ""; // "origin/main:<path>"
+      if (absentTags.some((tag) => target.includes(tag))) {
+        throw new Error("not found");
+      }
+      return { stdout: "", stderr: "" };
+    };
   }
 
   // mt#3296. The mock above matches by TAG, which cannot express the bug: the
   // same migration present at one path and absent at another. This one matches
   // the exact repo-relative path `git cat-file` is asked for.
-  function gitMockByPath(presentPaths: string[]) {
-    return mock(
-      (
-        _file: string,
-        args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args[0] === "rev-parse") {
-          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
-          return;
-        }
-        const target = (args[2] ?? "").replace("origin/main:", "");
-        if (presentPaths.includes(target)) callback(null, "", "");
-        else callback(new Error("not found") as any, "", "");
+  function gitMockByPath(presentPaths: string[]): ExecFileAsync {
+    return async (_file, args) => {
+      if (args[0] === "rev-parse") {
+        return { stdout: args[1] === "--show-toplevel" ? "/repo\n" : "", stderr: "" };
       }
-    );
+      const target = (args[2] ?? "").replace("origin/main:", "");
+      if (presentPaths.includes(target)) return { stdout: "", stderr: "" };
+      throw new Error("not found");
+    };
   }
 
   const SOURCE_DIR = "packages/domain/src/storage/migrations/pg";
@@ -273,77 +257,57 @@ describe("checkUnmergedMigrations", () => {
     // is gitignored, so the file can never be found there — while the SAME
     // migration is on origin/main at its source path. Before mt#3296 this
     // blocked every merged migration applied through MCP.
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMockByPath([`${SOURCE_DIR}/0076_merged.sql`]) as any
-    );
-    try {
-      const entries = [makeEntry(0, "0076_merged")];
-      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
-      expect(result.blocked).toBe(false);
-      expect(result.unmergedTags).toEqual([]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMockByPath([`${SOURCE_DIR}/0076_merged.sql`]);
+    const entries = [makeEntry(0, "0076_merged")];
+    const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.unmergedTags).toEqual([]);
   });
 
   test("still blocks a genuinely unmerged migration when run from dist", async () => {
     // The load-bearing half: the fix must not become "skip the check for dist".
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMockByPath([]) as any
-    );
-    try {
-      const entries = [makeEntry(0, "0077_unmerged")];
-      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
-      expect(result.blocked).toBe(true);
-      expect(result.unmergedTags).toEqual(["0077_unmerged"]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMockByPath([]);
+    const entries = [makeEntry(0, "0077_unmerged")];
+    const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.unmergedTags).toEqual(["0077_unmerged"]);
   });
 
   test("still blocks a genuinely unmerged migration when run from source", async () => {
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMockByPath([]) as any
-    );
-    try {
-      const entries = [makeEntry(0, "0077_unmerged")];
-      const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo");
-      expect(result.blocked).toBe(true);
-      expect(result.unmergedTags).toEqual(["0077_unmerged"]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMockByPath([]);
+    const entries = [makeEntry(0, "0077_unmerged")];
+    const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.unmergedTags).toEqual(["0077_unmerged"]);
   });
 
   test("reports every path it searched when it blocks", async () => {
     // So a future false positive is diagnosable from the error alone, instead
     // of needing a hand-run `git cat-file` to discover where the guard looked.
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMockByPath([]) as any
-    );
-    try {
-      const entries = [makeEntry(0, "0077_unmerged")];
-      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
-      expect(result.checkedPaths?.["0077_unmerged"]).toEqual([
-        `${DIST_DIR}/0077_unmerged.sql`,
-        `${SOURCE_DIR}/0077_unmerged.sql`,
-      ]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMockByPath([]);
+    const entries = [makeEntry(0, "0077_unmerged")];
+    const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.checkedPaths?.["0077_unmerged"]).toEqual([
+      `${DIST_DIR}/0077_unmerged.sql`,
+      `${SOURCE_DIR}/0077_unmerged.sql`,
+    ]);
   });
 
   test("does not double-check the same path when run from the canonical source dir", async () => {
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMockByPath([]) as any
-    );
-    try {
-      const entries = [makeEntry(0, "0077_unmerged")];
-      const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo");
-      expect(result.checkedPaths?.["0077_unmerged"]).toEqual([`${SOURCE_DIR}/0077_unmerged.sql`]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMockByPath([]);
+    const entries = [makeEntry(0, "0077_unmerged")];
+    const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.checkedPaths?.["0077_unmerged"]).toEqual([`${SOURCE_DIR}/0077_unmerged.sql`]);
   });
 
   // PR #2378 R1: assert what the OPERATOR sees, not just what the check
@@ -383,73 +347,54 @@ describe("checkUnmergedMigrations", () => {
   });
 
   test("returns blocked when a pending entry is NOT on origin/main", async () => {
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMock(["0002_third"]) as any
-    );
-    try {
-      const entries = [
-        makeEntry(0, "0000_initial"),
-        makeEntry(1, "0001_second"),
-        makeEntry(2, "0002_third"),
-      ];
-      // 1 applied → entries[1] and entries[2] are pending; only 0002_third is absent
-      const result = await checkUnmergedMigrations("migrations/pg", entries, 1, "/repo");
-      expect(result.blocked).toBe(true);
-      expect(result.unmergedTags).toEqual(["0002_third"]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMock(["0002_third"]);
+    const entries = [
+      makeEntry(0, "0000_initial"),
+      makeEntry(1, "0001_second"),
+      makeEntry(2, "0002_third"),
+    ];
+    // 1 applied → entries[1] and entries[2] are pending; only 0002_third is absent
+    const result = await checkUnmergedMigrations("migrations/pg", entries, 1, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.unmergedTags).toEqual(["0002_third"]);
   });
 
   test("returns all unmerged tags when multiple pending entries are absent from origin/main", async () => {
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
-      gitMock(["0000_initial", "0001_second", "0002_third"]) as any
-    );
-    try {
-      const entries = [
-        makeEntry(0, "0000_initial"),
-        makeEntry(1, "0001_second"),
-        makeEntry(2, "0002_third"),
-      ];
-      // 0 applied → all 3 are pending; none on origin/main
-      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
-      expect(result.blocked).toBe(true);
-      expect(result.unmergedTags).toEqual(["0000_initial", "0001_second", "0002_third"]);
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    const execFileAsync = gitMock(["0000_initial", "0001_second", "0002_third"]);
+    const entries = [
+      makeEntry(0, "0000_initial"),
+      makeEntry(1, "0001_second"),
+      makeEntry(2, "0002_third"),
+    ];
+    // 0 applied → all 3 are pending; none on origin/main
+    const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.unmergedTags).toEqual(["0000_initial", "0001_second", "0002_third"]);
   });
 
   test("FAILS OPEN (not blocked, skippedReason set) when origin/main does not resolve", async () => {
     // rev-parse fails → guard cannot run → must NOT block (mt#2277 review fix:
     // a missing/unfetched/differently-named remote is an infra issue, not a true
     // unmerged migration).
-    const execFileMock = mock(
-      (
-        _file: string,
-        args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args[0] === "rev-parse") {
-          callback(new Error("fatal: bad revision 'origin/main'") as any, "", "");
-          return;
-        }
-        // cat-file would also fail, but we must never reach it
-        callback(new Error("should not be called") as any, "", "");
+    const execFileAsync: ExecFileAsync = async (_file, args) => {
+      if (args[0] === "rev-parse") {
+        throw new Error("fatal: bad revision 'origin/main'");
       }
-    );
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-    try {
-      const entries = [makeEntry(0, "0000_initial"), makeEntry(1, "0001_second")];
-      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
-      expect(result.blocked).toBe(false);
-      expect(result.unmergedTags).toEqual([]);
-      expect(result.skippedReason).toBeDefined();
-      expect(result.skippedReason).toContain("origin/main");
-    } finally {
-      spyExecFile.mockRestore();
-    }
+      // cat-file would also fail, but we must never reach it
+      throw new Error("should not be called");
+    };
+    const entries = [makeEntry(0, "0000_initial"), makeEntry(1, "0001_second")];
+    const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.unmergedTags).toEqual([]);
+    expect(result.skippedReason).toBeDefined();
+    expect(result.skippedReason).toContain("origin/main");
   });
 
   test("computes a REPO-ROOT-relative cat-file path (no '../') even when cwd is a subdirectory (mt#2278)", async () => {
@@ -458,69 +403,45 @@ describe("checkUnmergedMigrations", () => {
     // to the repo root ("packages/.../<tag>.sql"), NOT cwd-relative (which would
     // contain "../" and make git report the file absent → false block).
     const catFileTargets: string[] = [];
-    const execFileMock = mock(
-      (
-        _file: string,
-        args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args[0] === "rev-parse") {
-          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
-          return;
-        }
-        catFileTargets.push(args[2] ?? ""); // "origin/main:<path>"
-        callback(null, "", ""); // present on main
+    const execFileAsync: ExecFileAsync = async (_file, args) => {
+      if (args[0] === "rev-parse") {
+        return { stdout: args[1] === "--show-toplevel" ? "/repo\n" : "", stderr: "" };
       }
+      catFileTargets.push(args[2] ?? ""); // "origin/main:<path>"
+      return { stdout: "", stderr: "" }; // present on main
+    };
+    const entries = [makeEntry(0, "0000_initial")];
+    const result = await checkUnmergedMigrations(
+      "/repo/packages/domain/src/storage/migrations/pg",
+      entries,
+      0,
+      "/repo/services/x", // subdirectory, NOT the repo root
+      { execFileAsync }
     );
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-    try {
-      const entries = [makeEntry(0, "0000_initial")];
-      const result = await checkUnmergedMigrations(
-        "/repo/packages/domain/src/storage/migrations/pg",
-        entries,
-        0,
-        "/repo/services/x" // subdirectory, NOT the repo root
-      );
-      expect(result.blocked).toBe(false);
-      expect(catFileTargets).toHaveLength(1);
-      const target = catFileTargets[0] ?? "";
-      expect(target).toBe("origin/main:packages/domain/src/storage/migrations/pg/0000_initial.sql");
-      expect(target).not.toContain(".."); // the bug this fixes
-    } finally {
-      spyExecFile.mockRestore();
-    }
+    expect(result.blocked).toBe(false);
+    expect(catFileTargets).toHaveLength(1);
+    const target = catFileTargets[0] ?? "";
+    expect(target).toBe("origin/main:packages/domain/src/storage/migrations/pg/0000_initial.sql");
+    expect(target).not.toContain(".."); // the bug this fixes
   });
 
   test("FAILS OPEN when the repo root cannot be determined (show-toplevel fails)", async () => {
-    const execFileMock = mock(
-      (
-        _file: string,
-        args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args[0] === "rev-parse" && args[1] === "--verify") {
-          callback(null, "", ""); // origin/main resolves
-          return;
-        }
-        if (args[0] === "rev-parse" && args[1] === "--show-toplevel") {
-          callback(new Error("not a git repository") as any, "", "");
-          return;
-        }
-        callback(new Error("should not be called") as any, "", "");
+    const execFileAsync: ExecFileAsync = async (_file, args) => {
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        return { stdout: "", stderr: "" }; // origin/main resolves
       }
-    );
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-    try {
-      const entries = [makeEntry(0, "0000_initial")];
-      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
-      expect(result.blocked).toBe(false);
-      expect(result.unmergedTags).toEqual([]);
-      expect(result.skippedReason).toContain("repository root");
-    } finally {
-      spyExecFile.mockRestore();
-    }
+      if (args[0] === "rev-parse" && args[1] === "--show-toplevel") {
+        throw new Error("not a git repository");
+      }
+      throw new Error("should not be called");
+    };
+    const entries = [makeEntry(0, "0000_initial")];
+    const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo", {
+      execFileAsync,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.unmergedTags).toEqual([]);
+    expect(result.skippedReason).toContain("repository root");
   });
 });
 
@@ -600,8 +521,8 @@ describe("resolvePendingMigrations", () => {
       // NEITHER local file. Raw count math would compute
       // `Math.max(3 - 4, 0) = 0 pending` — the exact false-0 this task fixes.
       const appliedHashes = new Set<string>([
-        computeMigrationHash(contents["0000_initial"]),
-        computeMigrationHash(contents["0001_second"]),
+        computeMigrationHash(fixture(contents, "0000_initial")),
+        computeMigrationHash(fixture(contents, "0001_second")),
         "orphan-hash-from-historical-squash-1",
         "orphan-hash-from-historical-squash-2",
       ]);
@@ -633,7 +554,9 @@ describe("resolvePendingMigrations", () => {
 
     // Only the first migration has been applied — the common/expected shape
     // (ledger behind the file tree).
-    const appliedHashes = new Set<string>([computeMigrationHash(contents["0000_initial"])]);
+    const appliedHashes = new Set<string>([
+      computeMigrationHash(fixture(contents, "0000_initial")),
+    ]);
     expect(appliedHashes.size).toBeLessThan(entries.length);
 
     const pending = resolvePendingMigrations(
@@ -656,8 +579,8 @@ describe("resolvePendingMigrations", () => {
       "0001_second": SQL_SECOND,
     };
     const appliedHashes = new Set<string>([
-      computeMigrationHash(contents["0000_initial"]),
-      computeMigrationHash(contents["0001_second"]),
+      computeMigrationHash(fixture(contents, "0000_initial")),
+      computeMigrationHash(fixture(contents, "0001_second")),
     ]);
 
     const pending = resolvePendingMigrations(
@@ -725,8 +648,8 @@ describe("resolvePendingMigrations", () => {
         // throws for it, simulating an unreadable/missing file on disk.
       };
       const appliedHashes = new Set<string>([
-        computeMigrationHash(contents["0000_initial"]),
-        computeMigrationHash(contents["0002_second"]),
+        computeMigrationHash(fixture(contents, "0000_initial")),
+        computeMigrationHash(fixture(contents, "0002_second")),
       ]);
 
       const pending = resolvePendingMigrations(
@@ -876,6 +799,11 @@ describe("computeMigrationHash matches drizzle-orm (hash-scheme-drift guard)", (
       const fileContent = readFileSync(join(migrationsFolder, `${entry.tag}.sql`), "utf8");
       const ourHash = computeMigrationHash(fileContent);
       const drizzleHash = drizzleMigrations[i]?.hash;
+      // Assert presence separately: `toBe(undefined)` would pass vacuously if
+      // the journal were shorter than the entry list.
+      if (drizzleHash === undefined) {
+        throw new Error(`drizzle journal has no entry at index ${i}`);
+      }
       expect(ourHash).toBe(drizzleHash);
     });
   });

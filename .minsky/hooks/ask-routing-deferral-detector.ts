@@ -37,7 +37,7 @@
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
+  resolveParentTranscriptLinesForPath,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
@@ -47,6 +47,14 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+} from "./judged-input-capture";
+import { createHash } from "node:crypto";
+import { cappedEvidenceLines } from "./guard-feedback-format";
+import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -71,6 +79,29 @@ export const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
 
 const CALIBRATION_LOG = ".minsky/ask-routing-deferral-calibration.jsonl";
 
+/**
+ * Reason string for this detector's ONE suppression gate — the turn already
+ * routed a decision through `asks_create` (mt#3207).
+ *
+ * Before mt#3207 this gate skipped DETECTION entirely and exited before the
+ * calibration write, so a suppressed deferral produced no record at all and
+ * the sweep counted the gate as costless. Detection now runs unconditionally
+ * and the suppressed fire is recorded; the injection decision is unchanged.
+ */
+export const SUPPRESSION_ASKS_CREATE_THIS_TURN = "asks-create-this-turn";
+
+/**
+ * The Stop-event untaken-action guard already injected about this same closing
+ * sentence (mt#3620), so this guard stays quiet — one sentence, one injection,
+ * spoken by the guard that runs BEFORE the principal reads it.
+ */
+export const SUPPRESSION_STOP_GUARD_ALREADY_INJECTED = "deduped-by-untaken-action-stop";
+
+/** Short sha1, matching the Stop guard's key derivation. */
+function sha1Short(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 16);
+}
+
 // ---------------------------------------------------------------------------
 // Sub-class types
 // ---------------------------------------------------------------------------
@@ -80,6 +111,24 @@ export type DeferralClass = "principal-reserved" | "deferral-menu";
 export interface DeferralMatch {
   cls: DeferralClass;
   matchedPhrase: string;
+  /**
+   * The sentence or clause containing `matchedPhrase` (mt#3607).
+   *
+   * SEPARATE from `matchedPhrase`, for the reason `pre-narration`'s equivalent
+   * field records: `extractDistinctPhrases`
+   * (`src/domain/calibration/calibration-sweep.ts`) keys this log's diversity
+   * axis on `matches[].phrase`, and sentences are near-unique, so widening THAT
+   * field would make every record distinct and destroy the count that decides
+   * when this log gets reviewed.
+   *
+   * What it buys: ask#7052's finding was that a real deferral and a courtesy
+   * offer are INDISTINGUISHABLE from the bare phrase. `"your call?"` appears
+   * verbatim in both "I can't decide this — your call?" and "I've done X; want
+   * Y too, or your call?" — one is the fire this detector exists for, the other
+   * is the dominant false positive, and only the surrounding sentence separates
+   * them.
+   */
+  context: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +280,20 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
       ) {
         continue;
       }
-      matches.push({ cls, matchedPhrase: m[0].trim() });
+      matches.push({
+        cls,
+        matchedPhrase: m[0].trim(),
+        // Captured from `scanned`, the ELIDED copy — never from `text`. Both
+        // elision helpers blank their spans with same-length whitespace, so
+        // `m.index` addresses the same span in `scanned`, and anything the
+        // agent pasted inside a fence or a quoted span is already blanked
+        // before it can reach the log (mt#3607).
+        // `leadSentences: 1` — this corpus's phrases are frequently whole
+        // sentences ("What's your call?"), where the containing sentence alone
+        // is byte-identical between a real deferral and a courtesy offer. See
+        // `MatchContextOptions.leadSentences` for the measured distribution.
+        context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
+      });
       break;
     }
   }
@@ -246,6 +308,19 @@ export function turnHasAsksCreate(turnLines: TranscriptLine[]): boolean {
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
+
+/**
+ * Project matches into their calibration-record shape.
+ *
+ * Declared ONCE and used by BOTH write paths (the dispatcher-hosted guard and
+ * the standalone-CLI entrypoint) deliberately: the projection was duplicated
+ * literally before mt#3607, so adding `context` to one and not the other would
+ * have produced a log whose records disagree about their own shape depending on
+ * which path wrote them — with nothing failing.
+ */
+function calibrationMatches(matches: DeferralMatch[]): Array<Record<string, unknown>> {
+  return matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase, context: m.context }));
+}
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
@@ -286,7 +361,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "§Escalation packaging and file it via `mcp__minsky__asks_create` (kind direction.decide) " +
         "NOW — or cite the id of an existing open ask."
     );
-    for (const m of principal) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push(...cappedEvidenceLines(principal, (m) => `  - "${m.matchedPhrase}"`));
     lines.push("");
   }
   if (menu.length > 0) {
@@ -297,7 +372,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "Class C (genuinely principal-reserved → package + asks_create). Run the lookups first; " +
         "most menus collapse to one obvious action."
     );
-    for (const m of menu) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push(...cappedEvidenceLines(menu, (m) => `  - "${m.matchedPhrase}"`));
     lines.push("");
   }
 
@@ -317,7 +392,68 @@ export function buildReminder(matches: DeferralMatch[]): string {
  * `INJECTION_ENABLED` (`true` since the mt#2694 flip — see its doc for the
  * decision provenance).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+/**
+ * Phrases the Stop-event untaken-action guard already injected about this same
+ * closing sentence (mt#3620). Fails open to an empty set.
+ *
+ * `sessionId` is REQUIRED to be a real id (PR #2574 R1). The dedup store is
+ * keyed per session, and `?? "unknown"` would put every session that arrives
+ * without an id into ONE shared bucket — where a Stop fire in one could silence
+ * a genuine deferral in another. An absent id therefore means no dedup at all,
+ * which fails toward injecting.
+ */
+function readStopInjectedPhrases(
+  sessionId: string | undefined,
+  assistantText: string,
+  storeDir?: string
+): Set<string> {
+  const injected = new Set<string>();
+  if (!sessionId || !assistantText) return injected;
+  try {
+    const flagged = readFlagged(sessionId, storeDir);
+    if (flagged.size === 0) return injected;
+    const key = overlapTurnKey(assistantText, sha1Short);
+    const prefix = `${key}|${STOP_INJECTED_OVERLAP_FAMILY}|`;
+    for (const entry of flagged) {
+      if (entry.startsWith(prefix)) injected.add(entry.slice(prefix.length));
+    }
+  } catch {
+    // intentional-swallow: dedup is best-effort; failing open double-injects
+    // rather than dropping a warning.
+  }
+  return injected;
+}
+
+/**
+ * The mt#3620 stop-overlap decision, shared by BOTH entrypoints (dispatcher
+ * `run()` and CLI `main()`).
+ *
+ * Extracted rather than inlined twice (PR #2574 R1): a reviewer reading either
+ * copy had to trace a later `process.exit` to see whether suppression actually
+ * withheld the injection. One function, one answer, and it is directly testable
+ * without driving a process that exits.
+ *
+ * `remaining` is what to render if anything is rendered; `suppressedAll` means
+ * the Stop guard already covered every matched phrase, so this guard says
+ * nothing.
+ */
+export function resolveStopOverlap(
+  sessionId: string | undefined,
+  assistantText: string,
+  matches: DeferralMatch[],
+  storeDir?: string
+): { remaining: DeferralMatch[]; suppressedAll: boolean } {
+  const stopInjected = readStopInjectedPhrases(sessionId, assistantText, storeDir);
+  const remaining = matches.filter((m) => !stopInjected.has(m.matchedPhrase));
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
+/** `storeDir` is a test seam; the dispatcher never passes it. */
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  storeDir?: string
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -337,12 +473,20 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (lines.length === 0) return null;
 
   let matches: DeferralMatch[] = [];
+  let suppressedByAsksCreate = false;
+  // Hoisted out of the try: the mt#3620 stop-overlap key derives from this same
+  // text after detection.
+  let assistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
-    if (turnHasAsksCreate(turnLines)) return null;
+    // mt#3207: detect FIRST, suppress SECOND. This gate used to return before
+    // detection ran, so a deferral phrase in a turn that also routed an ask
+    // left no trace anywhere — indistinguishable from a clean turn.
+    suppressedByAsksCreate = turnHasAsksCreate(turnLines);
     const text = extractAssistantText(turnLines);
     if (text) {
+      assistantText = text;
       matches = detectDeferralPhrases(text);
     }
   } catch (err) {
@@ -354,17 +498,41 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (matches.length === 0) return null;
 
+  const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
+
+  // mt#3620: the Stop-event untaken-action guard sees this same closing
+  // sentence one event EARLIER — before the principal ever read it. When it has
+  // already injected about a phrase, saying it again here is the second half of
+  // a round-trip that already happened. Stay quiet about those phrases.
+  //
+  // This is the mt#3336 dedup with the yield inverted: same "one closing
+  // sentence, one injection" contract, but the guard that can still prevent the
+  // failure is the one that speaks. Fails open — an unreadable store or a
+  // mismatched key means no suppression, i.e. the pre-mt#3336 double injection,
+  // never a dropped warning.
+  const { remaining, suppressedAll } = resolveStopOverlap(
+    input.session_id,
+    assistantText,
+    matches,
+    storeDir
+  );
+  if (suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
+  }
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
-      matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      matches: calibrationMatches(matches),
+      suppressionReasons,
     },
   };
 
-  if (INJECTION_ENABLED) {
-    outcome.additionalContext = buildReminder(matches);
+  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
+    outcome.additionalContext = buildReminder(remaining);
   }
 
   return outcome;
@@ -403,7 +571,7 @@ export async function main(): Promise<void> {
 
   let lines: TranscriptLine[];
   try {
-    lines = parseTranscript(transcriptPath);
+    lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch {
     process.exit(0);
   }
@@ -413,19 +581,20 @@ export async function main(): Promise<void> {
 
   let matches: DeferralMatch[] = [];
   let suppressedByAsksCreate = false;
+  let assistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) {
       process.exit(0);
     }
-    // Suppress entirely if the agent already routed a decision this turn.
-    if (turnHasAsksCreate(turnLines)) {
-      suppressedByAsksCreate = true;
-    } else {
-      const text = extractAssistantText(turnLines);
-      if (text) {
-        matches = detectDeferralPhrases(text);
-      }
+    // mt#3207: detect FIRST, suppress SECOND (mirrors `run()`). Suppression
+    // still withholds the injection below; what changed is that the suppressed
+    // detection is now recorded instead of vanishing.
+    suppressedByAsksCreate = turnHasAsksCreate(turnLines);
+    const text = extractAssistantText(turnLines);
+    if (text) {
+      assistantText = text;
+      matches = detectDeferralPhrases(text);
     }
   } catch (err) {
     // Fail-open: never block the prompt.
@@ -435,27 +604,43 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (suppressedByAsksCreate || matches.length === 0) {
+  if (matches.length === 0) {
     process.exit(0);
   }
 
-  // Calibration record (always — this is the v1 product).
+  const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
+
+  // mt#3620 — the SAME decision function `run()` uses. This CLI path renders the
+  // same surface, and a fix wired into only one of the two entrypoints is the
+  // mt#3270 R1 shape. `suppressedAll` feeds the shared
+  // `suppressionReasons.length > 0` exit below, which is what actually withholds
+  // the injection.
+  const { remaining, suppressedAll } = resolveStopOverlap(input.session_id, assistantText, matches);
+  if (suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
+  }
+
+  // Calibration record (always — this is the v1 product). mt#3207: "always"
+  // now includes the suppressed fire, which used to exit above this line.
   appendCalibrationRecord(input.cwd, {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
-    matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    matches: calibrationMatches(matches),
+    suppressionReasons,
   });
 
-  // Calibration-first: inject only when the gate is flipped on.
-  if (!INJECTION_ENABLED) {
+  // Calibration-first: inject only when the gate is flipped on, and never for
+  // a suppressed fire.
+  if (!INJECTION_ENABLED || suppressionReasons.length > 0) {
     process.exit(0);
   }
 
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: buildReminder(matches),
+      additionalContext: buildReminder(remaining),
     },
   };
   process.stdout.write(JSON.stringify(output));

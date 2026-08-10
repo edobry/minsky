@@ -7,19 +7,30 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import type { FetchFn } from "./telegram-transport";
 import {
   classifyGetUpdatesFailure,
   fetchTelegramFile,
+  getTelegramMe,
   getTelegramUpdates,
   highestUpdateIdOf,
+  isThreadNotFoundError,
   parseInboundUpdates,
   redactSecret,
+  editTelegramMessage,
   sendTelegramMessage,
+  sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
 } from "./telegram-transport";
 
 const TOKEN = "123456:FAKE-TOKEN-VALUE";
 const CHAT = "42";
+/** Telegram's wire key for a topic thread — shared across many test bodies below. */
+const THREAD_ID_KEY = "message_thread_id";
+/** Telegram's rejection text for markup it cannot parse — shared across the parse-mode cases. */
+const CANT_PARSE_ENTITIES = "can't parse entities";
+/** A representative alert body — shared across the byte-for-byte regression cases. */
+const SAMPLE_ALERT_TEXT = "circuit breaker tripped";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -131,6 +142,119 @@ describe("sendTelegramMessage", () => {
   });
 });
 
+/**
+ * Formatted sends (mt#3465).
+ *
+ * The invariant these protect is the one the plain-text default was built on:
+ * a delivery failure is worse than unstyled text. Adding a parse mode must not
+ * trade that away, so a 400 has to degrade to a delivered plain message rather
+ * than to silence.
+ */
+describe("sendTelegramMessage — parse mode", () => {
+  function capture(): { bodies: Record<string, unknown>[]; fetchFn: FetchFn } {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return jsonResponse({ ok: true, result: { message_id: 7 } });
+    };
+    return { bodies, fetchFn };
+  }
+
+  test("omits parse_mode by default, preserving the alert-path contract", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({ token: TOKEN, chatId: CHAT, text: "alert", fetchFn });
+    expect("parse_mode" in (bodies[0] ?? {})).toBe(false);
+  });
+
+  test("sends parse_mode when the caller opts in", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      fetchFn,
+    });
+    expect(bodies[0]?.["parse_mode"]).toBe("HTML");
+    expect(bodies[0]?.["text"]).toBe("<b>hi</b>");
+  });
+
+  test("retries as plain text when Telegram rejects the markup with 400", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body["parse_mode"] !== undefined) {
+        return jsonResponse({ ok: false, description: CANT_PARSE_ENTITIES }, 400);
+      }
+      return jsonResponse({ ok: true, result: { message_id: 9 } });
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>broken",
+      parseMode: "HTML",
+      plainFallback: "**broken",
+      fetchFn,
+    });
+
+    // Delivered, not lost — the whole point. And FLAGGED: a silent fallback
+    // would make a systematically-broken converter look healthy, since every
+    // message would still arrive (SC3 requires the parse error be logged).
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.messageId).toBe(9);
+      expect(result.fellBackToPlain).toBe(true);
+      expect(result.parseError).toContain("400");
+    }
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.["text"]).toBe("**broken");
+    expect("parse_mode" in (bodies[1] ?? {})).toBe(false);
+  });
+
+  test("does NOT retry on a non-400 failure", async () => {
+    // 429/5xx are about the chat or the service; resending unstyled would not
+    // help and would double the load on an already-failing endpoint.
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: "Too Many Requests" }, 429);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      plainFallback: "hi",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test("does not retry when the caller supplied no fallback", async () => {
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: CANT_PARSE_ENTITIES }, 400);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi",
+      parseMode: "HTML",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+});
+
 describe("sendTelegramTypingAction", () => {
   test("reports success on a 2xx", async () => {
     const ok = await sendTelegramTypingAction({
@@ -184,6 +308,8 @@ describe("parseInboundUpdates", () => {
         replyToText: undefined,
         attachments: [],
         unsupportedMedia: undefined,
+        messageThreadId: undefined,
+        isTopicMessage: false,
       },
     ]);
   });
@@ -691,5 +817,459 @@ describe("fetchTelegramFile", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+});
+
+/**
+ * Telegram topic-mode support (mt#3505, parent mt#3500).
+ *
+ * These cases carry the byte-identical regression the spec calls for: the
+ * reviewer's alert sink and `notifyPrincipal` never pass `messageThreadId`, so
+ * their wire payload must be unchanged.
+ */
+describe("parseInboundUpdates — topics (mt#3505)", () => {
+  test("captures message_thread_id and is_topic_message on a topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 20,
+          message: {
+            message_id: 8,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello from the topic",
+            message_thread_id: 749667,
+            is_topic_message: true,
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBe(749667);
+    expect(messages[0]?.isTopicMessage).toBe(true);
+  });
+
+  test("leaves messageThreadId undefined and isTopicMessage false on a non-topic message", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 21,
+          message: {
+            message_id: 9,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            text: "hello, no topic",
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.messageThreadId).toBeUndefined();
+    expect(messages[0]?.isTopicMessage).toBe(false);
+  });
+});
+
+describe("editTelegramMessage (mt#3542)", () => {
+  const BASE = { token: TOKEN, chatId: CHAT, messageId: 42, text: "updated" };
+
+  test("reports success when the envelope says ok", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => jsonResponse({ ok: true, result: { message_id: 42 } }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.notModified).toBe(false);
+  });
+
+  test("accepts a bare `true` result, which is what an inline message returns", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => jsonResponse({ ok: true, result: true }),
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("PR #2538 R1 — a 200 carrying `ok: false` is a FAILURE, not a success", async () => {
+    // HTTP 2xx is not the Bot API's success signal; the envelope's `ok` flag
+    // is. Trusting the status would report a failed edit as applied, and the
+    // streaming caller would then advance its state and skip the fallback that
+    // guarantees the reply is delivered at all.
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () =>
+        jsonResponse({ ok: false, description: "Bad Request: something went wrong" }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.detail).toContain("something went wrong");
+  });
+
+  test("treats 'message is not modified' as success, however it is reported", async () => {
+    // Streaming re-sends identical text whenever a turn pauses, so a no-op edit
+    // is an expected steady state — not a delivery fault.
+    for (const status of [200, 400]) {
+      const result = await editTelegramMessage({
+        ...BASE,
+        fetchFn: async () =>
+          jsonResponse({ ok: false, description: "Bad Request: message is not modified" }, status),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.notModified).toBe(true);
+    }
+  });
+
+  test("retries unstyled when the formatted attempt is rejected", async () => {
+    const attempts: Array<Record<string, unknown>> = [];
+    const result = await editTelegramMessage({
+      ...BASE,
+      text: "<b>bold</b>",
+      parseMode: "HTML",
+      plainFallback: "**bold**",
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        attempts.push(body);
+        return attempts.length === 1
+          ? jsonResponse({ ok: false, description: "can't parse entities" }, 400)
+          : jsonResponse({ ok: true, result: true });
+      },
+    });
+
+    expect(result.ok && result.fellBackToPlain).toBe(true);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.["text"]).toBe("**bold**");
+    // The retry drops parse_mode — resending it would fail the same way.
+    expect(attempts[1]?.["parse_mode"]).toBeUndefined();
+  });
+
+  test("carries no thread parameter — a message is already in its topic", async () => {
+    let sent: Record<string, unknown> = {};
+    await editTelegramMessage({
+      ...BASE,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ ok: true, result: true });
+      },
+    });
+
+    expect(THREAD_ID_KEY in sent).toBe(false);
+    expect(sent["message_id"]).toBe(42);
+  });
+
+  test("a network error is reported, not thrown", async () => {
+    const result = await editTelegramMessage({
+      ...BASE,
+      fetchFn: async () => {
+        throw new Error("connection reset");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.detail).toContain("connection reset");
+  });
+});
+
+describe("sendTelegramMessage — topics (mt#3505)", () => {
+  test("forwards messageThreadId as message_thread_id", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(sent[THREAD_ID_KEY]).toBe(749667);
+  });
+
+  test("omits message_thread_id when not given", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(THREAD_ID_KEY in sent).toBe(false);
+  });
+
+  // The regression the spec's own acceptance criteria call out by name: the
+  // reviewer's TelegramAlertSink and notifyPrincipal never pass a thread id,
+  // so their wire body must be byte-for-byte unchanged by this feature.
+  test("regression: omitting messageThreadId reproduces today's wire payload byte-for-byte", async () => {
+    let rawBody = "";
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: SAMPLE_ALERT_TEXT,
+      replyToMessageId: 12,
+      fetchFn: async (_url, init) => {
+        rawBody = String(init?.body);
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+
+    expect(rawBody).toBe(
+      JSON.stringify({
+        chat_id: CHAT,
+        text: SAMPLE_ALERT_TEXT,
+        disable_web_page_preview: true,
+        reply_to_message_id: 12,
+      })
+    );
+  });
+});
+
+/**
+ * Drift reconciliation (mt#3507) — the exact HTTP 400 / description signal
+ * measured live at mt#3500 Phase 0, and the fallback that keeps a
+ * notification from being silently lost to a stale mapping.
+ */
+describe("isThreadNotFoundError (mt#3507)", () => {
+  function failed(status: number, detail: string): ReturnType<typeof failedResult> {
+    return failedResult(status, detail);
+  }
+  function failedResult(status: number, detail: string) {
+    return { ok: false as const, status, detail };
+  }
+
+  test("matches the exact measured signal", () => {
+    expect(
+      isThreadNotFoundError(
+        failed(400, 'HTTP 400: {"ok":false,"description":"Bad Request: message thread not found"}')
+      )
+    ).toBe(true);
+  });
+
+  test("does not match an unrelated 400 (e.g. bad markup)", () => {
+    expect(
+      isThreadNotFoundError(failed(400, "HTTP 400: can't parse entities: unexpected tag"))
+    ).toBe(false);
+  });
+
+  test("does not match a non-400 status carrying similar text", () => {
+    expect(isThreadNotFoundError(failed(403, "message thread not found"))).toBe(false);
+  });
+
+  test("does not match a successful result", () => {
+    expect(isThreadNotFoundError({ ok: true, messageId: 1 })).toBe(false);
+  });
+});
+
+describe("sendTelegramMessageWithThreadFallback (mt#3507)", () => {
+  const THREAD_NOT_FOUND_BODY = JSON.stringify({
+    ok: false,
+    error_code: 400,
+    description: "Bad Request: message thread not found",
+  });
+
+  test("a message with no messageThreadId is a single plain send — unaffected", async () => {
+    let calls = 0;
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async () => {
+        calls += 1;
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(calls).toBe(1);
+    expect(result).toEqual({ ok: true, messageId: 1 });
+  });
+
+  test("regression: omitting messageThreadId reproduces today's wire payload byte-for-byte", async () => {
+    // The exact regression the spec calls for: a notify/reply with no topic
+    // in play must produce an unchanged request body.
+    let rawBody = "";
+    await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: SAMPLE_ALERT_TEXT,
+      replyToMessageId: 12,
+      fetchFn: async (_url, init) => {
+        rawBody = String(init?.body);
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(rawBody).toBe(
+      JSON.stringify({
+        chat_id: CHAT,
+        text: SAMPLE_ALERT_TEXT,
+        disable_web_page_preview: true,
+        reply_to_message_id: 12,
+      })
+    );
+  });
+
+  test("on the measured thread-not-found signal, falls back to the standing conversation with a note", async () => {
+    const sentBodies: Record<string, unknown>[] = [];
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "your PR is up",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sentBodies.push(body);
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(THREAD_NOT_FOUND_BODY, { status: 400 });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 99 } });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fellBackFromDeadTopic).toBe(true);
+    // Two attempts: the doomed topic send, then the standing-conversation retry.
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[0]?.[THREAD_ID_KEY]).toBe(749667);
+    expect(THREAD_ID_KEY in (sentBodies[1] ?? {})).toBe(false);
+    expect(String(sentBodies[1]?.["text"])).toContain("your PR is up");
+    expect(String(sentBodies[1]?.["text"])).toContain("could not be found");
+  });
+
+  test("calls onThreadNotFound with the dead thread id before the fallback send", async () => {
+    const notified: number[] = [];
+    await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 500,
+      onThreadNotFound: (threadId) => {
+        notified.push(threadId);
+      },
+      fetchFn: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        if (body[THREAD_ID_KEY] !== undefined) {
+          return new Response(THREAD_NOT_FOUND_BODY, { status: 400 });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(notified).toEqual([500]);
+  });
+
+  test("an unrelated 400 (bad markup) does NOT trigger the thread fallback", async () => {
+    // Distinguishing the two 400s is the whole point of matching on the
+    // description, not just the status — a markup rejection must keep going
+    // through the EXISTING plain-text retry (plainFallback), not this one.
+    let calls = 0;
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>bold</b>",
+      parseMode: "HTML",
+      plainFallback: "bold",
+      messageThreadId: 749667,
+      fetchFn: async (_url, init) => {
+        calls += 1;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        if (body["parse_mode"] !== undefined) {
+          return new Response(JSON.stringify({ ok: false, description: CANT_PARSE_ENTITIES }), {
+            status: 400,
+          });
+        }
+        return jsonResponse({ ok: true, result: { message_id: 2 } });
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fellBackFromDeadTopic).toBeUndefined();
+    expect(result.fellBackToPlain).toBe(true);
+    // The markup retry (still threaded) plus the pre-existing formatted
+    // attempt — no third, thread-fallback call.
+    expect(calls).toBe(2);
+  });
+
+  test("a genuinely dead thread that ALSO never recovers is surfaced, not silently dropped", async () => {
+    // "A notification must never be lost to a stale mapping" — if even the
+    // fallback send fails, the caller must see a failure, not a swallowed one.
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      fetchFn: async () => new Response("service unavailable", { status: 503 }),
+    });
+    // The FIRST attempt with a thread id gets a 503, not the 400 signal —
+    // so this never even reaches the fallback branch, and the caller sees
+    // the real failure directly.
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("getTelegramMe (mt#3505)", () => {
+  test("reports has_topics_enabled and allows_users_to_create_topics on success", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: {
+            id: 8913559862,
+            username: "edobry_minsky_bot",
+            has_topics_enabled: true,
+            allows_users_to_create_topics: true,
+          },
+        }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      hasTopicsEnabled: true,
+      allowsUsersToCreateTopics: true,
+    });
+  });
+
+  test("reports both flags false when Telegram returns them false", () => {
+    return getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        jsonResponse({
+          ok: true,
+          result: { id: 1, username: "bot", has_topics_enabled: false },
+        }),
+    }).then((result) => {
+      expect(result).toEqual({
+        ok: true,
+        hasTopicsEnabled: false,
+        allowsUsersToCreateTopics: false,
+      });
+    });
+  });
+
+  test("redacts the token out of a failure detail", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () =>
+        new Response(`{"ok":false,"description":"unauthorized ${TOKEN}"}`, { status: 401 }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail).not.toContain(TOKEN);
+    expect(result.status).toBe(401);
+  });
+
+  test("reports a network error without throwing", async () => {
+    const result = await getTelegramMe({
+      token: TOKEN,
+      fetchFn: async () => {
+        throw new Error("connect refused");
+      },
+    });
+    expect(result.ok).toBe(false);
   });
 });

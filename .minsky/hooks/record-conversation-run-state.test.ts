@@ -7,6 +7,7 @@ import {
   COCKPIT_URL_ENV,
   DEFAULT_COCKPIT_ORIGIN,
   RUN_STATE_POST_TIMEOUT_MS,
+  MAX_BODY_CHARS,
   STATE_DIR_ENV,
   type RunStateIo,
 } from "./record-conversation-run-state";
@@ -47,8 +48,24 @@ const BASE_INPUT: ClaudeHookInput = {
   cwd: "/repo",
 };
 
+/**
+ * Every payload key `packages/domain/src/conversation-run-state/event-mapping.ts`
+ * reads, across all ten mapped events. Each is read through its `str()` helper,
+ * which requires `typeof value === "string"` — so the bound must leave every one
+ * of these both PRESENT and STRING-TYPED.
+ */
+const CONSUMED_PAYLOAD_KEYS = [
+  "prompt_id",
+  "tool_name",
+  "error_type",
+  "error_message",
+  "type",
+  "trigger",
+  "reason",
+] as const;
+
 describe("buildIngestBody", () => {
-  test("forwards the whole payload verbatim so the mapping can stay server-side", () => {
+  test("forwards the whole payload so the mapping can stay server-side", () => {
     const input: ClaudeHookInput = { ...BASE_INPUT, tool_name: "Bash" } as ClaudeHookInput;
     const body = buildIngestBody(input, AT);
     expect(body).not.toBeNull();
@@ -57,6 +74,87 @@ describe("buildIngestBody", () => {
     expect(body?.["cwd"]).toBe("/repo");
     const payload = body?.["payload"] as Record<string, unknown>;
     expect(payload["tool_name"]).toBe("Bash");
+  });
+
+  // AT1 — the defect: an unbounded payload exceeded the daemon's body limit, so
+  // the event was rejected and dropped. A `PostToolUse` `tool_response` of this
+  // size is ordinary, not adversarial.
+  test("bounds a multi-megabyte tool_response below the body ceiling", () => {
+    const input = {
+      ...BASE_INPUT,
+      hook_event_name: "PostToolUse",
+      tool_name: "Grep",
+      tool_response: "x".repeat(5 * 1024 * 1024),
+    } as unknown as ClaudeHookInput;
+
+    const body = buildIngestBody(input, AT);
+    expect(body).not.toBeNull();
+    expect(JSON.stringify(body).length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+
+    const payload = body?.["payload"] as Record<string, unknown>;
+    // Marked as truncated, not silently vanished — a reader can tell bounded
+    // data from complete data.
+    expect(String(payload["tool_response"])).toContain("truncated");
+    // ...and the field the server actually reads is untouched.
+    expect(payload["tool_name"]).toBe("Grep");
+  });
+
+  // AT2 — field-coverage regression: the bound must not drop a column the
+  // server maps. Guards against a future tightening that trims real fields.
+  test("preserves every payload field event-mapping consumes", () => {
+    const input = {
+      ...BASE_INPUT,
+      tool_response: "x".repeat(2 * 1024 * 1024),
+      ...Object.fromEntries(CONSUMED_PAYLOAD_KEYS.map((k) => [k, `value-of-${k}`])),
+    } as unknown as ClaudeHookInput;
+
+    const payload = buildIngestBody(input, AT)?.["payload"] as Record<string, unknown>;
+    for (const key of CONSUMED_PAYLOAD_KEYS) {
+      expect(payload[key]).toBe(`value-of-${key}`);
+      expect(typeof payload[key]).toBe("string");
+    }
+  });
+
+  test("bounds a payload of many mid-sized fields that individually pass", () => {
+    // No single field trips the per-field ceiling, but together they would blow
+    // past the body ceiling — the case a per-field bound alone would miss.
+    const fields = Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [`filler_${i}`, "y".repeat(2000)])
+    );
+    const input = { ...BASE_INPUT, ...fields, tool_name: "Bash" } as unknown as ClaudeHookInput;
+
+    const body = buildIngestBody(input, AT);
+    expect(JSON.stringify(body).length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+    expect((body?.["payload"] as Record<string, unknown>)["tool_name"]).toBe("Bash");
+  });
+
+  // PR #2531 R1 — the bulk is in the KEY NAMES and the field COUNT, not in any
+  // single value. Marker-substitution cannot shrink this (a marker keeps its
+  // key), so the previous implementation hit its bail-out `break` and returned
+  // a payload still over the ceiling. The ceiling is a guarantee, not a best
+  // effort.
+  test("fits even when the bulk is key names and field count, not value size", () => {
+    const fields = Object.fromEntries(
+      Array.from({ length: 4000 }, (_, i) => [`${"k".repeat(60)}_${i}`, "v"])
+    );
+    const input = { ...BASE_INPUT, ...fields, tool_name: "Bash" } as unknown as ClaudeHookInput;
+
+    const body = buildIngestBody(input, AT);
+    expect(JSON.stringify(body).length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+  });
+
+  test("keeps an oversized non-string as a marker rather than a plausible value", () => {
+    const input = {
+      ...BASE_INPUT,
+      tool_input: { rows: Array.from({ length: 20000 }, (_, i) => i) },
+    } as unknown as ClaudeHookInput;
+
+    const payload = buildIngestBody(input, AT)?.["payload"] as Record<string, unknown>;
+    const marker = payload["tool_input"] as Record<string, unknown>;
+    expect(marker["__truncated"]).toBe(true);
+    // Not a string — so the server's string-typed accessor reads it as absent
+    // instead of as a real value.
+    expect(typeof payload["tool_input"]).not.toBe("string");
   });
 
   test("stamps observedAt at OBSERVATION time so transport latency cannot backdate liveness", () => {
@@ -166,7 +264,9 @@ describe("postRunState — fail-open contract", () => {
         eventName: "Stop",
       });
       expect(ok).toBe(true);
-      expect(seenAuth).toBe(`Bearer ${TOKEN}`);
+      // `seenAuth` is assigned only inside the server handler, so CFA narrows it
+      // to `null` here (mt#2900).
+      expect(seenAuth as string | null).toBe(`Bearer ${TOKEN}`);
       expect(seenBody["conversationId"]).toBe("conv-1");
     } finally {
       server.stop(true);

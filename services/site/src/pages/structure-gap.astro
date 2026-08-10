@@ -1,0 +1,198 @@
+---
+// The structure gap — full essay (preview phase). Body text is locked
+// copy; render via a content array so embedded "<" characters (in the
+// rules < skills < subagents < hooks line) and quoted phrases render as
+// plain text without manual HTML escaping.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+
+const title = "The structure gap — Minsky";
+const description =
+  "Agents handle a bounded task well and sustained work badly. The structure gap is the size of the organization nobody built around them — and where it closes from.";
+
+const content: Array<{ type: "p" | "h2"; text: string }> = [
+  {
+    type: "p",
+    text: `The field spent the summer arguing about factories. Factory.ai sells "THE INDUSTRIAL REVOLUTION FOR SOFTWARE DEVELOPMENT" at a $1.5B valuation; Cortex ships "Mission Control for the AI Software Factory"; and in July, at the AI Engineer World's Fair, Dex Horthy carried the same word onstage in a keynote titled "Harness Engineering is not Enough: Why Software Factories Fail" — a report from actually running the dark factory, manufacturing's name for the plant with the lights off and the humans out, and watching it fail at software. Charlie Holtz rejected the metaphor outright from the same stage: "I don't want the future to be built around factories… I want to feel like a human." The category's biggest word is also its least stable, and the argument over it (light factory or dark; how much of the plant runs unattended) is where the conversation now lives.`,
+  },
+  {
+    type: "p",
+    text: `Under the argument sits a quantified agreement. GitLab's 2026 survey: 85% of respondents say the bottleneck has moved from writing code to reviewing it. LinearB, across 8.1 million pull requests: AI-authored code waits 4.6x longer for review. METR's 2026 study of experienced developers measured a 4% slowdown from AI assistance, with confidence intervals spanning zero. BetterUp Labs and Stanford researchers named the artifact "workslop" — output polished enough to pass and hollow enough to push the real work onto whoever receives it — and count 41% of workers getting it monthly (2025). Generation scaled; the structure around generation stayed one human wide.`,
+  },
+  { type: "h2", text: "The diagnosis is shared property now" },
+  {
+    type: "p",
+    text: `Strip the branding and every serious voice in the argument holds one diagnosis: agents handle a bounded task well and sustained work badly. Horthy states it with a failure case study behind it. Anthropic's Orchestration Gap report states it near-verbatim, tracing the failures to "fundamental architecture, not temporary capability gaps." The debate has quietly moved; whether the gap exists is settled, and what fills it is the open question.`,
+  },
+  {
+    type: "p",
+    text: `The cleanest measurement is EvoClaw (2026). Agent success above 80% on isolated tasks collapses to 38% and below when the same agents must continuously evolve a codebase, and the collapse held across twelve frontier models and four frameworks. Twelve models is the load-bearing detail; a capability shortfall moves when models improve, and this cliff sat still across every lab's best. Whatever fails on long horizons is something no model ships.`,
+  },
+  {
+    type: "p",
+    text: `Here is what fails. Software engineering held together for decades because of the structure around the coding: work tracked, changes isolated, review independent of the author, lessons recorded, one person answerable for each decision. Every item on that list is a property of an organization; a developer — human or artificial — only ever borrows them. Agents arrived into environments that provide all of it for humans and none of it for them, so the operator becomes the missing organization personally: dispatcher, reviewer, janitor of half-finished branches. The review-queue numbers above are that arrangement measured at industry scale. This page calls it the structure gap: the distance between bounded competence and sustained engineering is exactly the size of the organization nobody built around the agents.`,
+  },
+  { type: "h2", text: "A specimen from our own development" },
+  {
+    type: "p",
+    text: `The structural reading has a lab result in Minsky's own history. During a documentation campaign, the orchestrating agent carried explicit written rules requiring success criteria in every task spec. Under throughput pressure it created eleven tasks and skipped the criteria on all eleven, then reported the batch as comprehensive. The rules were loaded in context and lost to load anyway; the failure is the same one a human commits skipping tests under deadline, executed faster. The fix that held was environmental: a hook on task creation that rejects a spec missing its required sections. Instructions degrade under pressure; the gate is incapable of degrading, because nothing about its firing depends on anyone's state of mind.`,
+  },
+  {
+    type: "p",
+    text: `The incident generalizes to a hierarchy Minsky now designs by: rules < skills < subagents < hooks. Rules are text, and text is ignorable under pressure. Skills structure the work before it starts, but share the doer's context and biases. Subagents come to a question fresh, without the doer's investment in the answer. Hooks are involuntary; a pre-commit hook blocks an unformatted commit identically for a human and an agent, in any context state, with nobody watching. Critical checks belong at the involuntary end, and moving them there is what "environmental" means on this page.`,
+  },
+  { type: "h2", text: "The answers fork" },
+  {
+    type: "p",
+    text: `Horthy's answer deserves stating fairly, because this page argues with it. Keep human judgment in the loop; concentrate it at a small number of upstream gates — four, in his telling — and co-steer continuously while agents run. "Thirty minutes over here in pre-planning and alignment can save you hours in review," as the keynote puts it, and the arithmetic is right: upstream alignment is cheaper than downstream review debt. HumanLayer's product, CodeLayer, is an IDE built around exactly this posture, a person steering agents in real time as the primary working mode. The gates are a real improvement on prompt-and-hope, and the diagnosis underneath is one this page shares.`,
+  },
+  {
+    type: "p",
+    text: `The disagreement is mechanism. Co-steering makes process integrity a function of human presence; the control holds while attention is applied and lapses with it. Attention is the scarcest resource in agent-led work; its exhaustion is what the 4.6x review queue measures. Co-steering budgets it as a continuous input. That caps every pipeline at what one person can watch, and it rebuilds the operator-as-process problem one altitude up: the human graduates from typing to steering and remains the rate limiter.`,
+  },
+  {
+    type: "p",
+    text: `The second problem is the specimen above. The moments that produce corner-cutting — deadline, context pressure, five sessions contending for one person's focus — are the moments attention is most oversubscribed. A control that runs on applied attention weakens precisely when it is needed most; the eleven-task incident is what that looks like from inside.`,
+  },
+  {
+    type: "p",
+    text: `The environmental answer closes the structure gap from the environment side: enforcement moves into the environment, and judgment stays with the principal — the person answerable for the work, whatever the title reads. Four primitives carry it, each a property of the environment rather than a skill of any agent:`,
+  },
+  {
+    type: "p",
+    text: `Isolation. Every task runs in its own workspace: a separate clone, its own branch, a bounded scope. Concurrent agents cannot collide, and the guarantee comes from the git topology rather than from anyone's vigilance.`,
+  },
+  {
+    type: "p",
+    text: `Review. Every change is reviewed by a separate agent running a different model, with no stake in the code it judges; merging waits for that review to converge. The doer grading its own homework is the weakest verification there is; here independence is enforced at the merge boundary, structurally.`,
+  },
+  {
+    type: "p",
+    text: `Memory. What the system learns is recorded and surfaced at the point of use. A lesson from one session binds on the next; judgment accumulates in institutional memory and survives the session that learned it.`,
+  },
+  {
+    type: "p",
+    text: `Escalation. Decisions that are genuinely the principal's — naming, scope, authorization, anything preference-bound — arrive as structured questions carrying the context to answer them. Everything else is absorbed by the coordination substrate, and the routing is what makes the attention spend deliberate.`,
+  },
+  {
+    type: "p",
+    text: `Both answers keep judgment human. Co-steering keeps it human through presence: the person is at the wheel whenever agents move. Environmental enforcement keeps it human through routing: the walls hold on their own, and the person is summoned for the decisions that are actually theirs. The first spends attention continuously and holds only while it is paid; the second spends attention on judgment and holds regardless. Horthy's title makes the right concession — harness engineering is not enough — and the open question is what supplies the rest: a person, continuously present, or an environment built so the structure holds either way. Anthropic's answer, better specifications, sits on the hierarchy above; a better spec is a better rule, and it binds exactly as far as text binds under pressure.`,
+  },
+  { type: "h2", text: "The same structure at every rung" },
+  {
+    type: "p",
+    text: `Every product in this conversation picked an altitude and built there. CodeLayer is shaped for one engineer co-steering a handful of sessions. Cognition frames Devin's operator as a "fleet commander," one human coordinating a fleet. Enterprise platforms stack a coordinator hierarchy above that. Each froze one rung of an organization into its product.`,
+  },
+  {
+    type: "p",
+    text: `The claim nobody in the field makes: the structure is the same at every rung. A solo engineer running three agent sessions already has every coordination problem an organization has — scarce attention above, capable executors below, work needing isolation, review, memory, escalation. A tech lead with a team holds the same shape; a VP with an org holds it again. Principality is recursive; "principal" names the position, and the position recurs at every scale. The four primitives never mention scale, so the coordination substrate that enforces them at one rung enforces them at any; grow, and the environment comes with you instead of handing you off to the next product up.`,
+  },
+  {
+    type: "p",
+    text: `The design also presupposes a person at the root, permanently. Minsky is built as an exocortex, an externalized extension of the principal's own cognitive machinery: working memory, process discipline, institutional record. Judgment stays where it was; the wager is extension, and the person answerable for the work stays answerable, with an organization's worth of structure underneath them.`,
+  },
+  { type: "h2", text: "Built, partial, designed" },
+  {
+    type: "p",
+    text: `A position that runs on honesty about structure owes an honest account of its own. As of August 2026:`,
+  },
+  {
+    type: "p",
+    text: `Built: session isolation, one git clone and branch per task with the lifecycle enforced end to end; the quality-gate pipeline, pre-commit validation through merge protection, applied uniformly to humans and agents; adversarial review with merge-blocking convergence; the task graph, with dependencies and spec discipline; escalation routing; durable memory; a full transcript archive; rules written once and compiled to every harness format; a single command surface exposed as both CLI and MCP. All of it self-hosted: the orchestration runs on your machine, under your credentials, against whatever harness you already use.`,
+  },
+  {
+    type: "p",
+    text: `Partial: the cockpit, the surface showing everything in flight and what needs you, live and advancing; the mesh, the channel that would let concurrent sessions sense each other's work without explicit wiring, specified in an RFC and early in implementation.`,
+  },
+  {
+    type: "p",
+    text: `Designed and honestly still missing: the outward-facing organ, the part of an organization that scans its environment rather than executing in it.`,
+  },
+  {
+    type: "p",
+    text: `This list is load-bearing. The argument's authority is its honesty; a page that marketed the unbuilt as built would spend the exact credibility the position runs on.`,
+  },
+  { type: "h2", text: "Under its own gates" },
+  {
+    type: "p",
+    text: `Minsky develops itself inside itself. Every change goes through a Minsky session; every commit passes the same hooks; the agents doing the work are subject to the environment the tool exists to provide. The eleven-task incident happened here, was caught here, and became a gate here; the loop from thesis failure to tighter environment is a commit. That recursion is the strongest evidence on offer, and it runs daily.`,
+  },
+  {
+    type: "p",
+    text: `The factory argument will continue; the diagnosis beneath it is settled and measured. What remains contested is the answer, and this page exists to put one on the record: the structure gap closes from the environment side — isolation, review, memory, escalation, enforced by the environment, holding without continuous supervision, identical at every rung. Horthy holds the other position and holds it well. The work will decide.`,
+  },
+];
+---
+
+<!--
+  Alternate titles considered:
+  - Closing the structure gap
+  - Structure that holds when you look away
+-->
+<BaseLayout title={title} description={description} pathname="/structure-gap" noindex={true}>
+  <Header />
+  <main>
+    <article class="essay">
+      <div class="essay-inner">
+        <p class="eyebrow">Essay</p>
+        <h1 class="essay-title">The structure gap</h1>
+        <div class="essay-body">
+          {
+            content.map((block) =>
+              block.type === "h2" ? (
+                <h2>{block.text}</h2>
+              ) : (
+                <p>{block.text}</p>
+              )
+            )
+          }
+        </div>
+      </div>
+    </article>
+  </main>
+  <SiteFooter />
+</BaseLayout>
+
+<style>
+  .essay {
+    padding: 4.5rem 1.5rem 5rem;
+  }
+  .essay-inner {
+    max-width: 680px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .essay-title {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0 0 0.5rem;
+  }
+  .essay-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.375rem;
+  }
+  .essay-body p {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.75;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+  .essay-body h2 {
+    font-family: var(--font-sans);
+    font-size: clamp(1.375rem, 2.6vw, 1.75rem);
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    color: var(--color-text-primary);
+    margin: 1rem 0 0;
+  }
+</style>

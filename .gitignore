@@ -54,8 +54,17 @@ services/reviewer/eval/results/
 # workspace (hooks running with a subpackage cwd spill logs into e.g.
 # cockpit-tray/.minsky/ and infra/.minsky/).
 **/.minsky/*-calibration.jsonl
+# Same family, different suffix: detectors that record every EVALUATION rather
+# than only fires write `*-evaluations.jsonl`, which the -calibration pattern
+# above does not match. Found the way the predecessor lines were (mt#3612):
+# `silent-stretch-evaluations.jsonl` was committed as the only tracked
+# .minsky/*.jsonl before anyone noticed it was local telemetry.
+**/.minsky/*-evaluations.jsonl
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
+# Transient lock dir guarding the store above (mt#3899). A crashed pass can
+# leave one behind; the next pass reaps it by mtime. Never a tracked artifact.
+**/.minsky/calibration-review-watermarks.lock/
 **/.minsky/calibration-review-cadence-last-warned.json
 
 # IntelliJ based IDEs
@@ -142,3 +151,9 @@ supabase/
 # `session_commit --all` in any session would otherwise sweep in state files
 # belonging to OTHER sessions — which is exactly how one landed in PR #2341.
 /.minsky/state/
+
+# Latency measurements written by scripts/verify-cockpit-navigation-latency.ts
+# (mt#3696). Timings are a property of the machine and its load at the moment of
+# the run, not of the repo: committing them would produce a large diff on every
+# run and invite reading one machine's numbers as a project-wide baseline.
+/scripts/cockpit-navigation-latency-results.json

@@ -5,7 +5,8 @@
  * Two layers, deliberately:
  *
  *   1. UNIT — the resolver and the fire-log context plumbing, using the in-memory fs +
- *      mocked-`process.exit` fixtures established by `merge-gate-fire-log.test.ts`.
+ *      injected-exit fixtures established by `merge-gate-fire-log.test.ts` (mt#3630
+ *      replaced this layer's `process.exit` spy with an injected impl).
  *   2. SUBPROCESS — each gate executed as its own process, fed a real `ToolHookInput` on
  *      stdin, against a real throwaway git repository. mt#3355's Acceptance Tests 1 and 2
  *      require this explicitly ("verified by executing the hook and observing output, not by
@@ -29,15 +30,26 @@
  * this task's own authoring-time control, and these tests must not add more.
  */
 
-import { describe, test, expect, spyOn, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- real-subprocess integration test by design (see module comment): the spawned gate processes read a real git repo and write a real fire log, neither of which a mock fs can provide. Same justification as merge-gates-git-path-regression.test.ts.
 import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- same justification: a real OS temp dir, not a mock path, is required for the real subprocess spawns below
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
-import { makeRecordAndExit, type MergeGateFireLogContext } from "./merge-gate-fire-log";
-import { readFireLogEntries, type FireLogEntry, type FireLogFsDeps } from "./fire-log";
+import {
+  makeMergeGateDecider,
+  dispatchMergeGateDecision,
+  type MergeGateDecider,
+  type MergeGateFireLogContext,
+} from "./merge-gate-fire-log";
+import {
+  readFireLogEntries,
+  type FireLogDecision,
+  type FireLogEntry,
+  type FireLogFsDeps,
+  type FireLogRecordOptions,
+} from "./fire-log";
 import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -101,8 +113,19 @@ let stateDirWithSession: string;
 /** A fake `MINSKY_STATE_DIR` containing no session workspaces at all. */
 let emptyStateDir: string;
 
+/**
+ * Bun's `spawnSync` TYPES pin `stdin` to `"ignore"` (bun.d.ts fixes the `In`
+ * type parameter), even though the runtime accepts a data stdin — which is what
+ * these gate subprocesses are fed. The cast is the narrowest way to say "the
+ * runtime supports this and the types do not"; it is confined to this helper so
+ * no call site repeats it. mt#2900.
+ */
+function stdinData(text: string): "ignore" {
+  return new TextEncoder().encode(text) as unknown as "ignore";
+}
+
 function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", ...args], { cwd });
+  const r = Bun.spawnSync(["git", ...args], { cwd, stderr: "pipe" });
   if (r.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${r.stderr.toString()}`);
   }
@@ -334,37 +357,49 @@ function makeInMemoryFs(): FireLogFsDeps & { files: Record<string, string> } {
 
 class ExitCalled extends Error {}
 
-function callAndSwallowExit(fn: () => never): void {
-  const exitSpy = spyOn(process, "exit").mockImplementation((() => {
-    throw new ExitCalled();
-  }) as never);
+/**
+ * Injected stand-in for `process.exit` (mt#3630) — records nothing, just unwinds so the
+ * `never` contract holds without terminating the runner. Replaces the previous
+ * spy patch on `process.exit`, which mutated the global for the whole process.
+ */
+function throwingExit(): never {
+  throw new ExitCalled();
+}
+
+/** Run one gate exit point through the real decide → dispatch composition. */
+function runExitPoint(
+  decide: MergeGateDecider,
+  decision: FireLogDecision,
+  recordOptions: FireLogRecordOptions
+): void {
   try {
-    fn();
+    dispatchMergeGateDecision(decide(decision), recordOptions, throwingExit);
   } catch (err) {
     if (!(err instanceof ExitCalled)) throw err;
-  } finally {
-    exitSpy.mockRestore();
   }
 }
 
-describe("makeRecordAndExit + MergeGateFireLogContext", () => {
-  test("records a taskResolutionSource assigned AFTER the closure was built", () => {
+describe("makeMergeGateDecider + MergeGateFireLogContext", () => {
+  test("records a taskResolutionSource assigned AFTER the decider was built", () => {
     // The design property under test: a gate resolves the task id downstream of building
-    // `recordAndExit`, so a value captured at construction time would always be undefined.
+    // its decider, so a value captured at construction time would always be undefined.
     // Threading it per-exit-point instead would make "forgot to pass it at exit point N" a
     // live failure mode — the same shape as the bug this task fixes.
     const fs = makeInMemoryFs();
     const context: MergeGateFireLogContext = {};
-    const recordAndExit = makeRecordAndExit(
+    const decide = makeMergeGateDecider(
       EVIDENCE_GATE,
       Date.now(),
       { tool_name: SESSION_PR_MERGE_TOOL, session_id: "s1" },
-      { fs, logPath: LOG_PATH },
       context
     );
 
     context.taskResolutionSource = "branch-fallback";
-    callAndSwallowExit(() => recordAndExit("allow"));
+    // Asserted twice, deliberately: on the PURE return value (the field is read at
+    // decide() time, not construction time) and on the RECORD the dispatch shell wrote.
+    expect(decide("allow").record.taskResolutionSource).toBe("branch-fallback");
+
+    runExitPoint(decide, "allow", { fs, logPath: LOG_PATH });
 
     const entries = readFireLogEntries({ fs, logPath: LOG_PATH });
     expect(entries).toHaveLength(1);
@@ -374,15 +409,16 @@ describe("makeRecordAndExit + MergeGateFireLogContext", () => {
   test("omits taskResolutionSource entirely when the gate never assigned one", () => {
     // Guards that are not `session_pr_merge` gates must not gain a spurious field.
     const fs = makeInMemoryFs();
-    const recordAndExit = makeRecordAndExit(
+    const decide = makeMergeGateDecider(
       "check-branch-fresh",
       Date.now(),
       { tool_name: "mcp__minsky__session_commit", session_id: "s2" },
-      { fs, logPath: LOG_PATH },
       {}
     );
 
-    callAndSwallowExit(() => recordAndExit("allow"));
+    expect("taskResolutionSource" in decide("allow").record).toBe(false);
+
+    runExitPoint(decide, "allow", { fs, logPath: LOG_PATH });
 
     expect(fs.files[LOG_PATH] ?? "").not.toContain("taskResolutionSource");
   });
@@ -390,16 +426,15 @@ describe("makeRecordAndExit + MergeGateFireLogContext", () => {
   test("records 'unresolved' alongside a warn decision", () => {
     const fs = makeInMemoryFs();
     const context: MergeGateFireLogContext = {};
-    const recordAndExit = makeRecordAndExit(
+    const decide = makeMergeGateDecider(
       REVIEW_GATE,
       Date.now(),
       { tool_name: SESSION_PR_MERGE_TOOL, session_id: "s3" },
-      { fs, logPath: LOG_PATH },
       context
     );
 
     context.taskResolutionSource = "unresolved";
-    callAndSwallowExit(() => recordAndExit("warn"));
+    runExitPoint(decide, "warn", { fs, logPath: LOG_PATH });
 
     const entries = readFireLogEntries({ fs, logPath: LOG_PATH });
     expect(entries[0]?.decision).toBe("warn");
@@ -436,7 +471,13 @@ function runGate(gate: string, input: ToolHookInput): GateRun {
   const stateDir = mkdtempSync(join(tmpdir(), "mt3355-state-"));
   try {
     const result = Bun.spawnSync(["bun", join(HOOKS_DIR, `${gate}.ts`)], {
-      stdin: Buffer.from(JSON.stringify(input)),
+      stdin: stdinData(JSON.stringify(input)),
+      // Explicit "pipe" (mt#2900): without it the overload resolves to the
+      // variant where stdout is not captured, so `result.stdout` types as
+      // `never` and the stdin Buffer has nowhere to go. This matches the
+      // runtime default — the option is stating what already happens.
+      stdout: "pipe",
+      stderr: "pipe",
       env: { ...process.env, MINSKY_STATE_DIR: stateDir },
     });
     const logPath = join(stateDir, "fire-log.jsonl");
@@ -450,7 +491,7 @@ function runGate(gate: string, input: ToolHookInput): GateRun {
 }
 
 describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: a sessionId-only merge from a task branch resolves and does NOT exit silently",
     (gate) => {
       // AT1 negative control. Before mt#3355 this input produced a bare `allow` with no
@@ -466,7 +507,7 @@ describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
     }
   );
 
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: neither selector, cwd on main -> operator-visible warning and decision 'warn'",
     (gate) => {
       // AT2 unresolvable control. Asserts on the fire-log line, not just stdout — the whole
@@ -479,7 +520,7 @@ describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
     }
   );
 
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: an explicit tool_input.task still records source 'tool_input' (regression floor)",
     (gate) => {
       // AT4 / AT5 positive control: the resolver is additive and must not change behavior

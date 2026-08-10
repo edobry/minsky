@@ -23,7 +23,13 @@
  *     The hook script in `.claude/hooks/` provides session-scoped persistence.
  */
 
-import { fingerprintError, type ErrorFingerprint } from "./fingerprint";
+import {
+  fingerprintError,
+  fingerprintGuardDenial,
+  type DenialFingerprint,
+  type ErrorFingerprint,
+  type ObservationSource,
+} from "./fingerprint";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -46,6 +52,20 @@ export interface SecondStrikeEvent {
   firstAt: string;
   /** Wall-clock ISO of the second strike. */
   secondAt: string;
+  /**
+   * Which surface produced this (mt#3802). Absent on records written before
+   * guard-denial tracking existed, which is why it is optional rather than
+   * defaulted — an absent value means "written before the discriminator", and
+   * silently reading that as `"tool-error"` would put un-sourced history into a
+   * bucket it was never measured into.
+   */
+  source?: ObservationSource;
+  /** The denying guard, when `source` is `"guard-denial"`. */
+  guardName?: string;
+  /** Input hash of the FIRST strike, when the surface carries one. */
+  firstInputHash?: string;
+  /** Input hash of the SECOND strike — equal to the first means a byte-identical repeat. */
+  secondInputHash?: string;
 }
 
 /** Handler signature registered via `onSecondStrike`. */
@@ -58,6 +78,19 @@ export interface TrackerStateRecord {
   normalizedMessage: string;
   errorType: string;
   firstAt: string;
+  /**
+   * The map key this streak occupies (mt#3802).
+   *
+   * Absent means `toolName`, which is what every record written before
+   * guard-denial tracking used — so existing on-disk state files rehydrate
+   * unchanged. Denial streaks carry an explicit prefixed key so a guard denial
+   * and a tool error on the SAME tool do not evict each other; they are
+   * different surfaces and an agent can be mid-streak on both.
+   */
+  streakKey?: string;
+  source?: ObservationSource;
+  guardName?: string;
+  inputHash?: string;
 }
 
 /** Snapshot of the tracker's complete state. */
@@ -112,7 +145,10 @@ export class TwoStrikesTracker {
   static fromSnapshot(snap: TrackerSnapshot, opts?: { now?: () => string }): TwoStrikesTracker {
     const tracker = new TwoStrikesTracker({ mode: snap.mode, now: opts?.now });
     for (const streak of snap.streaks) {
-      tracker.streaks.set(streak.toolName, { ...streak });
+      // `streakKey ?? toolName` (mt#3802): records written before denial
+      // tracking have no key field and used the tool name, so an existing
+      // on-disk state file rehydrates to exactly the map it was written from.
+      tracker.streaks.set(streak.streakKey ?? streak.toolName, { ...streak });
     }
     for (const obs of snap.observations) {
       tracker.observations.push({ ...obs });
@@ -139,12 +175,39 @@ export class TwoStrikesTracker {
    * sequences.
    */
   recordError(toolName: string, error: unknown): boolean {
-    const fp = fingerprintError(toolName, error);
-    const existing = this.streaks.get(toolName);
+    return this.recordStrike(toolName, fingerprintError(toolName, error));
+  }
+
+  /**
+   * Record a PreToolUse guard denial (mt#3802).
+   *
+   * The denial surface was structurally invisible before this: a PreToolUse
+   * deny means the tool never runs, so the PostToolUse tracker never fires. It
+   * is also the class most likely to be retried blindly, because the denial
+   * text reads as advice ("use X instead") and the agent's next attempt feels
+   * like a correction rather than a repeat.
+   */
+  recordDenial(input: {
+    toolName: string;
+    guardName: string;
+    reason: unknown;
+    toolInput: unknown;
+  }): boolean {
+    const fp = fingerprintGuardDenial(input);
+    // Prefixed so a denial streak and a tool-error streak on the same tool
+    // occupy different slots rather than evicting one another.
+    return this.recordStrike(`guard:${input.guardName}:${input.toolName}`, fp);
+  }
+
+  /** Shared strike bookkeeping for both surfaces. */
+  private recordStrike(streakKey: string, fp: ErrorFingerprint | DenialFingerprint): boolean {
+    const toolName = fp.toolName;
+    const denial = "inputHash" in fp ? fp : undefined;
+    const existing = this.streaks.get(streakKey);
     const ts = this.now();
 
     if (existing && existing.fingerprintHash === fp.hash) {
-      // Same tool, same fingerprint → SECOND STRIKE.
+      // Same slot, same fingerprint → SECOND STRIKE.
       const event: SecondStrikeEvent = {
         toolName,
         fingerprintHash: fp.hash,
@@ -152,6 +215,14 @@ export class TwoStrikesTracker {
         errorType: fp.errorType,
         firstAt: existing.firstAt,
         secondAt: ts,
+        ...(denial
+          ? {
+              source: "guard-denial" as const,
+              guardName: denial.guardName,
+              firstInputHash: existing.inputHash,
+              secondInputHash: denial.inputHash,
+            }
+          : {}),
       };
 
       if (this.mode === "observation") {
@@ -168,19 +239,27 @@ export class TwoStrikesTracker {
       // doesn't immediately re-fire — the agent is expected to act on the
       // signal, and re-firing on every subsequent retry would flood the
       // operator. The next streak starts fresh on the next error.
-      this.streaks.delete(toolName);
+      this.streaks.delete(streakKey);
       return true;
     }
 
-    // Different fingerprint OR first-ever error for this tool → start a
+    // Different fingerprint OR first-ever error for this slot → start a
     // fresh streak. (Replacing an existing different-fingerprint streak is
     // the documented behaviour: two different errors don't accumulate.)
-    this.streaks.set(toolName, {
+    this.streaks.set(streakKey, {
       toolName,
       fingerprintHash: fp.hash,
       normalizedMessage: fp.normalizedMessage,
       errorType: fp.errorType,
       firstAt: ts,
+      ...(denial
+        ? {
+            streakKey,
+            source: "guard-denial" as const,
+            guardName: denial.guardName,
+            inputHash: denial.inputHash,
+          }
+        : {}),
     });
     return false;
   }
@@ -194,6 +273,14 @@ export class TwoStrikesTracker {
    */
   recordSuccess(toolName: string): void {
     this.streaks.delete(toolName);
+    // mt#3802: a success on this tool also breaks any DENIAL streak on it. SC1
+    // says "second CONSECUTIVE denial", and a tool call that actually ran is
+    // proof the agent stopped repeating the denied input. Without this, a
+    // denial early in a session and an unrelated one much later would fire a
+    // second strike with a successful call between them.
+    for (const key of [...this.streaks.keys()]) {
+      if (key.startsWith("guard:") && key.endsWith(`:${toolName}`)) this.streaks.delete(key);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -214,4 +301,10 @@ export class TwoStrikesTracker {
 }
 
 /** Re-exports so consumers don't need to chase down the fingerprint module. */
-export { fingerprintError, type ErrorFingerprint };
+export {
+  fingerprintError,
+  fingerprintGuardDenial,
+  type DenialFingerprint,
+  type ErrorFingerprint,
+  type ObservationSource,
+};

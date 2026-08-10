@@ -70,9 +70,17 @@ export function DrivenSessionPage() {
   const channelFailed = driven.status === "crashed" && !driven.harnessSessionId;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
+    // `h-full` + `min-h-0` are what make the thread box below an actual
+    // scrollport (mt#3737). Without a bounded height here the column is sized by
+    // its content, `flex-1` on the thread resolves to that content height, and
+    // the box never overflows — so the shell's <main> scrolled instead and took
+    // the composer and status bar off the top with the transcript. `min-h-0`
+    // is the mt#3335 trap in its second location: a column-flex child's
+    // automatic minimum size is its content, so without it the thread refuses to
+    // shrink and hands the overflow back up the tree.
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Driven session</h1>
+        <h1 className="text-lg font-semibold">Drive view</h1>
         <span className="font-mono text-xs text-muted-foreground" title={id}>
           {id}
         </span>
@@ -87,7 +95,18 @@ export function DrivenSessionPage() {
       {channelFailed ? (
         <ErrorState message="Could not connect to the driven session channel. It may not exist, or the connection was refused." />
       ) : (
-        <div className="min-h-[50vh] flex-1 overflow-y-auto rounded border border-border bg-card p-3">
+        // `min-h-0`, not `min-h-[50vh]`: a minimum taller than the space the
+        // column can give it would push the box past the viewport and hand the
+        // overflow back to <main>, which is the bug. The floor served a
+        // content-sized page that no longer exists.
+        <div
+          // Named so the mt#3737 geometry script can identify the scrollport
+          // structurally instead of by its `overflow-y-auto` class, which would
+          // silently become ambiguous the moment this page grows a second
+          // scroll container.
+          data-testid="driven-thread-scrollport"
+          className="min-h-0 flex-1 overflow-y-auto rounded border border-border bg-card p-3"
+        >
           <ConversationView drivenSessionId={id} drivenBlocks={driven.blocks} />
         </div>
       )}

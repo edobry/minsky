@@ -26,6 +26,7 @@ import { join } from "node:path";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
+import { hookChildEnv } from "./hook-child-env";
 
 /** Shared literal — the lifecycle event these fixtures all target. */
 const USER_PROMPT_SUBMIT_EVENT = "UserPromptSubmit";
@@ -48,6 +49,11 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "skill-staleness-detector",
       "mcp-daemon-staleness-detector",
       "substrate-bypass-detector",
+      // mt#3601 — sits immediately before retrospective-trigger-scanner: the two
+      // are the fire/complete pair on one family, and keeping them adjacent is
+      // what makes the ordering readable. Log-only, so its position carries no
+      // injection-priority meaning.
+      "retrospective-completeness-detector",
       "retrospective-trigger-scanner",
       "pre-narration-detector",
       "causal-premise-detector",
@@ -81,11 +87,6 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // build/deploy-claim seam detector; same new-guard-appended-after-
       // legacy-order rationale as its calibration-first siblings above.
       "build-claim-injection-detector",
-      // mt#2708 — knowledge-acquisition-detector, the mt#2707-RFC (B)
-      // proactive-trigger half of the learn-capture primitive; same
-      // new-guard-appended-after-legacy-order rationale as its
-      // calibration-first siblings above.
-      "knowledge-acquisition-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.
@@ -130,7 +131,11 @@ function makeInput(overrides: Partial<ClaudeHookInput> = {}): ClaudeHookInput {
 /** Spawn the standalone CLI entrypoint for `hookFilename`, feed it `input` on stdin. */
 async function invokeHookCli(
   hookFilename: string,
-  input: ClaudeHookInput & Record<string, unknown>,
+  // Plain ClaudeHookInput, not `& Record<string, unknown>`: the intersection was
+  // unsatisfiable by every caller (an interface without an index signature is not
+  // assignable to Record<string, unknown>), and no caller passes extra keys — the
+  // body only JSON-stringifies this onto the child's stdin. mt#2900.
+  input: ClaudeHookInput,
   env: Record<string, string> = {}
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const hookPath = new URL(hookFilename, import.meta.url).pathname;
@@ -138,7 +143,14 @@ async function invokeHookCli(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, ...env },
+    // mt#3528: same class as the e2e canary — this helper's callers `JSON.parse`
+    // the spawned hook's stdout, so the child must not inherit the harness's
+    // `MINSKY_LOG_MODE=STRUCTURED`, which routes the logger onto stdout and
+    // corrupts the payload. Not currently failing here (the guards this file
+    // exercises do not import a module that logs at info), but it is the same
+    // latent defect, so it is patched in the same round rather than waiting for
+    // an unrelated import to make it visible.
+    env: hookChildEnv(env),
   });
   proc.stdin.write(JSON.stringify(input));
   proc.stdin.end();
@@ -220,7 +232,9 @@ describe("Phase 2b parity: auto-session-title", () => {
     const cliOutput = JSON.parse(cliResult.stdout) as {
       hookSpecificOutput?: { sessionTitle?: string };
     };
-    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(outcome?.sessionTitle);
+    const runSessionTitle = outcome?.sessionTitle;
+    expect(runSessionTitle).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(runSessionTitle as string);
   });
 });
 
@@ -305,7 +319,9 @@ describe("Phase 2b parity: inject-prod-state", () => {
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(outcome?.additionalContext).toContain("UNKNOWN");
-    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(outcome?.additionalContext);
+    const runAdditionalContext = outcome?.additionalContext;
+    expect(runAdditionalContext).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(runAdditionalContext as string);
   });
 });
 

@@ -235,7 +235,10 @@ uuid-keyed records` below) to fetch the full structured payload written in step 
    `asks_get` / `memory_get` around it. Handoffs used to do exactly that, because before mt#3354
    the short-id forms came back `found: false` — a silent misread, not a missing record. That is
    fixed; the workaround is now just an extra round trip that can drift out of sync with the rest
-   of the queue.
+   of the queue. The rows for asks / memories / workspaces also carry the full `uuid` (mt#3685),
+   so a linked citation — `[ask#N](minsky://ask/<uuid>)` per `cockpit-deeplinks.mdc` — needs no
+   second per-entity lookup; use it, especially in a closing message handing the principal
+   pending decisions (mem#623 R4).
 
 3. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
    any pasted-prose summary.

@@ -582,6 +582,76 @@
       "when": 1785467713544,
       "tag": "0082_superb_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1785531758245,
+      "tag": "0083_red_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1785550858547,
+      "tag": "0084_optimal_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1785607155735,
+      "tag": "0085_lucky_human_robot",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1785789269504,
+      "tag": "0086_lyrical_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1785789775678,
+      "tag": "0087_fine_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1785875966537,
+      "tag": "0088_curved_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1785881813739,
+      "tag": "0089_productive_infant_terrible",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1785894671361,
+      "tag": "0090_ordinary_nocturne",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1786227765469,
+      "tag": "0091_green_ultimo",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1786359042519,
+      "tag": "0092_fresh_ken_ellis",
+      "breakpoints": true
     }
   ]
 }

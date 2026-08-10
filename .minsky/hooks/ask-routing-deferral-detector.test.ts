@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- the mt#3620 handoff tests exercise the real turn-end-scan-store roundtrip (Stop writes -> prompt-time reads) in an isolated mkdtemp dir, mirroring turn-end-untaken-action-scan.test.ts's precedent */
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFERRAL_MENU_PATTERNS,
   MENU_SHAPE_REQUIRED_PATTERNS,
@@ -11,9 +15,13 @@ import {
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
+  SUPPRESSION_ASKS_CREATE_THIS_TURN,
+  SUPPRESSION_STOP_GUARD_ALREADY_INJECTED,
+  resolveStopOverlap,
   run,
   type DeferralMatch,
 } from "./ask-routing-deferral-detector";
+import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -156,14 +164,26 @@ describe("reminder + rollout gate", () => {
   });
 
   test("principal-reserved reminder names asks_create", () => {
-    const m: DeferralMatch[] = [{ cls: PRINCIPAL_RESERVED, matchedPhrase: "needs your call" }];
+    const m: DeferralMatch[] = [
+      {
+        cls: PRINCIPAL_RESERVED,
+        matchedPhrase: "needs your call",
+        context: "Naming the surface needs your call.",
+      },
+    ];
     const reminder = buildReminder(m);
     expect(reminder).toContain("asks_create");
     expect(reminder).toContain("direction.decide");
   });
 
   test("deferral-menu reminder routes through classify-before-deferring", () => {
-    const m: DeferralMatch[] = [{ cls: DEFERRAL_MENU, matchedPhrase: "what's your call?" }];
+    const m: DeferralMatch[] = [
+      {
+        cls: DEFERRAL_MENU,
+        matchedPhrase: "what's your call?",
+        context: "I could do A or B — what's your call?",
+      },
+    ];
     const reminder = buildReminder(m);
     expect(reminder).toContain("classify-before-deferring");
   });
@@ -207,6 +227,149 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
   };
 }
 
+/**
+ * mt#3620 — the Stop→prompt handoff, end to end.
+ *
+ * The originating incident (2026-08-03): a turn closed with "Say the word and
+ * I'll do it", offering to restart a daemon rather than probing whether it
+ * needed restarting at all. The Stop guard detected it and then suppressed its
+ * own injection under mt#3336's dedup, yielding to THIS detector — which runs
+ * on `UserPromptSubmit` and therefore could not speak until the principal had
+ * already read the deferral and replied. These tests pin the inverted contract:
+ * the Stop guard speaks, and this one goes quiet about that same sentence.
+ */
+describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
+  const INCIDENT_CLOSING_SENTENCE =
+    "The running cockpit needs a main pull plus a daemon restart. Say the word and I'll do it.";
+  const SESSION = "mt3620-handoff";
+
+  let storeDir: string;
+  beforeEach(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "mt3620-handoff-"));
+  });
+  afterEach(() => {
+    rmSync(storeDir, { recursive: true, force: true });
+  });
+
+  function promptInput(): ClaudeHookInput {
+    return { ...RUN_HOOK_INPUT, session_id: SESSION };
+  }
+
+  test("the Stop guard injects about the incident's closing sentence", () => {
+    const outcome = runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  test("this guard then stays quiet about the same sentence — one injection, not two", () => {
+    runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+
+    // Still RECORDED — the overlap has to stay measurable — but not injected.
+    expect(outcome?.calibration).toBeDefined();
+    expect((outcome?.calibration as { suppressionReasons: string[] }).suppressionReasons).toContain(
+      SUPPRESSION_STOP_GUARD_ALREADY_INJECTED
+    );
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("without a prior Stop fire, this guard injects as before", () => {
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  // PR #2574 R1 — the decision both entrypoints share, tested directly. `main()`
+  // ends in `process.exit`, so driving it in-process is not practical; testing
+  // the function it delegates to covers the CLI path's behaviour without it.
+  describe("resolveStopOverlap (shared by run() and main())", () => {
+    function matchesFor(text: string): DeferralMatch[] {
+      return detectDeferralPhrases(text);
+    }
+
+    test("suppressedAll when the Stop guard covered every matched phrase", () => {
+      runUntakenAction(
+        { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+        { event: "Stop" } as never,
+        storeDir
+      );
+      const result = resolveStopOverlap(
+        SESSION,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(true);
+      expect(result.remaining).toEqual([]);
+    });
+
+    // R1 BLOCKING: `?? "unknown"` put every id-less session in one shared bucket,
+    // where one session's Stop fire could silence another's real deferral.
+    test("an ABSENT session_id disables the dedup rather than sharing an 'unknown' bucket", () => {
+      runUntakenAction(
+        { session_id: "unknown", last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+        { event: "Stop" } as never,
+        storeDir
+      );
+      const result = resolveStopOverlap(
+        undefined,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(false);
+      expect(result.remaining.length).toBeGreaterThan(0);
+    });
+
+    test("no Stop fire -> nothing suppressed", () => {
+      const result = resolveStopOverlap(
+        SESSION,
+        INCIDENT_CLOSING_SENTENCE,
+        matchesFor(INCIDENT_CLOSING_SENTENCE),
+        storeDir
+      );
+      expect(result.suppressedAll).toBe(false);
+    });
+
+    test("zero matches is not 'suppressed' — there was nothing to say", () => {
+      const result = resolveStopOverlap(SESSION, INCIDENT_CLOSING_SENTENCE, [], storeDir);
+      expect(result.suppressedAll).toBe(false);
+    });
+  });
+
+  test("a DIFFERENT turn's deferral is unaffected by the flag", () => {
+    runUntakenAction(
+      { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
+      { event: "Stop" } as never,
+      storeDir
+    );
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("The rail-axis question needs your call before anything gets encoded."),
+      makeRunUserLine(),
+    ];
+    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+});
+
 describe("run() (dispatcher-compatible)", () => {
   test("deferral match -> calibration record AND additionalContext (live injection, mt#2694)", () => {
     const transcriptLines = [
@@ -224,19 +387,52 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.matches.some((m) => m.class === PRINCIPAL_RESERVED)).toBe(true);
   });
 
+  /** A turn that defers nothing — no deferral phrase in any class. */
+  const NO_DEFERRAL_TURN = "I merged the PR and the task is DONE.";
+  /** A turn that defers a principal-reserved decision. */
+  const PRINCIPAL_RESERVED_TURN = "The rail-axis question needs your call.";
+
   test("no match -> null (silent allow)", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine("I merged the PR and the task is DONE."),
+      makeRunAssistantLine(NO_DEFERRAL_TURN),
       makeRunUserLine(),
     ];
     expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("suppressed when the turn already routed via asks_create -> null", () => {
+  // mt#3207: this used to assert `null`. The gate returned BEFORE detection
+  // ran, so a suppressed deferral was indistinguishable from a clean turn and
+  // the gate looked costless to the sweep. It now records and stays silent.
+  test("suppressed when the turn already routed via asks_create -> records, no injection", () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine(),
-      makeRunAssistantLine("The rail-axis question needs your call."),
+      makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
+      { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_ASKS_CREATE_THIS_TURN]);
+  });
+
+  test("mt#3207: an INJECTED fire records an empty suppressionReasons, not an absent one", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  test("mt#3207: a turn that routed an ask and deferred NOTHING still records nothing", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine(),
+      makeRunAssistantLine(NO_DEFERRAL_TURN),
       { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
       makeRunUserLine(),
     ];

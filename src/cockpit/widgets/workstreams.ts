@@ -24,6 +24,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in Workstreams.tsx (no server imports
@@ -342,8 +343,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
         };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `workstreams error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("workstreams", err) };
       }
     },
   };
@@ -355,15 +355,20 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
 // Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
 // ---------------------------------------------------------------------------
 
-import { getSharedPersistenceService } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
-let _cachedDeps: WorkstreamsDeps | null = null;
-
-async function defaultDepsFactory(): Promise<WorkstreamsDeps> {
-  if (_cachedDeps) {
-    return _cachedDeps;
-  }
-
+/**
+ * Deps cached per persistence epoch (mt#3721).
+ *
+ * Both `taskService` and `taskGraphService` close over the provider (and, for
+ * the graph service, the raw Drizzle connection) they were constructed from, so
+ * a pool recycle (`recycleSharedPersistence`, mt#3638) leaves them querying a
+ * torn-down pool — which postgres-js rejects forever, since `CONNECTION_ENDED`
+ * is raised off an `ending` flag nothing clears. Before mt#3721 this cache had
+ * no epoch check; it happened to read `ok` during the originating incident only
+ * because it was built AFTER that recycle, which is timing, not immunity.
+ */
+const defaultDepsFactory = createEpochKeyedCache(async (): Promise<WorkstreamsDeps> => {
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
   const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
@@ -383,9 +388,8 @@ async function defaultDepsFactory(): Promise<WorkstreamsDeps> {
     db as import("drizzle-orm/postgres-js").PostgresJsDatabase
   );
 
-  _cachedDeps = { taskService, taskGraphService };
-  return _cachedDeps;
-}
+  return { taskService, taskGraphService };
+});
 
 /** Default workstreams widget — ready to drop into WIDGET_REGISTRY */
 export const workstreamsWidget: WidgetModule = createWorkstreamsWidget(defaultDepsFactory);

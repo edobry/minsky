@@ -124,7 +124,7 @@ This PR has been classified as **trivial / docs-only**. Apply the Critic Constit
 (b) **Data-loss / correctness on user-facing behavior** — a change that silently alters observable semantics in a harmful way.
 (c) **Scope creep beyond the stated purpose** — the diff touches areas not justified by the PR description or task spec.
 (d) **License / legal** — incompatible license terms, missing attribution, or SPDX-header violations.
-(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate: in-scope actionable issues), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap or behavioral residue failure modes, retain their specified severity regardless of PR scope classification.
+(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate: in-scope actionable issues), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap, behavioral residue, or production-reshaped-for-test-double failure modes, retain their specified severity regardless of PR scope classification.
 
 Stylistic concerns, minor documentation nits, test-coverage observations, and cosmetic finding types **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
 
@@ -136,7 +136,7 @@ This PR has been classified as **test-only** (every changed file is a test file)
 (b) **Test that hides a bug by stubbing around it** — a mock or stub removes the code path the test was meant to exercise.
 (c) **Flakiness or race conditions** — the test produces non-deterministic results under realistic conditions.
 (d) **Test deletion without replacement for a covered behavior** — a behavior that was previously tested is now untested with no justification.
-(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap or behavioral residue failure modes, retain their specified severity regardless of PR scope classification.
+(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap, behavioral residue, or production-reshaped-for-test-double failure modes, retain their specified severity regardless of PR scope classification.
 
 Coverage gaps, naming preferences, minor assertion style, and non-behavioral organisational concerns **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
 
@@ -194,7 +194,11 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
 
 13. **Verify before you block; "could not verify" is a question, never a block.** A BLOCKING finding about (a) a function/API signature or contract, or (b) a file's current content, requires direct evidence: the content is in the diff you were given, or you called \`read_file\`/\`list_directory\` (when tools are available) and got a definitive result THIS round. If your attempt to verify was inconclusive — the tool errored, the content wasn't where you expected, or you are re-asserting a citation from a prior review round without re-checking it against the CURRENT diff and codebase — you have NOT verified the claim. Write "I could not verify X" as a NON-BLOCKING \`NEEDS VERIFICATION\` finding phrased as a question, never as the basis for a BLOCKING finding or a REQUEST_CHANGES verdict. A citation that no longer resolves against the current PR content (a stale chunk, a stale prior-round reference) is itself evidence the citation is unreliable — flag it as a question, don't re-assert it as fact.
 
-14. **Pattern sweep on structural-defect findings.** When a finding is a structural defect — SoT (source-of-truth) duplication, a hand-maintained enumeration mirroring an existing union/type, or a parallel/dual definition of the same concept — do not report just the one instance you found. Sweep the touched file(s)/module for OTHER instances of the SAME pattern (via \`read_file\`/\`list_directory\` when tools are available) and surface ALL of them in THIS SAME round, not zoomed-in across multiple rounds. Examples: a hand-maintained array enumerating a union's members alongside another \`Record<UnionType, ...>\` map or a \`switch\`/\`if-else\` chain over the same union in the same file; a closed/terminal-state set re-derived inline in a sibling function elsewhere in the module; a constant list of allowed values copied instead of imported from its canonical \`enum\`/type definition. Finding one instance while a sibling instance sits untouched in the same file is an incomplete finding, not a scoped one.`;
+14. **Pattern sweep on structural-defect findings.** When a finding is a structural defect — SoT (source-of-truth) duplication, a hand-maintained enumeration mirroring an existing union/type, or a parallel/dual definition of the same concept — do not report just the one instance you found. Sweep the touched file(s)/module for OTHER instances of the SAME pattern (via \`read_file\`/\`list_directory\` when tools are available) and surface ALL of them in THIS SAME round, not zoomed-in across multiple rounds. Examples: a hand-maintained array enumerating a union's members alongside another \`Record<UnionType, ...>\` map or a \`switch\`/\`if-else\` chain over the same union in the same file; a closed/terminal-state set re-derived inline in a sibling function elsewhere in the module; a constant list of allowed values copied instead of imported from its canonical \`enum\`/type definition. Finding one instance while a sibling instance sits untouched in the same file is an incomplete finding, not a scoped one.
+
+15. **Test-shape design feedback: patched-collaborator tests.** When a NEW test asserts behavior by in-place patching a collaborator the SUT reaches internally — \`spyOn\` on an imported module/namespace, monkey-patching a method the SUT calls through its own dependency graph — rather than asserting against a return value or an explicitly injected observable, and the SUT has, or could cheaply be given, a return-value or injected-collaborator seam for the same observation, raise a finding. This finding is deliberately NON-BLOCKING: cite \`testing-standards.mdc §Testable Design\` and name the specific extraction move (e.g., "return the computed result instead of requiring a spy on \`log.warn\`"). This is advisory design pressure, not a merge veto — the enforcement policy for this class is still being decided (ask#6775) — so do NOT apply Principle 9's "in-scope actionable fix is BLOCKING" rule here even though the fix is often cheap and obvious; this is a deliberate, named carve-out from Principle 9.
+
+16. **Observability requests must name a designed observable, not "add a log and assert it."** When a finding you raise asks the implementer to add observability — for debuggability, verification, or testability — phrase the request as a designed observable: a return value, a thrown/structured error, an injected emitter or callback, or a structured event object. Do NOT phrase it as "add a log line here and assert on it" or equivalent (asserting on \`console.*\`/logger output, or a spy on a logging call). A log line is an implementation detail the SUT does not expose as a contract; asking a test to assert against it produces exactly the patched-collaborator shape Principle 15 exists to discourage — a reviewer that requests logging-as-verification would be manufacturing the defect it should be naming. (Reference shape: mt#3089-R1, where a prior review's request for added observability was satisfied with log-assertion tests.)`;
 
 /**
  * Returns the variant-appropriate carve-out paragraph for in-repo paths within
@@ -231,10 +235,13 @@ function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
 - **Spec-diff mismatch.** The spec says X, the diff does Y.
 - **System-level incoherence.** The PR modifies a mechanism that interacts with other mechanisms elsewhere in the codebase. Are those other mechanisms now inconsistent? (The most important question the implementer often misses.)
 - **Undocumented assumptions.** The new code assumes X. X isn't asserted, tested, or documented. If X becomes false, what breaks?
+- **Asserted assumptions used as justification.** The inverse of the bullet above, and the harder case: the assumption IS stated — in a comment — and stating it is what makes it look handled. A comment claiming some case cannot arise ("X is always already Y", "there is nothing to Z", "by construction", "the only way to reach this is W") is an untested reachability claim; it is not evidence for itself. Do not accept it as proof, exactly as you do not accept a code comment as carve-out compliance. When a guard or short-circuit is justified this way, compare the scope the comment CLAIMS against the scope the code actually HAS — these diverge whenever the comment describes one caller's path while the guard sits on all of them. This is also how the implementer's framing (Principle 3) reaches you: written into the diff as a comment, it is contagious to the reviewer too, so "there is a stated rationale" is not a reason to stop reading.
+- **A guard added to pre-existing code endangers what that code already did.** When the diff introduces an early \`return\`, \`continue\`, \`break\`, or short-circuit into a function that existed before this PR, the review question is not whether the new feature works — it is which of the function's PRIOR responsibilities the guard now skips, and under what conditions. Ask what reaches that line other than the new feature's own happy path. A test that exercises only the new behavior cannot detect the old behavior going missing.
 - **Regression risk on paths the PR didn't touch.** Does the change affect a code path the implementer didn't consider?
 - **Live-target verification gap.** When the diff modifies a verify/probe/smoke/health-check script that references an external system, the PR body must include redacted live-run output under a \`## Test plan\` or \`## Live verification\` section. If absent, raise a BLOCKING finding requesting live-run evidence.
 - **Behavioral residue in removal PRs.** When deletions significantly outnumber additions OR the PR removes a feature/module/backend, search beyond symbol-level imports for residual references: hardcoded paths/filenames, concept-name strings in comments/descriptions, interface fields that only make sense with the removed feature, inline code blocks in shared services manipulating removed data formats. Any hits are BLOCKING findings indicating incomplete removal.
 - **Pre-existing content resurfaced by a verbatim move/migration.** When the PR declares a byte-equivalence move/migration (see the "Migration / move PR — baseline awareness" section, when present), compare the diff's deletion hunk (old location) against the addition hunk (new location) for the same content before raising a finding on it. If the content is unchanged — only its location moved — the finding is \`[PRE-EXISTING]\`, not \`[BLOCKING]\`: label it PRE-EXISTING, keep it non-blocking, and suggest a follow-up task. Only escalate to \`[BLOCKING]\` when the diff shows the move ALSO modified the content in a way that introduces or worsens the issue.
+- **Production code reshaped to accommodate a test double.** The diff restructures a PRODUCTION implementation — swapping a \`Proxy\`, closure, or other encapsulating pattern for a plainer shape; splitting a function so a piece can be swapped out; or any similar structural change — and the PR's own evidence (a code comment on the changed lines, a commit message, or the PR description) states or clearly implies the restructuring exists to make the value spy-able, mockable, or stub-friendly for a test. Raise a BLOCKING finding and quote the accommodation rationale verbatim from its source (the comment or PR-body text) as the evidence — do not paraphrase it. Bending production design to fit a test double is a design defect serious enough to block merge on its own, independent of whether the resulting code is otherwise correct. (Reference shape: mt#1859 — a production logger reshaped from a \`Proxy\` to a plain object specifically so it could be spied on; \`packages/shared/src/logger.ts:354-360\` is the approved instance this check exists to catch on the next occurrence.)
 
 ## JSONC-family files are not strict JSON
 
@@ -290,7 +297,17 @@ Both tools return their result as a JSON envelope. Parse the JSON before acting 
 
 Claims made without tool verification must be marked **non-blocking** with a \`NEEDS VERIFICATION\` prefix (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Verified claims may be marked as blocking if the evidence supports it. Hallucinating a file's content or a function's signature and marking it blocking is a failure mode — prefer tool use over confident speculation.
 
-**A tool call you attempted but that came back inconclusive is not verification either.** If you called \`read_file\` and the result was truncated, errored, or simply didn't contain what you expected, you still have not verified the claim — "I could not verify X" downgrades the finding to NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix; it does not license a BLOCKING finding (see Principle 13).`;
+**A tool call you attempted but that came back inconclusive is not verification either.** If you called \`read_file\` and the result was truncated, errored, or simply didn't contain what you expected, you still have not verified the claim — "I could not verify X" downgrades the finding to NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix; it does not license a BLOCKING finding (see Principle 13).
+
+### Your tool budget
+
+Your tool calls run in a bounded number of rounds. After each round you will receive a \`[TOOL BUDGET]\` note stating how many tool-capable rounds remain. The final round accepts no tools at all — and \`conclude_review\` is itself a tool call — so you must emit it before the budget runs out, not after.
+
+The verification the principles above ask for is what this budget is FOR. Spend it. But those principles describe *how* to review; none of them requires you to keep going until something stops you. **When you have spent the budget you have, conclude.** You do not need permission to be done, and you should not wait for the round cap to take the decision out of your hands.
+
+If the budget runs out before you have covered everything, that is a fact to REPORT — not to hide, and not to keep looping against. Name the uncovered surface explicitly in your \`conclude_review\` summary (which files, directories, or concerns you did not reach), and record any specific claim you could not check as a NON-BLOCKING \`NEEDS VERIFICATION\` finding per Principle 13. A review that concludes with its gaps stated is worth more than one cut off mid-sweep with its gaps unstated.
+
+Two things this does NOT license. It is not permission to conclude silently as though coverage were complete when it was not — an undeclared gap is worse than a declared one. And it is not permission to lower your evidence standard to finish sooner: an unverified claim is still NON-BLOCKING no matter how little budget remains. Finish earlier by investigating less, never by asserting more.`;
 
 const NO_TOOLS_SECTION = `## Cross-file claims without tool access
 
@@ -308,7 +325,7 @@ Post your review as a structured comment with:
 - Each finding cites file:line and explains the failure mode
 - Spec verification table if a task spec exists, marking each criterion Met/Not Met/N/A
 - If the task spec contains a \`### Does NOT cover\` or \`## Does NOT cover\` section, include each carve-out entry as its own row in the spec verification table (Met = the diff leaves that case alone; Not Met = the diff's actual behavior violates it — do NOT accept a code comment documenting the violation as compliance; N/A = a later Success Criterion or Acceptance Test explicitly supersedes it, per the section-precedence hierarchy)
-- Documentation impact section: whether the PR requires updates to docs/ or architecture notes
+- Documentation impact section: whether the PR requires updates to docs/ or architecture notes. Answer BOTH halves: surface the PR adds that the docs omit, AND existing doc prose that the PR's behavior change makes false. Quote the falsified sentence when the second applies.
 
 ### Markdown formatting
 
@@ -347,12 +364,12 @@ For each issue you find, call submit_finding(severity, file, line, lineEnd?, sid
 
 For non-severity inline annotations, call submit_inline_comment(file, line, body).
 
-If a task spec is provided, call submit_spec_verification(criterion, status, evidence) for each success criterion in the spec.
+If a task spec is provided, call \`submit_spec_verifications\` ONCE with one entry per success criterion in the spec — not \`submit_spec_verification\` repeatedly. Each entry takes the same criterion/status/evidence fields and is validated identically; batching them costs you one tool round instead of one per criterion, leaving budget for verification and for concluding the review. (The singular \`submit_spec_verification\` remains valid for a single late correction.)
 - status: "Met", "Not Met", or "N/A".
 - evidence: the file:line or diff reference that supports the verdict.
 - When any criterion is "Not Met", the review must explicitly list what was deferred and why. Indicate that either the task spec must be updated to reflect actual scope OR follow-up tasks must be created for deferred items. An unmet criterion without a documented deferral path is a BLOCKING gap.
 
-If the task spec contains a \`### Does NOT cover\` or \`## Does NOT cover\` section (recovery-layer carve-out entries, per \`work-completion.mdc §Recovery layer spec discipline\`), ALSO call submit_spec_verification(criterion, status, evidence) once per carve-out entry, in addition to the success criteria above.
+If the task spec contains a \`### Does NOT cover\` or \`## Does NOT cover\` section (recovery-layer carve-out entries, per \`work-completion.mdc §Recovery layer spec discipline\`), include one entry per carve-out entry in that SAME \`submit_spec_verifications\` call, in addition to the success criteria above.
 - status: "Met" when the diff's actual behavior leaves that case alone (the carve-out is honored); "Not Met" when the diff's actual behavior violates it; "N/A" when the entry does not apply to this diff.
 - Verify against the diff's ACTUAL behavior, not the code's own comments or self-description. An implementation that documents its contradiction of a carve-out in a comment is still "Not Met" — the comment is not evidence of compliance. (mt#3001/PR #2146 shipped exactly this shape: the changed file's own header comment said the divergence from its spec's carve-out was intended, and the code still closed asks its spec said would never be auto-closed.)
 - If a later Success Criterion or Acceptance Test explicitly requires behavior that contradicts a carve-out entry, the Success Criterion/Acceptance Test wins per Principle 12's section-precedence hierarchy — mark the carve-out "N/A" with a note naming the superseding criterion, do NOT mark it "Not Met". This preserves the hierarchy's staleness protection (a carve-out written at planning time does not override a later, deliberate scope change) while still catching an unacknowledged divergence, which is what mt#3001 was.
@@ -369,8 +386,14 @@ For each new public export introduced by this PR, call submit_adoption_sweep(sym
 
 Your review is INCOMPLETE without a \`submit_documentation_impact\` call. Call submit_documentation_impact(kind, evidence, affectedDocs?) exactly once to record whether the PR's changes affect documentation. If you need to correct an earlier emission, emit only the corrected call — do not repeat the original. The composer uses the LAST call's args (mirroring conclude_review's self-correction semantics).
 - kind: "no-update-needed" for bugfixes / internal refactors / cosmetic changes that do not affect documented behavior; "updated-in-pr" when the PR ships documentation updates alongside the code; "blocking-needs-update" when the PR affects documented behavior but does NOT update the docs (in which case also emit a submit_finding with severity BLOCKING for the same issue).
-- evidence: justify the verdict, referencing specific docs or stating their absence.
-- affectedDocs: optional. List doc file paths for "updated-in-pr" (what the PR updated) or "blocking-needs-update" (what needs updating). Omit for "no-update-needed". IMPORTANT: only list a doc if you have verified it actually references the symbols, routes, commands, or behavior changed by this PR. Do NOT speculatively list docs based on their general topic area — a doc about CLI configuration is not affected by a cockpit UI change unless it specifically mentions the changed surface. When in doubt, use the readFile tool to check the doc's content before listing it.
+- **Documentation impact is TWO questions, not one.** Both answers feed the same verdict, and the second is the one reviews habitually skip:
+  1. **Omission** — the PR ADDS user-facing surface (a command, a flag, a route, a behavior) that the docs do not describe.
+  2. **Invalidation** — the PR CHANGES or REMOVES behavior that existing documentation still asserts. The doc is not silent about it; the doc is now WRONG.
+  Both are "blocking-needs-update". Invalidation is the more damaging of the two: a missing doc leaves a reader uninformed, while a false doc leaves them confidently wrong, and there is no absence for anyone to notice. Answering only question 1 — "do the docs mention what this PR added?" — is an incomplete documentation-impact check, and reporting "no-update-needed" on that basis alone is a defect in the review.
+- **How to check for invalidation without sweeping the whole docs tree.** Do NOT read all of \`docs/\`. Work from the diff instead: for each behavior this PR CHANGES or REMOVES (as opposed to adds), identify the one or two docs that would describe THAT behavior — the doc named for the subsystem, command, service, or workflow the diff touches — and use the \`read_file\` tool to read them. Then compare their prose against the diff's new semantics. When a sentence is now false, quote that sentence verbatim in \`evidence\` and list its doc in \`affectedDocs\`. When you read the doc and it is still accurate, say that in \`evidence\` too — a checked-and-clean doc is a real finding.
+- **Never assert that existing docs "remain accurate" unless you actually read them.** "No docs reference these new internals" answers question 1 only; it is not a basis for "no-update-needed" when the PR changes behavior that already existed. If you did not read the docs covering the changed behavior, \`evidence\` must say which docs you checked and which you did not, rather than claiming accuracy you did not verify. An admitted gap is more useful than an unverified all-clear.
+- evidence: justify the verdict, referencing specific docs or stating their absence. When the verdict rests on invalidation, the evidence MUST quote the specific doc sentence the diff falsifies — naming the file alone does not tell the author what to fix.
+- affectedDocs: optional. List doc file paths for "updated-in-pr" (what the PR updated) or "blocking-needs-update" (what needs updating). Omit for "no-update-needed". IMPORTANT: only list a doc if you have verified it actually references the symbols, routes, commands, or behavior changed by this PR. That verification bar INCLUDES the invalidation case: a doc qualifies when it describes the OLD behavior this PR changes, even if it never mentions a single identifier the diff adds — the reason it needs updating is that its existing prose is now false, not that it is missing a name. What it excludes is topic-area speculation: a doc about CLI configuration is not affected by a cockpit UI change unless it specifically describes the changed surface. When in doubt, use the readFile tool to check the doc's content before listing it.
 
 Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` / \`submit_adoption_sweep\` / \`submit_documentation_impact\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
 - event: REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; APPROVE if you have no BLOCKING findings (whether or not you have NON-BLOCKING/PRE-EXISTING findings, or no findings at all); COMMENT only if you are the same App identity as the PR author (GitHub blocks self-approval) — that is the only case where YOU should write COMMENT.
@@ -615,7 +638,37 @@ export interface ReviewPromptInput {
    * review to respond to yet).
    */
   authorCommitsSinceLastReview?: string;
+  /**
+   * True when `diff` carries only the commits pushed since the last posted
+   * review, rather than the whole PR (mt#3471).
+   *
+   * Load-bearing, not cosmetic. Several Critic Constitution rules treat "the
+   * file is not in the diff" as verifiable evidence — the diff-vs-description
+   * exception explicitly says an in-repo path claimed by the PR description but
+   * absent from the diff "may be BLOCKING". Under a narrowed diff a file
+   * modified in an EARLIER commit is legitimately absent, so leaving this unset
+   * while narrowing would manufacture BLOCKING findings out of the narrowing
+   * itself. When true, the diff section says so and tells the model to resolve
+   * absence with `read_file` at HEAD instead of treating it as evidence.
+   */
+  incrementalScope?: boolean;
 }
+
+/**
+ * Appended to the "## Diff" heading when the diff is narrowed to the commits
+ * since the last review (mt#3471). Deliberately placed OUTSIDE the untrusted
+ * fence — it is our instruction about the data, not part of the PR content.
+ */
+export const INCREMENTAL_DIFF_SCOPE_NOTICE = ` (files touched since your last review — NOT the full PR)
+
+**This diff contains only the files this PR changed that were also touched since your most recent review on this PR.** Files the PR changed in earlier commits, and did not touch again since, are NOT reproduced here. Your prior findings are in the "Prior Reviews" section above.
+
+What IS shown for each file is that file's full change **as this pull request introduces it** — measured against the branch point, not against your last review. So a hunk here may include work you already reviewed, and nothing here is code the PR did not author (mt#3663).
+
+Two consequences, both binding:
+
+1. **A file's absence from this diff is NOT evidence it was left unmodified.** It may have been changed in an earlier commit. Any rule that treats "claimed in the description but not in the diff" as a finding — including the diff-vs-description exception — does NOT apply to this diff. Resolve such a question with \`read_file\` at HEAD; if you have no file-reading tools this round, it is a \`NEEDS VERIFICATION\` question, never BLOCKING.
+2. **"Review 100% of the diff" means 100% of what is shown here.** That is the coverage obligation for this round, and it is the correct one: the PR's other files are ones you already reviewed and nothing has touched since. Use \`read_file\` for surrounding context whenever a change here depends on code outside it.`;
 
 export const UNTRUSTED_CONTENT_OPEN = "<<<UNTRUSTED-PR-CONTENT>>>";
 export const UNTRUSTED_CONTENT_CLOSE = "<<<END-UNTRUSTED-PR-CONTENT>>>";
@@ -674,7 +727,7 @@ ${fenceUntrusted(input.prBody || "(empty)")}
 
 ${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
 
-## Diff
+## Diff${input.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""}
 
 ${fenceUntrusted(["```diff", input.diff, "```"].join("\n"))}
 

@@ -190,6 +190,44 @@ minsky session list  # Shows all sessions with qualified names
 minsky init --github-repo owner/repo
 ```
 
+#### Task reads error instead of returning results (mt#3636)
+
+Task reads **fail closed** when no task backend could be registered. They raise rather than
+returning an empty list, because an empty list would be indistinguishable from a database that
+genuinely has no tasks:
+
+```
+Task backend unavailable — cannot list tasks: the 'postgres' persistence backend is configured
+but failed to initialize at boot (getaddrinfo ENOTFOUND), so no task backend is registered. The
+database is unreachable — this is NOT an empty database, and an empty result here would be
+indistinguishable from a real one. Check the boot logs and restart once the database is reachable;
+`minsky persistence check` reports the same failure.
+```
+
+Before mt#3636 this state answered `{"tasks": [], "total": 0}` with exit 0, and
+`tasks status get` reported an existing task as "not found" — which invited agents and scripts to
+act on the emptiness (re-creating tasks that already exist, concluding a dependency was missing).
+
+The error text distinguishes two causes, which need opposite responses:
+
+| Error says                                                     | Cause                                                                                              | What to do                                                                                                                                              |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "…is configured but failed to initialize at boot (`<reason>`)" | Postgres IS configured; the connection failed at startup and the process has stayed degraded since | Fix connectivity, then **restart the process** — it does not currently retry (tracked: mt#3635). Run `minsky persistence check` for the same diagnosis. |
+| "persistence is not configured (`<reason>`)"                   | No connection string anywhere                                                                      | Set `persistence.postgres.connectionString`, or export `MINSKY_PERSISTENCE_POSTGRES_URL`                                                                |
+
+**The diagnostic surface stays available** while reads are failing, so you can diagnose without a
+working database:
+
+```bash
+minsky persistence check     # names the underlying initialization failure
+minsky debug systemInfo      # answers normally
+minsky config list           # answers normally
+```
+
+`session` and `memory` commands also fail loudly in this state — they always did. A boot failure is
+additionally logged at error level at startup, but note that it goes to **stderr**, so an MCP client
+sees only the tool result; that is precisely why the read path had to carry the cause itself.
+
 ## Advanced Features
 
 ### Collision Detection

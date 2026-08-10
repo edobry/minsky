@@ -17,6 +17,11 @@ tauri-plugin-notification = "2"
 # URLs to the on_open_url callback. macOS-first; Windows/Linux differ and are
 # tracked as a follow-up.
 tauri-plugin-deep-link = "2"
+# Single-instance guard (mt#3770): refuses a second copy of the app instead of
+# letting it run alongside the first with its own tray icon, its own cockpit
+# window, and its own registration of the global summon hotkey.
+# https://v2.tauri.app/plugin/single-instance/
+tauri-plugin-single-instance = "2"
 # Global summon hotkey for the cockpit window (mt#2676): community-standard
 # plugin for Tauri v2 global hotkeys, used purely from Rust (no capability
 # grant needed -- the cockpit SPA has no IPC per ADR-023).
@@ -32,6 +37,16 @@ open = "5"
 # bursty editor-save events into a single debounced rebuild trigger (MIT/Apache-2.0).
 notify = "8"
 notify-debouncer-mini = "0.7"
+
+# Mouse back/forward (X1/X2) navigation via a native NSEvent monitor (mt#3570).
+# WKWebView never turns these buttons into a DOM `mousedown` (tauri#10936), so
+# they have to be read from AppKit directly. These are the Objective-C bindings
+# tauri itself already pulls in transitively on macOS -- same versions, so no
+# additional crates are actually downloaded.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "block2"] }
+block2 = "0.6"
 
 [features]
 default = ["custom-protocol"]

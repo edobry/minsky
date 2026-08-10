@@ -3,6 +3,22 @@
   "compilerOptions": {
     "types": ["bun", "node"]
   },
-  "include": [".claude/hooks"],
+  // mt#2900: BOTH trees, deliberately.
+  //
+  // `.claude/hooks` is the GENERATED tree — what CI and the harness actually
+  // execute. `.minsky/**` is the SOURCE tree the compile pipeline emits it from,
+  // and until now it was in no project's `include` at all: a hook file was
+  // typechecked only if something already-covered happened to IMPORT it (83 of
+  // 240 did), so a NEW hook file — which nothing imports yet — escaped every
+  // gate. `bun run src/cli.ts compile` copies with a banner; it does not
+  // typecheck, so the generated tree is no substitute for checking the source.
+  //
+  // Both rather than either: measured, including both produces the SAME error
+  // set as source-alone and ZERO duplicate-symbol errors (each file is its own
+  // module; nothing is ambient), so keeping coverage of the executed tree is
+  // free. `skills` and `agents` are the rest of the source tree — 16 files,
+  // 0 errors — and including them is what lets the `.minsky/` entry be removed
+  // from COVERAGE_ALLOWLIST (mt#3780) rather than re-scoped.
+  "include": [".claude/hooks", ".minsky/hooks", ".minsky/skills", ".minsky/agents"],
   "exclude": []
 }

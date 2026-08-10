@@ -3,6 +3,18 @@
   "compilerOptions": {
     "types": ["bun", "node"]
   },
-  "include": ["scripts"],
+  // mt#3817: the four root-level build/tooling configs land here rather than in
+  // the root project because they are the same KIND of file as scripts/** —
+  // bun+node tooling nothing imports. It is also the only home that compiles
+  // them: under the root project's `types: ["bun"]`, drizzle.pg.config.ts fails
+  // with `Property 'trim' does not exist on type 'Buffer'` (the readFileSync
+  // overload skew this repo documents around `String(...)` wrappers).
+  "include": [
+    "scripts",
+    "vite.config.ts",
+    "tailwind.config.ts",
+    "drizzle.config.ts",
+    "drizzle.pg.config.ts"
+  ],
   "exclude": []
 }

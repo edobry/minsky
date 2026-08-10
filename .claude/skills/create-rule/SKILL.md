@@ -96,6 +96,12 @@ tags: [category] # e.g., code-style, testing, architecture, safety, minsky
 - **No duplication**: Never repeat content from other rules
 - **Hierarchy**: Most important information first
 - **Clarity**: Simple language, concrete examples
+- **Delete superseded text, don't stage it as a counter-example**: a rule states current
+  practice. When guidance changes, remove what it used to say — don't leave the retired
+  prescription in place as a "❌ this doesn't work" example. The "what it used to say and why
+  it changed" belongs in the ADR or task record, not the rule. Tell: if you're warning against
+  a construct nobody would reach for unprompted, the text is serving the edit history, not the
+  reader.
 
 ### 5. Use the rules command
 

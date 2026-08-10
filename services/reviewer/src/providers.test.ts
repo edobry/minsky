@@ -4,12 +4,24 @@ import {
   isReasoningModel,
   callOpenAIWithClient,
   buildReadFileEnvelope,
+  applyReadFileWindow,
+  MAX_READ_FILE_LINES,
+  MAX_READ_FILE_CHARS,
   buildListDirectoryEnvelope,
+  buildRoundBudgetNotice,
 } from "./providers";
 import type OpenAI from "openai";
 import type { ReviewerToolContext } from "./tools";
 import type { ReviewToolCall } from "./output-tools";
 import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
+
+/**
+ * Output-tool literals shared across describe blocks. Module-scoped rather than
+ * re-declared per block so custom/no-magic-string-duplication stays quiet and
+ * the tool name has one definition to keep in sync with output-tools.ts.
+ */
+const TOOL_DOC_IMPACT = "submit_documentation_impact";
+const DOC_IMPACT_KIND_NO_UPDATE = "no-update-needed";
 
 describe("isReasoningModel", () => {
   describe("o-series reasoning models", () => {
@@ -136,6 +148,131 @@ describe("buildReadFileEnvelope", () => {
     // Structural disambiguation — a missing file no longer collides with a
     // file whose content is the literal string "null".
     expect(buildReadFileEnvelope(null)).toEqual({ ok: false, error: "not_found" });
+  });
+});
+
+describe("read_file windowing (mt#3544)", () => {
+  const bigFile = (lines: number): string =>
+    Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join("\n");
+
+  test("a file under the cap is returned verbatim, with no window and no notice", () => {
+    // SC3: the common case must be byte-identical to pre-cap behavior. If this
+    // regresses, every ordinary source read silently changes shape.
+    const content = bigFile(50);
+    const envelope = buildReadFileEnvelope({ kind: "text", content, truncated: false });
+
+    expect(envelope).toEqual({ ok: true, content, truncated: false });
+    if (envelope.ok) expect(envelope.content).not.toContain("Showing lines");
+  });
+
+  test("a file over the line cap is windowed and says so, with a usable nextOffset", () => {
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: bigFile(MAX_READ_FILE_LINES + 500),
+      truncated: false,
+    });
+
+    expect(envelope.ok).toBe(true);
+    if (!envelope.ok || !("window" in envelope) || envelope.window === undefined) {
+      throw new Error("expected a windowed envelope");
+    }
+    expect(envelope.window.startLine).toBe(1);
+    expect(envelope.window.endLine).toBe(MAX_READ_FILE_LINES);
+    expect(envelope.window.totalLines).toBe(MAX_READ_FILE_LINES + 500);
+    expect(envelope.window.nextOffset).toBe(MAX_READ_FILE_LINES + 1);
+    // The in-band notice is the load-bearing half: a silent truncation lets the
+    // model answer confidently from a partial file.
+    expect(envelope.content).toContain(`Showing lines 1-${MAX_READ_FILE_LINES}`);
+    expect(envelope.content).toContain(`offset=${MAX_READ_FILE_LINES + 1}`);
+  });
+
+  test("successive windows reconstruct the file exactly", () => {
+    const total = MAX_READ_FILE_LINES + 250;
+    const content = bigFile(total);
+
+    const first = applyReadFileWindow(content, 1);
+    expect(first.window?.nextOffset).toBe(MAX_READ_FILE_LINES + 1);
+    const second = applyReadFileWindow(content, first.window?.nextOffset ?? 1);
+
+    expect(`${first.content}\n${second.content}`).toBe(content);
+    expect(second.window?.nextOffset).toBeUndefined();
+  });
+
+  test("the char cap fires before the line cap on dense content, without splitting a line", () => {
+    // One long line per row: the line count is far under the cap but the byte
+    // mass is not — the single-huge-line gap mt#2243 closed for chunked patches.
+    const dense = Array.from({ length: 100 }, () => "x".repeat(2000)).join("\n");
+    const result = applyReadFileWindow(dense, 1);
+
+    expect(result.window).toBeDefined();
+    expect(result.content.length).toBeLessThanOrEqual(MAX_READ_FILE_CHARS);
+    // No partial line: every line kept is a whole 2000-char row.
+    for (const line of result.content.split("\n")) {
+      expect(line.length).toBe(2000);
+    }
+  });
+
+  test("a single line longer than the char cap is kept rather than dropped", () => {
+    // Losing the only line entirely would be worse than showing a prefix of it.
+    const oneHugeLine = "y".repeat(MAX_READ_FILE_CHARS + 5000);
+    const result = applyReadFileWindow(oneHugeLine, 1);
+
+    expect(result.content.length).toBe(MAX_READ_FILE_CHARS);
+    expect(result.window).toBeDefined();
+  });
+
+  test("an offset past EOF returns empty content rather than throwing", () => {
+    const result = applyReadFileWindow(bigFile(10), 999);
+
+    expect(result.content).toBe("");
+    expect(result.window?.totalLines).toBe(10);
+    expect(result.window?.nextOffset).toBeUndefined();
+  });
+
+  test("a nonsensical offset degrades to reading from the top", () => {
+    // The offset is model-supplied; an off-by-one or a zero should read the file,
+    // not error out mid-review.
+    const content = bigFile(10);
+    expect(applyReadFileWindow(content, 0).content).toBe(content);
+    expect(applyReadFileWindow(content, -5).content).toBe(content);
+  });
+
+  test("the window field is absent, not undefined, when a file fits (PR #2530 R1)", () => {
+    // The `window` addition to ReadFileEnvelope must be strictly additive: an
+    // under-cap read serializes to exactly the pre-change key set, so anything
+    // consuming the envelope's shape sees no difference. Asserting the KEY LIST
+    // (not just toEqual) is what pins this — `window: undefined` would serialize
+    // away in JSON but still change the object's shape for a Object.keys consumer.
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: "small file\n",
+      truncated: false,
+    });
+
+    expect(Object.keys(envelope).sort()).toEqual(["content", "ok", "truncated"]);
+    expect("window" in envelope).toBe(false);
+  });
+
+  test("a windowed read adds the window key and nothing else", () => {
+    const envelope = buildReadFileEnvelope({
+      kind: "text",
+      content: bigFile(MAX_READ_FILE_LINES + 10),
+      truncated: false,
+    });
+
+    expect(Object.keys(envelope).sort()).toEqual(["content", "ok", "truncated", "window"]);
+  });
+
+  test("binary results are unaffected by windowing", () => {
+    const envelope = buildReadFileEnvelope({ kind: "binary", size: 4096, truncated: false });
+
+    expect(envelope).toEqual({
+      ok: true,
+      content: "[BINARY FILE: 4096 bytes, not decoded]",
+      truncated: false,
+      binary: true,
+      size: 4096,
+    });
   });
 });
 
@@ -1118,11 +1255,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     summary: "Found blocking issues.",
   });
 
-  const TOOL_DOC_IMPACT = "submit_documentation_impact";
   const GATE_BRANCH_NO_CONCLUDE = "emitted_no_conclude";
 
   const VALID_DOC_IMPACT_ARGS = JSON.stringify({
-    kind: "no-update-needed",
+    kind: DOC_IMPACT_KIND_NO_UPDATE,
     evidence: "Internal refactor, no docs affected.",
   });
 
@@ -2147,7 +2283,6 @@ describe("callOpenAIWithClient prompt-cache hygiene (mt#2722)", () => {
   // Field/tool-name literals extracted to satisfy no-magic-string-duplication.
   const KEY_FIELD = "prompt_cache_key";
   const RETENTION_FIELD = "prompt_cache_retention";
-  const TOOL_DOC_IMPACT = "submit_documentation_impact";
 
   const makeUsage = (prompt = 100, completion = 50) => ({
     prompt_tokens: prompt,
@@ -2193,7 +2328,7 @@ describe("callOpenAIWithClient prompt-cache hygiene (mt#2722)", () => {
     summary: "No blocking issues.",
   });
   const VALID_DOC_IMPACT_ARGS = JSON.stringify({
-    kind: "no-update-needed",
+    kind: DOC_IMPACT_KIND_NO_UPDATE,
     evidence: "Internal change, no docs affected.",
   });
 
@@ -2307,5 +2442,269 @@ describe("callOpenAIWithClient prompt-cache hygiene (mt#2722)", () => {
     const b = await run("variant two — different tier/principles");
     expect(a1).toBe(a2);
     expect(a1).not.toBe(b);
+  });
+});
+
+describe("callOpenAIWithClient per-round budget counter (mt#3547)", () => {
+  const MODEL = "gpt-5";
+  const BUDGET_PREFIX = "[TOOL BUDGET]";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+    prompt_tokens_details: { cached_tokens: 0 },
+  });
+
+  function makeToolCall(id: string, name: string, argsJson: string) {
+    return { id, type: "function", function: { name, arguments: argsJson } };
+  }
+
+  const VALID_CONCLUDE_ARGS = JSON.stringify({
+    event: "APPROVE",
+    summary: "No blocking issues.",
+  });
+  const VALID_DOC_IMPACT_ARGS = JSON.stringify({
+    kind: DOC_IMPACT_KIND_NO_UPDATE,
+    evidence: "Internal change, no docs affected.",
+  });
+
+  /** Fake client capturing each request's messages array (deep-copied). */
+  function makeCaptureClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI; capturedMessages: Array<Array<Record<string, unknown>>> } {
+    let callCount = 0;
+    const capturedMessages: Array<Array<Record<string, unknown>>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            // Deep copy: the production loop mutates the same array in place by
+            // pushing, so a shallow capture would show every call holding the
+            // final state and the append-only assertion below would pass
+            // vacuously.
+            capturedMessages.push(
+              JSON.parse(JSON.stringify(params["messages"])) as Array<Record<string, unknown>>
+            );
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client, capturedMessages };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => ({
+      kind: "text" as const,
+      content: "file contents",
+      truncated: false,
+    })),
+    listDirectory: mock(async () => null),
+  };
+
+  /** A main-loop round that calls read_file once. */
+  function readFileRound(i: number) {
+    return {
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [
+              makeToolCall(`rf${i}`, "read_file", JSON.stringify({ path: `src/f${i}.ts` })),
+            ],
+          },
+        },
+      ],
+      usage: makeUsage(),
+    };
+  }
+
+  function docImpactForced() {
+    return {
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [makeToolCall("di", TOOL_DOC_IMPACT, VALID_DOC_IMPACT_ARGS)],
+          },
+        },
+      ],
+      usage: makeUsage(),
+    };
+  }
+
+  function concludeForced() {
+    return {
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [makeToolCall("cr", "conclude_review", VALID_CONCLUDE_ARGS)],
+          },
+        },
+      ],
+      usage: makeUsage(),
+    };
+  }
+
+  // --- buildRoundBudgetNotice unit coverage -------------------------------
+
+  test("reports remaining TOOL-CAPABLE rounds, which is one fewer than the raw cap", () => {
+    // Round index 0 done => 1 of 10 rounds used. Nine rounds remain in raw
+    // terms, but the last passes no tools, so only 8 can carry a tool call.
+    const notice = buildRoundBudgetNotice(0, 10);
+    expect(notice).toContain("Round 1 of 10 complete");
+    expect(notice).toContain("8 tool-capable round(s) remain");
+  });
+
+  test("switches to wrap-up guidance with two tool-capable rounds left", () => {
+    const notice = buildRoundBudgetNotice(6, 10);
+    expect(notice).toContain("2 tool-capable round(s) remain");
+    expect(notice).toContain("Stop opening new lines of investigation");
+    expect(notice).toContain("conclude_review");
+  });
+
+  test("warns explicitly on the final tool-capable round that nothing later is captured", () => {
+    const notice = buildRoundBudgetNotice(8, 10);
+    expect(notice).toContain("0 tool-capable round(s) remain");
+    expect(notice).toContain("LAST round that could emit tool calls");
+  });
+
+  test("never reports a negative remaining count", () => {
+    expect(buildRoundBudgetNotice(20, 10)).toContain("0 tool-capable round(s) remain");
+  });
+
+  // --- Loop integration ---------------------------------------------------
+
+  test("appends the budget notice after each round's tool results", async () => {
+    const { client, capturedMessages } = makeCaptureClient([
+      readFileRound(0),
+      readFileRound(1),
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      docImpactForced(),
+      concludeForced(),
+    ]);
+
+    await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    // Round 1's request must end with the notice emitted after round 0.
+    const round1 = capturedMessages[1] ?? [];
+    const lastOfRound1 = round1[round1.length - 1];
+    expect(lastOfRound1?.["role"]).toBe("user");
+    expect(String(lastOfRound1?.["content"])).toContain(`${BUDGET_PREFIX} Round 1 of 10 complete`);
+
+    // ...and it sits AFTER that round's tool result, not before it.
+    const toolResultIdx = round1.findIndex((m) => m["role"] === "tool");
+    expect(toolResultIdx).toBeGreaterThan(-1);
+    expect(round1.length - 1).toBeGreaterThan(toolResultIdx);
+
+    // Round 2's request carries both notices, in order.
+    const round2 = capturedMessages[2] ?? [];
+    const notices = round2.filter((m) => String(m["content"] ?? "").startsWith(BUDGET_PREFIX));
+    expect(notices).toHaveLength(2);
+    expect(String(notices[0]?.["content"])).toContain("Round 1 of 10");
+    expect(String(notices[1]?.["content"])).toContain("Round 2 of 10");
+  });
+
+  test("injection is append-only: every main-loop request extends the previous one byte-identically", async () => {
+    const { client, capturedMessages } = makeCaptureClient([
+      readFileRound(0),
+      readFileRound(1),
+      readFileRound(2),
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      docImpactForced(),
+      concludeForced(),
+    ]);
+
+    await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    // Four main-loop calls (the two forced passes build their own arrays and
+    // are deliberately out of scope here — they branch rather than extend).
+    const mainLoopCalls = capturedMessages.slice(0, 4);
+    expect(mainLoopCalls).toHaveLength(4);
+
+    for (let i = 1; i < mainLoopCalls.length; i++) {
+      const prev = mainLoopCalls[i - 1] ?? [];
+      const next = mainLoopCalls[i] ?? [];
+      // Strictly longer, and the shared prefix is unchanged — this is the
+      // property the OpenAI prompt cache requires (mem#806: any in-place edit
+      // invalidates the cache from the edit point on).
+      expect(next.length).toBeGreaterThan(prev.length);
+      expect(next.slice(0, prev.length)).toEqual(prev);
+    }
+  });
+
+  test("emits no budget notice when the model concludes on the first round", async () => {
+    const { client, capturedMessages } = makeCaptureClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeToolCall("cr0", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      docImpactForced(),
+    ]);
+
+    await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    // Round 0 itself cannot carry a notice (nothing has completed yet).
+    const round0 = capturedMessages[0] ?? [];
+    expect(round0.some((m) => String(m["content"] ?? "").startsWith(BUDGET_PREFIX))).toBe(false);
+  });
+
+  // --- toolLoop diagnostics ----------------------------------------------
+
+  test("reports concludedInLoop true and no gate branch when the model stops on its own", async () => {
+    const { client } = makeCaptureClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeToolCall("cr0", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      docImpactForced(),
+    ]);
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    expect(result.toolLoop?.concludedInLoop).toBe(true);
+    expect(result.toolLoop?.forcedConcludeGateBranch).toBeNull();
+    expect(result.toolLoop?.maxRounds).toBe(10);
+    expect(result.toolLoop?.roundsUsed).toBe(2);
+  });
+
+  test("reports concludedInLoop false when only the forced pass supplied conclude_review", async () => {
+    const { client } = makeCaptureClient([
+      readFileRound(0),
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      docImpactForced(),
+      concludeForced(),
+    ]);
+
+    const result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+
+    // conclude_review IS present in toolCalls — supplied by the forced pass.
+    // That is exactly why concludedInLoop cannot be derived from toolCalls.
+    expect(result.toolCalls.some((tc) => tc.name === "conclude_review")).toBe(true);
+    expect(result.toolLoop?.concludedInLoop).toBe(false);
+    expect(result.toolLoop?.forcedConcludeGateBranch).toBe("emitted_nothing");
+    expect(result.toolLoop?.roundsUsed).toBe(2);
   });
 });

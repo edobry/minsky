@@ -12,6 +12,100 @@ import { z } from "zod";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "@minsky/shared/logger";
 import { countOccurrences } from "./session-edit-tools";
+import { formatLineCount } from "@minsky/domain/ai/edit-pattern-utils";
+
+/** Shape of the collapse detector this module consumes (mt#2577's predicate). */
+type CollapseDetector = (
+  originalContent: string,
+  finalContent: string
+) => { originalLines: number; finalLines: number } | null;
+
+/**
+ * Throws when the apply model's merge result collapsed the spec (mt#3674).
+ *
+ * Exported and dependency-injected purely so the refusal is testable without
+ * reaching into the handler's dynamic imports: the handler resolves the real
+ * `detectSuspiciousCollapse` at call time and passes it in. That keeps this a
+ * pure decision over strings — the `assert`-shaped signature is the only IO.
+ *
+ * The DECISION itself is not defined here; it lives in
+ * `@minsky/domain/ai/edit-pattern-utils` alongside the growth guard, shared with
+ * `session_edit_file`. This function owns only the spec-surface refusal message,
+ * which differs from the file surface in one load-bearing way: a file can be
+ * restored from git, a task spec cannot be restored from anything.
+ */
+/**
+ * What the handler should DO with a merge result — the ordering of the collapse guard
+ * relative to the dry-run preview and the write, as DATA (mt#3674, PR #2618 R1).
+ *
+ * Extracted because the ordering was previously enforced only by statement order plus a
+ * comment: the guard sat above `if (dryRun)` and above the write, and a refactor moving it
+ * below either would have failed no test. That is the same defect class this guard exists to
+ * prevent, one level up. Modelling the outcome as a value makes "a collapse refuses BEFORE
+ * anything is written, and before a preview is returned" an asserted property rather than an
+ * invariant of line numbers. Follows the pure-decision-core pattern (mt#3629).
+ *
+ * Precedence, and the reason for it:
+ *   1. `refuse` — a collapse outranks EVERYTHING, including `dryRun`. A preview that renders a
+ *      collapsed body as a normal diff would read as an ordinary large edit.
+ *   2. `preview` — dry-run, once the content is known not to be collapsed.
+ *   3. `write`.
+ */
+export type SpecPatchOutcome =
+  | { kind: "refuse"; message: string }
+  | { kind: "preview" }
+  | { kind: "write" };
+
+export function decideSpecPatchOutcome(args: {
+  taskId: string;
+  originalContent: string;
+  finalContent: string;
+  allowShrink: boolean;
+  dryRun: boolean;
+  /** False for a brand-new spec / marker-less full replacement — the guard only covers merges. */
+  wasMarkerMerge: boolean;
+  detect: CollapseDetector;
+}): SpecPatchOutcome {
+  if (args.wasMarkerMerge) {
+    try {
+      assertNoSuspiciousSpecCollapse(
+        args.taskId,
+        args.originalContent,
+        args.finalContent,
+        args.allowShrink,
+        args.detect
+      );
+    } catch (err) {
+      return { kind: "refuse", message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return args.dryRun ? { kind: "preview" } : { kind: "write" };
+}
+
+export function assertNoSuspiciousSpecCollapse(
+  taskId: string,
+  originalContent: string,
+  finalContent: string,
+  allowShrink: boolean,
+  detect: CollapseDetector
+): void {
+  if (allowShrink) return;
+  const collapse = detect(originalContent, finalContent);
+  if (!collapse) return;
+
+  const dropPct = Math.round((1 - collapse.finalLines / collapse.originalLines) * 100);
+  throw new Error(
+    `Refusing to patch task ${taskId}: the merge result is dramatically smaller than the ` +
+      `original spec (${formatLineCount(collapse.originalLines)} -> ` +
+      `${formatLineCount(collapse.finalLines)}, a ${dropPct}% ` +
+      `drop). This is the marker-collapse failure (mt#2577/mt#3674): the apply model likely ` +
+      `mis-resolved a '// ... existing code ...' marker — check the patch content for stray text ` +
+      `outside the intended edit. Re-issue with tighter, smaller marker regions, or pass ` +
+      `allowShrink=true if this large deletion is intentional. A task spec has no version ` +
+      `history, so this refusal is the only thing standing between a malformed patch and ` +
+      `unrecoverable content loss.`
+  );
+}
 
 // ========================
 // SCHEMAS
@@ -45,6 +139,13 @@ const TaskEditSchema = TaskIdentifierSchema.extend(
       ),
     content: z.string().describe("The edit content with '// ... existing code ...' markers"),
     dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
+    allowShrink: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Override the mt#3674 collapse guard, which refuses a merge result dramatically smaller than the original spec. Set true only when the large deletion is intentional."
+      ),
   }).shape
 );
 
@@ -99,14 +200,16 @@ DO NOT omit spans of pre-existing content without using the // ... existing code
 
 Make all edits to a task spec in a single call instead of multiple calls to the same task.
 
-FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.`,
+FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.
+
+COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the rest of the payload, and the merge is performed by a fast-apply model. A merge result dramatically smaller than the original spec is REFUSED — that is the signature of the model mis-resolving a marker (e.g. because stray text was prefixed before the intended patch body). Re-issue with tighter marker regions, or pass allowShrink=true for an intentional large deletion. Task specs have no version history, so this refusal is the last line before unrecoverable content loss.`,
     parameters: TaskEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.
       const [
         { getTaskSpecContentFromParams, updateTaskFromParams },
         { applyEditPattern },
-        { hasExistingCodeMarkers },
+        { hasExistingCodeMarkers, detectSuspiciousCollapse },
         { autoIndexTaskEmbedding },
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
@@ -194,7 +297,35 @@ FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ...
             finalContent = typedArgs.content;
           }
 
-          if (typedArgs.dryRun) {
+          // mt#3674 collapse guard. The marker check above validates the MARKER, not the rest
+          // of the payload — and the merge is performed by a fast-apply MODEL whose output was
+          // previously written unchecked, so a patch carrying a valid marker plus malformed
+          // text could come back as anything.
+          //
+          // Originating incident (mt#3339, 2026-08-04): a stray fragment accidentally prefixed
+          // before an otherwise-correct patch body; the model returned a 7-character string; a
+          // ~26,000-character spec was destroyed with no error. A task spec has NO version
+          // history and no undo, so unlike the file surface this is unrecoverable — which is
+          // why leaving this tool the weaker one was backwards.
+          //
+          // Same predicate as `session_edit_file` (mt#2577), imported rather than re-derived.
+          // The guard/preview/write ORDERING is decided as DATA (PR #2618 R1) rather than by
+          // statement order: a `refuse` outranks `dryRun`, so a collapsed merge never renders
+          // as an ordinary preview and never reaches the write below.
+          const outcome = decideSpecPatchOutcome({
+            taskId: typedArgs.taskId,
+            originalContent,
+            finalContent,
+            allowShrink: typedArgs.allowShrink,
+            dryRun: typedArgs.dryRun,
+            wasMarkerMerge: specExists && hasMarkers,
+            detect: detectSuspiciousCollapse,
+          });
+          if (outcome.kind === "refuse") {
+            throw new Error(outcome.message);
+          }
+
+          if (outcome.kind === "preview") {
             // Return preview information without making changes
             const stats = {
               originalLines: originalContent.split("\n").length,

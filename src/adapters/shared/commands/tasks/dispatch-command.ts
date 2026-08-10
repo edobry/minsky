@@ -372,7 +372,8 @@ export function createTasksDispatchCommand(
         {
           action: "tasks.dispatch",
           // mt#3162: the negative half of the same gate — a prohibition in `instructions`
-          // must carry its basis and an explicit licence to falsify.
+          // must carry its basis. mt#3167 narrowed the check here too: it once also required
+          // an explicit licence to falsify, retired at 8/8 measured false positives.
           structuralCheck: () => checkInstructionsForBareProhibition(p.instructions),
         }
       );
@@ -675,12 +676,22 @@ export function createTasksDispatchCommand(
 
       // Step 5 (mt#1737): Write a pending invocation row at dispatch time.
       //
-      // Outcome choice: `crashed-no-output` is the pessimistic default that the
-      // SubagentStop classifier will overwrite via upsert on subagentSessionId.
-      // There is no "pending" enum value in the schema (deferred follow-up).
-      // Using `crashed-no-output` ensures that if the SubagentStop hook never
-      // fires (process kill, network error), the row describes the worst-case
-      // observed state rather than an unresolved placeholder.
+      // Outcome choice (mt#1770): `pending` — the dispatch-time placeholder the
+      // SubagentStop classifier overwrites via upsert on subagentSessionId.
+      //
+      // This used to seed `crashed-no-output` as a "pessimistic default," with the
+      // note "there is no `pending` enum value in the schema (deferred follow-up)."
+      // That follow-up is mt#1770, and the pessimistic default turned out to be
+      // actively wrong: `crashed-no-output` reads as an OBSERVATION to every
+      // consumer, so a row that was merely never closed became indistinguishable
+      // from a subagent that genuinely produced nothing. Measured 2026-07-31:
+      // 6 of 19 dispatches in 48h carried that verdict while their tasks had
+      // actually shipped, and `tasks_dispatch-recover` was spending its 2-attempt
+      // auto-resume bound on the phantoms.
+      //
+      // If the SubagentStop hook never fires, the row now stays `pending` — which
+      // is the truthful description of that state (nobody observed an outcome),
+      // not a worst-case guess dressed as a measurement.
       //
       // Correlation key: PR #1053 R1 BLOCKING #1 — the upsert key MUST be the
       // subagent's Minsky session ID, which is known at BOTH dispatch time
@@ -697,7 +708,7 @@ export function createTasksDispatchCommand(
             agentType: promptResult.agentType ?? p.type,
             suggestedModel: promptResult.suggestedModel ?? null,
             startedAt: new Date(),
-            outcome: "crashed-no-output",
+            outcome: "pending",
           });
           log.debug("[tasks.dispatch] Pending invocation row written", { taskId, invocationId });
 

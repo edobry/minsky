@@ -79,7 +79,19 @@ import {
   type AskWaitForResponseResult,
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+// Severity transport binding (mt#3595)
+import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
+import {
+  PAGE_RATE_LIMIT_MAX,
+  PAGE_RATE_LIMIT_WINDOW_MS,
+  pagePrincipalForAsk,
+  type PrincipalPageDeps,
+} from "@minsky/domain/ask/principal-page";
+import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
@@ -93,6 +105,7 @@ import {
 } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { linkifyExternalRefs } from "@minsky/domain/ask/external-refs";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
@@ -194,6 +207,33 @@ export async function buildAskRepository(
 ): Promise<AskRepository | null> {
   const db = await getAskDb(container);
   return db ? new DrizzleAskRepository(db) : null;
+}
+
+/**
+ * Build the repository or throw an error that NAMES why it is unavailable
+ * (mt#3636).
+ *
+ * The eight ask commands previously each threw
+ * "AskRepository unavailable — persistence provider does not support SQL".
+ * That is loud — which is already better than the task read path, which
+ * answered empty — but it does not distinguish "Postgres was never configured"
+ * from "Postgres is configured and the boot connection failed", and those need
+ * opposite responses from the operator. The discriminating detail lives on
+ * `UnconfiguredPersistenceProvider`; this surfaces it.
+ */
+export async function requireAskRepository(
+  container: AppContainerInterface | undefined,
+  operation: string
+): Promise<AskRepository> {
+  const repo = await buildAskRepository(container);
+  if (repo) return repo;
+
+  // Extracted to ./persistence-unavailability (mt#3661) so the six other
+  // adapter-side callers of the same pattern share one implementation. Behavior
+  // is unchanged, including the never-throw fallback.
+  const cause = await describeContainerPersistenceUnavailability(container, "asks");
+
+  throw new Error(`${operation}: AskRepository unavailable — ${cause}`);
 }
 
 /**
@@ -721,6 +761,20 @@ export const asksCreateParams = {
       "Use only for critical-path unblocking.",
     required: false,
   },
+  severity: {
+    schema: z.enum(["incident"] as const).optional(),
+    description:
+      "Set to 'incident' when a severity trigger fired AND remediation is operator-only " +
+      "(production incident, outage, security finding, blocked-past-threshold). On an " +
+      "operator-routed ask this sends the principal ONE notification on their phone " +
+      "pointing at this ask — you do not need to send a separate notification yourself. " +
+      "Both halves are required: an incident you can fix yourself does not warrant it, " +
+      "and an operator-only chore that is not a severity event belongs in the normal inbox.",
+    required: false,
+  },
+  // NOTE: `principalPagedAt` is deliberately absent from this schema. It is
+  // substrate-owned (mt#3595) — written only after a page actually goes out, so
+  // a caller cannot claim a notification it never sent.
   // NOTE: `windowMissedCount` is intentionally omitted from this MCP parameter schema.
   // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
   // window opens and the Ask is still pending. Callers must not set it directly via
@@ -847,9 +901,17 @@ export function validateAuthorizationApproveOptions(params: {
  * this filters only at the decision points that need the blocking/advisory
  * distinction, not at the point that computes matches.
  *
- * The exclusion list stays a DENYLIST of one, deliberately: a new check
- * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
- * added — it blocks with the original five. Its basis is recorded in
+ * The exclusion list stays a DENYLIST, deliberately: a new check blocks
+ * unless it is added here. Two are excluded. `unlinkified-reference`
+ * (mt#2918) is the second: the transform beside it is best-effort by design
+ * — it linkifies a CUED external reference and warns about the rest — and an
+ * ask carrying a citation it could not resolve is still a decidable ask, so
+ * rejecting the create would withhold a decision over a formatting gap. The
+ * warning's job is to tell the author; blocking is a different, harsher
+ * claim than the evidence supports.
+ *
+ * `missing-decision-options` (mt#3477) is NOT added — it blocks with the
+ * original five. Its basis is recorded in
  * `form-lint.ts`'s module header: no false-positive class to calibrate (an
  * optionless `direction.decide` renders zero buttons by construction), and
  * the family's own escalation threshold (mem#760: three form-failure
@@ -859,8 +921,31 @@ export function validateAuthorizationApproveOptions(params: {
  * Exported for direct testing, matching `validateFormLintNotViolated`'s
  * pattern above.
  */
+/**
+ * Return `params` with its question normalized to the form that will actually
+ * be PERSISTED (mt#2918).
+ *
+ * The single normalization seam shared by the two places that need it:
+ * `asks.create`'s `validate` hook, which must not reject a body the transform
+ * is about to fix, and `createAskWithFormLint`, which writes that body. Naming
+ * it makes the ordering legible at both call sites instead of leaving it as an
+ * implementation detail of whichever function happens to run first — PR #2755
+ * R1/R2 both landed on that ambiguity.
+ *
+ * Idempotent, because `linkifyExternalRefs` is: a question that already carries
+ * its URLs comes back unchanged, so applying this twice is a no-op rather than
+ * a double-append.
+ */
+export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+  if (typeof params.question !== "string") return params;
+  const { text } = linkifyExternalRefs(params.question);
+  return text === params.question ? params : { ...params, question: text };
+}
+
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
-  return matches.filter((m) => m.check !== "missing-force-immediate");
+  return matches.filter(
+    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+  );
 }
 
 /**
@@ -910,10 +995,18 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
  * true` on the calibration-log entry when it is used, so override frequency
  * stays reviewable via `/calibration-review`.
  *
- * Scope: `asks.create` only. `asks.edit` does not compute form-lint at all
- * (before or after this change) — extending enforcement to edits that
- * introduce a new violation is out of scope for this task (see the spec's
- * Design Decision section).
+ * Scope, ORIGINALLY: `asks.create` only. mt#3326 recorded here that
+ * `asks.edit` "does not compute form-lint at all" and declared extending it
+ * out of scope. **mt#3929 closed that gap** — see
+ * `validateEditFormLintAgainstExistingAsk` below.
+ *
+ * Why it mattered: `asks_edit` is the repair path the corpus recommends for a
+ * rejected create (mem#760 rule 4, "prefer it over cancel+refile"), so the
+ * enforced surface handed every fix-up to the unenforced one. Measured
+ * 2026-08-10 (ask#7591): a create was hard-rejected for `over-word-budget`
+ * and `long-option-label`, trimmed to pass — and a later edit restored a body
+ * well over budget with no warning at all. Both of mt#3326's declared scope
+ * limits were exercised by one incident.
  *
  * The underlying `computeFormLintMatches` stays pure and advisory-in-itself
  * (unchanged by this task) — this function is what makes its output
@@ -932,15 +1025,38 @@ export function validateFormLintNotViolated(params: {
   options?: Array<{ label: string }>;
   forceImmediate?: boolean;
   acknowledgeFormWarnings?: boolean;
+  /**
+   * Which command boundary is rejecting, for the error text (mt#3929). Defaults to
+   * `asks.create` — the only surface that enforced this until the edit path joined it.
+   */
+  surface?: "asks.create" | "asks.edit";
 }): void {
   if (params.acknowledgeFormWarnings) return;
   // Absence of kind/question is a required-field concern the parameter
   // schema already enforces — nothing for this check to add.
   if (!params.kind || !params.question) return;
 
+  // mt#2918 (PR #2755 R1): lint the text that will actually be PERSISTED, not
+  // the caller's raw input. `createAskWithFormLint` linkifies external
+  // references before the repo write, so validating the pre-transform text
+  // judges a body that never exists. The failure is a false hard-reject:
+  // `portal-no-link` fires on an authorization.approve question that names a
+  // portal action and carries no URL — which is exactly the state of a
+  // question whose only citation is a Notion page id the transform was about
+  // to resolve. The author would be rejected for a defect the system had
+  // already fixed.
+  //
+  // Normalizing here rather than special-casing `portal-no-link` is
+  // deliberate: any present or future check that reads for a URL inherits the
+  // same mismatch, so the fix belongs at the text, not at the check. One
+  // consequence worth naming: `over-word-budget` now counts the appended URLs.
+  // That is correct — the budget should measure the body the principal
+  // actually receives.
+  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+
   const matches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    question: normalizedQuestion,
     options: params.options,
     forceImmediate: params.forceImmediate,
   });
@@ -949,13 +1065,16 @@ export function validateFormLintNotViolated(params: {
 
   const violations = blocking.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
   const plural = blocking.length > 1 ? "s" : "";
+  const surface = params.surface ?? "asks.create";
+  const verb = surface === "asks.edit" ? "edit" : "create";
   throw new ValidationError(
-    `asks.create: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
+    `${surface}: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
       `${violations}\n\n` +
-      `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
-      `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
-      `genuinely long/complex and the violation is warranted, pass acknowledgeFormWarnings: ` +
-      `true to create it anyway — this is recorded for calibration review, not a silent bypass.`
+      `Form-lint checks are consequential at the asks_${verb} boundary (mt#3326, extended to ` +
+      `edits by mt#3929): the ${verb} is rejected rather than silently accepted with an ` +
+      `ignorable warning. If this ask is genuinely long/complex and the violation is ` +
+      `warranted, pass acknowledgeFormWarnings: true to ${verb} it anyway — this is recorded ` +
+      `for calibration review, not a silent bypass.`
   );
 }
 
@@ -988,6 +1107,12 @@ export interface CreateAskParams {
   windowKey?: string;
   /** Bypass window check and route immediately (default false). */
   forceImmediate?: boolean;
+  /**
+   * Severity marker (mt#3595). `"incident"` on an operator-routed ask makes the
+   * substrate page the principal once, so the escalation does not depend on the
+   * producer remembering a separate notify call.
+   */
+  severity?: AskSeverity;
   /**
    * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). The
    * `asks.create` execute path resolves this via `resolveCurrentProjectScope`;
@@ -1033,7 +1158,13 @@ export interface CreateAskParams {
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
-  routerOptions: PolicyFirstRouteOptions = {}
+  routerOptions: PolicyFirstRouteOptions = {},
+  /**
+   * Delivery seam for the severity page (mt#3595). Omitted in production, where
+   * the real Telegram-backed deps are built on demand; a test passes a stub to
+   * assert the page decision without a network call.
+   */
+  pageDeps?: PrincipalPageDeps
 ): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> {
   // Apply per-kind service-window defaults when the requestor has not supplied
   // explicit values. Explicit params always win over defaults (mt#1488 SC4).
@@ -1072,6 +1203,10 @@ export async function createAsk(
     // The router (mt#1490) observes this field to bypass the window check and route
     // immediately. createAsk does not act on it directly — that logic lives in the router.
     forceImmediate: params.forceImmediate ?? false,
+    // Severity marker (mt#3595) — read AFTER routing by the page dispatch below,
+    // since the page requires an operator routingTarget that does not exist yet
+    // at insert time.
+    severity: params.severity,
   };
 
   const ask = await repo.create(input);
@@ -1102,17 +1237,49 @@ export async function createAsk(
   // in-memory result while the row stayed "detected" forever — the
   // write-only-graveyard root cause. The returned object is reconciled from
   // the persisted row so the tool response never narrates unpersisted state.
-  const { write } = routeResultToOutcomeWrite(routed);
+  // `ask.routingTarget` is whatever the CREATOR passed to `repo.create`. When
+  // it is an explicit "operator" it wins over the kind→target default (mt#3491)
+  // — see routeResultToOutcomeWrite's docblock for why (the reviewer
+  // circuit-breaker emitter is the live case).
+  const { write } = routeResultToOutcomeWrite(routed, ask.routingTarget);
   const persisted = await repo.persistRouteOutcome(ask.id, write);
 
+  // Severity transport binding (mt#3595). Fires AFTER the route outcome is on
+  // disk, because the decision needs the resolved routingTarget — an ask that
+  // has not routed yet reads as not-operator-bound and would never page.
+  //
+  // This is a SECONDARY transport: it runs alongside the ask's ADR-008 primary
+  // routing and changes no ask state, matching the shape the transport matrix
+  // already uses for `authorization.approve` ("Mesh notify on resolve").
+  // Deleting this block would leave every ask routed exactly as it is today.
+  //
+  // Never allowed to fail creation — see pagePrincipalForAsk's contract. The
+  // ask IS the decision record; losing it to a notification failure would be
+  // strictly worse than losing the notification.
+  await dispatchPrincipalPage(repo, persisted, pageDeps);
+
   if (write.state === "suspended") {
+    if (!persisted.routingTarget) {
+      // A suspended row should always carry a routingTarget — both write paths
+      // that produce `state: "suspended"` set one. Falling back to the router
+      // result keeps the response usable, but the divergence means the DB layer
+      // dropped a field, so say so loudly rather than papering over it
+      // (R1 non-blocking).
+      log.warn(
+        "createAsk: persisted suspended ask has no routingTarget; falling back to the router result",
+        { askId: ask.id, routerRoutingTarget: routed.routingTarget }
+      );
+    }
     // Operator-bound (inbox / elicitation-fallback) or window-deferred:
     // suspended = waiting for a response; visible on the cockpit /asks
     // surface and respondable via respondAndClose.
     const suspended: SuspendedAsk = {
       ...routed,
       state: "suspended",
-      routingTarget: routed.routingTarget,
+      // From the PERSISTED row, not the router result — a creator-specified
+      // target overrides the router's, and the response must not narrate a
+      // different target than the one on disk (mt#3491).
+      routingTarget: persisted.routingTarget ?? routed.routingTarget,
       transport: routed.transport,
       packagedPayload: routed.packagedPayload,
       routedAt: persisted.routedAt,
@@ -1134,6 +1301,120 @@ export async function createAsk(
     routedAt: persisted.routedAt ?? routed.routedAt,
     closedAt: persisted.closedAt ?? routed.closedAt,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Severity → principal page (mt#3595)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the production delivery seam for the severity page.
+ *
+ * A factory rather than a constant so each dispatch gets a fresh closure and
+ * tests can substitute the whole object at the `createAsk` seam.
+ */
+function makeProductionPageDeps(): PrincipalPageDeps {
+  return {
+    async send(message) {
+      // Never reach the live channel from a test run (mt#3557 / mt#3538 class).
+      // `notifyPrincipal` resolves credentials from the Pulumi stack when env
+      // vars are absent, so an un-injected call here would spawn `pulumi` and
+      // message the principal for real. That hazard is NEW with this dispatch:
+      // it fires from `createAsk`, which is on far more test paths than the
+      // `principal.notify` command those two tasks were about — no current test
+      // creates a severity ask, but nothing stops the next one.
+      //
+      // Reported as a LOUD non-delivery rather than a silent success: the
+      // caller records it, so a test that genuinely expects delivery fails
+      // visibly instead of passing against a no-op. A test that wants the real
+      // decision path injects `pageDeps` at the `createAsk` seam.
+      if (process.env.NODE_ENV === "test") {
+        return {
+          delivered: false,
+          error:
+            "suppressed-in-test: production page deps were used without injection — " +
+            "pass pageDeps to createAsk to exercise this path",
+        };
+      }
+      try {
+        const result = await notifyPrincipal({
+          message: message.message,
+          title: message.title,
+          ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
+        });
+        return result.delivered
+          ? { delivered: true }
+          : // notifyPrincipal reports a structured failure (`reason` +
+            // `detail`) rather than an `error` string — flatten both so the
+            // recorded failure says WHICH failure it was, not just that one
+            // happened. "not-configured" and "send-failed" want very different
+            // operator responses.
+            { delivered: false, error: `${result.reason}: ${result.detail}` };
+      } catch (err: unknown) {
+        return { delivered: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+
+    async recordFailure(ask, error) {
+      // Log FIRST and unconditionally. The event row is best-effort by nature
+      // (it needs a live DB, which may be the very thing that is broken), so it
+      // cannot be the only record — a page failure that leaves no trace at all
+      // is indistinguishable from an incident nobody reported.
+      log.error("ask.page_failed: could not page the principal about a severity ask", {
+        askId: ask.id,
+        shortId: ask.shortId,
+        error,
+      });
+      try {
+        const provider = await resolvePersistenceProvider();
+        await emitSystemEventFromProvider(provider ?? undefined, {
+          eventType: "ask.page_failed",
+          payload: { askId: ask.id, shortId: ask.shortId, error },
+          ...(ask.parentTaskId === undefined ? {} : { relatedTaskId: ask.parentTaskId }),
+        });
+      } catch (err: unknown) {
+        log.warn("ask.page_failed: event emission also failed (already logged above)", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    now: () => new Date(),
+  };
+}
+
+/**
+ * Run the severity-page dispatch for a just-routed Ask.
+ *
+ * Swallow-by-design at this boundary, and the ONE place in this flow where that
+ * is correct: `pagePrincipalForAsk` already records its own failures durably,
+ * so anything escaping here is a defect in the page path itself — and failing
+ * ask creation because a notification broke would destroy the decision record
+ * to protect the reminder about it.
+ */
+async function dispatchPrincipalPage(
+  repo: AskRepository,
+  ask: Ask,
+  deps?: PrincipalPageDeps
+): Promise<void> {
+  try {
+    const outcome = await pagePrincipalForAsk(ask, repo, deps ?? makeProductionPageDeps());
+    if (outcome.reason === "rate-limited") {
+      // Never a silent cap (`work-completion.mdc`): a suppressed page must say
+      // so, with the count, or the ceiling reads as "nothing needed sending".
+      log.warn("ask page suppressed by rate limit", {
+        askId: ask.id,
+        recentPageCount: outcome.recentPageCount,
+        windowHours: PAGE_RATE_LIMIT_WINDOW_MS / (60 * 60 * 1000),
+        max: PAGE_RATE_LIMIT_MAX,
+      });
+    }
+  } catch (err: unknown) {
+    log.error("ask page dispatch threw; ask creation is unaffected", {
+      askId: ask.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1169,10 +1450,19 @@ export async function createAskWithFormLint(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
-  const ask = await createAsk(repo, params, routerOptions);
+  // mt#2918: make external artifact citations reachable BEFORE the body is
+  // persisted, so every downstream reader — the cockpit inbox, the CLI, a
+  // notification payload — carries the URL rather than a bare page id. The
+  // display-surface linkifier cannot do this job: it resolves refs against a
+  // Minsky id-set, and a Notion page id is in no Minsky index.
+  const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
+
+  const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    // Lint the PERSISTED text, not the caller's input: a reference the
+    // transform just made reachable must not also be reported as a defect.
+    question: persistedParams.question,
     // Option labels are lint input too (mt#3253) — they render as the decision
     // buttons, so a 167-char label or one repeating the surface-rendered letter
     // is a form defect the producer should hear about.
@@ -1253,7 +1543,7 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
 // asks.edit — schemas + validation (mt#2668)
 // ---------------------------------------------------------------------------
 
-const asksEditParams = {
+export const asksEditParams = {
   id: {
     schema: z.string().trim().min(1),
     description: "Ask ID (UUID) to edit",
@@ -1289,6 +1579,16 @@ const asksEditParams = {
     schema: z.string().trim().min(1).optional(),
     description:
       "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+    required: false,
+  },
+  acknowledgeFormWarnings: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the form-lint hard-reject (mt#3929) for this edit call. The same " +
+      "escape asks_create offers: use it when the ask is genuinely long/complex and the " +
+      "violation is warranted, or when repairing one field of an ask whose pre-existing body " +
+      "already violates. Without it, an edit whose RESULTING question/options fail any " +
+      "form-lint check is rejected.",
     required: false,
   },
 };
@@ -1446,6 +1746,109 @@ export function editRequiresApproveOptionsGuard(
   return params.options !== undefined;
 }
 
+/**
+ * Gate for whether an `asks.edit` needs the form-lint check (mt#3929).
+ *
+ * Only an edit that touches `question` or `options` can change what form-lint
+ * reads — a title/contextRefs/metadata-only edit cannot, so it skips the
+ * (persistence-touching) guard entirely rather than merely passing it. Pure and
+ * exported so that skip is directly testable, mirroring
+ * `editRequiresApproveOptionsGuard`.
+ */
+export function editRequiresFormLintGuard(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): boolean {
+  return params.question !== undefined || params.options !== undefined;
+}
+
+/**
+ * The option shape form-lint actually reads (mt#3929): it inspects `label` and nothing else.
+ * Kept deliberately wider than `AskOption` so a caller can pass either a full persisted option
+ * or a label-only literal — narrowing to `AskOption` here would buy no safety, since `value` is
+ * never consulted, and would force casts at every call site.
+ */
+export type FormLintOptionShape = { label: string; value?: unknown };
+
+/**
+ * The POST-EDIT question/options an `asks.edit` will persist (mt#3929).
+ *
+ * Form-lint has to judge the **result**, not the payload: an edit that replaces
+ * only `options` still produces a body whose word budget is set by the EXISTING
+ * question, and an edit that rewrites only `question` is bounded by the existing
+ * options' labels. Linting the payload alone would let either half slip past by
+ * being absent.
+ *
+ * Deliberately a merge, not a diff. An edit that leaves an existing violation
+ * untouched should not be blamed for it — but under this merge it IS still
+ * rejected, and that is the intended reading of "lint the result": a caller who
+ * edits an already-over-budget ask is asked to bring it into budget while they
+ * are in there. The escape is the same `acknowledgeFormWarnings` the create path
+ * offers, so the pre-existing-violation case has a one-flag answer rather than a
+ * carve-out nobody can see.
+ *
+ * Pure, so the merge semantics are testable without a repository.
+ */
+export function mergeEditForFormLint(
+  existing: Pick<Ask, "kind" | "question"> & { options?: FormLintOptionShape[] },
+  params: Pick<EditAskContentParams, "question"> & { options?: FormLintOptionShape[] }
+): { kind: AskKind; question: string; options?: FormLintOptionShape[] } {
+  return {
+    kind: existing.kind,
+    question: params.question ?? existing.question,
+    options: params.options ?? existing.options,
+  };
+}
+
+/**
+ * Run the create path's form-lint against what an `asks.edit` will actually
+ * persist (mt#3929) — closing the gap mt#3326 declared out of scope.
+ *
+ * Fetches the existing Ask to build the post-edit state (see
+ * `mergeEditForFormLint`), then delegates to the SAME
+ * `validateFormLintNotViolated` the create boundary uses, so the two surfaces
+ * cannot drift into different checks, different blocking subsets, or different
+ * override semantics. Only the surface name in the error text differs.
+ *
+ * Fail-open on a fetch failure, matching
+ * `validateEditOptionsAgainstExistingAsk` and this file's convention for
+ * resolution helpers: a transient DB blip must not block a repair to an ask
+ * that is already live.
+ */
+export async function validateEditFormLintAgainstExistingAsk(
+  repo: AskRepository | null,
+  resolvedId: string,
+  params: Pick<EditAskContentParams, "question" | "options"> & {
+    acknowledgeFormWarnings?: boolean;
+  }
+): Promise<void> {
+  if (params.acknowledgeFormWarnings) return;
+  if (!repo) return; // fail-open — execute() surfaces its own clear error
+
+  let existing: Ask | null;
+  try {
+    existing = await repo.getById(resolvedId);
+  } catch (err: unknown) {
+    log.warn("asks.edit: could not fetch existing Ask to run form-lint (fail-open)", {
+      askId: resolvedId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  const merged = mergeEditForFormLint(existing, params);
+  validateFormLintNotViolated({
+    kind: merged.kind,
+    question: merged.question,
+    options: merged.options,
+    // `forceImmediate` is not editable, so the existing value governs; reading
+    // it off the ask keeps a check that consults it (severity/transport shape)
+    // judging the real record rather than a default.
+    forceImmediate: existing.forceImmediate,
+    surface: "asks.edit",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // asks.create — form-lint result shape (mt#2798)
 // ---------------------------------------------------------------------------
@@ -1527,12 +1930,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.list: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.list");
 
         const allProjects = params.allProjects as boolean | undefined;
         const summary = params.summary as boolean | undefined;
@@ -1588,12 +1986,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksGetParams,
       execute: async (params): Promise<Ask> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.get: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.get");
 
         const rawId = params.id as string;
         // mt#2696: resolve a short-prefix citation before it ever reaches a
@@ -1615,12 +2008,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: true,
       parameters: asksReconcileParams,
       execute: async (): Promise<ReconcileResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.reconcile: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.reconcile");
 
         let tokenProvider;
         try {
@@ -1672,12 +2060,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: false,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.respond: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.respond");
 
         // mt#2696: resolve a short-prefix citation to the full uuid before it
         // ever reaches a Postgres `uuid` column comparison.
@@ -1741,15 +2124,18 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // mt#3326: reject a create whose question/options fail any form-lint
         // check, unless the caller explicitly acknowledges them. Runs last —
         // fixing form/wording is usually the last thing an author checks.
-        validateFormLintNotViolated(params);
+        //
+        // mt#2918 / PR #2755: the question is normalized to its PERSISTED form
+        // before it is linted, so `validate` and `execute` judge the same text.
+        // Without this a URL-reading check (`portal-no-link`) rejects a body
+        // whose only missing link the transform was about to add.
+        // `validateFormLintNotViolated` also normalizes internally, so a caller
+        // that forgets this is still correct; `linkifyExternalRefs` is
+        // idempotent, which is what makes applying it at both seams safe.
+        validateFormLintNotViolated(normalizeQuestionForLint(params));
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.create: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.create");
 
         // ADR-021 / mt#2563: resolve the current project and stamp it on the new
         // Ask so it is visible to the default project-scoped asks.list — completes
@@ -1795,6 +2181,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               | undefined,
             windowKey: params.windowKey as string | undefined,
             forceImmediate: params.forceImmediate as boolean | undefined,
+            // mt#3595 — drives the substrate-sent page; see the param's schema
+            // description for when it applies.
+            severity: params.severity as AskSeverity | undefined,
             // ADR-021 / mt#2563: stamp the resolved project on the new Ask.
             projectId: resolvedProjectId,
           },
@@ -1890,12 +2279,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       requiresSetup: false,
       parameters: asksWaitForResponseParams,
       execute: async (params): Promise<AskWaitForResponseResult> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.wait-for-response: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.wait-for-response");
 
         // mt#2696: resolve a short-prefix citation before it ever reaches a
         // Postgres `uuid` column comparison.
@@ -1954,18 +2338,61 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             params.options as Array<{ label: string; value?: unknown }>
           );
         }
+
+        // mt#3929: form-lint the POST-EDIT body. mt#3326 made these checks
+        // consequential on `asks.create` and explicitly left the edit path
+        // alone — but the edit path is the repair route the corpus recommends
+        // for a rejected create (mem#760 rule 4), so every fix-up landed on
+        // the unenforced surface and a rewrite could restore a violation the
+        // create had just rejected (ask#7591, 2026-08-10).
+        if (editRequiresFormLintGuard(params)) {
+          const repo = await buildAskRepository(container);
+          const resolvedId = await resolveAskIdInput(params.id as string, container);
+          await validateEditFormLintAgainstExistingAsk(repo, resolvedId, {
+            question: params.question as string | undefined,
+            options: params.options as AskOption[] | undefined,
+            acknowledgeFormWarnings: params.acknowledgeFormWarnings as boolean | undefined,
+          });
+        }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
-        const repo = await buildAskRepository(container);
-        if (!repo) {
-          throw new Error(
-            "asks.edit: AskRepository unavailable — persistence provider does not support SQL"
-          );
-        }
+        const repo = await requireAskRepository(container, "asks.edit");
 
         // mt#2696: resolve a short-prefix citation before it ever reaches a
         // Postgres `uuid` column comparison.
         const id = await resolveAskIdInput(params.id as string, container);
+
+        // mt#3929 (PR #2779 R1): re-run the form-lint here, adjacent to the
+        // write. The `validate` hook's copy reads a snapshot fetched a moment
+        // earlier, so a concurrent edit landing in between would persist a body
+        // nothing linted — the check would pass against state that no longer
+        // exists. Re-linting against a fresh read closes that window down to
+        // `editAskContent`'s own read-modify-write, which is as tight as this
+        // layer gets without a transaction; the validate-time copy stays because
+        // it is what gives a caller the rejection BEFORE any work is attempted.
+        if (editRequiresFormLintGuard(params)) {
+          await validateEditFormLintAgainstExistingAsk(repo, id, {
+            question: params.question as string | undefined,
+            options: params.options as AskOption[] | undefined,
+            acknowledgeFormWarnings: params.acknowledgeFormWarnings as boolean | undefined,
+          });
+        }
+
+        // Same window, same close, for the mt#3209 approve-options guard. The
+        // reviewer flagged only the form-lint one because that is what this PR
+        // added, but the defect is the shape — a validate-time read deciding a
+        // write that happens later — and this sibling has carried it since
+        // mt#3209. Stripping the last approve-shaped option from an
+        // authorization.approve Ask is a worse outcome to let through than an
+        // over-long label, so leaving it exposed while fixing its neighbour
+        // would be the wrong half to close.
+        if (editRequiresApproveOptionsGuard(params)) {
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            id,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
 
         return editAskContent(repo, {
           id,

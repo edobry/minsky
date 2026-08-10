@@ -40,6 +40,7 @@ import type {
   SubagentInvocationOutcome,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { DISPATCH_RECOVERY_STALE_MS } from "@minsky/domain/session/dispatch-recovery-classifier";
+import type { TaskClaimLivenessResult } from "@minsky/domain/session/task-claim-liveness";
 import {
   PROMPT_TYPE_TO_AGENT_TYPE,
   PROMPT_WATERMARK,
@@ -48,6 +49,8 @@ import {
 
 const NOW = new Date("2026-07-17T12:00:00.000Z");
 const CRASHED_NO_OUTPUT: SubagentInvocationOutcome = "crashed-no-output";
+/** mt#1770: the dispatch-time placeholder a newly-inserted (resumed) row carries. */
+const PENDING: SubagentInvocationOutcome = "pending";
 const PARTIAL_UNCOMMITTED_NO_HANDOFF: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
 /** mt#3017: the dispatch-recover command's degraded-response status when the tracker is unavailable. */
 const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
@@ -76,6 +79,8 @@ class FakeTracker {
       parentSessionId: row.parentSessionId ?? null,
       parentTaskId: row.parentTaskId ?? null,
       subagentSessionId: row.subagentSessionId ?? null,
+      parentAgentSessionId: row.parentAgentSessionId ?? null,
+      parentToolUseId: row.parentToolUseId ?? null,
       agentType: row.agentType ?? "implementer",
       suggestedModel: row.suggestedModel ?? null,
       actualModel: row.actualModel ?? null,
@@ -185,6 +190,9 @@ function makeActivityOps(
   return {
     lastPresenceActivityAtMs: async () => null,
     lastWorkspaceMtimeAtMs: async () => null,
+    // mt#3121: default to "no peer claim" so tests that don't care about the
+    // contested gate see the pre-mt#3121 recover/escalate behavior unchanged.
+    taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({ cause: "no-fresh-claim" }),
     ...overrides,
   };
 }
@@ -241,6 +249,77 @@ function makeCommand(opts: {
 }
 
 describe("tasks.dispatch-recover", () => {
+  // mt#3121: the task-grain contested gate. A stale (silent) dispatch reaches this
+  // gate; what happens next depends on whether a PEER holds a fresh task-grain claim.
+  // The self-exclusion logic itself is unit-tested in task-claim-liveness.test.ts
+  // (classifyFreshPeerClaim); here we test the command's branching on the injected
+  // taskClaimLiveness seam's four-branch `cause`.
+  describe("task-grain contested gate (mt#3121)", () => {
+    const PEER = "com.anthropic.claude-code:conv:peer-bbbb";
+
+    // A dispatch started 40 min ago with no commit/presence/workspace activity is
+    // stale (past the 30 min window), so execution reaches the contested gate.
+    function staleDispatch() {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 40 * 60 * 1000),
+      });
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      return { tracker, sessionProvider };
+    }
+
+    test("a fresh peer claim -> contested, surfacing the peer, WITHOUT consuming an attempt (SC1/SC3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "contested",
+          peerActorId: PEER,
+          peerLastRefreshedAt: "2026-07-17T11:59:50.000Z",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("contested");
+      expect(result.peerActorId).toBe(PEER);
+      expect(result.peerLastRefreshedAt).toBe("2026-07-17T11:59:50.000Z");
+      // SC3: classification must NOT consume one of the caller's two attempts.
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("a claim-store read failure -> contested (fail-closed), no attempt consumed", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "read-failure",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("read-failure");
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("no fresh peer claim -> the recover path proceeds unchanged (no over-fire, AT3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      // Default activityOps -> taskClaimLiveness returns no-fresh-claim.
+      const cmd = makeCommand({ tracker, sessionProvider });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("recover");
+      // The recover path records exactly one resumed attempt, as before.
+      expect(tracker.recordedAttempts.length).toBe(1);
+    });
+  });
+
   test("no dispatch found for the task -> no-dispatch, no error", async () => {
     const tracker = new FakeTracker();
     const sessionProvider = new FakeSessionProvider();
@@ -433,14 +512,19 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedAttempts).toHaveLength(1);
     expect(tracker.recordedAttempts[0]?.resumedFromInvocationId).toBe(original.id);
     expect(tracker.recordedAttempts[0]?.attemptNumber).toBe(2);
-    // The NEW (resumed) row always gets the pessimistic dispatch-time-convention
-    // default outcome, never the classification — the classification describes the
-    // ORIGINAL attempt's final state, recorded on the ORIGINAL row instead (see the
-    // "closes out the ORIGINAL row" test below). In this fixture the two happen to
-    // be the same VALUE (crashed-no-output) by coincidence of the scenario (no
-    // commits, no dirty files) — the assertion below on recordedInvocationCalls is
-    // what actually distinguishes "pessimistic default" from "classification".
-    expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
+    // The NEW (resumed) row always gets the dispatch-time placeholder, never the
+    // classification — the classification describes the ORIGINAL attempt's final
+    // state and is recorded on the ORIGINAL row instead (see the "closes out the
+    // ORIGINAL row" test below).
+    //
+    // mt#1770 made this assertion meaningful. It used to expect CRASHED_NO_OUTPUT
+    // here, and the comment noted the placeholder and the classification "happen to
+    // be the same VALUE by coincidence of the scenario" — so the assertion could not
+    // actually tell them apart. Now the placeholder is `pending` and the
+    // classification is `crashed-no-output`, so this line distinguishes them
+    // directly rather than relying on the recordedInvocationCalls assertion below.
+    expect(tracker.recordedAttempts[0]?.outcome).toBe(PENDING);
+    expect(tracker.recordedAttempts[0]?.outcome).not.toBe(result.classification);
   });
 
   test("continuationPrompt carries the session.generate_prompt watermark (mt#2947 — dispatch-guard compatibility)", async () => {
@@ -502,10 +586,10 @@ describe("tasks.dispatch-recover", () => {
     expect(closeoutCall?.outcome).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
     expect(closeoutCall?.endedAt).toBeInstanceOf(Date);
 
-    // The NEW row is untouched by the classification — it keeps the pessimistic
-    // default, not PARTIAL_UNCOMMITTED_NO_HANDOFF.
+    // The NEW row is untouched by the classification — it keeps the mt#1770
+    // dispatch-time placeholder, not PARTIAL_UNCOMMITTED_NO_HANDOFF.
     expect(tracker.recordedAttempts).toHaveLength(1);
-    expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
+    expect(tracker.recordedAttempts[0]?.outcome).toBe(PENDING);
   });
 
   test("stale, dirty tree, no handoff -> partial-uncommitted-no-handoff", async () => {

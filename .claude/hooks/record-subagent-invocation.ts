@@ -21,11 +21,15 @@
 // @see mt#3019 — domain bootstrap (this hook's DB path had never executed), the
 //      unresolved-taskId fix (subsumed mt#2315), and the fail-safe deadline
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
+import { findStampInTranscriptLines, type DispatchStamp } from "./agent-dispatch-stamp";
+// Type-only, so it erases at compile time and cannot load a domain module ahead of the
+// bootstrap below.
+import type { ObservedSubagentInvocationOutcome } from "../../packages/domain/src/storage/schemas/subagent-invocations-schema";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3019: STATIC — importing this module installs the tsyringe reflect
 // polyfill, which must be resolved before ANY domain module loads. Every
@@ -101,48 +105,6 @@ async function closeRegisteredProvider(): Promise<void> {
   } catch {
     /* cleanup is best-effort — never block the stop event */
   }
-}
-
-// ---------------------------------------------------------------------------
-// Main entrypoint
-// ---------------------------------------------------------------------------
-
-if (import.meta.main) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    // Inside the try (PR #2178 R1): `readInput` is `Bun.stdin.json()`, which
-    // THROWS on a malformed payload. Reading it outside the guard meant a
-    // truncated or non-JSON stdin exited the process non-zero — a direct
-    // violation of the fail-safe contract above, since a non-zero hook exit is
-    // exactly what blocks the event it observes. Surfaced by this file's
-    // "malformed payload still exits 0" test.
-    const input = await readInput<StopHookInput>();
-
-    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => {
-        deadlineState.exceeded = true;
-        resolve(TIMED_OUT);
-      }, RECORD_INVOCATION_TIMEOUT_MS);
-    });
-    const outcome = await Promise.race([recordInvocation(input), deadline]);
-    if (outcome === TIMED_OUT) {
-      process.stderr.write(
-        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
-      );
-      // The abandoned path's `finally` will never run before process.exit —
-      // close its provider here instead of leaking the connection.
-      await closeRegisteredProvider();
-    }
-  } catch (err) {
-    process.stderr.write(
-      `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    await closeRegisteredProvider();
-  } finally {
-    clearTimeout(timer);
-  }
-
-  process.exit(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +206,36 @@ export type RecordingDecision =
   | { action: "record"; effectiveTaskId: string; warning?: string };
 
 /**
+ * Recover the dispatch stamp `record-agent-dispatch.ts` wrote into the prompt,
+ * by reading the subagent's OWN transcript.
+ *
+ * `agent_transcript_path` is the child's file; `transcript_path` on the same
+ * payload can point at the PARENT's (mt#2637), so this deliberately does not
+ * fall back to it — a stamp found in the parent's transcript would name whatever
+ * dispatch that conversation issued most recently, not this one, and a wrong
+ * join is worse than no join.
+ *
+ * Best-effort by construction: a missing path, an unreadable file, or a
+ * transcript with no stamp all return null, and the caller falls through to the
+ * pre-mt#2292 keys.
+ *
+ * Exported for testing.
+ */
+export function recoverDispatchStamp(
+  agentTranscriptPath: string | undefined,
+  readFile: (path: string) => string = (p) => readFileSync(p, "utf8")
+): DispatchStamp | null {
+  if (!agentTranscriptPath) return null;
+  try {
+    return findStampInTranscriptLines(readFile(agentTranscriptPath).split("\n"));
+  } catch {
+    // Unreadable transcript — the join degrades, the write still proceeds on
+    // the older keys. Not silent: the caller records which key it used.
+    return null;
+  }
+}
+
+/**
  * Decide whether a Stop event can be recorded, and under which task id.
  *
  * Extracted as a pure function so the branch table is directly testable — the
@@ -270,24 +262,84 @@ export type RecordingDecision =
 export function decideRecordingAction(
   taskId: string | null,
   subagentSessionId: string | null,
-  cwd: string | undefined
+  cwd: string | undefined,
+  dispatchStamp: DispatchStamp | null = null
 ): RecordingDecision {
-  if (!taskId && !subagentSessionId) {
+  if (!taskId && !subagentSessionId && !dispatchStamp) {
     return {
       action: "skip",
-      warning: `[record-subagent-invocation] warn: no taskId and no session correlation key for cwd=${cwd} — skipping DB write\n`,
+      warning: `[record-subagent-invocation] warn: no taskId, no session correlation key and no dispatch stamp for cwd=${cwd} — skipping DB write\n`,
     };
   }
 
   if (!taskId) {
+    // mt#2292: the dispatch stamp is now sufficient on its own, and it is the
+    // key that makes the RAW spawn path recordable at all. A bare
+    // `Explore`/`general-purpose` dispatch runs with the MAIN repo as its cwd
+    // (`prompt-generation.ts` forbids `cd`), so BOTH pre-mt#2292 keys resolve
+    // null for it and this function used to take the skip branch above — which
+    // is why ~42% of dispatches never closed. The stamp identifies the exact
+    // dispatch row regardless of cwd.
+    const key = dispatchStamp
+      ? `dispatch ${dispatchStamp.parentToolUseId}`
+      : `session ${subagentSessionId}`;
     return {
       action: "record",
       effectiveTaskId: HOOK_UNKNOWN_TASK_ID,
-      warning: `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against session ${subagentSessionId} with the unknown-task sentinel\n`,
+      warning: `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against ${key} with the unknown-task sentinel\n`,
     };
   }
 
   return { action: "record", effectiveTaskId: taskId };
+}
+
+/**
+ * What this hook records as the observed outcome: a workspace classification, or the
+ * `no-workspace` value for a subagent that had no workspace to classify (mt#3894).
+ */
+export interface RecordedClassification {
+  outcome: ObservedSubagentInvocationOutcome;
+  prUrl?: string;
+  lastCommitHash?: string;
+  handoffWritten: boolean;
+}
+
+/**
+ * The record written for a subagent with no workspace of its own (mt#3894).
+ *
+ * `prUrl` and `lastCommitHash` are deliberately ABSENT rather than carried over from the cwd:
+ * they were the parent's, and `lastCommitHash` in particular held main's HEAD, attributing a
+ * commit to a subagent that made none.
+ */
+export const NO_WORKSPACE_CLASSIFICATION: RecordedClassification = {
+  outcome: "no-workspace",
+  handoffWritten: false,
+};
+
+/**
+ * Decide what to record for a finished subagent (mt#3894).
+ *
+ * The discriminator is `subagentSessionId`: it is derived from the cwd path
+ * (`~/.local/state/minsky/sessions/<sessionId>`), so it is null exactly when the subagent was
+ * not running in a Minsky workspace. A raw harness `Agent` dispatch is always that case —
+ * `prompt-generation.ts` forbids `cd`, so its cwd is the MAIN repo.
+ *
+ * Running the workspace classifier there does not merely produce an uninformative label, it
+ * produces a CONFIDENT WRONG one drawn from the operator's own checkout, and one that varies
+ * with it: the three rows written this way all read `partial-committed-handoff-written`, and
+ * would have read `committed-no-pr` had the operator's untracked files been committed.
+ *
+ * `classifyWorkspace` is a parameter rather than an import so the "no workspace ⇒ the classifier
+ * is never invoked" half is directly observable in a test — that half is not incidental: it also
+ * removes a `git` + `gh` subprocess round-trip from a path running against this hook's 8s
+ * deadline (mt#3893).
+ */
+export async function resolveRecordedClassification(
+  subagentSessionId: string | null,
+  classifyWorkspace: () => Promise<RecordedClassification>
+): Promise<RecordedClassification> {
+  if (subagentSessionId === null) return NO_WORKSPACE_CLASSIFICATION;
+  return classifyWorkspace();
 }
 
 // ---------------------------------------------------------------------------
@@ -328,11 +380,48 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   //    write land on the right row.
   const subagentSessionId = extractMinskySessionId(cwd);
 
+  //    mt#2292: the PREFERRED key. `record-agent-dispatch.ts` stamped the
+  //    harness `(session_id, tool_use_id)` of the dispatching `Agent` call into
+  //    the prompt, which lands verbatim in the child's own transcript — the one
+  //    artifact both sides of the boundary can address. Recovered before the
+  //    cwd-derived keys below because it is exact where those are structurally
+  //    unavailable on the raw spawn path (criterion 6).
+  const dispatchStamp = recoverDispatchStamp(input.agent_transcript_path);
+
   //    Session directories are named after the session ID, not the task ID, so
   //    the task ID comes from the session record (or the git branch).
-  const taskId = await resolveTaskId(cwd);
+  //
+  //    DEMOTED to last-resort (mt#2292, criterion 6), and as of mt#3893 that
+  //    demotion is REAL rather than documentary: it is now SKIPPED entirely when
+  //    a stamp was recovered. Two reasons, one correctness and one cost.
+  //
+  //    Correctness: it resolves from `cwd`, which `prompt-generation.ts`
+  //    guarantees is the MAIN repo for every dispatched subagent (it forbids
+  //    `cd` and instructs absolute paths), so on stamped raw-path traffic it
+  //    returns null anyway. The stamped row already carries the real task id
+  //    from its dispatch-time writer, and the tracker's UPDATE path preserves
+  //    that value when it sees the sentinel — so skipping loses nothing.
+  //
+  //    Cost, and this is what forced the change: `resolveTaskId` opens its OWN
+  //    persistence provider and lists EVERY session, a full cold connect that
+  //    mt#3879 measured at 4.3-5.5s. `classifyAndRecord` then opens a second
+  //    one. Two cold connects do not fit in this hook's 8s deadline — measured
+  //    8.35s and still unfinished — so the row never closed even with the TDZ
+  //    defect fixed. Skipping the redundant connect is the substantive fix;
+  //    raising the budget alone would only have papered over it.
+  //
+  //    The skip is conditioned on BOTH a stamp AND the absence of a session key,
+  //    not on the stamp alone. That is deliberately narrower than it needs to be
+  //    for the measured case: when `subagentSessionId` IS available the row can
+  //    be found without the stamp, and an orphan Stop (no dispatch row to
+  //    preserve a task id from) would then INSERT under the sentinel where it
+  //    previously recorded a real task id. Narrowing costs nothing on the path
+  //    that motivated the change — raw-path dispatches have no session key by
+  //    construction — and it keeps a rare pre-existing case exactly as it was.
+  const canSkipTaskIdResolution = dispatchStamp !== null && subagentSessionId === null;
+  const taskId = canSkipTaskIdResolution ? null : await resolveTaskId(cwd);
 
-  const decision = decideRecordingAction(taskId, subagentSessionId, cwd);
+  const decision = decideRecordingAction(taskId, subagentSessionId, cwd, dispatchStamp);
   if (decision.warning) process.stderr.write(decision.warning);
   if (decision.action === "skip") return;
 
@@ -357,11 +446,17 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
       transcriptPath,
       effectiveTaskId: decision.effectiveTaskId,
       subagentSessionId,
+      dispatchStamp,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[record-subagent-invocation] warn: recording step failed: ${message}\n`);
-    await recordFailureBestEffort(subagentSessionId, decision.effectiveTaskId, message);
+    await recordFailureBestEffort(
+      subagentSessionId,
+      decision.effectiveTaskId,
+      message,
+      dispatchStamp
+    );
   }
 }
 
@@ -377,20 +472,28 @@ async function classifyAndRecord(params: {
   transcriptPath: string | undefined;
   effectiveTaskId: string;
   subagentSessionId: string | null;
+  dispatchStamp: DispatchStamp | null;
 }): Promise<void> {
-  const { cwd, agentId, transcriptPath, effectiveTaskId, subagentSessionId } = params;
+  const { cwd, agentId, transcriptPath, effectiveTaskId, subagentSessionId, dispatchStamp } =
+    params;
 
   // 2. Classify workspace outcome. The classifier uses taskId only to locate a
   //    handoff file and to look up a PR by branch name; with the sentinel both
   //    degrade to "not found" while the commit/handoff classification — the
   //    part that matters — still works.
-  const { classifyWorkspaceOutcome } = await import(
-    "../../packages/domain/src/subagent/workspace-classifier"
-  );
+  //
+  //    mt#3894: only when the subagent HAD a workspace. See
+  //    `resolveRecordedClassification` for why running the classifier against a
+  //    workspace-less subagent's cwd describes the parent, not the subagent.
   const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
     "../../src/mcp/subagent-dispatch-tracker"
   );
-  const classification = await classifyWorkspaceOutcome(cwd, effectiveTaskId);
+  const classification = await resolveRecordedClassification(subagentSessionId, async () => {
+    const { classifyWorkspaceOutcome } = await import(
+      "../../packages/domain/src/subagent/workspace-classifier"
+    );
+    return classifyWorkspaceOutcome(cwd, effectiveTaskId);
+  });
 
   // 3. Read transcript metrics (best-effort).
   const { readTranscriptMetrics, extractActualModel, readTranscriptLines } = await import(
@@ -519,6 +622,14 @@ async function classifyAndRecord(params: {
     id: markerInvocationId,
     taskId: effectiveTaskId,
     subagentSessionId,
+    // mt#2292: the dispatch key recovered from the child's transcript. The
+    // tracker resolves it AFTER the strong `id` binding and BEFORE the
+    // subagentSessionId heuristic, so a stamped dispatch closes the exact row
+    // `record-agent-dispatch.ts` opened. Passing them also BACKFILLS the pair on
+    // a row the marker resolved by id, which is what keeps `subagent_invocations`
+    // joinable to `agent_spawns` on the same key.
+    parentAgentSessionId: dispatchStamp?.parentAgentSessionId ?? null,
+    parentToolUseId: dispatchStamp?.parentToolUseId ?? null,
     agentSessionId: agentId, // harness-native conversation UUID
     outcome: classification.outcome,
     prUrl: classification.prUrl ?? null,
@@ -556,18 +667,30 @@ async function classifyAndRecord(params: {
  * Uses the tracker's existing heuristic upsert (prefers the most recent OPEN
  * row for `subagentSessionId` — the pending row dispatch wrote) rather than
  * the strong-binding `id` path, since a failure this early may not have
- * reached the current-invocation-marker read.
+ * reached the current-invocation-marker read. When the dispatch STAMP is
+ * available it is passed too, and the tracker resolves that exact-match key
+ * ahead of the heuristic.
  *
- * Never throws. No-ops when there is no correlation key to attach the error
- * to, or when the entrypoint's deadline has already fired (respecting the
- * "no new work after deadline" contract the rest of this hook applies).
+ * **The stamp is not merely an additional key here — it is the only one for the
+ * dispatch class this hook newly handles (mt#3893).** A raw `Agent` dispatch has
+ * no Minsky workspace, so `subagentSessionId` is null for it; gating on that
+ * alone meant the one class of dispatch whose failures most needed a durable
+ * trace was precisely the class that produced none. That is how the mt#3893 TDZ
+ * throw presented: not as an error anywhere, but as a row that sat `pending`
+ * forever with `error_summary` null, which reads identically to a Stop event
+ * that never fired.
+ *
+ * Never throws. No-ops when there is no correlation key of EITHER kind to attach
+ * the error to, or when the entrypoint's deadline has already fired (respecting
+ * the "no new work after deadline" contract the rest of this hook applies).
  */
 export async function recordFailureBestEffort(
   subagentSessionId: string | null,
   effectiveTaskId: string,
-  errorMessage: string
+  errorMessage: string,
+  dispatchStamp: DispatchStamp | null = null
 ): Promise<void> {
-  if (!subagentSessionId || deadlineState.exceeded) return;
+  if ((!subagentSessionId && !dispatchStamp) || deadlineState.exceeded) return;
   try {
     const { resolvePersistenceProvider } = await import(
       "../../packages/domain/src/persistence/factory"
@@ -597,6 +720,8 @@ export async function recordFailureBestEffort(
     await tracker.recordSubagentInvocation({
       taskId: effectiveTaskId,
       subagentSessionId,
+      parentAgentSessionId: dispatchStamp?.parentAgentSessionId ?? null,
+      parentToolUseId: dispatchStamp?.parentToolUseId ?? null,
       agentType: UNKNOWN_AGENT_TYPE,
       outcome: "crashed-no-output",
       errorSummary: safeTruncate(errorMessage, 2000, "head"),
@@ -711,4 +836,73 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Main entrypoint
+// ---------------------------------------------------------------------------
+//
+// LAST IN THE FILE, and that placement is load-bearing (mt#3893).
+//
+// This block contains a top-level `await`, which SUSPENDS module evaluation at
+// that point. Anything declared BELOW it is still in its temporal dead zone
+// while the awaited code runs, so a runtime path that reads such a binding
+// throws `ReferenceError: Cannot access 'X' before initialization` — from the
+// one context no unit test covers, because `import.meta.main` is false when a
+// test imports this module.
+//
+// That is not hypothetical. The block used to sit mid-file, above
+// `HOOK_UNKNOWN_TASK_ID`. It was harmless only because the sole path reading
+// that constant was unreachable: a raw `Agent` dispatch has cwd = the MAIN repo,
+// so both legacy correlation keys resolved null and `decideRecordingAction` took
+// its skip branch. mt#2292 added the dispatch stamp precisely so that case
+// becomes recordable — which routed it into the branch that reads the constant,
+// and every stamped dispatch began throwing here while the hook still exited 0
+// per its fail-safe contract. The dispatch row stayed `pending` forever.
+//
+// Keeping the entrypoint last makes the hazard structurally unreachable rather
+// than incidentally unreached: there is no binding below it to read. Enforced by
+// `record-subagent-invocation-entrypoint.test.ts`, which runs this file as a
+// PROCESS — the only context that can observe it.
+//
+// ADR-028 Phase 7 removes standalone `if (import.meta.main)` entrypoints from
+// migrated guard modules outright, at which point this comment and its hazard
+// both go away. This is the compatible intermediate step, not a competing one.
+
+if (import.meta.main) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Inside the try (PR #2178 R1): `readInput` is `Bun.stdin.json()`, which
+    // THROWS on a malformed payload. Reading it outside the guard meant a
+    // truncated or non-JSON stdin exited the process non-zero — a direct
+    // violation of the fail-safe contract above, since a non-zero hook exit is
+    // exactly what blocks the event it observes. Surfaced by this file's
+    // "malformed payload still exits 0" test.
+    const input = await readInput<StopHookInput>();
+
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => {
+        deadlineState.exceeded = true;
+        resolve(TIMED_OUT);
+      }, RECORD_INVOCATION_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([recordInvocation(input), deadline]);
+    if (outcome === TIMED_OUT) {
+      process.stderr.write(
+        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
+      );
+      // The abandoned path's `finally` will never run before process.exit —
+      // close its provider here instead of leaking the connection.
+      await closeRegisteredProvider();
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    await closeRegisteredProvider();
+  } finally {
+    clearTimeout(timer);
+  }
+
+  process.exit(0);
 }

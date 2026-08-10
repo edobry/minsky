@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   pushImpl,
   pushWithConfirmation,
+  DEFAULT_PUSH_CONFIRM_TIMEOUT_MS,
   verifyRemoteRefAdvanced,
   type PushDependencies,
 } from "./push-operations";
@@ -23,16 +24,43 @@ type Handler = { stdout: string; stderr?: string } | Error | typeof HANG;
 type HandlerKey = string | RegExp;
 type HandlerEntry = [HandlerKey, Handler];
 
+/**
+ * Deterministic clock for the `deps.now` seam (mt#3551).
+ *
+ * `pushWithConfirmation` samples the clock once on entry and once on whichever
+ * return path it takes, reporting the difference as `elapsedMs`. Scripting those
+ * samples makes the reported value a function of the clock ALONE, so an
+ * `elapsedMs` assertion tests the reporting and never the host's timer
+ * behaviour — which is what the seam was added for (see the `now` doc comment
+ * in push-operations.ts).
+ *
+ * Reads past the end of the script repeat the final sample: an added
+ * intermediate `now()` read then changes the call count without silently
+ * changing the asserted elapsed value.
+ */
+function scriptedClock(...samples: number[]): () => number {
+  let index = 0;
+  return () => {
+    const sample = samples[Math.min(index, samples.length - 1)] as number;
+    index++;
+    return sample;
+  };
+}
+
 // Anchored / exact matching: keys are either exact strings (matched via
 // command === key) or RegExp (matched via key.test(command)). Substring
 // matching is intentionally absent so accidental extra flags can't be
 // silently absorbed by a handler.
-function makeDeps(handlers: HandlerEntry[]): {
+function makeDeps(
+  handlers: HandlerEntry[],
+  now?: () => number
+): {
   deps: PushDependencies;
   calls: ExecCall[];
 } {
   const calls: ExecCall[] = [];
   const deps: PushDependencies = {
+    ...(now ? { now } : {}),
     async execAsync(command: string) {
       calls.push({ command });
       for (const [key, result] of handlers) {
@@ -378,9 +406,145 @@ describe("pushWithConfirmation", () => {
       [RX_PUSH, { stdout: "" }],
     ]);
 
+    // mt#3480 added always-on timing fields, so the exact-shape assertion now
+    // includes them. An injected clock keeps `elapsedMs` exact rather than a
+    // range, which would be flaky on a loaded machine.
+    let clock = 1000;
+    deps.now = () => clock;
+    const result = await pushWithConfirmation(
+      { repoPath: WORKDIR },
+      {
+        ...deps,
+        execAsync: async (cmd: string, opts?: Record<string, unknown>) => {
+          clock += 250;
+          return deps.execAsync(cmd, opts);
+        },
+      }
+    );
+
+    expect(result).toEqual({
+      workdir: WORKDIR,
+      pushed: true,
+      elapsedMs: 750,
+      pushTimeoutMs: DEFAULT_PUSH_CONFIRM_TIMEOUT_MS,
+    });
+    // No phase is named on a clean success — there is nothing to disambiguate.
+    expect(result.timedOutDuring).toBeUndefined();
+  });
+
+  test("mt#3480: a timed-out push reports elapsed time, the bound, and the phase", async () => {
+    // The gap this closes: a bare `pushTimedOut: true` reads as "hung" and cost
+    // a multi-round investigation before a longer bound showed the push was
+    // merely SLOW. Elapsed-vs-bound is what makes "how much longer does it
+    // need?" the obvious next question.
+    const { deps } = makeDeps(
+      [
+        [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],
+        [CMD_REMOTE, { stdout: "origin\n" }],
+        [RX_PUSH, HANG],
+        [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+        [
+          RX_LS_REMOTE,
+          { stdout: `dddddddddddddddddddddddddddddddddddddddd\trefs/heads/task/mt-3480\n` },
+        ],
+      ],
+      scriptedClock(1_000_000, 1_000_035)
+    );
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.pushTimeoutMs).toBe(20);
+    expect(result.timedOutDuring).toBe("push");
+    // mt#3551: `elapsedMs` is asserted EXACTLY, against the scripted clock above
+    // — not compared to the 20ms bound on the host's wall clock.
+    //
+    // The previous form was `expect(result.elapsedMs).toBeGreaterThanOrEqual(20)`
+    // against a real `Date.now()`. It measured 19 in CI (run 30713264225,
+    // 2026-08-01) and failed the required `build` check while this file passed
+    // 35/35 locally. Do not "tighten" it back into a wall-clock comparison: the
+    // exact mechanism that produces 19 is CI-platform-specific and was NOT
+    // reproducible locally (6,000 probe iterations, idle and under load, never
+    // went below 20), so any tolerance picked here would be a guess.
+    //
+    // Nothing about the bound is lost. "The call cannot have returned sooner"
+    // is asserted STRUCTURALLY by `timedOutDuring === "push"` on the line above:
+    // that value is reachable only when `raceAgainstTimeout` returned
+    // `timedOut: true`, i.e. only when the 20ms timer beat the push. What the
+    // wall-clock comparison uniquely covered — that `elapsedMs` faithfully
+    // reports the interval between the two clock samples — is what this exact
+    // assertion now pins, and pins harder than an inequality could.
+    expect(result.elapsedMs).toBe(35);
+  });
+
+  test("mt#3480: a slow-but-confirmed push also reports timing", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      // Remote HAS advanced to the local sha — the push landed despite the bound.
+      [RX_LS_REMOTE, { stdout: `${LOCAL_SHA}\trefs/heads/task/mt-3480\n` }],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushed).toBe(true);
+    expect(result.pushConfirmedVia).toBe("remote-check");
+    expect(result.pushTimeoutMs).toBe(20);
+    // "push" not "remote-verify": the PUSH is what ran out of time; the check
+    // then succeeded. Naming it stops a reader blaming the verification.
+    expect(result.timedOutDuring).toBe("push");
+  });
+
+  test("mt#3480: reports remote-verify when the CHECK itself times out (PR #2506 R1)", async () => {
+    // This value was advertised in the type but unreachable in code — a false
+    // affordance no caller could ever observe. Both the push AND the ls-remote
+    // check hang here, so the outcome is doubly unknown and the phase must say
+    // which one ran out of time.
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      [RX_LS_REMOTE, HANG],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.timedOutDuring).toBe("remote-verify");
+  });
+
+  test("mt#3480: a definite push error reports timing too, and names no phase", async () => {
+    const { deps } = makeDeps(
+      [
+        [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],
+        [CMD_REMOTE, { stdout: "origin\n" }],
+        [RX_PUSH, new Error("fatal: unable to access")],
+      ],
+      scriptedClock(2_000_000, 2_000_007)
+    );
+
     const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps);
 
-    expect(result).toEqual({ workdir: WORKDIR, pushed: true });
+    expect(result.pushError).toMatch(/unable to access/);
+    expect(result.pushTimeoutMs).toBe(DEFAULT_PUSH_CONFIRM_TIMEOUT_MS);
+    // mt#3551: was `toBeGreaterThanOrEqual(0)` — an assertion no elapsed value
+    // can fail, so it carried no information about the error path's reporting.
+    // The scripted clock makes it exact, and therefore capable of failing.
+    expect(result.elapsedMs).toBe(7);
+    // Nothing timed out, so there is no phase to report.
+    expect(result.timedOutDuring).toBeUndefined();
   });
 
   test("passes through a definite push error unchanged — no remote-check attempted", async () => {

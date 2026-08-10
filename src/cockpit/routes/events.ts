@@ -20,6 +20,7 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { getCachedPersistenceProvider } from "../db-providers";
+import { getPersistenceEpoch } from "../shared-persistence";
 
 // ---------------------------------------------------------------------------
 // Attention-window channel names — must match notify.ts emit side
@@ -102,6 +103,55 @@ let _cachedSseBroker: SseBroker | null = null;
 let _sseBrokerInitPromise: Promise<SseBroker | null> | null = null;
 
 /**
+ * Persistence generation the cached broker was built under (mt#3721).
+ *
+ * The broker is NOT provider-independent, despite holding no `db` handle: its
+ * `PostgresChannelListener` wraps a LISTEN-capable connection obtained from
+ * `provider.getListenCapableSqlConnection()`, and `PostgresProvider.close()`
+ * ends that connection (`this.listenSql.end()`) along with the pool. So a
+ * recycle leaves the broker subscribed to a dead socket — and unlike the
+ * query-path widgets, this fails SILENTLY: no request errors, no degraded
+ * badge, just NOTIFY events that stop arriving. mt#3721's spec predicted this
+ * cache would classify as provider-independent; reading it showed otherwise,
+ * which is why that criterion required confirming rather than assuming.
+ */
+let _sseBrokerEpoch = -1;
+
+/**
+ * Drop (and best-effort close) a broker left over from a previous persistence
+ * generation, so the next caller re-inits against the live pool.
+ *
+ * The close is fire-and-forget, mirroring the mt#2248 orphan-close pattern in
+ * `shared-persistence.ts`: the old broker's connection is by definition dead or
+ * dying, so `close()`'s UNLISTEN round-trips may never settle and must not
+ * block the re-init that fixes the outage.
+ */
+function dropSseBrokerOnEpochChange(): void {
+  const epoch = getPersistenceEpoch();
+  if (epoch === _sseBrokerEpoch) return;
+  _sseBrokerEpoch = epoch;
+  const stale = _cachedSseBroker;
+  _cachedSseBroker = null;
+  // Deliberately does NOT clear `_sseBrokerInitPromise` (PR #2663 R1). That
+  // promise is mt#2699's single-init invariant: callers share ONE init so the
+  // losers cannot each leak a Postgres LISTEN connection. Nulling it here would
+  // let a caller arriving mid-init start a SECOND init alongside the first —
+  // reintroducing exactly the leak mt#2699 fixed, on the recycle path. The
+  // in-flight init is already epoch-guarded where it publishes (`adoptSseBroker`),
+  // so if it lands stale it closes its own broker and resolves null; the promise
+  // clears on settle and the next caller re-inits against the current epoch.
+  if (stale) {
+    void stale.close().catch((err: unknown) => {
+      log.warn(
+        `SseBroker: error closing broker from a previous persistence epoch: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    });
+  }
+}
+
+/**
  * Test-only provider-factory seam (mt#2699). Same convention as
  * shared-persistence.test.ts: no `mock.module` (it persists across bun:test
  * files and would poison other suites) — tests inject a factory here instead.
@@ -152,19 +202,43 @@ export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
  * (null) is not cached, so later callers retry.
  */
 function getServerSseBroker(): Promise<SseBroker | null> {
+  dropSseBrokerOnEpochChange();
   if (_cachedSseBroker) return Promise.resolve(_cachedSseBroker);
   if (_sseBrokerInitPromise) return _sseBrokerInitPromise;
   _sseBrokerInitPromise = initSseBrokerOnce().then((broker) => {
-    if (broker === null) {
-      // Failed init: clear the slot so the next caller retries.
-      _sseBrokerInitPromise = null;
-    }
+    // Cleared on EVERY settle, not just failure (PR #2663 R1). A success is now
+    // served by the `_cachedSseBroker` short-circuit above, so retaining the
+    // promise buys nothing — and it would strand every later caller on a
+    // resolved-but-stale value after a recycle, since a build that lost the
+    // epoch race resolves null by design (`adoptSseBroker`). Clearing it keeps
+    // "at most one init in flight" while still letting the next caller re-init.
+    _sseBrokerInitPromise = null;
     return broker;
   });
   return _sseBrokerInitPromise;
 }
 
+/**
+ * Publish a freshly-built broker — unless the persistence generation moved
+ * while it was being built (mt#3721), in which case it is already wired to a
+ * torn-down pool. Close it and report failure so the caller re-inits against
+ * the current one. Mirrors the epoch-at-build guard in `widgets/agents.ts`.
+ */
+function adoptSseBroker(broker: SseBroker, epochAtBuild: number): SseBroker | null {
+  if (getPersistenceEpoch() !== epochAtBuild) {
+    void broker.close().catch(() => {
+      // intentional-swallow: this broker is already orphaned and its
+      // connection is from a torn-down pool; the caller is re-initing anyway.
+    });
+    return null;
+  }
+  _cachedSseBroker = broker;
+  _sseBrokerEpoch = epochAtBuild;
+  return broker;
+}
+
 async function initSseBrokerOnce(): Promise<SseBroker | null> {
+  const epochAtBuild = getPersistenceEpoch();
   try {
     const provider = _providerFactoryOverride
       ? await _providerFactoryOverride()
@@ -184,8 +258,7 @@ async function initSseBrokerOnce(): Promise<SseBroker | null> {
     ) {
       const noopListener = createNoopChannelListener();
       const broker = new SseBroker(noopListener);
-      _cachedSseBroker = broker;
-      return broker;
+      return adoptSseBroker(broker, epochAtBuild);
     }
 
     const sqlProvider = provider as {
@@ -200,8 +273,7 @@ async function initSseBrokerOnce(): Promise<SseBroker | null> {
       await broker.ensureChannel(channel);
     }
 
-    _cachedSseBroker = broker;
-    return broker;
+    return adoptSseBroker(broker, epochAtBuild);
   } catch {
     return null;
   }

@@ -40,16 +40,37 @@
  * Presence chrome (mt#3261, split by mt#3344): the header carries mt#3130's
  * single always-visible Presence VALUE, read from
  * `GET /api/conversation/:id/presence`, and passes it into `RunDetail`'s
- * pinned `chrome` slot so it stays on screen at any scroll depth. mt#3130
- * placement decision (1) put the Activity sub-line there too; mt#3344 narrows
- * that — Activity now renders at the transcript's tail via `conversationTail`,
+ * pinned region via `renderActiveConversationChrome` so it stays on screen at
+ * any scroll depth. mt#3130 placement decision (1) put the Activity sub-line
+ * there too; mt#3344 narrows that — Activity now renders at the transcript's
+ * tail via `renderActiveConversationTail` (both slots became render props in
+ * mt#3554, so `/agents/:id` mounts the same two readouts),
  * because an operator reading "Running <tool>" is following the live edge at
  * the bottom of the transcript, not the page chrome at the top. The presence
  * VALUE stays in the chrome: it is a property of the conversation, not of the
  * transcript, and must be readable from the Overview and Context tabs too.
+ *
+ * ## Two id spaces, one route (mt#3132)
+ *
+ * This route is the unified conversation surface: it serves a conversation the
+ * same way regardless of which pipeline produced it, and it accepts BOTH the
+ * harness conversation uuid and a spawn-time actuator local id. Resolution runs
+ * through `useConversationAddress` — a registry lookup, never an id-shape guess,
+ * because a default local id is uuid-shaped and would pass any shape check (see
+ * `../lib/conversation-address.ts`).
+ *
+ * An actuator that has spawned but not yet emitted its harness `init` frame has
+ * NO conversation id to resolve to — nothing to translate the local id into. So
+ * "known actuator, no conversation yet" renders as its own state rather than as
+ * a 404 or an id-space error.
+ *
+ * **This route mounts no composer, no send path, and no actuator channel** —
+ * mt#3132 Success Criterion 5, read-only by construction. Controllability stays
+ * on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325 can
+ * mount a composer here safely.
  */
 import { useParams, useLocation } from "react-router-dom";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   RunDetail,
@@ -64,62 +85,173 @@ import {
   ConversationActivityLine,
 } from "../components/ConversationPresenceChip";
 import { useTabs } from "../lib/tabs";
+import { useConversationAddress } from "../hooks/useConversationAddress";
+import { actuatorMayStillLink, type ActuatorSummary } from "../lib/conversation-address";
 import type { ConversationId } from "@minsky/domain/ids";
+
+/**
+ * The "known actuator, no conversation yet" body.
+ *
+ * Renders no presence readout: presence is keyed by conversation id, and there
+ * is not one yet. Querying it with the local id would return a wrong-id-space
+ * error, which is a caller mistake surfaced as if it were information about the
+ * run — the exact confusion `useConversationPresence`'s four-outcome split
+ * exists to prevent.
+ */
+function StartingConversation({ actuator }: { actuator: ActuatorSummary }) {
+  const mayStillLink = actuatorMayStillLink(actuator);
+  return (
+    <div className="rounded border border-border bg-card p-4" data-testid="conversation-starting">
+      <p className="text-sm text-foreground">
+        {mayStillLink
+          ? "Starting — this run has not produced a transcript yet."
+          : "This run ended before it produced a transcript."}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {mayStillLink
+          ? "The view will fill in on its own once the first turn arrives."
+          : "There is nothing to read: no conversation was ever recorded for it."}
+      </p>
+    </div>
+  );
+}
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
   const { pathname } = useLocation();
   const { markTabError } = useTabs();
+  const addressState = useConversationAddress(id);
+  const address = addressState.status === "resolved" ? addressState.address : null;
 
-  const handleNotFound = useCallback(() => {
-    markTabError(pathname);
-  }, [markTabError, pathname]);
+  /**
+   * Tab pruning waits for the address, but RENDERING does not (mt#3132).
+   *
+   * Blocking the whole page on the actuator-registry read would put a second
+   * request in front of every ordinary conversation load — a regression paid by
+   * the common case to serve a rare one. So the conversation path renders
+   * optimistically, exactly as before this task, and the registry arrives as a
+   * CORRECTION: if it says "actuator, no conversation yet", the body swaps to
+   * the starting state below.
+   *
+   * The one thing that must NOT run optimistically is the 404 handler, because
+   * it is destructive — it marks the tab errored and drops it from persistence.
+   * A pre-`init` actuator local id 404s here legitimately, and pruning its tab
+   * would delete a live run's tab for the crime of being young.
+   *
+   * So a reported 404 is DEFERRED rather than dropped: it is recorded WITH THE
+   * ID IT WAS ABOUT, and acted on once the address settles. Simply ignoring an
+   * early 404 would lose the prune permanently — `onNotFound` fires once per
+   * fetch, so there is no second chance — and which of the two reads wins is not
+   * something this component should have to assume either way.
+   *
+   * Recording the id is what makes the optimistic render safe. A local-id URL
+   * that HAS linked spends its first render fetching under the local id (the
+   * fallback below), which legitimately 404s; the address then resolves and the
+   * real conversation loads fine. Pruning on that stale 404 would mark a
+   * perfectly good tab dead — observed live against a real linked actuator,
+   * where the transcript rendered correctly under an errored tab.
+   */
+  // The conversation to READ. Differs from the URL id only for a local-id
+  // arrival that has already linked; falls back to the URL id while the address
+  // is still resolving, which is what keeps the common path unblocked.
+  const conversationId = address?.kind === "conversation" ? address.conversationId : id;
+
+  const addressResolved = addressState.status === "resolved";
+  const [notFoundFor, setNotFoundFor] = useState<string | null>(null);
+  // A ref, so the callback identity stays stable across the id changing.
+  const dataIdRef = useRef(conversationId);
+  dataIdRef.current = conversationId;
+  const handleNotFound = useCallback(() => setNotFoundFor(dataIdRef.current ?? null), []);
+
+  useEffect(() => {
+    if (!notFoundFor || !addressResolved) return;
+    // An actuator that has not linked a conversation yet has no transcript BY
+    // CONSTRUCTION — that 404 is the expected answer, not a dead tab.
+    if (address?.kind === "conversation" && notFoundFor === address.conversationId) {
+      markTabError(pathname);
+    }
+    setNotFoundFor(null);
+  }, [notFoundFor, addressResolved, address, markTabError, pathname]);
 
   // Same query key + options as `RunDetail`'s own `conversationOverviewQuery`
   // (mt#3343): TanStack Query dedupes identical keys under one QueryClient, so
   // reading the label here costs no additional network request. Mirrors
   // `WorkspaceDetailPage.tsx`'s breadcrumb-displayId pattern (mt#2967).
   const overviewQuery = useQuery<ConversationOverviewPayload, Error>({
-    queryKey: ["conversation-overview", id],
-    queryFn: () => fetchConversationOverview(id as ConversationId),
+    queryKey: ["conversation-overview", conversationId],
+    queryFn: () => fetchConversationOverview(conversationId as ConversationId),
     staleTime: 30_000,
     retry: 1,
-    enabled: Boolean(id),
+    // Skipped once the id is known to address an actuator with no conversation:
+    // there is nothing for the overview endpoint to find, and asking anyway
+    // would spend a request to be told so.
+    enabled: Boolean(conversationId) && address?.kind !== "actuator-starting",
   });
 
   if (!id) {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
   }
 
-  // Falls back to the bare id only while the query is in flight or when the
-  // conversation is genuinely unresolvable (404) — the server's own tier-4
-  // fallback covers every resolvable conversation, so this is not the routine
-  // path it used to be.
-  const label = overviewQuery.data?.label ?? id;
-
-  // Never render the id twice (mt#3343). The mono sub-line exists to expose the
-  // raw id for copy/reference ALONGSIDE a human name; when the heading IS the
-  // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
-  const showIdSubline = label !== id;
-
   // The film tab drops the prose column (mt#3461). Every other tab reads as
   // text and wants `max-w-4xl`; the film's stage is the affect-bearing surface
   // that mt#3226 SC 1 and mt#3258 SC 4 twice widened, and a 4xl column would
   // squeeze it back below what those rounds fixed. The `p-4` stays either way —
   // `RunDetail`'s sticky chrome bleeds over it with negative margins.
-  const isFilmTab = tabFromPathname(pathname, basePathFor("conversation", id), "conversation") === "film";
+  const isFilmTab =
+    tabFromPathname(pathname, basePathFor("conversation", id), "conversation") === "film";
+
+  const wrapperClass = cn(
+    "mx-auto flex w-full flex-col gap-3 p-4",
+    isFilmTab ? "max-w-none" : "max-w-4xl"
+  );
+
+  if (address?.kind === "actuator-starting") {
+    return (
+      <div className={wrapperClass}>
+        <div className="flex flex-col gap-0.5">
+          <h1 className="truncate text-lg font-semibold">Starting…</h1>
+          <span className="font-mono text-xs text-muted-foreground" title={address.localId}>
+            {address.localId}
+          </span>
+        </div>
+        <StartingConversation actuator={address.actuator} />
+      </div>
+    );
+  }
+
+  // Recomputed rather than reusing `conversationId` above: this is past the
+  // `!id` guard, so `id` has narrowed to `string` and the fallback is total.
+  const resolved = address?.kind === "conversation" ? address.conversationId : id;
+
+  // Every element of the chrome names the same entity: the CONVERSATION this
+  // route resolved to (PR #2502 R1). The heading, its fallback, the id sub-line
+  // and the presence readout previously split between the resolved id and the
+  // URL address, so a local-id arrival could show one id while reporting
+  // presence for another with nothing relating them.
+  //
+  // The ADDRESS is deliberately not the sub-line: it is already in the URL bar,
+  // and the id worth exposing for copy/reference on an entity page is the
+  // entity's own. `RunDetail`'s `id`/`key` below stay the address — those build
+  // tab paths and remount identity, which must follow what the operator typed.
+  //
+  // Falls back to the bare id only while the query is in flight or when the
+  // conversation is genuinely unresolvable (404) — the server's own tier-4
+  // fallback covers every resolvable conversation, so this is not the routine
+  // path it used to be.
+  const label = overviewQuery.data?.label ?? resolved;
+
+  // Never render the id twice (mt#3343). The mono sub-line exists to expose the
+  // raw id for copy/reference ALONGSIDE a human name; when the heading IS the
+  // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
+  const showIdSubline = label !== resolved;
 
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-full flex-col gap-3 p-4",
-        isFilmTab ? "max-w-none" : "max-w-4xl"
-      )}
-    >
+    <div className={wrapperClass}>
       <RunDetail
         key={id}
         id={id}
         keySpace="conversation"
+        resolvedConversationId={resolved}
         onConversationNotFound={handleNotFound}
         chrome={
           <div className="flex flex-col gap-0.5">
@@ -127,14 +259,22 @@ export function ConversationPage() {
               {label}
             </h1>
             {showIdSubline && (
-              <span className="font-mono text-xs text-muted-foreground" title={id}>
-                {id}
+              <span className="font-mono text-xs text-muted-foreground" title={resolved}>
+                {resolved}
               </span>
             )}
-            <ConversationPresenceChip conversationId={id} />
           </div>
         }
-        conversationTail={<ConversationActivityLine conversationId={id} />}
+        // mt#3554 — presence and activity moved onto the shared
+        // active-conversation slots so `/agents/:id` can mount the same two
+        // readouts. Here `activeConversationId` IS `resolved` (the conversation
+        // keyspace resolves to its own id), so both render exactly as before.
+        renderActiveConversationChrome={(conversationId) => (
+          <ConversationPresenceChip conversationId={conversationId} />
+        )}
+        renderActiveConversationTail={(conversationId) => (
+          <ConversationActivityLine conversationId={conversationId} />
+        )}
       />
     </div>
   );

@@ -15,7 +15,7 @@
 import type express from "express";
 import type { FollowUpService } from "@minsky/domain/scheduler/follow-up-service";
 import { FOLLOW_UP_STATUS_VALUES } from "@minsky/domain/storage/schemas/scheduled-follow-ups-schema";
-import { getServerFollowUpService } from "../db-providers";
+import { getServerFollowUpService, describeServerPersistenceUnavailability } from "../db-providers";
 
 /** Options accepted by {@link mountFollowUpRoutes}. */
 export interface FollowUpRoutesOptions {
@@ -45,7 +45,7 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
       const service = await resolveService();
       if (!service) {
         res.status(503).json({
-          error: "Follow-up service unavailable — persistence provider does not support SQL",
+          error: `Follow-up service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -88,7 +88,7 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
       const service = await resolveService();
       if (!service) {
         res.status(503).json({
-          error: "Follow-up service unavailable — persistence provider does not support SQL",
+          error: `Follow-up service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }
@@ -148,7 +148,7 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
       const service = await resolveService();
       if (!service) {
         res.status(503).json({
-          error: "Follow-up service unavailable — persistence provider does not support SQL",
+          error: `Follow-up service unavailable — ${await describeServerPersistenceUnavailability()}`,
         });
         return;
       }

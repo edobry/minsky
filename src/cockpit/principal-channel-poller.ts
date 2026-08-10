@@ -42,11 +42,22 @@ import { log } from "@minsky/shared/logger";
 import {
   fetchTelegramFile,
   getTelegramUpdates,
-  sendTelegramMessage,
+  sendTelegramMessageWithThreadFallback,
   sendTelegramTypingAction,
+  setTelegramMessageReaction,
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
+import {
+  createReplyStream,
+  renderTelegramPayload,
+  type ReplyStream,
+} from "./principal-channel-reply-stream";
+import {
+  REACTION_DONE,
+  REACTION_ERROR,
+  REACTION_RECEIVED,
+} from "@minsky/domain/notify/principal-reactions";
 import {
   buildInboundEventPayload,
   inboundEventToken,
@@ -70,6 +81,15 @@ const ERROR_BACKOFF_MS = 30_000;
 const MAX_REPLY_CHARS = 3500;
 
 /**
+ * Telegram's own hard ceiling for a single message (mt#3465).
+ *
+ * {@link MAX_REPLY_CHARS} bounds the MARKDOWN; this bounds what actually goes
+ * on the wire after tags and entities inflate it. The two are different limits
+ * and both have to hold.
+ */
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
+
+/**
  * What the router's decision is carried out against.
  *
  * A seam, not an abstraction for its own sake: it is what lets every routing
@@ -89,16 +109,38 @@ export interface ChannelImage {
   mediaType: string;
 }
 
-export interface ChannelActuator {
+/**
+ * Everything a turn needs beyond its text (mt#3542).
+ *
+ * An options object rather than more positional parameters: the signature was
+ * already at three positionals with two optional, and `onPartial` would have
+ * made a fourth — the shape where call sites start passing `undefined`
+ * placeholders to reach the argument they care about.
+ */
+export interface ConverseOptions {
   /**
-   * Hand text to the standing channel conversation; resolve with its reply.
-   *
-   * `replyToText` is the quoted message when the principal used Telegram's
-   * reply affordance (mt#3243). Optional because most messages are not
-   * replies — and because the reply target is context for the turn, not a
-   * routing decision, so the poller stays out of how it is presented.
+   * The quoted message when the principal used Telegram's reply affordance
+   * (mt#3243). Optional because most messages are not replies — and because the
+   * reply target is context for the turn, not a routing decision, so the poller
+   * stays out of how it is presented.
    */
-  converse(text: string, replyToText?: string, images?: ChannelImage[]): Promise<string>;
+  replyToText?: string;
+  images?: ChannelImage[];
+  /**
+   * Called with the assistant text accumulated SO FAR as the turn produces it
+   * (mt#3542), for rendering progress into an edited placeholder.
+   *
+   * Advisory, and not every actuator emits it. The resolved value — not the
+   * last `onPartial` argument — is the turn's authoritative answer: a turn with
+   * tool-use rounds streams text around each round, while the resolved result
+   * carries the final reply. Callers settle on the resolved value.
+   */
+  onPartial?: (accumulated: string) => void;
+}
+
+export interface ChannelActuator {
+  /** Hand text to the standing channel conversation; resolve with its reply. */
+  converse(text: string, opts?: ConverseOptions): Promise<string>;
   /** Interrupt the current turn. Must not queue behind it. */
   interrupt(): Promise<string>;
   /** Abandon the current conversation; the next message starts fresh. */
@@ -106,6 +148,11 @@ export interface ChannelActuator {
   /** Answer a specific ask by ref, with no agent turn in between. */
   answerAsk(askRef: string, text: string): Promise<string>;
 }
+
+/** Outcome of a `/bind` attempt (mt#3507). */
+export type BindTopicOutcome =
+  | { kind: "bound"; taskId: string }
+  | { kind: "invalid-task"; detail: string };
 
 /** Persisted poll cursor. Backed by the append-only inbound event log. */
 export interface PollCursor {
@@ -142,7 +189,39 @@ export interface PollCycleDeps {
   token: string;
   chatId: string;
   auth: InboundAuthorization;
+  /** The standing (non-topic) conversation's actuator — used for a message with no thread id. */
   actuator: ChannelActuator;
+  /**
+   * Resolve the actuator for a specific Telegram topic (mt#3505, parent
+   * mt#3500).
+   *
+   * Called ONLY for a message carrying a `messageThreadId` — a message with
+   * none always uses {@link actuator} instead, unconditionally, so a poller
+   * launched without topic support (this field omitted) behaves EXACTLY as
+   * before. The resolver is expected to return the SAME actuator instance for
+   * the same thread id across calls (a cache, not a fresh actuator per
+   * message) — see `./principal-channel-actuator.ts`'s
+   * `createTopicActuatorRegistry`, which is what the composition root
+   * (`./principal-channel-launch.ts`) backs this with.
+   */
+  resolveTopicActuator?: (messageThreadId: number) => Promise<ChannelActuator>;
+  /**
+   * Carry out a `/bind` (mt#3507). Called only for a `bind` route ALREADY
+   * confirmed to carry a thread id — a `/bind` typed in the standing
+   * conversation is refused before this is ever consulted, since there is no
+   * topic there to bind. Omitted entirely for a poller launched without
+   * topic support, in which case `/bind` answers that binding is not
+   * available on this channel.
+   */
+  bindTopic?: (messageThreadId: number, taskRef: string) => Promise<BindTopicOutcome>;
+  /**
+   * Record that a topic's mapping is dead after Telegram reports its thread
+   * gone (mt#3507 drift reconciliation) — see
+   * `telegram-transport.ts`'s `sendTelegramMessageWithThreadFallback`, which
+   * this is wired into for every threaded reply. Omitted degrades to "the
+   * reply still falls back correctly, it just cannot be recorded."
+   */
+  markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
   cursor: PollCursor;
   recordEvent: InboundEventRecorder;
   longPollSec?: number;
@@ -169,10 +248,20 @@ export interface PollCycleOutcome {
 /**
  * Run one long-poll and act on everything it returns.
  *
- * Messages are handled SEQUENTIALLY, not concurrently: they are turns in one
- * conversation, and a human who sends two messages in a row means them in that
- * order. Racing them would interleave turns and destroy the grounding the
- * standing conversation exists to provide.
+ * Messages are handled SEQUENTIALLY WITHIN one conversation, but conversations
+ * for DIFFERENT topics run concurrently (mt#3505, parent mt#3500). A human who
+ * sends two messages in a row means them in that order — racing them would
+ * interleave turns and destroy the grounding a conversation exists to
+ * provide — but two messages in two DIFFERENT topics are two independent
+ * conversations, and there is no reason one should wait on the other.
+ *
+ * Serialization is per {@link topicKeyFor}, via a tiny per-key promise chain
+ * (`enqueue` below): the first task for a key runs immediately, and each
+ * subsequent task for the SAME key is chained onto the previous one's
+ * completion, so ordering within a key is preserved exactly as it always was
+ * for the single-conversation case (every message shares the `"standing"`
+ * key). Different keys have independent chains and therefore run
+ * concurrently — no lock, no scheduler, just promise chaining.
  */
 export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcome> {
   const offset = await deps.cursor.read();
@@ -192,6 +281,22 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   let failed = 0;
   let rejected = 0;
   let duplicates = 0;
+
+  // One promise chain per conversation key, so messages in the SAME
+  // conversation stay strictly ordered while different conversations run
+  // concurrently. `.then(task, task)` runs `task` regardless of whether the
+  // prior task in the chain resolved or rejected — `handleRoute` never
+  // actually throws (its own try/catch reports a failure as a return value),
+  // but chaining defensively here means one topic's chain can never wedge
+  // because of another message's unexpected error.
+  const chains = new Map<string, Promise<unknown>>();
+  const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
+    const prior = chains.get(key) ?? Promise.resolve();
+    const next = prior.then(task, task);
+    chains.set(key, next);
+    return next;
+  };
+  const pending: Promise<void>[] = [];
 
   for (const message of result.messages) {
     const route = routeInboundMessage(message, deps.auth);
@@ -221,10 +326,20 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
       continue;
     }
 
-    const succeeded = await handleRoute(deps, message, route);
-    if (succeeded) handled += 1;
-    else failed += 1;
+    const key = topicKeyFor(message);
+    pending.push(
+      enqueue(key, async () => {
+        const succeeded = await handleRoute(deps, message, route);
+        if (succeeded) handled += 1;
+        else failed += 1;
+      })
+    );
   }
+
+  // Wait for every conversation's queued work — across ALL keys — before
+  // returning, so a caller awaiting this cycle still sees every reply sent
+  // and every counter final, exactly as when everything ran sequentially.
+  await Promise.all(pending);
 
   // Advance the cursor past EVERY update Telegram handed over, including ones
   // that failed to parse — otherwise an unparseable update is re-fetched
@@ -234,6 +349,39 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   }
 
   return { received: result.messages.length, handled, failed, rejected, duplicates };
+}
+
+/**
+ * The per-conversation serialization key for a message (mt#3505).
+ *
+ * `"standing"` for a message with no thread id — every such message shares
+ * ONE key, so they stay strictly ordered exactly as before this change.
+ * A message carrying a thread id gets a key scoped to that thread, so two
+ * different topics never share a chain.
+ */
+function topicKeyFor(message: InboundTelegramMessage): string {
+  return message.messageThreadId === undefined ? "standing" : `topic:${message.messageThreadId}`;
+}
+
+/**
+ * Resolve the actuator a message's conversation should be carried out
+ * against (mt#3505).
+ *
+ * A message with no thread id ALWAYS uses the standing actuator, regardless
+ * of whether `resolveTopicActuator` is configured — the untouched default the
+ * spec calls for. Only a message carrying a thread id consults the resolver,
+ * and only when one was supplied; a poller launched without topic support
+ * (the resolver omitted) falls back to standing rather than throwing, so it
+ * degrades safely.
+ */
+async function resolveActuatorForMessage(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage
+): Promise<ChannelActuator> {
+  if (message.messageThreadId !== undefined && deps.resolveTopicActuator) {
+    return deps.resolveTopicActuator(message.messageThreadId);
+  }
+  return deps.actuator;
 }
 
 /** A cycle that acted on nothing, optionally carrying a poll error. */
@@ -316,58 +464,193 @@ async function handleRoute(
   // a network call with no timeout in front of the work the principal actually
   // asked for. A hung Telegram would delay the answer — including the failure
   // answer — behind a decoration.
-  if (route.kind !== "interrupt") {
-    void sendTelegramTypingAction({
-      token: deps.token,
-      chatId: deps.chatId,
-      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
-    }).catch(() => {
-      // Already swallows its own errors; this guards the unawaited promise.
-    });
-  }
+  //
+  // The indicator now LOOPS for the turn's duration (mt#3486). Telegram expires
+  // a chat action after ~5 seconds, so a single call left every turn longer
+  // than that looking exactly like silence — which is the complaint this
+  // addresses, not a cosmetic upgrade.
+  const typing =
+    route.kind === "interrupt"
+      ? null
+      : startTypingLoop({
+          token: deps.token,
+          chatId: deps.chatId,
+          messageThreadId: message.messageThreadId,
+          // The poller's shutdown signal, so stopping the poller stops the
+          // indicator immediately rather than whenever this turn happens to
+          // finish (PR #2525 R2).
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+        });
 
-  // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
-  // per image, so it happens once here rather than inside the actuator, which
-  // is the seam every test stubs.
-  const { images, notes } = await resolveAttachments(deps, route);
+  // Mark the message as picked up (mt#3486). This is the only mechanism that
+  // can mark a SPECIFIC inbound message — Telegram's checkmarks are a client
+  // affordance a bot can neither read nor set.
+  void react(deps, message, REACTION_RECEIVED);
 
-  const startedAtMs = Date.now();
-  let reply: string;
-  let succeeded = true;
+  // `finally` guarantees the interval is cleared on EVERY exit, including one
+  // this function does not handle (PR #2525 R1). The explicit stop below still
+  // runs first — it controls WHEN the cue disappears; this only guarantees it
+  // disappears at all. A leaked interval would keep calling `sendChatAction`
+  // for a turn nobody is waiting on, forever.
   try {
-    reply = await runActuator(deps.actuator, route, images, notes);
-  } catch (err: unknown) {
-    succeeded = false;
-    const detail = err instanceof Error ? err.message : String(err);
-    // Report the failure TO THE PRINCIPAL rather than only to the log. They are
-    // holding a phone waiting for an answer; a silent swallow is the one
-    // outcome the channel must never produce.
-    reply = `Could not carry that out: ${detail}`;
-    log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
-    await recordFailureOutcome(deps, message, route, detail);
+    // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
+    // per image, so it happens once here rather than inside the actuator, which
+    // is the seam every test stubs.
+    const { images, notes } = await resolveAttachments(deps, route);
+
+    const startedAtMs = Date.now();
+
+    // Stream the turn into an edited placeholder (mt#3542). Only a
+    // `channel-agent` route runs an agent turn at all — every other route
+    // synthesizes its answer immediately, so there is nothing to stream and no
+    // placeholder is created.
+    const stream = route.kind === "channel-agent" ? createStreamFor(deps, message) : undefined;
+
+    let reply: string;
+    let succeeded = true;
+    try {
+      if (route.kind === "bind") {
+        // No conversation actuator involved: binding writes a mapping row, it
+        // does not carry out a turn.
+        reply = await handleBind(deps, message, route);
+      } else {
+        const actuator = await resolveActuatorForMessage(deps, message);
+        reply = await runActuator(actuator, route, images, notes, stream);
+      }
+    } catch (err: unknown) {
+      succeeded = false;
+      const detail = err instanceof Error ? err.message : String(err);
+      // Report the failure TO THE PRINCIPAL rather than only to the log. They are
+      // holding a phone waiting for an answer; a silent swallow is the one
+      // outcome the channel must never produce.
+      reply = `Could not carry that out: ${detail}`;
+      log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
+      await recordFailureOutcome(deps, message, route, detail);
+    }
+
+    // Stop the indicator BEFORE the reply lands, so the two never overlap — a
+    // "typing…" still showing under a delivered answer reads as a second reply
+    // that never arrives.
+    typing?.stop();
+
+    // Settle the stream on the authoritative text. It resolves `undefined` when
+    // nothing was ever streamed (a turn that produced no partials, or one whose
+    // placeholder never landed), which is the signal to deliver normally —
+    // SC6: streaming is an enhancement, never a way to lose a reply.
+    const streamedMessageId = stream === undefined ? undefined : await stream.finish(reply);
+    const replyMessageId =
+      streamedMessageId !== undefined ? streamedMessageId : await sendReply(deps, message, reply);
+    const delivered = replyMessageId !== undefined;
+
+    // Make a streaming no-op VISIBLE (PR #2538 R1, non-blocking).
+    //
+    // The reviewer's concern was that dropped deltas are silent. They are, and
+    // that matters: if the event shape ever changes, `partialAssistantText`
+    // returns null for every frame, streaming quietly stops, and the reply
+    // still arrives — so nothing anywhere looks wrong and the feature is just
+    // gone.
+    //
+    // Logging per dropped delta would be the wrong altitude: thinking and
+    // tool-call deltas are dropped constantly BY DESIGN, so it would be noise
+    // that hides the signal. The actionable event is a whole agent turn that
+    // streamed nothing, which is once per turn and close to impossible in
+    // normal operation.
+    if (stream !== undefined && !stream.hasDelivered()) {
+      log.info("[principal-channel] the turn produced no streamed partials", {
+        updateId: message.updateId,
+        replyChars: reply.length,
+      });
+    }
+
+    // Close the ack (mt#3486). Replaces the pickup reaction rather than
+    // accumulating, so the message carries exactly one state at a time.
+    //
+    // Gated on DELIVERY, not just on the actuator (PR #2525 R4): a turn can run
+    // clean and still fail to reach the principal — a 400, a 429, a dead topic.
+    // In that case the reaction is the ONLY signal they get, since the reply
+    // itself is what went missing, so marking it 👌 would assert delivery of
+    // something they never received.
+    void react(deps, message, succeeded && delivered ? REACTION_DONE : REACTION_ERROR);
+
+    // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
+    // failures, so "no errors" got read as "replies delivered" — an inference
+    // that was wrong. `replyMessageId` is the delivery receipt: present means
+    // Telegram accepted the reply, absent means it did not.
+    log.info("[principal-channel] handled an inbound message", {
+      updateId: message.updateId,
+      route: route.kind,
+      succeeded,
+      durationMs: Date.now() - startedAtMs,
+      replyMessageId,
+    });
+    return succeeded;
+  } finally {
+    typing?.stop();
+  }
+}
+
+/**
+ * Answer a `/bind` (mt#3507).
+ *
+ * Refuses, rather than binds silently or crashes, in the two cases the spec
+ * calls out by name: no topic to bind (the standing conversation has no
+ * mapping row — `messageThreadId` is checked here, not in the pure router,
+ * because the router does no I/O and this is the first place that can act on
+ * it), and a malformed/nonexistent task id (surfaced by `deps.bindTopic`,
+ * which never writes a row in that case).
+ */
+async function handleBind(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  route: Extract<InboundRoute, { kind: "bind" }>
+): Promise<string> {
+  if (message.messageThreadId === undefined) {
+    return (
+      "/bind only works inside a topic — the standing conversation has no topic to bind. " +
+      "Open a topic thread and try again there."
+    );
+  }
+  if (!deps.bindTopic) {
+    return "Binding isn't available on this channel yet.";
   }
 
-  const replyMessageId = await sendReply(deps, message, reply);
+  const outcome = await deps.bindTopic(message.messageThreadId, route.taskRef);
+  switch (outcome.kind) {
+    case "bound":
+      return `Bound this topic to ${outcome.taskId}. Notifications about it will land here.`;
+    case "invalid-task":
+      return `Could not bind: ${outcome.detail}`;
+  }
+}
 
-  // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
-  // failures, so "no errors" got read as "replies delivered" — an inference
-  // that was wrong. `replyMessageId` is the delivery receipt: present means
-  // Telegram accepted the reply, absent means it did not.
-  log.info("[principal-channel] handled an inbound message", {
-    updateId: message.updateId,
-    route: route.kind,
-    succeeded,
-    durationMs: Date.now() - startedAtMs,
-    replyMessageId,
+/**
+ * Build the stream that renders a turn's progress into the chat (mt#3542).
+ *
+ * The placeholder is sent through the SAME path as an ordinary reply — thread
+ * targeting, dead-topic fallback, HTML-with-plain-fallback — so a streamed
+ * reply lands exactly where a non-streamed one would. Only the subsequent
+ * edits are new.
+ */
+function createStreamFor(deps: PollCycleDeps, message: InboundTelegramMessage): ReplyStream {
+  return createReplyStream({
+    token: deps.token,
+    chatId: deps.chatId,
+    maxChars: MAX_REPLY_CHARS,
+    maxRenderedChars: TELEGRAM_MAX_MESSAGE_CHARS,
+    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    transport: {
+      send: (text: string) => sendReply(deps, message, text),
+    },
   });
-  return succeeded;
 }
 
 function runActuator(
   actuator: ChannelActuator,
-  route: Exclude<InboundRoute, { kind: "rejected" }>,
+  route: Exclude<InboundRoute, { kind: "rejected" } | { kind: "bind" }>,
   images: ChannelImage[],
-  notes: string[]
+  notes: string[],
+  stream?: ReplyStream
 ): Promise<string> {
   switch (route.kind) {
     case "ask-response":
@@ -385,8 +668,138 @@ function runActuator(
           `Send it as a caption or describe it and I'll pick it up from there.`
       );
     case "channel-agent":
-      return actuator.converse(withChannelNotes(route.text, notes), route.replyToText, images);
+      return actuator.converse(withChannelNotes(route.text, notes), {
+        ...(route.replyToText === undefined ? {} : { replyToText: route.replyToText }),
+        ...(images.length > 0 ? { images } : {}),
+        ...(stream ? { onPartial: (accumulated: string) => stream.push(accumulated) } : {}),
+      });
   }
+}
+
+/**
+ * Telegram expires a chat action after about five seconds.
+ *
+ * Refreshing at four leaves headroom for a slow round-trip without the
+ * indicator visibly flickering off between refreshes.
+ */
+const TYPING_REFRESH_MS = 4_000;
+
+/** A running typing indicator. */
+interface TypingLoop {
+  stop(): void;
+}
+
+/**
+ * Keep the "typing…" indicator alive for the duration of a turn (mt#3486).
+ *
+ * The single fire-and-forget call this replaces was correct for a fast reply
+ * and wrong for every slow one: the indicator expired after ~5s and the
+ * remaining 90 seconds of a real agent turn looked precisely like the channel
+ * having dropped the message. That is the complaint, not a polish item.
+ *
+ * Every property of the original call is preserved — unawaited, self-swallowing,
+ * never able to delay or fail the answer. The loop only changes how LONG the
+ * cue lasts.
+ */
+export function startTypingLoop(opts: {
+  token: string;
+  chatId: string;
+  messageThreadId?: number;
+  fetchFn?: FetchFn;
+  /**
+   * Refresh cadence. Overridable ONLY so tests can observe the loop actually
+   * looping — at the 4s default a test would finish before a single refresh
+   * fired, so an assertion about stopping would pass whether or not stopping
+   * worked.
+   */
+  refreshMs?: number;
+  /**
+   * The poller's shutdown signal (PR #2525 R2).
+   *
+   * Per-turn teardown is not sufficient on its own. `stop()` on the poller
+   * aborts this signal, but a turn already in flight keeps awaiting its
+   * actuator — so without this listener the interval would go on calling
+   * `sendChatAction` after the poller was told to stop, for as long as the
+   * abandoned turn ran. Binding to the signal makes shutdown immediate rather
+   * than eventual.
+   */
+  signal?: AbortSignal;
+}): TypingLoop {
+  let stopped = false;
+
+  const send = (): void => {
+    if (stopped) return;
+    void sendTelegramTypingAction(opts).catch(() => {
+      // Already swallows its own errors; this guards the unawaited promise.
+    });
+  };
+
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  const loop: TypingLoop = {
+    stop(): void {
+      stopped = true;
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+      opts.signal?.removeEventListener("abort", onAbort);
+    },
+  };
+
+  // Named so it can be removed on stop — an accumulating listener on the
+  // poller's long-lived signal would be its own leak, one per turn.
+  function onAbort(): void {
+    loop.stop();
+  }
+
+  // Subscribe BEFORE reading `aborted`, then re-check (PR #2525 R3).
+  //
+  // Checking first and subscribing after would be correct today — nothing
+  // between them suspends, so no abort can interleave on a single-threaded
+  // event loop — but that correctness rests on an invariant a later edit could
+  // break by introducing one `await`. Subscribe-then-check needs no such
+  // argument: whichever way the abort arrives, exactly one of the two paths
+  // catches it, and `stop()` is idempotent.
+  opts.signal?.addEventListener("abort", onAbort);
+  if (opts.signal?.aborted === true) {
+    loop.stop();
+    return loop;
+  }
+
+  send();
+  timer = setInterval(send, opts.refreshMs ?? TYPING_REFRESH_MS);
+  // The listener may have fired during `send()` in a future where that
+  // suspends; honour it rather than leaving an interval behind.
+  if (stopped) {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return loop;
+}
+
+/**
+ * Mark the principal's message with a pipeline-state reaction (mt#3486).
+ *
+ * Fire-and-forget by contract: the ack exists to make the pipeline legible, so
+ * it must never be able to delay or fail the thing it is reporting on. A
+ * rejected emoji (Telegram's allowlist is fixed and revisable) degrades to no
+ * reaction, which is why `verify-reaction-emoji.ts` exists to catch that
+ * silence deliberately rather than in production.
+ */
+async function react(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  emoji: string
+): Promise<void> {
+  await setTelegramMessageReaction({
+    token: deps.token,
+    chatId: deps.chatId,
+    messageId: message.messageId,
+    emoji,
+    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+  });
 }
 
 /**
@@ -454,16 +867,69 @@ async function sendReply(
   reply: string
 ): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
-  const result = await sendTelegramMessage({
+
+  // Truncate the MARKDOWN, then convert (mt#3465). Doing it in this order
+  // means the length budget applies to what the principal actually reads
+  // rather than to tag overhead, and the converter — which always emits
+  // balanced tags — never sees a string cut through the middle of one.
+  const plain = truncateReply(text);
+  // Shared with the streaming path (mt#3542) so a placeholder, every edit, and
+  // the final settle all render by exactly the same rules.
+  const payload = renderTelegramPayload(plain, TELEGRAM_MAX_MESSAGE_CHARS);
+  const formatted = payload.parseMode !== undefined;
+  if (!formatted) {
+    log.info("[principal-channel] reply too long once rendered; sending unstyled", {
+      plainChars: plain.length,
+      // Same key as the rejection warn below (PR #2538 R1) — two names for the
+      // same quantity make the pair unqueryable in aggregate.
+      htmlChars: payload.text.length,
+    });
+  }
+
+  const markTopicDead = deps.markTopicDead;
+  const result = await sendTelegramMessageWithThreadFallback({
     token: deps.token,
     chatId: deps.chatId,
-    text: truncateReply(text),
+    text: payload.text,
+    ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
+    // Post the reply INTO the topic it answers (mt#3505) — otherwise a reply
+    // to a topic-routed conversation would land in General even though the
+    // turn itself ran against that topic's conversation.
+    ...(message.messageThreadId === undefined ? {} : { messageThreadId: message.messageThreadId }),
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    // Drift reconciliation (mt#3507): if the topic this reply targets was
+    // deleted since the inbound message arrived, fall back to the standing
+    // conversation rather than losing the reply — the never-resurrect rule
+    // still holds because this send already had a reason to happen (it is a
+    // reply, not a standalone housekeeping message).
+    ...(markTopicDead
+      ? {
+          onThreadNotFound: (threadId: number) => markTopicDead(deps.chatId, threadId),
+        }
+      : {}),
   });
   if (!result.ok) {
     log.error("[principal-channel] reply delivery failed", { detail: result.detail });
     return undefined;
+  }
+  if (result.fellBackFromDeadTopic) {
+    log.warn(
+      "[principal-channel] the topic this reply targeted is gone; delivered to the standing conversation instead",
+      { messageThreadId: message.messageThreadId }
+    );
+  }
+  if (result.fellBackToPlain) {
+    // The message DID arrive, so this is not an error — but it means the
+    // converter emitted markup Telegram refused, and without a log that is
+    // invisible: every reply would keep landing, just never formatted.
+    log.warn("[principal-channel] Telegram rejected the rendered HTML; sent unstyled instead", {
+      parseError: result.parseError,
+      plainChars: plain.length,
+      // Both lengths (PR #2505 R1): the ratio is the first thing worth seeing
+      // when diagnosing a rejection, and plain alone does not give it.
+      htmlChars: payload.text.length,
+    });
   }
   return result.messageId;
 }

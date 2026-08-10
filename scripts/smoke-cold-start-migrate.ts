@@ -25,7 +25,7 @@
 import { spawnSync } from "child_process";
 import { mkdtempSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 
 // ── env-gate ─────────────────────────────────────────────────────────────────
 
@@ -40,8 +40,19 @@ if (!DATABASE_URL) {
 
 // ── locate the bundle ────────────────────────────────────────────────────────
 
-const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
+// Separator-agnostic repo-root derivation (same class as PR #2572 R1's finding
+// on the hooks smoke — this script was its template).
+const repoRoot = resolve(import.meta.dir, "..");
 const bundlePath = join(repoRoot, "dist", "minsky.js");
+
+// Mirror the production invocation: `Dockerfile`'s CMD is `bun run dist/minsky.js ...`, with no
+// `--preload reflect-metadata` since mt#3680 made the bundle install the polyfill itself.
+//
+// The bare form is also the strongest check available here. This smoke deliberately runs the bundle
+// from a temp dir simulating an external project, with no `node_modules` — the exact layout in
+// which a preload by bare specifier could not have resolved. If the bundle were still dependent on
+// an externally supplied polyfill, this invocation is where that would surface.
+const bundleArgs = ["run", bundlePath];
 
 if (!existsSync(bundlePath)) {
   console.error(`ERROR: dist/minsky.js not found at ${bundlePath}`);
@@ -103,7 +114,7 @@ let failed = false;
 // ── step 1: minsky persistence migrate --execute from temp dir ───────────────
 
 console.log("\n--- Step 1: run 'minsky persistence migrate --execute' from temp dir ---");
-const migrateResult = run("bun", [bundlePath, "persistence", "migrate", "--execute"], tempDir);
+const migrateResult = run("bun", [...bundleArgs, "persistence", "migrate", "--execute"], tempDir);
 console.log(migrateResult.output);
 
 if (!migrateResult.ok) {
@@ -162,7 +173,7 @@ if (!failed) {
 
 if (!failed) {
   console.log("\n--- Step 3: dry-run migrate — MUST confirm 0 pending migrations ---");
-  const dryResult = run("bun", [bundlePath, "persistence", "migrate"], tempDir);
+  const dryResult = run("bun", [...bundleArgs, "persistence", "migrate"], tempDir);
   console.log(dryResult.output);
 
   if (!dryResult.ok) {

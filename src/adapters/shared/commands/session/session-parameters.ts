@@ -550,6 +550,19 @@ export const sessionPrCreateCommandParams = {
     required: false,
     defaultValue: false,
   },
+  // mt#3480: this command performs a session update (and therefore a PUSH)
+  // before opening the PR, but exposed no way to bound it — so a slow push made
+  // PR creation fail outright with no operator recourse, while `session.commit`,
+  // `session.update` and `git.push` all accepted an override. Forwarded to the
+  // internal update below.
+  pushTimeoutMs: {
+    schema: z.number().int().positive(),
+    description:
+      "Override the push-phase wall-clock bound in milliseconds for the session update this " +
+      "command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from " +
+      "this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
+    required: false,
+  },
 };
 
 /**
@@ -852,7 +865,12 @@ export const sessionPrWaitForReviewCommandParams = {
       "When true (default), only a review whose commit SHA matches the PR's current HEAD " +
       "counts as a match, so a stale review of a superseded commit no longer resolves a " +
       "re-review wait (mt#2586). Set false to accept any review regardless of commit " +
-      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
+      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. " +
+      "NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself " +
+      "mean the returned review is the reviewer's STANDING VERDICT. Several reviews from " +
+      "one reviewer can sit on the same HEAD, in which case this filter admits all of " +
+      "them; the tool separately resolves the reviewer's latest decision-bearing review " +
+      "and returns that, whatever its state.",
     required: false,
     defaultValue: true,
   },
@@ -984,6 +1002,16 @@ export const sessionPrDriveCommandParams = {
     description: "postMerge mode only: poll cadence for each deployment wait (default 10).",
     required: false,
     defaultValue: 10,
+  },
+  mergedAt: {
+    schema: z.string().min(1),
+    description:
+      "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). " +
+      "Bounds each deployment wait so a deployment predating the merge cannot satisfy it. " +
+      "Omit and the watch accepts whatever deployment is newest — the result then reports " +
+      "deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence " +
+      "this merge deployed (mt#3890).",
+    required: false,
   },
 };
 

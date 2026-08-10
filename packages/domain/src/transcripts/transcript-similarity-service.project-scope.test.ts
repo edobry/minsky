@@ -24,6 +24,10 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TranscriptSimilarityService } from "./transcript-similarity-service";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
+import type { ConversationId } from "../ids";
+
+/** Mint a ConversationId from a literal — the documented cast path (`ids.ts`). */
+const conv = (id: string) => id as ConversationId;
 
 const PROJECT_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const PROJECT_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
@@ -67,7 +71,11 @@ type FlatTurnRow = {
 function makeFakeSearchDb(rows: FlatTurnRow[]) {
   const pgDialect = new PgDialect();
 
-  function matchesProjectFilter(cond: unknown): boolean {
+  // Returns `true` when there is no project predicate (matches all rows), else
+  // a row predicate — which is exactly what the caller's `typeof === "function"`
+  // check below distinguishes. The old `: boolean` annotation described only
+  // one of the two arms.
+  function matchesProjectFilter(cond: unknown): true | ((row: FlatTurnRow) => boolean) {
     const { sql: rendered, params } = pgDialect.sqlToQuery(cond as never);
     const match = /"agent_transcripts"\."project_id" = \$(\d+)/.exec(rendered);
     if (!match) return true; // no project predicate present -> unscoped, matches all
@@ -200,7 +208,7 @@ describe("TranscriptSimilarityService.findSimilarTurn/findSimilarSession — gen
 
   it("findSimilarSession: scoped call renders a project_id equality predicate", () => {
     const cond = and(
-      eq(agentTranscriptsTable.agentSessionId, "seed-session"),
+      eq(agentTranscriptsTable.agentSessionId, conv("seed-session")),
       eq(agentTranscriptsTable.projectId, PROJECT_A)
     );
     const { sql: rendered } = pgD.sqlToQuery(cond as never);
@@ -209,7 +217,7 @@ describe("TranscriptSimilarityService.findSimilarTurn/findSimilarSession — gen
   });
 
   it("findSimilarSession: unscoped call does NOT render a project_id predicate", () => {
-    const cond = eq(agentTranscriptsTable.agentSessionId, "seed-session");
+    const cond = eq(agentTranscriptsTable.agentSessionId, conv("seed-session"));
     const { sql: rendered } = pgD.sqlToQuery(cond as never);
     expect(rendered).not.toContain("project_id");
   });

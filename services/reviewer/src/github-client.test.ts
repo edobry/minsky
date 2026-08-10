@@ -27,6 +27,7 @@ import {
   fetchPriorReviews,
   fetchCommitMessagesSince,
   fetchChangedFilesSince,
+  fetchIncrementalDiffSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -659,14 +660,22 @@ function buildFakeCreateReviewOctokit() {
       data: { id: 999, html_url: "https://example/pr/1#pullrequestreview-999" },
     })
   );
+  // mt#3852: replies no longer ride inside createReview — they go to the
+  // dedicated replies endpoint, so the fake has to expose it.
+  // Typed with its argument so `mock.calls[0]?.[0]` narrows — a zero-arg mock
+  // infers an empty tuple, and indexing it is a TS2493.
+  const createReplyMock = mock((_args: Record<string, unknown>) =>
+    Promise.resolve({ data: { id: 4242 } })
+  );
   const octokit = {
     rest: {
       pulls: {
         createReview: createReviewMock,
+        createReplyForReviewComment: createReplyMock,
       },
     },
   } as unknown as Octokit;
-  return { octokit, createReviewMock };
+  return { octokit, createReviewMock, createReplyMock };
 }
 
 describe("submitReview", () => {
@@ -719,11 +728,77 @@ describe("submitReview", () => {
     });
   });
 
-  test("reply comment (inReplyTo set) payload contains only body + in_reply_to, no path/line/side", async () => {
-    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+  // mt#3852: a reply must NOT appear in createReview's comments[]. Sending
+  // `in_reply_to` there produced a 422 that rejected the whole review —
+  // `inReplyTo` is not a field on DraftPullRequestReviewComment, and the
+  // reply variant omitted path/line, so GitHub also rejected those as null.
+  test("reply comment (inReplyTo set) is routed to the replies endpoint, not the review payload", async () => {
+    const { octokit, createReviewMock, createReplyMock } = buildFakeCreateReviewOctokit();
 
     await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
       { path: "src/foo.ts", line: 42, body: "still applies", inReplyTo: 12345 },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+
+    expect(createReplyMock.mock.calls).toHaveLength(1);
+    expect(createReplyMock.mock.calls[0]?.[0]).toMatchObject({
+      owner: "owner",
+      repo: "repo",
+      pull_number: 1,
+      comment_id: 12345,
+      body: "still applies",
+    });
+  });
+
+  // PR #2722 R2 BLOCKING: an unanchorable finding must DEGRADE to the body, not
+  // vanish. Losing the anchor should cost the finding its location, not its
+  // existence — mt#3852 SC2.
+  test("an unanchorable inline comment degrades into the review body, keeping the review", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "original body", undefined, [
+      { path: "", line: 0, body: "no anchor but still a real finding" } as never,
+      { path: "ok.ts", line: 7, body: "keeps its anchor" },
+    ]);
+
+    expect(createReviewMock.mock.calls).toHaveLength(1);
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      body?: string;
+      comments?: Array<Record<string, unknown>>;
+    };
+
+    // Only the anchorable one rides in comments[].
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({ path: "ok.ts", line: 7 });
+
+    // The unanchorable one survives in the body, and the caller's body is intact.
+    expect(args.body).toContain("original body");
+    expect(args.body).toContain("no anchor but still a real finding");
+  });
+
+  test("no degraded findings leaves the body byte-identical", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "untouched body", undefined, [
+      { path: "ok.ts", line: 7, body: "anchored" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { body?: string };
+    expect(args.body).toBe("untouched body");
+  });
+
+  // PR #2722 R1 BLOCKING: every field here arrives from parsed model output, so
+  // the TS types are not runtime guarantees. An out-of-enum `side` 422s the whole
+  // review the same way a null anchor did.
+  test("an out-of-enum side is coerced to RIGHT rather than 422ing the review", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, side: "MIDDLE" as never, body: "bad side" },
     ]);
 
     const args = createReviewMock.mock.calls[0]?.[0] as {
@@ -731,15 +806,71 @@ describe("submitReview", () => {
     };
     const comments = args.comments;
     if (!comments) throw new Error(COMMENTS_MISSING);
+    // The finding survives — coerced, not dropped.
     expect(comments).toHaveLength(1);
     expect(comments[0]).toEqual({
-      body: "still applies",
-      in_reply_to: 12345,
+      path: "a.ts",
+      line: 1,
+      side: "RIGHT",
+      body: "bad side",
     });
   });
 
-  test("mixed array produces both top-level and reply shapes correctly", async () => {
+  test("a valid explicit side is left alone by the coercion path", async () => {
     const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, side: "LEFT", body: "left side" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments[0]).toMatchObject({ side: "LEFT" });
+  });
+
+  test("a non-numeric inReplyTo is dropped instead of reaching GitHub", async () => {
+    const { octokit, createReviewMock, createReplyMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, body: "bad reply id", inReplyTo: "12345" as never },
+    ]);
+
+    // It was treated as a reply (so it left the review payload) and then rejected.
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+    expect(createReplyMock.mock.calls).toHaveLength(0);
+  });
+
+  test("a failing reply does not fail the review that already landed", async () => {
+    const createReviewMock = mock(() =>
+      Promise.resolve({
+        data: { id: 999, html_url: "https://example/pr/1#pullrequestreview-999" },
+      })
+    );
+    const rejectingReplyMock = mock(() => Promise.reject(new Error("422 gone")));
+    const octokit = {
+      rest: {
+        pulls: {
+          createReview: createReviewMock,
+          createReplyForReviewComment: rejectingReplyMock,
+        },
+      },
+    } as unknown as Octokit;
+
+    const result = await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "a.ts", line: 1, body: "reply", inReplyTo: 99 },
+    ]);
+
+    expect(createReviewMock.mock.calls).toHaveLength(1);
+    expect(rejectingReplyMock.mock.calls).toHaveLength(1);
+    expect(result.id).toBe(999);
+  });
+
+  test("mixed array: anchored comments go in the review, the reply goes to the replies endpoint", async () => {
+    const { octokit, createReviewMock, createReplyMock } = buildFakeCreateReviewOctokit();
 
     await submitReview(octokit, "owner", "repo", 1, "REQUEST_CHANGES", "body", undefined, [
       { path: "a.ts", line: 1, body: "new finding" },
@@ -752,28 +883,30 @@ describe("submitReview", () => {
     };
     const comments = args.comments;
     if (!comments) throw new Error(COMMENTS_MISSING);
-    expect(comments).toHaveLength(3);
 
-    // First: top-level, default side
+    // The reply is gone from the review payload — that is the fix.
+    expect(comments).toHaveLength(2);
     expect(comments[0]).toEqual({
       path: "a.ts",
       line: 1,
       side: "RIGHT",
       body: "new finding",
     });
-
-    // Second: reply, only body + in_reply_to
     expect(comments[1]).toEqual({
-      body: "reply",
-      in_reply_to: 555,
-    });
-
-    // Third: top-level, explicit LEFT side
-    expect(comments[2]).toEqual({
       path: "c.ts",
       line: 3,
       side: "LEFT",
       body: "another new finding",
+    });
+    // No element may carry in_reply_to; that key is what GitHub rejects.
+    for (const c of comments) {
+      expect(c).not.toHaveProperty("in_reply_to");
+    }
+
+    expect(createReplyMock.mock.calls).toHaveLength(1);
+    expect(createReplyMock.mock.calls[0]?.[0]).toMatchObject({
+      comment_id: 555,
+      body: "reply",
     });
   });
 
@@ -1012,8 +1145,11 @@ describe("fetchCommitMessagesSince", () => {
 // fetchChangedFilesSince (mt#3300 SC#1)
 // ---------------------------------------------------------------------------
 
-function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
-  const compareCommitsMock = mock(async () => ({ data: { files } }));
+function buildFakeCompareOctokit(
+  files: Array<{ filename: string }>,
+  commits: Array<{ parents: Array<{ sha: string }> }> = []
+): Octokit {
+  const compareCommitsMock = mock(async () => ({ data: { files, commits } }));
   return {
     rest: {
       repos: {
@@ -1022,6 +1158,11 @@ function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
     },
   } as unknown as Octokit;
 }
+
+/** An ordinary single-parent commit in a compare range. */
+const LINEAR_COMMIT = { parents: [{ sha: "parent1" }] };
+/** A merge commit — its second parent is what drags the base branch's files into range. */
+const MERGE_COMMIT = { parents: [{ sha: "parent1" }, { sha: "parent2" }] };
 
 describe("fetchChangedFilesSince", () => {
   test("returns [] immediately when baseSha === headSha, without calling the API", async () => {
@@ -1082,5 +1223,207 @@ describe("fetchChangedFilesSince", () => {
     const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
 
     expect(result).toHaveLength(299);
+  });
+
+  test("mt#3663: returns undefined (ambiguous) when a merge commit is in range", async () => {
+    // A merge-from-main in range contributes every file the base branch
+    // touched, indistinguishably from the author's own work — so the range no
+    // longer answers "did the PR address this finding?" and the caller must
+    // record `unknown` rather than a wrong `fixed-by-code-change`.
+    const octokit = buildFakeCompareOctokit(
+      [{ filename: "src/a.ts" }, { filename: "src/from-main.ts" }],
+      [LINEAR_COMMIT, MERGE_COMMIT]
+    );
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("mt#3663: still returns the file list for a linear range", async () => {
+    // The merge check must not fire on ordinary history — that would send
+    // every classification to `unknown` and silently retire the signal.
+    const octokit = buildFakeCompareOctokit(
+      [{ filename: "src/a.ts" }],
+      [LINEAR_COMMIT, LINEAR_COMMIT]
+    );
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
+  });
+
+  test("mt#3663: treats an EMPTY commits array as linear, not as a merge", async () => {
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }], []);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
+  });
+
+  test("mt#3663: treats an ABSENT commits key as linear, not as a merge", async () => {
+    // Distinct from the empty-array case above: this payload has no `commits`
+    // key at all, which is what exercises the `?? []` coalesce rather than the
+    // array's own emptiness. GitHub always returns `commits`, but a degraded or
+    // partial payload must not flip every range to ambiguous and silently
+    // retire the classifier's signal.
+    const octokit = {
+      rest: {
+        repos: {
+          compareCommits: mock(async () => ({ data: { files: [{ filename: "src/a.ts" }] } })),
+        },
+      },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchIncrementalDiffSince (mt#3471)
+// ---------------------------------------------------------------------------
+
+const SAMPLE_INCREMENTAL_DIFF = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -10,2 +10,3 @@",
+  " context",
+  "+added line",
+  " context",
+  "",
+].join("\n");
+
+interface FakeCompareFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previous_filename?: string;
+}
+
+/**
+ * Fake Octokit covering BOTH calls fetchIncrementalDiffSince makes in parallel:
+ * octokit.request (raw diff media type) and rest.repos.compareCommits (JSON).
+ * Either can be made to reject to exercise the fallback path.
+ */
+function buildFakeIncrementalOctokit(opts: {
+  diff?: string;
+  files?: FakeCompareFile[];
+  diffRejects?: boolean;
+  jsonRejects?: boolean;
+}): { octokit: Octokit; requestMock: ReturnType<typeof mock> } {
+  const requestMock = mock(async () => {
+    if (opts.diffRejects) throw new Error("404 Not Found: no common ancestor");
+    return { data: opts.diff ?? SAMPLE_INCREMENTAL_DIFF };
+  });
+  const compareCommitsMock = mock(async () => {
+    if (opts.jsonRejects) throw new Error("502 Bad Gateway");
+    return { data: { files: opts.files ?? [] } };
+  });
+  const octokit = {
+    request: requestMock,
+    rest: { repos: { compareCommits: compareCommitsMock } },
+  } as unknown as Octokit;
+  return { octokit, requestMock };
+}
+
+describe("fetchIncrementalDiffSince", () => {
+  test("returns the raw diff and mapped file entries for a resolvable range", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({
+      files: [
+        { filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -10,2" },
+      ],
+    });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeDefined();
+    expect(result?.diff).toBe(SAMPLE_INCREMENTAL_DIFF);
+    expect(result?.fileEntries).toEqual([
+      { filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -10,2" },
+    ]);
+  });
+
+  test("carries previousFilename through for a rename", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({
+      files: [
+        {
+          filename: "src/new.ts",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+          previous_filename: "src/old.ts",
+        },
+      ],
+    });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result?.fileEntries[0]?.previousFilename).toBe("src/old.ts");
+  });
+
+  test("returns undefined without calling the API when baseSha === headSha", async () => {
+    const { octokit, requestMock } = buildFakeIncrementalOctokit({});
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "same", "same");
+
+    expect(result).toBeUndefined();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test("returns undefined without calling the API when baseSha is empty", async () => {
+    // fetchPriorReviews coalesces a missing commit_id to "" — an empty base is
+    // not a usable comparison point and must not be sent to GitHub.
+    const { octokit, requestMock } = buildFakeIncrementalOctokit({});
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "", "head2");
+
+    expect(result).toBeUndefined();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test("falls back (undefined) when the range is unreachable after a force-push", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({ diffRejects: true });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "orphaned", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) when the comparison 5xxs on a large diff", async () => {
+    // GitHub's own docs warn that "larger diffs may time out and return a 5xx
+    // status code" — the documented reason the caller must keep a full-diff path.
+    const { octokit } = buildFakeIncrementalOctokit({ jsonRejects: true });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) when the files array may be truncated at the cap", async () => {
+    const files = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
+    }));
+    const { octokit } = buildFakeIncrementalOctokit({ files });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back (undefined) rather than narrowing a review to an empty diff", async () => {
+    const { octokit } = buildFakeIncrementalOctokit({ diff: "   \n  ", files: [] });
+
+    const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
+
+    expect(result).toBeUndefined();
   });
 });

@@ -351,6 +351,25 @@ export interface MaximalCollapseResult {
   maximal: MinedCluster[];
   /** Every other cluster, paired with the surviving cluster that subsumes it. */
   suppressed: MaximalCollapseSuppression[];
+  /**
+   * Count of pairwise `isNestedEitherDirection` comparisons performed (mt#3494).
+   *
+   * This is the algorithm's COMPLEXITY SIGNAL, exposed so a regression guard can
+   * assert on it directly instead of on elapsed wall-clock time. The collapse
+   * loop scans the growing `maximal` list per candidate, so the count is
+   * O(N x |maximal|) — it stays near-linear while most candidates are suppressed
+   * early, and approaches N^2/2 if `maximal` grows with N (the quadratic blowup
+   * mt#3432 AT1 guards against).
+   *
+   * Purely a function of the input: the same clusters always produce the same
+   * count, on any machine, under any load, whether run standalone or inside the
+   * full suite. That determinism is the point — the previous guard timed this
+   * loop and asserted `elapsed < 10s`, which measured the host and the
+   * surrounding suite as much as the algorithm (~1.4s standalone vs ~10.5s
+   * inside the 769-file suite) and failed the fail-closed pre-push gate on
+   * unrelated branches.
+   */
+  comparisons: number;
 }
 
 /**
@@ -393,11 +412,20 @@ export function collapseToMaximalClusters(
 ): MaximalCollapseResult {
   const maximal: MinedCluster[] = [];
   const suppressed: MaximalCollapseSuppression[] = [];
+  let comparisons = 0;
 
   for (const candidate of clusters) {
-    const supersededBy = maximal.find((kept) =>
-      isNestedEitherDirection(candidate.toolSequence, kept.toolSequence)
-    );
+    // Explicit loop rather than `maximal.find(...)` purely so the comparison
+    // count is observable (mt#3494). Semantics are identical to `find`: first
+    // match wins and the scan short-circuits there.
+    let supersededBy: MinedCluster | undefined;
+    for (const kept of maximal) {
+      comparisons++;
+      if (isNestedEitherDirection(candidate.toolSequence, kept.toolSequence)) {
+        supersededBy = kept;
+        break;
+      }
+    }
     if (supersededBy) {
       suppressed.push({ cluster: candidate, supersededBy });
     } else {
@@ -405,5 +433,5 @@ export function collapseToMaximalClusters(
     }
   }
 
-  return { maximal, suppressed };
+  return { maximal, suppressed, comparisons };
 }

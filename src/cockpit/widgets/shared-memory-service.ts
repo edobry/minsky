@@ -1,19 +1,7 @@
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
-import { getSharedPersistenceService } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
-let _cachedMemorySvc: MemoryServiceSurface | null = null;
-
-/**
- * Per-process MemoryService singleton for Cockpit widget backends.
- *
- * All five `memories-*` widget modules (list, search, stats, detail, health)
- * share this instance, avoiding 4× duplicated bootstrap logic and 4× separate
- * caches. Returns `null` when the backing persistence provider has no SQL
- * capability (Cockpit gracefully degrades — widgets return `state: "degraded"`).
- */
-export async function getSharedMemoryService(): Promise<MemoryServiceSurface | null> {
-  if (_cachedMemorySvc) return _cachedMemorySvc;
-
+async function resolveMemoryService(): Promise<MemoryServiceSurface | null> {
   try {
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
@@ -42,17 +30,40 @@ export async function getSharedMemoryService(): Promise<MemoryServiceSurface | n
     const embeddingService = await createEmbeddingServiceFromConfig();
     const vectorStorage = await createVectorStorageForDomain("memory", 1536, provider);
 
-    _cachedMemorySvc = new MemoryService({ db, embeddingService, vectorStorage });
-    return _cachedMemorySvc;
+    return new MemoryService({ db, embeddingService, vectorStorage });
   } catch {
     return null;
   }
 }
 
+let _getMemorySvc = createEpochKeyedCache(resolveMemoryService);
+
 /**
- * Resets the cached MemoryService. Test-only — production callers should
- * never need this since the cache is keyed on process lifetime.
+ * Per-process MemoryService singleton for Cockpit widget backends.
+ *
+ * All five `memories-*` widget modules (list, search, stats, detail, health)
+ * share this instance, avoiding 4× duplicated bootstrap logic and 4× separate
+ * caches. Returns `null` when the backing persistence provider has no SQL
+ * capability (Cockpit gracefully degrades — widgets return `state: "degraded"`).
+ *
+ * Cached per persistence epoch, not per process (mt#3721): `MemoryService`
+ * closes over the Drizzle `db` handle it was constructed with, so a pool
+ * recycle (`recycleSharedPersistence`, mt#3638) leaves it querying a torn-down
+ * pool that postgres-js rejects forever. A `null` result is not cached, so a
+ * provider that gains SQL capability later is picked up on the next call.
+ */
+export async function getSharedMemoryService(): Promise<MemoryServiceSurface | null> {
+  return _getMemorySvc();
+}
+
+/**
+ * Resets the cached MemoryService. Test-only — production callers should never
+ * need this: the cache self-invalidates on an epoch bump, which is the only
+ * event that can invalidate it in production.
+ *
+ * Rebuilds the cache wrapper rather than nulling a variable, because the cached
+ * value now lives inside `createEpochKeyedCache`'s closure.
  */
 export function resetSharedMemoryServiceForTesting(): void {
-  _cachedMemorySvc = null;
+  _getMemorySvc = createEpochKeyedCache(resolveMemoryService);
 }

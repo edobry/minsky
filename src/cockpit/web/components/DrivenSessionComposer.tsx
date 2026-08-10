@@ -131,13 +131,18 @@ export function DrivenSessionComposer({
   return (
     <form onSubmit={handleSubmit} className={cn("flex items-end gap-2", className)}>
       <textarea
+        // Named so the mt#3737 geometry script can ask about THIS control
+        // rather than "the first textarea on the page" — the assertion is
+        // whether the operator can still reach the composer, and a broad
+        // locator would silently start measuring some other input.
+        data-testid="driven-composer-input"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={inputDisabled}
         placeholder={placeholder}
         rows={2}
-        aria-label={ariaLabel ?? "Message to the driven session"}
+        aria-label={ariaLabel ?? "Message to this session"}
         className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="flex flex-col gap-1.5">

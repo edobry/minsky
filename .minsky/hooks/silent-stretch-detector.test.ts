@@ -387,6 +387,9 @@ describe("findTurnBoundaryTimestamps", () => {
 
 const HOOK_EVENT_NAME = "UserPromptSubmit";
 
+/** Closing prompt used by the stretch fixtures below. */
+const STRETCH_CLOSING_PROMPT = "why has nothing happened?";
+
 const HOOK_INPUT: ClaudeHookInput = {
   session_id: "test-session",
   transcript_path: "/mock/transcript.jsonl",
@@ -425,7 +428,29 @@ function makeCtxWithCandidates(
  * Mirrors wall-of-text-detector.test.ts's identical helper (mt#3003).
  */
 function noDedupeDeps(): RunDeps {
-  return { readCalibrationLogTextFn: () => undefined };
+  return {
+    readCalibrationLogTextFn: () => undefined,
+    // mt#3583 added two more real-IO seams to run(). Without stubbing them here
+    // every test in this file would perform real filesystem reads AND WRITES
+    // through the evaluation stream's defaults — passing all the while, since
+    // that path is fail-open by design.
+    readEvaluationLogTextFn: () => undefined,
+    appendEvaluationRecordFn: () => {},
+  };
+}
+
+/** `noDedupeDeps` plus a capture buffer for the mt#3583 evaluation stream. */
+function capturingDeps(): { deps: RunDeps; records: Record<string, unknown>[] } {
+  const records: Record<string, unknown>[] = [];
+  return {
+    deps: {
+      ...noDedupeDeps(),
+      appendEvaluationRecordFn: (_cwd, record) => {
+        records.push(record);
+      },
+    },
+    records,
+  };
 }
 
 describe("run() (dispatcher-compatible)", () => {
@@ -437,7 +462,7 @@ describe("run() (dispatcher-compatible)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
-      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "why has nothing happened?"),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
     ];
     const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
     expect(outcome?.calibration).toBeDefined();
@@ -463,6 +488,88 @@ describe("run() (dispatcher-compatible)", () => {
       userPromptLine(1 + 5 * 5 + 10, "next instruction"),
     ];
     expect(run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps())).toBeNull();
+  });
+
+  // mt#3583: the evaluation stream. A fire-only corpus can express "it happened
+  // again" but never "it stopped happening", and the tuning loop needs both —
+  // so run() records what it measured whether or not the guard fired.
+  test("a NON-firing turn still records an evaluation carrying its measurement", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 5),
+      userPromptLine(1 + 5 * 5 + 10, "next instruction"),
+    ];
+
+    expect(run(HOOK_INPUT, makeCtx(transcriptLines), deps)).toBeNull();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.fired).toBe(false);
+    expect(records[0]?.toolCallCount).toBe(5);
+    // Both measured values, not just the one the assertion happened to reach
+    // for: a record missing either is useless to the tuner downstream.
+    expect(typeof records[0]?.gapMinutes).toBe("number");
+    expect(records[0]?.session_id).toBe("test-session");
+    expect(records[0]?.turnAnchor).toBeTruthy();
+  });
+
+  test("a firing turn records an evaluation marked fired", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+
+    expect(run(HOOK_INPUT, makeCtx(transcriptLines), deps)?.calibration).toBeDefined();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.fired).toBe(true);
+    expect(records[0]?.toolCallCount).toBe(20);
+  });
+
+  // Without this dedupe a re-measured unchanged turn appends a second record —
+  // and a duplicate of a FIRE reads downstream as the guard firing twice, which
+  // labels the original fire `dismissed` when nothing of the sort happened.
+  test("a turn already present in the evaluation log is not recorded twice", () => {
+    const records: Record<string, unknown>[] = [];
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+
+    // First pass with an empty log to learn the anchor this turn produces.
+    const first = capturingDeps();
+    run(HOOK_INPUT, makeCtx(transcriptLines), first.deps);
+    const anchor = first.records[0]?.turnAnchor;
+    expect(anchor).toBeTruthy();
+
+    // Second pass with a log that already contains that anchor for this session.
+    const priorLog = `${JSON.stringify({ session_id: "test-session", turnAnchor: anchor })}\n`;
+    run(HOOK_INPUT, makeCtx(transcriptLines), {
+      ...noDedupeDeps(),
+      readEvaluationLogTextFn: () => priorLog,
+      appendEvaluationRecordFn: (_cwd, record) => {
+        records.push(record);
+      },
+    });
+
+    expect(records).toEqual([]);
+  });
+
+  // PR #2569 R1: sessionHasLoggedKey returns false whenever the session id is
+  // falsy — it cannot match a record it cannot key — so emitting here would
+  // append on EVERY evaluation with no upper bound.
+  test("an evaluation with no session id is skipped rather than written undeduped", () => {
+    const { deps, records } = capturingDeps();
+    const input: ClaudeHookInput = { ...HOOK_INPUT, session_id: "" };
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+
+    run(input, makeCtx(transcriptLines), deps);
+    expect(records).toEqual([]);
   });
 
   test("no transcript_path -> null", () => {
@@ -632,7 +739,11 @@ describe("buildTurnAnchor", () => {
 
   test("the SAME turn (identical boundaries) always produces the SAME anchor", () => {
     const boundaries = { turnStartTimestamp: ts(0), turnEndTimestamp: ts(50) };
-    expect(buildTurnAnchor(boundaries)).toBe(buildTurnAnchor({ ...boundaries }));
+    // Same-value comparison, but the spread-arg call types as `string |
+    // undefined`; prove it present before comparing (mt#2900).
+    const fromCopy = buildTurnAnchor({ ...boundaries });
+    expect(fromCopy).toBeDefined();
+    expect(buildTurnAnchor(boundaries)).toBe(fromCopy as string);
   });
 });
 
@@ -652,72 +763,55 @@ describe("run() — mt#3003 cross-transcript contamination", () => {
   const PARENT_PATH = "/mock/parent.jsonl";
   const SUBAGENT_PATH = "/mock/subagents/agent-fake.jsonl";
 
-  test("measures only the parent transcript when >1 candidate is resolved, ignoring the flattened array", () => {
-    // The parent's OWN turn is short (5 calls, well under threshold) — it
-    // must NOT fire. A naive scan of the flattened array would see the
-    // subagent's 20-call stretch appended after it and fire on THAT
-    // instead, misattributing the subagent's own activity to this
-    // conversation's turn.
+  // mt#3293 removed `RunDeps.parseTranscriptFn`: with resolution hoisted to the dispatcher
+  // this detector has no transcript-reading seam left, so "never re-reads the transcript" is
+  // structural rather than something a poisoned fake has to assert.
+  const parentOnlyDeps = (): RunDeps => ({
+    ...noDedupeDeps(),
+    readCalibrationLogTextFn: () => undefined,
+  });
+
+  // mt#3293 moved contamination resolution to the dispatcher: `ctx.transcriptLines` is
+  // PARENT-ONLY by construction for every guard, and this detector no longer re-resolves it.
+  // The resolution itself is covered in `dispatcher.test.ts` ("parent + subagent candidates ->
+  // parses ONLY the parent"). What stays worth pinning HERE is the detector's own half of the
+  // contract: it measures exactly the array it is handed, and never re-reads the transcript.
+  test("measures the parent's short turn and does not fire, given the dispatcher's parent-only lines", () => {
+    // The parent's OWN turn is short (5 calls, well under threshold) — it must NOT fire.
+    // Pre-mt#3293 this array would have carried the subagent's 20-call stretch appended
+    // after it, and the detector would have fired on THAT, misattributing a subagent's
+    // activity to this conversation's turn.
     const parentLines = [
       userPromptLine(0),
       ...toolCallChain(1, 5),
       userPromptLine(1 + 5 * 5 + 10, "status?"),
     ];
-    const subagentLines = [
-      userPromptLine(0),
-      ...toolCallChain(1, 20, STRETCH_SPACING),
-      userPromptLine(500),
-    ];
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [PARENT_PATH, SUBAGENT_PATH]);
-    const deps: RunDeps = {
-      parseTranscriptFn: (path) => {
-        expect(path).toBe(PARENT_PATH); // always candidates[0]
-        return parentLines;
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const ctx = makeCtxWithCandidates(parentLines, [PARENT_PATH, SUBAGENT_PATH]);
     const input: ClaudeHookInput = { ...HOOK_INPUT, transcript_path: PARENT_PATH };
-    expect(run(input, ctx, deps)).toBeNull();
+    expect(run(input, ctx, parentOnlyDeps())).toBeNull();
   });
 
-  test("a genuine parent-side stretch still fires even with a contaminated multi-candidate ctx", () => {
+  test("a genuine parent-side stretch fires on the dispatcher's parent-only lines", () => {
     const parentLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
       userPromptLine(1 + 20 * STRETCH_SPACING + 30, "still going?"),
     ];
-    const subagentLines = [
-      userPromptLine(0),
-      assistantTextLine(1, "subagent done"),
-      userPromptLine(2),
-    ];
-    const contaminated = [...parentLines, ...subagentLines];
-    const ctx = makeCtxWithCandidates(contaminated, [PARENT_PATH, SUBAGENT_PATH]);
-    const deps: RunDeps = {
-      parseTranscriptFn: (path) => (path === PARENT_PATH ? parentLines : []),
-      readCalibrationLogTextFn: () => undefined,
-    };
+    const ctx = makeCtxWithCandidates(parentLines, [PARENT_PATH, SUBAGENT_PATH]);
     const input: ClaudeHookInput = { ...HOOK_INPUT, transcript_path: PARENT_PATH };
-    const outcome = run(input, ctx, deps);
+    const outcome = run(input, ctx, parentOnlyDeps());
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.calibration?.toolCallCount).toBe(20);
   });
 
-  test("<=1 candidate -> unaffected, uses ctx.transcriptLines directly (no parseTranscriptFn call)", () => {
+  test("single candidate -> also consumed as-is, no transcript re-read (structural)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
       userPromptLine(1 + 20 * STRETCH_SPACING + 30),
     ];
     const ctx = makeCtxWithCandidates(transcriptLines, [PARENT_PATH]);
-    const poisoned: RunDeps = {
-      parseTranscriptFn: () => {
-        throw new Error("parseTranscriptFn must not be called for a single candidate");
-      },
-      readCalibrationLogTextFn: () => undefined,
-    };
-    const outcome = run(HOOK_INPUT, ctx, poisoned);
+    const outcome = run(HOOK_INPUT, ctx, parentOnlyDeps());
     expect(outcome?.calibration).toBeDefined();
   });
 });
@@ -742,7 +836,7 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
     const ctx = makeCtx(transcriptLines);
 
     // Firing 1: no prior record for this session -> logs.
-    const outcome1 = run(HOOK_INPUT, ctx, { readCalibrationLogTextFn: () => undefined });
+    const outcome1 = run(HOOK_INPUT, ctx, { ...noDedupeDeps() });
     expect(outcome1?.calibration).toBeDefined();
     const anchor1 = (outcome1?.calibration as Record<string, unknown>).turnAnchor as string;
     expect(typeof anchor1).toBe("string");
@@ -751,7 +845,7 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
     // 2-5 read it back and see the SAME anchor for this session, because
     // it's genuinely the same (frozen or re-observed) turn.
     const priorLogText = `${JSON.stringify({ session_id: HOOK_INPUT.session_id, turnAnchor: anchor1 })}\n`;
-    const deps: RunDeps = { readCalibrationLogTextFn: () => priorLogText };
+    const deps: RunDeps = { ...noDedupeDeps(), readCalibrationLogTextFn: () => priorLogText };
 
     expect(run(HOOK_INPUT, ctx, deps)).toBeNull();
     expect(run(HOOK_INPUT, ctx, deps)).toBeNull();
@@ -766,6 +860,7 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
       userPromptLine(1 + 20 * STRETCH_SPACING + 30, "still going?"),
     ];
     const outcome1 = run(HOOK_INPUT, makeCtx(firstTurn), {
+      ...noDedupeDeps(),
       readCalibrationLogTextFn: () => undefined,
     });
     const anchor1 = (outcome1?.calibration as Record<string, unknown>).turnAnchor as string;
@@ -780,6 +875,7 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
       userPromptLine(secondTurnStart + 1 + 20 * STRETCH_SPACING + 30, "and now?"),
     ];
     const outcome2 = run(HOOK_INPUT, makeCtx(secondTurn), {
+      ...noDedupeDeps(),
       readCalibrationLogTextFn: () => priorLogText,
     });
     expect(outcome2?.calibration).toBeDefined();
@@ -809,6 +905,7 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
     // B's record as the most-recent log entry must still dedupe — a
     // "compare only the last record" check would miss this.
     const outcome = run(HOOK_INPUT, makeCtx(turnA), {
+      ...noDedupeDeps(),
       readCalibrationLogTextFn: () => logWithBothPriorTurns,
     });
     expect(outcome).toBeNull();

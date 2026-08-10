@@ -247,10 +247,15 @@ function buildBinInvocation(
   useSource: boolean,
   trailing: string[]
 ): { cmd: string; args: string[] } {
-  // Source: `bun run src/cli.ts <args>`; bundle: `bun <bundle> <args>`.
+  // Source: `bun run src/cli.ts <args>`; bundle: `bun run <bundle> <args>`.
+  //
+  // The bundle form mirrors `Dockerfile`'s CMD, which dropped its `--preload reflect-metadata` in
+  // mt#3680 once the bundle began installing the polyfill itself. Measuring the bare form is what
+  // keeps this benchmark honest: it is the invocation production actually pays on every cold boot,
+  // and it no longer charges the bundle tier for a preload resolution the source tier never paid.
   return useSource
     ? { cmd: "bun", args: ["run", SOURCE_PATH, ...trailing] }
-    : { cmd: "bun", args: [bin, ...trailing] };
+    : { cmd: "bun", args: ["run", bin, ...trailing] };
 }
 
 const TIERS: TierSpec[] = [

@@ -34,6 +34,39 @@ Read the user's description and identify:
 
 If the intent is vague, ask one clarifying question before proceeding.
 
+### 1a. Check whether the task already exists (mt#3585)
+
+**Before writing the spec**, call `mcp__minsky__tasks_search` with the intent and read the top
+hits — including terminal-status ones (a DONE task may have already shipped the fix; a CLOSED one
+may record why it was abandoned).
+
+Then record the outcome in the spec's `## Context`, in one of two forms:
+
+- **Candidates found** — name each (`mt#NNNN`, title, status) plus a one-line reconciliation:
+  **subsume** (this is the same work — stop and add to that task instead of creating a new one),
+  **supersede** (that task is stale; say why this replaces it), or **confirm-orthogonal** (state
+  explicitly why the scopes do not actually overlap).
+- **None found** — the literal line `Duplicate check: no candidates found.`
+
+Checkable from the spec text alone: one of those two shapes is present, or the step did not run.
+This mirrors `/plan-task` gate (g)'s hard-reconciliation requirement, moved to the moment where a
+duplicate costs nothing to avoid.
+
+**The standalone-duplicate guard's silence is NOT evidence of novelty.** A parentless
+`tasks_create` is routed through `runStandaloneDuplicateGuard`, which warns only when a hit is
+closer than a distance threshold of 0.65. Measured on two real duplicates (mt#3568 → mt#2632,
+mt#3566 → mt#3339): the true duplicate scored ~1.03–1.05 and, in one case, ranked BELOW an
+unrelated task. The guard ran on both creates and correctly stayed silent by its own calibration.
+It cannot surface this class, so a clean `tasks_create` tells you nothing — you have to look.
+(Why the metric fails is mt#450's; do not re-derive it here.)
+
+**Two shapes where this step earns its keep**, both from the originating incident:
+
+- A **follow-up you are filing mid-session** off something you just learned. Momentum makes it
+  feel novel; that is precisely when you have not looked.
+- A task whose framing is **yours rather than the codebase's** ("the generalizable half of X",
+  "the other side of Y"). A differently-framed duplicate is exactly what similarity search misses.
+
 ### 2. Research the codebase
 
 Before writing the spec, search the codebase to ground the spec in reality:
@@ -80,6 +113,58 @@ thing to build.
 load-bearing dependency claims, not the full `/plan-task` gate battery
 (cite+quote+map+verdict across every claim in a spec). Process weight matches
 work weight — a task-creation-time step, not a planning-phase audit.
+
+### 2b. Record the isolation control before filing a "flaky" task (mt#3524)
+
+If the drafted spec attributes a test failure to **flakiness** — the words _flaky_,
+_intermittent_, _load-dependent_, _load-sensitive_, _under parallelism_, _under
+contention_, or _passes in isolation_ — that attribution is a **diagnosis**, not an
+observation, and it is load-bearing: it routes the task toward a tolerance fix and away
+from looking for a real defect. Before Step 3 finalizes the spec, the flakiness claim must
+satisfy ONE of:
+
+- **Control recorded** — the spec states the ISOLATION CONTROL that was actually run: the
+  command, and its observed result (`bun test --preload ./tests/setup.ts --timeout=15000
+<file>` → `N pass / M fail`). A control that PASSES in isolation supports the flake
+  reading; a control that FAILS falsifies it, and the task is a real defect wearing a
+  timing symptom.
+- **`UNVERIFIED`** — if the control was not actually run this turn, mark the attribution
+  with the literal word `UNVERIFIED` (e.g. "UNVERIFIED as load-dependent — isolation
+  control not run") rather than asserting flakiness as settled.
+
+Checkable from the spec text alone: either a command plus its observed pass/fail counts is
+present, or the literal marker `UNVERIFIED` is. Note the asymmetry with §2a — there, the
+cheap check is a file read; here it is running one command, which is why "it failed under
+load, so it's flaky" is so easy to file without ever testing it.
+
+**Incidents this closes (2026-08-03).** Two of the three most recently examined members of
+the flaky-test population were misdiagnosed, both from a TIMING SIGNATURE rather than a
+control:
+
+- **mt#3557** — filed as "three tests time out at 15s under full-suite CI." Run in
+  isolation, they FAIL rather than pass: the tests resolved live Telegram credentials via
+  Pulumi and **sent real messages to the principal's channel on every full-suite run**. CI
+  has no network route to Telegram, so the same defect wore a timeout costume. Every
+  tolerance-shaped remedy — a bigger bound, a quarantine lane, a bounded retry — would have
+  left the live sends in place.
+- **mt#3551** (second instance) — filed as a wall-clock assertion failing "~5002ms against
+  a 5s bound," 3/3, with `main` "consistently red." That is bun's **default 5s per-test
+  timeout**, not an assertion; the real bound is 13s and is never reached; CI passes
+  `--timeout=15000` and `main` was never red.
+
+Both filings were consistent with the data in hand and both were wrong. The isolation
+control is the cheapest thing that separates "the machine was busy" from "this is broken."
+
+**Enforcement tier: prompt-time prose (this step).** A deterministic version is
+mechanizable — the trigger vocabulary above is a regex, and the evidence shape (a command
+plus pass/fail counts, or the `UNVERIFIED` marker) is a presence check on the spec text,
+exactly like §2a's. It is not shipping here because the surface it would guard,
+`tasks_create`, is the one this repo requires to be calibration-first (the mt#2263 ladder:
+log-only, measure the false-positive rate, then flip) — and that is its own task, not a
+rider on a test fix. Tracked as **mt#3658**.
+
+**Proportionality (cf. mt#2309):** a presence check on one claim in specs that make it, not
+a new gate battery. Most specs never mention flakiness and this step costs them nothing.
 
 ### 3. Generate the structured spec
 
@@ -130,10 +215,15 @@ Call `mcp__minsky__tasks_create` with:
 
 If `--parent`, `--tags`, or `--backend` were specified, include those parameters.
 
-**Gate:** before calling `tasks_create`, confirm every load-bearing dependency
-claim in the drafted spec passes Step 2a — cited (file + symbol) or marked
-`UNVERIFIED`. Do not call `tasks_create` while an uncited, unmarked dependency
-claim remains in the spec.
+**Gate:** before calling `tasks_create`, confirm BOTH:
+
+1. Every load-bearing dependency claim in the drafted spec passes Step 2a — cited
+   (file + symbol) or marked `UNVERIFIED`. Do not call `tasks_create` while an
+   uncited, unmarked dependency claim remains in the spec.
+2. The spec's `## Context` carries Step 1a's duplicate-check record — either named
+   candidates with a reconciliation, or the literal line
+   `Duplicate check: no candidates found.` Both are mechanical presence checks on
+   the spec text; neither is satisfied by having _thought about_ it.
 
 ### 5. Confirm
 

@@ -32,8 +32,14 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
-import { parseTranscript, resolveTranscriptCandidates } from "./transcript";
+import {
+  parseTranscript,
+  resolveParentTranscriptLines,
+  resolveTranscriptCandidates,
+} from "./transcript";
 import type { TranscriptLine } from "./transcript";
+import { readAnchor } from "./turn-anchor-store";
+import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
 import type {
   DispatchContext,
@@ -276,6 +282,30 @@ export function buildOverrideAuditLine(
   return `[dispatcher:${event}] OVERRIDE: guard=${guardName} session=${sessionId ?? "unknown"}${reasonPart} ts=${now()}\n`;
 }
 
+/**
+ * Audit line for an `updatedInput` rewrite the dispatcher DROPPED because an
+ * earlier guard in registry order already supplied one (mt#3612).
+ *
+ * `updatedInput` is a replacement value, so two guards rewriting the same tool
+ * call cannot both be honored — and the loser is invisible without this line.
+ * Discarding it silently is the failure class the whole surrounding tree keeps
+ * hitting, so the drop is recorded rather than inferred.
+ *
+ * Written to STDERR by the caller. Claude Code discards a PreToolUse hook's
+ * entire output when stdout carries anything besides the single JSON object, so
+ * an audit line on stdout would silently void the rewrite that won — turning a
+ * visibility mechanism into the very failure it was added to prevent.
+ */
+export function buildDiscardedRewriteAuditLine(
+  event: LifecycleEvent,
+  discardedGuard: string,
+  keptGuard: string,
+  sessionId: string | undefined,
+  now: () => string = () => new Date().toISOString()
+): string {
+  return `[dispatcher:${event}] REWRITE-DISCARDED: guard=${discardedGuard} kept=${keptGuard} session=${sessionId ?? "unknown"} ts=${now()}\n`;
+}
+
 // ---------------------------------------------------------------------------
 // D4 — calibration logging as a framework service
 // ---------------------------------------------------------------------------
@@ -340,6 +370,70 @@ export function logCalibrationRecord(
   }
 }
 
+/**
+ * Resolve an evaluation stream's path — the D4 sibling of `calibrationLogPath`
+ * for the "every evaluated turn, fired or not" streams (ADR-024's 2026-08-03
+ * amendment).
+ *
+ * **The two roots are NOT interchangeable, and conflating them is the defect
+ * this helper exists to prevent (mt#3745).** `projectDir` is an ALREADY-RESOLVED
+ * authoritative directory — the dispatcher has one, and it outranks everything.
+ * `fallbackCwd` is a guard's raw `input.cwd`, which is routinely a session
+ * workspace or a repo subdirectory, so it ranks BELOW `CLAUDE_PROJECT_DIR`.
+ *
+ * Two of the three hand-rolled writers passed the raw cwd as though it were
+ * authoritative (`resolve(findRepoRoot(cwd), …)`), which scattered 12 stray
+ * `.minsky/*-evaluations.jsonl` files across 6 session workspaces while the
+ * calibration log — routed through `calibrationLogPath` — landed correctly in
+ * the repo. Same failure `calibrationLogPath`'s own docblock describes for the
+ * D4 write path, on the stream that did not exist when that fix shipped.
+ *
+ * Separate parameters rather than one `root` argument on purpose: a single
+ * parameter is exactly what let the raw cwd be supplied where an authoritative
+ * dir was meant, and nothing in the type system objected.
+ */
+export function evaluationLogPath(
+  evaluationLogName: string,
+  options?: { projectDir?: string; fallbackCwd?: string }
+): string {
+  const root =
+    options?.projectDir ??
+    process.env["CLAUDE_PROJECT_DIR"] ??
+    options?.fallbackCwd ??
+    process.cwd();
+  return join(findRepoRoot(root), ".minsky", `${evaluationLogName}-evaluations.jsonl`);
+}
+
+/**
+ * Append one evaluation record for `evaluationLogName`, replacing the three
+ * hand-rolled `appendEvaluationRecord()` implementations (mt#3745) the way D4's
+ * `logCalibrationRecord` replaced the hand-rolled calibration writers.
+ *
+ * Fail-open like its calibration sibling — a measurement stream must never break
+ * the guard whose behavior it measures — but unlike `logCalibrationRecord` the
+ * failure is REPORTED to stderr rather than swallowed, preserving the posture
+ * every existing evaluation writer already had.
+ */
+export function logEvaluationRecord(
+  evaluationLogName: string,
+  record: Record<string, unknown>,
+  options?: { projectDir?: string; fallbackCwd?: string; deps?: CalibrationWriteDeps }
+): void {
+  try {
+    const deps = options?.deps ?? defaultCalibrationDeps;
+    const logPath = evaluationLogPath(evaluationLogName, {
+      projectDir: options?.projectDir,
+      fallbackCwd: options?.fallbackCwd,
+    });
+    const dir = dirname(logPath);
+    if (!deps.existsSync(dir)) deps.mkdirSync(dir, { recursive: true });
+    deps.appendFileSync(logPath, `${JSON.stringify(record)}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[${evaluationLogName}] Failed to write evaluation log: ${msg}\n`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // D6 — transcript + host-cap resolution at the dispatcher boundary
 // ---------------------------------------------------------------------------
@@ -359,6 +453,12 @@ export interface ResolveDispatchContextOptions {
   parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Injectable for tests — defaults to the real `resolveTranscriptCandidates` from `./transcript`. */
   resolveTranscriptCandidatesFn?: (transcriptPath: string, agentId?: string) => string[];
+  /**
+   * Injectable for tests — defaults to `readAnchor` from `./turn-anchor-store`
+   * (mt#3490). Injected rather than patched: ADR-036 bans in-place patching of
+   * a collaborator the code reaches itself.
+   */
+  readAnchorFn?: (sessionId: string) => RecordedTurnAnchor | undefined;
 }
 
 /**
@@ -370,7 +470,7 @@ export interface ResolveDispatchContextOptions {
  */
 export function resolveDispatchContext(
   event: LifecycleEvent,
-  input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+  input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
   options: ResolveDispatchContextOptions
 ): DispatchContext {
   const readHostCapFn = options.readHostCapFn ?? readHostCap;
@@ -386,7 +486,38 @@ export function resolveDispatchContext(
   let transcriptLines: TranscriptLine[] = [];
   if (input.transcript_path) {
     transcriptCandidates = resolveCandidates(input.transcript_path, input.agent_id);
-    transcriptLines = transcriptCandidates.flatMap((p) => parse(p));
+    // PARENT-ONLY BY CONSTRUCTION (mt#3293). `transcriptCandidates.flatMap(parse)` — what this
+    // used to be — concatenates the parent transcript with EVERY sibling subagent transcript,
+    // subagents always ordered after the parent, with no per-line file-origin marker. Turn
+    // extraction over that array (`findRealPromptIndices`, `extractLastAssistantTurn`,
+    // `extractFinalTurn`) can anchor inside a static, already-completed subagent segment and
+    // re-measure the same frozen turn forever. mt#3003 fixed that for two detectors by having
+    // each call `resolveParentTranscriptLines` itself; this hoists it to the shared D6 field so
+    // every consumer — including ones not yet written — gets the guarantee without opting in.
+    //
+    // Only flatten when there is at most one candidate: `resolveParentTranscriptLines` discards
+    // `flatLines` entirely in the multi-candidate branch (it re-parses the parent alone), so
+    // eagerly parsing every subagent transcript would be pure wasted I/O. Mirrors
+    // `resolveParentTranscriptLinesForPath`'s own lazy-flatten for the same reason.
+    const flatLines =
+      transcriptCandidates.length > 1 ? [] : transcriptCandidates.flatMap((p) => parse(p));
+    transcriptLines = resolveParentTranscriptLines(
+      input.transcript_path,
+      transcriptCandidates,
+      flatLines,
+      parse
+    );
+  }
+
+  // The Stop-recorded turn anchor (mt#3490, ADR-031), resolved ONCE here for the
+  // same reason transcript lines are: so no guard reaches for the store itself.
+  // Only meaningful alongside lines to slice, so it is skipped when there is no
+  // transcript — an anchor with nothing to anchor INTO is not useful, and the
+  // read is not free.
+  let recordedAnchor: RecordedTurnAnchor | undefined;
+  if (input.session_id && transcriptLines.length > 0) {
+    const readAnchorFn = options.readAnchorFn ?? readAnchor;
+    recordedAnchor = readAnchorFn(input.session_id);
   }
 
   return {
@@ -395,6 +526,7 @@ export function resolveDispatchContext(
     budgets,
     transcriptCandidates,
     transcriptLines,
+    recordedAnchor,
   };
 }
 
@@ -409,10 +541,29 @@ export interface RunDispatcherOptions {
   registrations?: GuardRegistration[];
   /** Injectable for tests — defaults to `readInput<ToolHookInput>()` from `./types`. */
   readInputFn?: () => Promise<ToolHookInput>;
-  /** Injectable for tests — defaults to `writeOutput` from `./types`. */
+  /**
+   * Injectable for tests — defaults to `writeOutput` from `./types`.
+   *
+   * The ONLY writer of stdout in the dispatcher (mt#3625). There is deliberately
+   * no general-purpose `stdoutWrite` seam beside it: Claude Code discards a
+   * PreToolUse hook's entire output when stdout carries anything besides the one
+   * JSON object, so any second stdout writer is a latent way to void a guard's
+   * decision. Diagnostics go to `stderrWrite`.
+   */
   writeOutputFn?: (output: HookOutput) => void;
-  /** Injectable for tests — defaults to `process.stdout.write`. */
-  stdoutWrite?: (s: string) => void;
+  /**
+   * Records a PreToolUse guard denial into the 2-strikes stream (mt#3802).
+   *
+   * Injected rather than imported so this module keeps its no-`packages/domain`
+   * invariant; the entrypoint supplies the real recorder.
+   */
+  recordGuardDenialFn?: (denial: {
+    sessionId?: string;
+    toolName: string;
+    guardName: string;
+    reason: unknown;
+    toolInput: unknown;
+  }) => void;
   /** Injectable for tests — defaults to `process.stderr.write`. */
   stderrWrite?: (s: string) => void;
   /** Injectable for tests — defaults to the real `logCalibrationRecord`. */
@@ -420,7 +571,7 @@ export interface RunDispatcherOptions {
   /** Injectable for tests — defaults to the real `resolveDispatchContext`. */
   resolveDispatchContextFn?: (
     event: LifecycleEvent,
-    input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
+    input: Pick<ToolHookInput, "transcript_path" | "agent_id" | "session_id">,
     opts: { hookFilename: string }
   ) => DispatchContext;
   /**
@@ -469,45 +620,78 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *
  * Measured across the 22 `UserPromptSubmit` registrations (all 22 annotated):
  *
- *   - Always-on injectors, which fire EVERY turn and whose absence would make
- *     the agent assert stale facts: inject-current-time 90 + inject-git-state
- *     300 + inject-prod-state 250 + inject-dispatch-watchdog 1800 +
- *     memory-search 550 = **2990**.
- *   - The five largest conditional detectors: substrate-bypass 1600 +
- *     pre-narration 1100 + code-mechanism-assertion 600 +
- *     ask-routing-deferral 600 + constructed-identifier-batch 600 = **4500**.
+ *   - Always-on injectors, which both fire AND emit on essentially every turn,
+ *     and whose absence would make the agent assert stale facts:
+ *     inject-current-time 90 + inject-git-state 300 + inject-prod-state 250 +
+ *     memory-search 550 = **1190**.
+ *   - The five largest conditional detectors: inject-dispatch-watchdog 1750 +
+ *     guard-health-escalation 1300 + substrate-bypass 650 + pre-narration 650 +
+ *     code-mechanism-assertion 600 = **4950**. (ask-routing-deferral, also 600,
+ *     is now sixth and drops out of the bucket.)
  *
- * 2990 + 4500 = 7490 chars of fragment TEXT. The budget bounds the emitted
- * BLOCK, which also carries the `\n\n` separators between fragments: 10
- * fragments means 9 separators at 2 chars = 18. So 7490 + 18 = **7508**.
+ * 1190 + 4950 = 6140 chars of fragment TEXT. The budget bounds the emitted
+ * BLOCK, which also carries the `\n\n` separators between fragments: 9
+ * fragments means 8 separators at 2 chars = 16. So 6140 + 16 = **6156**.
  *
  * (That separator term is not pedantry — the first draft of this constant
  * omitted it and the "measured turn is not truncated" test below failed by
  * exactly one dropped fragment. The test is what caught it.)
  *
- * **Why this grew from 4538 (mt#3479).** The original derivation used the same
- * method against `attentionCost` annotations that had never been checked
- * against any guard's real output. 14 of 26 understated it — dispatch-watchdog
- * declared 450 against a measured 1668 — so the budget was ~40% too small and
- * bound on ORDINARY turns, silently dropping reminders: the exact opposite of
- * the intent stated below. mt#3479 measured every guard via its canary,
- * corrected the annotations, and re-derived from the corrected set;
- * `guard-feedback-shape.test.ts` now fails if any guard's output exceeds its
- * annotation, so this input cannot silently drift again.
+ * **Why this fell from 7508 (mt#3485), and why the buckets changed.** Two
+ * corrections, both grounded in rendered output rather than estimate:
+ *
+ *   1. The three heaviest guards were trimmed to the authoring standard
+ *      (`.minsky/rules/guard-feedback-authoring.mdc`): dispatch-watchdog
+ *      1668 -> 866 measured (and now CAPPED, so 1488 bounds any flag count at
+ *      any field width), substrate-bypass 1518 -> 563, pre-narration
+ *      1029 -> 581. Their annotations came down 1800/1600/1100 -> 1550/650/650.
+ *   2. `inject-dispatch-watchdog` moved OUT of the always-on bucket, where the
+ *      mt#3479 derivation had placed it. It is registered always-on and does
+ *      run every turn, but `formatDispatchWatchdogState` returns null for both
+ *      a missing cache and an empty flag set — the overwhelmingly common
+ *      healthy case — so it CONTRIBUTES no chars on an ordinary turn. Counting
+ *      its full annotation in the per-turn floor inflated that floor by its
+ *      entire size. It is now counted where it belongs: as the largest
+ *      conditional detector.
+ *
+ * The prior grow-from-4538 correction still stands as the reason this
+ * derivation is trustworthy at all: before mt#3479 nothing compared an
+ * annotation to real output and 14 of 26 understated it, so the budget bound on
+ * ORDINARY turns and silently dropped reminders — the exact opposite of the
+ * intent stated below. `guard-feedback-shape.test.ts` now fails if any guard's
+ * output exceeds its annotation, so this input cannot silently drift again.
  *
  * A turn where everything always-on fires AND the five heaviest detectors all
  * fire at once therefore still fits. The budget does not bind on any realistic
  * turn; it binds on the pathological tail, where the annotated all-22 total is
- * 12890. That is the intent: bound unbounded growth as detectors graduate,
+ * 11440. That is the intent: bound unbounded growth as detectors graduate,
  * without truncating ordinary turns.
  *
- * This number should come DOWN as guard text is trimmed to the authoring
- * standard (`.minsky/rules/guard-feedback-authoring.mdc`) — it is sized by what
- * the corpus currently emits, not by what it ought to emit. The three heaviest
- * (dispatch-watchdog 1800, substrate-bypass 1600, pre-narration 1100) are
- * tracked at mt#3485, which lowers this constant as it trims them.
+ * This number should keep coming DOWN as more guard text is trimmed to the
+ * authoring standard — it is sized by what the corpus currently emits, not by
+ * what it ought to emit.
+ *
+ * **Why it went UP once, 5256 -> 5956 (mt#3705).** The sentence above is the
+ * right expectation and this is the exception that proves what the number
+ * means. `guard-health-escalation-detector` was annotated 600, measured off a
+ * one-guard canary — but its banner had two UNBOUNDED axes (an uncapped guard
+ * list, and an interpolated `Error.message` belonging to whatever threw) and
+ * really rendered 1649 at six failing guards. So the old 5256 was not a
+ * smaller budget for the same corpus; it was the same corpus with one member
+ * mis-measured, and the guard's true output was never counted at all. mt#3705
+ * CAPPED both axes (worst case now 1113, bounded by construction rather than by
+ * luck) and set the annotation to 1300, which promotes it into the top-five
+ * conditional bucket and moves this derivation with it. The trade is a
+ * knowingly larger budget for a corpus with no unbounded members left in it —
+ * `guard-feedback-shape.test.ts`'s classification receipt is what keeps that
+ * true.
+ *
+ * **Why it went UP again, 5956 -> 6156 (mt#3121).** `inject-dispatch-watchdog`
+ * gained a `contested` status branch, raising its measured worst case (and its
+ * annotation) 1550 -> 1750. It is the heaviest conditional detector, so it sits in
+ * the top-five bucket this derivation sums — the budget moves with it, +200.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 7508;
+export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
@@ -627,7 +811,6 @@ export async function runDispatcher(
   const registrations = options.registrations ?? GUARD_REGISTRY;
   const readInputFn = options.readInputFn ?? (() => readInput<ToolHookInput>());
   const writeOutputFn = options.writeOutputFn ?? writeOutput;
-  const stdoutWrite = options.stdoutWrite ?? ((s: string) => process.stdout.write(s));
   const stderrWrite = options.stderrWrite ?? ((s: string) => process.stderr.write(s));
   const logCalibration = options.logCalibrationRecordFn ?? logCalibrationRecord;
   const resolveContext =
@@ -635,6 +818,11 @@ export async function runDispatcher(
     ((evt, input, opts) => resolveDispatchContext(evt, input, opts));
   const recordError = options.recordGuardErrorFn ?? recordGuardError;
   const recordFireLog = options.recordFireLogFn ?? recordFireLogEntry;
+  // Defaults to a no-op because this module may not reach the tracker (see the
+  // deny branch). `dispatch-pretooluse.ts` supplies the real one — and
+  // `dispatcher-guard-denial.test.ts` asserts that it does, so the wiring
+  // cannot silently regress to the no-op.
+  const recordGuardDenialFn = options.recordGuardDenialFn ?? (() => {});
   const nowMs = options.nowMsFn ?? Date.now;
 
   const input = await readInputFn();
@@ -646,11 +834,21 @@ export async function runDispatcher(
   const knownGuardNames = registrations.map((r) => r.name);
   const contextFragments: ContextFragment[] = [];
   let sessionTitle: string | undefined;
+  // mt#3612: first-in-registry-order wins for `updatedInput`. `keptBy` records
+  // WHICH guard won so a later guard's discarded rewrite can name it.
+  let updatedInput: Record<string, unknown> | undefined;
+  let updatedInputKeptBy: string | undefined;
   for (const reg of matched) {
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
-      stdoutWrite(
+      // STDERR (mt#3625). This used to go to stdout, ahead of the dispatch's
+      // JSON — which meant overriding THIS guard silently voided a LATER
+      // guard's deny, because Claude Code drops a PreToolUse hook's whole
+      // output when stdout holds anything but the one JSON object. Live on the
+      // shared `Bash|mcp__minsky__session_exec` matcher, where an override of
+      // check-guessed-session-path disabled block-secret-file-read's deny.
+      stderrWrite(
         buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
       );
       // mt#2597 R1 fix: attribute the fire-log record to whichever channel
@@ -659,6 +857,11 @@ export async function runDispatcher(
       // doc comment for the full rationale.
       const { overrideSource, overrideEnvVar, overrideClassification } =
         buildOverrideFireLogFields(override);
+      // mt#3892: `guardOutcome` is deliberately UNSET here, and that is neither
+      // value. An overridden guard did not run at all, so this record is
+      // evidence of neither a clean decision nor a crash — leaving it unset
+      // keeps it out of the recovery join, which is correct: an override says
+      // nothing about whether the guard would have worked.
       recordFireLog({
         guardName: reg.name,
         event,
@@ -698,10 +901,18 @@ export async function runDispatcher(
       // silently missing every crashed evaluation. guard-health.ts already
       // owns the FAILURE-half record above; this is the complementary
       // decision-outcome record.
+      //
+      // mt#3892: marked `crashed` so a reader can tell this `allow` apart from
+      // one the guard actually decided. Without the marker the two are
+      // indistinguishable, and guard-health's recovery join would read a
+      // continuously crashing guard as recovered — this record is written
+      // microseconds AFTER the recordError() above, so "an invocation later
+      // than the last failure" is true on every single crash.
       recordFireLog({
         guardName: reg.name,
         event,
         decision: "allow",
+        guardOutcome: "crashed",
         durationMs: nowMs() - evalStartMs,
         toolName: input.tool_name,
         sessionId: input.session_id,
@@ -718,6 +929,9 @@ export async function runDispatcher(
       guardName: reg.name,
       event,
       decision,
+      // mt#3892: the guard returned an outcome, so this record is evidence the
+      // guard ran cleanly — the only kind guard-health's recovery join counts.
+      guardOutcome: "decided",
       durationMs: nowMs() - evalStartMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
@@ -725,11 +939,62 @@ export async function runDispatcher(
 
     if (!outcome) continue;
 
-    for (const line of outcome.auditLines ?? []) stdoutWrite(line);
-    if (outcome.calibration && reg.calibrationLog) {
-      logCalibration(reg.calibrationLog, outcome.calibration);
+    // STDERR (mt#3625) — same reason as the override line above. A guard's
+    // audit line is a diagnostic; stdout belongs to the single JSON object.
+    for (const line of outcome.auditLines ?? []) stderrWrite(line);
+    // mt#3519: a registration may declare several logs. The dispatcher writes
+    // the one record it has to the PRIMARY log — the first declared — never to
+    // all of them, which would duplicate the record across logs and inflate
+    // every fire count downstream. Additional entries name logs the guard
+    // writes ITSELF (e.g. through a module it calls in-process); they exist so
+    // the coverage-receipt join can find the guard's invocations, not so the
+    // dispatcher can write to them.
+    //
+    // Gated on the RESOLVED primary rather than on `reg.calibrationLog` (PR
+    // #2543 R1): the declaration is truthy for `[]` too, so gating on it would
+    // enter this branch and then write nothing. The type forbids `[]`, and
+    // this gate means a hand-authored one still cannot produce a silent skip.
+    const primaryLog = Array.isArray(reg.calibrationLog)
+      ? reg.calibrationLog[0]
+      : reg.calibrationLog;
+    if (outcome.calibration && primaryLog) {
+      logCalibration(primaryLog, outcome.calibration);
     }
     if (outcome.deny && reg.denyCapable) {
+      // mt#3802: the 2-strikes tracker was registered PostToolUse only, and a
+      // denial means the tool never runs — so the class an agent is MOST likely
+      // to retry blindly was the one class nothing was watching. Recorded here,
+      // once, on the dispatcher's single deny branch, per ADR-028: a
+      // cross-cutting concern belongs to the dispatcher rather than to each of
+      // the denying guards.
+      //
+      // INJECTED, not imported: the tracker lives in `packages/domain`, and
+      // this file's own invariant is that it imports only siblings. The real
+      // recorder is wired at the entrypoint (`dispatch-pretooluse.ts`), which
+      // is allowed to reach the domain — same shape as `recordFireLogFn`.
+      // The recorder swallows its own failures (SC4); a tracker problem must
+      // never change the decision this branch is about to emit.
+      //
+      // Wrapped HERE, not just inside the default recorder (PR #2770 R1). The
+      // production recorder swallows its own failures, but that is a property
+      // of the current INJECTION, not of this seam — the parameter takes an
+      // arbitrary callback, and SC4's "a tracker failure never converts into a
+      // denied or failed tool call" has to hold for every one of them.
+      try {
+        recordGuardDenialFn({
+          sessionId: input.session_id,
+          toolName: input.tool_name,
+          guardName: reg.name,
+          reason: outcome.deny.reason,
+          toolInput: input.tool_input,
+        });
+      } catch (err) {
+        stderrWrite(
+          `[dispatcher] two-strikes denial recording failed (non-fatal): ${
+            err instanceof Error ? err.message : String(err)
+          }\n`
+        );
+      }
       writeOutputFn({
         hookSpecificOutput: {
           hookEventName: event,
@@ -747,15 +1012,42 @@ export async function runDispatcher(
       });
     }
     if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
+    // mt#3612: first-in-registry-order wins. A second rewrite cannot be merged
+    // with the first (each guard builds its object from the ORIGINAL input, so
+    // a merge would resurrect fields the first guard deliberately changed), so
+    // it is dropped — but named, never silently.
+    if (outcome.updatedInput !== undefined) {
+      if (updatedInput === undefined) {
+        updatedInput = outcome.updatedInput;
+        updatedInputKeptBy = reg.name;
+      } else {
+        // STDERR, not stdout. Claude Code discards a PreToolUse hook's ENTIRE
+        // output when stdout carries anything besides the one JSON object
+        // (ADR-028 D1's "exactly one JSON object", confirmed live in PR #2573:
+        // an identical run with one junk stdout line ahead of the JSON executed
+        // the ORIGINAL command instead of the rewrite). Writing this line to
+        // stdout would therefore void the winning guard's rewrite in precisely
+        // the multi-guard case the line exists to make visible.
+        stderrWrite(
+          buildDiscardedRewriteAuditLine(
+            event,
+            reg.name,
+            updatedInputKeptBy ?? "unknown",
+            input.session_id
+          )
+        );
+      }
+    }
   }
 
   const additionalContext = composeAdditionalContext(contextFragments);
-  if (additionalContext !== undefined || sessionTitle !== undefined) {
+  if (additionalContext !== undefined || sessionTitle !== undefined || updatedInput !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
         ...(additionalContext !== undefined ? { additionalContext } : {}),
         ...(sessionTitle !== undefined ? { sessionTitle } : {}),
+        ...(updatedInput !== undefined ? { updatedInput } : {}),
       },
     });
   }

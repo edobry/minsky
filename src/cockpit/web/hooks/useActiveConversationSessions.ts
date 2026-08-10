@@ -2,44 +2,38 @@
  * useActiveConversationSessions — the set of `agentSessionId`s that are
  * GENUINELY live right now (mt#2749), derived from `GET /api/health`'s
  * `transcriptWatcher.activeSessions` registry
- * (`TranscriptWatcherTracker.getActiveSessions()`, mt#2320 SC2).
+ * (`TranscriptWatcherTracker.getLiveSessions()`, mt#2320 SC2 + mt#3857).
  *
  * Used by `Agents.tsx` (the unified run list, mt#2767 — formerly by the
  * retired `ConversationsPage`) to render a live badge on rows for
  * conversations that are currently being watched/ingested — the operator's
  * way to find a running conversation to open (mt#2749 success criterion 3).
  *
- * Recency filter (load-bearing — do not drop). `getActiveSessions()`'s raw
- * contents are NOT "currently active" in the intuitive sense: verified live
- * 2026-07-13 on cockpit server boot — EVERY historical conversation the
- * watcher has ever discovered (496 files, some from days earlier) showed
- * `lastEventAt` stamped to the boot timestamp. Root cause:
- * `TranscriptWatcher.seedExisting()` (transcript-watcher.ts) deliberately
- * calls `tracker.recordSessionEvent()` for every PRE-EXISTING file at boot
- * so the tailer can seed byte offsets and skip re-streaming old history —
- * correct for that purpose, but it means raw presence in `activeSessions`
- * conflates "the watcher knows this file exists" with "this conversation is
- * live right now." This hook is the first frontend consumer of
- * `getActiveSessions()`, so the gap was previously invisible. Rather than
- * change the shared tracker (out of scope; other/future consumers may rely
- * on the current stamping-on-discovery behavior), this hook filters to only
- * `lastEventAt` within `LIVE_RECENCY_WINDOW_MS` of now.
+ * Recency filtering happens SERVER-SIDE (mt#3857) — this hook consumes the
+ * field as-is. It did not always: the registry's raw contents are NOT
+ * "currently active" in the intuitive sense, because
+ * `TranscriptWatcher.seedExisting()` stamps every PRE-EXISTING file at boot so
+ * the tailer can seed byte offsets (correct for that purpose, but it conflates
+ * "the watcher knows this file exists" with "this conversation is live"). This
+ * hook was the first consumer to notice, and originally compensated by
+ * filtering to a 2-minute window in the browser — AFTER downloading the whole
+ * registry. That worked and was quietly expensive: by 2026-08-08 the array had
+ * reached 1,380 entries (209 KB), re-sent on every poll of the
+ * most-frequently-polled endpoint in the system, so the client discarded
+ * essentially all of what it fetched. The window now lives at
+ * `LIVE_SESSION_WINDOW_MS` in `transcript-watcher-tracker.ts` and is applied
+ * before serialization; the calibration is unchanged, only its location.
  *
- * Window calibration: no prior cadence data exists for "typical gap between
- * turns in an active conversation" (this is a new signal). 2 minutes is
- * chosen as a conservative middle ground — long enough to survive a
- * multi-refetch-cycle gap (staleTime 10s / refetchInterval 15s below) or a
- * longer-running tool call between turns, short enough to clearly exclude
- * the boot-scan's days-old false positives. Revisit if operators report
- * either false negatives (a visibly-active conversation losing its badge
- * mid-turn) or false positives (a stale conversation still showing live
- * past this window).
+ * Do NOT reintroduce a client-side window here. A second copy of the
+ * threshold would drift from the server's, and the two would disagree
+ * silently — the badge would be governed by whichever is shorter, with no
+ * indication which one is in force.
  *
  * Mirrors `useSystemHealth`'s direct `/api/health` fetch pattern (no
  * server-side shape import on the frontend bundle — a hand-kept mirror type).
  *
  * @see src/cockpit/routes/health.ts — GET /api/health, transcriptWatcher.activeSessions
- * @see src/cockpit/transcript-watcher-tracker.ts — ActiveSessionInfo shape
+ * @see src/cockpit/transcript-watcher-tracker.ts — ActiveSessionInfo, LIVE_SESSION_WINDOW_MS, getLiveSessions()
  * @see src/cockpit/transcript-watcher.ts — seedExisting(), the boot-scan root cause
  * @see src/cockpit/web/widgets/Agents.tsx — consumer (mt#2767 unified run list)
  */
@@ -48,7 +42,6 @@ import { useQuery } from "@tanstack/react-query";
 /** Frontend-local mirror of `ActiveSessionInfo` (transcript-watcher-tracker.ts) — only the fields this hook needs. */
 interface ActiveSessionInfoMirror {
   agentSessionId: string;
-  lastEventAt: string | null;
 }
 
 interface ApiHealthActiveSessionsResponse {
@@ -57,22 +50,12 @@ interface ApiHealthActiveSessionsResponse {
   };
 }
 
-/** See the module docblock's "Window calibration" note. */
-const LIVE_RECENCY_WINDOW_MS = 2 * 60 * 1000;
-
 async function fetchActiveConversationSessionIds(): Promise<Set<string>> {
   const res = await fetch("/api/health");
   if (!res.ok) throw new Error(`api/health: ${res.status}`);
   const data = (await res.json()) as ApiHealthActiveSessionsResponse;
   const rows = data.transcriptWatcher?.activeSessions ?? [];
-  const now = Date.now();
-  const recent = rows.filter((r) => {
-    if (!r.lastEventAt) return false;
-    const ts = new Date(r.lastEventAt).getTime();
-    if (Number.isNaN(ts)) return false;
-    return now - ts <= LIVE_RECENCY_WINDOW_MS;
-  });
-  return new Set(recent.map((r) => r.agentSessionId));
+  return new Set(rows.map((r) => r.agentSessionId));
 }
 
 /**

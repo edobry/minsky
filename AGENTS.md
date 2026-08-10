@@ -318,7 +318,17 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
-- See also: testing-standards, orchestrate skill
+- **Testable design (mt#3632).** Before importing a collaborator directly into a domain
+  function — a DB client, HTTP client, filesystem call, subprocess, clock/random — stop and
+  thread it as a parameter or constructor argument instead. A domain module whose behavior can
+  only be observed by patching an import (`spyOn` on the module/object it reaches itself) is a
+  design smell surfacing at test time, not a testing problem: extract the decision into a
+  function that returns the observable. See [testing-standards](mdc:.cursor/rules/testing-standards.mdc)
+  §Testable Design for the pattern (inject dependencies, prefer pure functions, push side
+  effects to injectable edges). This rule's glob already fires on `packages/domain/src/**` — the
+  design-time surface where that decision gets made, ahead of the test file that would otherwise
+  be the first place the doctrine loads.
+- See also: orchestrate skill
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
@@ -372,6 +382,16 @@ Structure source code so tests don't need complex mocking:
   function processData(config: Config) { /* ... */ }
   ```
 - **Prefer pure functions.** Return new objects instead of mutating inputs. Push side effects (I/O, time, random) to the edges and make them injectable.
+- **Don't patch a collaborator in place to observe it.** If proving a behavior would require
+  `spyOn`-ing something the code reaches itself (a module import, a singleton) rather than a
+  value the function returns or a dependency it was handed, that's design feedback, not a
+  testing problem — extract the decision into a function that returns the observable, inject the
+  collaborator, and keep production code as a thin imperative shell around the pure core.
+  In-place patching (`spyOn`) is banned outright — see
+  [ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) for
+  the full mechanism hierarchy, the functional-core/imperative-shell pattern (one wiring test per
+  shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
+  §Console Output`), enforced by `custom/no-spy-patching`.
 
 ## Test Data
 
@@ -494,10 +514,18 @@ When adding a new test helper:
      * Terminal output formatting or styling
      * Terminal interactive prompts
 
-4. **NEVER Test Console Output Directly**
-   * Tests MUST NOT assert against specific console output strings or formatting
-   * Instead, test that the correct information was passed to the output function
-   * **Examples of what NOT to test:**
+4. **Split log output into support vs. diagnostic — test only the support half, and never as text**
+   * A **support** log event is one the system is contractually required to emit — the log call
+     IS the behavior under test (a swallow contract, a severity-channel choice, a
+     transition-only volume bound, a structured degradation event, a security redaction). Test
+     these as fact-of-emission: assert an event was emitted with the right structured fields, via
+     an injected sink — never by patching the logger in place (`spyOn` on a logger is banned
+     outright; see [ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)).
+   * A **diagnostic** log event is a developer aid with no behavioral contract. Do not test it at
+     all — no spy, no captured-output assertion.
+   * Tests MUST NOT assert against console output *strings or formatting*, for either class —
+     that ban is unconditional and unrelated to the support/diagnostic split above.
+   * **Examples of what NOT to test, regardless of class:**
      * Specific console.log output strings
      * ANSI color codes or styling
      * Table formatting or alignment
@@ -649,20 +677,38 @@ test("writeConfig saves the config to the correct path", () => {
 ```
 
 ### Console Output
-❌ **DO NOT TEST:** Specific console output strings or formatting
+
+Log output splits into two classes (Khorikov's support-vs-diagnostic distinction — see
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md)):
+
+❌ **DO NOT TEST — diagnostic output.** A developer aid with no behavioral contract. Never spy on
+it, never assert on its content, never test it at all.
+
+✅ **DO TEST — support output, but only as fact-of-emission via an injected sink.** When a log
+event genuinely IS the behavior under test (e.g. "the handler swallows a driver error instead of
+throwing"), assert that an event was emitted with the right structured fields — never by patching
+the logger in place, and never by matching on message-string formatting.
 
 ```typescript
-// BAD test example - Testing console output directly
+// BAD — patches the logger in place (banned per ADR-036) and asserts on a formatted string
 test("reportStatus logs the status", () => {
-  const spy = jest.spyOn(console, 'log');
+  const spy = spyOn(log, "info");
 
   reportStatus({ status: "completed" });
 
-  // Don't test specific output strings
   expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
 });
 
-// GOOD test example - Testing the core logic instead
+// GOOD — the log event IS the contract here; observe it via an injected sink, not a patched logger
+test("reportStatus emits a completion event through the injected sink", () => {
+  const events: LogEvent[] = [];
+
+  reportStatus({ status: "completed" }, { logSink: (e) => events.push(e) });
+
+  expect(events).toContainEqual(expect.objectContaining({ level: "info", status: "completed" }));
+});
+
+// GOOD — when no event needs to be a contract, test the returned value instead
 test("getStatusReport returns the correct status information", () => {
   const report = getStatusReport({ status: "completed" });
 
@@ -767,7 +813,21 @@ Mixing both on one variable leaked mt#2738's Pulumi token.
 ```
 
 Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
-Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
+
+**Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
+CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
+purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
+cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+
+**A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
+UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
+a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
+Never `producer | gh secret set` (empty stdin writes an EMPTY secret): capture → guard → write.
+
+File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
+discipline-tier. Recipes + leak-containment runbook:
+`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
 
 ## General
 
@@ -776,11 +836,26 @@ Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
 - **Runtime**: Bun (not Node.js)
 - **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
 - **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
+- **Tests**: `bun scripts/run-tests-gated.ts` — the full suite, and the ONLY invocation that
+  fail-closes on a truncated run. Do NOT hand-type `bun test <directories>` for a broad run:
+  passing `./src` recurses into `src/mcp`, which triggers a Bun 1.2.21 defect that silently
+  stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
+  zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
+  what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
+  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
+  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
+  single file or a subdirectory that is not `./src` itself is unaffected.
+- **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
+  the gated runner; `test:integration` and `test:debug:integration` pass an explicit
+  `tests/integration` path, which cannot reach `src/mcp` and so cannot trigger the defect. If you
+  add a script, give it either the gated runner or a path argument that is not `./src` — a bare
+  `bun test` walks `src/mcp`, because `bunfig.toml`'s `pathIgnorePatterns` deliberately omits
+  `src/mcp/**` (its own comment records that the mechanism cannot reliably prune a subdirectory).
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
-- **Bundle-boot smoke (CI gate, mt#1787)**: every PR runs `.github/workflows/bundle-boot-smoke.yml` which builds the bundle and asserts `GET /health` returns 200 within 30s. The merge gate (`.claude/hooks/require-review-before-merge.ts`) denies merge unless this check fired and concluded `success`. Local repro: `bun run build && bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=<n>` then `curl http://127.0.0.1:<n>/health`. Override after manual verification: `MINSKY_SKIP_BUNDLE_SMOKE=1` (audit-logged).
+- **Bundle-boot smoke (CI gate, mt#1787)**: every PR runs `.github/workflows/bundle-boot-smoke.yml` which builds the bundle and asserts `GET /health` returns 200 within 30s. The merge gate (`.claude/hooks/require-review-before-merge.ts`) denies merge unless this check fired and concluded `success`. Local repro: `bun run build && bun run dist/minsky.js mcp start --http --host=127.0.0.1 --port=<n>` then `curl http://127.0.0.1:<n>/health`. **Do not add `--preload reflect-metadata`** — the bundle installs the polyfill itself via `src/reflect-polyfill.ts` (mt#3680), so the flag is redundant, and adding it back would mask the very regression this gate exists to catch: a preloaded invocation boots whether or not the bundle is self-sufficient. From mt#3561 until mt#3680 the flag WAS required here and in `Dockerfile`'s CMD, because bun's bundler emitted reflect-metadata's CommonJS require after the init calls that reach tsyringe; both dropped it together. Override after manual verification: `MINSKY_SKIP_BUNDLE_SMOKE=1` (audit-logged).
 
 # Claim Confidence
 
@@ -810,6 +885,18 @@ explicit licence to falsify it ("...if that basis doesn't hold, say so and proce
 strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
 dispatch`.
 
+**The same bound covers DATA-EXISTENCE negatives (mt#3849).** "That field / column / payload key
+isn't there" is the same shape as "the capability is unavailable" — a negative bounded to the one
+view you read. The falsifier is the PRIMARY source, never the accessor: the raw file, not the
+parsed view; the call sites, not the type signature; the component, not a screenshot of it. A
+derived view is accurate about ITSELF and silent about the question you are asking, so **absence in
+a derived view is not evidence of absence in the source** — there is no error to notice, only a
+gap, which is why this passes a check that a wrong VALUE would fail. Incident (2026-08-08): a live
+probe showed a `tool_result` block carrying no HTTP metadata, which became "the metadata never
+enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
+and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
+plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
+
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
 checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
@@ -820,6 +907,19 @@ accepted the param" is not evidence the param took effect — with no caller-vis
 ACTUAL value, the honest label is `unknown`, not an assumption. Detector: `hook-observers.mdc
 §Code-mechanism-assertion` now SURFACES relayed claims (it used to suppress them). Cues:
 `/check-premise` (g) and (h).
+
+**The corpus is agent-authored — citing it is self-citation (mt#3599).** `.minsky/rules/**`,
+memories, ADRs, hook docs, and task specs are prose an agent wrote. Before citing one as EVIDENCE
+(as distinct from a POLICY you are obeying), classify what it is doing. **Recording** something
+external — an incident that occurred, a decision the principal made, a code behavior verified by
+running it, a vendor doc actually read — is legitimate evidence for that thing. **Asserting**
+something it originated — a coined term, a chosen framing, a threshold an agent picked, a taxonomy
+imposed on a problem — carries no independent warrant; it is `inferred` at most, and repetition
+across files does not upgrade it. The file format renders both identically, which is what makes
+the confusion easy. "Per `<rule>.mdc`" answers WHEN a claim was written, never WHETHER it is true.
+On a provenance challenge, answer with `git_log` / `git_blame` on the file and say plainly if the
+answer is "an agent did" — a file path is not an answer. Incident + worked examples:
+`docs/rules-rationale/claim-confidence.md §The corpus is agent-authored`.
 
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
@@ -849,6 +949,12 @@ must always be a readable ref on its own). Full mechanism: `docs/rules-rationale
 
 Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
 
+**These five are what you EMIT — the codec ACCEPTS a sixth (mt#3800).** `parseMinskyUri` also
+resolves `minsky://conversation/<agentSessionId>`, which is how `/cockpit` hands the tray the
+conversation the operator is sitting in. That is a machine-to-machine entry point, not a
+reference you write in prose: a conversation uuid is unreadable as a label and the reader is
+already inside the conversation. Keep emitting these five.
+
 ## Short ids (`mem#N` / `ask#N` / `ws#N`) are a LABEL form, not a link target
 
 Memories, asks, and workspaces also have numeric short ids (ADR-029). They are **not** a
@@ -876,7 +982,9 @@ at hand.
 - **Keep the label free of markdown-link metacharacters.** No `]`, `(`, or `)` in the label — those break the `[label](url)` syntax. A clean entity ref (`mt#2370`, a short id, a short name) never contains them. The id in the target is percent-encoded by the codec, so the URL side is always safe to close at the first `)`.
 - **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
 - **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
-- **Don't over-link.** Link a meaningful reference (typically the first mention), not every repetition in a long report. One clickable ref per entity per message is plenty; blanket linking is noise.
+- **Task and PR refs linkify themselves on Claude Code (mt#2565) — write the clean bare ref.** A `MessageDisplay` hook rewrites every bare `mt#NNNN` and `PR #N` into a deeplink as the message is displayed, while the stored transcript keeps the bare ref; a ref you linked by hand is left alone, and refs inside code fences, inline spans and blockquotes are never touched. This retires the old ration for these two classes — it capped linking at "typically the first mention," and the measured result was 31 linked vs 232 bare in one session, a fully compliant message that still read as not linkified. Two limits decide what authoring discipline still owns. The hook is **Claude Code only**, so hand-link when the output is bound elsewhere. And it rewrites only refs whose target is derivable from the label: `ask#N` / `mem#N` / `ws#N` resolve to a UUID (ADR-029), which the display path cannot look up — so **for ask, memory and session refs every rule below is unchanged and is now the only mechanism**. That is the class that actually fails: mem#623 R6 measured 6 of 6 derivable refs linked and 0 of 3 of these, in a message handing the principal decisions. mt#3914 closes it. Detail: `docs/rules-rationale/cockpit-deeplinks.md §The one-link-per-entity ration is provisional`.
+
+- **The unit is the MESSAGE, and this is a FLOOR (mt#3286).** The ration above is a CEILING — "one per entity per message is plenty" bounds how much you may link. It was read for years as if it also set the floor, and it does not. The floor: **link the first mention of an entity in EVERY message where it appears**, not once per conversation. A turn's **closing or action message additionally links every pending-decision entity**, even when an earlier message in the same turn already linked it — the closing message is where the operator acts, and a link three messages up is not at hand there. Recurrences: mem#623 R3 (the ref was linked early in the turn and bare at the close; the operator reported "I don't see a link"), R4, R5, R6. All four were compliant with the ceiling and unusable anyway, which is what a missing floor looks like. Enforced advisory-only by the `turn-end-bare-ref-scan` Stop observer (calibration-first per ADR-024); on Claude Code its `mt#` / `PR #` classes now have little left to catch, while its short-id and malformed-target classes are untouched by mt#2565.
 - **PR / changeset references use the `changeset` type.** Emit `[PR #<n>](minsky://changeset/<n>)` when referencing a PR by number. The label should be the human-readable form (`PR #1234`); the id in the URI is the plain PR number (`1234`). Bare `#1234` without the `PR` prefix stays plain text.
 
 ## Examples
@@ -932,8 +1040,13 @@ happened" — chat is deliberately the thinnest:
 | **Chat** | Outcomes, exceptions, judgment calls, heartbeats | Push into scroll |
 | **Asks** | Principal-blocking decisions, self-answerable | Routed push + attention accounting |
 | **Task record** | Audit trail: gates, premise audits, evidence, notes | Pull; one deeplink away |
-| **Cockpit** | Fleet/workstream state, digests | Pull today; ambient push per ambient-cockpit RFC |
+| **Cockpit** | Fleet/workstream state, digests | As a REPORT channel: pull today; ambient push per ambient-cockpit RFC |
 | **Transcript archive** | Everything, verbatim | Pull; searchable |
+
+**This table classifies channels for REPORTING; it does not state any surface's product
+identity.** The cockpit's own direction is to become the principal's primary live point of
+contact (mem#554; `/product-thinking`) — do not read the `Pull` in its row as evidence it is a
+pull-oriented or after-the-fact product. Cue (k) in `/check-premise` owns that claim.
 
 **Nothing is lost by compression — chat was never the storage layer.** Structured artifacts land
 in full in the task record (or after the plain-language lead, `user-preferences.mdc
@@ -1017,18 +1130,55 @@ Routine progress compresses at the standing register everywhere else. Reporting 
 decoupled from action authority: raising or lowering the register never changes what an agent may
 do — merge gates, asks, and authorization boundaries are unaffected.
 
-**Transport binding, not just reporting (mt#3436).** Severity is not only a reporting-altitude
-concern — when a fired trigger's remediation is **operator-only** (the agent cannot resolve it;
-only the principal can act), the trigger ALSO escalates the ask's TRANSPORT: create or re-route
-the ask with `forceImmediate: true` AND send one `mcp__minsky__principal_notify` page pointing at
-it. An ask left on default routing (e.g. `serviceStrategy: deadline-bound`, `transport: inbox`) is
-not an escalation — it is scroll the principal has to go find. The ask carries the decision;
-`principal_notify` carries the attention — treating the ask alone as "having escalated" is the gap
-this closes. **Dedupe carve-out:** skip the page when the principal is already actively responding
-in the same conversation — the page exists for the walked-away case, not as a redundant ping
-mid-exchange. Originating incident: mt#3433 / mem#779 — a correctly diagnosed, correctly filed,
-correctly severity-reported incident still cost ~4h of avoidable downtime because the ask never
-left default routing and no page was sent. Full incident + the ask/notify split:
+**Transport binding, not just reporting (mt#3436; mechanized mt#3595).** Severity is not only a
+reporting-altitude concern. When a fired trigger's remediation is **operator-only** — the agent
+cannot resolve it; only the principal can act — the trigger ALSO escalates the ask's TRANSPORT.
+
+**What you do: one thing.** Create the ask with **`severity: "incident"`**. The substrate then
+sends the principal one notification on their phone pointing at that ask. **You do NOT send a
+separate `principal_notify` call for it** — that second remembered call is exactly the step that
+was dropped in both recorded occurrences, once three days after this rule shipped as
+always-loaded text with the text verbatim in context.
+
+Also pass `forceImmediate: true`, but understand it as a **separate, independent** setting: the
+two fields do different jobs and neither gates the other. `severity` controls whether the
+principal is NOTIFIED; `forceImmediate` controls whether the ask waits for the next service
+window before landing in the inbox. A severity ask without `forceImmediate` still notifies
+immediately — you just get an inbox entry that is queued when the principal goes looking for it.
+Set both: the notification should not lead to an ask that is not there yet.
+
+**What the substrate guarantees**, so you neither repeat nor second-guess it: exactly one
+notification per ask (the claim is a conditional write, so a repeat create or a later edit cannot
+re-notify); a ceiling of 3 per 24h with any suppression logged rather than silent; and a delivery
+failure recorded as an actionable `ask.page_failed` event rather than swallowed. A notification
+failure never fails ask creation — the ask is the decision record.
+
+**Both halves are required for the marker.** A severity event you can fix yourself does not
+warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
+inbox.
+
+**The marker now ROUTES, not just notifies (mt#3851).** This paragraph used to warn that marking
+a non-operator-routed ask is inert — the notification fires only for operator-routed asks. That
+warning described a defect, not a design: `severity: "incident"` set a flag the router read to
+skip its policy phase and then ignored when picking a target, so five of the seven kinds
+(`capability.escalate`, `stuck.unblock`, `information.retrieve`, `coordination.notify`,
+`quality.review`) went to a subagent / retriever / peer / reviewer and no human was ever reached
+— which is the opposite of what the marker is for. The router now forces `operator` + inbox for
+EVERY kind carrying the marker, so there is no longer such a thing as a marked-but-unroutable
+ask. Pick the kind that fits the question; the marker decides who sees it.
+
+**Dedupe carve-out — now the only transport judgment left to you.** When the principal is
+actively responding in the same conversation, a notification is redundant; omit the marker and
+say plainly in chat that this is an operator-only incident. The mechanism exists for the
+walked-away case. Do not omit it merely because the principal spoke recently — in the originating
+recurrence the last message was 39 minutes earlier, which is the walked-away case, not an active
+exchange.
+
+An ask on default routing (`serviceStrategy: deadline-bound`, `transport: inbox`) is not an
+escalation — it lands in the chat log and the inbox, both of which the principal has to go look
+at. Originating incidents: mt#3433 and mem#779 — a correctly diagnosed, correctly filed,
+correctly severity-reported incident still cost ~4h of avoidable downtime because no
+notification was sent. Full detail:
 `docs/rules-rationale/communication-contract.md §Severity transport binding`.
 
 ### Executive scheduled sampling
@@ -1157,15 +1307,28 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
 - **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
-- **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
+- **Branch-freshness** — commit/PR whose diff OVERLAPS main's new commits (mt#3484: ahead-count alone no longer blocks; a failed overlap probe fails closed). `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
-- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Three log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, and test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix).
+- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
-- **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
+- **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
+  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
+  mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
+  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  `MINSKY_ALLOW_SECRET_FILE_READ`.
+- **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
+  `Duplicate check:` line (either named candidates + reconciliation, or the literal
+  `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity
+  judgment — the advisory sibling in `parallel-work-guard-standalone.ts` owns that and provably
+  can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
+  `/create-task` Step 1a is skipped by calling the tool directly.
+  `MINSKY_SKIP_DUPLICATE_RECORD`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
@@ -1175,39 +1338,64 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 # Hook Observers
 
 NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
-decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
+decisions. Gates + compile workflow: `hook-files`.
+
+**This is an INDEX, not the narration.** Each entry gives the trigger, the enforcement status,
+and the override var. The durable detail — mechanism, incident history, design rationale,
+false-positive posture — lives in `docs/architecture/hooks/<name>.md`. Read that page before
+changing, citing, or reasoning about any observer's behavior; an entry here is deliberately too
+terse to answer "why does it work this way?"
 
 **All observers on one event share ONE injected block.** The dispatcher merges every guard's
 `additionalContext` into a single `hookSpecificOutput` — you do not get N separate injections
 (mt#3394 was filed on the opposite assumption and its planning pass falsified it). Order is by
 the registration's optional `contextPriority` (higher first; equal keeps registry order), and the
-block is capped at `MERGED_CONTEXT_BUDGET_CHARS` (4538, derived from the registry's own
-`attentionCost` annotations). Over budget, the lowest-priority fragments are dropped and NAMED in
-a trailing notice — never silently — and a dropped fragment still writes its calibration record,
-so measurement is unaffected. Separate events still mean separate blocks: a `Stop` observer and a
-`UserPromptSubmit` observer firing on the same turn produce two.
+block is capped at the exported `MERGED_CONTEXT_BUDGET_CHARS` in `.minsky/hooks/dispatcher.ts`
+(whose doc comment carries the derivation), computed from the registry's own `attentionCost`
+annotations — read the constant rather than a figure quoted here, which goes stale every time the
+corpus is trimmed (it did within a day of mt#3479's re-derivation). Over budget, the
+lowest-priority fragments are dropped and NAMED in a trailing notice — never silently — and a
+dropped fragment still writes its calibration record, so measurement is unaffected. Separate
+events still mean separate blocks: a `Stop` observer and a `UserPromptSubmit` observer firing on
+the same turn produce two.
 
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
-- **Drive-READY-to-implementation** — READY-handoff sibling of the above (mt#3373): on `tasks_status_set` → READY, injects "invoke `/implement-task` now; the principal is not the next actor", the three legitimate halts, and the forbidden turn-closers. Fires ONLY on a real transition INTO READY (a no-op re-set is silent) and skips `state-ops` kind, whose `/plan-task` Step 4 branch walks READY → IN-PROGRESS in main-agent context instead; the kind read is a `minsky tasks get` CLI call that fails open toward firing. `MINSKY_SKIP_READY_CHAIN_WALK`.
+- **Drive-READY-to-implementation** — on `tasks_status_set` → READY, injects "invoke `/implement-task` now". Fires only on a real transition into READY; skips `state-ops` kind (mt#3373). `MINSKY_SKIP_READY_CHAIN_WALK`.
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
-- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
-- **Turn-end-untaken-action** — Stop-event scan (mt#3179): the turn's final message names a next action ("I'll implement it", "say the word") without taking it. Keys on the SURFACE phrase, not the reason, and dedups per phrase per turn. Suppressed when the same message also matches ask-routing-deferral, whose guidance is the more specific (mt#3336). `MINSKY_ACK_UNTAKEN_ACTION`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. Full ADR-024 ladder as of mt#3652 (Rung-2 log-only, Rung-3 confirm injects). `MINSKY_ACK_RETROSPECTIVE_TRIGGER`; Rung-3 kill switch `MINSKY_DISABLE_RUNG3_CONFIRM`.
+- **Retrospective-completeness** — whether a retro that FIRED is complete: the sections its declared triage level requires, and in-turn status reads for cited fix-tasks (mt#3601). Log-only. `MINSKY_SKIP_RETRO_COMPLETENESS`.
+- **Turn-end-untaken-action** — Stop scan (mt#3179): final message names a next action without taking it. Phrase-keyed. On an overlap with ask-routing-deferral THIS guard speaks and the sibling stays quiet (mt#3620 inverted mt#3336: a dedup across events is a handoff, and it must hand toward the EARLIER event), and it emits the deferral remedy rather than "take it now" (mt#3767). Suppressed when the message NAMES a principal-reserved category (mt#3768) — a named category, never a bare "your call" or an option set; suppressed fires are still RECORDED, with the reason. `MINSKY_ACK_UNTAKEN_ACTION`.
+- **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Posture is per finding class — `bare-ref` (`mt#N` / `PR #N` unlinked), `malformed-target` and `raw-uuid-label` are LIVE; bare `ask#N`/`mem#N`/`ws#N` is RECORD-ONLY under the v0 carve-out, since the scanner cannot know whether the UUID was in hand (enforcing those is HOLD-ed behind the re-fire fix per ask#7415; mt#3897 owns it). **Its advisory is chain-capped at one follow-up (mt#3860)** — the remedy message is itself a closing message, so 42% of measured fires were the guard reacting to text it caused; a second consecutive Stop-continuation records but stays silent. `MINSKY_ACK_BARE_ENTITY_REF`.
+- **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
+- **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
-- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
-- **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
-- **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose; the reminder names the observed gap and call count. LIVE mt#3399 (ask#6536 disposition), graduated from log-only after mt#3336's tune cut the sub-5-minute burst FPs; keeps writing its calibration log so the LIVE FP rate stays measurable. Same `UserPromptSubmit` event as ask-routing-deferral/wall-of-text, so it lengthens the merged block rather than adding one. `MINSKY_SKIP_SILENT_STRETCH`.
-- **Constructed-identifier batch** — TWO passes. (1) Batch: id-minting call (tasks_create/session_start/session_pr_create/asks_create/memory_create) batched with an id-consuming call in the same parallel tool-call batch — categorical, co-occurrence-based. (2) Consume-before-mint (mt#3340): a write naming an `mt#`/`ask#`/`mem#` id that has NO source earlier in the transcript, followed LATER in the same turn by a call that mints that kind of id — EXACT (runs post-hoc, so it compares the written token against the id actually returned) and cross-message, since the batch pass's same-message-only rule assumed mint-before-consume. Consume surfaces include file writes (session_write_file/session_edit_file/Write/Edit) as well as session_commit/session_pr_create/session_pr_edit/tasks_spec_patch/memory_create — a constructed id in SOURCE CODE ships and is later read as fact. Root-tier sibling of guessed-session-path + pre-narration. Calibration-first (mt#3125, mt#3340). `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
-- **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something ("do not attempt X", "is blocked") without stating its basis or granting an explicit licence to falsify it; a wrong constraint that crosses a dispatch boundary removes the recipient's standing to correct it (mem#702). PreToolUse on the raw `Agent` tool, sharing one detector with the `tasks_dispatch` structuralCheck (mt#2488's gate, negative half). Calibration-first (mt#3162); graduation mt#3167. `MINSKY_ACK_BARE_PROHIBITION`.
+- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe. Sibling of ask-routing-deferral (which covers a DECISION). Calibration-first (mt#2459). Three surfaces: capability-deferral prose ("I can't"), AskUserQuestion option labels, and **permission-deferral prose ("I can, shall I?" — mt#3463)**, which excludes genuinely destructive or principal-reserved actions because there the ask is CORRECT. Writes an evaluation stream (`.minsky/operator-deferral-evaluations.jsonl`) covering ALL THREE surfaces, fired or not, so the miss RATE is measurable — the input ADR-024's rung decisions need and a fire-only log cannot give. Records carry `evaluated: "prose-turn" | "ask-tool-call"`; the two are different denominators (per completed turn vs per `AskUserQuestion` call), so group by it rather than pooling. `MINSKY_SKIP_OPERATOR_DEFERRAL`.
+- **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
+- **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
+- **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` command string chaining TWO OR MORE verification commands (`bun test`, `bun run lint|format|typecheck|validate|build`, `bunx eslint|tsc`, `tsgo`) with `;`/`&&`/`||`, which makes a non-zero exit unattributable. Deliberately narrow: a SINGLE verification command wrapped in `echo` labels or a `cd` prefix does NOT fire, and neither do chained exploratory commands — that shape is the common one, and firing on it would be the mem#719 noise problem. Quote-aware split, so a `;` inside quotes cannot manufacture a fire; a pipeline is classified by its FIRST stage. Escalation tier for `terminal-command-best-practices.mdc §Verification Commands`, which shipped twice at prose tier (mt#2371, mt#2571) and did not contain its class — R2 recorded in mem#553. NOT an ADR-024 rung (that ladder scopes to prose trigger-phrases; neither quotation-elision nor embedding recall applies to parsing a command). Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`.
+- **Constructed-identifier batch** — TWO passes: an id minted and consumed in the same parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes — a constructed id in source code ships. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
+- **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Calibration-first (mt#3162). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP — it caught scope decisions, role constraints, and guard-backed policy); still recorded, and the policy to grant one stands. `MINSKY_ACK_BARE_PROHIBITION`.
+- **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) that ALREADY appear in an active task's spec, in a task the duplicate-check record does not concede overlapping. Exact substring over `task_specs` in ONE OR-ed query, no similarity metric — the advisory embedding sibling provably cannot discriminate at the distances real duplicates sit at (mem#819). A fourth rule (cited `mt#NNNN` refs) was cut pre-ship at 4/4 false positives. The deny-tier sibling `require-duplicate-check-record` (`hook-files.mdc`) checks the record is PRESENT; this checks whether its verdicts are TRUE. Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`.
+- **Display linkifier** (mt#2565) — MessageDisplay: rewrites bare `mt#NNNN` / `PR #N` into deeplinks as a message streams; the stored transcript keeps the bare ref. Fires per batch of completed lines, so it stays OFF the dispatcher (ADR-028 D7(5)) and loads no domain code. Short ids are out of scope (ADR-029 — the UUID target is not derivable from the label); mt#3914 owns them. `MINSKY_SKIP_TERMINAL_LINKIFY`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
-- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Agent-dispatch record** (mt#2292) — PreToolUse on `Agent`: writes the `pending`
+  `subagent_invocations` row on the RAW spawn path (the one `tasks_dispatch` /
+  `session_generate_prompt` never see), and stamps the harness `(session_id, tool_use_id)` into the
+  prompt via `updatedInput` so the Stop side can find that row. The stamp is the JOIN: PreToolUse
+  has no `agent_id`, SubagentStop has no `tool_use_id`, and nothing else connects them. Never
+  denies; emits the stamp even when the DB write fails, since the prompt is sent either way.
+  `MINSKY_SKIP_AGENT_DISPATCH_RECORD`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row; recovers the mt#2292 stamp
+  from `agent_transcript_path` to close on the parent key. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-creator link** — stamps workspace↔conversation link at `session_start` (mt#3120). none.
-- **Subagent model verification** — Agent-tool PostToolUse: warns when `tool_input.model` (requested tier) mismatches `tool_response.resolvedModel` (what actually ran), the mt#3151 false-provenance shape; degraded payloads log to `.minsky/subagent-model-mismatch.jsonl` instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
+- **Subagent model verification** — Agent-tool PostToolUse: warns when the requested `model` mismatches `resolvedModel` (mt#3151); degraded payloads log instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
-- **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
+- **Guard-health tracker** — guard failure streaks tagged `infra`/`logic`; escalation banner cools down per-session up to 1h (mt#3072). Since mt#3892 the summary also carries `liveness` (`failing`/`recovered`/`dormant`) and `lastCleanRunAt`, joined from the fire-log's `guardOutcome: "decided"` records: a streak now resets on evidence the guard ran cleanly, not only on the 24h age-out, so `recovered` and `dormant` are no longer one state. A `crashed` record never counts as clean — a fail-open guard writes `allow` on every crash, so counting it would report a permanently broken guard as recovered. none.
 
 # Design Principle: Humility
 
@@ -1217,28 +1405,9 @@ Operational corollaries already in force below are instances of this one princip
 
 ## Escalation packaging
 
-Identifying a decision as principal-level is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to decide from the message alone, without round-tripping for context.
+An escalation must be **self-contained**: the principal should be able to decide from the message alone, without round-tripping for context. Identifying a decision as principal-level is necessary but not sufficient — completeness and *form* are both required, and a message can be complete and still unusable.
 
-Mechanical checklist before posting an escalation:
-
-1. **State the question in plain language**, not by referent. "Should I do A or B?" with A and B identified by label-only forces the user to look up what those labels mean. Restate the options inline.
-2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link.
-3. **List the decision drivers** — the factors that distinguish the options. The user should see what *would* tilt the choice, not infer it.
-4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
-5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
-
-Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.
-
-**Form (how it reads — completeness is not enough):**
-
-1. **Lead with the action.** The first line states what the principal must do, imperatively. Justification comes after, and gets at most one line; deep context goes in `contextRefs`, not the question body.
-2. **Name concrete objects.** Real names ("the **minsky-ai** GitHub App"), never roles ("the implementer App"). If you don't know the object's name, look it up before writing the ask — a 15-second grep beats a round-trip.
-3. **Link the destination.** If the action happens in a portal/UI, include the direct URL to the exact page, plus numbered click-steps.
-4. **No agent jargon.** Internal tool ids (`mcp__*`), harness terms, and inline-code permission strings don't belong in principal-facing text. Describe capabilities in plain words ("I'll file the request for you").
-5. **Body budget ~120 words.** If it doesn't fit, you're including justification that belongs in contextRefs.
-6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
-
-Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.
+The two checklists that enforce this — content (does it carry what a decision needs?) and form (can it be read and acted on?) — live in the **`/escalation-packaging`** skill. Invoke it before `asks_create`, before `AskUserQuestion`, and before any turn-ending question that hands the principal a choice.
 
 # Key Architecture
 
@@ -1318,13 +1487,16 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 - The user said something during the prior step that explicitly defers the next step ("don't implement yet", "just plan it", "I'll handle the impl").
 - The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
-- The task is gated on an external decision the user owns, explicitly stated in the spec or an Ask.
+- The task is gated on a principal-owned decision — and you can NAME which reserved category from `principal-context.mdc §Decisions Eugene reserves` it falls under.
 
-**Confabulated halt rationales** (do NOT halt for any of these):
+**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes. (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
+
+**Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
 - "Planning is the skill's scope; implementation is a separate skill."
 - "User might want to review the gate report before I proceed."
 - "The next move is user-driven."
+- "Re-attempting the change that took production down is your call." (R5, 2026-08-03 — the halt stood until the principal asked "sorry, what's my decision?")
 
 **Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/merge-coordination` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.
 
@@ -1335,6 +1507,15 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 **At conversation start.** For any non-trivial conversation, call `mcp__minsky__memory_search` with a query matching the user's intent before deciding what to do. That's how relevant prior context surfaces. Trivial turns (single-word affirmatives, status checks) don't need it.
 
 **On durable findings.** Call `mcp__minsky__memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do **NOT** write to filesystem memory files — the canonical store is the DB. If you observe code paths still writing to `~/.claude/projects/.../memory/`, file separate bug tasks; the directive above is unambiguous post-deletion.
+
+**On editing an existing memory.** Use `mcp__minsky__memory_patch` — not `memory_update` — when the
+edit is confined to one markdown section, which is nearly always (appending an R-entry to a family
+root's `## Recurrences` is the canonical case). It takes `section` + `text` + `mode`
+(append/prepend/replace), leaves every other byte identical, and throws if the heading is missing or
+duplicated. `memory_update` rewrites the whole record: on a long-lived root that costs a full
+re-emission and risks silently dropping untouched sections — the reason an R5 append went undone
+for hours in mt#3602's originating incident. Reserve `memory_update` for non-content fields
+(tags, scope, description) or a genuine whole-body rewrite.
 
 **On divergence.** If you encounter old file-based memory artifacts (e.g., in stale checkouts, cached harness state, or third-party tooling), the DB wins. Do not re-save them as files.
 
@@ -1366,12 +1547,7 @@ execution`, principal-level decisions stay with Eugene:
 
 ### Trigger rule — before applying any framework
 
-1. **Name the framework** explicitly.
-2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
-3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
-4. **Name what you switched and why.**
-
-`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
+Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.
 
 # Sequence Dependent Tool Calls
 
@@ -1532,6 +1708,7 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims (who has touched this task recently). Treat it as a **signal, not proof** — run probes 1–4 to confirm any hit:
      - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. `actorId` is an opaque `unknown:hash:<...>` (ADR-006 ascribed identity) for callers without a declared agent_id and **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims can show up as "other." It tells you *when* to do the forensics, not *who* definitively holds the task.
      - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive, not proof-of-unclaimed. (Claims self-stale at ~15 min; the default fresh-only view is what you want here.)
+     - **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN (mt#3900, open).** The proxy resolves the conversation id once at spawn, so an in-process switch attributes your calls to the PREVIOUS conversation until the next reconnect. Your own touches then read back under an id you don't recognize. Before treating a hit as a collision, check whether the cited conversation is actually alive — `ls -l ~/.claude/projects/<project>/<id>.jsonl` — a transcript last written hours ago is not a live sibling. Probing no longer refreshes what it reports (mt#3889 exempted presence-reads from the presence write), so `lastRefreshedAt` is now trustworthy; **attribution is not, yet**.
   1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
   3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.

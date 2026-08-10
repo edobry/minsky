@@ -87,6 +87,31 @@ describe("buildCriticConstitution", () => {
     expect(buildCriticConstitution(false)).toContain("NEEDS VERIFICATION");
   });
 
+  test("asserted-assumption failure modes appear in both variants (mt#3492)", () => {
+    // mt#3469 / PR #2478 R1: a guard was justified by a comment asserting the
+    // guarded case could not arise. The claim was false for the guard's actual
+    // scope, and the effect's pre-existing job was silently suppressed. The
+    // reviewer caught it with no directive telling it to look; these bullets
+    // make that a check rather than a lucky catch.
+    //
+    // Asserted on BOTH variants because the failure mode is visible in the diff
+    // alone — it needs no file-reading tools, so a no-tools review must carry it
+    // too. Distinct from the pre-existing "Undocumented assumptions" bullet,
+    // which fires when the assumption is ABSENT; this pair fires when it is
+    // present and wrong.
+    for (const toolsAvailable of [true, false]) {
+      const prompt = buildCriticConstitution(toolsAvailable);
+      expect(prompt).toContain("Asserted assumptions used as justification");
+      expect(prompt).toContain("untested reachability claim");
+      expect(prompt).toContain(
+        "A guard added to pre-existing code endangers what that code already did"
+      );
+      expect(prompt).toContain("PRIOR responsibilities the guard now skips");
+      // The pre-existing inverse must survive alongside it.
+      expect(prompt).toContain("Undocumented assumptions");
+    }
+  });
+
   test("normal scope (default) is byte-identical to pre-mt#1188 prompt (no extra section)", () => {
     // The normal-scope path must not inject any extra sections — preserves
     // backwards compatibility for callers that don't pass a scope.
@@ -483,6 +508,74 @@ describe("extractOutOfRepoReferences", () => {
 
   test("returns empty array for empty input", () => {
     expect(extractOutOfRepoReferences("", "PR description")).toEqual([]);
+  });
+});
+
+describe("buildReviewPrompt incremental-scope notice (mt#3471)", () => {
+  const baseInput: ReviewPromptInput = {
+    prNumber: 999,
+    prTitle: "Test PR",
+    prBody: "",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/test",
+    baseBranch: "main",
+  };
+
+  test("omits the notice by default, so a full-diff review reads exactly as before", () => {
+    const prompt = buildReviewPrompt(baseInput);
+
+    expect(prompt).not.toContain("NOT the full PR");
+    expect(prompt).toContain("## Diff");
+  });
+
+  test("omits the notice when incrementalScope is explicitly false", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: false });
+
+    expect(prompt).not.toContain("NOT the full PR");
+  });
+
+  test("announces the narrowed scope when incrementalScope is true", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("NOT the full PR");
+    expect(prompt).toContain("touched since your most recent review");
+  });
+
+  test("mt#3663: describes the narrowing as by-file, and the content as PR-relative", () => {
+    // The notice must match what resolveDiffScope actually produces. Before
+    // mt#3663 it promised "only the commits pushed since your last review",
+    // which the subset invariant no longer delivers — each shown file now
+    // carries its full PR-relative change, so a model told otherwise would
+    // mis-read already-reviewed hunks as newly pushed work.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("as this pull request introduces it");
+    expect(prompt).toContain("nothing here is code the PR did not author");
+    expect(prompt).not.toContain("contains only the commits pushed");
+  });
+
+  test("cancels the absence-is-evidence rules that a narrowed diff would otherwise trip", () => {
+    // The load-bearing half. Without this, the Critic Constitution's
+    // diff-vs-description exception reads a file changed in an EARLIER commit
+    // as "claimed but not in the diff" and may raise it as BLOCKING.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("absence from this diff is NOT evidence");
+    expect(prompt).toContain("diff-vs-description exception");
+    expect(prompt).toContain("never BLOCKING");
+  });
+
+  test("keeps the notice outside the untrusted-content fence", () => {
+    // It is our instruction ABOUT the PR content, not PR content — the model
+    // must not treat it as author-controlled data it is allowed to ignore.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    const noticeIdx = prompt.indexOf("NOT the full PR");
+    const fenceIdx = prompt.indexOf(UNTRUSTED_CONTENT_OPEN, prompt.indexOf("## Diff"));
+    expect(noticeIdx).toBeGreaterThan(0);
+    expect(fenceIdx).toBeGreaterThan(noticeIdx);
   });
 });
 
@@ -1239,6 +1332,107 @@ describe("buildCriticConstitution — pattern sweep on structural-defect finding
 });
 
 // ---------------------------------------------------------------------------
+// Test-shape design-feedback checks (mt#3631)
+//
+// Originating gap: the reviewer's test-only calibration reserves BLOCKING for
+// four categories (vacuous assertion / stub-hides-bug / flaky / deletion) and
+// demotes all other test findings to non-blocking — there was no category for
+// "this test's shape reveals a design defect" (Principle 15), no BLOCKING
+// category for production code bent to accommodate a test double (the new
+// failure mode below), and no phrasing constraint on observability requests
+// (Principle 16). mt#1859 — a production logger reshaped from a Proxy to a
+// plain object specifically to stay spy-able — was reviewed and approved
+// without objection under the old prompt.
+// ---------------------------------------------------------------------------
+describe("buildCriticConstitution — test-shape design-feedback checks (mt#3631)", () => {
+  const PATCHED_COLLABORATOR_PHRASE = "Test-shape design feedback: patched-collaborator tests";
+  const OBSERVABILITY_PHRASE =
+    'Observability requests must name a designed observable, not "add a log and assert it."';
+  const PRODUCTION_RESHAPED_PHRASE = "Production code reshaped to accommodate a test double";
+
+  test("Principle 15 (patched-collaborator design feedback) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+    expect(prompt).toContain("testing-standards.mdc §Testable Design");
+    expect(prompt).toContain("deliberately NON-BLOCKING");
+    expect(prompt).toContain("carve-out from Principle 9");
+  });
+
+  test("Principle 15 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+  });
+
+  test("Principle 16 (observability request phrasing) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(OBSERVABILITY_PHRASE);
+    expect(prompt).toContain("a return value, a thrown/structured error, an injected emitter");
+    expect(prompt).toContain("add a log line here and assert on it");
+  });
+
+  test("Principle 16 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(OBSERVABILITY_PHRASE);
+  });
+
+  test("Principles 15 and 16 appear in the Principles section, after Principle 14", () => {
+    const prompt = buildCriticConstitution(true);
+    const principlesStart = prompt.indexOf("## Principles");
+    const failureModesStart = prompt.indexOf(FAILURE_MODES_HEADING);
+    expect(principlesStart).toBeGreaterThan(-1);
+    expect(failureModesStart).toBeGreaterThan(-1);
+    const principlesSection = prompt.slice(principlesStart, failureModesStart);
+    const principle14Index = principlesSection.indexOf("Pattern sweep on structural-defect");
+    const principle15Index = principlesSection.indexOf(PATCHED_COLLABORATOR_PHRASE);
+    const principle16Index = principlesSection.indexOf(OBSERVABILITY_PHRASE);
+    expect(principle14Index).toBeGreaterThan(-1);
+    expect(principle15Index).toBeGreaterThan(principle14Index);
+    expect(principle16Index).toBeGreaterThan(principle15Index);
+  });
+
+  test("new BLOCKING failure mode (production reshaped for a test double) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+    expect(prompt).toContain("Raise a BLOCKING finding and quote the accommodation rationale");
+    expect(prompt).toContain("mt#1859");
+    expect(prompt).toContain("packages/shared/src/logger.ts:354-360");
+  });
+
+  test("new BLOCKING failure mode also appears in the no-tools variant", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+  });
+
+  test("the production-reshaped-for-test-double failure mode is in the Failure modes section, not Principles", () => {
+    const prompt = buildCriticConstitution(true);
+    const failureModesStart = prompt.indexOf(FAILURE_MODES_HEADING);
+    const jsoncStart = prompt.indexOf("## JSONC-family files are not strict JSON");
+    expect(failureModesStart).toBeGreaterThan(-1);
+    expect(jsoncStart).toBeGreaterThan(failureModesStart);
+    const failureModesSection = prompt.slice(failureModesStart, jsoncStart);
+    expect(failureModesSection).toContain(PRODUCTION_RESHAPED_PHRASE);
+  });
+
+  test("test-shape checks appear across all scope calibrations (normal, trivial-or-docs, test-only)", () => {
+    for (const scope of ["normal", "trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(PATCHED_COLLABORATOR_PHRASE);
+      expect(prompt).toContain(OBSERVABILITY_PHRASE);
+      expect(prompt).toContain(PRODUCTION_RESHAPED_PHRASE);
+    }
+  });
+
+  test("the production-reshaped-for-test-double failure mode retains severity in both scope-calibration carve-out lists", () => {
+    for (const scope of ["trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(
+        "or production-reshaped-for-test-double failure modes, retain their specified severity"
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Migration / move PR baseline awareness (mt#2655 SC2)
 //
 // Originating incident: the mt#2304 migration PR (#1812) moved content
@@ -1493,7 +1687,11 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     const prompt = buildCriticConstitution(true, "normal", true);
     expect(prompt).toContain("### Does NOT cover");
     expect(prompt).toContain(DOES_NOT_COVER_H2_HEADING);
-    expect(prompt).toContain("ALSO call submit_spec_verification");
+    // mt#3545 changed the emission SHAPE (carve-out entries now ride in the same
+    // batched `submit_spec_verifications` call) without changing the obligation:
+    // every carve-out entry still gets its own verification entry.
+    expect(prompt).toContain("one entry per carve-out entry");
+    expect(prompt).toContain("submit_spec_verifications");
   });
 
   test("tool-emission variant forbids treating a code comment as evidence of compliance", () => {
@@ -1578,7 +1776,50 @@ describe('carve-out ("Does NOT cover") spec verification instruction (mt#3217)',
     // flag the mt#3001 divergence end-to-end) is a live-verification item, not a unit-testable
     // one — see this PR's body.
     expect(buildCriticConstitution(true, "normal", true)).toContain(
-      "ALSO call submit_spec_verification"
+      "one entry per carve-out entry"
     );
+  });
+});
+
+describe("buildCriticConstitution — tool budget section (mt#3547)", () => {
+  const BUDGET_HEADING = "### Your tool budget";
+
+  test("grants explicit permission to conclude when tools are available", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(BUDGET_HEADING);
+    expect(prompt).toContain("When you have spent the budget you have, conclude.");
+    expect(prompt).toContain("You do not need permission to be done");
+  });
+
+  test("tells the model conclude_review must land before the tool rounds run out", () => {
+    // The final round passes no tools and conclude_review IS a tool call, so a
+    // model that plans to conclude "at the end" loses the ability to do so.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("The final round accepts no tools at all");
+    expect(prompt).toContain("before the budget runs out, not after");
+  });
+
+  test("requires uncovered surface to be DECLARED, not silently skipped", () => {
+    // The escape hatch must not read as permission to skip coverage — that
+    // would weaken Principle 11, which is out of scope for mt#3547 and owned
+    // by the sibling coverage-ledger task.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Name the uncovered surface explicitly");
+    expect(prompt).toContain("not permission to conclude silently");
+  });
+
+  test("does not license a lower evidence standard to finish sooner", () => {
+    // OpenAI's own reduce-eagerness snippet says "even if it might not be fully
+    // correct" — the wrong trade for a reviewer that gates merges. This asserts
+    // we deviated from it deliberately.
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Finish earlier by investigating less, never by asserting more.");
+    expect(prompt).not.toContain("even if it might not be fully correct");
+  });
+
+  test("is absent when tools are unavailable — there is no loop to budget", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).not.toContain(BUDGET_HEADING);
+    expect(prompt).not.toContain("[TOOL BUDGET]");
   });
 });

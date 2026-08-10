@@ -334,20 +334,31 @@ mockModule("./taskService", () => ({ ... }));
 
 ### Jest vs Bun:Test Compatibility
 
-If encountering issues with Jest compatibility:
+`bun:test` does not support every Jest mocking API. If you're reaching for
+`jest.spyOn(object, 'method')` because a Jest-only mocking pattern doesn't translate, that's
+a sign to stop and re-derive the test rather than look for a Bun-native equivalent:
 
 ```typescript
-// Issue with bun:test not fully supporting all Jest features
-// For complex mocking scenarios, use our utility wrappers:
-
-import { createSpy } from "../utils/test-utils/mocking";
-
-// Instead of direct spyOn
+// ❌ Don't look for a spyOn replacement
 // const spy = jest.spyOn(object, 'method');
 
-// Use our utility
-const spy = createSpy(object, 'method');
+// ✅ Extract the decision into a function that returns the observable, and inject
+// the collaborator instead of patching it in place
+function decide(input: Input, deps: { collaborator: Collaborator }) {
+  // ...returns something assertable
+}
 ```
+
+In-place patching (`spyOn`) of a collaborator the code reaches itself is **banned** in this
+codebase per
+[ADR-036](../../docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md), enforced
+by `custom/no-spy-patching` at ESLint `error`. See the ADR for the full mechanism hierarchy
+(real dependency > injected fake > in-place patch), why the ban applies even to code that has no
+obvious injection seam (functional-core/imperative-shell extraction, one wiring test per shell),
+and the Bun-specific mechanics (engine-internal symbol-table mutation, no `restoreMocks`
+equivalent, one shared module registry) that make an unrestored spy in this runtime a correctness
+bug, not just a lint nit. `testing-standards.mdc §Testable Design` has the injection pattern in
+more depth.
 
 ### Fixing Mock Not Found Issues
 

@@ -65,6 +65,94 @@ export interface StartupSweepDeps {
     provider: BasePersistenceProvider,
     taskService: TaskServiceInterface
   ) => Promise<{ indexTask: (id: string) => Promise<boolean> }>;
+  /**
+   * Injectable warn sink, defaulting to the shared logger (mt#3629). Tests
+   * inject a collector here instead of spying on `log.warn` to verify the
+   * wiring: that this shell forwards what the classify* functions below
+   * decided.
+   */
+  warn?: (message: string, context?: Record<string, unknown>) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Degraded-path signal classification (mt#3629 / mt#3565 §Reframe) — pure
+// cores. Each function below builds a warn message from its inputs alone,
+// asserted directly by return value; the sweep body forwards the result to
+// the injectable `warn` sink instead of calling `log.warn` inline.
+// ---------------------------------------------------------------------------
+
+/** Pure core: the "no SQL capability" skip message. */
+export function classifyNoSqlCapability(): { message: string } {
+  return {
+    message:
+      "Startup embedding sweep skipped: persistence provider has no SQL capability — " +
+      "tasks missing embeddings will NOT be recovered this boot",
+  };
+}
+
+/** Pure core: the "no raw SQL connection" skip message. */
+export function classifyNoRawConnection(): { message: string } {
+  return {
+    message:
+      "Startup embedding sweep skipped: no raw SQL connection available — " +
+      "tasks missing embeddings will NOT be recovered this boot",
+  };
+}
+
+/** Pure core: the quota-exhaustion stop message. */
+export function classifyQuotaExhausted(): { message: string } {
+  return {
+    message: "Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping all workers",
+  };
+}
+
+/** Pure core: the per-task index-failure message. */
+export function classifyTaskIndexFailed(
+  taskId: string,
+  err: unknown
+): { message: string; context: { error: string } } {
+  const error = err instanceof Error ? err.message : String(err);
+  return { message: `Startup sweep: failed to index ${taskId}`, context: { error } };
+}
+
+/** Pure core: the residual re-measurement failure message. */
+export function classifyResidualMeasurementFailed(err: unknown): {
+  message: string;
+  context: { error: string };
+} {
+  const error = err instanceof Error ? err.message : String(err);
+  return {
+    message: "Startup sweep: could not re-measure residual missing count; reporting an estimate",
+    context: { error },
+  };
+}
+
+/** Inputs to {@link classifySweepFinish}. */
+export interface SweepFinishSummary {
+  indexed: number;
+  failed: number;
+  stillMissing: number;
+  hitScanLimit: boolean;
+  quotaExhausted: boolean;
+}
+
+/**
+ * Pure core: decide whether the sweep's finish should warn, and build the
+ * message when it does. Returns `null` for the clean run — the "stay quiet"
+ * branch — asserted directly by return value instead of by spying on
+ * whether `log.warn` fired.
+ */
+export function classifySweepFinish(summary: SweepFinishSummary): { message: string } | null {
+  const { indexed, failed, stillMissing, hitScanLimit, quotaExhausted } = summary;
+  if (failed === 0 && !quotaExhausted && stillMissing === 0) {
+    return null;
+  }
+  return {
+    message:
+      `Startup embedding sweep finished with gaps: indexed ${indexed}, failed ${failed}, ` +
+      `still missing ${stillMissing}${hitScanLimit ? ` (hit the ${STARTUP_SWEEP_LIMIT}-task scan limit; more may remain)` : ""}` +
+      `${quotaExhausted ? " — stopped early on OpenAI quota exhaustion" : ""}`,
+  };
 }
 
 export async function triggerStartupEmbeddingSweep(
@@ -79,11 +167,10 @@ export async function triggerStartupEmbeddingSweep(
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
+  const warn = deps?.warn ?? log.warn;
+
   if (!persistenceProvider.capabilities.sql) {
-    log.warn(
-      "Startup embedding sweep skipped: persistence provider has no SQL capability — " +
-        "tasks missing embeddings will NOT be recovered this boot"
-    );
+    warn(classifyNoSqlCapability().message);
     return;
   }
 
@@ -96,10 +183,7 @@ export async function triggerStartupEmbeddingSweep(
       : undefined;
   const sql = getRawSql ? await getRawSql.call(persistenceProvider) : undefined;
   if (!sql) {
-    log.warn(
-      "Startup embedding sweep skipped: no raw SQL connection available — " +
-        "tasks missing embeddings will NOT be recovered this boot"
-    );
+    warn(classifyNoRawConnection().message);
     return;
   }
   const missing = await (sql as import("postgres").Sql).unsafe(
@@ -140,16 +224,15 @@ export async function triggerStartupEmbeddingSweep(
         const msg = err instanceof Error ? err.message : String(err);
         if (/insufficient_quota/i.test(msg)) {
           quotaExhausted = true;
-          log.warn(
-            "Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping all workers"
-          );
+          warn(classifyQuotaExhausted().message);
           break;
         }
         failed++;
         // Per-task, and at warn: this is the failure that leaves a specific
         // task unindexed. Counting it without naming it is what made mt#2861
         // undiagnosable.
-        log.warn(`Startup sweep: failed to index ${row.id}`, { error: msg });
+        const taskFailedSignal = classifyTaskIndexFailed(row.id, err);
+        warn(taskFailedSignal.message, taskFailedSignal.context);
       }
     }
   }
@@ -184,16 +267,18 @@ export async function triggerStartupEmbeddingSweep(
     // The residual check failing must not swallow the sweep's own result, so
     // fall back to the arithmetic and say which number this is.
     stillMissing = Math.max(0, missing.length - indexed);
-    log.warn("Startup sweep: could not re-measure residual missing count; reporting an estimate", {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const residualSignal = classifyResidualMeasurementFailed(err);
+    warn(residualSignal.message, residualSignal.context);
   }
-  if (failed > 0 || quotaExhausted || stillMissing > 0) {
-    log.warn(
-      `Startup embedding sweep finished with gaps: indexed ${indexed}, failed ${failed}, ` +
-        `still missing ${stillMissing}${missing.length >= STARTUP_SWEEP_LIMIT ? ` (hit the ${STARTUP_SWEEP_LIMIT}-task scan limit; more may remain)` : ""}` +
-        `${quotaExhausted ? " — stopped early on OpenAI quota exhaustion" : ""}`
-    );
+  const finishSignal = classifySweepFinish({
+    indexed,
+    failed,
+    stillMissing,
+    hitScanLimit: missing.length >= STARTUP_SWEEP_LIMIT,
+    quotaExhausted,
+  });
+  if (finishSignal) {
+    warn(finishSignal.message);
     return;
   }
   log.debug(`Startup sweep complete: indexed ${indexed}, failed ${failed}`);

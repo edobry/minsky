@@ -74,6 +74,47 @@ export const WATCHDOG_BUDGETS_MS = {
   MAIN: 900_000, // 15 min
   /** `run-tests-mcp-isolated.ts` -> `bun test` for ONE file. */
   MCP_ISOLATED_PER_FILE: 300_000, // 5 min
+  /**
+   * `run-related-tests.ts` -> `bun test` for ONE partition of the pre-commit
+   * related set (mt#3765). Deliberately the tightest budget here, and sized on
+   * a different principle than its siblings: they bound a run that MUST
+   * complete, so they carry ~9x headroom over observed runtime. This one bounds
+   * a run that is allowed NOT to complete — a pre-commit smoke whose authority
+   * is `.husky/pre-push` + CI — so the budget is a latency ceiling for the
+   * commit, not a completion guarantee.
+   *
+   * 60s against a measured 2.5s depth-3 set is ~24x headroom for the ordinary
+   * case. The pathological case it will NOT cover is deliberate:
+   * `src/commands/mcp/start-command.test.ts` alone measured 84.5s and 83.6s
+   * (2026-08-08) because it spawns a real HTTP MCP server per test. No
+   * pre-commit budget should wait that long; overrunning it is reported as a
+   * timeout and deferred, not failed.
+   */
+  RELATED_TESTS_PARTITION: 60_000, // 60s
+  /**
+   * TOTAL wall-clock for the whole pre-commit related-test gate, across every
+   * partition (mt#3765, PR #2733 R1).
+   *
+   * A per-partition budget alone does not bound the gate: a set that splits
+   * into regular + cockpit-web + N services + M isolated src/mcp files can
+   * spend PARTITION_BUDGET on each, so the total is unbounded in the number of
+   * partitions. `related-tests-check.ts` wraps the whole gate at
+   * RELATED_TESTS_WRAPPER and treats a kill as a hard FAILURE — so an
+   * unbounded total would let two timed-out partitions (120s) blow the wrapper
+   * and reintroduce exactly the unpassable state this task removed, on the one
+   * path where the timeout is NOT reported as a deferral.
+   *
+   * The gate self-reports within this bound instead, leaving the wrapper as a
+   * backstop that only fires on a genuine anomaly.
+   */
+  RELATED_TESTS_TOTAL: 90_000, // 90s
+  /**
+   * The OUTER wrapper in `src/hooks/related-tests-check.ts`. Must exceed
+   * RELATED_TESTS_TOTAL with margin so the inner gate always gets to report
+   * its own disposition; if this ever fires, the gate itself hung and a hard
+   * failure is the correct answer.
+   */
+  RELATED_TESTS_WRAPPER: 150_000, // 150s
 } as const;
 
 /**
@@ -107,6 +148,16 @@ export interface WatchdogSpawnOptions {
    * text still show it to the operator.
    */
   inheritStdio?: boolean;
+  /**
+   * Working directory for the child. Undefined inherits this process's cwd.
+   *
+   * Added by mt#3765 for the pre-commit related-test gate, whose per-service
+   * partitions MUST run from `services/<svc>/` — the root bunfig prunes
+   * `services/**` even from explicitly-named paths (mt#3776), so a partition
+   * that silently ran from the repo root would execute zero tests and still
+   * look like a pass.
+   */
+  cwd?: string;
 }
 
 export interface WatchdogSpawnResult {
@@ -145,6 +196,7 @@ export async function spawnWithWatchdog(
     stdout: options.inheritStdio ? "inherit" : "pipe",
     stderr: options.inheritStdio ? "inherit" : "pipe",
     stdin: "ignore",
+    ...(options.cwd ? { cwd: options.cwd } : {}),
   });
 
   // Start draining BEFORE awaiting exit: a child that fills the pipe buffer

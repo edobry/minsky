@@ -24,8 +24,14 @@
  * full TS/AST resolver: it is meant to be fast (a pre-commit-time budget),
  * not exhaustive. Under-inclusion (a related test the graph walk misses) is
  * an accepted risk because the mt#2716 full-suite gate (.husky/pre-push + CI)
- * remains the authoritative backstop; over-inclusion (a false-positive edge)
- * only costs a little extra local runtime, not correctness.
+ * remains the authoritative backstop.
+ *
+ * Over-inclusion was previously described here as costing "only a little extra
+ * local runtime, not correctness." That was FALSE and mt#3765 corrected it: a
+ * bloated related set overruns the gate's wall-clock budget, and a gate that
+ * cannot finish blocks the commit outright. Over-inclusion costs passability,
+ * which is why `DEFAULT_MAX_DEPTH` is deliberately tight — see its doc comment
+ * for the measurements.
  *
  * Depth is bounded (default 6) and the caller (scripts/run-related-tests.ts)
  * additionally caps the total related-test count -- a widely-imported
@@ -339,8 +345,29 @@ export function buildReverseDependencyGraph(
   return revGraph;
 }
 
+/**
+ * Default BFS hops over the reverse-dependency graph.
+ *
+ * Lowered 6 -> 3 by mt#3765. The header above states that over-inclusion "only
+ * costs a little extra local runtime, not correctness" — that cost model was
+ * false. Measured 2026-08-08, related-test count by depth:
+ *
+ *   turn-writer.ts                      d1:1  d2:4  d3:13  d4:16  d5:32  d6:32
+ *   agent-transcript-ingest-service.ts  d1:2  d2:11 d3:14  d4:30  d5:30  d6:30
+ *
+ * At depth 6 a `packages/domain/src/transcripts/*` change pulls in the entire
+ * cockpit server suite: 32 files / 445 tests / 80s, against a 60s gate budget —
+ * so over-inclusion did not cost "a little extra runtime," it made the gate
+ * unpassable and blocked the commit outright. The same depth-3 set runs in
+ * 2.5s (32x faster) and still contains the sibling test plus near importers.
+ *
+ * Under-inclusion is the trade this module already documents as ACCEPTED,
+ * because `.husky/pre-push` + CI remain the authoritative backstop.
+ */
+export const DEFAULT_MAX_DEPTH = 3;
+
 export interface FindRelatedTestsOptions {
-  /** Max BFS hops over the reverse-dependency graph. Default 6. */
+  /** Max BFS hops over the reverse-dependency graph. Defaults to `DEFAULT_MAX_DEPTH`. */
   maxDepth?: number;
   /** Injectable filesystem -- defaults to real node:fs. */
   fs?: FsLike;
@@ -356,7 +383,7 @@ export function findRelatedTestFiles(
   repoRoot: string,
   opts: FindRelatedTestsOptions = {}
 ): string[] {
-  const maxDepth = opts.maxDepth ?? 6;
+  const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const fs = opts.fs ?? realFs;
 
   const normalizedChanged = changedFiles

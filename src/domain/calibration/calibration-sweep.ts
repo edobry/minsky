@@ -47,9 +47,12 @@ export interface CalibrationLogEntry {
    *   same matches-shape as retrospective-trigger; the per-match label key is
    *   `class` not `family`. Both parse through the same branch.
    * "code-mechanism-assertion" → record.claims: {symbol, predicate}[] (mt#2486).
-   * "pre-narration"            → record.matches: {category, phrase, ...}[] (mt#2197) —
+   * "pre-narration"            → record.matches: {category, phrase, context, ...}[] (mt#2197) —
    *   same matches-shape family as retrospective-trigger/ask-routing-deferral;
-   *   the per-match label key is `category`.
+   *   the per-match label key is `category`. `context` (mt#3198) is the
+   *   containing sentence — the field that makes a fire classifiable, since
+   *   `phrase` alone cannot separate a claim ("I merged the PR") from a
+   *   reference ("the merged PR touches X").
    * "policy-coverage"          → record.{reason, outcome, evidence?} (mt#1575) —
    *   a per-tool-call coverage-decision audit record, NOT a matched-phrase
    *   record. Diversity is measured over distinct `reason` values instead of
@@ -92,6 +95,11 @@ export interface CalibrationLogEntry {
    *   kind rather than reusing "retrospective-trigger" because the registry
    *   invariant (PR #2263 R1) requires kind values to be unique per entry —
    *   that uniqueness is what keeps the fire-log guard-name mapping 1:1.
+   * "stop-at-decision"         → record.targets: {taskId, status}[] (mt#3653) —
+   *   the turn-end stop-at-decision scan (family:stop-at-handoff R5). NOT a
+   *   matched-phrase record: diversity is measured over distinct target task
+   *   ids — the signal is "how many different decision-owning tasks got
+   *   silently stopped at," mirroring knowledge-acquisition's non-phrase axis.
    */
   kind:
     | "causal-premise"
@@ -106,7 +114,10 @@ export interface CalibrationLogEntry {
     | "knowledge-acquisition"
     | "constructed-identifier-batch"
     | "operator-deferral"
-    | "untaken-action";
+    | "untaken-action"
+    | "retrospective-completeness"
+    | "stop-at-decision"
+    | "bare-entity-ref";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -306,7 +317,49 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // `findInvalidLiveSinceDates` (above) only catches unparseable/future
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
-    liveSinceDate: "2026-07-23",
+    //
+    // mt#3755 (2026-08-08): re-anchored again, and the DISPOSITION is KEEP —
+    // the silence is measured DORMANCY, not breakage and not deterrence.
+    //
+    // The anchor is the LIVENESS PROOF date, per this field's own contract
+    // above ("the date the detector's full invocation path ... was PROVEN
+    // alive"). Proof: `bun scripts/run-guard-canaries.ts --json` on 2026-08-08
+    // returned `build-claim-injection-detector` `passed: true` with a real
+    // calibration outcome (timestamp 2026-08-08T23:53:07.794Z, matchedPhrases
+    // ["you can use it"]); suite 42 passed / 0 failed. mt#3755's Success
+    // Criterion 1 named the earlier 2026-08-05 canary run as the anchor; a
+    // FRESHER proof of the same property supersedes it, and dating the clock
+    // from a stale proof would understate the contract's runway. Amendment
+    // recorded in mt#3755 `## Criterion 1 amendment`.
+    //
+    // Dormancy evidence: `bun scripts/replay-build-claim-injection.ts --json`
+    // replayed the detector over all 805 transcripts since 2026-07-23
+    // (3,048 evaluation points) and it would have fired ZERO times. The corpus
+    // grows, so absolute counts drift on a re-run; the funnel SHAPE and the
+    // zero-fire result are the finding. It localizes why, and it is condition
+    // (a), not the claim patterns:
+    //
+    //     620 sessions  no in-session `*session_pr_merge` tool_use at all
+    //     176 sessions  merged, but no deploy-surface file edited in-transcript
+    //       8 sessions  merge + surface edit, but no usability claim
+    //       1 session   all three met -> correctly SUPPRESSED by real rebuild
+    //                   evidence (a true negative, not a miss)
+    //
+    // So the detector is not failing to recognize claims; its condition-(a)
+    // PROXY — "a deploy-surface file was edited via a file-edit tool in THIS
+    // transcript" — is near-unsatisfiable in Minsky's actual workflow, because
+    // `DEPLOY_SURFACE_PATTERNS` matches only deploy CONFIG files (infra/,
+    // Dockerfiles, railway.json, deploy workflows) and merges frequently
+    // happen in a main-agent conversation whose file edits live in a
+    // subagent's transcript. That defect is tracked at mt#3819 rather than
+    // fixed here.
+    //
+    // Kept rather than retired because the cost is ~zero — INJECTION_ENABLED
+    // is false, so it logs nothing and injects nothing — while retiring would
+    // re-open the mt#2707 RFC's "merged != usable" chat seam, which no other
+    // mechanism covers at the CHAT surface (the sibling mt#2545 gate covers
+    // the PR-BODY surface only).
+    liveSinceDate: "2026-08-08",
   },
   {
     path: ".minsky/knowledge-acquisition-calibration.jsonl",
@@ -348,6 +401,65 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // fallback branch with no dedicated parser case. It still gets its OWN kind:
     // the registry invariant (PR #2263 R1) requires unique kinds per entry.
     kind: "untaken-action",
+  },
+  {
+    path: ".minsky/bare-entity-ref-calibration.jsonl",
+    name: "bare-entity-ref",
+    // mt#3286 — turn-end-bare-ref-scan (family:linked-reference-actionability,
+    // mem#623 R1-R6): a turn's CLOSING message referencing an entity the
+    // operator cannot click, plus two deterministically-malformed link shapes
+    // (a non-UUID ask/memory/session target, R4; a raw-UUID-fragment label,
+    // R5).
+    //
+    // Emits `matches: {family, phrase}[]` — family is the defect class, phrase
+    // the offending ref — so it parses through the shared fallback branch with
+    // no dedicated parser case, and diversity is measured over distinct refs.
+    // It still takes its OWN kind: the registry invariant (PR #2263 R1)
+    // requires unique kinds per entry.
+    //
+    // The record ALSO carries `logged_only`, the bare ask#N / mem#N / ws#N
+    // population the v0 Success Criteria deliberately do not flag. Reviewing
+    // this log means comparing the two populations, not just rating `matches`:
+    // R6's whole argument is that the log-only carve-out is where the real
+    // failures sit.
+    kind: "bare-entity-ref",
+  },
+  {
+    path: ".minsky/retrospective-completeness-calibration.jsonl",
+    name: "retrospective-completeness",
+    // mt#3601 — the OTHER axis from retrospective-trigger: that log measures
+    // whether a retrospective FIRES, this one whether a retrospective that
+    // fired is COMPLETE. Deliberately a separate log rather than a second
+    // writer on "retrospective-trigger": the two answer different graduation
+    // questions, and merging them would make each one's FP rate unreadable.
+    //
+    // Record shape is its own (`missing_sections` / `unverified_task_ids`
+    // rather than `matches: {family, phrase}[]`), so it does not parse through
+    // the shared matched-phrase fallback branch.
+    kind: "retrospective-completeness",
+  },
+  {
+    path: ".minsky/stop-at-decision-calibration.jsonl",
+    name: "stop-at-decision",
+    // mt#3653 — turn-end stop-at-decision scan (family:stop-at-handoff R5):
+    // an evidence-write into a non-bound open task with no discharge call in
+    // the same turn. Record shape is its own (`targets: {taskId, status}[]`),
+    // parsed by a dedicated branch; diversity is measured over distinct
+    // target task ids.
+    kind: "stop-at-decision",
+    // mt#3078 pattern: the date the detector's full invocation path —
+    // dispatcher -> registry -> run() -> transcript parse -> detection ->
+    // calibration write — was PROVEN alive via a live synthetic
+    // positive/negative-control probe (positive wrote one record with a real
+    // CLI status read; negative — same turn plus an asks_create — wrote
+    // none). The trigger is a rare COMPOUND condition (evidence-write +
+    // non-bound + open target + no discharge + no marker), so zero real
+    // fires for a stretch is plausible without the detector being broken.
+    //
+    // Evidence artifact (cite the permanent record, not just this comment):
+    // the mt#3653 PR body's "Live verification" section carries the actual
+    // positive/negative-control transcript this date is derived from.
+    liveSinceDate: "2026-08-04",
   },
 ];
 
@@ -473,6 +585,20 @@ export interface RetrospectiveTriggerRecord {
     family: string;
     phrase: string;
     /**
+     * The sentence or clause the phrase was matched in, when the detector
+     * captures one (`pre-narration`, mt#3198). Absent for detectors that do
+     * not.
+     *
+     * First-class rather than left to `detectorFields` deliberately. This
+     * field exists so a reviewer can tell a claim from a reference — the whole
+     * point of capturing it — and mem#827 records THREE reviews that read the
+     * nested `detectorFields` sub-object as if it were the record and
+     * concluded "unclassifiable" from records whose evidence sat one level up.
+     * Shipping the disambiguator into that same sub-object would satisfy the
+     * mechanical contract and lose the reader it was written for.
+     */
+    context?: string;
+    /**
      * Per-match keys this branch does not consume structurally — e.g.
      * `pre-narration`'s `expectedTool` / `hadMatchingTool` (mt#3289).
      */
@@ -543,6 +669,16 @@ export interface WallOfTextRecord {
   leadLabelHits?: string[];
   deeplinkCount?: number;
   namedRefCount?: number;
+  /**
+   * The measured report's lead, capped by the detector (mt#3576).
+   *
+   * Optional because the 186 records written before mt#3576 have no such
+   * field — absent means "written before the excerpt shipped," not "the report
+   * was empty." Read it as the evidence for classifying a `lead-labels` fire:
+   * `leadLabelHits` names which pattern matched, and only this carries the text
+   * it matched.
+   */
+  excerpt?: string;
 }
 
 /**
@@ -583,6 +719,22 @@ export interface KnowledgeAcquisitionRecord {
 }
 
 /**
+ * Parsed stop-at-decision calibration record (mt#3653).
+ *
+ * NOT a matched-phrase record — a per-turn record of an evidence-write into a
+ * non-bound open task with no discharge call in the same turn. `targets` is
+ * the diversity axis (distinct task ids; see `extractDistinctPhrases` below).
+ * Mirrors the exact fields `.minsky/hooks/stop-at-decision-scan.ts` returns;
+ * the remaining bookkeeping fields (boundTaskIds, specPatchCount, ...) pass
+ * through `detectorFields`.
+ */
+export interface StopAtDecisionRecord {
+  timestamp: string;
+  session_id?: string;
+  targets: Array<{ taskId: string; status: string }>;
+}
+
+/**
  * Fields every calibration record may carry regardless of its detector
  * (mt#3197). Kept as an intersection rather than repeated on all eight member
  * types so a new record kind inherits it automatically.
@@ -596,6 +748,28 @@ export interface SharedCalibrationFields {
    * - empty `[]` → detected and INJECTED; the operator actually saw it
    * - absent     → this detector does not record the outcome yet, OR the
    *                record predates the field. NOT the same as empty.
+   *
+   * Conforming producers, with the reason strings each can emit (mt#3207
+   * added the last five to `code-mechanism-assertion`'s mt#3113 original):
+   *
+   * | detector | reasons |
+   * | --- | --- |
+   * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
+   * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
+   * | `untaken-action` | (none — see below) |
+   * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
+   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
+   * | `knowledge-acquisition` | `propagation-in-window` |
+   *
+   * Records written by those detectors BEFORE mt#3207 carry no field and are
+   * therefore `absent`, not `[]` — they count as injected, which is the
+   * deliberate conservative default (unknown must never hide a real fire).
+   *
+   * mt#3620: `untaken-action` no longer emits any reason. It used to emit
+   * `deduped-by-ask-routing-deferral` when it yielded to the prompt-time
+   * detector; that yield is inverted — the Stop guard now injects and the
+   * prompt-time one goes quiet under `deduped-by-untaken-action-stop`. Records
+   * carrying the old string are pre-mt#3620 and still classify correctly.
    */
   suppressionReasons?: string[];
 
@@ -629,6 +803,7 @@ export type CalibrationRecord = (
   | WallOfTextRecord
   | BuildClaimInjectionRecord
   | KnowledgeAcquisitionRecord
+  | StopAtDecisionRecord
 ) &
   SharedCalibrationFields;
 
@@ -696,6 +871,17 @@ export interface CalibrationLogResult {
    * has no watermark to date from.
    */
   firstRecordTimestamp?: string;
+  /**
+   * Whether this log's un-reviewed records carry evidence a reviewer could
+   * classify a fire from (mt#3610).
+   *
+   * Computed over `firesSinceLastReview`'s records — the ones a review would
+   * actually rate — NOT over `newRecords`, which is empty below the count bar.
+   * A reviewer must be able to see this verdict on a log that has not yet
+   * reached threshold, since that is where a premature "cannot classify"
+   * disposition gets written.
+   */
+  classifiability: ClassifiabilityAssessment;
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +935,7 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * `expectedTool` and `hadMatchingTool` — and is carried through rather than
  * dropped.
  */
-const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
+const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "context"]);
 
 /**
  * Collect every raw record key the per-kind parse did not consume (mt#3289).
@@ -763,6 +949,19 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
  * Returns `undefined` rather than `{}` when nothing was dropped, so a record
  * that carries no detector-specific fields is byte-identical to what it parsed
  * to before this change.
+ *
+ * **A lifted field cannot ALSO appear in the passthrough, and the reason is
+ * this function alone** (mt#3576, PR #2568 R1). The raw JSONL line is FLAT —
+ * `detectorFields` is DERIVED here from the line's unconsumed keys, never read
+ * from it — so a field cannot arrive nested and be surfaced twice. Nor does the
+ * guarantee depend on how a branch spells the assignment: a key is dropped only
+ * when the raw line HAS it and the branch did NOT set it, and a branch that
+ * reads `raw[k]` at all sets `k` under either spelling (`k: v ?? undefined` or a
+ * conditional spread). Both forms were run against the wall-of-text branch;
+ * neither duplicates. What WOULD break it is changing the `consumed` set below
+ * to anything narrower than the record's own keys — verified by making that
+ * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
+ * together. Those are the tests that pin this; a per-field strip would not.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -939,6 +1138,13 @@ function parseCalibrationRecordCore(
           : undefined,
         deeplinkCount: typeof raw["deeplinkCount"] === "number" ? raw["deeplinkCount"] : undefined,
         namedRefCount: typeof raw["namedRefCount"] === "number" ? raw["namedRefCount"] : undefined,
+        // mt#3576: read explicitly rather than leaving it to the
+        // `detectorFields` passthrough, for the reason PR #2420 R1 gave for
+        // `transcript_excerpt` — a field declared on the record type that the
+        // parser never populates makes the type promise something the parser
+        // does not deliver, and every consumer keying on `excerpt` would find
+        // it nested a level down instead.
+        excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
@@ -961,13 +1167,35 @@ function parseCalibrationRecordCore(
       } satisfies KnowledgeAcquisitionRecord;
     }
 
+    if (kind === "stop-at-decision") {
+      // Shape: { timestamp, session_id?, targets: [{taskId, status}][], ... }
+      // Mirrors the exact record `.minsky/hooks/stop-at-decision-scan.ts`
+      // returns (mt#3653). Not a matched-phrase record — `targets` is the
+      // diversity axis (see extractDistinctPhrases).
+      if (!Array.isArray(raw["targets"])) return null;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        targets: (raw["targets"] as unknown[]).map((t) => {
+          const obj = t as Record<string, unknown>;
+          return {
+            taskId: String(obj["taskId"] ?? ""),
+            status: String(obj["status"] ?? "unknown"),
+          };
+        }),
+      } satisfies StopAtDecisionRecord;
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
     // pre-narration labels it with `category`. Read all three so any of the
-    // three kinds parses; only `.phrase` is used downstream (diversity +
-    // fire-count).
-    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase}][], transcript_excerpt? }
+    // three kinds parses. `.phrase` is the DIVERSITY axis (extractDistinctPhrases
+    // keys on it), so it must stay the short matched span — pre-narration's
+    // reviewer-facing sentence rides in `.context` for exactly that reason
+    // (mt#3198); widening `.phrase` would make every record distinct and
+    // silently flatten the diversity signal to "always high".
+    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase, context?}][], transcript_excerpt? }
     const matches = Array.isArray(raw["matches"])
       ? (raw["matches"] as unknown[]).map((m) => {
           const obj = m as Record<string, unknown>;
@@ -975,6 +1203,7 @@ function parseCalibrationRecordCore(
           return {
             family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
             phrase: String(obj["phrase"] ?? ""),
+            ...(obj["context"] === undefined ? {} : { context: String(obj["context"]) }),
             ...(dropped.length > 0 ? { detectorFields: Object.fromEntries(dropped) } : {}),
           };
         })
@@ -1053,6 +1282,13 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // silent-stretch; the fallback label's VALUE is the shared generic
       // "unknown-session" string.
       phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
+    } else if ("targets" in rec) {
+      // stop-at-decision (mt#3653): diversity axis = distinct target task
+      // ids — "how many different decision-owning tasks got silently stopped
+      // at," the same non-phrase move as knowledge-acquisition below.
+      for (const t of rec.targets) {
+        phrases.add(t.taskId);
+      }
     } else if ("loadedSkills" in rec) {
       // knowledge-acquisition (mt#2708): diversity axis = distinct loaded-
       // skill names, not matched phrases or a session/conversation id —
@@ -1142,6 +1378,149 @@ export function computeLogResult(
     // empty/malformed timestamp (parseCalibrationRecord tolerates `""`) would
     // poison the min and silently disable the never-reviewed leg.
     firstRecordTimestamp: allRecords[0]?.timestamp,
+    // mt#3610: assessed over the un-reviewed records regardless of the count
+    // bar. `newRecords` above is deliberately empty below threshold; the
+    // verdict must not be, because a "cannot classify" disposition is most
+    // likely to be written about a log that has not reached threshold yet.
+    classifiability: assessClassifiability(newRecords),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Classifiability verdict (mt#3610)
+// ---------------------------------------------------------------------------
+
+/**
+ * Keys every record carries regardless of which detector wrote it. They locate
+ * a fire; they are not evidence for judging one, so they never make a log
+ * classifiable on their own.
+ */
+const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
+  "timestamp",
+  "session_id",
+  "suppressionReasons",
+  // mt#3607's capture-schema marker. It says the record's judged input WAS
+  // captured; it is not itself something to judge a fire by. Listing it here
+  // keeps a hypothetical record carrying the marker and nothing else from
+  // reporting `classifiable` on the strength of its own bookkeeping.
+  "captureSchema",
+]);
+
+/**
+ * True when a value is PRESENT but carries nothing to judge a fire by
+ * (PR #2599 R1).
+ *
+ * A key being set is not the same as it holding evidence: `leadLabelHits: []`
+ * and `excerpt: ""` are populated and empty. Counting them let a record whose
+ * only non-shared fields were vacuous report `classifiable` — a false verdict
+ * in the permissive direction, which is the direction this whole mechanism
+ * exists to prevent (it would tell a reviewer the fires are ratable when they
+ * are not). Verified against the pre-fix code: a record carrying only
+ * `leadLabelHits: []` and `excerpt: ""` returned `classifiable` with both
+ * listed as evidence.
+ *
+ * `0` and `false` are NOT vacuous — they are measured values. `deeplinkCount:
+ * 0` says the report contained no deeplinks, which is exactly the kind of
+ * observation a reviewer rates.
+ */
+function isVacuousEvidence(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string") return value.length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  // A plain object with no own keys carries no more than an absent one.
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
+/** Whether a log's records carry anything a reviewer could classify a fire from. */
+export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
+
+export interface ClassifiabilityAssessment {
+  verdict: ClassifiabilityVerdict;
+  /**
+   * Every evidence field observed across the assessed records, sorted. A field
+   * riding the passthrough is reported as `detectorFields.<key>` rather than
+   * bare — see `assessClassifiability`'s doc for why the level is spelled out.
+   */
+  evidenceFields: string[];
+  /** How many records the verdict was computed over. */
+  recordsAssessed: number;
+}
+
+/**
+ * Decide whether a log's records can support an FP classification, and say so
+ * in the sweep's own output (mt#3610).
+ *
+ * **Why the tool needs a verdict at all.** Before this, "can these fires be
+ * classified?" was answered only by the reviewing agent's eye, across a dozen
+ * logs, and a wrong answer contradicted nothing. On 2026-08-03 a sweep
+ * dispositioned `wall-of-text` "HOLD — cannot classify" and filed mt#3576
+ * asserting its records held only a hash — while `wordCount` and `trigger` sat
+ * at the top level of the same output, next to the nested `detectorFields`
+ * object that was quoted as proof of their absence. That false premise reached
+ * an Accepted ADR and two task specs before anyone checked it (mem#827). A
+ * verdict makes the same mistake contradict the tool instead of passing
+ * silently.
+ *
+ * **Derived, not listed.** Evidence is "every key the per-kind parse populated
+ * that isn't shared bookkeeping" — so a detector or parser that starts carrying
+ * a new field is covered with no edit here. A per-detector table of expected
+ * fields would be a second list to drift out of sync with the parsers, which is
+ * the defect `parseDetectorFields` was written to avoid; this reuses that
+ * derivation rather than reintroducing the thing it replaced.
+ *
+ * That derivation is also why the verdict reports the fields it FOUND rather
+ * than the ones it thinks are missing: naming a missing field would require
+ * knowing which fields ought to exist, i.e. exactly the list this avoids. An
+ * empty `evidenceFields` IS the not-classifiable finding.
+ *
+ * **The level is part of the answer.** A passthrough field is reported as
+ * `detectorFields.<key>`, never bare. The originating misread was precisely a
+ * confusion of those two levels, so a verdict that flattened them would answer
+ * the question while hiding the distinction that caused the incident.
+ *
+ * **`no-records` is its own verdict, not a `false`.** An empty log and a log of
+ * evidence-free records demand opposite responses — the first says "nothing has
+ * fired yet," the second "the fires that happened cannot be reviewed." Folding
+ * them into one boolean is the conflation `coverage-receipt.ts` (mt#3502) was
+ * split apart to end, so this does not repeat it.
+ */
+export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
+  if (records.length === 0) {
+    return { verdict: "no-records", evidenceFields: [], recordsAssessed: 0 };
+  }
+
+  const fields = new Set<string>();
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "detectorFields" || NON_EVIDENCE_KEYS.has(key)) continue;
+      // A key the per-kind branch set but left empty carries nothing to judge —
+      // see `isVacuousEvidence`. This covers the `undefined` case (the raw line
+      // lacked the key) and the empty-collection case alike.
+      if (isVacuousEvidence(value)) continue;
+      fields.add(key);
+    }
+    const passthrough = (record as SharedCalibrationFields).detectorFields;
+    if (passthrough) {
+      for (const [key, value] of Object.entries(passthrough)) {
+        // NON_EVIDENCE_KEYS applies on BOTH levels (PR #2679 R1). The top-level
+        // check alone is not enough, and for a NEW bookkeeping key it is not
+        // even the path that runs: `parseDetectorFields` treats every key no
+        // per-kind branch named as passthrough, so a key like `captureSchema`
+        // reaches this loop rather than the one above — for every log at once.
+        // Excluding it in only one place would have left the marker counted as
+        // evidence everywhere it actually appears.
+        if (NON_EVIDENCE_KEYS.has(key)) continue;
+        if (isVacuousEvidence(value)) continue;
+        fields.add(`detectorFields.${key}`);
+      }
+    }
+  }
+
+  return {
+    verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
+    evidenceFields: [...fields].sort(),
+    recordsAssessed: records.length,
   };
 }
 
@@ -1421,7 +1800,90 @@ export function clearResolvedAskIds(
 }
 
 /**
- * Result of `selectAckablePaths` — which past-threshold logs may be advanced
+ * Outcome of reconciling a pass's intended watermark write against the store
+ * as it stands at write time (mt#3899).
+ */
+export interface WatermarkMergeResult {
+  /** The store to persist: `fresh`, with this pass's non-drifted edits applied. */
+  merged: WatermarkStore;
+  /**
+   * Target paths whose entry changed under the pass between its read and its
+   * write. Their intended edit was DROPPED — the concurrent writer's value
+   * stands. Sorted, so callers and tests get a stable order.
+   */
+  driftedPaths: string[];
+}
+
+/** True when two entries carry identical review state (absent === absent). */
+function watermarkEntriesEqual(a?: LogWatermark, b?: LogWatermark): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.lastReviewedCount === b.lastReviewedCount &&
+    a.lastReviewedAt === b.lastReviewedAt &&
+    a.openAskId === b.openAskId
+  );
+}
+
+/**
+ * Reconcile a pass's intended watermark write against the store re-read
+ * immediately before persisting (mt#3899).
+ *
+ * The command reads the store once, sweeps every calibration log — tens of
+ * seconds of IO — decides what to advance, then writes the whole store back.
+ * With concurrent agent sessions that read-modify-write races: a second pass
+ * that acks mid-sweep is invisible to the first, whose whole-store write then
+ * silently reverts it. The observed instance advanced one log's watermark to
+ * its full fire count while another pass was mid-classification on exactly
+ * those fires; nothing surfaced, because the losing write reported success.
+ *
+ * Two rules, both required:
+ *
+ * - **Start from `fresh`, not from the pass's stale snapshot.** An entry the
+ *   pass never intended to touch keeps whatever the concurrent writer left
+ *   there, so a whole-store rewrite cannot clobber an unrelated log.
+ * - **Drop a target whose entry moved.** If `fresh` disagrees with `base` for
+ *   a path this pass meant to change, another writer got there first; its
+ *   value stands and the path is REPORTED rather than overwritten. Silently
+ *   winning the race is the failure mode — a dropped edit the caller can see
+ *   is recoverable, one it cannot is not.
+ *
+ * Last-writer-wins is preserved deliberately for the no-contention case: when
+ * nothing changed underneath, `fresh` equals `base` and every intended edit
+ * applies.
+ *
+ * @param base Store snapshot the pass computed its decisions from.
+ * @param intended `base` with this pass's edits applied.
+ * @param fresh Store as re-read immediately before writing.
+ * @param targetPaths Paths this pass intends to change.
+ */
+export function mergeWatermarkWrite(
+  base: WatermarkStore,
+  intended: WatermarkStore,
+  fresh: WatermarkStore,
+  targetPaths: ReadonlySet<string>
+): WatermarkMergeResult {
+  const merged: WatermarkStore = { ...fresh };
+  const driftedPaths: string[] = [];
+
+  for (const path of targetPaths) {
+    if (!watermarkEntriesEqual(base[path], fresh[path])) {
+      driftedPaths.push(path);
+      continue;
+    }
+    const next = intended[path];
+    if (next) {
+      merged[path] = next;
+    } else {
+      delete merged[path];
+    }
+  }
+
+  driftedPaths.sort();
+  return { merged, driftedPaths };
+}
+
+/**
+ * Result of `selectAckablePaths` — which review-due logs may be advanced
  * (acked) this pass, and which must be skipped.
  */
 export interface AckSelection {
@@ -1435,13 +1897,20 @@ export interface AckSelection {
 }
 
 /**
- * Determine which past-threshold logs may be safely advanced (acked) in this
+ * Determine which review-due logs may be safely advanced (acked) in this
  * pass, and which must be skipped because they already carry a still-open
  * disposition ask (mt#2659).
  *
+ * The caller decides WHICH logs are review-due and passes them in; this
+ * function never re-derives that set. Callers should hand it the results
+ * corresponding to `computeReviewDueLogs` output — all four legs, not just
+ * `pastThreshold` (mt#2878). Handing it a narrower set silently makes the
+ * ack-able set smaller than the set the cadence hook warns about, which is
+ * exactly the defect mt#2878 fixed at the one call site.
+ *
  * When `askId` is provided, the caller is explicitly (re)affirming an ask for
- * every past-threshold result this call — ALL are ackable regardless of any
- * pre-existing `openAskId`.
+ * every result this call — ALL are ackable regardless of any pre-existing
+ * `openAskId`.
  *
  * When `askId` is NOT provided, any result whose `openAskId` is already set
  * is skipped rather than silently advanced: per the /calibration-review
@@ -1457,12 +1926,12 @@ export interface AckSelection {
  * misapply ask-aware suppression state" independently testable.
  */
 export function selectAckablePaths(
-  pastThresholdResults: CalibrationLogResult[],
+  reviewDueResults: CalibrationLogResult[],
   askId?: string
 ): AckSelection {
   const ackablePaths = new Set<string>();
   const skippedOpenAskPaths: string[] = [];
-  for (const r of pastThresholdResults) {
+  for (const r of reviewDueResults) {
     if (!askId && r.openAskId) {
       skippedOpenAskPaths.push(r.entry.path);
       continue;
@@ -1550,6 +2019,9 @@ export interface CalibrationAsFireLogEntry {
  * with the registry it must exhaustively cover).
  */
 const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
+  // mt#3286 — the log is named for the DEFECT it measures, the guard for the
+  // moment it runs, so the two names differ and the mapping is required.
+  "bare-entity-ref": "turn-end-bare-ref-scan",
   "causal-premise": "causal-premise-detector",
   "retrospective-trigger": "retrospective-trigger-scanner",
   "ask-routing-deferral": "ask-routing-deferral-detector",
@@ -1571,6 +2043,8 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   // surface actually fired, and `/calibration-review` reads that.
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
+  "retrospective-completeness": "retrospective-completeness-detector",
+  "stop-at-decision": "stop-at-decision-scan",
 };
 
 /**

@@ -29,9 +29,4 @@ execution`, principal-level decisions stay with Eugene:
 
 ### Trigger rule — before applying any framework
 
-1. **Name the framework** explicitly.
-2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
-3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
-4. **Name what you switched and why.**
-
-`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
+Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.

@@ -78,7 +78,9 @@ tests). The root `bun run test` deliberately scopes its paths and does **not**
 include `services/reviewer`, so this dedicated step is what gates the suite.
 
 This is distinct from the **live harness scripts** under `scripts/`
-(`seeded-bug-harness.ts`, `reviewer-benchmark.ts`) which must NOT run in CI —
+(`seeded-bug-harness.ts`, `reviewer-benchmark.ts`, and the read-only
+`verify-diff-scope-subset.ts` — see [Diff-scope subset probe](#diff-scope-subset-probe-mt3663))
+which must NOT run in CI —
 see [Re-running the harness](#re-running-the-harness-mt1515) → Notes. Those
 consume real GitHub quota and create real PRs; the unit suite does neither.
 
@@ -110,7 +112,9 @@ Both tools use the `contents: read` permission the App already holds.
 - **Provider capability.** Tools are only wired into the call when `REVIEWER_PROVIDER=openai`. Other providers receive the no-tools system prompt, which explicitly tells the model to mark cross-file claims as `NEEDS VERIFICATION` instead of `BLOCKING`.
 - **Fork accessibility.** The App is installed on the base repo; it may not have read access to forks. For forked PRs the service runs a lightweight fork-access probe at review start — one `read_file` for `README.md`, falling back to `package.json`. If either resolves, tools are enabled on the fork; if both 403/404, tools are disabled and the no-tools prompt is used to avoid silent failures from tool calls the App can't complete.
 
-**Iteration cap:** The loop runs at most 10 rounds. If the cap is hit, the model is given one final turn to produce a text response; if no text is produced, the review body contains a `[TOOL CAP REACHED]` notice.
+**Iteration cap:** The loop runs at most 10 rounds. If the cap is hit, the model is given one final turn to produce a text response; if no text is produced, the review body contains a `[TOOL CAP REACHED]` notice. Because that final turn is passed no tools, only 9 rounds can carry a tool call — and `conclude_review` is a tool call, so it must be emitted by round 9 or a post-loop forced pass has to extract the verdict.
+
+**Round budget signal (mt#3547):** After each round's tool results, the loop appends a `[TOOL BUDGET]` user message stating how many tool-capable rounds remain, escalating to explicit wrap-up guidance with two left. It is append-only — no earlier message is rewritten — so the OpenAI prompt-cache prefix stays valid. Its counterpart in the prompt is the "Your tool budget" section (tools-available path only), which grants explicit permission to conclude before the cap and requires any uncovered surface to be named in the `conclude_review` summary rather than passed over silently. Round count and whether the model concluded in-loop are surfaced on `ReviewOutput.toolLoop`; `services/reviewer/scripts/replay-round-budget.ts` replays PRs and reports them, with `--compare` for a before/after table.
 
 **Behavioral contract:** The `buildCriticConstitution(toolsAvailable)` helper emits one of two system-prompt sections. When tools are available, the prompt instructs the model to call `read_file` / `list_directory` before making cross-file claims and to mark unverified claims `[NON-BLOCKING] NEEDS VERIFICATION`. When tools are NOT available (non-OpenAI provider or forked PR where the access probe failed), the prompt explicitly tells the model no tools are wired up and that all cross-file claims MUST be marked non-blocking with `NEEDS VERIFICATION` — never blocking.
 
@@ -270,6 +274,45 @@ The benchmark lists recent merged PRs, identifies Tier-3 ones by body marker or 
 - The seeded-bug target directory (`scripts/__seeded_bug_targets__/`) is gitignored locally. Harness runs write files there but do not commit them; the remote branch is deleted by the harness in its cleanup step.
 - Results files (`seeded-bug-results.json`, `reviewer-benchmark-results.json`) are written locally in the `scripts/` directory. Commit them manually if you want to checkpoint a baseline.
 
+## Diff-scope subset probe (mt#3663)
+
+`scripts/verify-diff-scope-subset.ts` is a live, operator-run probe for the invariant that a
+narrowed review scope never leaves the PR's own merge-base diff. It runs the **production**
+`resolveDiffScope` against the **real** GitHub responses for PR #2587 — the incident that
+produced mt#3663, where a merge-from-main commit in the compare range turned a 6-file PR into a
+157-file review surface and produced BLOCKING findings against four files the PR never touched.
+
+**Do not add this script to CI.** Like the harness scripts above it consumes real GitHub API
+quota and needs live credentials. It is read-only (no PRs created, no writes of any kind), which
+makes it cheaper and safer than the harness — but "safe to run" is not "should run
+automatically."
+
+| Env var                      | Required | Purpose                                                               |
+| ---------------------------- | -------- | --------------------------------------------------------------------- |
+| `VERIFY_DIFF_SCOPE_RUN_LIVE` | yes      | Must be exactly `true`. Affirmative opt-in; checked BEFORE the token. |
+| `GITHUB_TOKEN`               | yes      | Read-only scope is sufficient.                                        |
+
+The opt-in is checked first **on purpose**: every GitHub Actions job carries a `GITHUB_TOKEN`, so
+gating on the credential alone would let a future workflow pick this script up and spend API
+calls without anyone choosing to. With the opt-in absent it exits 0 and prints a SKIP naming the
+switch.
+
+```bash
+# From the repo root
+VERIFY_DIFF_SCOPE_RUN_LIVE=true GITHUB_TOKEN=$(gh auth token) \
+  bun services/reviewer/scripts/verify-diff-scope-subset.ts
+```
+
+Exit 0 with `"status": "PASS"` means both cases held; exit 1 prints a `failures` array naming the
+case and check that broke.
+
+**Why the repo/PR coordinates are pinned rather than env-parameterized.** The script's assertions
+are _about this incident_: it checks that the compare range still contains four specific paths the
+reviewer falsely flagged, that the range's merge base still equals its base, and that case A
+resolves to the full-diff fallback while case B narrows to exactly one file. Those expectations
+are meaningless against a different PR, so pointing the script elsewhere would not generalize it —
+it would just make it fail. Treat the pinned SHAs as part of the fixture, not as configuration.
+
 ## Operator alerts (mt#2364 / mt#1596)
 
 When the submission-failure circuit breaker (mt#2350) trips — a PR's review submission keeps failing with a non-retryable error and the sweeper has stopped retriggering it — the failure is surfaced two ways:
@@ -376,6 +419,22 @@ Auth is the MCP auth token (`MINSKY_MCP_AUTH_TOKEN`), same as `/retrigger`. Resp
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.
 
 ## Troubleshooting
+
+### Review-scope feature flags
+
+- `REVIEWER_INCREMENTAL_DIFF_ENABLED` (mt#3471, **on** in production) — on a re-review round
+  (R>=2), show the model only the commits pushed since the last posted review instead of the whole
+  PR diff again. The prior review's findings stay in the prompt and the file-reading tools still
+  resolve at HEAD, so the round can still verify its own earlier BLOCKING findings. The base is the
+  prior review's `commit_id`, so a force-push that orphans it produces a 404 rather than a
+  silently-wrong range; that and any truncated or 5xx comparison fall back to the full diff
+  (`reviewer.incremental_diff_fallback_full`). Turning it off restores full-diff-every-round at the
+  original cost.
+- `REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED` (mt#1875, **off**) — separate and quality-affecting:
+  additionally DOWNGRADES a BLOCKING finding to NON-BLOCKING when its file:line falls outside the
+  reviewed scope. Independent of the flag above by design, so the cost lever can run without
+  changing what the reviewer blocks on. When both are on, the downgrade pass bounds itself to the
+  same narrowed diff the model was shown.
 
 ### Network-call timeouts (mt#1086)
 

@@ -76,6 +76,16 @@ on:
         type: boolean
         default: false
 
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
 jobs:
   # Presence-check gate. GitHub Actions does not support referencing the
   # `secrets` context directly in a job-level `if:` (see
@@ -116,7 +126,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -127,7 +137,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Run credential-free integration test
         env:
@@ -152,7 +162,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -163,7 +173,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Run GitHub API integration tests
         env:
@@ -188,7 +198,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -199,7 +209,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Run Supabase pool-saturation integration test
         env:
@@ -253,7 +263,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -264,7 +274,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Apply migrations
         # The tests write real rows, so the schema has to exist. Run from source
@@ -308,7 +318,23 @@ jobs:
           RUN_INTEGRATION_TESTS: "1"
         run: |
           bun test --preload ./tests/setup.ts --timeout=60000 \
-            tests/integration/transcript-metadata-fill-if-null.integration.test.ts
+            tests/integration/transcript-metadata-fill-if-null.integration.test.ts \
+            tests/integration/postgres-client-bounded-socket.integration.test.ts
+
+        # HELD OUT until mt#3509 lands (mt#3482 / PR #2503 R1):
+        #
+        #   tests/integration/transcript-attachment-parent-row.integration.test.ts
+        #   bun scripts/verify-transcript-attachment-ingest.ts
+        #
+        # Both need `agent_transcript_attachments`, and the migrate step above
+        # does not create it: on a fresh database `persistence migrate --execute`
+        # plans 83 pending, reports "Applied 34", exits 0, and leaves that table
+        # (migration 0039) absent — reproduced locally and by this very job on
+        # PR #2503. Wiring them in now would make this job red for a reason that
+        # has nothing to do with what they assert. Re-wire them as part of
+        # mt#3509 — that task's acceptance tests include the fresh-migrate check
+        # these two depend on. Until then both remain runnable locally against a
+        # database that has the table; see the mt#3482 PR body for their output.
 
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
@@ -331,7 +357,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -342,7 +368,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Run Docker/testcontainer pool-saturation integration test
         run: bun run test:integration:docker

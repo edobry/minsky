@@ -1,9 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import {
   getConfigCustomizations,
+  renderConfigDoctorResult,
   renderConfigGetResult,
   renderConfigSetResult,
   renderConfigUnsetResult,
+  renderConfigValidateResult,
 } from "./config-customizations";
 
 describe("config CLI customizations — pure renderers (mt#1794)", () => {
@@ -142,6 +144,162 @@ describe("config CLI customizations — pure renderers (mt#1794)", () => {
         ?.parameters;
       expect(params?.key?.asArgument).toBe(true);
       expect(params?.value?.asArgument).toBe(true);
+    });
+  });
+});
+
+describe("config doctor / validate renderers (mt#3478)", () => {
+  const CHECK_LOADING = "Configuration Loading";
+
+  const doctorResult = (overrides: Record<string, unknown> = {}) => ({
+    success: true,
+    json: false,
+    summary: { total: 3, passed: 2, warnings: 1, errors: 0 },
+    diagnostics: [
+      { check: CHECK_LOADING, status: "pass", message: "Configuration loaded" },
+      {
+        check: "Configured Model Validity",
+        status: "warning",
+        message: "Configured default model not found: anthropic -> 'retired-model-id'",
+        suggestion: "Set the provider's model to an id the listing returns",
+      },
+      { check: "Configuration Directory", status: "pass", message: "Directory exists" },
+    ],
+    healthy: true,
+    verbose: false,
+    ...overrides,
+  });
+
+  describe("renderConfigDoctorResult", () => {
+    // AT1: a warning's check name AND message appear in default output.
+    test("shows a warning check's name and message by default", () => {
+      const out = renderConfigDoctorResult(doctorResult());
+      expect(out).toContain("Configured Model Validity");
+      expect(out).toContain("Configured default model not found");
+    });
+
+    // AT4: the suggestion — the actionable half — is displayed.
+    test("shows the suggestion when a diagnostic carries one", () => {
+      const out = renderConfigDoctorResult(doctorResult());
+      expect(out).toContain("Set the provider's model to an id the listing returns");
+    });
+
+    test("never renders a bare success line when diagnostics exist", () => {
+      expect(renderConfigDoctorResult(doctorResult())).not.toBe("✅ Success");
+    });
+
+    test("reports the summary counts", () => {
+      expect(renderConfigDoctorResult(doctorResult())).toContain(
+        "3 checks — 2 passed, 1 warning, 0 errors"
+      );
+    });
+
+    // AT2: --verbose produces observably more output than the default run.
+    test("verbose adds the passing checks the default run omits", () => {
+      const quiet = renderConfigDoctorResult(doctorResult());
+      const loud = renderConfigDoctorResult(doctorResult({ verbose: true }));
+
+      expect(quiet).not.toContain(CHECK_LOADING);
+      expect(loud).toContain(CHECK_LOADING);
+      expect(loud).toContain("Configuration Directory");
+      expect(loud.length).toBeGreaterThan(quiet.length);
+    });
+
+    test("an all-passing run still names the outcome instead of going silent", () => {
+      const out = renderConfigDoctorResult({
+        success: true,
+        json: false,
+        summary: { total: 1, passed: 1, warnings: 0, errors: 0 },
+        diagnostics: [{ check: CHECK_LOADING, status: "pass", message: "ok" }],
+        verbose: false,
+      });
+      expect(out).toContain("1 check — 1 passed");
+      expect(out).toContain("All checks passed.");
+    });
+
+    // AT3: --json passes the payload straight through, unchanged.
+    test("json mode emits the payload verbatim", () => {
+      const payload = doctorResult({ json: true });
+      expect(JSON.parse(renderConfigDoctorResult(payload))).toEqual(payload);
+    });
+
+    // PR #2727 R1: an unmapped status used to render as an anonymous bullet,
+    // hiding its severity. It now carries its raw status text.
+    test("an unknown status renders with its raw status text, not an anonymous bullet", () => {
+      const out = renderConfigDoctorResult({
+        json: false,
+        summary: { total: 1, passed: 0, warnings: 0, errors: 0 },
+        diagnostics: [{ check: "Novel Check", status: "indeterminate", message: "unclear" }],
+        verbose: false,
+      });
+      expect(out).toContain("Novel Check");
+      expect(out).toContain("[indeterminate]");
+    });
+
+    test("a mapped status does not get a redundant status prefix", () => {
+      const out = renderConfigDoctorResult(doctorResult());
+      expect(out).toContain("⚠️ Configured Model Validity");
+      expect(out).not.toContain("[warning]");
+    });
+  });
+
+  describe("renderConfigValidateResult", () => {
+    test("names the no-issue outcome instead of a bare success line", () => {
+      const out = renderConfigValidateResult({ success: true, json: false, errors: [] });
+      expect(out).toContain("no issues found");
+      expect(out).not.toBe("✅ Success");
+    });
+
+    test("shows each issue's path, message and severity split", () => {
+      const out = renderConfigValidateResult({
+        success: false,
+        json: false,
+        errors: [
+          { path: "ai.providers.openai", message: "missing credential", severity: "error" },
+          { path: "sessiondb.path", message: "deprecated key", severity: "warning" },
+        ],
+      });
+      expect(out).toContain("2 issues — 1 error, 1 warning");
+      expect(out).toContain("ai.providers.openai");
+      expect(out).toContain("missing credential");
+      expect(out).toContain("sessiondb.path");
+    });
+
+    // PR #2727 R1: `severity` is error | warning | info. Counting
+    // "everything not an error" as a warning misreported info-level issues.
+    test("counts info-severity issues separately from warnings", () => {
+      const out = renderConfigValidateResult({
+        success: true,
+        json: false,
+        errors: [
+          { path: "a.b", message: "note", severity: "info" },
+          { path: "c.d", message: "careful", severity: "warning" },
+        ],
+      });
+      expect(out).toContain("0 errors, 1 warning, 1 info");
+    });
+
+    test("verbose adds the configuration sources the default run omits", () => {
+      const base = { success: true, json: false, errors: [], sources: ["defaults", "user-file"] };
+      const quiet = renderConfigValidateResult(base);
+      const loud = renderConfigValidateResult({ ...base, verbose: true });
+
+      expect(quiet).not.toContain("user-file");
+      expect(loud).toContain("user-file");
+      expect(loud.length).toBeGreaterThan(quiet.length);
+    });
+
+    test("json mode emits the payload verbatim", () => {
+      const payload = { success: true, json: true, errors: [], totalIssues: 0 };
+      expect(JSON.parse(renderConfigValidateResult(payload))).toEqual(payload);
+    });
+  });
+
+  describe("formatter registration", () => {
+    test("both commands have an outputFormatter so neither falls through to the generic one", () => {
+      const commandOptions = getConfigCustomizations().options.commandOptions;
+      expect(commandOptions?.["config.doctor"]?.outputFormatter).toBeDefined();
+      expect(commandOptions?.["config.validate"]?.outputFormatter).toBeDefined();
     });
   });
 });

@@ -249,7 +249,7 @@
             },
             {
               "flags": ["--push-timeout-ms"],
-              "description": "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout, the remote branch head is verified directly before reporting an outcome.",
+              "description": "Override the push wall-clock bound in milliseconds. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). On timeout, the remote branch head is verified directly before reporting an outcome.",
               "takesValue": true
             },
             {
@@ -2335,7 +2335,7 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). mt#3121: if a DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively working the task), returns status: \"contested\" WITHOUT consuming an attempt, since redispatching would collide with that live actor. If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
           "arguments": [
             {
               "name": "taskId",
@@ -2641,7 +2641,7 @@
         },
         {
           "name": "exec",
-          "description": "Execute a shell command in a session's working directory. The session directory is resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool (build, test, format, custom scripts). For git operations there are dedicated MCP tools (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec the same way it denies them on Bash (mt#1196). Inside a session, the carved-out commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via session_exec because they're the recommended escape hatch.",
+          "description": "Execute a shell command in a session's working directory. The session directory is resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool (build, test, format, custom scripts). For git operations there are dedicated MCP tools (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec the same way it denies them on Bash (mt#1196). Inside a session, the carved-out commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via session_exec because they're the recommended escape hatch. TIMEOUT: a command is KILLED after `timeout` ms (default 30s, max 120s) — the result then carries `timedOut: true`, `failureKind: \"timeout\"` and `descendantsMaySurvive: true` rather than a bare `exitCode: 1`. Do NOT retry on a timeout as though the command had failed: it may have done part of its work, and anything it spawned can outlive the kill. For work that may exceed the cap, launch it detached (`nohup … &`) and read a log file instead.",
           "options": [
             {
               "flags": ["--session-id"],
@@ -2999,7 +2999,7 @@
             },
             {
               "flags": ["--push-timeout-ms"],
-              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
+              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
               "takesValue": true
             },
             {
@@ -3187,6 +3187,11 @@
                 {
                   "flags": ["--draft"],
                   "description": "Create draft PR (GitHub only, skips session update)"
+                },
+                {
+                  "flags": ["--push-timeout-ms"],
+                  "description": "Override the push-phase wall-clock bound in milliseconds for the session update this command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
+                  "takesValue": true
                 }
               ]
             },
@@ -3569,7 +3574,7 @@
                 },
                 {
                   "flags": ["--require-current-head"],
-                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself mean the returned review is the reviewer's STANDING VERDICT. Several reviews from one reviewer can sit on the same HEAD, in which case this filter admits all of them; the tool separately resolves the reviewer's latest decision-bearing review and returns that, whatever its state."
                 },
                 {
                   "flags": ["--full-body"],
@@ -3659,6 +3664,11 @@
                 {
                   "flags": ["--deploy-interval-seconds"],
                   "description": "postMerge mode only: poll cadence for each deployment wait (default 10).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--merged-at"],
+                  "description": "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). Bounds each deployment wait so a deployment predating the merge cannot satisfy it. Omit and the watch accepts whatever deployment is newest — the result then reports deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence this merge deployed (mt#3890).",
                   "takesValue": true
                 }
               ]
@@ -4579,6 +4589,10 @@
             {
               "flags": ["--sources"],
               "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--show-secrets"],
+              "description": "Show actual credential values (SECURITY RISK: use with caution)"
             }
           ],
           "arguments": [
@@ -4774,7 +4788,7 @@
               "subcommands": [
                 {
                   "name": "credentials.list",
-                  "description": "List configured credentials (values never displayed)",
+                  "description": "List credential entries: managed providers plus schema-defined AI provider keys (presence only, values never displayed). Use `ai providers list` for AI provider status.",
                   "options": [
                     {
                       "flags": ["--json"],
@@ -4991,6 +5005,10 @@
               "flags": ["--model"],
               "description": "Model to use for fast-apply",
               "takesValue": true
+            },
+            {
+              "flags": ["--allow-shrink"],
+              "description": "Override the collapse guard, which refuses a fast-apply result dramatically smaller than the original file. Set true only when the large deletion is intentional."
             },
             {
               "flags": ["--dry-run"],
@@ -5383,6 +5401,11 @@
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
                 },
                 {
+                  "flags": ["--severity"],
+                  "description": "Set to 'incident' when a severity trigger fired AND remediation is operator-only (production incident, outage, security finding, blocked-past-threshold). On an operator-routed ask this sends the principal ONE notification on their phone pointing at this ask — you do not need to send a separate notification yourself. Both halves are required: an incident you can fix yourself does not warrant it, and an operator-only chore that is not a severity event belongs in the normal inbox.",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--acknowledge-form-warnings"],
                   "description": "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A deliberate, per-call override for a genuinely long/complex ask — never a default. Recorded on the form-lint calibration log so override frequency stays reviewable via /calibration-review. Without it, a create whose question/options fail any form-lint check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, letter-prefixed-option-label) is rejected with the violations listed."
                 }
@@ -5451,6 +5474,10 @@
                   "flags": ["--editor"],
                   "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--acknowledge-form-warnings"],
+                  "description": "When true, bypass the form-lint hard-reject (mt#3929) for this edit call. The same escape asks_create offers: use it when the ask is genuinely long/complex and the violation is warranted, or when repairing one field of an ask whose pre-existing body already violates. Without it, an edit whose RESULTING question/options fail any form-lint check is rejected."
                 }
               ],
               "arguments": [
@@ -5784,6 +5811,11 @@
                   "flags": ["--poll-interval-seconds"],
                   "description": "Poll cadence. Default: 10 seconds.",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--not-before"],
+                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+                  "takesValue": true
                 }
               ]
             },
@@ -5840,7 +5872,7 @@
           "options": [
             {
               "flags": ["--ack"],
-              "description": "Advance the watermark for all past-threshold logs, marking them as reviewed. Without this flag the command is read-only."
+              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). Without this flag the command is read-only."
             },
             {
               "flags": ["--json"],
@@ -5848,12 +5880,12 @@
             },
             {
               "flags": ["--ask-id"],
-              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A past-threshold log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
+              "description": "ID of the disposition Ask just filed for the review-due logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A review-due log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
               "takesValue": true
             },
             {
               "flags": ["--clear-ask-id"],
-              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all past-threshold logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
+              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all review-due logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
               "takesValue": true
             }
           ]
@@ -6198,6 +6230,35 @@
               "name": "id",
               "required": true,
               "description": "Memory record identifier to update"
+            }
+          ]
+        },
+        {
+          "name": "patch",
+          "description": "Append to, prepend to, or replace ONE markdown section of a memory's content, leaving every other byte unchanged (mt#3602). Use this instead of `memory.update` when adding an entry to a long-lived record — appending an R-entry to a family root's `## Recurrences` is the canonical case. Fails loudly when the section is missing or appears more than once; never falls back to a wholesale write. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
+          "options": [
+            {
+              "flags": ["--section"],
+              "description": "Markdown section heading to target, with or without leading hashes (e.g. \"## Recurrences\"). Matched case-insensitively against the whole heading text — a prefix does not match.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--text"],
+              "description": "Text to insert (append/prepend), or the section's new body (replace). May span multiple lines.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "append (default) inserts after the section's last content line; prepend inserts directly under the heading; replace swaps the section body.",
+              "takesValue": true,
+              "values": ["append", "prepend", "replace"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
             }
           ]
         },
@@ -6566,7 +6627,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -6598,6 +6659,16 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            },
+            {
+              "flags": ["--mode"],
+              "description": "How the query is matched. 'websearch' (default) supports \"quoted phrases\", or, and -negation; 'plain' ANDs the words with no adjacency; 'exact' matches a literal substring without stemming.",
+              "takesValue": true,
+              "values": ["websearch", "plain", "exact"]
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ],
           "arguments": [
@@ -6866,7 +6937,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6876,6 +6947,7 @@
                 "embeddings.provider_degraded",
                 "principal.message_rejected",
                 "principal.message_failed",
+                "ask.page_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -6956,7 +7028,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
             }
           ]
         }
@@ -7001,6 +7073,11 @@
             {
               "flags": ["--title"],
               "description": "Optional leading line rendered above the body (e.g. a task id).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task-id"],
+              "description": "Post into the Telegram topic bound to this task, if one exists (mt#3507); otherwise the standing conversation. Never creates a topic.",
               "takesValue": true
             },
             {
@@ -7668,6 +7745,27 @@
         {
           "name": "restart",
           "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+        },
+        {
+          "name": "url",
+          "description": "Print the base URL of the running cockpit serving this workspace",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output the full cockpit state as JSON"
+            }
+          ]
+        },
+        {
+          "name": "open",
+          "description": "Open a conversation in the cockpit's conversation view",
+          "options": [
+            {
+              "flags": ["--conversation"],
+              "description": "Conversation (harness agent-session) id; defaults to $CLAUDE_CODE_SESSION_ID",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },

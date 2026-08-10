@@ -55,10 +55,12 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { recordMergeDeploySurface } from "./merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
+import { computeFenceInternalLines } from "./markdown-sections";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
 const GUARD_NAME = "require-deploy-verification-before-merge";
@@ -139,9 +141,20 @@ const DEFERRAL_PATTERN =
 export function hasDeployVerification(prBody: string): boolean {
   const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const lines = stripped.split("\n");
+  // Fence-aware (mt#3530). Same defect as `hasExecutionEvidence` had, found by
+  // sweeping the family rather than reported: a `Deploy verification:` marker whose
+  // only occurrence is inside a code fence is a QUOTED EXAMPLE, and it satisfied this
+  // blocking gate. The doc comment above already says this function "mirrors the
+  // mt#1459 hasExecutionEvidence discipline" — the accepted-forms half was mirrored,
+  // the fence half was not, which is how the gap reached a second gate with nobody
+  // deciding it should.
+  //
+  // Blast radius measured before flipping: 0 verdict changes across the 100 most
+  // recently merged PRs. Fenced content BENEATH a real marker still counts.
+  const fenceInternal = computeFenceInternalLines(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(DEPLOY_VERIFICATION_MARKER);
     if (!match) continue;
 
@@ -157,7 +170,11 @@ export function hasDeployVerification(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
+      // Only a REAL heading ends the section (PR #2533 R1) — a `#` comment inside a
+      // pasted transcript is content, not a boundary. Same fix as the sibling
+      // execution-evidence gate; without it, fenced deploy output containing a
+      // heading-like line truncates the scan and produces a false negative.
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       if (nextLine.trim().length > 0) parts.push(nextLine.trim());
     }
     const content = parts.join(" ").trim();
@@ -578,6 +595,37 @@ if (import.meta.main) {
     };
   } else {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
+  }
+
+  // mt#3819: record this merge's deploy/build-surface verdict for the per-turn
+  // consumer (`build-claim-injection-detector`), which cannot afford the forge
+  // fetch we just did. Computed from `prFiles` directly rather than from
+  // `usabilityResult`, so the Gap A override — which zeroes `buildSurfaceFiles`
+  // to skip its own check — cannot make us under-record the local-app surface.
+  // Never throws and never affects this gate's decision.
+  {
+    const surfaceFiles = [
+      ...new Set([...findDeploySurfaceFiles(prFiles), ...findLocalAppDeploySurfaceFiles(prFiles)]),
+    ];
+    const verdict = {
+      hadDeploySurface: surfaceFiles.length > 0,
+      deploySurfaceFiles: surfaceFiles,
+      recordedAt: new Date().toISOString(),
+    };
+
+    // PR #2734 R1: record under BOTH the RESOLVED task id and the RAW ids the
+    // caller actually passed. `session_pr_merge` takes either `task` or
+    // `sessionId` (mt#3355), and the consumer can only see what is in the
+    // tool_use input — so a `sessionId`-invoked merge keyed solely by the
+    // resolved task id would be permanently unfindable, silently degrading to
+    // the old proxy for exactly the merges this task exists to fix.
+    const rawToolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+    const keys = new Set<string>([task]);
+    for (const field of ["task", "taskId", "sessionId", "session"]) {
+      const value = rawToolInput[field];
+      if (typeof value === "string" && value.length > 0) keys.add(value);
+    }
+    for (const key of keys) recordMergeDeploySurface(key, verdict);
   }
 
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];

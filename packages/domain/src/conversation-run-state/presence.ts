@@ -171,6 +171,16 @@ function mapNeedsInputReason(raw: string): NeedsInputReason {
  * This deliberately requires only ONE time threshold (the measured stall
  * window). An `ENDED`-from-silence rule would need a second threshold with no
  * measurement behind it; declining to invent one is the honest option.
+ *
+ * ## `IDLE` is about TURNS, not about WRITERS (mt#3656)
+ *
+ * Every value here answers "what was last observed happening in this
+ * conversation," never "is a process attached to its file." So `IDLE` means no
+ * turn is in flight — an open terminal tab whose operator stepped away reports
+ * `IDLE` and is indistinguishable here from no terminal at all. Minsky has no
+ * observable for attachment: the transcript format carries no pid or writer id
+ * (mem#805). Callers must not read `IDLE` as "unattached"; see
+ * `attach-admissibility.ts` for what that costs and how it is answered.
  */
 export function derivePresence(
   row: ConversationRunStateRecord | null,

@@ -17,6 +17,7 @@
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
  */
 import { useEffect, useId, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import type {
   ConversationElement,
@@ -30,11 +31,56 @@ import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan } from "../lib/injected-content";
+import { isApiErrorText } from "../lib/conversation-outcome";
+import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
+import { FilmMomentLink } from "./FilmMomentLink";
 
 // ── Shared element types ─────────────────────────────────────────────────────
 
 export type ToolCallElement = Extract<ConversationElement, { kind: "tool-call" }>;
 export type ToolResultElement = Extract<ConversationElement, { kind: "tool-result" }>;
+
+/** The spawn descriptor an Agent tool call carries. */
+export type SpawnInfo = NonNullable<ToolCallElement["spawn"]>;
+
+const SPAWN_BADGE_CLASS =
+  "mr-2 shrink-0 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300";
+
+/**
+ * The `→ subagent (kind)` marker on an Agent tool call.
+ *
+ * Links to the conversation this specific call spawned when one resolved
+ * (mt#3692), and stays a plain label when it did not — which is still most
+ * spawns, since only about 30% currently resolve a child (mt#3702 tracks raising
+ * that). The unresolved case is deliberately not rendered as a disabled control:
+ * there is nowhere to go, and a dead link reads worse than a label.
+ *
+ * Shared by the per-tool-call renderer here and `ConversationView`'s turn-level
+ * badge, so the two cannot drift.
+ */
+export function SpawnBadge({ spawn }: { spawn: SpawnInfo }) {
+  const label = `→ subagent${spawn.agentKind ? ` (${spawn.agentKind})` : ""}`;
+
+  if (!spawn.childAgentSessionId) {
+    return <span className={SPAWN_BADGE_CLASS}>{label}</span>;
+  }
+
+  return (
+    <Link
+      to={`/conversation/${spawn.childAgentSessionId}`}
+      data-testid="spawn-child-link"
+      title="Open the conversation this call spawned"
+      className={cn(
+        SPAWN_BADGE_CLASS,
+        "underline decoration-violet-300/40 underline-offset-2",
+        "hover:bg-violet-500/25 hover:text-violet-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      )}
+    >
+      {label}
+    </Link>
+  );
+}
 
 /** View-level "expand all / collapse all" broadcast — see `ToolInvocation`/`InjectedContentBlock`. */
 export type ExpandSignal = { epoch: number; open: boolean } | undefined;
@@ -71,22 +117,23 @@ export type PreparedElement =
       output?: InjectedSpan;
       caveat?: InjectedSpan;
     }
+  /**
+   * An image the operator pasted (or a tool returned). Mirrors the domain
+   * element of the same kind — see `conversation-elements.ts` for why
+   * `sourceType` is a plain string and why `data`/`url` are optional.
+   */
+  | { kind: "image"; sourceType: string; mediaType?: string; data?: string; url?: string }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
-// ── API-error text detection (mt#2793) ──────────────────────────────────────
+// ── API-error text detection (mt#2793, re-homed by mt#3132) ─────────────────
 //
-// Harness-emitted failure text sometimes lands as an ordinary assistant text
-// turn (e.g. "API Error: Connection closed mid-response.") rather than a
-// tool-result error — it renders identically to normal prose and is easy to
-// scroll past. Detection is intentionally conservative: an ANCHORED prefix
-// match on the turn's TRIMMED text, not a substring match anywhere in the
-// turn — a turn that merely discusses "the API Error" elsewhere in its text
-// stays unstyled.
-const API_ERROR_PREFIX = "API Error:";
-
-export function isApiErrorText(text: string): boolean {
-  return text.trimStart().startsWith(API_ERROR_PREFIX);
-}
+// The detection itself now lives in `../lib/conversation-outcome.ts`, which
+// owns the shared terminal-condition taxonomy: the SAME anchored match that
+// styles a turn here also decides whether that turn's Outcome chip reads
+// `Errored` or `Rate-limited`. Two copies of one rule is precisely the drift
+// mt#3132 removes — this re-export keeps the renderer's existing call sites
+// (and its published surface) working against the single implementation.
+export { isApiErrorText };
 
 // ── Element renderers ──────────────────────────────────────────────────────────
 
@@ -146,15 +193,30 @@ export function ToolInvocation({
   result,
   entityIndex,
   expandSignal,
+  isAddressed,
+  filmPath,
+  turnIndex,
 }: {
   call: ToolCallElement;
   result?: ToolResultElement;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /** This call's transcript position — the other half of its address (mt#3794). */
+  turnIndex?: number;
+  /**
+   * This call is what a turn address named (mt#3791) — the reader arrived here
+   * from a film row for THIS call, so it opens and marks itself.
+   */
+  isAddressed?: boolean;
 }) {
   const isError = result?.isError === true;
-  // Errors default expanded; everything else collapsed (mt#2790 design direction).
-  const [open, setOpen] = useState(isError);
+  // Errors default expanded; everything else collapsed (mt#2790 design
+  // direction). An addressed call also opens: the reader clicked through from a
+  // ribbon row that was already showing this call's params and result, so
+  // landing on a collapsed row would hide the thing they navigated to.
+  const [open, setOpen] = useState(isError || isAddressed === true);
   // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
   // identity change — `expandSignal` is a fresh object per click by design.
   const expandEpoch = expandSignal?.epoch;
@@ -189,49 +251,71 @@ export function ToolInvocation({
 
   return (
     <div
+      // The anchor a tool-grain turn address resolves to (mt#3791). Rendered
+      // unconditionally, not only when addressed: an address arriving later
+      // must find an element that is already anchored.
+      {...{ [TOOL_USE_ANCHOR_ATTR]: call.id }}
       className={cn(
         "rounded border",
-        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5"
+        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5",
+        isAddressed && ADDRESSED_MARK_CLASS
       )}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs"
-      >
-        <Icon
-          aria-hidden
-          className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
-        />
-        <span
-          title={nameTooltip}
-          className={cn(
-            "shrink-0 font-mono font-medium",
-            isError ? "text-destructive" : "text-sky-300"
-          )}
+      {/*
+        The spawn badge sits OUTSIDE the toggle button (mt#3692). When its child
+        conversation resolves it becomes a link, and an anchor nested inside a
+        button is invalid HTML that browsers and screen readers handle
+        inconsistently — so the row is a flex container holding the toggle and the
+        badge as siblings, rather than one button wrapping both.
+      */}
+      <div className="group/call flex w-full items-center">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
         >
-          {label}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-muted-foreground",
-            isError && "text-destructive/80"
-          )}
-        >
-          {digest}
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {call.spawn && (
-            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-              → subagent{call.spawn.agentKind ? ` (${call.spawn.agentKind})` : ""}
-            </span>
-          )}
-          <span aria-hidden className="text-muted-foreground/60">
+          <Icon
+            aria-hidden
+            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
+          />
+          <span
+            title={nameTooltip}
+            className={cn(
+              "shrink-0 font-mono font-medium",
+              isError ? "text-destructive" : "text-sky-300"
+            )}
+          >
+            {label}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-muted-foreground",
+              isError && "text-destructive/80"
+            )}
+          >
+            {digest}
+          </span>
+          <span aria-hidden className="ml-auto shrink-0 pl-1.5 text-muted-foreground/60">
             {open ? "▾" : "▸"}
           </span>
-        </span>
-      </button>
+        </button>
+        {call.spawn && <SpawnBadge spawn={call.spawn} />}
+        {/*
+          Tool-grain film link (mt#3794), a SIBLING of the toggle for the same
+          reason the spawn badge is one: an anchor nested inside a button is
+          invalid HTML that browsers and screen readers handle inconsistently.
+          Carries `toolUseId` as well as the turn, so a parallel batch resolves
+          to THIS call rather than whichever one the adapter emitted first.
+        */}
+        {filmPath !== undefined && turnIndex !== undefined && (
+          <FilmMomentLink
+            address={{ turnIndex, toolUseId: call.id }}
+            filmPath={filmPath}
+            className="mr-1 group-hover/call:opacity-100"
+          />
+        )}
+      </div>
       {open && (
         <div className="border-t border-border/40">
           <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
@@ -445,18 +529,115 @@ export function CommandInvocation({
 
 // ── The single-element renderer ─────────────────────────────────────────────
 
+/**
+ * Ceiling on base64 payload we will paint inline, in characters.
+ *
+ * Derived from the corpus rather than picked round (`decision-defaults.mdc
+ * §Thresholds`): across the 7 `image` blocks present in this project's local
+ * JSONL corpus (2026-08-08), base64 length runs min 20,488 / median 80,096 /
+ * max 397,880 chars. 1,000,000 sits ~2.5x above the observed max — so no real
+ * screenshot in the corpus trips it — while capping a single inline paint below
+ * the multi-megabyte bar SC3 names.
+ *
+ * Deliberately checked at RENDER time, not in the parser: the payload has
+ * already arrived in the snapshot either way (see the delivery note below), so
+ * this bounds what the DOM has to hold, not what the network carries. The
+ * parser stays faithful to the block it was given.
+ */
+const MAX_INLINE_BASE64_CHARS = 1_000_000;
+
+/** Render a byte-ish count for the placeholder without pulling in a formatter. */
+function approxKb(base64Chars: number): string {
+  // base64 encodes 3 bytes per 4 chars; close enough for a diagnostic label.
+  return `${Math.round((base64Chars * 3) / 4 / 1024)} KB`;
+}
+
+/**
+ * Render a pasted/returned image.
+ *
+ * Delivery note (mt#3810, ADR-025): the base64 payload already travels to the
+ * browser inside the context-inspector snapshot whether or not anything draws
+ * it, so rendering it here adds ZERO bytes to the payload. A real screenshot
+ * block measures ~39 KB of base64 (3840x1936 PNG, conversation
+ * `f1048ecf-a061-4725-8e60-dab6ad9bd322`). We deliberately do NOT add a
+ * fetch-on-demand path: ADR-025 makes object storage the system of record and
+ * mt#2580 re-points this snapshot's reader at it, so a second delivery
+ * mechanism built against today's Postgres blob would be rework against a
+ * substrate that is being retired. Image weight is an input for mt#2580 to
+ * size, not a mechanism for this component to invent.
+ *
+ * `loading="lazy"` keeps a long transcript from decoding every image up front.
+ */
+function ImageElement({
+  element,
+}: {
+  element: Extract<PreparedElement, { kind: "image" }>;
+}): JSX.Element {
+  // SC3's oversized half. Checked BEFORE building the `data:` URI so an
+  // outsized payload is never concatenated into a string the DOM then holds.
+  if (element.data !== undefined && element.data.length > MAX_INLINE_BASE64_CHARS) {
+    return (
+      <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
+        image too large to display inline (~{approxKb(element.data.length)})
+      </div>
+    );
+  }
+
+  const src =
+    element.data !== undefined
+      ? `data:${element.mediaType ?? "image/png"};base64,${element.data}`
+      : element.url;
+
+  if (src === undefined) {
+    // Malformed, empty, or a source type we don't render (e.g. `file`, which
+    // needs an API fetch we deliberately don't do here). Say which, rather
+    // than showing a broken image or silently dropping the turn's content.
+    // A blank `sourceType` (no source object at all) reads as "unknown" rather
+    // than a dangling label — reviewer non-blocking finding on PR #2711.
+    return (
+      <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
+        image not shown (source: {element.sourceType || "unknown"})
+      </div>
+    );
+  }
+
+  return (
+    <a href={src} target="_blank" rel="noreferrer" className="block">
+      <img
+        src={src}
+        alt={element.url ?? "Image in conversation"}
+        loading="lazy"
+        className="max-h-96 max-w-full rounded border border-border/40 object-contain"
+      />
+    </a>
+  );
+}
+
 export function ElementView({
   element,
   role,
   entityIndex,
   expandSignal,
+  addressedToolUseId,
+  filmPath,
+  turnIndex,
 }: {
   element: PreparedElement;
+  /** Film-tab path enabling the "watch this moment" link (mt#3794). */
+  filmPath?: string;
+  /** This turn's transcript position — half of every address built here (mt#3794). */
+  turnIndex?: number;
   /** Turn role — scopes assistant-only treatments (e.g. API-error styling). */
   role: ConversationRole;
   /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
+  /**
+   * The `tool_use` id a turn address named, when this turn is the addressed one
+   * (mt#3791). Only a matching tool call marks itself; every other element
+   * renders exactly as it does with no address at all.
+   */
+  addressedToolUseId?: string;
 }) {
   switch (element.kind) {
     case "text": {
@@ -508,6 +689,11 @@ export function ElementView({
           result={element.result}
           entityIndex={entityIndex}
           expandSignal={expandSignal}
+          isAddressed={
+            addressedToolUseId !== undefined && element.call.id === addressedToolUseId
+          }
+          filmPath={filmPath}
+          turnIndex={turnIndex}
         />
       );
     case "tool-result-orphan":
@@ -534,6 +720,8 @@ export function ElementView({
           expandSignal={expandSignal}
         />
       );
+    case "image":
+      return <ImageElement element={element} />;
     case "unknown":
       return (
         <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">

@@ -42,11 +42,11 @@ describe("buildSessionPsReport", () => {
     const report = await buildSessionPsReport(repo, SESSIONS_DIR, lsofRunner);
 
     expect(report).toHaveLength(1);
-    expect(report[0].sessionId).toBe("session-a");
-    expect(report[0].attachments).toHaveLength(1);
-    expect(report[0].liveProcesses).toHaveLength(1);
-    expect(report[0].storedNotLive).toEqual([]);
-    expect(report[0].liveNotStored).toEqual([]);
+    expect(report[0]?.sessionId).toBe("session-a");
+    expect(report[0]?.attachments).toHaveLength(1);
+    expect(report[0]?.liveProcesses).toHaveLength(1);
+    expect(report[0]?.storedNotLive).toEqual([]);
+    expect(report[0]?.liveNotStored).toEqual([]);
   });
 
   test("stored-but-not-live: a self-registered attachment whose pid is not among live processes", async () => {
@@ -57,9 +57,9 @@ describe("buildSessionPsReport", () => {
     const report = await buildSessionPsReport(repo, SESSIONS_DIR, lsofRunner);
 
     expect(report).toHaveLength(1);
-    expect(report[0].storedNotLive).toHaveLength(1);
-    expect(report[0].storedNotLive[0].id).toBe("c1");
-    expect(report[0].liveNotStored).toEqual([]);
+    expect(report[0]?.storedNotLive).toHaveLength(1);
+    expect(report[0]?.storedNotLive[0]?.id).toBe("c1");
+    expect(report[0]?.liveNotStored).toEqual([]);
   });
 
   test("live-but-not-stored: a shell hand-cd'd into a session workspace with no self-registration", async () => {
@@ -69,11 +69,11 @@ describe("buildSessionPsReport", () => {
     const report = await buildSessionPsReport(repo, SESSIONS_DIR, lsofRunner);
 
     expect(report).toHaveLength(1);
-    expect(report[0].sessionId).toBe("session-b");
-    expect(report[0].attachments).toEqual([]);
-    expect(report[0].liveNotStored).toHaveLength(1);
-    expect(report[0].liveNotStored[0].pid).toBe(200);
-    expect(report[0].storedNotLive).toEqual([]);
+    expect(report[0]?.sessionId).toBe("session-b");
+    expect(report[0]?.attachments).toEqual([]);
+    expect(report[0]?.liveNotStored).toHaveLength(1);
+    expect(report[0]?.liveNotStored[0]?.pid).toBe(200);
+    expect(report[0]?.storedNotLive).toEqual([]);
   });
 
   test("an attachment with no recorded pid is never flagged stored-not-live (nothing to cross-check)", async () => {
@@ -83,7 +83,7 @@ describe("buildSessionPsReport", () => {
 
     const report = await buildSessionPsReport(repo, SESSIONS_DIR, lsofRunner);
 
-    expect(report[0].storedNotLive).toEqual([]);
+    expect(report[0]?.storedNotLive).toEqual([]);
   });
 
   test("returns an empty report when there is nothing stored and nothing live", async () => {

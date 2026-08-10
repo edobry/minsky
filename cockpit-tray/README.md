@@ -336,6 +336,14 @@ mt#2219). The Rust backend (`src-tauri/src/main.rs`) handles:
   `notify-debouncer-mini` filesystem watcher that sends a debounced `Rebuild`
   command to the supervisor; the build runner shells out to `bun run cockpit:build`
 - Login Item registration via `tauri-plugin-autostart` (LaunchAgent mode, release builds)
+- Single-instance guard (mt#3770) via `tauri-plugin-single-instance`, registered
+  FIRST in the plugin chain (the plugin's own requirement) and **release builds
+  only**: the debug and release binaries share the `com.minsky.cockpit-tray`
+  identifier the guard keys its `/tmp/*_si.sock` rendezvous on, so enabling it in
+  debug would make `bun run dev` exit whenever the installed app is running. A
+  refused second launch fronts the first instance's cockpit window — unless it
+  arrives within 60 s of startup, which is the login race (the autostart
+  LaunchAgent and LaunchServices both firing) and must not pop a window open.
 - Global summon hotkey (mt#2676) via `tauri-plugin-global-shortcut`: toggles the
   cockpit window (show+focus / hide) from anywhere, even when another app is
   frontmost. Default binding lives in `src-tauri/src/hotkey.rs`.

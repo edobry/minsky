@@ -4,6 +4,8 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
+import type { DoctorDiagnostic } from "../../shared/commands/config/validate-doctor-commands";
+import type { ValidationResult } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
 import {
   formatResolvedConfiguration,
@@ -150,6 +152,152 @@ export function renderConfigUnsetResult(result: Record<string, unknown>): string
 }
 
 /**
+ * `config validate`'s issue shape, derived from the canonical `ValidationResult`
+ * rather than re-declared. Note this is the `ValidationResult` exported by
+ * `configuration/index` — `{path, message, severity}` — NOT the unrelated
+ * `ValidationError` (`{field, message, code}`) in `configuration/types.ts`,
+ * which this command path does not use.
+ */
+type ValidationIssue = ValidationResult["errors"][number];
+
+const DIAGNOSTIC_ICONS: Record<string, string> = {
+  pass: "✅",
+  warning: "⚠️",
+  error: "❌",
+  info: "ℹ️",
+};
+const DIAGNOSTIC_ICON_FALLBACK = "•";
+const INDENT = "   ";
+
+/** Count of diagnostics/issues by a status field, defaulting a missing count to 0. */
+function countBy<T>(items: T[], predicate: (item: T) => boolean): number {
+  return items.filter(predicate).length;
+}
+
+/**
+ * One diagnostic as an indented block: icon + check name, the message beneath,
+ * and the suggestion when the check carries one. The suggestion is the
+ * actionable half — a diagnostic that has one and does not show it is the
+ * defect mt#3478 exists to fix.
+ */
+function formatDiagnosticEntry(diagnostic: DoctorDiagnostic): string {
+  // `status` is a union at the type level, but the payload crosses the CLI
+  // boundary as an untyped record — an unmapped value keeps its raw text so a
+  // future status is legible rather than an anonymous bullet.
+  const icon = DIAGNOSTIC_ICONS[diagnostic.status] ?? DIAGNOSTIC_ICON_FALLBACK;
+  const label = DIAGNOSTIC_ICONS[diagnostic.status]
+    ? diagnostic.check
+    : `[${diagnostic.status}] ${diagnostic.check}`;
+  const lines = [`${icon} ${label}`];
+  if (diagnostic.message) {
+    lines.push(`${INDENT}${diagnostic.message}`);
+  }
+  if (diagnostic.suggestion) {
+    lines.push(`${INDENT}→ ${diagnostic.suggestion}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render `config doctor`. Default output shows the summary plus every
+ * non-passing check; `--verbose` shows all checks including passes. Without
+ * this renderer the command falls through to the CLI's generic object
+ * formatter, which finds no `message`/`output` field and prints a bare
+ * "✅ Success", discarding all diagnostics (mt#3478).
+ */
+export function renderConfigDoctorResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const diagnostics = (result.diagnostics as DoctorDiagnostic[] | undefined) ?? [];
+  const summary = (result.summary ?? {}) as Record<string, number | undefined>;
+  const verbose = result.verbose === true;
+
+  const total = summary.total ?? diagnostics.length;
+  const passed = summary.passed ?? countBy(diagnostics, (d) => d.status === "pass");
+  const warnings = summary.warnings ?? countBy(diagnostics, (d) => d.status === "warning");
+  const errors = summary.errors ?? countBy(diagnostics, (d) => d.status === "error");
+
+  const headline =
+    `Configuration diagnostics: ${total} check${total === 1 ? "" : "s"} — ` +
+    `${passed} passed, ${warnings} warning${warnings === 1 ? "" : "s"}, ` +
+    `${errors} error${errors === 1 ? "" : "s"}`;
+
+  const shown = verbose ? diagnostics : diagnostics.filter((d) => d.status !== "pass");
+
+  if (shown.length === 0) {
+    // Still name the outcome — a bare success line is what this fixes.
+    return `${headline}\n\nAll checks passed.`;
+  }
+
+  const body = shown.map(formatDiagnosticEntry).join("\n\n");
+  const hint = verbose
+    ? ""
+    : "\n\nRun with --verbose to see all checks, or --json for the full payload.";
+  return `${headline}\n\n${body}${hint}`;
+}
+
+/**
+ * Render `config validate`. The generic formatter did list `errors`, but only
+ * as bare messages after a "✅ Success" line, and it ignored `--verbose`
+ * entirely. This shows severity and path per issue, and adds the resolved
+ * configuration sources under `--verbose`.
+ */
+export function renderConfigValidateResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const issues = (result.errors as ValidationIssue[] | undefined) ?? [];
+  const verbose = result.verbose === true;
+  const errorCount = countBy(issues, (i) => i.severity === "error");
+  const warningCount = countBy(issues, (i) => i.severity === "warning");
+  // `severity` is error | warning | info; anything else is counted here rather
+  // than folded into warnings, so a count never misrepresents a severity.
+  const infoCount = issues.length - errorCount - warningCount;
+
+  const headline =
+    issues.length === 0
+      ? "Configuration validation: no issues found."
+      : `Configuration validation: ${issues.length} issue${issues.length === 1 ? "" : "s"} — ` +
+        `${errorCount} error${errorCount === 1 ? "" : "s"}, ` +
+        `${warningCount} warning${warningCount === 1 ? "" : "s"}${
+          infoCount > 0 ? `, ${infoCount} info` : ""
+        }`;
+
+  const sections: string[] = [headline];
+
+  if (issues.length > 0) {
+    sections.push(
+      issues
+        .map((issue) => {
+          const icon = DIAGNOSTIC_ICONS[issue.severity] ?? DIAGNOSTIC_ICON_FALLBACK;
+          const path = issue.path ? ` ${issue.path}` : "";
+          const message = issue.message ? `\n${INDENT}${issue.message}` : "";
+          return `${icon}${path}${message}`;
+        })
+        .join("\n\n")
+    );
+  }
+
+  if (verbose) {
+    const sources = result.sources as unknown[] | undefined;
+    sections.push(
+      sources && sources.length > 0
+        ? `Configuration sources:\n${sources
+            .map(
+              (source) => `${INDENT}${typeof source === "string" ? source : JSON.stringify(source)}`
+            )
+            .join("\n")}`
+        : "Configuration sources: none reported."
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
  * Get config command customizations configuration
  * @returns Config category customization options
  */
@@ -261,6 +409,16 @@ export function getConfigCustomizations(): {
           },
           outputFormatter: (result: Record<string, unknown>) => {
             log.cli(renderConfigUnsetResult(result));
+          },
+        },
+        "config.doctor": {
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigDoctorResult(result));
+          },
+        },
+        "config.validate": {
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigValidateResult(result));
           },
         },
       },

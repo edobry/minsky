@@ -6,11 +6,14 @@
  * proxy.test.ts alongside the other transform tests.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import {
   CLAUDE_CODE_SESSION_ID_ENV,
+  CONVERSATION_MAPPING_TTL_MS,
   resolveConversationAgentId,
+  resolveLiveConversationAgentId,
+  resetConversationMappingCache,
   injectAgentIdMeta,
   redactAgentId,
 } from "./conversation-identity";
@@ -18,6 +21,125 @@ import type { JsonRpcMessage } from "./tools";
 
 const CONV_UUID = "6c6fdc74-d1b5-424f-a854-6f875b977dd2";
 const EXPECTED_AGENT_ID = `com.anthropic.claude-code:conv:${CONV_UUID}`;
+
+/** A DIFFERENT conversation — the one a `/clear` switches to. */
+const SWITCHED_UUID = "1a2b3c4d-0000-4000-8000-000000000009";
+const SWITCHED_AGENT_ID = `com.anthropic.claude-code:conv:${SWITCHED_UUID}`;
+
+const HARNESS_PID = 4242;
+
+/**
+ * mt#3900: the proxy must stamp the CURRENT conversation, not the one that
+ * happened to be live when it spawned.
+ *
+ * The regression these pin: `/clear` changes the conversation without
+ * respawning MCP servers, so the spawn-time env value is stale from that moment
+ * on. Every call then attributes to the previous conversation — which is how an
+ * agent's own presence claim reads back as a stranger's.
+ */
+describe("resolveLiveConversationAgentId (mt#3900)", () => {
+  beforeEach(() => {
+    resetConversationMappingCache();
+  });
+
+  test("the SessionStart mapping WINS over the stale spawn-time env value", () => {
+    // The whole point. When the two disagree it is always the env value that is
+    // stale, because it cannot change without a respawn.
+    const agentId = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => SWITCHED_UUID,
+    });
+    expect(agentId).toBe(SWITCHED_AGENT_ID);
+  });
+
+  test("falls back to the env value when no mapping exists", () => {
+    // Hookless environments and non-Claude-Code parents keep working exactly as
+    // they did before mt#3900.
+    const agentId = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => null,
+    });
+    expect(agentId).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("falls back to the env value when no harness ancestor was found", () => {
+    const agentId = resolveLiveConversationAgentId(null, EXPECTED_AGENT_ID, {
+      readMapping: () => {
+        throw new Error("must not be consulted without a harness pid");
+      },
+    });
+    expect(agentId).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("returns null when neither source yields an id — never fabricates one", () => {
+    const agentId = resolveLiveConversationAgentId(HARNESS_PID, null, {
+      readMapping: () => null,
+    });
+    expect(agentId).toBeNull();
+  });
+
+  test("a malformed mapped id is ignored in favor of the env value", () => {
+    const agentId = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => "not-a-uuid",
+    });
+    expect(agentId).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("consecutive calls inside the TTL read the mapping only once", () => {
+    // The resolution sits on every tools/call frame, so a burst must not become
+    // a burst of file reads.
+    let reads = 0;
+    let clock = 1_000_000;
+    const deps = {
+      readMapping: () => {
+        reads++;
+        return SWITCHED_UUID;
+      },
+      now: () => clock,
+    };
+
+    resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, deps);
+    clock += CONVERSATION_MAPPING_TTL_MS - 1;
+    resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, deps);
+
+    expect(reads).toBe(1);
+  });
+
+  test("the cache is keyed by harness pid, not just by time", () => {
+    // PR #2764 R1: the cache is module-global. Without a pid key, a second
+    // caller inside the TTL would be handed the FIRST caller's conversation —
+    // this task's own defect, reintroduced one layer up.
+    const byPid: Record<number, string> = {
+      1111: CONV_UUID,
+      2222: SWITCHED_UUID,
+    };
+    const clock = 1_000_000;
+    const deps = {
+      readMapping: (pid: number) => byPid[pid] ?? null,
+      now: () => clock,
+    };
+
+    expect(resolveLiveConversationAgentId(1111, null, deps)).toBe(EXPECTED_AGENT_ID);
+    // Same instant, different harness — must NOT reuse the cached entry.
+    expect(resolveLiveConversationAgentId(2222, null, deps)).toBe(SWITCHED_AGENT_ID);
+  });
+
+  test("a switch is picked up once the TTL expires", () => {
+    // The cache must not outlive its usefulness — otherwise the fix reproduces
+    // the very staleness it exists to remove, just on a shorter clock.
+    let mapped = CONV_UUID;
+    let clock = 1_000_000;
+    const deps = {
+      readMapping: () => mapped,
+      now: () => clock,
+    };
+
+    expect(resolveLiveConversationAgentId(HARNESS_PID, null, deps)).toBe(EXPECTED_AGENT_ID);
+
+    mapped = SWITCHED_UUID; // the /clear happens
+    clock += CONVERSATION_MAPPING_TTL_MS + 1;
+
+    expect(resolveLiveConversationAgentId(HARNESS_PID, null, deps)).toBe(SWITCHED_AGENT_ID);
+  });
+});
 
 describe("resolveConversationAgentId", () => {
   test("builds a conv-scoped agentId from a UUID env value", () => {

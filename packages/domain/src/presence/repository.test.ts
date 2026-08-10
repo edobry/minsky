@@ -153,12 +153,16 @@ function createSmartFakeDb() {
       where: (condition: unknown) => ({
         returning: async () => {
           // Extract lt condition — look for the cutoff date
-          let cutoff: Date | null = null;
+          // Boxed: a `let` whose only assignment is inside the callback still
+          // narrows to `null` at the read below (control-flow analysis cannot
+          // see the callback run), which made the comparison operand `never`.
+          const cutoffBox: { value: Date | null } = { value: null };
           extractLtFilter(condition, (val) => {
-            cutoff = val;
+            cutoffBox.value = val;
           });
 
           const deleted: FakeRow[] = [];
+          const cutoff = cutoffBox.value;
           for (const [key, row] of rows.entries()) {
             if (cutoff !== null && row.lastRefreshedAt < cutoff) {
               deleted.push(row);
@@ -318,6 +322,10 @@ describe("toPresenceClaim", () => {
       host: "macbook-pro.local",
       sessionId: "session-uuid",
       projectId: "proj-uuid",
+      // mt#2284 columns — the fixture predates them.
+      pid: 4242,
+      entrypoint: "cli",
+      terminalContext: { TERM_PROGRAM: "iTerm.app" },
       claimedAt: now,
       lastRefreshedAt: now,
     };
@@ -349,6 +357,10 @@ describe("toPresenceClaim", () => {
       host: null,
       sessionId: null,
       projectId: null,
+      // mt#2284 columns — the fixture predates them.
+      pid: null,
+      entrypoint: null,
+      terminalContext: null,
       claimedAt: now,
       lastRefreshedAt: now,
     };

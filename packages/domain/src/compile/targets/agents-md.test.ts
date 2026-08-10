@@ -238,7 +238,11 @@ describe("agentsMdTarget (end-to-end via fake fs + .mdc sources)", () => {
     expect(result.definitionsIncluded).toEqual(["bun_over_node"]);
     expect(result.content).toContain("## Build & Test");
     expect(result.content).toContain("Always use bun, not node.");
-    expect((result as unknown as { sizeChars: number }).sizeChars).toBe(result.content?.length);
+    const content = result.content;
+    // Assert presence separately: `toBe(undefined)` would pass vacuously if the
+    // target stopped producing content at all.
+    if (content === undefined) throw new Error("expected the target to produce content");
+    expect((result as unknown as { sizeChars: number }).sizeChars).toBe(content.length);
   });
 
   it("writes AGENTS.md when not a dry run", async () => {

@@ -109,15 +109,14 @@
 // @see mt#3003 — this task: shared anchoring fix (resolveParentTranscriptLines) + dedupe guard
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
-  parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
   resolveCompletedTurn,
-  resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
@@ -126,6 +125,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { evaluationLogPath, logEvaluationRecord } from "./dispatcher";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — GRADUATED to injection (mt#3399)
@@ -180,8 +180,19 @@ const CALIBRATION_LOG = ".minsky/silent-stretch-calibration.jsonl";
 // Cadence thresholds (pinned at planning, 2026-07-15 — see header comment)
 // ---------------------------------------------------------------------------
 
-export const GAP_MINUTES_THRESHOLD = 10;
-export const TOOL_CALL_THRESHOLD = 15;
+/**
+ * PREFERENCE-class thresholds (mt#3518, mem#802): the shipped defaults (10
+ * minutes / 15 calls) are this operator's heartbeat cadence, verbatim from
+ * `user-preferences.mdc §Progress heartbeats` — not universal constants.
+ * Locally overridable via the registered env vars below; malformed values
+ * fall back to the defaults.
+ */
+export const GAP_MINUTES_THRESHOLD = readTunedThreshold("MINSKY_SILENT_STRETCH_GAP_MINUTES", 10, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
+export const TOOL_CALL_THRESHOLD = readTunedThreshold("MINSKY_SILENT_STRETCH_TOOL_CALLS", 15, {
+  readTunedValueFn: (key) => readTunedValue(key),
+});
 
 /**
  * mt#3336 (ask#6448 disposition): the bare call-count leg over-fired — 9 of
@@ -490,12 +501,62 @@ function readCalibrationLogText(cwd: string): string | undefined {
   return readLogTailText(logPath);
 }
 
+// ---------------------------------------------------------------------------
+// Evaluation logging (mt#3583) — a SEPARATE stream from calibration
+// ---------------------------------------------------------------------------
+
+/**
+ * Every evaluation this detector performs, fired or not (mt#3583, ADR-032 §D2).
+ *
+ * **Deliberately not the `*-calibration.jsonl` log.** `coverage-receipt.ts`
+ * treats the existence of a calibration record as evidence the detector FIRED —
+ * that is the whole live-vs-dormant signal it computes. Writing non-fire records
+ * into that log would report a detector as covered on turns where it stayed
+ * silent, breaking a shipped gate to feed a new consumer. The filename also
+ * deliberately avoids the `-calibration` suffix, because
+ * `scripts/check-coverage-receipts.ts` discovers its inputs by globbing
+ * `.minsky/*-calibration.jsonl`.
+ *
+ * What this stream is for: the tuning loop needs to know whether guidance
+ * CHANGED anything, and that is unanswerable from fires alone — a corpus of
+ * fires can say "it happened again" but never "it stopped happening."
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` /
+ * `evaluationLogPath` derive `.minsky/<name>-evaluations.jsonl` from it, the
+ * same name/path split the registry's `calibrationLog` uses.
+ */
+const EVALUATION_LOG_NAME = "silent-stretch";
+
+/**
+ * Append one evaluation record. Fail-open and never throws, matching
+ * `appendCalibrationRecord` above: a measurement stream must never be able to
+ * break the guard whose behavior it measures.
+ */
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+/**
+ * Bounded-tail read of the evaluation log, for the same-turn dedupe below.
+ *
+ * mt#3745: this READER had the same cwd-rooting defect as the writer, and it
+ * matters independently — reading a cwd-rooted path inside a session workspace
+ * dedupes against the wrong (usually empty) log, so the dedupe silently stops
+ * deduping exactly where the stray writes were landing.
+ */
+export function readEvaluationLogText(cwd: string): string | undefined {
+  return readLogTailText(evaluationLogPath(EVALUATION_LOG_NAME, { fallbackCwd: cwd }));
+}
+
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
 export interface RunDeps {
-  /** Defaults to the real `parseTranscript`. Used by `resolveParentTranscriptLines`'s multi-candidate branch. */
-  parseTranscriptFn?: (path: string) => TranscriptLine[];
   /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
   readCalibrationLogTextFn?: (cwd: string) => string | undefined;
+  /** Defaults to the real `readEvaluationLogText`. Used by the evaluation-stream dedupe. */
+  readEvaluationLogTextFn?: (cwd: string) => string | undefined;
+  /** Defaults to the real `appendEvaluationRecord`. */
+  appendEvaluationRecordFn?: (cwd: string, record: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,20 +603,19 @@ export function run(
   }
 
   if (!input.transcript_path) return null;
-  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
   const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
 
-  const lines = resolveParentTranscriptLines(
-    input.transcript_path,
-    ctx.transcriptCandidates,
-    ctx.transcriptLines,
-    parseTranscriptFn
-  );
+  // `ctx.transcriptLines` is PARENT-ONLY by construction as of mt#3293 — the dispatcher
+  // resolves it through `resolveParentTranscriptLines` for every guard. This used to call
+  // that resolver itself (mt#3003, when only this detector and wall-of-text had the fix);
+  // doing so now would re-read and re-parse the parent transcript to arrive at the array
+  // already in hand. One mechanism, at the seam that owns it.
+  const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }
@@ -573,9 +633,46 @@ export function run(
     return null;
   }
 
-  if (!measurement.matched) return null;
-
   const turnAnchor = buildTurnAnchor(boundaries);
+
+  // mt#3583: record the measurement whether or not it matched. A fire-only
+  // stream can express "it happened again" but never "it stopped happening,"
+  // and the tuning loop needs both — see EVALUATION_LOG's doc comment. Deduped
+  // on the same turn anchor as the calibration record below, for the same
+  // reason: an unchanged turn re-measured on a later prompt would otherwise
+  // append a duplicate, and a duplicate of a FIRE reads downstream as the guard
+  // firing twice — turning one fire into a false `dismissed`.
+  const appendEvaluation = deps.appendEvaluationRecordFn ?? appendEvaluationRecord;
+  const readEvaluationLogTextFn = deps.readEvaluationLogTextFn ?? readEvaluationLogText;
+  // A record with no session id is skipped entirely rather than written
+  // undeduped (PR #2569 R1). `sessionHasLoggedKey` returns false whenever the
+  // session id is falsy — it cannot match a record it cannot key — so emitting
+  // here would append on EVERY evaluation with no upper bound. Skipping loses
+  // nothing: the labeler sequences within a session, so a record with no
+  // session id could never be ordered against anything anyway.
+  const hasSessionId = typeof input.session_id === "string" && input.session_id.trim() !== "";
+  if (
+    turnAnchor &&
+    hasSessionId &&
+    !sessionHasLoggedKey(
+      readEvaluationLogTextFn(input.cwd),
+      input.session_id,
+      "turnAnchor",
+      turnAnchor
+    )
+  ) {
+    appendEvaluation(input.cwd, {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      guardName: "silent-stretch-detector",
+      turnAnchor,
+      gapMinutes: measurement.gapMinutes,
+      toolCallCount: measurement.toolCallCount,
+      fired: measurement.matched,
+    });
+  }
+
+  if (!measurement.matched) return null;
   if (
     turnAnchor &&
     sessionHasLoggedKey(

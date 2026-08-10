@@ -1,16 +1,23 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the mt#2357 filterStopFlagged tests exercise the real turn-end-scan-store roundtrip (writeFlagged -> dedup-read) in an isolated mkdtemp dir, mirroring substrate-bypass-detector.test.ts's precedent */
-import { describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   detectTriggerPhrases,
+  detectTriggerPhrasesWithNomination,
   detectUserCorrection,
   detectMethodRedirect,
   hasDesignContext,
   hasRecentRetrospectiveInvocation,
   hasRetrospectiveSkillInvocation,
   isDetectorMetaDiscussion,
+  NOMINATION_EXEMPLARS,
   OVERRIDE_ENV_VAR,
   run,
 } from "./retrospective-trigger-scanner";
+import type { NominationDeps } from "../../packages/domain/src/detectors/embedding-nomination";
+import { DEFAULT_NOMINATION_TIMEOUT_MS } from "../../packages/domain/src/detectors/embedding-nomination";
+import type { ConfirmDeps } from "../../packages/domain/src/detectors/llm-confirm";
+import { DEFAULT_CONFIRM_TIMEOUT_MS } from "../../packages/domain/src/detectors/llm-confirm";
+import { GUARD_REGISTRY } from "./registry";
 import {
   extractAssistantText,
   extractLastAssistantTurn,
@@ -24,6 +31,23 @@ import { flagKey, turnKeyFor, writeFlagged } from "./turn-end-scan-store";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// mt#3408: these suites exercise the DETERMINISTIC Rung-1 behaviour of `run()`.
+// Rung 2 is switched off here so no test reaches for a live embedding provider;
+// nomination has its own coverage with injected deps (see the Rung-2 describe
+// block below and packages/domain/src/detectors/embedding-nomination.test.ts).
+// The prior value is captured and restored so this file cannot leak process
+// state into any suite that runs after it in the same process.
+const ORIGINAL_RUNG2_DISABLE = process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+const ORIGINAL_RUNG2_ENFORCE = process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+
+afterAll(() => {
+  if (ORIGINAL_RUNG2_DISABLE === undefined) delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+  else process.env.MINSKY_DISABLE_RUNG2_NOMINATION = ORIGINAL_RUNG2_DISABLE;
+  if (ORIGINAL_RUNG2_ENFORCE === undefined) delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+  else process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = ORIGINAL_RUNG2_ENFORCE;
+});
 
 const WHY_DID_YOU_DO_THAT = "why did you do that?";
 const APOLOGY_FIXTURE = "I owe you an apology for that mistake.";
@@ -52,7 +76,7 @@ describe("R1 apology/contrition patterns", () => {
   ];
 
   for (const phrase of cases) {
-    test(`matches: "${phrase}"`, () => {
+    test(`matches: "${phrase}"`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches.some((m) => m.family === "R1")).toBe(true);
@@ -74,7 +98,7 @@ describe("R2 operational/explanatory prose patterns", () => {
   ];
 
   for (const phrase of cases) {
-    test(`matches: "${phrase}"`, () => {
+    test(`matches: "${phrase}"`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches.some((m) => m.family === "R2")).toBe(true);
@@ -105,7 +129,7 @@ describe("R3 future-behavior commitment patterns", () => {
   ];
 
   for (const phrase of cases) {
-    test(`matches: "${phrase}"`, () => {
+    test(`matches: "${phrase}"`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches.some((m) => m.family === "R3")).toBe(true);
@@ -132,7 +156,7 @@ describe("R4 decline-to-retrospective patterns", () => {
   ];
 
   for (const phrase of cases) {
-    test(`matches: "${phrase}"`, () => {
+    test(`matches: "${phrase}"`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches.some((m) => m.family === "R4")).toBe(true);
@@ -161,7 +185,7 @@ describe("mt#3291 — factual self-correction does NOT fire", () => {
   ];
 
   for (const phrase of cases) {
-    test(`does not fire: "${phrase.slice(0, 56)}…"`, () => {
+    test(`does not fire: "${phrase.slice(0, 56)}…"`, async () => {
       expect(detectTriggerPhrases(phrase)).toHaveLength(0);
     });
   }
@@ -184,7 +208,7 @@ describe("mt#3291 — process-failure self-correction still fires", () => {
   ];
 
   for (const [label, phrase] of cases) {
-    test(`fires: ${label}`, () => {
+    test(`fires: ${label}`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches.some((m) => m.family === "R1")).toBe(true);
@@ -193,7 +217,7 @@ describe("mt#3291 — process-failure self-correction still fires", () => {
 });
 
 describe("mt#3291 — R4 fires on a declared skip, not a reasoned recommendation", () => {
-  test("does not fire on a justified recommendation to skip", () => {
+  test("does not fire on a justified recommendation to skip", async () => {
     // The 07-22T18:26 fire: an agent correctly concluding a retro was not
     // warranted and saying why. A live "invoke /retrospective" reminder here
     // penalizes the reasoning R4 exists to elicit.
@@ -202,7 +226,7 @@ describe("mt#3291 — R4 fires on a declared skip, not a reasoned recommendation
     expect(detectTriggerPhrases(text)).toHaveLength(0);
   });
 
-  test("does not fire on a reasoned first-person recommendation either", () => {
+  test("does not fire on a reasoned first-person recommendation either", async () => {
     const text = "I recommend we skip the full retrospective because the guard already covers it";
     expect(detectTriggerPhrases(text)).toHaveLength(0);
   });
@@ -222,13 +246,13 @@ describe("mt#3291 — R4 fires on a declared skip, not a reasoned recommendation
   ];
 
   for (const text of declaredSkips) {
-    test(`still fires on a bare declared skip: "${text}"`, () => {
+    test(`still fires on a bare declared skip: "${text}"`, async () => {
       const matches = detectTriggerPhrases(text);
       expect(matches.some((m) => m.family === "R4")).toBe(true);
     });
   }
 
-  test("still fires on conclusory declines with no first-person subject", () => {
+  test("still fires on conclusory declines with no first-person subject", async () => {
     for (const text of [
       "There is no need for a full retrospective here",
       "This doesn't warrant a full retrospective",
@@ -268,7 +292,7 @@ describe("negative matches (should not trigger)", () => {
   ];
 
   for (const phrase of cases) {
-    test(`does NOT match: "${phrase.slice(0, 60)}..."`, () => {
+    test(`does NOT match: "${phrase.slice(0, 60)}..."`, async () => {
       const matches = detectTriggerPhrases(phrase);
       expect(matches.length).toBe(0);
     });
@@ -295,7 +319,7 @@ describe("user correction signal patterns", () => {
   ];
 
   for (const phrase of cases) {
-    test(`matches correction: "${phrase}"`, () => {
+    test(`matches correction: "${phrase}"`, async () => {
       const matches = detectUserCorrection(phrase);
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches[0]?.family).toBe("user-correction");
@@ -317,7 +341,7 @@ describe("user correction negative matches", () => {
   ];
 
   for (const phrase of cases) {
-    test(`does NOT match correction: "${phrase}"`, () => {
+    test(`does NOT match correction: "${phrase}"`, async () => {
       const matches = detectUserCorrection(phrase);
       expect(matches.length).toBe(0);
     });
@@ -329,7 +353,7 @@ describe("user correction negative matches", () => {
 // ---------------------------------------------------------------------------
 
 describe("multi-family detection", () => {
-  test("text with R1 + R3 triggers both families", () => {
+  test("text with R1 + R3 triggers both families", async () => {
     const text =
       "I should have caught this earlier. Going forward I will always check the spec first.";
     const matches = detectTriggerPhrases(text);
@@ -338,7 +362,7 @@ describe("multi-family detection", () => {
     expect(families.has("R3")).toBe(true);
   });
 
-  test("text with R2 + R4 triggers both families", () => {
+  test("text with R2 + R4 triggers both families", async () => {
     const text =
       "I didn't think it through. This is a one-off issue that doesn't warrant a retrospective.";
     const matches = detectTriggerPhrases(text);
@@ -353,7 +377,7 @@ describe("multi-family detection", () => {
 // ---------------------------------------------------------------------------
 
 describe("retrospective skill suppression", () => {
-  test("suppresses when Skill tool with retrospective is in the turn", () => {
+  test("suppresses when Skill tool with retrospective is in the turn", async () => {
     const turnLines = [
       {
         type: "assistant",
@@ -369,7 +393,7 @@ describe("retrospective skill suppression", () => {
     expect(hasRetrospectiveSkillInvocation(turnLines)).toBe(true);
   });
 
-  test("does NOT suppress when no Skill tool in turn", () => {
+  test("does NOT suppress when no Skill tool in turn", async () => {
     const turnLines = [
       {
         type: "assistant",
@@ -382,7 +406,7 @@ describe("retrospective skill suppression", () => {
     expect(hasRetrospectiveSkillInvocation(turnLines)).toBe(false);
   });
 
-  test("does NOT suppress when Skill tool is for a different skill", () => {
+  test("does NOT suppress when Skill tool is for a different skill", async () => {
     const turnLines = [
       {
         type: "assistant",
@@ -402,7 +426,7 @@ describe("retrospective skill suppression", () => {
   // hasRetrospectiveSkillInvocation — when it returns true, main() exits
   // before either detection runs. This test verifies the predicate is
   // correct; the gating logic is structural in main().
-  test("suppression predicate fires for top-level tool_use format", () => {
+  test("suppression predicate fires for top-level tool_use format", async () => {
     const turnLines = [
       {
         type: "tool_use",
@@ -419,7 +443,7 @@ describe("retrospective skill suppression", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractLastAssistantTurn", () => {
-  test("extracts assistant lines between second-to-last and last user messages", () => {
+  test("extracts assistant lines between second-to-last and last user messages", async () => {
     const lines = [
       { type: "user", message: { role: "user", content: "first prompt" } },
       { type: "assistant", message: { role: "assistant", content: "first response" } },
@@ -430,7 +454,7 @@ describe("extractLastAssistantTurn", () => {
     expect(turn[0]?.message?.content).toBe("first response");
   });
 
-  test("returns empty when fewer than 2 user messages", () => {
+  test("returns empty when fewer than 2 user messages", async () => {
     const lines = [{ type: "user", message: { role: "user", content: "only prompt" } }];
     expect(extractLastAssistantTurn(lines)).toEqual([]);
   });
@@ -439,7 +463,7 @@ describe("extractLastAssistantTurn", () => {
   // turn must still be surfaced. The old user-role split bounded the turn at the last
   // tool_result, dropping the first segment (Surface 1 never fired — the reason the
   // hook existed). With real-prompt bounds, the whole turn is scanned.
-  test("trigger phrase in the FIRST segment of a multi-round turn is still detected", () => {
+  test("trigger phrase in the FIRST segment of a multi-round turn is still detected", async () => {
     const lines = [
       { type: "user", message: { role: "user", content: "do the thing" } },
       {
@@ -475,12 +499,12 @@ describe("extractLastAssistantTurn", () => {
 });
 
 describe("extractAssistantText", () => {
-  test("extracts string content", () => {
+  test("extracts string content", async () => {
     const lines = [{ type: "assistant", message: { role: "assistant", content: "hello world" } }];
     expect(extractAssistantText(lines)).toBe("hello world");
   });
 
-  test("extracts from content array", () => {
+  test("extracts from content array", async () => {
     const lines = [
       {
         type: "assistant",
@@ -498,7 +522,7 @@ describe("extractAssistantText", () => {
 });
 
 describe("extractLastUserMessage", () => {
-  test("extracts last user message text", () => {
+  test("extracts last user message text", async () => {
     const lines = [
       { type: "user", message: { role: "user", content: "first" } },
       { type: "assistant", message: { role: "assistant", content: "response" } },
@@ -507,7 +531,7 @@ describe("extractLastUserMessage", () => {
     expect(extractLastUserMessage(lines)).toBe(WHY_DID_YOU_DO_THAT);
   });
 
-  test("returns empty string when no user messages", () => {
+  test("returns empty string when no user messages", async () => {
     expect(extractLastUserMessage([])).toBe("");
   });
 });
@@ -517,17 +541,17 @@ describe("extractLastUserMessage", () => {
 // ---------------------------------------------------------------------------
 
 describe("smart quote handling", () => {
-  test("R2 matches with smart apostrophe", () => {
+  test("R2 matches with smart apostrophe", async () => {
     const matches = detectTriggerPhrases("I didn’t think it through");
     expect(matches.some((m) => m.family === "R2")).toBe(true);
   });
 
-  test("R3 matches with smart apostrophe", () => {
+  test("R3 matches with smart apostrophe", async () => {
     const matches = detectTriggerPhrases("going forward I’ll check first");
     expect(matches.some((m) => m.family === "R3")).toBe(true);
   });
 
-  test("user correction matches with smart apostrophe", () => {
+  test("user correction matches with smart apostrophe", async () => {
     const matches = detectUserCorrection("that’s wrong");
     expect(matches.length).toBeGreaterThanOrEqual(1);
   });
@@ -538,55 +562,55 @@ describe("smart quote handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("R5 finding-reframing", () => {
-  test("matches first-person approach + anti-pattern", () => {
+  test("matches first-person approach + anti-pattern", async () => {
     const matches = detectTriggerPhrases(
       "the approach I was implementing is considered an anti-pattern"
     );
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("matches 'I was using' + anti-pattern", () => {
+  test("matches 'I was using' + anti-pattern", async () => {
     const matches = detectTriggerPhrases(
       "the pattern I was using is a known anti-pattern in monorepos"
     );
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("matches honesty framing + anti-pattern", () => {
+  test("matches honesty framing + anti-pattern", async () => {
     const matches = detectTriggerPhrases("I should be honest: this is an anti-pattern");
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("matches first-person + research reveals", () => {
+  test("matches first-person + research reveals", async () => {
     const matches = detectTriggerPhrases(
       "I chose this but research reveals the pattern is wrong for this use case"
     );
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("matches first-person + community consensus", () => {
+  test("matches first-person + community consensus", async () => {
     const matches = detectTriggerPhrases(
       "I went with this but community consensus is against this approach"
     );
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("matches 'I was implementing' + anti-pattern", () => {
+  test("matches 'I was implementing' + anti-pattern", async () => {
     const matches = detectTriggerPhrases("I was implementing what turns out to be an anti-pattern");
     expect(matches.some((m) => m.family === "R5")).toBe(true);
   });
 
-  test("does NOT match general anti-pattern discussion without self-reference", () => {
+  test("does NOT match general anti-pattern discussion without self-reference", async () => {
     const matches = detectTriggerPhrases("barrel exports are considered an anti-pattern");
     expect(matches.some((m) => m.family === "R5")).toBe(false);
   });
 
-  test("does NOT match 'known anti-pattern' without self-reference", () => {
+  test("does NOT match 'known anti-pattern' without self-reference", async () => {
     const matches = detectTriggerPhrases("the system uses a known anti-pattern internally");
     expect(matches.some((m) => m.family === "R5")).toBe(false);
   });
 
-  test("does NOT match general React discussion", () => {
+  test("does NOT match general React discussion", async () => {
     const matches = detectTriggerPhrases("this is a common anti-pattern in React codebases");
     expect(matches.some((m) => m.family === "R5")).toBe(false);
   });
@@ -629,13 +653,13 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 }
 
 describe("run() (dispatcher-compatible)", () => {
-  test("R1 trigger match -> additionalContext + calibration record", () => {
+  test("R1 trigger match -> additionalContext + calibration record", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(APOLOGY_FIXTURE),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("Retrospective trigger detected");
     expect(outcome?.calibration).toBeDefined();
     const cal = outcome?.calibration as {
@@ -648,26 +672,26 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.source).toBe("live");
   });
 
-  test("no match -> null (silent allow)", () => {
+  test("no match -> null (silent allow)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine("Nothing noteworthy here."),
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("no transcript_path -> null", () => {
+  test("no transcript_path -> null", async () => {
     const input: ClaudeHookInput = {
       session_id: "test",
       cwd: "/test",
       hook_event_name: RUN_HOOK_EVENT_NAME,
     };
     const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
-    expect(run(input, ctx)).toBeNull();
+    expect(await run(input, ctx)).toBeNull();
   });
 
-  test("legacy override env var suppresses detection and returns an audit line", () => {
+  test("legacy override env var suppresses detection and returns an audit line", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(APOLOGY_FIXTURE),
@@ -675,12 +699,54 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
       expect(outcome?.additionalContext).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+
+  // mt#3652: the evaluation stream — the half a fire-only corpus cannot say.
+  test("a QUIET turn writes an evaluation record and no calibration record (AT4)", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Nothing noteworthy here."),
+      makeRunUserLine(),
+    ];
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), {
+      appendEvaluationRecordFn: (_cwd, record) => captured.push(record),
+    });
+
+    expect(outcome).toBeNull();
+    expect(captured.length).toBe(1);
+    const record = captured[0] as {
+      fired?: boolean;
+      hook?: string;
+      match_families?: string[];
+      source?: string;
+    };
+    expect(record.fired).toBe(false);
+    expect(record.hook).toBe("retrospective-trigger-scanner");
+    expect(record.match_families).toEqual([]);
+    expect(record.source).toBe("live");
+  });
+
+  test("a FIRING turn's evaluation record is marked fired", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(APOLOGY_FIXTURE),
+      makeRunUserLine(),
+    ];
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), {
+      appendEvaluationRecordFn: (_cwd, record) => captured.push(record),
+    });
+
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(captured.length).toBe(1);
+    expect((captured[0] as { fired?: boolean }).fired).toBe(true);
   });
 });
 
@@ -708,7 +774,7 @@ describe("filterStopFlagged (mt#2357)", () => {
   ];
   const r1Match = { family: "R1" as const, matchedPhrase: R1_PHRASE };
 
-  test("a phrase flagged by the Stop-time scan of the same turn is dropped", () => {
+  test("a phrase flagged by the Stop-time scan of the same turn is dropped", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mt2357-scanner-dedup-"));
     try {
       writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
@@ -718,7 +784,7 @@ describe("filterStopFlagged (mt#2357)", () => {
     }
   });
 
-  test("an unflagged match passes through; empty store is a no-op", () => {
+  test("an unflagged match passes through; empty store is a no-op", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mt2357-scanner-dedup-"));
     try {
       expect(filterStopFlagged("s-1", lines, [r1Match], dir)).toEqual([r1Match]);
@@ -772,7 +838,7 @@ describe("mt#2672 — calibration-window FP fixtures do NOT fire", () => {
   ];
 
   for (const [label, excerpt] of fpExcerpts) {
-    test(`FP ${label} → no fire`, () => {
+    test(`FP ${label} → no fire`, async () => {
       expect(detectTriggerPhrases(excerpt).length).toBe(0);
     });
   }
@@ -795,7 +861,7 @@ describe("mt#2672 — calibration-window real positives still fire", () => {
   ];
 
   for (const [label, excerpt] of realExcerpts) {
-    test(`real positive ${label} → fires R1`, () => {
+    test(`real positive ${label} → fires R1`, async () => {
       const matches = detectTriggerPhrases(excerpt);
       expect(matches.some((m) => m.family === "R1")).toBe(true);
     });
@@ -803,14 +869,14 @@ describe("mt#2672 — calibration-window real positives still fire", () => {
 });
 
 describe("mt#2672 — suppression mechanics", () => {
-  test("double-quoted trigger phrase in ordinary prose does not fire", () => {
+  test("double-quoted trigger phrase in ordinary prose does not fire", async () => {
     const matches = detectTriggerPhrases(
       'The log shows the phrase "I made a mistake" appearing twice this week.'
     );
     expect(matches.length).toBe(0);
   });
 
-  test("meta-discussion marker alone suppresses an unquoted phrase echo", () => {
+  test("meta-discussion marker alone suppresses an unquoted phrase echo", async () => {
     expect(isDetectorMetaDiscussion("reviewing the calibration data now")).toBe(true);
     const matches = detectTriggerPhrases(
       "While reviewing the calibration data, the phrase I should have caught appears in record 3."
@@ -818,46 +884,46 @@ describe("mt#2672 — suppression mechanics", () => {
     expect(matches.length).toBe(0);
   });
 
-  test("ordinary work turn is NOT meta-discussion", () => {
+  test("ordinary work turn is NOT meta-discussion", async () => {
     expect(isDetectorMetaDiscussion("I conflated the two surfaces during the refactor.")).toBe(
       false
     );
   });
 
-  test("user-correction: quoted phrase does not fire, live phrase does", () => {
+  test("user-correction: quoted phrase does not fire, live phrase does", async () => {
     expect(detectUserCorrection('the doc says users type "that\'s wrong" here').length).toBe(0);
     expect(detectUserCorrection("that's wrong, the port is 4317").length).toBe(1);
   });
 });
 
 describe("mt#2672 — codified boundaries (PR #1834 R1)", () => {
-  test("boundary: >200-char single-line double-quoted span is NOT elided — documented residual, still fires", () => {
+  test("boundary: >200-char single-line double-quoted span is NOT elided — documented residual, still fires", async () => {
     const padding = "x".repeat(210);
     const text = `The log contains "${padding} I made a mistake ${padding}" as one entry.`;
     const matches = detectTriggerPhrases(text);
     expect(matches.some((m) => m.family === "R1")).toBe(true);
   });
 
-  test("boundary: multiline double-quoted material is NOT elided by quote elision — still fires (markdown quoting uses blockquotes, which ARE elided)", () => {
+  test("boundary: multiline double-quoted material is NOT elided by quote elision — still fires (markdown quoting uses blockquotes, which ARE elided)", async () => {
     const text = 'She wrote: "first line of quote\nI made a mistake on the config\nlast line" end.';
     const matches = detectTriggerPhrases(text);
     expect(matches.some((m) => m.family === "R1")).toBe(true);
   });
 
-  test("boundary: the same multiline material as a blockquote IS elided — no fire", () => {
+  test("boundary: the same multiline material as a blockquote IS elided — no fire", async () => {
     const text =
       "She wrote:\n> first line of quote\n> I made a mistake on the config\n> last line\nend.";
     expect(detectTriggerPhrases(text).length).toBe(0);
   });
 
-  test("policy lock: meta-marked turn with a live UNQUOTED admission is suppressed whole-turn (deliberate FN tradeoff)", () => {
+  test("policy lock: meta-marked turn with a live UNQUOTED admission is suppressed whole-turn (deliberate FN tradeoff)", async () => {
     const text =
       "Reviewing the calibration data now. Separately: I conflated the two surfaces during the refactor — that one was a genuine live admission.";
     expect(isDetectorMetaDiscussion(text)).toBe(true);
     expect(detectTriggerPhrases(text).length).toBe(0);
   });
 
-  test("policy lock: user-correction is NOT meta-suppressed even in a calibration-discussion prompt", () => {
+  test("policy lock: user-correction is NOT meta-suppressed even in a calibration-discussion prompt", async () => {
     const matches = detectUserCorrection("that's wrong — the calibration data shows 5 FPs, not 3");
     expect(matches.length).toBe(1);
     expect(matches[0]?.family).toBe("user-correction");
@@ -899,7 +965,7 @@ describe("method-redirect patterns (mt#2446)", () => {
   ];
 
   for (const phrase of positives) {
-    test(`matches with design context: "${phrase.slice(0, 60)}"`, () => {
+    test(`matches with design context: "${phrase.slice(0, 60)}"`, async () => {
       const matches = detectMethodRedirect(phrase, DESIGN_TURN);
       expect(matches.length).toBe(1);
       expect(matches[0]?.family).toBe("method-redirect");
@@ -922,7 +988,7 @@ describe("method-redirect patterns (mt#2446)", () => {
   ];
 
   for (const phrase of negatives) {
-    test(`does NOT match even with design context: "${phrase.slice(0, 60)}"`, () => {
+    test(`does NOT match even with design context: "${phrase.slice(0, 60)}"`, async () => {
       expect(detectMethodRedirect(phrase, DESIGN_TURN).length).toBe(0);
     });
   }
@@ -931,17 +997,17 @@ describe("method-redirect patterns (mt#2446)", () => {
 describe("method-redirect context condition (mt#2446)", () => {
   const REDIRECT = "I think you should do some research on the appropriate way to handle this";
 
-  test("does NOT fire without a design in the prior assistant turn", () => {
+  test("does NOT fire without a design in the prior assistant turn", async () => {
     expect(
       detectMethodRedirect(REDIRECT, "Let me look into the spec and report back.").length
     ).toBe(0);
   });
 
-  test("does NOT fire with an empty prior assistant turn", () => {
+  test("does NOT fire with an empty prior assistant turn", async () => {
     expect(detectMethodRedirect(REDIRECT, "").length).toBe(0);
   });
 
-  test("spec acceptance: open research question with NO prior design does not fire", () => {
+  test("spec acceptance: open research question with NO prior design does not fire", async () => {
     expect(
       detectMethodRedirect(
         "should we research observability platforms?",
@@ -959,19 +1025,19 @@ describe("method-redirect context condition (mt#2446)", () => {
   ];
 
   for (const [label, designText] of designMarkerCases) {
-    test(`design marker recognized: ${label}`, () => {
+    test(`design marker recognized: ${label}`, async () => {
       expect(hasDesignContext(designText)).toBe(true);
       expect(detectMethodRedirect(REDIRECT, designText).length).toBe(1);
     });
   }
 
-  test("plain operational prose is not design context", () => {
+  test("plain operational prose is not design context", async () => {
     expect(hasDesignContext("Committed the fix and pushed. Tests pass.")).toBe(false);
   });
 });
 
 describe("method-redirect elision guard (mt#2446)", () => {
-  test("QUOTED redirect phrase (discussing, not redirecting) does not fire", () => {
+  test("QUOTED redirect phrase (discussing, not redirecting) does not fire", async () => {
     const matches = detectMethodRedirect(
       'The mt#2439 retro quotes the user saying "you should do some research on this" — add that family.',
       DESIGN_TURN
@@ -979,7 +1045,7 @@ describe("method-redirect elision guard (mt#2446)", () => {
     expect(matches.length).toBe(0);
   });
 
-  test("redirect phrase inside a code span does not fire", () => {
+  test("redirect phrase inside a code span does not fire", async () => {
     const matches = detectMethodRedirect(
       "Add the pattern `you should do some research` to the scanner.",
       DESIGN_TURN
@@ -989,7 +1055,7 @@ describe("method-redirect elision guard (mt#2446)", () => {
 });
 
 describe("method-redirect through run() (mt#2446 acceptance replay)", () => {
-  test("mt#2439-shaped exchange fires with family method-redirect + live calibration record", () => {
+  test("mt#2439-shaped exchange fires with family method-redirect + live calibration record", async () => {
     // Tool-interleaved turn (per memory a3e60471): the design text lands in the
     // FIRST assistant segment, followed by tool_use / tool_result rounds — the
     // context condition must still see it.
@@ -1014,7 +1080,7 @@ describe("method-redirect through run() (mt#2446 acceptance replay)", () => {
         "I think you should do some research on the appropriate way to handle this using drizzle"
       ),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("redirected your method");
     expect(outcome?.additionalContext).toContain("research-before-design");
     const cal = outcome?.calibration as {
@@ -1025,27 +1091,27 @@ describe("method-redirect through run() (mt#2446 acceptance replay)", () => {
     expect(cal.source).toBe("live");
   });
 
-  test("same redirect prompt after a NO-design turn returns null", () => {
+  test("same redirect prompt after a NO-design turn returns null", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine("hows it going"),
       makeRunAssistantLine("Still reading the auth module, no blockers."),
       makeRunUserLine("I think you should do some research on the appropriate way to handle this"),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("existing families still fire alongside method-redirect wiring (regression)", () => {
+  test("existing families still fire alongside method-redirect wiring (regression)", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine(),
       makeRunAssistantLine(APOLOGY_FIXTURE),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     const cal = outcome?.calibration as { matches: Array<{ family: string }> };
     expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
   });
 
-  test("override env var suppresses method-redirect detection too", () => {
+  test("override env var suppresses method-redirect detection too", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine("plan it"),
       makeRunAssistantLine("Recommendation: Option A."),
@@ -1053,7 +1119,7 @@ describe("method-redirect through run() (mt#2446 acceptance replay)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
       expect(outcome?.additionalContext).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
@@ -1095,7 +1161,7 @@ function makeToolResultUserLine(): TranscriptLine {
 }
 
 describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () => {
-  test("finds a /retrospective invocation in the just-completed turn", () => {
+  test("finds a /retrospective invocation in the just-completed turn", async () => {
     // 2 real prompts, 1 completed turn between them: the invocation lives in
     // that turn. Trivially covers the same-turn case (existing behavior).
     const lines: TranscriptLine[] = [
@@ -1106,7 +1172,7 @@ describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () 
     expect(hasRecentRetrospectiveInvocation(lines)).toBe(true);
   });
 
-  test("finds a /retrospective invocation 2 turns back (mt#3036 primary case)", () => {
+  test("finds a /retrospective invocation 2 turns back (mt#3036 primary case)", async () => {
     // Turn N: invocation. Turn N+1: advisor tool result / interstitial.
     // Turn N+2: the retrospective's structured output (the current just-
     // completed turn). Same-turn-only look-back missed the invocation in N.
@@ -1125,7 +1191,7 @@ describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () 
     expect(hasRecentRetrospectiveInvocation(lines)).toBe(true);
   });
 
-  test("returns false when no /retrospective invocation appears anywhere recent", () => {
+  test("returns false when no /retrospective invocation appears anywhere recent", async () => {
     const lines: TranscriptLine[] = [
       makeRunUserLine("do the thing"),
       makeRunAssistantLine("I conflated the two surfaces."),
@@ -1134,7 +1200,7 @@ describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () 
     expect(hasRecentRetrospectiveInvocation(lines)).toBe(false);
   });
 
-  test("returns false when the /retrospective invocation is older than the look-back window", () => {
+  test("returns false when the /retrospective invocation is older than the look-back window", async () => {
     // 7 completed turns, invocation in the OLDEST turn. K=5 window excludes it.
     const lines: TranscriptLine[] = [
       makeRunUserLine("p1"),
@@ -1156,7 +1222,7 @@ describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () 
     expect(hasRecentRetrospectiveInvocation(lines)).toBe(false);
   });
 
-  test("scans only the K most-recent completed turns", () => {
+  test("scans only the K most-recent completed turns", async () => {
     // Same 7-turn shape, but /retrospective invocation moved into the
     // 3rd-from-last turn: within K=5, so it IS found.
     const lines: TranscriptLine[] = [
@@ -1179,12 +1245,12 @@ describe("mt#3036 — hasRecentRetrospectiveInvocation (widened look-back)", () 
     expect(hasRecentRetrospectiveInvocation(lines)).toBe(true);
   });
 
-  test("returns false for empty transcript / fewer than 1 prompt", () => {
+  test("returns false for empty transcript / fewer than 1 prompt", async () => {
     expect(hasRecentRetrospectiveInvocation([])).toBe(false);
     expect(hasRecentRetrospectiveInvocation([makeRunAssistantLine("orphan")])).toBe(false);
   });
 
-  test("look-back window is configurable (K=2 excludes an older invocation)", () => {
+  test("look-back window is configurable (K=2 excludes an older invocation)", async () => {
     // Invocation 3 turns back; with K=2 window, it should be missed.
     const lines: TranscriptLine[] = [
       makeRunUserLine("p1"),
@@ -1225,13 +1291,13 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
   ];
 
   for (const [label, excerpt] of RETRO_MARKERS) {
-    test(`retro marker "${label}" suppresses R-family match`, () => {
+    test(`retro marker "${label}" suppresses R-family match`, async () => {
       expect(isDetectorMetaDiscussion(excerpt)).toBe(true);
       expect(detectTriggerPhrases(excerpt).length).toBe(0);
     });
   }
 
-  test("policy lock: retro-output-shape suppression does NOT reach user-correction", () => {
+  test("policy lock: retro-output-shape suppression does NOT reach user-correction", async () => {
     // A user turn saying "why did you do that?" while discussing a retro
     // still fires — mirrors the mt#2672 policy (user-correction stays live
     // in every meta context).
@@ -1242,7 +1308,7 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
     expect(matches[0]?.family).toBe("user-correction");
   });
 
-  test("ordinary prose mentioning 'retrospective' alone is not meta (specific markers required)", () => {
+  test("ordinary prose mentioning 'retrospective' alone is not meta (specific markers required)", async () => {
     // Sanity check: the word 'retrospective' by itself is NOT a marker — only
     // structured-output shapes are. Otherwise the compressed markers would
     // over-fire in ordinary discussion.
@@ -1255,7 +1321,7 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
   // retro META gate — they appear in ordinary specs, ADRs, and incident
   // memos, and suppressing R-family scanning on that content would silence
   // real admissions.
-  test("generic '### Root cause' heading (in an ADR or spec) is NOT retro-meta", () => {
+  test("generic '### Root cause' heading (in an ADR or spec) is NOT retro-meta", async () => {
     expect(
       isDetectorMetaDiscussion(
         "## Context\n\n### Root cause\n\nThe migration ledger drifted when the baseline was stamped."
@@ -1263,7 +1329,7 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
     ).toBe(false);
   });
 
-  test("generic '### Failure mode:' heading (in an incident memo) is NOT retro-meta", () => {
+  test("generic '### Failure mode:' heading (in an incident memo) is NOT retro-meta", async () => {
     expect(
       isDetectorMetaDiscussion(
         "### Failure mode: race condition\n\nTwo writers contended for the same row."
@@ -1273,7 +1339,7 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
 });
 
 describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-family only", () => {
-  test("R1 phrase in a later turn is suppressed when /retrospective was invoked 2 turns back", () => {
+  test("R1 phrase in a later turn is suppressed when /retrospective was invoked 2 turns back", async () => {
     // The originating incident: /retrospective invoked in turn N;
     // advisor's structured output lands in turn N+2 with "I conflated" in it.
     // Under mt#3036 the widened look-back finds the invocation and suppresses
@@ -1289,16 +1355,16 @@ describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-fa
       ),
       makeRunUserLine("next"),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("R1 phrase without any recent /retrospective still fires (regression guard)", () => {
+  test("R1 phrase without any recent /retrospective still fires (regression guard)", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine("do the thing"),
       makeRunAssistantLine("I conflated the two data paths in the migration."),
       makeRunUserLine("really?"),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("Retrospective trigger detected");
     const cal = outcome?.calibration as { matches: Array<{ family: string }> };
     expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
@@ -1308,7 +1374,7 @@ describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-fa
   // R-family scan. User-side signals (user-correction, method-redirect)
   // remain live for the whole K-turn window — a course-correction 2-4 turns
   // after a completed retrospective is not the same event and must fire.
-  test("user-correction in the current prompt STILL fires when /retrospective was invoked recently", () => {
+  test("user-correction in the current prompt STILL fires when /retrospective was invoked recently", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine("run a retro"),
       makeSkillRetrospectiveLine(),
@@ -1316,13 +1382,13 @@ describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-fa
       makeRunAssistantLine("Retrospective completed; fixes filed."),
       makeRunUserLine("why did you do that when I told you not to?"),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("User correction signal detected");
     const cal = outcome?.calibration as { matches: Array<{ family: string }> };
     expect(cal.matches.some((m) => m.family === "user-correction")).toBe(true);
   });
 
-  test("method-redirect STILL fires when /retrospective was invoked recently", () => {
+  test("method-redirect STILL fires when /retrospective was invoked recently", async () => {
     // Prior assistant turn carries a design marker (Recommendation:) so
     // the method-redirect context condition is satisfied; a recent
     // `/retrospective` must not suppress this course-correction signal.
@@ -1335,9 +1401,378 @@ describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-fa
         "I think you should do some research on the appropriate way to handle this in drizzle"
       ),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("redirected your method");
     const cal = outcome?.calibration as { matches: Array<{ family: string }> };
     expect(cal.matches.some((m) => m.family === "method-redirect")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rung 2: embedding nomination (mt#3408, ADR-024)
+//
+// Deps are injected, so these assert the UNION and DEGRADATION logic without a
+// live provider. Whether real embeddings actually place the mt#3341 admission
+// near an exemplar is a semantic question no fake vector can answer — that is
+// measured live by scripts/verify-rung2-nomination.ts.
+// ---------------------------------------------------------------------------
+
+describe("detectTriggerPhrasesWithNomination (Rung 1 + Rung 2)", () => {
+  const FLAT_ADMISSION = "I referenced the identifier before the call that mints it had run.";
+
+  function depsReturning(similarTo: string[]): NominationDeps {
+    return {
+      semantic: true,
+      embeddingService: {
+        async generateEmbedding(content: string): Promise<number[]> {
+          return similarTo.includes(content) ? [1, 0] : [0, 1];
+        },
+        async generateEmbeddings(contents: string[]): Promise<number[][]> {
+          return contents.map((c) => (similarTo.includes(c) ? [1, 0] : [0, 1]));
+        },
+      },
+    };
+  }
+
+  const failingDeps: NominationDeps = {
+    semantic: true,
+    embeddingService: {
+      generateEmbedding: () => Promise.reject(new Error("provider down")),
+      generateEmbeddings: () => Promise.reject(new Error("provider down")),
+    },
+  };
+
+  beforeEach(() => {
+    delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+  });
+
+  afterEach(() => {
+    process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+  });
+
+  test("nominates a family Rung 1 did not match (enforcing)", async () => {
+    process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = "1";
+    // Rung 1 alone is blind to this flat, non-apologetic admission.
+    expect(detectTriggerPhrases(FLAT_ADMISSION)).toEqual([]);
+
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      depsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    expect(result.degradedReason).toBeUndefined();
+    expect(result.enforcing).toBe(true);
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+  });
+
+  test("log-only by default: nomination is REPORTED but never reaches matches", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      depsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    // The nomination happened and is visible to the calibration log...
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.enforcing).toBe(false);
+    // ...but it must NOT reach the injected reminder. Measured precision on a
+    // real-transcript sample was 3/3 false positives; ADR-024 sign-off (b)
+    // requires 0 known-FP before this contributes to a fire.
+    expect(result.matches).toEqual([]);
+  });
+
+  test("does not duplicate a family Rung 1 already matched", async () => {
+    const text = "I should have caught this earlier.";
+    const rung1 = detectTriggerPhrases(text);
+    expect(rung1.map((m) => m.family)).toContain("R1");
+
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[1] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      text,
+      depsReturning([text, r1Exemplar])
+    );
+
+    expect(result.nominatedFamilies).not.toContain("R1");
+    expect(result.matches.filter((m) => m.family === "R1")).toHaveLength(1);
+  });
+
+  test("a degraded provider preserves the Rung-1 result and reports the reason", async () => {
+    const text = "I should have caught this earlier.";
+    const result = await detectTriggerPhrasesWithNomination(text, failingDeps);
+
+    expect(result.degradedReason).toBe("provider-error");
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(result.nominatedFamilies).toEqual([]);
+  });
+
+  test("an unconfigured provider degrades rather than throwing", async () => {
+    const result = await detectTriggerPhrasesWithNomination(FLAT_ADMISSION, null);
+    expect(result.degradedReason).toBe("provider-unconfigured");
+    expect(result.matches).toEqual([]);
+  });
+
+  test("meta-discussion suppression applies to Rung 2, not just Rung 1", async () => {
+    const meta = `Reviewing the retrospective-trigger calibration log: ${FLAT_ADMISSION}`;
+    const before = detectTriggerPhrases(meta);
+
+    const result = await detectTriggerPhrasesWithNomination(
+      meta,
+      depsReturning([meta, FLAT_ADMISSION])
+    );
+
+    // Whatever Rung 1 concluded about a meta turn, Rung 2 must not add to it.
+    expect(result.matches).toEqual(before);
+    expect(result.nominatedFamilies).toEqual([]);
+  });
+
+  test("the kill switch skips Rung 2 without recording a degradation", async () => {
+    process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      depsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    expect(result.nominatedFamilies).toEqual([]);
+    // An operator disabling the stage is not a provider failure.
+    expect(result.degradedReason).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3408 PR #2511 R1: the Rung-2 budget must stay a strict subset of every
+// consuming guard's declared budget.
+//
+// This is the specific drift the whole log-only/degrade design depends on NOT
+// happening. If the nomination bound ever exceeds a guard's `timeoutMs`, the
+// guard is killed by the harness BEFORE the degrade-to-Rung-1 branch can run —
+// the fallback becomes unreachable by construction and a slow provider turns
+// into the silent skip ADR-024 forbids. The relationship was stated in prose in
+// the spec and in the constant's docblock; prose does not fail a build.
+// ---------------------------------------------------------------------------
+
+describe("Rung-2 nomination budget vs consuming guard budgets", () => {
+  const CONSUMERS = ["retrospective-trigger-scanner", "turn-end-retro-scan"];
+
+  test("every consuming guard is registered and declares a timeout", () => {
+    const registered = GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name));
+    expect(registered.map((g) => g.name).sort()).toEqual([...CONSUMERS].sort());
+    for (const guard of registered) {
+      expect(typeof guard.timeoutMs).toBe("number");
+      expect(guard.timeoutMs).toBeGreaterThan(0);
+    }
+  });
+
+  test("the nomination bound is strictly less than each guard's declared timeout", () => {
+    const registered = GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name));
+    for (const guard of registered) {
+      expect(DEFAULT_NOMINATION_TIMEOUT_MS).toBeLessThan(guard.timeoutMs);
+    }
+  });
+
+  test("the bound leaves usable headroom, not a hair's breadth", () => {
+    // A bound at 99% of the guard budget satisfies "strictly less" while
+    // leaving nothing for transcript I/O, the Rung-1 pass, or dispatcher
+    // overhead. Require the nomination call to fit in half the smallest
+    // consuming guard's budget.
+    const smallest = Math.min(
+      ...GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name)).map((g) => g.timeoutMs)
+    );
+    expect(DEFAULT_NOMINATION_TIMEOUT_MS).toBeLessThanOrEqual(smallest / 2);
+  });
+
+  test("the FULL rung chain (nomination + confirm) fits with headroom (mt#3652)", () => {
+    // Rung 3 runs AFTER a full-budget Rung 2 in the worst case, so the sum of
+    // both bounds is what must fit inside the guard budget — with enough left
+    // over (>=2s) for transcript I/O, the Rung-1 pass, and dispatcher
+    // overhead. The same unreachable-fallback reasoning as above, one rung up.
+    const smallest = Math.min(
+      ...GUARD_REGISTRY.filter((g) => CONSUMERS.includes(g.name)).map((g) => g.timeoutMs)
+    );
+    expect(DEFAULT_NOMINATION_TIMEOUT_MS + DEFAULT_CONFIRM_TIMEOUT_MS).toBeLessThanOrEqual(
+      smallest - 2000
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rung 3: confirm stage wiring (mt#3652)
+// ---------------------------------------------------------------------------
+
+describe("detectTriggerPhrasesWithNomination (Rung 3 confirm)", () => {
+  const FLAT_ADMISSION = "I referenced the identifier before the call that mints it had run.";
+
+  function nomDepsReturning(similarTo: string[]): NominationDeps {
+    return {
+      semantic: true,
+      embeddingService: {
+        async generateEmbedding(content: string): Promise<number[]> {
+          return similarTo.includes(content) ? [1, 0] : [0, 1];
+        },
+        async generateEmbeddings(contents: string[]): Promise<number[][]> {
+          return contents.map((c) => (similarTo.includes(c) ? [1, 0] : [0, 1]));
+        },
+      },
+    };
+  }
+
+  function confirmDepsEndorsing(families: string[]): ConfirmDeps {
+    return {
+      completionService: {
+        generateObject: async () => ({
+          verdicts: families.map((family) => ({
+            family,
+            isGenuineAdmission: true,
+            rationale: "endorsed by stub",
+          })),
+        }),
+      },
+    };
+  }
+
+  const confirmDepsRejectingAll: ConfirmDeps = {
+    completionService: {
+      generateObject: async () => ({ verdicts: [] }),
+    },
+  };
+
+  const confirmDepsFailing: ConfirmDeps = {
+    completionService: {
+      generateObject: async () => {
+        throw new Error("confirm provider down");
+      },
+    },
+  };
+
+  beforeEach(() => {
+    delete process.env.MINSKY_DISABLE_RUNG2_NOMINATION;
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+    delete process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+  });
+
+  afterEach(() => {
+    process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+    delete process.env.MINSKY_RUNG2_NOMINATION_ENFORCE;
+    delete process.env.MINSKY_DISABLE_RUNG3_CONFIRM;
+  });
+
+  test("a confirmed nomination JOINS matches — the fire path this stage exists for", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1"])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual(["R1"]);
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(result.rung3?.attempted).toBe(true);
+    expect(result.rung3?.degraded).toBeUndefined();
+  });
+
+  test("a rejected nomination stays log-only, exactly as before Rung 3", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsRejectingAll
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3?.attempted).toBe(true);
+  });
+
+  test("a failed confirm degrades to the pre-confirm behavior: Rung-1 still injects (AT3)", async () => {
+    // Rung-1-matching text PLUS a nomination for a second family: the confirm
+    // provider dies, the nomination stays log-only, and the Rung-1 match is
+    // untouched — fail-to-Rung-1, one rung up.
+    const text =
+      "I should have caught this earlier. I referenced the identifier before it existed.";
+    const r2Exemplar = NOMINATION_EXEMPLARS[1]?.exemplars[0] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      text,
+      nomDepsReturning([text, r2Exemplar]),
+      confirmDepsFailing
+    );
+
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.rung3?.degraded).toBe(true);
+    expect(result.rung3?.degradedReason).toBe("provider-error");
+  });
+
+  test("the model cannot promote a family that was not nominated", async () => {
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1", "R4"])
+    );
+
+    // R4 was never nominated; the confirm layer's candidate-set guard drops it.
+    expect(result.confirmedFamilies).toEqual(["R1"]);
+    expect(result.matches.map((m) => m.family)).not.toContain("R4");
+  });
+
+  test("the Rung-3 kill switch reverts nominations to log-only without a degraded marker", async () => {
+    process.env.MINSKY_DISABLE_RUNG3_CONFIRM = "1";
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      confirmDepsEndorsing(["R1"])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3).toBeUndefined();
+  });
+
+  test("injected nomination deps WITHOUT confirm deps never auto-resolve a live provider", async () => {
+    // The guard for unit tests on credentialed machines: an injected-deps
+    // caller controls both stages, so the stage is skipped, not resolved.
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar])
+    );
+
+    expect(result.nominatedFamilies).toContain("R1");
+    expect(result.confirmedFamilies).toEqual([]);
+    expect(result.matches).toEqual([]);
+    expect(result.rung3).toBeUndefined();
+  });
+
+  test("raw Rung-2 enforcement supersedes the confirm stage entirely", async () => {
+    process.env.MINSKY_RUNG2_NOMINATION_ENFORCE = "1";
+    let confirmCalled = false;
+    const spyingConfirmDeps: ConfirmDeps = {
+      completionService: {
+        generateObject: async () => {
+          confirmCalled = true;
+          return { verdicts: [] };
+        },
+      },
+    };
+    const r1Exemplar = NOMINATION_EXEMPLARS[0]?.exemplars[4] as string;
+    const result = await detectTriggerPhrasesWithNomination(
+      FLAT_ADMISSION,
+      nomDepsReturning([FLAT_ADMISSION, r1Exemplar]),
+      spyingConfirmDeps
+    );
+
+    // Enforced nominations are already in matches; confirming them would only
+    // add latency.
+    expect(result.matches.map((m) => m.family)).toContain("R1");
+    expect(confirmCalled).toBe(false);
   });
 });

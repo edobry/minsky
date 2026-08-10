@@ -15,9 +15,16 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
-import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
+import {
+  OUTPUT_TOOL_DEFINITIONS,
+  parseToolCall,
+  parseToolCallExpanded,
+  BATCHED_SPEC_VERIFICATION_TOOL,
+  type ReviewToolCall,
+} from "./output-tools";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { createHash } from "node:crypto";
 import {
   evaluateConcludeReviewCall,
@@ -122,8 +129,21 @@ export interface ReviewUsage {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
-  /** Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721. */
-  cachedTokens?: number;
+  /**
+   * Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721.
+   *
+   * REQUIRED, unlike its siblings (mt#3665). Cached input is billed at 0.1x, so
+   * an omitted count is not a harmless gap — `computeCostUsd` has to price the
+   * whole prompt at the full rate, overstating the call ~4x. While this was
+   * optional, `buildChunkedReview` silently omitted it for 25 days and roughly
+   * half of all recorded reviewer spend was attributed to calls priced as
+   * 0%-cached whose non-chunked neighbours ran 77-92% cached.
+   *
+   * A provider with no prompt caching sets 0 — that is a real observation and
+   * prices correctly. Requiredness is what makes the distinction between "no
+   * cache" and "forgot to thread it" a compile error rather than a billing one.
+   */
+  cachedTokens: number;
   totalTokens?: number;
 }
 
@@ -160,6 +180,56 @@ export interface ReviewOutput {
    * run as backstop.
    */
   concludeReviewGuard?: { rejectionCount: number; boundExhausted: boolean };
+  /**
+   * mt#3547: what the tool-use loop actually did. Present only on the OpenAI
+   * tool-use path (the only path with a loop). Exists because round count and
+   * "did the model stop on its own?" are not otherwise recoverable by a caller:
+   * `toolCalls` includes calls the post-loop forced passes supplied, so a
+   * conclude_review in that array does NOT mean the model emitted one in-loop.
+   *
+   * `roundsUsed` counts main-loop rounds only, excluding the forced passes —
+   * the same quantity `timing.roundLatenciesMs.length` carries, named here so
+   * consumers do not have to know that coincidence.
+   */
+  toolLoop?: ToolLoopDiagnostics;
+}
+
+/**
+ * Observed behavior of one tool-use loop (mt#3547).
+ *
+ * The reviewer's cost is dominated by round count, and its long-standing defect
+ * is that the model does not emit `conclude_review` in-loop — so a forced
+ * post-loop pass has to extract the verdict. Both facts were previously
+ * observable only in logs; the round-budget replay harness needs them as data.
+ */
+export interface ToolLoopDiagnostics {
+  /** Main-loop rounds actually run (excludes the post-loop forced passes). */
+  roundsUsed: number;
+  /** The cap in force for this run, so a consumer can test "did it exhaust?". */
+  maxRounds: number;
+  /**
+   * True when the model emitted `conclude_review` itself during the loop —
+   * i.e. the stop signal worked and no forced pass was needed. This is the
+   * metric mt#3547 moves; `false` here is the ~15-month-old defect.
+   */
+  concludedInLoop: boolean;
+  /**
+   * 1-based round on which the model first emitted `conclude_review`, or null
+   * if it never did in-loop.
+   *
+   * Distinguishes two behaviors that `concludedInLoop` alone conflates when the
+   * loop also runs to the cap: concluding on the LAST tool-capable round (the
+   * model paced itself to the deadline) versus concluding EARLY and continuing
+   * to call tools afterward (conclude_review is not acting as a stop signal at
+   * all). They imply different fixes, so measure rather than infer.
+   */
+  concludedAtRound: number | null;
+  /**
+   * Which forced-pass branch fired, or null when none did (`concludedInLoop`
+   * true). Mirrors the `gate_branch` discriminator on the
+   * `reviewer.conclude_review_reminder` audit log.
+   */
+  forcedConcludeGateBranch: "emitted_no_conclude" | "emitted_nothing" | null;
 }
 
 /**
@@ -221,6 +291,68 @@ export async function callReviewer(
 const MAX_TOOL_ROUNDS = 10;
 
 /**
+ * How many tool-capable rounds remain when the budget notice switches from
+ * reporting the count to telling the model to wrap up (mt#3547).
+ *
+ * Two, not one: `conclude_review` is a tool call, and the final round passes no
+ * tools (see the `isLastRound` guard in the loop), so a model that waits for
+ * "one round left" to start finalizing has already lost the ability to emit
+ * findings and conclude in separate rounds.
+ */
+const ROUND_BUDGET_WRAP_UP_THRESHOLD = 2;
+
+/**
+ * The per-round budget notice appended after each round's tool results
+ * (mt#3547).
+ *
+ * Structural half of "give the reviewer permission to stop". The prompt grants
+ * the permission once, at the top, where it competes with the coverage mandates
+ * for attention; this restates the remaining budget at the only moment the
+ * model can act on it. Prose mandates have failed twice in this service and
+ * been replaced by structural mechanisms both times (PR #614 → a coverage gate;
+ * mt#2828 → a tool-call-boundary rejection), so the wording alone is not
+ * trusted to carry this.
+ *
+ * APPEND-ONLY, deliberately: it is pushed after the round's tool results and no
+ * earlier message is ever rewritten. An in-place edit would invalidate the
+ * OpenAI prompt-cache prefix from the edit point on, which at the reviewer's
+ * ~0.82 cache-hit rate costs roughly 10x what it saves (mem#806).
+ *
+ * @param roundIndex Zero-based index of the round that just completed.
+ * @param maxRounds  The cap in force (`MAX_TOOL_ROUNDS`).
+ */
+export function buildRoundBudgetNotice(roundIndex: number, maxRounds: number): string {
+  const roundsDone = roundIndex + 1;
+  // The last round is text-only, so tool-capable rounds are indices
+  // 0..maxRounds-2 — one fewer than the cap.
+  const toolCapableRemaining = Math.max(0, maxRounds - 1 - roundsDone);
+
+  const header = `[TOOL BUDGET] Round ${roundsDone} of ${maxRounds} complete. ${toolCapableRemaining} tool-capable round(s) remain.`;
+
+  if (toolCapableRemaining === 0) {
+    return (
+      `${header} This was your LAST round that could emit tool calls — the next round has no tools, ` +
+      `so no further findings or conclude_review can be recorded from it. ` +
+      `Nothing you were saving for later will be captured.`
+    );
+  }
+
+  if (toolCapableRemaining <= ROUND_BUDGET_WRAP_UP_THRESHOLD) {
+    return (
+      `${header} Stop opening new lines of investigation now. Emit any findings you are still holding, ` +
+      `then call conclude_review. If you did not cover everything, say so in the summary — ` +
+      `an honest, bounded review is the goal, not an exhaustive one. Remember conclude_review is ` +
+      `itself a tool call and cannot be emitted after your tool rounds run out.`
+    );
+  }
+
+  return (
+    `${header} Spend them on the verification the constitution asks for, then conclude on your own — ` +
+    `you do not need to exhaust the budget to be done.`
+  );
+}
+
+/**
  * Envelope shapes returned to the model for each tool call (mt#1216).
  *
  * Previously, tool results were returned as either a raw string (for text),
@@ -231,9 +363,113 @@ const MAX_TOOL_ROUNDS = 10;
  * success branch and `error` on the failure branch.
  */
 export type ReadFileEnvelope =
-  | { ok: true; content: string; truncated: boolean }
+  | { ok: true; content: string; truncated: boolean; window?: ReadFileWindow }
   | { ok: true; content: string; truncated: boolean; binary: true; size: number }
   | { ok: false; error: string };
+
+/**
+ * Describes the slice of a file the model was actually shown (mt#3544).
+ *
+ * Present only when the file exceeded a cap and was windowed. Its absence means
+ * the model saw the whole file — so the model never has to guess whether it is
+ * looking at a complete picture.
+ */
+export interface ReadFileWindow {
+  /** 1-based line number of the first line shown. */
+  startLine: number;
+  /** 1-based line number of the last line shown. */
+  endLine: number;
+  /** Total lines in the file. */
+  totalLines: number;
+  /** Offset to pass back to `read_file` for the next window; absent at EOF. */
+  nextOffset?: number;
+}
+
+/**
+ * Line cap for a single `read_file` result (mt#3544).
+ *
+ * Before this cap, `readFileAtRef` returned whole files uncapped and every
+ * result was appended to the tool-loop conversation and RESENT on each of up to
+ * 10 subsequent rounds. Sized from the external precedent cluster — SWE-agent
+ * windows at ~100 lines/turn, Pi/OpenClaw at 2,000 lines or 50KB, Claude Code
+ * at a 256KB gate then a 25K-token budget. 2,000 lines is the permissive end of
+ * that range: it leaves ordinary source files untouched (so the common case is
+ * byte-identical to pre-cap behavior) while bounding the pathological reads that
+ * dominate the long tail of expensive reviews.
+ */
+export const MAX_READ_FILE_LINES = 2000;
+
+/**
+ * Character cap for a single `read_file` result, applied alongside the line cap
+ * so one minified or generated line cannot blow the budget on its own — the
+ * same single-huge-line gap mt#2243 closed for the chunked path's per-file
+ * patches. 50,000 chars is ~16.7K tokens at `chunked-review.ts`'s
+ * `CHARS_PER_TOKEN = 3` convention.
+ */
+export const MAX_READ_FILE_CHARS = 50_000;
+
+/**
+ * Apply the line/char window to a text file's content.
+ *
+ * Returns the original content untouched when it fits under both caps — the
+ * uncapped path must stay byte-identical, since most reads are ordinary source
+ * files and a cap that perturbs them would be a silent behavior change.
+ *
+ * Pure; exported for tests.
+ */
+export function applyReadFileWindow(
+  content: string,
+  offset: number
+): { content: string; window?: ReadFileWindow } {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+  // A 1-based offset; anything below 1 is treated as "from the top" rather than
+  // rejected, since the model supplies it and an off-by-one should degrade to
+  // the obvious reading rather than an error.
+  const startIndex = Math.max(0, offset - 1);
+
+  // Whole file requested from the top and it fits: return it verbatim.
+  if (
+    startIndex === 0 &&
+    totalLines <= MAX_READ_FILE_LINES &&
+    content.length <= MAX_READ_FILE_CHARS
+  ) {
+    return { content };
+  }
+
+  if (startIndex >= totalLines) {
+    return {
+      content: "",
+      window: { startLine: totalLines, endLine: totalLines, totalLines },
+    };
+  }
+
+  let windowed = lines.slice(startIndex, startIndex + MAX_READ_FILE_LINES);
+  // Char cap second: drop whole lines from the end until the slice fits, so the
+  // result never ends mid-line. A single line longer than the cap is kept (and
+  // hard-sliced below) rather than dropped — losing it entirely would be worse.
+  while (windowed.length > 1 && windowed.join("\n").length > MAX_READ_FILE_CHARS) {
+    windowed = windowed.slice(0, -1);
+  }
+  let text = windowed.join("\n");
+  if (text.length > MAX_READ_FILE_CHARS) {
+    // safeTruncate, not slice: a raw cut can land between a high and low
+    // surrogate and hand the model a broken character (mt#1615).
+    text = safeTruncate(text, MAX_READ_FILE_CHARS, "head");
+  }
+
+  const endLine = startIndex + windowed.length;
+  const hasMore = endLine < totalLines;
+  return {
+    content: text,
+    window: {
+      startLine: startIndex + 1,
+      endLine,
+      totalLines,
+      ...(hasMore ? { nextOffset: endLine + 1 } : {}),
+    },
+  };
+}
 
 export type ListDirectoryEnvelope =
   | { ok: true; entries: DirEntry[] }
@@ -243,7 +479,7 @@ export type ListDirectoryEnvelope =
  * Map a ReadFileResult from `readFileAtRef` to the JSON envelope the model
  * sees. Exported for tests.
  */
-export function buildReadFileEnvelope(result: ReadFileResult | null): ReadFileEnvelope {
+export function buildReadFileEnvelope(result: ReadFileResult | null, offset = 1): ReadFileEnvelope {
   if (result === null) return { ok: false, error: "not_found" };
   if (result.kind === "binary") {
     const suffix = result.truncated ? ", truncated snippet" : "";
@@ -255,7 +491,28 @@ export function buildReadFileEnvelope(result: ReadFileResult | null): ReadFileEn
       size: result.size,
     };
   }
-  return { ok: true, content: result.content, truncated: result.truncated };
+  // mt#3544: window the text so an uncapped whole-file read cannot enter the
+  // conversation and be resent on every later round. The window is reported
+  // structurally AND announced in-band below — a silent truncation is the
+  // documented anti-pattern (the model then answers confidently from a partial
+  // file with no signal that it was partial).
+  const { content, window } = applyReadFileWindow(result.content, offset);
+  if (window === undefined) {
+    return { ok: true, content, truncated: result.truncated };
+  }
+  const continuation =
+    window.nextOffset !== undefined
+      ? ` Call read_file again with offset=${window.nextOffset} to continue.`
+      : " This is the end of the file.";
+  const notice =
+    `[Showing lines ${window.startLine}-${window.endLine} of ${window.totalLines}.` +
+    `${continuation}]\n`;
+  return {
+    ok: true,
+    content: `${notice}${content}`,
+    truncated: result.truncated,
+    window,
+  };
 }
 
 /**
@@ -274,13 +531,18 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: "read_file",
       description:
-        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), {"ok":false,"error":"not_found"} when the file does not exist, or {"ok":false,"error":string} on other failures. See the system prompt for full envelope semantics.',
+        'Read the content of a file from the PR\'s HEAD ref. Returns a JSON envelope: {"ok":true,"content":string,"truncated":boolean} for text, {"ok":true,"content":string,"truncated":false,"binary":true,"size":number} for binary (not decoded), {"ok":false,"error":"not_found"} when the file does not exist, or {"ok":false,"error":string} on other failures. Large files are returned one window at a time: the envelope then carries a "window" object {startLine,endLine,totalLines,nextOffset?} and the content begins with a "[Showing lines X-Y of Z...]" notice. When "window" is present you have NOT seen the whole file — call read_file again with offset=nextOffset to read on. See the system prompt for full envelope semantics.',
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
             description: "Path to the file, relative to the repository root (e.g. src/foo/bar.ts)",
+          },
+          offset: {
+            type: "integer",
+            description:
+              "1-based line number to start reading from. Omit to start at the beginning. Pass the nextOffset from a previous windowed result to continue reading a large file.",
           },
         },
         required: ["path"],
@@ -359,7 +621,15 @@ const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = D
 const DOC_IMPACT_REMINDER_USER_MSG =
   "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
   'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
-  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths). " +
+  // mt#3527: this forced pass pins tool_choice to submit_documentation_impact, so the model
+  // CANNOT call read_file here. It must therefore report what it actually read during the
+  // loop rather than assert an accuracy it never checked — the exact shape of the PR #2508
+  // miss ("existing docs ... remain accurate", asserted without opening the doc).
+  "You cannot read files on this call. If you did not read the docs covering behavior this PR " +
+  "changes, do NOT claim they remain accurate — state in `evidence` which docs you checked and " +
+  "which you did not. Remember that a doc needing an update may be one whose existing prose the " +
+  "PR makes FALSE, not only one that omits something the PR adds.";
 
 /**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
@@ -763,7 +1033,10 @@ export async function callOpenAIWithClient(
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
-        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
+        // `?? 0` (mt#3665): an absent prompt_tokens_details means the response
+        // reported no cache read, which is 0 cached — not "unknown". Without it
+        // this path was the one OpenAI site that could emit undefined.
+        cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
         totalTokens: usage?.total_tokens,
       },
       provider: "openai",
@@ -830,6 +1103,12 @@ export async function callOpenAIWithClient(
 
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
+
+  /**
+   * 1-based round on which the model first emitted `conclude_review` itself,
+   * or null if it never did in-loop (mt#3547).
+   */
+  let concludedAtRound: number | null = null;
 
   const roundLatenciesMs: number[] = [];
   let timeoutCount = 0;
@@ -933,7 +1212,42 @@ export async function callOpenAIWithClient(
       const fnName = toolCall.function.name;
       let resultContent: string;
 
-      if (OUTPUT_TOOL_NAMES.has(fnName)) {
+      if (fnName === BATCHED_SPEC_VERIFICATION_TOOL) {
+        // mt#3545: the batched form expands to N singular
+        // submit_spec_verification calls. Handled in its own branch rather than
+        // threading a list through the singular path, because none of that
+        // path's guards (conclude_review coherence, finding resolution notes)
+        // apply to spec verifications — and a list-shaped `parsed` would have
+        // reordered entries relative to the spec.
+        try {
+          const expanded = parseToolCallExpanded(fnName, toolCall.function.arguments);
+          accumulatedToolCalls.push(...expanded);
+          log.info("reviewer.output_tool_call", {
+            event: "reviewer.output_tool_call",
+            provider: "openai",
+            tool: fnName,
+            count: accumulatedToolCalls.length,
+            expandedTo: expanded.length,
+          });
+          resultContent = JSON.stringify({
+            ok: true,
+            recorded: true,
+            recordedCount: expanded.length,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.info("reviewer.output_tool_call_parse_error", {
+            event: "reviewer.output_tool_call_parse_error",
+            provider: "openai",
+            tool: fnName,
+            error: errMsg,
+          });
+          // Malformed batch: nothing is accumulated (all-or-nothing, so a bad
+          // entry can never land a partial verdict set), and the model gets the
+          // path-qualified zod issue back so it can self-correct.
+          resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
+        }
+      } else if (OUTPUT_TOOL_NAMES.has(fnName)) {
         // Output tool: parse and accumulate; return a stub success response so
         // the loop continues normally.
         try {
@@ -1026,6 +1340,14 @@ export async function callOpenAIWithClient(
           }
 
           accumulatedToolCalls.push(parsed);
+          // mt#3547: record WHICH round the model concluded on, not just that it
+          // did. Without this, `roundsUsed === maxRounds && concludedInLoop` is
+          // ambiguous between "concluded on the last tool-capable round" and
+          // "concluded early and kept calling tools anyway" — two different
+          // behaviors that call for different fixes.
+          if (parsed.name === "conclude_review" && concludedAtRound === null) {
+            concludedAtRound = round + 1;
+          }
           const count = accumulatedToolCalls.length;
           log.info("reviewer.output_tool_call", {
             event: "reviewer.output_tool_call",
@@ -1063,7 +1385,38 @@ export async function callOpenAIWithClient(
             const content = await withTimeout("tools.read_file", timeoutMs, (signal) =>
               tools.readFile(path, signal)
             );
-            resultContent = JSON.stringify(buildReadFileEnvelope(content));
+            // mt#3544: the model may pass a 1-based offset to continue reading a
+            // previously windowed file. A non-numeric or absent value degrades to
+            // "from the top" rather than erroring — the argument is model-supplied.
+            const rawOffset = args.offset;
+            const offset =
+              typeof rawOffset === "number" && Number.isFinite(rawOffset)
+                ? Math.trunc(rawOffset)
+                : 1;
+            const envelope = buildReadFileEnvelope(content, offset);
+            resultContent = JSON.stringify(envelope);
+            // mt#3544 SC4: per-read size logging. Three distinct measurements,
+            // kept separate because conflating them makes the distribution
+            // useless: `preCapChars` is the file as fetched, `postCapChars` is
+            // the content field the model actually receives (window + notice),
+            // and `envelopeChars` is the full serialized tool result — the true
+            // wire cost, which also carries JSON escaping and the window object.
+            // PR #2530 R1: `postCapChars` previously held the envelope's JSON
+            // length, which is not comparable to `preCapChars` and would have
+            // silently corrupted the reduction ratio this log exists to measure.
+            const windowed = "window" in envelope && envelope.window !== undefined;
+            log.info("reviewer.read_file_result", {
+              event: "reviewer.read_file_result",
+              path,
+              offset,
+              preCapChars: content !== null && content.kind === "text" ? content.content.length : 0,
+              postCapChars: "content" in envelope ? envelope.content.length : 0,
+              envelopeChars: resultContent.length,
+              windowed,
+              ...(windowed && envelope.window !== undefined
+                ? { totalLines: envelope.window.totalLines }
+                : {}),
+            });
           } else if (fnName === "list_directory") {
             const entries = await withTimeout("tools.list_directory", timeoutMs, (signal) =>
               tools.listDirectory(path, signal)
@@ -1086,12 +1439,34 @@ export async function callOpenAIWithClient(
         content: resultContent,
       });
     }
+
+    // mt#3547: tell the model how much budget is left, at the only point it can
+    // still act on it. Appended AFTER this round's tool results and never
+    // rewritten, so the prompt-cache prefix through the previous round stays
+    // byte-identical (see buildRoundBudgetNotice's docstring).
+    //
+    // The `isLastRound` guard is defensive rather than load-bearing today:
+    // that round passes no tools, so the API cannot return tool calls and
+    // control breaks out above before reaching here. It states the invariant
+    // explicitly so the behavior stays correct if the cap semantics change.
+    if (!isLastRound) {
+      messages.push({
+        role: "user",
+        content: buildRoundBudgetNotice(round, MAX_TOOL_ROUNDS),
+      });
+    }
   }
 
   // Snapshot main-loop output count BEFORE forced passes so the conclude
   // gate's gate_branch discriminator reflects main-loop behavior, not
   // forced-pass side-effects (mt#2115 reviewer finding).
   const mainLoopOutputCount = accumulatedToolCalls.length;
+
+  // mt#3547: snapshot the stop-signal outcome BEFORE any forced pass can supply
+  // a conclude_review. Read after the forced passes this is always true and the
+  // metric mt#3547 exists to move would be invisible.
+  const concludedInLoop = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
+  let forcedConcludeGateBranch: "emitted_no_conclude" | "emitted_nothing" | null = null;
 
   // Post-loop forced submit_documentation_impact pass (mt#2115).
   const hasDocImpact = accumulatedToolCalls.some((tc) => tc.name === "submit_documentation_impact");
@@ -1168,6 +1543,7 @@ export async function callOpenAIWithClient(
     const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls
       ? "emitted_no_conclude"
       : "emitted_nothing";
+    forcedConcludeGateBranch = gateBranch;
     try {
       const forced = await forceConcludeReview(
         client,
@@ -1234,6 +1610,14 @@ export async function callOpenAIWithClient(
       rejectionCount: concludeReviewRejectionCount,
       boundExhausted: concludeReviewGuardBoundExhausted,
     },
+    // mt#3547: what the loop actually did, for the round-budget replay harness.
+    toolLoop: {
+      roundsUsed: totalRoundsUsed,
+      maxRounds: MAX_TOOL_ROUNDS,
+      concludedInLoop,
+      concludedAtRound,
+      forcedConcludeGateBranch,
+    },
   };
 }
 
@@ -1291,6 +1675,10 @@ async function callGoogle(
     usage: {
       promptTokens: usage?.promptTokenCount,
       completionTokens: usage?.candidatesTokenCount,
+      // mt#3665: the reviewer wires no prompt caching on the Google path, so 0
+      // is the real observation, not a placeholder. If implicit/explicit Gemini
+      // caching is ever enabled here, read usageMetadata.cachedContentTokenCount.
+      cachedTokens: 0,
       totalTokens: usage?.totalTokenCount,
     },
     provider: "google",
@@ -1345,6 +1733,11 @@ async function callAnthropic(
     usage: {
       promptTokens: response.usage.input_tokens,
       completionTokens: response.usage.output_tokens,
+      // mt#3665, carrying mt#2721's decision forward: the reviewer's Anthropic
+      // path sends no cache_control breakpoints, so nothing is cached and 0 is
+      // the real observation. The installed SDK's usage type does not expose
+      // cache_read_input_tokens; read it here if caching is ever enabled.
+      cachedTokens: 0,
       totalTokens,
     },
     provider: "anthropic",

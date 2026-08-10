@@ -22,10 +22,19 @@
 // @see .minsky/hooks/registry.ts — the declarative guard registry
 
 import { runDispatcher } from "./dispatcher";
+import { recordGuardDenial } from "./two-strikes-record";
 
 if (import.meta.main) {
   try {
-    await runDispatcher("PreToolUse", { hookFilename: "dispatch-pretooluse.ts" });
+    await runDispatcher("PreToolUse", {
+      hookFilename: "dispatch-pretooluse.ts",
+      // mt#3802: the entrypoint wires the 2-strikes denial recorder, because
+      // `dispatcher.ts` keeps a no-`packages/domain` invariant and the tracker
+      // lives there. Without this line the dispatcher's deny branch calls a
+      // no-op and the whole mechanism is silently inert — which is the
+      // failure mode this task exists to fix, so it is asserted by a test.
+      recordGuardDenialFn: recordGuardDenial,
+    });
     process.exit(0);
   } catch (err) {
     process.stderr.write(

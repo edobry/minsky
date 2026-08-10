@@ -1,0 +1,93 @@
+name: Cold-Start Hooks Smoke
+
+# mt#3578 — install-channel portability: cold-start hook-provisioning smoke.
+#
+# Builds the bundle, copies dist/ to a temp "install" directory SEPARATED
+# from the source checkout, git-inits a fresh project, runs `minsky init`
+# from the installed layout, and asserts the observability-baseline hooks
+# (mt#3499) are installed, registered, and executable.
+#
+# This is the regression gate for the resolveHookSourceDir() bundled-layout
+# candidate (`./hooks` beside the module) + the build:copy-hooks emission:
+# it proves a packaged install — not just the dev checkout — can provision
+# working hooks. The hooks sibling of cold-start-migrate.yml (mt#2369),
+# completing the mt#1767 Phase 0 triad (bundler-emits-assets + ordered
+# resolver + cold-start CI test) for the second asset class.
+#
+# No database service: hook provisioning is pure file I/O and the baseline
+# hooks are fail-open (exit 0 with no cockpit daemon running).
+#
+# Job name (`cold-start-hooks`) is the contract for the Checks API.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Inert on this workflow's pinned 1.2.21 (no streaming install to disable);
+  # set so mt#3680 need not remember it when moving the pin forward.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
+jobs:
+  cold-start-hooks:
+    name: cold-start-hooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Held at 1.2.21 from mt#3561 until mt#3680, because this smoke spawns the
+      # bundle from a temp installed layout with no `--preload reflect-metadata`
+      # and the bundle could not boot that way on 1.3.x. mt#3680 fixed the
+      # bundle rather than the caller, so the pin is back in line with every
+      # other workflow. Keep it there: this smoke's whole value is that it runs
+      # the bundle the way a standalone install does, on the runtime we ship.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # DELIBERATE cache scope (PR #2572 R1): only Bun's download cache is
+      # cached, matching cold-start-migrate.yml. The repo's node_modules is
+      # intentionally NOT cached — every run performs a true cold
+      # `bun install --frozen-lockfile`, which is part of what a cold-start
+      # workflow exists to exercise. Do not "optimize" this into a deps cache.
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Verify hook sources copied into dist/
+        run: |
+          # Assert every baseline install file, not just the first — the set
+          # must stay in step with BASELINE_INSTALL_FILES (PR #2572 R1).
+          test -d dist/hooks \
+            || { echo "::error::dist/hooks missing (build:copy-hooks regression)"; exit 1; }
+          for f in record-conversation-run-state.ts transcript-ingest-on-session-end.ts types.ts; do
+            test -f "dist/hooks/$f" \
+              || { echo "::error::dist/hooks/$f missing"; exit 1; }
+          done
+          echo "Hook sources present:"
+          ls dist/hooks/
+
+      - name: Run cold-start hooks smoke (installed layout)
+        run: bun scripts/smoke-cold-start-hooks.ts

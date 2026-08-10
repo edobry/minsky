@@ -63,6 +63,7 @@ import { projectConfigSchema, type ProjectConfig } from "./project";
 
 import { deploymentConfigSchema, type DeploymentSectionConfig } from "./deployment";
 import { principalChannelConfigSchema, type PrincipalChannelConfig } from "./principal-channel";
+import { cockpitConfigSchema, type CockpitConfig } from "./cockpit";
 
 /**
  * Complete application configuration schema
@@ -156,6 +157,12 @@ export const configurationSchema = z.object({
   // Optional: an absent section means the channel is off, which is the correct
   // default for a surface that turns a Telegram message into a local claude turn.
   principalChannel: principalChannelConfigSchema.optional(),
+
+  // Cockpit daemon configuration (mt#3641) — operator-configured extra
+  // allowed Host name(s), e.g. a Tailscale MagicDNS name, layered onto the
+  // Host-header allowlist (mt#2538). Optional: an absent section means no
+  // extra hosts, which is the same restrictive default the daemon has today.
+  cockpit: cockpitConfigSchema,
 });
 
 /**
@@ -216,6 +223,7 @@ export type {
   ProjectConfig,
   DeploymentSectionConfig,
   PrincipalChannelConfig,
+  CockpitConfig,
 };
 
 // Re-export schemas for external use
@@ -245,6 +253,7 @@ export {
   projectConfigSchema,
   deploymentConfigSchema,
   principalChannelConfigSchema,
+  cockpitConfigSchema,
 };
 
 // Export the main schema as default

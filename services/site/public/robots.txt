@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://minsky.dev/sitemap-index.xml
+Sitemap: https://minsky-site-production.up.railway.app/sitemap-index.xml

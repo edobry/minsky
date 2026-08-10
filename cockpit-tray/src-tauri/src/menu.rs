@@ -59,6 +59,14 @@ const EXTERNAL_LINK_SHIM: &str = r#"
 })();
 "#;
 
+// mt#3535's HISTORY_NAV_SHIM lived here: a tray-only init script listening for
+// `mousedown` with `event.button` 3/4. It was removed in mt#3570 as verified
+// DEAD CODE, not merely redundant. WKWebView only converts
+// `NSEventTypeOtherMouseDown` into a DOM `mousedown`, and the mice that matter
+// here (the MX Master line) emit `NSEventTypeSwipe` instead -- measured, with
+// `otherMouseDown` never firing once. Upstream: tauri-apps/tauri#10936.
+// The replacement is the native monitor in `mouse_nav.rs`.
+
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
 /// ABSOLUTE factor — so we track the current value here in order to step it.
@@ -199,6 +207,20 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&zoom_out_item)
         .item(&zoom_reset_item)
         .build()?;
+    // History items (mt#3535), applied via `WebviewWindow::eval` in
+    // handle_menu_event -- the ADR-023 native->SPA seam, same as "reload".
+    // Plain Cmd+[ / Cmd+] (browser convention); the SHIFTED forms stay free for
+    // TabKeyboardNav's strip-order tab switching, which the SPA handles itself.
+    let history_back_item = MenuItemBuilder::with_id("history_back", "Back")
+        .accelerator("CmdOrCtrl+[")
+        .build(app)?;
+    let history_forward_item = MenuItemBuilder::with_id("history_forward", "Forward")
+        .accelerator("CmdOrCtrl+]")
+        .build(app)?;
+    let history_submenu = SubmenuBuilder::new(app, "History")
+        .item(&history_back_item)
+        .item(&history_forward_item)
+        .build()?;
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .minimize()
         .close_window()
@@ -207,6 +229,7 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&app_submenu)
         .item(&edit_submenu)
         .item(&view_submenu)
+        .item(&history_submenu)
         .item(&window_submenu)
         .build()?;
     app.set_menu(app_menu)?;
@@ -217,13 +240,53 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // global handler also receive tray-menu events on some platforms
     // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
     app.on_menu_event(move |app, event| match event.id().as_ref() {
-        "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" => {
-            handle_menu_event(app, event.id().as_ref())
-        }
+        "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" | "history_back"
+        | "history_forward" => handle_menu_event(app, event.id().as_ref()),
         _ => {}
     });
 
     Ok(())
+}
+
+/// Move the cockpit SPA's history by one entry (mt#3535, mt#3570).
+///
+/// The single navigation seam shared by BOTH surfaces -- the History menu /
+/// `Cmd+[` accelerators and the native mouse-button monitor (`mouse_nav.rs`).
+/// Driven by `eval` rather than WKWebView's own `goBack`/`goForward` so both
+/// move the SAME history: the SPA's react-router entries, which are `pushState`
+/// entries on the document's own history. This is the ADR-023 native->SPA seam.
+///
+/// `guard_editable` gates the focused-editable carve-out, which applies to the
+/// KEYBOARD path only (PR #2522 R1): a menu accelerator fires no matter what
+/// holds focus, and `Cmd+[` / `Cmd+]` are editing keys inside a text field, so
+/// navigating mid-edit would discard what was typed. A MOUSE press is never a
+/// text-editing keystroke, so it passes `false` and navigates unconditionally.
+///
+/// The guard lives in the evaluated script rather than Rust-side because focus
+/// state lives in the DOM and `eval` is fire-and-forget: a separate predicate
+/// eval would race the navigation.
+pub(crate) fn eval_history_nav(app: &AppHandle, forward: bool, guard_editable: bool) {
+    let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) else {
+        return;
+    };
+    let method = if forward { "forward" } else { "back" };
+    // Only TEXT-ENTRY focus suppresses the keyboard path. mt#3535 tested
+    // `tagName === 'INPUT'`, which was over-broad (PR #2547 R1): a focused
+    // checkbox, radio, or button is an INPUT where Cmd+[ is not an editing
+    // command, so navigation should still happen. SELECT is likewise not
+    // text entry. Matching on the input TYPE keeps the carve-out to the case
+    // it exists for -- losing typed text mid-edit.
+    let guard = if guard_editable {
+        "var a = document.activeElement;\n  \
+         var textEntry = a && a.tagName === 'INPUT' && /^(text|search|url|tel|email|password|number|date|datetime-local|month|week|time)$/i.test(a.type || 'text');\n  \
+         if (a && (a.isContentEditable || textEntry || a.tagName === 'TEXTAREA')) return;\n  "
+    } else {
+        ""
+    };
+    let script = format!("(function () {{\n  {guard}window.history.{method}();\n}})()");
+    if let Err(e) = window.eval(&script) {
+        eprintln!("[cockpit-tray] failed to run history.{method}() on cockpit window: {e}");
+    }
 }
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
@@ -235,6 +298,11 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                     eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
                 }
             }
+        }
+        // History navigation (mt#3535). The KEYBOARD/menu path, so the
+        // focused-editable carve-out applies -- see eval_history_nav.
+        "history_back" | "history_forward" => {
+            eval_history_nav(app, id == "history_forward", true);
         }
         "zoom_in" | "zoom_out" | "zoom_reset" => {
             // try_state (not state) so an early/edge invocation before the

@@ -497,6 +497,30 @@ export interface SessionContextSnapshot {
   /** Categorized blocks in chronological order (ascending timestamp). */
   blocks: SessionContextSnapshotBlock[];
 
+  /**
+   * Child conversation ids for this session's subagent spawns, keyed by the
+   * spawning Agent call's harness `tool_use` id (mt#3692).
+   *
+   * Joined server-side from `agent_spawns`, whose natural key IS that id — the
+   * turn indices on either side of this boundary come from different
+   * derivations and do not address each other. Only spawns whose child
+   * resolved appear; roughly 30% do today (mt#3702 tracks raising that), and a
+   * missing entry renders as a static badge.
+   */
+  spawnChildrenByToolUseId?: Record<string, string>;
+
+  /**
+   * Set when this conversation IS a subagent spawn — the parent that dispatched
+   * it (mt#3692). Absent for a conversation with no spawn ancestry, which the
+   * UI renders as no backlink rather than an empty placeholder.
+   */
+  spawnParent?: {
+    /** The dispatching conversation's id. */
+    agentSessionId: string;
+    /** Subagent type this conversation was dispatched as, when recorded. */
+    agentKind?: string;
+  };
+
   /** When this snapshot was assembled (ISO-8601 UTC). */
   assembledAt: string;
 }
