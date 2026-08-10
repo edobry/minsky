@@ -148,6 +148,11 @@ async function runBunTest(
   const budgetMs =
     budgetMsOverride ?? resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_PARTITION);
   const result = await spawnWithWatchdog(
+    // mt#3704: deliberately NOT FULL_SUITE_PER_TEST_TIMEOUT_MS. This is the
+    // pre-commit related-test gate, whose partition budget is 60s
+    // (RELATED_TESTS_PARTITION) — a 100s per-test timer inside it would invert
+    // the outer > inner ordering the budget table depends on, and this gate
+    // runs a handful of related files rather than competing with 800+.
     ["bun", "test", "--preload", preload, "--timeout=15000", ...ignoreArgs, ...files],
     {
       budgetMs,
