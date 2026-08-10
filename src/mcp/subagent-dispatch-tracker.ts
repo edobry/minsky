@@ -128,8 +128,9 @@ export type SubagentInvocationInput = SubagentInvocationInsert;
  * - `total` — total rows in the table (all-time, not windowed).
  * - `lastDispatch` — ISO-8601 timestamp of the most recent `startedAt`, or
  *   null if the table is empty.
- * - `byOutcome` — count per outcome class (all 6 enum values present,
- *   defaulting to 0 for classes with no rows).
+ * - `byOutcome` — count per outcome value (all 8 enum values present,
+ *   defaulting to 0 for values with no rows). See the field's own JSDoc on
+ *   `SubagentDispatchCadence` for which two are not classifications.
  * - `byAgentType` — count per `agentType` string.
  * - `byModel` — count per `actualModel` string (mt#2796). Rows with a null
  *   `actualModel` (not yet classified at Stop time, or the classifier found

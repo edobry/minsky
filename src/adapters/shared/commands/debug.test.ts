@@ -480,7 +480,7 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
   // -------------------------------------------------------------------------
 
   test("20 fixture rows → byOutcome reports correct counts per outcome", async () => {
-    // Seed 20 rows distributed across all 6 outcome classes.
+    // Seed 20 rows distributed across the 6 workspace-derived outcome classes.
     const distribution: Array<[SubagentInvocationOutcome, number]> = [
       [OUTCOME_COMPLETED_WITH_PR, 5],
       [OUTCOME_COMMITTED_NO_PR, 4],

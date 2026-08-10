@@ -20,6 +20,13 @@
 --- generates the bare form; the guard is added by hand, as it was there.
 ---
 --- No data UPDATE here by design: Postgres cannot use a newly-added enum value in the same
---- transaction that adds it, so correcting the already-written rows is a separate step
---- (0093, this same task).
+--- transaction that adds it. Correcting the already-written rows is therefore a separate,
+--- POST-DEPLOY step, and it is a SCRIPT rather than a follow-on migration — there is no 0093:
+---
+---   bun scripts/backfill-subagent-invocation-no-workspace.ts            # dry-run (default)
+---   bun scripts/backfill-subagent-invocation-no-workspace.ts --execute  # apply
+---
+--- A script rather than a migration because the sweep needs a dry-run, a scope-match guard
+--- against a recorded baseline, and an operator reading its output before it mutates anything —
+--- none of which a migration that runs unattended at boot can offer. Tracked at mt#3912.
 ALTER TYPE "public"."subagent_invocation_outcome" ADD VALUE IF NOT EXISTS 'no-workspace';

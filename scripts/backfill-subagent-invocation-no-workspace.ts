@@ -29,7 +29,11 @@
  *     SELECT's id list — a SubagentStop landing in between must not have a real outcome clobbered.
  *   - Idempotent: a re-run matches 0 rows, because corrected rows carry `no-workspace`.
  *
- * @see mt#3894 — this task
+ * Ordering: this sweep writes the `no-workspace` enum value, so it can only run AFTER migration
+ * 0092 has been applied — i.e. post-deploy. mt#3912 owns that run and records its output.
+ *
+ * @see mt#3894 — this task (the forward fix + this script)
+ * @see mt#3912 — the post-deploy run of this script, and the live-row verification
  * @see mt#2292 — made the raw spawn path recordable (where these rows came from)
  * @see mt#3173 / ask#6801 — the sibling sweep this mirrors
  */

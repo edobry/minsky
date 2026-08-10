@@ -902,15 +902,16 @@ describe("SubagentDispatchTracker", () => {
   // -------------------------------------------------------------------------
 
   describe("getCadence - byOutcome", () => {
-    test("all 6 outcome classes present with zero counts for empty table", async () => {
+    test("every outcome value is present with a zero count for an empty table", async () => {
       const cadence = await tracker.getCadence(BASE_DATE);
       for (const outcome of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
         expect(cadence.byOutcome[outcome]).toBe(0);
       }
     });
 
-    test("counts 20 rows distributed across 6 outcome classes", async () => {
-      // Seed 20 rows: distribute across the 6 outcome classes
+    test("counts 20 rows distributed across the 6 workspace-derived classes", async () => {
+      // Seed 20 rows: distribute across the 6 workspace-derived classes (not `pending`, which
+      // only the dispatcher writes, nor `no-workspace`, which has no workspace to derive from).
       const distribution: Array<[SubagentInvocationOutcome, number]> = [
         [OUTCOME_COMPLETED_WITH_PR, 5],
         [OUTCOME_COMMITTED_NO_PR, 4],
