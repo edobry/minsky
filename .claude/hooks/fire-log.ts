@@ -92,6 +92,32 @@ export interface FireLogEntry {
   /** Lifecycle event or pipeline stage the guard ran under (e.g. "PreToolUse", "PreCommit"). */
   event: string;
   decision: FireLogDecision;
+  /**
+   * mt#3892 — whether this record reflects a guard that REACHED a decision, or
+   * one whose evaluation FAILED and whose fail-open outcome is being recorded
+   * anyway.
+   *
+   * `decision` alone cannot answer that: a crashed guard fails open, so the
+   * dispatcher writes `decision: "allow"` for it (deliberately — override-rate
+   * and attention-cost aggregation must not be missing every crashed
+   * evaluation). That makes `allow` ambiguous between "checked and permitted"
+   * and "crashed and permitted by default", which is precisely the reading
+   * mem#884 recorded in the field: `standalone-duplicate-matcher`'s "recent
+   * `allow`s reflect crashes, not verified checks."
+   *
+   * Consumers that only count evaluations (rationalization-review's override
+   * rates, coverage-receipt's liveness join) are unaffected and may ignore it.
+   * The consumer that must NOT ignore it is guard-health's recovery join, which
+   * counts `"decided"` records only — otherwise a continuously crashing guard
+   * reads as recovered, since each crash writes its own `allow` microseconds
+   * after its own failure event.
+   *
+   * OPTIONAL, and absence is deliberately NOT read as `"decided"`: records
+   * written before this field existed cannot distinguish the two cases, so the
+   * join treats them as no evidence at all (dormant) rather than as a false
+   * all-clear.
+   */
+  guardOutcome?: "decided" | "crashed";
   /** Milliseconds spent evaluating this guard (per-fire cost, not cumulative). */
   durationMs: number;
   /** The env-var name that produced the override, when the outcome was overridden. */
@@ -219,6 +245,8 @@ export interface RecordFireLogInput {
   guardName: string;
   event: string;
   decision: FireLogDecision;
+  /** mt#3892 — see {@link FireLogEntry.guardOutcome}. */
+  guardOutcome?: "decided" | "crashed";
   durationMs: number;
   overrideEnvVar?: string;
   overrideClassification?: OverrideClassification;
@@ -258,6 +286,7 @@ export function recordFireLogEntry(
       guardName: input.guardName,
       event: input.event,
       decision: input.decision,
+      ...(input.guardOutcome !== undefined ? { guardOutcome: input.guardOutcome } : {}),
       durationMs: input.durationMs,
       ...(input.overrideEnvVar !== undefined ? { overrideEnvVar: input.overrideEnvVar } : {}),
       ...(input.overrideClassification !== undefined
@@ -305,6 +334,16 @@ function isValidEntry(item: unknown): item is FireLogEntry {
     typeof r.guardName === "string" &&
     typeof r.event === "string" &&
     (r.decision === "allow" || r.decision === "warn" || r.decision === "deny") &&
+    // mt#3892: `guardOutcome` is OPTIONAL, but when present it must be one of
+    // the two known values — mirroring guard-health.ts's `causeClass`
+    // validation, and for the same reason: an unrecognized string would
+    // otherwise pass through as a validated entry carrying a value no consumer
+    // has a branch for. The recovery join tests `=== "decided"`, so a bad value
+    // already fails safe there; validating here keeps the parsed type honest for
+    // every other reader.
+    (r.guardOutcome === undefined ||
+      r.guardOutcome === "decided" ||
+      r.guardOutcome === "crashed") &&
     typeof r.durationMs === "number"
   );
 }

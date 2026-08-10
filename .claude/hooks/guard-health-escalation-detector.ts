@@ -148,7 +148,16 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
     const entry = summary.byGuard[name];
     const streak = entry?.consecutiveStreak ?? 0;
     const age = formatAge(entry?.lastFailureAgeMs ?? null);
-    return `  - ${name}: ${streak} failures, last ${age} ago — none since (likely stale)${causeClassTag(name)}`;
+    // mt#3892: say WHICH of the two "likely stale" cases this is, now that the
+    // clean-run join can tell them apart. A guard that has decided cleanly
+    // since its last failure resets its streak to 0 and never reaches this list
+    // at all, so the only cases left here are the two that still need the
+    // reader's judgment — and they call for opposite responses.
+    const state =
+      entry?.liveness === "failing"
+        ? "no clean run since the failures — still broken, just not triggered lately"
+        : "no clean-run evidence either way — dormant, or broken and unexercised";
+    return `  - ${name}: ${streak} failures, last ${age} ago — ${state}${causeClassTag(name)}`;
   };
 
   if (live.length > 0) {
