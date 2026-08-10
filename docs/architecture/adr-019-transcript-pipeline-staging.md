@@ -14,11 +14,11 @@ seam between the pipeline's stages sits** — an orthogonal axis ADR-017 left op
 
 The three operations, and their very different cost / dependency profiles:
 
-| #   | Operation   | Reads → writes                                                 | Cost                 | External dependency | Feeds                               |
-| --- | ----------- | -------------------------------------------------------------- | -------------------- | ------------------- | ----------------------------------- |
-| 1   | **Ingest**  | JSONL → `agent_transcripts.transcript` (JSONB)                 | cheap                | none                | (nothing searchable yet)            |
-| 2   | **Extract** | JSONB → `agent_transcript_turns` rows + `fts_text` (GENERATED) | cheap, deterministic | **none**            | **FTS** (`transcripts_search-text`) |
-| 3   | **Embed**   | turn text → vector → `agent_transcript_turns.embedding`        | expensive            | **embedding API**   | **semantic** (`transcripts_search`) |
+| #   | Operation   | Reads → writes                                                 | Cost                                              | External dependency | Feeds                               |
+| --- | ----------- | -------------------------------------------------------------- | ------------------------------------------------- | ------------------- | ----------------------------------- |
+| 1   | **Ingest**  | JSONL → `agent_transcripts.transcript` (JSONB)                 | cheap                                             | none                | (nothing searchable yet)            |
+| 2   | **Extract** | JSONB → `agent_transcript_turns` rows + `fts_text` (GENERATED) | deterministic; the WRITE is NOT cheap — see below | **none**            | **FTS** (`transcripts_search-text`) |
+| 3   | **Embed**   | turn text → vector → `agent_transcript_turns.embedding`        | expensive                                         | **embedding API**   | **semantic** (`transcripts_search`) |
 
 **Where the seam sits today.** The code cuts between **(1)** and **(2+3)**: `transcripts ingest`
 (`AgentTranscriptIngestService`) writes only the raw JSONB at stage 1, and
@@ -246,3 +246,40 @@ the ingest path had already fallen out of step with a newly-added error conditio
   paths); `agent-transcript-turns-schema.ts` (`fts_text` GENERATED, nullable `embedding`).
 - Memory: `10690591-10f9-448b-a9b7-f78e6e8e969c` (the two-stage-pipeline investigation).
 - Origin: 2026-06-08 mt#2319 close-out — Socratic review of why "FTS works after ingest" was false.
+
+## Correction: "Extract is cheap" was wrong about the WRITE (mt#3911)
+
+The operation table above originally rated Extract **"cheap, deterministic"** against Embed's
+**"expensive"**. That contrast is right about the _external dependency_ — extraction needs no
+embedding API — and wrong about the _database cost_, and the error was load-bearing.
+
+Measured against prod 2026-08-10 (`statement_timeout` = 30s), upserting turn rows:
+
+| rows per statement | session WITH embeddings | session WITHOUT |
+| ------------------ | ----------------------- | --------------- |
+| 100                | 9.5–17.5s               | 2.4–6.6s        |
+| 250                | 20.5–24.8s              | —               |
+| 500                | FAILS at 31.2s          | —               |
+
+That is ~100ms/row with embeddings present and ~35ms/row without — so a 600-turn session costs
+20–60s of database time, not the "cheap" the table implied.
+
+**Why.** The upsert changes `user_text`/`assistant_text`, so it cannot be a HOT update: each row's
+new tuple version must be inserted into every index on the table — the GIN index on the GENERATED
+`fts_text` column and, when the row already carries a vector, the HNSW index on `embedding`. The
+embedding column is never WRITTEN by extraction (the ADR's own preservation invariant), but its
+index is still MAINTAINED, which is where the ~3x gap between the two columns above comes from.
+
+**What the mis-costing caused.** `CHUNK_SIZE` was chosen as 500 and justified in its own comment
+solely against Postgres's ~65535 bind-parameter ceiling — a limit this write never approaches. No
+one sized it against time, because the ADR said the stage was cheap. Every session with >= 500
+turns therefore issued a 500-row statement that exceeded the timeout, wrote nothing for that
+chunk, and — because a failed chunk correctly suppresses the orphan DELETE — silently kept its
+stale rows forever while reporting an ordinary success. 49 sessions were in that population.
+
+**Consequence for future work.** Treat extraction as cheap in DEPENDENCIES and expensive in
+DATABASE WRITES. Anything that re-materializes turn rows in bulk (a corpus sweep, a re-extraction
+after an extractor change, mt#3883's tree-aware rewrite) is a long-running database operation and
+must be sized against the statement timeout. `DEFAULT_TURN_CHUNK_SIZE` in `turn-writer.ts` now
+carries the measurements, and a chunk that exceeds the timeout is split and retried rather than
+abandoned.
