@@ -10,7 +10,6 @@ import {
   formatSessionDetails,
   formatSessionSummary,
   formatSessionPrDetails,
-  formatSessionApprovalDetails,
   formatDebugEchoDetails,
   formatRuleDetails,
   formatSessionListVerbose,
@@ -162,14 +161,6 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       case "session.pr.get":
         // Get command handles its own formatting in the command class
         this.formatGenericObject(result);
-        break;
-
-      case "session.approve":
-        if (result.result && "session" in (result.result as object)) {
-          formatSessionApprovalDetails(result.result as Record<string, unknown>);
-        } else {
-          this.formatGenericObject(result);
-        }
         break;
 
       case "rules.list":

@@ -449,37 +449,6 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
   };
 }
 
-export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDefinition {
-  return {
-    id: "session.approve",
-    category: CommandCategory.SESSION,
-    name: "approve",
-    description: "Approve a session pull request",
-    parameters: sessionApproveCommandParams,
-    execute: withErrorLogging(
-      "session.approve",
-      async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("@minsky/domain/session/session-service");
-        const deps = await getDeps();
-        const service = new SessionService(deps);
-
-        const result = await service.approve({
-          session: params.sessionId as string | undefined,
-          task: params.task as string | undefined,
-          repo: params.repo as string | undefined,
-          json: params.json as boolean | undefined,
-          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
-          // reviewComment) with session.pr.approve — thread it here too so --review-comment
-          // isn't silently dropped on this command.
-          reviewComment: params.reviewComment as string | undefined,
-        });
-
-        return { success: true, result };
-      }
-    ),
-  };
-}
-
 export function createSessionInspectCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.inspect",

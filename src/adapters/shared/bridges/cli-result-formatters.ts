@@ -186,65 +186,6 @@ export function formatSessionPrDetails(result: Record<string, unknown>): void {
 }
 
 /**
- * Format session approval details for human-readable output
- */
-export function formatSessionApprovalDetails(result: Record<string, unknown>): void {
-  if (!result) return;
-
-  const sessionObj2 = result.session as Record<string, unknown> | undefined;
-  const sessionId = sessionObj2?.session || result.sessionId || "Unknown";
-  const taskId = sessionObj2?.taskId || result.taskId || "";
-  const commitHash = result.commitHash || "";
-  const mergeDate = result.mergeDate || "";
-  const mergedBy = result.mergedBy || "";
-  const baseBranch = result.baseBranch || "main";
-  const prBranch = result.prBranch || "";
-  const isNewlyApproved = result.isNewlyApproved !== false; // default to true for backward compatibility
-
-  // Header - different based on whether newly approved or already approved
-  if (isNewlyApproved) {
-    log.cli("✅ Session approved and merged successfully!");
-  } else {
-    log.cli("ℹ️  Session was already approved and merged");
-  }
-  log.cli("");
-
-  // Session Details
-  log.cli("📝 Session Details:");
-  if (taskId) {
-    const taskStatusMessage = isNewlyApproved
-      ? "(status updated to DONE)"
-      : "(already marked as DONE)";
-    log.cli(`   Task: ${formatTaskIdForDisplay(taskId as string)} ${taskStatusMessage}`);
-  }
-  if (prBranch) {
-    log.cli(`   Branch: ${prBranch}`);
-  }
-  log.cli(`   Session ID: ${sessionId}`);
-  log.cli(`   Merged by: ${mergedBy}`);
-  if (mergeDate) {
-    const date = new Date(mergeDate as string);
-    log.cli(`   Merge date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
-  }
-  log.cli("");
-
-  // Technical Details
-  log.cli("🔧 Technical Details:");
-  log.cli(`   Base branch: ${baseBranch}`);
-  if (commitHash) {
-    log.cli(`   Commit hash: ${(commitHash as string).substring(0, 8)}`);
-  }
-  log.cli("");
-
-  // Success message - different based on whether newly approved or already approved
-  if (isNewlyApproved) {
-    log.cli("🎉 Your work has been successfully merged and the session is complete!");
-  } else {
-    log.cli("✅ Session is already complete - no action needed!");
-  }
-}
-
-/**
  * Format debug echo details for human-readable output
  */
 export function formatDebugEchoDetails(result: Record<string, unknown>): void {

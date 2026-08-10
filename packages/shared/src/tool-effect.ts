@@ -256,11 +256,6 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
 
   // --- session --------------------------------------------------------------
   "session.apply_post_merge_state_sync": "mutates",
-  // `session.approve` is deliberately absent: its factory
-  // (`createSessionApproveCommand`, workflow-commands.ts) has no callers, so the
-  // command is never registered and `debug.listMethods` does not report it.
-  // Classifying it would put an entry in this table for a tool that cannot be
-  // invoked. Found by this module's own coverage test; disposition is mt#3941.
   "session.cleanup": "mutates",
   "session.commit": "mutates",
   "session.delete": "mutates",
