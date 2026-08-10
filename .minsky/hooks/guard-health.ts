@@ -48,6 +48,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+// mt#3892 — the clean-run (success) half of the corpus. Same tree, so this does
+// not breach SPEC.md's no-`src/` invariant; the src/-side copy of this module
+// cannot make the same import and inlines its own reader instead.
+import { readFireLogEntries } from "./fire-log";
 
 // ---------------------------------------------------------------------------
 // Persisted event shape
@@ -336,6 +340,52 @@ export const STALE_ESCALATION_WINDOW_MS = 60 * 60 * 1000;
 
 export type GuardEscalation = "none" | "attention" | "critical";
 
+/**
+ * mt#3892 — a guard's OBSERVED state, which `escalation` alone cannot express.
+ *
+ * `escalation` answers "how bad were the failures?"; this answers "is it still
+ * broken?". Before this existed, the two questions shared one answer and a
+ * recovered guard was indistinguishable from a dormant one for up to 24h (the
+ * `STREAK_RESET_GAP_MS` age-out), which is what made mt#3879's acceptance test
+ * unsatisfiable — it named a number that is not a function of whether the guard
+ * works.
+ *
+ * - `"failing"`    — failures recorded, and NO clean run since the last one.
+ * - `"recovered"`  — failures recorded, but the guard has decided cleanly since.
+ * - `"dormant"`    — no clean-run evidence at all; nothing says it ran.
+ *                    Deliberately also the answer when the only evidence is
+ *                    pre-`guardOutcome` records (see {@link GuardInvocation}) —
+ *                    "I cannot tell" reports as dormant, never as recovered.
+ *
+ * There is no `"healthy"` member, and that is a scope choice rather than an
+ * omission: `byGuard` is keyed on guards that have recorded at least one
+ * FAILURE, so a guard that has never failed has no entry to carry a state.
+ * Reporting every fire-logged guard (~50) would rewrite `debug_systemInfo`'s
+ * payload shape for a question this task does not ask; the guard/detector
+ * catalog (mt#3754) is where that surface belongs.
+ */
+export type GuardLiveness = "failing" | "recovered" | "dormant";
+
+/**
+ * mt#3892 — the minimal projection of a fire-log record that the recovery join
+ * needs: which guard ran cleanly, and when.
+ *
+ * Deliberately a PROJECTION rather than the fire-log entry itself. It keeps
+ * `computeGuardHealthSummary` a pure function over two plain inputs, and it is
+ * what lets the hand-synced `src/mcp/guard-health-tracker.ts` copy feed the same
+ * computation from its own reader without importing anything from this tree
+ * (SPEC.md's self-containment invariant runs in both directions).
+ *
+ * Only records carrying `guardOutcome: "decided"` belong here. A `"crashed"`
+ * record, an overridden-guard record, and a legacy record with no marker at all
+ * are each NOT clean-run evidence — see {@link FireLogEntry.guardOutcome} in
+ * ./fire-log.ts for why absence must not be read as "decided".
+ */
+export interface GuardInvocation {
+  guardName: string;
+  timestamp: string;
+}
+
 export interface GuardHealthEntry {
   failureCount24h: number;
   failureCount7d: number;
@@ -357,8 +407,31 @@ export interface GuardHealthEntry {
    * active incident. Optional (always set by `computeGuardHealthSummary`,
    * omittable by hand-built entries). Consumers should de-alarm a stale
    * escalation rather than present it as live. mt#2969.
+   *
+   * SUPERSEDED IN PRACTICE by `liveness` (mt#3892), which distinguishes the two
+   * cases this boolean conflates. Kept because it is additive and consumers
+   * still read it; new consumers should prefer `liveness`.
    */
   stale?: boolean;
+  /**
+   * mt#3892 — the observed state. See {@link GuardLiveness}. Optional so
+   * hand-built entries stay valid, but always set by
+   * `computeGuardHealthSummary`.
+   *
+   * This is the field an acceptance test can name: it goes to `"recovered"` (or
+   * `"healthy"`) when a guard starts working, without waiting out any window.
+   */
+  liveness?: GuardLiveness;
+  /**
+   * mt#3892 — timestamp of the most recent run in which this guard REACHED a
+   * decision, or null if there is no such evidence in the window.
+   *
+   * Null does NOT mean "never ran": it means nothing in the corpus proves a
+   * clean run — including the case where every record predates the
+   * `guardOutcome` marker. Distinguishing those two would require evidence that
+   * does not exist, so they share the honest answer.
+   */
+  lastCleanRunAt?: string | null;
 }
 
 export interface GuardHealthSummary {
@@ -383,11 +456,24 @@ function guardEscalationFor(streak: number): GuardEscalation {
  */
 export function computeGuardHealthSummary(
   events: readonly GuardHealthEvent[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  invocations: readonly GuardInvocation[] = []
 ): GuardHealthSummary {
   const nowMs = now.getTime();
   const cutoff24h = nowMs - 24 * 60 * 60 * 1000;
   const cutoff7d = nowMs - 7 * 24 * 60 * 60 * 1000;
+
+  // mt#3892: latest CLEAN run per guard. Callers pass only `guardOutcome:
+  // "decided"` records (see GuardInvocation), so every entry here is evidence
+  // the guard reached a decision — never evidence that it crashed and the
+  // fail-open outcome got logged.
+  const lastCleanRunMsByGuard = new Map<string, number>();
+  for (const inv of invocations) {
+    const ms = new Date(inv.timestamp).getTime();
+    if (Number.isNaN(ms)) continue;
+    const prev = lastCleanRunMsByGuard.get(inv.guardName);
+    if (prev === undefined || ms > prev) lastCleanRunMsByGuard.set(inv.guardName, ms);
+  }
 
   const byGuardEvents = new Map<string, GuardHealthEvent[]>();
   for (const ev of events) {
@@ -440,6 +526,20 @@ export function computeGuardHealthSummary(
       streak = 0;
     }
 
+    // mt#3892: the streak now also resets on EVIDENCE OF RECOVERY, not only by
+    // waiting out the 24h age-out above. A guard that has decided cleanly since
+    // its last failure is not in an ongoing incident, and saying so required a
+    // success signal the failure log structurally cannot contain.
+    const lastFailureMs = lastEvent ? new Date(lastEvent.timestamp).getTime() : null;
+    const lastCleanRunMs = lastCleanRunMsByGuard.get(guardName) ?? null;
+    const liveness: GuardLiveness =
+      lastCleanRunMs === null
+        ? "dormant"
+        : lastFailureMs === null || lastCleanRunMs > lastFailureMs
+          ? "recovered"
+          : "failing";
+    if (liveness === "recovered") streak = 0;
+
     const escalation = guardEscalationFor(streak);
 
     // mt#2969: age since the most recent failure, and a `stale` flag for an
@@ -460,6 +560,8 @@ export function computeGuardHealthSummary(
       escalation,
       lastFailureAgeMs,
       stale,
+      liveness,
+      lastCleanRunAt: lastCleanRunMs === null ? null : new Date(lastCleanRunMs).toISOString(),
     };
 
     if (escalation === "critical") criticalGuards.push(guardName);
@@ -479,12 +581,41 @@ export function computeGuardHealthSummary(
  * guards still run normally").
  */
 export function getGuardHealthSummary(
-  options?: GuardHealthReadOptions & { now?: Date }
+  options?: GuardHealthReadOptions & { now?: Date; invocations?: readonly GuardInvocation[] }
 ): GuardHealthSummary {
   try {
     const events = readGuardHealthEvents(options);
-    return computeGuardHealthSummary(events, options?.now ?? new Date());
+    // mt#3892: the clean-run half comes from the fire-log, a SEPARATE store.
+    // Reading it here rather than writing successes into this one follows
+    // ADR-032's §Context classification of `fire-log.jsonl` as the record of
+    // decision outcomes, and D3's warning that a second parallel path would
+    // fork the corpus's interpretation. A read failure degrades to "no
+    // clean-run evidence" (every entry reads `dormant`), never to a false
+    // all-clear.
+    const invocations = options?.invocations ?? readCleanGuardInvocations(options?.env);
+    return computeGuardHealthSummary(events, options?.now ?? new Date(), invocations);
   } catch {
     return { byGuard: {}, criticalGuards: [], attentionGuards: [], escalation: "none" };
+  }
+}
+
+/**
+ * mt#3892 — read the fire-log and project the CLEAN runs into
+ * {@link GuardInvocation}s.
+ *
+ * The filter is the whole point: only `guardOutcome: "decided"` survives. A
+ * `"crashed"` record is the fail-open outcome of a guard that did NOT work, an
+ * override record means the guard never ran, and a legacy record predating the
+ * marker cannot tell those apart from a real decision — so none of them is
+ * clean-run evidence. Fail-safe: any read problem yields `[]`, which reports
+ * `dormant` rather than a false `recovered`.
+ */
+export function readCleanGuardInvocations(env?: NodeJS.ProcessEnv): GuardInvocation[] {
+  try {
+    return readFireLogEntries(env ? { env } : undefined)
+      .filter((e) => e.guardOutcome === "decided")
+      .map((e) => ({ guardName: e.guardName, timestamp: e.timestamp }));
+  } catch {
+    return [];
   }
 }

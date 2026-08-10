@@ -82,6 +82,9 @@ import { writeOutput } from "./types";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
+// mt#3892 — the clean-run half. See the recordFireLogEntry call in
+// runStandaloneDuplicateGuardInner for why this guard needs it explicitly.
+import { recordFireLogEntry } from "./fire-log";
 import { safeTruncate } from "../../src/utils/safe-truncate";
 import { fetchSimilarActiveTasksInProcess, type ProbeFailure } from "./standalone-dup-probe";
 
@@ -327,6 +330,20 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
       toolName: input.tool_name,
       sessionId: input.session_id,
     });
+    // mt#3892 — record the fail-open outcome on the clean-run half too, marked
+    // `crashed`, mirroring the dispatcher's catch block. Omitting it entirely
+    // would be safe for the recovery join but would hide crashed evaluations
+    // from every fire-log consumer that counts them (override rates,
+    // attention cost) — the reason the dispatcher records them at all.
+    recordFireLogEntry({
+      guardName: STANDALONE_DUPLICATE_GUARD_NAME,
+      event: "PreToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: 0,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
   }
 }
 
@@ -343,7 +360,33 @@ export async function runStandaloneDuplicateGuardInner(
     fetchSimilar: Parameters<typeof decideStandaloneDuplicateGuard>[1]["fetchSimilar"];
   }
 ): Promise<void> {
+  const startMs = Date.now();
   const decision = await decideStandaloneDuplicateGuard(input.tool_input, deps);
+
+  // mt#3892 — this guard is not on the dispatcher (parallel-work-guard.ts is
+  // still a standalone settings.json entry), so it never got the dispatcher's
+  // automatic fire-log record. It recorded FAILURES into guard-health and
+  // successes nowhere, which is why guard-health could not tell a recovered
+  // instance of THIS guard from a dormant one — the guard the recovery-signal
+  // gap was actually reported against (mt#3879).
+  //
+  // `guardOutcome` is the load-bearing part. A degraded skip is the fail-open
+  // path — the probe did NOT check anything — so it is recorded as `crashed`,
+  // matching what the dispatcher does for a guard that threw. Only a probe that
+  // reached a real verdict counts as a clean run; otherwise a permanently
+  // degraded guard would report itself recovered on every create, which is the
+  // exact reading mem#884 recorded ("recent `allow`s reflect crashes, not
+  // verified checks").
+  const degradedSkip = decision.action === "skip" && decision.degraded === true;
+  recordFireLogEntry({
+    guardName: STANDALONE_DUPLICATE_GUARD_NAME,
+    event: "PreToolUse",
+    decision: decision.action === "warn" ? "warn" : "allow",
+    guardOutcome: degradedSkip ? "crashed" : "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
 
   switch (decision.action) {
     case "skip":
