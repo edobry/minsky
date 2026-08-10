@@ -27,7 +27,7 @@
  * @see docs/architecture/adr-006-agent-identity.md
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getMinskyStateDir } from "./paths";
 
@@ -39,6 +39,9 @@ export interface MappingIo {
   ensureDir(dir: string): void;
   read(path: string): string | null;
   write(path: string, contents: string): void;
+  /** Append one line to a log. Separate from {@link MappingIo.write} because
+   *  the transition log is append-only while the mapping file is replaced. */
+  append(path: string, line: string): void;
 }
 
 /** Real-filesystem {@link MappingIo}. The default for every caller. */
@@ -50,11 +53,52 @@ export const realMappingIo: MappingIo = {
   write: (path, contents) => {
     writeFileSync(path, contents, "utf8");
   },
+  append: (path, line) => {
+    appendFileSync(path, line, "utf8");
+  },
 };
 
 /** Directory holding one JSON file per live harness pid. */
 export function getConversationPidMapDir(): string {
   return join(getMinskyStateDir(), "conversation-by-pid");
+}
+
+/**
+ * Append-only log of observed conversation transitions (mt#3943).
+ *
+ * One JSON object per line, mirroring `.minsky/hooks/guard-health.ts`'s
+ * `guard-health-log.jsonl` rather than introducing a second logging idiom.
+ * Unbounded by design: measured at ~10 transitions/hour on a busy machine
+ * (~48 KB/day at ~200 bytes/record), and the project's convention for this file
+ * class is that older records stay on disk (ADR-032 states it for the
+ * calibration logs — cited as precedent, not as authority over this file).
+ */
+export function getConversationTransitionLogPath(): string {
+  return join(getMinskyStateDir(), "conversation-transitions.jsonl");
+}
+
+/**
+ * One observed replacement of a conversation on a harness pid.
+ *
+ * Deliberately a record of WHAT THE HARNESS DID, not of what it meant. There is
+ * no `continuesFrom` here and there must not be: a `/clear` frequently means
+ * "new, unrelated topic" — operators clear context precisely to STOP continuing
+ * — and a `fork` produces a sibling whose predecessor may stay live on another
+ * pid. Succession is a judgment derived or asserted over these facts (mt#2911's
+ * authored handoff), and baking it in here would make an inference
+ * indistinguishable from an observation at the lowest layer of the substrate.
+ */
+export interface ConversationTransition {
+  /** The conversation that was mapped to this pid before the switch. */
+  predecessor: string;
+  /** The conversation that replaced it. */
+  successor: string;
+  /** SessionStart's own `source`: startup | resume | clear | compact | fork. */
+  source?: string;
+  harnessPid: number;
+  /** Start time of the harness process, to disambiguate a recycled pid. */
+  harnessStartedAt?: string;
+  at: string;
 }
 
 /** Absolute path of the mapping file for `pid`. */
@@ -225,15 +269,89 @@ export function writeConversationMapping(
 ): boolean {
   if (!UUID_RE.test(conversationId)) return false;
 
+  const successor = conversationId.toLowerCase();
+
   try {
     io.ensureDir(getConversationPidMapDir());
+    const path = getConversationPidMapPath(harnessPid);
+
+    // mt#3943: the entry about to be overwritten holds the PREDECESSOR, and this
+    // is the only moment it is observable — a `/clear` does not announce itself
+    // anywhere else, and once this write lands the edge is unrecoverable.
+    // Capture before clobbering.
+    const predecessor = readMappedConversationId(io.read(path));
+
     const payload: ConversationPidMapping = {
-      conversationId: conversationId.toLowerCase(),
+      conversationId: successor,
       updatedAt: new Date().toISOString(),
       ...(source ? { source } : {}),
       ...(startedAt ? { harnessStartedAt: startedAt } : {}),
     };
-    io.write(getConversationPidMapPath(harnessPid), `${JSON.stringify(payload)}\n`);
+    io.write(path, `${JSON.stringify(payload)}\n`);
+
+    // AFTER the mapping write, and independently failure-isolated: the mapping
+    // is what correctness depends on (mt#3900), the log is observability. A
+    // broken log must never cost us a correct attribution.
+    if (predecessor !== null && predecessor !== successor) {
+      appendConversationTransition(
+        {
+          predecessor,
+          successor,
+          ...(source ? { source } : {}),
+          harnessPid,
+          ...(startedAt ? { harnessStartedAt: startedAt } : {}),
+          at: new Date().toISOString(),
+        },
+        io
+      );
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract just the conversation id from a raw mapping file body.
+ *
+ * Returns null for anything unreadable — absent file, malformed JSON, missing or
+ * non-UUID id. Deliberately does NOT apply the recycled-pid start-time check
+ * that {@link readConversationMapping} applies: this is used to identify the
+ * predecessor at write time, and an entry from a recycled pid is still a real
+ * observation of what was mapped, just one whose successor edge is meaningless.
+ * Suppressing it here would silently drop transitions; recording it lets a
+ * reader tell the two apart via `harnessStartedAt`.
+ */
+function readMappedConversationId(contents: string | null): string | null {
+  if (contents === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(contents);
+    if (!parsed || typeof parsed !== "object") return null;
+    const id = (parsed as Partial<ConversationPidMapping>).conversationId;
+    if (typeof id !== "string" || !UUID_RE.test(id)) return null;
+    return id.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Append one transition to the log. Never throws.
+ *
+ * Isolated from the mapping write on purpose (SC2): this runs inside a
+ * SessionStart hook, and a hook must not fail the event it observes. A lost
+ * transition costs a gap in observability; a thrown error would cost the
+ * attribution fix mt#3900 shipped.
+ */
+export function appendConversationTransition(
+  transition: ConversationTransition,
+  io: MappingIo = realMappingIo
+): boolean {
+  try {
+    const logPath = getConversationTransitionLogPath();
+    io.ensureDir(getMinskyStateDir());
+    io.append(logPath, `${JSON.stringify(transition)}\n`);
     return true;
   } catch {
     return false;
