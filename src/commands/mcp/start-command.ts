@@ -1832,6 +1832,22 @@ export function createStartCommand(
             });
           });
 
+        // Fire-and-forget second writer of the prod-state cache (mt#3922, implementing
+        // mt#3896). Staleness-gated: it refreshes only when the cache is absent or older
+        // than one missed daemon sweep, so this server's ~100 restarts a day do not become
+        // ~100 ledger reads a day. The cockpit daemon keeps its own sweep — this is
+        // redundancy across two process lifetimes, not a relocation.
+        import("../../mcp/prod-state-boot-refresh")
+          .then(({ triggerProdStateBootRefresh }) => {
+            if (!container) return;
+            return triggerProdStateBootRefresh(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("Prod-state boot refresh failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
         // path — never from `minsky --help` or any CLI-only code path.
