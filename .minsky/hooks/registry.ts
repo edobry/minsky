@@ -696,6 +696,54 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#3910 — chained verification commands, detected at the tool boundary.
+  //
+  // `terminal-command-best-practices.mdc §Verification Commands` bans this and
+  // has shipped TWICE at prose tier (mt#2371, widened by mt#2571). The class
+  // recurred anyway on 2026-08-10 with the rule in always-on context and read —
+  // the signature of a control that depends on recall at the moment attention is
+  // on the outcome. See mem#553's R2 section for the containment argument.
+  //
+  // NOT an ADR-024 rung: that ladder scopes itself to UserPromptSubmit guidance
+  // hooks matching trigger phrases in agent PROSE, and neither of its axes
+  // (quotation-elision, embedding recall) applies to parsing a command string.
+  // Calibration-first here follows the observer convention, not that ADR.
+  // -------------------------------------------------------------------------
+  {
+    name: "chained-verification-commands",
+    // `advisory`: which binaries count as "verification" is a heuristic with a
+    // real false-positive surface, and the calibration log exists to size it
+    // before any enforcement posture is considered.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./chained-verification-commands-detector").then((m) => ({ run: m.run })),
+    // The scan is a pure string parse with no IO — it cannot approach this.
+    timeoutMs: 5000,
+    calibrationLog: "chained-verification-commands",
+    // NEVER denies. A false fire here would block a legitimate command, and the
+    // trigger's narrowness is unproven until the calibration data says otherwise.
+    denyCapable: false,
+    // MEASURED, not estimated: `buildWarning()` renders 501 chars for the
+    // two-command case (the dominant shape). Each additional chained command
+    // adds ~30 chars for its backticked name, so 700 covers a 6-command chain
+    // without widening the merged-context budget beyond what the shape needs.
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // The scan is pure over its input, so the canary exercises the real decision
+    // path — no DB, no environment dependency. It asserts a genuine MATCH rather
+    // than a skip: this guard's healthy behavior is observable in a canary
+    // process, unlike its DB-dependent siblings above.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "bun run format:all; bun test packages/",
+        },
+      },
+      expects: "calibration",
+    },
+  },
   {
     name: "record-agent-dispatch",
     // `invariant`: this guard has no threshold to tune. It writes an
@@ -2315,6 +2363,14 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // one attentionCost budget and one canary, making the deny path's
   // zero-false-positive character depend on the scan's unmeasured one.
   ["require-duplicate-check-record", "duplicate-signature-scan"],
+  // Same Bash/session_exec command string, third unrelated defect (mt#3910):
+  // whether the call chains two or more VERIFICATION commands, which makes a
+  // non-zero exit unattributable. Orthogonal to both siblings on this matcher —
+  // a constructed session path and a secret-bearing read are properties of WHAT
+  // the command touches; this is a property of HOW MANY result-bearing commands
+  // share one invocation. Independent overrides; running all three is the point.
+  ["check-guessed-session-path", "chained-verification-commands"],
+  ["block-secret-file-read", "chained-verification-commands"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
