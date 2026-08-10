@@ -228,59 +228,112 @@ jobs:
       - name: Trigger Railway redeploy
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Preferred (mt#3907): a Railway token scoped to the minsky-mcp
+          # project. Provisioned 2026-08-10 after mt#3890 found the generic
+          # secret was never authorized for this service.
+          RAILWAY_MCP_TOKEN: ${{ secrets.RAILWAY_MCP_TOKEN }}
+          # Fallback: the shared secret. Scoped to a DIFFERENT project and
+          # known not to work here — kept only so a missing preferred secret
+          # degrades to a diagnosable failure rather than an empty-token one.
+          # It must NOT be re-scoped: cockpit-preview.yml and
+          # post-deploy-health-monitor.yml depend on its current scope.
+          RAILWAY_TOKEN_FALLBACK: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "::warning::RAILWAY_TOKEN not set — skipping Railway redeploy. Add the secret to enable auto-deploy."
-            exit 0
-          fi
+          # mt#3907 — this step was a raw GraphQL curl sending
+          # `Authorization: Bearer`, guarded by warn-not-fail branches whose
+          # stated justification was that "Railway auto-deploys the pushed
+          # ghcr.io/edobry/minsky:latest image independently (mt#2342)".
+          #
+          # BOTH halves of that were false, and together they hid a 4.5-day
+          # production outage (mt#3890):
+          #
+          #   1. Railway does NOT auto-deploy this image. Between 2026-08-05
+          #      and 2026-08-10 every "Deploy MCP" run went green while
+          #      Railway recorded ZERO new deployments — verified by querying
+          #      the deployments connection three ways (service-scoped,
+          #      depth 10, environment-scoped). The service served a 4.5-day-
+          #      old image the entire time.
+          #   2. The Bearer header cannot work with a project-scoped token at
+          #      all: Railway's API requires `Project-Access-Token` for those.
+          #      So the credential the operator was asked to mint could not
+          #      have fixed the curl even once provisioned.
+          #
+          # The fix is the shape deploy-reviewer.yml already uses (mt#3180,
+          # which fixed this identical failure for the reviewer on 2026-07-25
+          # and explicitly named THIS workflow as still relying on the false
+          # auto-deploy claim — nothing carried it across). The CLI accepts
+          # account, workspace, AND project tokens, so it is token-type
+          # agnostic and the header problem disappears.
+          #
+          # This step is now FATAL. A redeploy that does not happen must red
+          # the build: a silent deploy failure is strictly worse than a loud
+          # one, and "silent" is exactly what cost 4.5 days here.
 
-          # Railway service identifiers from services/minsky-mcp/deploy.config.ts
-          SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
-          ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
-
-          # This explicit redeploy trigger is REDUNDANT (mt#2342): Railway auto-deploys
-          # the pushed ghcr.io/edobry/minsky:latest image independently (verified:
-          # minsky-mcp deploys per-commit without this call). Therefore EVERY failure
-          # branch below is warn-not-fail — a failure here must NOT red the build.
-          # (Re-scope the RAILWAY_TOKEN secret to re-enable the explicit trigger; not
-          # required for deploys to happen.)
-          RESP_FILE="$(mktemp)"
-          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
-            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
-              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
-              exit 0
-            }
-
-          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
-
-          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
-            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
-            exit 0
-          fi
-
-          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
-            exit 0
-          fi
-
-          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
-            jq '.errors' < "${RESP_FILE}"
-            exit 0
-          fi
-
-          # Positive success gate (shape-agnostic): Railway's serviceInstanceRedeploy
-          # return type is undocumented, so accept any present, non-null, non-false
-          # data value as success and warn otherwise — never report false success.
-          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "Railway redeploy triggered successfully"
+          if [ -n "${RAILWAY_MCP_TOKEN:-}" ]; then
+            echo "Using RAILWAY_MCP_TOKEN (minsky-mcp-scoped, mt#3907)."
+            RAILWAY_TOKEN="${RAILWAY_MCP_TOKEN}"
           else
-            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
-            jq . < "${RESP_FILE}"
-            exit 0
+            echo "::warning::RAILWAY_MCP_TOKEN is not set — falling back to the generic RAILWAY_TOKEN, which is NOT scoped to minsky-mcp and is expected to fail (mt#3890)."
+            RAILWAY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+          fi
+          export RAILWAY_TOKEN
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Neither RAILWAY_MCP_TOKEN nor RAILWAY_TOKEN is set — minsky-mcp redeploy cannot be triggered."
+            exit 1
+          fi
+
+          # Pinned, and retried (PR #2768 R1 NON-BLOCKING). Two reasons, the
+          # second stronger than the supply-chain one:
+          #
+          #   1. This step is now FATAL, so a transient npm failure reds main
+          #      rather than warning — hence the retry.
+          #   2. `--from-source`'s semantics below were verified against 4.44.0
+          #      specifically (`railway redeploy --help`). npm `latest` is
+          #      currently 5.35.1 — a MAJOR version ahead — and an unpinned
+          #      install would silently put a CLI on the deploy path whose flag
+          #      behavior nobody here has checked. Pin to the version actually
+          #      verified; bump deliberately after re-reading `--help`.
+          #
+          # deploy-reviewer.yml is still unpinned (and therefore running 5.x);
+          # that divergence is worth back-porting, not a reason to match it.
+          RAILWAY_CLI_VERSION="4.44.0"
+          for i in 1 2 3; do
+            if npm install -g "@railway/cli@${RAILWAY_CLI_VERSION}"; then break; fi
+            if [ "$i" = 3 ]; then
+              echo "::error::Failed to install @railway/cli@${RAILWAY_CLI_VERSION} after 3 attempts."
+              exit 1
+            fi
+            echo "npm install failed — retry $i"
+            sleep 5
+          done
+
+          # Railway identifier from services/minsky-mcp/deploy.config.ts, kept
+          # inline to match the convention in this file and deploy-reviewer.yml.
+          # No `railway link` is needed: a project-scoped RAILWAY_TOKEN carries
+          # its own project+environment context (mt#3251).
+          SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
+
+          # Diagnostic only (non-fatal): prints the authenticated identity,
+          # never the token, so a scope problem is self-diagnosing instead of
+          # another round of guessing. Email masked — this repo's CI logs are
+          # public.
+          echo "Railway auth identity:"
+          railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
+            || echo "note: railway whoami did not report an authenticated identity (non-fatal diagnostic) — see the token-scope notes above if the redeploy below also fails."
+
+          # `--from-source` is REQUIRED, not decorative: minsky-mcp is an
+          # image-source service, and without this flag `redeploy` re-deploys
+          # the EXISTING deployment (the same stale image) instead of pulling
+          # the `:latest` tag this job just pushed. Per `railway redeploy
+          # --help`: "Pull and deploy the latest commit or image from the
+          # configured source, instead of redeploying the existing deployment."
+          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
+            echo "Railway redeploy triggered successfully via the CLI."
+          else
+            rc=$?
+            echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' output above to distinguish a token-scope problem from a genuine redeploy failure."
+            exit "$rc"
           fi
