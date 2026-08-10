@@ -1,4 +1,7 @@
 import { describe, test, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3823 parity block asserts against the REAL committed `.claude/settings.json`, which is the artifact under test: an injected or in-memory copy could not detect the live file losing a dispatcher registration, which is the entire defect class (two guards registered and never invoked). Same shape as the migration-journal read in tests/integration/short-id-conflict-inference.integration.test.ts — reading a committed source of truth, not faking test state.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   getGuardsForEvent,
   findDuplicateRegistrations,
@@ -311,5 +314,143 @@ describe("GUARD_REGISTRY", () => {
       (r) => r.denyCapable && r.tuningOwnership === "preference"
     ).map((r) => r.name);
     expect(denyButTunable).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registry <-> settings.json registration parity (mt#3823)
+// ---------------------------------------------------------------------------
+
+/**
+ * A registry entry only runs if `.claude/settings.json` ALSO routes its event
+ * (and, for a tool-scoped event, its matcher) to the dispatcher entrypoint.
+ * Those are two hand-maintained sources with nothing comparing them, which is
+ * how `require-duplicate-check-record` (mt#3673, deny-capable) and
+ * `duplicate-signature-scan` (mt#3722) both shipped registered and never once
+ * ran: the `mcp__minsky__tasks_create` matcher had no dispatcher entry, so the
+ * dispatcher was never spawned for that tool and neither guard produced a
+ * single fire-log record between shipping and 2026-08-10. Two calibration
+ * passes looked straight at the resulting `[FLAGGED]` coverage receipt and
+ * theorized about timeouts, because nothing could see the missing wiring.
+ *
+ * ADR-028's own Phase 7 retires this check by GENERATING the settings.json
+ * `hooks` block from the registry; until then this is the mechanical stand-in.
+ * mt#3675 separately owns deriving each entry's timeout VALUE from the
+ * registry's per-event sum — this file asserts only presence plus the floor
+ * below, which is a different invariant (see the timeout test's comment).
+ */
+const SETTINGS_PATH = join(import.meta.dir, "..", "..", ".claude", "settings.json");
+
+/** Dispatcher entrypoint filename per lifecycle event. */
+const DISPATCHER_BY_EVENT: Record<string, string> = {
+  PreToolUse: "dispatch-pretooluse.ts",
+  Stop: "dispatch-stop.ts",
+  UserPromptSubmit: "dispatch-userpromptsubmit.ts",
+};
+
+interface SettingsHookEntry {
+  command?: string;
+  timeout?: number;
+}
+interface SettingsMatcherBlock {
+  matcher?: string;
+  hooks?: SettingsHookEntry[];
+}
+
+function readSettingsBlocks(event: string): SettingsMatcherBlock[] {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import-site justification: the committed settings.json IS the subject of this assertion.
+  const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as {
+    hooks?: Record<string, SettingsMatcherBlock[]>;
+  };
+  return raw.hooks?.[event] ?? [];
+}
+
+/**
+ * Blocks whose command list includes the dispatcher for `event`. A block may
+ * carry several commands and an event may have several blocks with the same
+ * matcher — Claude Code runs all matching hooks (docs: "All matching hooks run
+ * in parallel"), so any block carrying the dispatcher satisfies the routing.
+ */
+/** Human-readable routing label, used in every failure message here. */
+function describeRouting(event: string, matcher?: string): string {
+  return matcher === undefined ? event : `${event} :: ${matcher}`;
+}
+
+function dispatcherBlocks(event: string): SettingsMatcherBlock[] {
+  const entrypoint = DISPATCHER_BY_EVENT[event];
+  if (!entrypoint) return [];
+  return readSettingsBlocks(event).filter((b) =>
+    (b.hooks ?? []).some((h) => (h.command ?? "").endsWith(entrypoint))
+  );
+}
+
+describe("registry <-> .claude/settings.json parity (mt#3823)", () => {
+  test("every event in the registry has a known dispatcher entrypoint", () => {
+    // Guards the map above: a registration on a NEW lifecycle event would
+    // otherwise find no entrypoint, return no blocks, and silently pass the
+    // routing tests below rather than failing them.
+    const unmapped = [...new Set(GUARD_REGISTRY.map((r) => r.event))]
+      .filter((e) => DISPATCHER_BY_EVENT[e] === undefined)
+      .sort();
+    expect(unmapped).toEqual([]);
+  });
+
+  test("every tool-scoped matcher in the registry is routed to the dispatcher", () => {
+    const seen = new Set<string>();
+    const registered: Array<{ event: string; matcher: string }> = [];
+    for (const reg of GUARD_REGISTRY) {
+      if (reg.matcher === undefined) continue;
+      const label = describeRouting(reg.event, reg.matcher);
+      if (seen.has(label)) continue;
+      seen.add(label);
+      registered.push({ event: reg.event, matcher: reg.matcher });
+    }
+
+    const unrouted = registered
+      .filter(({ event, matcher }) => !dispatcherBlocks(event).some((b) => b.matcher === matcher))
+      .map(({ event, matcher }) => describeRouting(event, matcher))
+      .sort();
+
+    // Named, not counted: the failure message has to say WHICH matcher lost its
+    // wiring, since the whole defect class is invisible from the guard's side.
+    expect(unrouted).toEqual([]);
+  });
+
+  test("every matcher-less event in the registry is routed to the dispatcher", () => {
+    const events = [
+      ...new Set(GUARD_REGISTRY.filter((r) => r.matcher === undefined).map((r) => r.event)),
+    ].sort();
+    const unrouted = events.filter((e) => dispatcherBlocks(e).length === 0);
+    expect(unrouted).toEqual([]);
+  });
+
+  test("a dispatcher entry's timeout clears the largest guard budget it carries", () => {
+    // A FLOOR, not the derived value — mt#3675 owns deriving the per-event SUM.
+    // The floor exists because the registry's timeoutMs comments depend on the
+    // guard's OWN deadline firing before the dispatcher is killed: a killed
+    // dispatcher records nothing, so a sustained infra outage reads as a clean
+    // pass (duplicate-signature-scan's registration says exactly this). An entry
+    // below its largest guard's budget breaks that ordering silently, and every
+    // other dispatcher entry in settings.json is 15s — well under this matcher's
+    // 18s scan, so copying the common value would have been wrong here.
+    const violations: string[] = [];
+    for (const reg of GUARD_REGISTRY) {
+      const blocks = dispatcherBlocks(reg.event).filter(
+        (b) => reg.matcher === undefined || b.matcher === reg.matcher
+      );
+      for (const block of blocks) {
+        const entrypoint = DISPATCHER_BY_EVENT[reg.event] as string;
+        for (const hook of block.hooks ?? []) {
+          if (!(hook.command ?? "").endsWith(entrypoint)) continue;
+          const entryBudgetMs = (hook.timeout ?? 0) * 1000;
+          if (entryBudgetMs < reg.timeoutMs) {
+            violations.push(
+              `${describeRouting(reg.event, reg.matcher)}: entry timeout ${hook.timeout}s < ${reg.name}'s timeoutMs ${reg.timeoutMs}ms`
+            );
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });

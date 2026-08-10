@@ -180,6 +180,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-task-spec.ts",
             "timeout": 5,
             "statusMessage": "Validating task spec structure..."
+          },
+          {
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block. Two guards were registered in .minsky/hooks/registry.ts on this matcher — require-duplicate-check-record (mt#3673, deny-capable) and duplicate-signature-scan (mt#3722, advisory) — without this paired entry, so the dispatcher never ran for tasks_create and NEITHER guard fired once between shipping and 2026-08-10 (zero fire-log records across all time). Registered LAST so validate-task-spec's structural check surfaces before the duplicate-record deny: a spec failing structure also lacks the record, and the structural message is the more actionable one. Timeout=30, not the 15 the other dispatcher entries use, because this matcher's guard budget is larger: duplicate-signature-scan declares timeoutMs 18000 and require-duplicate-check-record 5000, so 15 would kill the dispatcher before the scan's own 15s deadline could fire and return its recorded skip. 30 covers the 23s sum with margin and matches the cap parallel-work-guard.ts already sets on this matcher — the value the registry's own timeoutMs comment already assumed was here.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 30,
+            "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
       },
