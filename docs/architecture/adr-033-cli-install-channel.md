@@ -36,12 +36,15 @@
 
 ## Decision
 
+> **Superseded in one detail — see the Amendment above: the package name is `@edobry/minsky`.**
+> The rest of this Decision stands as written.
+
 **Distribute the Minsky CLI as a published npm-registry package installed via `bun add -g minsky`, with the existing `dist/` bundle + adjacent-assets layout as the shipped artifact.** The tag-triggered compiled-binary release workflow (`release.yml`, 5-platform `bun build --compile` matrix) stays as a secondary artifact and is NOT the supported install channel until its asset story is built. Homebrew is deferred; if added later it wraps the decided channel rather than introducing a new layout.
 
 Consequences, one line each:
 
-- A user installs with `bun add -g minsky` (Bun is a stated prerequisite); `minsky init` then provisions working hooks — verified by the cold-start smoke this ADR ships with.
-- The npm package name `minsky` must be claimed (verified unclaimed on the npm registry 2026-08-03 — a 404 from `npm view minsky`); until claimed it is squattable.
+- A user installs with `bun add -g minsky` (Bun is a stated prerequisite) — **superseded: `bun add -g @edobry/minsky`, see Amendment**; `minsky init` then provisions working hooks — verified by the cold-start smoke this ADR ships with.
+- The npm package name `minsky` must be claimed (verified unclaimed on the npm registry 2026-08-03 — a 404 from `npm view minsky`); until claimed it is squattable. — **superseded: the name is not obtainable at all, and the 404 did not mean it was. See Amendment.**
 - Publishing requires npm account/token provisioning and a versioning source — mt#233 (conventional-commit version bump) becomes the version supplier for the publish step.
 - The compiled binaries `release.yml` already publishes carry NO runtime assets (no migrations, no hook sources) and would fail loudly on first `init` or `persistence migrate`; they are demoted to "experimental artifact" until an embedding design exists.
 - The cockpit web SPA does not ship in the package (it resolves via a source-checkout walk); packaged installs have no cockpit UI until the follow-up task closes that gap.
