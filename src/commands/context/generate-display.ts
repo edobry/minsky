@@ -6,7 +6,7 @@
 
 import { log } from "@minsky/shared/logger";
 import {
-  APPROXIMATED_TOKENIZER_NOTE,
+  formatApproximationNote,
   formatAssembledContextLine,
   formatContextWindowSize,
   formatContextWindowUtilization,
@@ -36,8 +36,12 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
       log.cli(
         `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
       );
-      if (analysis.metadata.tokenizer.approximated) {
-        log.cli(APPROXIMATED_TOKENIZER_NOTE);
+      const approximationNote = formatApproximationNote(
+        analysis.metadata.tokenizer,
+        analysis.metadata.model
+      );
+      if (approximationNote) {
+        log.cli(approximationNote);
       }
     }
     log.cli(`Context Window: ${formatContextWindowSize(analysis.metadata.contextWindowSize)}`);

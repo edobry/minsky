@@ -104,14 +104,29 @@ export async function describeTokenizer(
 }
 
 /**
- * Rendered wherever a token figure came from a tokenizer not made for the model.
+ * The note qualifying a count produced by a tokenizer not made for the model,
+ * or null when the tokenizer was a genuine match.
+ *
+ * Names the substitute rather than asserting "an OpenAI encoding": the
+ * registry's `defaultLibrary` is configurable (`TokenizerConfig`), so that
+ * phrasing was a claim this code never checked — and repeating the unverified
+ * half of a figure is the habit this whole task is about (PR #2801 R1). It
+ * also stops the encoding beside it reading as the MODEL's encoding, which is
+ * exactly what it is not.
  *
  * Its own line rather than a suffix: appended to the tokenizer line it pushed
  * that line past 130 characters, and a report surface that wraps mid-sentence
  * is how a qualifier gets skipped.
  */
-export const APPROXIMATED_TOKENIZER_NOTE =
-  "  ^ approximate: no tokenizer is registered for this model, so counts come from an OpenAI encoding";
+export function formatApproximationNote(tokenizer: TokenizerInfo, model: string): string | null {
+  if (!tokenizer.approximated) {
+    return null;
+  }
+  // Names the MODEL, not the tokenizer: the line this sits under already
+  // prints the tokenizer, and a note that repeats the line above it reads as
+  // decoration and gets skipped.
+  return `  ^ approximate: no tokenizer is registered for ${model}, so the above is a substitute`;
+}
 
 /**
  * The line naming the gap between the breakdown's total and the assembled

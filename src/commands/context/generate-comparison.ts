@@ -92,15 +92,24 @@ export async function displayModelComparison(models: string[], options: Generate
      * models cost the same" rather than "this comparison cannot tell them
      * apart." Name the models whose figures are approximations (mt#3928).
      */
-    const approximatedModels = comparisons
-      .filter(({ result }) => result.metadata.tokenizer.approximated)
-      .map(({ model }) => model);
-    if (approximatedModels.length > 0) {
+    const approximated = comparisons.filter(({ result }) => result.metadata.tokenizer.approximated);
+    if (approximated.length > 0) {
+      const models = approximated.map(({ model }) => model).join(", ");
+      const one = approximated.length === 1;
+      // Naming the substitute rather than asserting "an OpenAI encoding", which
+      // the configurable `defaultLibrary` makes an unchecked claim (PR #2801 R1).
+      const substitutes = [
+        ...new Set(
+          approximated.map(
+            ({ result }) =>
+              `${result.metadata.tokenizer.name} (${result.metadata.tokenizer.encoding})`
+          )
+        ),
+      ].join(", ");
       log.cli(
-        `\nNote: ${approximatedModels.join(", ")} ${approximatedModels.length === 1 ? "has" : "have"} ` +
-          `no registered tokenizer, so ${approximatedModels.length === 1 ? "its figure is" : "their figures are"} ` +
-          "approximated with an OpenAI encoding. Identical counts across models reflect one shared " +
-          "tokenizer, not a measured equivalence."
+        `\nNote: ${models} ${one ? "has" : "have"} no registered tokenizer, so ` +
+          `${one ? "its figure is" : "their figures are"} approximated with ${substitutes}. ` +
+          "Identical counts across models reflect one shared tokenizer, not a measured equivalence."
       );
     }
 

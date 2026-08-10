@@ -11,8 +11,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   analyzeGeneratedContext,
-  APPROXIMATED_TOKENIZER_NOTE,
   describeTokenizer,
+  formatApproximationNote,
   formatAssembledContextLine,
   formatContextWindowSize,
   formatContextWindowUtilization,
@@ -484,9 +484,41 @@ describe("the reported tokenizer describes what actually resolved (mt#3928)", ()
     expect(info.approximated).toBe(true);
   });
 
-  test("the approximation note names the substitution rather than hinting at it", () => {
-    expect(APPROXIMATED_TOKENIZER_NOTE).toContain("approximate");
-    expect(APPROXIMATED_TOKENIZER_NOTE).toContain("OpenAI encoding");
+  /**
+   * PR #2801 R1: the note asserted "an OpenAI encoding" as a fixed string.
+   * `TokenizerConfig.defaultLibrary` is configurable, so that was a claim the
+   * code never checked — the same unverified-assertion shape this task fixes.
+   */
+  test("the approximation note names the model and asserts nothing it has not checked", () => {
+    const note = formatApproximationNote(
+      {
+        name: "some-other-tokenizer",
+        encoding: "some-other-encoding",
+        description: "",
+        approximated: true,
+      },
+      "claude-opus-5"
+    );
+
+    expect(note).toContain("approximate");
+    expect(note).toContain("claude-opus-5");
+    // The fixed string that made the note wrong under a reconfigured
+    // `defaultLibrary` — the note must not name a vendor it never checked.
+    expect(note).not.toContain("OpenAI");
+  });
+
+  test("a matched tokenizer gets no note at all", () => {
+    expect(
+      formatApproximationNote(
+        {
+          name: "gpt-tokenizer",
+          encoding: "o200k_base",
+          description: "",
+          approximated: false,
+        },
+        "gpt-4o"
+      )
+    ).toBeNull();
   });
 });
 
