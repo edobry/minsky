@@ -16,14 +16,26 @@
 //
 // Posture is PER FINDING CLASS, and `run()`'s return paths below are the
 // authority on it:
-//   - `bare-ref` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
+//   - `bare-short-id` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
 //     returns `additionalContext`, which the dispatcher MERGES into the Stop
 //     event's `hookSpecificOutput` — subject to that merge's char budget, so a
 //     lower-priority fragment can be dropped (named in a trailing notice,
 //     never silently).
-//   - `bare-short-id` is RECORD-ONLY, per the v0 carve-out documented on the
-//     scanner. A message carrying only those findings writes a calibration
-//     record and no text.
+//   - `bare-ref` (`mt#N` / `PR #N`) is RECORD-ONLY. A message carrying only
+//     those findings writes a calibration record and no text.
+//
+// mt#3897 SWAPPED those two classes; the scanner's header carries the full
+// rationale. In short: the display linkifier (mt#2565) now repairs `mt#N` and
+// `PR #N` at render time, so warning about them was measured false 13 times out
+// of 13, while the short-id families it cannot derive a target for are the ones
+// still costing the reader a lookup.
+//
+// EXPIRY CONDITION — re-evaluate this posture when mt#3914 ships. That task
+// gives the linkifier a cached short-id → UUID map, which would let it repair
+// `ask#N` / `mem#N` / `ws#N` too. At that point the class flagged here becomes
+// auto-repaired exactly as `bare-ref` did, and leaving it live would recreate
+// the false-warning rate ask#7639 was filed to end. This is a posture change
+// and therefore an operator decision — surface it, do not flip it silently.
 //
 // Neither class is gated on the other — whichever fires, a calibration record
 // is written, and that log is what a `/calibration-review` pass rates. The one
@@ -93,10 +105,17 @@ export function formatBareRefAdvisory(findings: ScanFinding[]): string {
   // the loop is fed by remedy messages that name a ref in order to explain
   // which ones they are linking. Asking for both in one pass would have
   // collapsed the originating five-turn chain into two.
+  // The examples must name the classes that actually fire (mt#3897). They used
+  // to show `[mt#N](…)` / `[PR #N](…)` — now record-only, since the display
+  // linkifier repairs those — which would hand the agent a remedy for a defect
+  // it was not being told about.
   const action =
     "Link them — and any ref you name while doing so — before ending the turn: " +
-    "[mt#N](minsky://task/mt%23N), [PR #N](minsky://changeset/N). " +
-    "The obligation is per MESSAGE; the closing message is where the operator acts.";
+    "[ask#N](minsky://ask/<uuid>), [mem#N](minsky://memory/<uuid>). " +
+    "The target is the full UUID, not the short id (ADR-029); one refs_status " +
+    "call resolves it. If it genuinely cannot be resolved, leave the ref bare " +
+    "and say so. The obligation is per MESSAGE; the closing message is where " +
+    "the operator acts.";
 
   const line = (f: ScanFinding): string => `  - ${f.ref}: ${f.reason}`;
 
