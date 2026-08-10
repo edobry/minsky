@@ -279,20 +279,22 @@ Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 "Why `direction.decide`, not `quality.review`" below). Do not flip anything
 yourself — the Ask decides it, not you.
 
-**Acceptance bar (mt#3326): the ask must pass the cold-reader test.** Before
-calling `asks_create`, read your drafted body as a fresh, minimal-context
-evaluator who has never seen this skill, this codebase, or these detector
-names would read it. That reader must be able to, from the body alone:
+**Acceptance bar: the ask must pass the cold-reader test.** The bar itself is
+stated once, in **`/escalation-packaging` §The cold-reader bar** — read it
+there rather than from a copy here. It applies to every operator-facing ask,
+not only this skill's; mt#3326 originally installed it here alone, and
+ask#7591 (2026-08-10) was the recurrence that reached the principal through a
+path this skill does not touch, which is why the canonical text moved
+(mt#3929).
 
-1. State in one sentence what decision is being asked.
-2. Predict what each option does if clicked — including any downstream
-   consequence (like a flip creating a double-injection risk).
-
-If you can't answer both from the body text, rewrite before creating — don't
-ship and hope the operator infers it. (Originating incident: ask#6448,
-2026-07-29, filed by this skill, failed exactly this test: seven undefined
-detector names, "live vs log-only" never defined, and a recommended option
-that bundled a flip whose precondition — dedup — was not yet satisfied.)
+What is specific to THIS skill: a disposition ask carries detector names and
+`live` vs `log-only`, which are exactly the terms a cold reader cannot
+resolve — so it clears the bar's "dispatch a real cold reader" trigger nearly
+every time. Assume you need the subagent pass here rather than deciding you
+don't. (Originating incident: ask#6448, 2026-07-29, filed by this skill,
+failed exactly this test: seven undefined detector names, "live vs log-only"
+never defined, and a recommended option that bundled a flip whose
+precondition — dedup — was not yet satisfied.)
 
 ### Step 4a — Plain-language lead, THEN stats
 

@@ -28,17 +28,39 @@ name: Post-Deploy Health Monitor
 #   (c) Deployed image digest lags the newest registry digest (mt#3251) —
 #       catches a service that stays HEALTHY on an OLD image because its
 #       deploy pipeline silently stopped shipping new ones. Image-source
-#       services only (reviewer, minsky-mcp); needs no additional secret —
-#       uses GHCR's anonymous registry-token flow. See the module
+#       services only (reviewer, minsky-mcp, minsky-ops); needs no additional
+#       secret — uses GHCR's anonymous registry-token flow. See the module
 #       doc-comment in scripts/post-deploy-health-monitor.ts for the full
 #       Covers / Does NOT cover breakdown.
 # All three checks are independent: deploy-status alone misses (b) and (c);
 # /health alone misses build failures and a frozen-but-healthy deploy.
 #
-# minsky-ops is skipped gracefully (empty serviceId in deploy.config.ts).
+# A CHECK THAT COULD NOT RUN IS NOT A CHECK THAT PASSED (mt#3921). Any of the
+# three failing to complete raises a `check-failed` alert and makes the
+# service's verdict DEGRADED, because the monitor has observed nothing about
+# it. That is separate from "not applicable" — a repo-source service has no
+# configured image, so (c) genuinely does not apply to it and is silent.
+# From 2026-08-05 to 2026-08-10 this distinction did not exist: (a) errored
+# `Not Authorized` on every run for all five services, (c) was consequently
+# skipped, and every service still reported HEALTHY with 0 alerts. See
+# packages/domain/src/deployment/monitor-verdict.ts for the scoring rule.
+#
+# All five services are checked; none has an empty serviceId. (An empty
+# serviceId in deploy.config.ts would skip a service by data, not by name.)
 #
 # SECRETS REQUIRED (set as repository secrets):
-#   RAILWAY_TOKEN            — Railway API token with read access to all services
+#   RAILWAY_MCP_TOKEN        — Railway ACCOUNT/WORKSPACE token, passed to the
+#                              script as RAILWAY_TOKEN. It must be account- or
+#                              workspace-scoped for two reasons: the five
+#                              services span FOUR distinct Railway projects, and
+#                              the script authenticates with `Authorization:
+#                              Bearer`, which per Railway's public-API reference
+#                              is not the header a project token uses
+#                              (`Project-Access-Token`). The repo's generic
+#                              RAILWAY_TOKEN secret is a PROJECT token and was
+#                              the cause of the 4.5-day blind spot above; it is
+#                              still used by cockpit-preview.yml and must not be
+#                              re-scoped (mt#3890).
 #   MINSKY_MCP_AUTH_TOKEN    — Bearer token for the hosted minsky-mcp (secondary path only)
 #   GITHUB_TOKEN             — auto-provided by GitHub Actions
 #
@@ -102,7 +124,13 @@ jobs:
 
       - name: Run post-deploy health monitor
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # mt#3921 — the account/workspace-scoped secret, not the generic
+          # project-scoped RAILWAY_TOKEN. See SECRETS REQUIRED above. No
+          # fallback is wired on purpose: falling back to the wrong-scoped
+          # secret is the state this task exists to end, and an absent
+          # credential now raises check-failed alerts rather than passing
+          # silently.
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_MCP_TOKEN }}
           MINSKY_MCP_AUTH_TOKEN: ${{ secrets.MINSKY_MCP_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}

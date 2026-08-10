@@ -6,7 +6,35 @@
 
 import { log } from "@minsky/shared/logger";
 import { getContextComponentRegistry } from "@minsky/domain/context/components/index";
+import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
 import type { GenerateRequest, GenerateResult } from "./generate-types";
+
+/**
+ * The subset of the tokenization service this module reads.
+ *
+ * Declared structurally so a test can supply a stub — including one that
+ * throws — instead of standing up the real tokenizer registry.
+ */
+export interface TokenCounter {
+  countTokens(text: string, model: string): Promise<number>;
+}
+
+/**
+ * Divisor for the character-count fallback, used only when tokenization fails.
+ *
+ * This was the PRIMARY token count until mt#3458. Every component's
+ * `token_count` came from it while the analysis screen re-counted the same text
+ * with the real tokenizer, so the breakdown divided real counts by an estimated
+ * total and percentages exceeded 100% (104% for a single component; 121% for
+ * two). It survives as a fallback because a tokenizer failure should degrade the
+ * count, not fail the generation — and when it fires the component is named in
+ * `metadata.tokenCountFallbacks` rather than passing as a measurement.
+ */
+export const FALLBACK_CHARS_PER_TOKEN = 4;
+
+function estimateTokensFromLength(text: string): number {
+  return Math.floor(text.length / FALLBACK_CHARS_PER_TOKEN);
+}
 
 /**
  * Get default components to include
@@ -32,10 +60,34 @@ export function getDefaultComponents(): string[] {
 /**
  * Generate context using the modular component system
  */
-export async function generateContext(request: GenerateRequest): Promise<GenerateResult> {
+export async function generateContext(
+  request: GenerateRequest,
+  /** Test seam; production callers omit it and get the real tokenizer registry. */
+  tokenCounter: TokenCounter = new DefaultTokenizationService()
+): Promise<GenerateResult> {
   const startTime = Date.now();
   const registry = getContextComponentRegistry();
   const components = registry.getWithDependencies(request.components);
+  const targetModel = request.input.targetModel;
+  const tokenCountFallbacks: string[] = [];
+
+  /**
+   * Counting failure degrades this one count; it must not fail the generation,
+   * whose output is still useful without an exact token figure.
+   */
+  const countTokens = async (text: string, label: string): Promise<number> => {
+    try {
+      return await tokenCounter.countTokens(text, targetModel);
+    } catch (error) {
+      tokenCountFallbacks.push(label);
+      log.warn("Tokenization failed; falling back to a character-count estimate", {
+        label,
+        model: targetModel,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return estimateTokensFromLength(text);
+    }
+  };
 
   const outputs: Array<{
     component_id: string;
@@ -63,8 +115,7 @@ export async function generateContext(request: GenerateRequest): Promise<Generat
         throw new Error(`Component ${component.id} has no generation method`);
       }
 
-      // Estimate token count (rough approximation: 1 token ~ 4 characters)
-      const tokenCount = Math.floor(output.content.length / 4);
+      const tokenCount = await countTokens(output.content, component.id);
 
       outputs.push({
         component_id: component.id,
@@ -111,12 +162,24 @@ export async function generateContext(request: GenerateRequest): Promise<Generat
     content = "# No Context Generated\n\nAll components failed to generate content.";
   }
 
+  /**
+   * The assembly header above (`# Generated AI Context`, `Generated at:`, the
+   * component list, the model and interface lines) belongs to no component, so
+   * it is absent from `totalTokens`. Counting the assembled string separately
+   * keeps that gap visible rather than leaving `Total Tokens` quietly short of
+   * the context an operator would actually paste (mt#3458).
+   */
+  const assembledTokens = await countTokens(content, "<assembled context>");
+
   return {
     content,
     components: outputs,
     metadata: {
       generationTime,
       totalTokens,
+      assembledTokens,
+      tokenizedForModel: targetModel,
+      tokenCountFallbacks,
       skipped,
       errors,
     },
