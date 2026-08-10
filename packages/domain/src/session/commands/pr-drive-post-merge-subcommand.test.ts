@@ -35,7 +35,9 @@ function mkDeployment(overrides: Partial<DeploymentRecord> = {}): DeploymentReco
 function makeDeps(
   changedFiles: PrChangedFile[],
   deploymentByService: Record<string, DeploymentRecord> = {}
-): SessionPrDrivePostMergeDependencies & { waitCalls: Array<{ service: string }> } {
+): SessionPrDrivePostMergeDependencies & {
+  waitCalls: Array<{ service: string; notBefore?: string }>;
+} {
   const sessionRecord: SessionRecord = {
     session: SESSION_ID,
     repoName: "edobry-minsky",
