@@ -520,6 +520,11 @@ export async function buildTrackerUnavailableResponse(
         "git rev-list --count origin/<base-branch>..HEAD  (commits ahead of base = unmerged work landed)",
         "gh pr view  (if a PR was opened: is it still open, and what's the latest review state?)",
       ],
+      // No `no-workspace` line here, deliberately (mt#3894). This guide walks an operator
+      // through inspecting a SESSION WORKSPACE by hand, and every step above reads one — so the
+      // class that means "there was no workspace" cannot be reached down this path. Recorded
+      // rather than silently omitted, since an unexplained gap in an enumeration of the enum
+      // reads as an oversight.
       classificationGuide:
         "dirty tree + handoff.md present -> partial-committed-handoff-written; " +
         "dirty tree, no handoff.md -> partial-uncommitted-no-handoff (the class most likely to " +
