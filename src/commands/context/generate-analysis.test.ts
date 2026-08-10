@@ -43,11 +43,27 @@ const anthropicCache = stubCache({
   openai: [{ id: "gpt-4o", contextWindow: 128_000 }],
 });
 
-function resultWithTokens(totalTokens: number): GenerateResult {
+/**
+ * `assembledTokens` matches `totalTokens` because `content` is empty here —
+ * there is no assembly header to account for, so the window-utilization
+ * assertions below stay about the window, not about the mt#3458 header gap.
+ */
+function resultWithTokens(
+  totalTokens: number,
+  tokenizedForModel = "claude-opus-5"
+): GenerateResult {
   return {
     content: "",
     components: [],
-    metadata: { generationTime: 1, totalTokens, skipped: [], errors: [] },
+    metadata: {
+      generationTime: 1,
+      totalTokens,
+      assembledTokens: totalTokens,
+      tokenizedForModel,
+      tokenCountFallbacks: [],
+      skipped: [],
+      errors: [],
+    },
   };
 }
 
@@ -121,7 +137,7 @@ describe("analyzeGeneratedContext context-window reporting", () => {
 
   test("reports unknown rather than a percentage when the model is not cached", async () => {
     const analysis = await analyzeGeneratedContext(
-      resultWithTokens(50_000),
+      resultWithTokens(50_000, "claude-opus-6"),
       { model: "claude-opus-6" },
       anthropicCache
     );
@@ -182,6 +198,7 @@ describe("display paths tolerate an unknown context window", () => {
     },
     summary: {
       totalTokens: 50_000,
+      assembledTokens: 50_000,
       totalComponents: 1,
       averageTokensPerComponent: 50_000,
       largestComponent: "environment",
@@ -202,6 +219,184 @@ describe("display paths tolerate an unknown context window", () => {
     expect(() =>
       displayContextVisualization(unknownAnalysis, { chartType: "bar", maxWidth: "80" })
     ).not.toThrow();
+  });
+});
+
+/**
+ * mt#3458 — the component breakdown divided real tokenizer counts by a
+ * character-estimate total, so percentages exceeded 100% (104% for one
+ * component, 121% for two) and the optimization suggestions mis-fired on them.
+ *
+ * These assert the RECONCILIATION, not a particular token count: whatever the
+ * tokenizer returns, what is displayed has to add up to what is displayed
+ * beside it. A test pinned to specific counts would break on any tokenizer
+ * change while saying nothing about the invariant that actually broke.
+ */
+describe("component breakdown reconciles with the reported total (mt#3458)", () => {
+  const MODEL = "claude-opus-5";
+
+  /**
+   * Shaped like `generateContext`'s output post-fix: `token_count` is a real
+   * tokenizer count and `totalTokens` is their sum. The counts here stand in
+   * for the tokenizer so the assertions stay deterministic.
+   */
+  function generatedResult(
+    counted: Array<{ id: string; content: string; tokens: number }>,
+    tokenizedForModel = MODEL
+  ): GenerateResult {
+    const totalTokens = counted.reduce((sum, c) => sum + c.tokens, 0);
+    return {
+      content: counted.map((c) => c.content).join("\n\n"),
+      components: counted.map((c) => ({
+        component_id: c.id,
+        content: c.content,
+        generated_at: new Date(0).toISOString(),
+        token_count: c.tokens,
+      })),
+      metadata: {
+        generationTime: 1,
+        totalTokens,
+        assembledTokens: totalTokens,
+        tokenizedForModel,
+        tokenCountFallbacks: [],
+        skipped: [],
+        errors: [],
+      },
+    };
+  }
+
+  function sumOfPercentages(analysis: AnalysisResult): number {
+    return analysis.componentBreakdown.reduce((sum, c) => sum + parseFloat(c.percentage), 0);
+  }
+
+  // Rounding: each percentage is emitted via toFixed(1), so N components can
+  // drift up to N * 0.05 from 100 without anything being wrong.
+  const ROUNDING_TOLERANCE_PER_COMPONENT = 0.05;
+
+  // mt#3458 AT3: the reproducing single-component case reported 104.0%.
+  test("mt#3458 AT3: a single component reports 100%, not 104%", async () => {
+    const analysis = await analyzeGeneratedContext(
+      generatedResult([{ id: "environment", content: "x".repeat(203), tokens: 52 }]),
+      { model: MODEL },
+      anthropicCache
+    );
+
+    expect(analysis.componentBreakdown).toHaveLength(1);
+    expect(analysis.componentBreakdown[0]?.percentage).toBe("100.0");
+    // The pre-fix figure, recomputed here so the regression is legible: the
+    // real count over the chars/4 estimate the generation path used to report.
+    const preFixPercentage = (52 / Math.floor(203 / 4)) * 100;
+    expect(preFixPercentage).toBeCloseTo(104, 0);
+  });
+
+  // mt#3458 AT1 + AT2: the two-component case reported 121.2% in total.
+  test("mt#3458 AT1/AT2: no percentage exceeds 100% and they sum to 100%", async () => {
+    const analysis = await analyzeGeneratedContext(
+      generatedResult([
+        { id: "environment", content: "x".repeat(203), tokens: 52 },
+        { id: "project-context", content: "y".repeat(517), tokens: 163 },
+      ]),
+      { model: MODEL },
+      anthropicCache
+    );
+
+    for (const component of analysis.componentBreakdown) {
+      expect(parseFloat(component.percentage)).toBeLessThanOrEqual(100);
+    }
+    expect(sumOfPercentages(analysis)).toBeCloseTo(100, 1);
+
+    // What this test would have measured before the producers were unified:
+    // real counts over the chars/4 total. The live reproduction reported
+    // 121.2% on its own slightly different content; the invariant asserted
+    // here is that the pre-fix arithmetic breaks 100% at all.
+    const preFixEstimateTotal = Math.floor(203 / 4) + Math.floor(517 / 4);
+    expect(((52 + 163) / preFixEstimateTotal) * 100).toBeGreaterThan(100);
+  });
+
+  test("the reported total equals the sum of the counts displayed beside it", async () => {
+    const analysis = await analyzeGeneratedContext(
+      generatedResult([
+        { id: "a", content: "a".repeat(400), tokens: 111 },
+        { id: "b", content: "b".repeat(50), tokens: 17 },
+        { id: "c", content: "c".repeat(9_000), tokens: 2_500 },
+      ]),
+      { model: MODEL },
+      anthropicCache
+    );
+
+    const displayedSum = analysis.componentBreakdown.reduce((sum, c) => sum + c.tokens, 0);
+    expect(analysis.summary.totalTokens).toBe(displayedSum);
+    expect(sumOfPercentages(analysis)).toBeCloseTo(
+      100,
+      // 3 components * 0.05 rounding headroom, expressed as digits for toBeCloseTo.
+      -Math.log10(3 * ROUNDING_TOLERANCE_PER_COMPONENT * 2)
+    );
+  });
+
+  /**
+   * When the analysis targets a model the counts were not produced for, it
+   * recounts every component — and must then use the sum of what it recounted
+   * as the denominator, not the stale total from the generation model.
+   */
+  test("recounting for a different model still reconciles", async () => {
+    const analysis = await analyzeGeneratedContext(
+      generatedResult(
+        [
+          { id: "environment", content: "x".repeat(203), tokens: 52 },
+          { id: "project-context", content: "y".repeat(517), tokens: 163 },
+        ],
+        "some-other-model"
+      ),
+      { model: MODEL },
+      anthropicCache
+    );
+
+    for (const component of analysis.componentBreakdown) {
+      expect(parseFloat(component.percentage)).toBeLessThanOrEqual(100);
+    }
+    expect(sumOfPercentages(analysis)).toBeCloseTo(100, 1);
+    expect(analysis.summary.totalTokens).toBe(
+      analysis.componentBreakdown.reduce((sum, c) => sum + c.tokens, 0)
+    );
+  });
+
+  /**
+   * The suggestion thresholds branch on these percentages; the reproducing run
+   * emitted "consumes 104.0% of your context" for a lone component.
+   */
+  test("no optimization suggestion quotes a percentage above 100%", async () => {
+    const analysis = await analyzeGeneratedContext(
+      generatedResult([{ id: "environment", content: "x".repeat(203), tokens: 52 }]),
+      { model: MODEL },
+      anthropicCache
+    );
+
+    for (const optimization of analysis.optimizations) {
+      const quoted = optimization.suggestion.match(/(\d+(?:\.\d+)?)%/g) ?? [];
+      for (const percentage of quoted) {
+        expect(parseFloat(percentage)).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  test("utilization counts the assembly header, which belongs to no component", async () => {
+    const base = generatedResult([{ id: "environment", content: "x".repeat(203), tokens: 52 }]);
+    const withHeader: GenerateResult = {
+      ...base,
+      metadata: { ...base.metadata, assembledTokens: base.metadata.totalTokens + 48 },
+    };
+
+    const analysis = await analyzeGeneratedContext(withHeader, { model: MODEL }, anthropicCache);
+
+    expect(analysis.summary.totalTokens).toBe(52);
+    expect(analysis.summary.assembledTokens).toBe(100);
+    expect(analysis.summary.contextWindowUtilization).toBeCloseTo(
+      (100 / LIVE_ANTHROPIC_CONTEXT_WINDOW) * 100,
+      10
+    );
+    // The breakdown still sums to Total Tokens, not to the assembled figure —
+    // the two are different quantities and the display names the difference.
+    expect(sumOfPercentages(analysis)).toBeCloseTo(100, 1);
   });
 });
 

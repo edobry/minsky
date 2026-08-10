@@ -121,20 +121,48 @@ export async function analyzeGeneratedContext(
   const tokenizationService = new DefaultTokenizationService();
   const targetModel = options.model || "gpt-4o";
 
+  /**
+   * Reuse the counts the generation path already produced when they were
+   * produced for THIS model. Recomputing them here is what broke the breakdown
+   * before mt#3458: the generation path estimated `token_count` at one token per
+   * four characters while this loop measured the same text with the real
+   * tokenizer, so every percentage divided a measurement by an estimate and the
+   * total could be exceeded. Reusing makes numerator and denominator the same
+   * numbers by construction, not by two paths agreeing.
+   *
+   * They can only diverge when the analysis targets a different model than the
+   * generation did — `displayModelComparison` re-generates per model, so this
+   * holds there too, but the guard is on the recorded model rather than on that
+   * call-site convention.
+   */
+  const countsMatchThisModel = result.metadata.tokenizedForModel === targetModel;
+
   // Analyze each component's token usage
   const componentAnalysis: ComponentBreakdown[] = [];
+  let recountedTotal = 0;
   for (const component of result.components) {
-    const tokens = await tokenizationService.countTokens(component.content, targetModel);
-    const percentage = result.metadata.totalTokens
-      ? (tokens / result.metadata.totalTokens) * 100
-      : 0;
-
+    const reusable = countsMatchThisModel ? component.token_count : undefined;
+    const tokens =
+      reusable ?? (await tokenizationService.countTokens(component.content, targetModel));
+    recountedTotal += tokens;
     componentAnalysis.push({
       component: component.component_id,
       tokens,
-      percentage: percentage.toFixed(1),
+      percentage: "0.0",
       content_length: component.content.length,
     });
+  }
+
+  /**
+   * When the counts were recomputed for a different model, `metadata.totalTokens`
+   * belongs to the generation model and is the wrong denominator — the sum of
+   * what is actually displayed is the right one.
+   */
+  const totalTokens = countsMatchThisModel ? result.metadata.totalTokens : recountedTotal;
+
+  for (const breakdown of componentAnalysis) {
+    const percentage = totalTokens ? (breakdown.tokens / totalTokens) * 100 : 0;
+    breakdown.percentage = percentage.toFixed(1);
   }
 
   // Sort by token usage (largest first)
@@ -145,11 +173,17 @@ export async function analyzeGeneratedContext(
     ? await getModelContextWindow(targetModel, contextWindowSource)
     : await getModelContextWindow(targetModel);
 
+  /**
+   * On the mismatch path every component was recounted for this model, so the
+   * generation path's assembled figure belongs to a different tokenizer target
+   * and would be the odd number out.
+   */
+  const assembledTokens = countsMatchThisModel
+    ? result.metadata.assembledTokens
+    : await tokenizationService.countTokens(result.content, targetModel);
+
   // Generate optimization suggestions
-  const optimizations = generateContextOptimizations(
-    componentAnalysis,
-    result.metadata.totalTokens || 0
-  );
+  const optimizations = generateContextOptimizations(componentAnalysis, totalTokens);
 
   // Get tokenizer information (getTokenizerInfo is an optional extension not in the base interface)
   const tokenizerInfo = (
@@ -170,16 +204,21 @@ export async function analyzeGeneratedContext(
       generationTime: result.metadata.generationTime,
     },
     summary: {
-      totalTokens: result.metadata.totalTokens || 0,
+      totalTokens,
+      assembledTokens,
       totalComponents: result.components.length,
       averageTokensPerComponent: componentAnalysis.length
-        ? Math.round((result.metadata.totalTokens || 0) / componentAnalysis.length)
+        ? Math.round(totalTokens / componentAnalysis.length)
         : 0,
       largestComponent: componentAnalysis[0]?.component || "none",
+      /**
+       * Utilization measures what an operator would actually send, so it uses
+       * the assembled figure — the header is context they pay for. Before
+       * mt#3458 this divided a chars/4 estimate by the window and understated
+       * utilization by roughly the same ~20% the percentages overstated.
+       */
       contextWindowUtilization:
-        contextWindowSize === null
-          ? null
-          : ((result.metadata.totalTokens || 0) / contextWindowSize) * 100,
+        contextWindowSize === null ? null : (assembledTokens / contextWindowSize) * 100,
     },
     componentBreakdown: componentAnalysis,
     optimizations,
