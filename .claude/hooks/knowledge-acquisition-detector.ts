@@ -889,15 +889,35 @@ export async function detectKnowledgeAcquisition(
   }
 
   const firstMatch = matchedOccurrences[0];
-  const lastMatch = matchedOccurrences[matchedOccurrences.length - 1];
-  if (!firstMatch || !lastMatch) return null;
+  if (!firstMatch) return null;
+
+  /**
+   * Transcript index of the session's MOST RECENT matched occurrence.
+   *
+   * Computed by max rather than by taking the array's last element, and computed
+   * ONCE because two consumers depend on it — the eligibility gate immediately
+   * below and the session verdict further down. PR #2751 R1 caught them
+   * disagreeing: the verdict had been made order-invariant while the gate still
+   * read `matchedOccurrences[length - 1]`, so an unordered array would have let
+   * the two pick different occurrences and mis-time the grace period.
+   *
+   * Both construction paths (rung-2 `nominated` and the lexical fallback) push in
+   * `candidates` iteration order today, so the array IS ordered in practice and
+   * the two forms agree. That is an invariant held at a distance, in a different
+   * branch, which is exactly the kind that breaks quietly later — deriving the
+   * value once removes the coupling instead of restating the assumption twice.
+   */
+  const lastOccurrenceIdx = matchedOccurrences.reduce(
+    (max, { occ }) => (occ.idx > max ? occ.idx : max),
+    -1
+  );
 
   // Session eligibility: the grace period runs against the MOST RECENT matched
   // occurrence, not each one individually (mt#3720), so a session with
   // continuing matched research keeps re-extending its own clock. A deferral,
   // not a suppression — nothing is recorded, and it is re-evaluated on the next
   // Stop invocation.
-  if (countPromptBoundariesAfter(lines, lastMatch.occ.idx) < windowTurns) return null;
+  if (countPromptBoundariesAfter(lines, lastOccurrenceIdx) < windowTurns) return null;
 
   // mt#3617 instrumentation, aggregated across every matched occurrence
   // (mt#3720). Collected after the nomination loop — so it cannot influence
@@ -944,13 +964,9 @@ export async function detectKnowledgeAcquisition(
   // correctly, so the proxy would flag good consolidation as a miss. The strict
   // semantic is assigned to mt#3783, this detector's rung-3 task.
   //
-  // Max-by-index rather than `at(-1)`: nothing here guarantees
-  // `matchedOccurrences` is ordered, and the argument above depends on this
-  // being the LAST occurrence positionally.
-  const lastOccurrenceIdx = matchedOccurrences.reduce(
-    (max, { occ }) => (occ.idx > max ? occ.idx : max),
-    -1
-  );
+  // `lastOccurrenceIdx` is derived ONCE above and deliberately shared with the
+  // eligibility gate — see its doc comment for why the two must not compute
+  // "the most recent occurrence" independently (PR #2751 R1).
   const hadPropagation = lastOccurrenceIdx >= 0 && hasPropagationAfter(lines, lastOccurrenceIdx);
 
   return {
