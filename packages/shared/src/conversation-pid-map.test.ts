@@ -9,7 +9,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  type ConversationTransition,
   type MappingIo,
+  getConversationTransitionLogPath,
   readConversationMapping,
   resolveHarnessPid,
   writeConversationMapping,
@@ -21,6 +23,10 @@ const CONV_B = "8f3a2d1b-0000-0000-0000-000000000002";
 /** Pids used only as map keys; chosen high to avoid colliding with real ones. */
 const TEST_PID = 991001;
 const TEST_PID_2 = 991002;
+
+/** Two distinct harness start times, in `ps -o lstart=` shape. */
+const STARTED_EARLIER = "Mon Aug 10 06:00:00 2026";
+const STARTED_LATER = "Mon Aug 10 07:30:00 2026";
 
 /**
  * In-memory {@link MappingIo}. Keeps the real path derivation and JSON codec in
@@ -35,7 +41,19 @@ function memoryIo(): MappingIo & { files: Map<string, string> } {
     write: (path, contents) => {
       files.set(path, contents);
     },
+    append: (path, line) => {
+      files.set(path, (files.get(path) ?? "") + line);
+    },
   };
+}
+
+/** Parsed transition records from a memory io's log file. */
+function transitionsIn(io: MappingIo & { files: Map<string, string> }) {
+  const body = io.files.get(getConversationTransitionLogPath()) ?? "";
+  return body
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => JSON.parse(l) as ConversationTransition);
 }
 
 describe("resolveHarnessPid — the rule writer and reader must share (mt#3900)", () => {
@@ -179,9 +197,145 @@ describe("mapping round-trip (mt#3900)", () => {
  * entry left by a dead `claude` must not answer for a later, unrelated `claude`
  * that inherited its number.
  */
+/**
+ * Transition capture (mt#3943).
+ *
+ * The edge between two conversations on one pid is observable for exactly the
+ * instant before the overwrite, and nowhere else. Measured on 2026-08-10: four
+ * `/clear` transitions across four harness pids in 23 minutes, all discarded.
+ */
+describe("conversation transition capture (mt#3943)", () => {
+  test("a switch records one transition naming predecessor and successor", () => {
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, null);
+
+    const records = transitionsIn(io);
+    expect(records.length).toBe(1);
+    expect(records[0]?.predecessor).toBe(CONV_A);
+    expect(records[0]?.successor).toBe(CONV_B);
+    expect(records[0]?.source).toBe("clear");
+    expect(records[0]?.harnessPid).toBe(TEST_PID);
+  });
+
+  test("re-writing the SAME conversation records nothing", () => {
+    // A `startup` on a fresh pid, or any repeat write, is not a transition.
+    // Without this the log would fill with self-edges on every session start.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_A, "resume", io, null);
+    expect(transitionsIn(io).length).toBe(0);
+  });
+
+  test("the FIRST mapping on a pid records nothing — there is no predecessor", () => {
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    expect(transitionsIn(io).length).toBe(0);
+  });
+
+  test("transitions accumulate rather than replacing each other", () => {
+    const io = memoryIo();
+    const CONV_C = "8f3a2d1b-0000-0000-0000-000000000003";
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, null);
+    writeConversationMapping(TEST_PID, CONV_C, "clear", io, null);
+
+    const records = transitionsIn(io);
+    expect(records.length).toBe(2);
+    expect(records[1]?.predecessor).toBe(CONV_B);
+    expect(records[1]?.successor).toBe(CONV_C);
+  });
+
+  test("a fork and a clear are distinguishable by source (SC6)", () => {
+    // The whole point of recording a TRANSITION rather than a succession: a
+    // reader must be able to tell "operator started a new topic" from "a
+    // sibling branched off", because those mean different things and this
+    // layer deliberately does not decide which.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "fork", io, null);
+    writeConversationMapping(TEST_PID_2, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID_2, CONV_B, "clear", io, null);
+
+    const sources = transitionsIn(io).map((r) => r.source);
+    expect(sources).toEqual(["fork", "clear"]);
+  });
+
+  test("a failing transition log does NOT fail the mapping write (SC2)", () => {
+    // The mapping is correctness (mt#3900); the log is observability. A hook
+    // must never fail the event it observes, so the mapping must still land.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+
+    const brokenIo: MappingIo = {
+      ...io,
+      append: () => {
+        throw new Error("disk full");
+      },
+    };
+
+    expect(writeConversationMapping(TEST_PID, CONV_B, "clear", brokenIo, null)).toBe(true);
+    expect(readConversationMapping(TEST_PID, io, () => null)).toBe(CONV_B);
+  });
+
+  test("a recycled pid is distinguishable from a real switch using the log ALONE", () => {
+    // PR #2791 R1. The first version of this test asserted only that the
+    // SUCCESSOR's start time was recorded, and its name claimed that made a
+    // recycled pid "legible" — which it did not. A pid identifies a process only
+    // together with its start time, so telling "operator switched conversations"
+    // from "the OS reused this pid for an unrelated harness" needs BOTH ends.
+    // With one timestamp the two are identical in the log.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, STARTED_EARLIER);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_LATER);
+
+    const record = transitionsIn(io)[0];
+    expect(record?.harnessStartedAt).toBe(STARTED_LATER);
+    expect(record?.predecessorHarnessStartedAt).toBe(STARTED_EARLIER);
+    // Differing ends ⇒ this edge crossed a process boundary, not a switch.
+    expect(record?.predecessorHarnessStartedAt).not.toBe(record?.harnessStartedAt);
+  });
+
+  test("a genuine in-seat switch shows MATCHING start times at both ends", () => {
+    // The contrast case: same live harness, operator ran /clear. Equal
+    // timestamps are what makes this edge trustworthy as a real switch.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, STARTED_EARLIER);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_EARLIER);
+
+    const record = transitionsIn(io)[0];
+    expect(record?.harnessStartedAt).toBe(STARTED_EARLIER);
+    expect(record?.predecessorHarnessStartedAt).toBe(STARTED_EARLIER);
+  });
+
+  test("a predecessor written without a start time still records the edge", () => {
+    // Back-compat: entries written before `harnessStartedAt` existed. Absence
+    // must degrade to a less-legible edge, never to a dropped one.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_LATER);
+
+    const record = transitionsIn(io)[0];
+    expect(record?.predecessor).toBe(CONV_A);
+    expect(record?.predecessorHarnessStartedAt).toBeUndefined();
+  });
+
+  test("no succession is asserted — the record carries no continuesFrom", () => {
+    // Guards the distinction itself. A `/clear` often means "new, unrelated
+    // topic", so an edge is evidence of replacement, never of continuation.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, null);
+
+    const raw = io.files.get(getConversationTransitionLogPath()) ?? "";
+    expect(raw).not.toContain("continuesFrom");
+    expect(raw).not.toContain("succeeds");
+  });
+});
+
 describe("recycled-pid staleness (mt#3900)", () => {
-  const STARTED_A = "Mon Aug 10 06:00:00 2026";
-  const STARTED_B = "Mon Aug 10 07:30:00 2026";
+  const STARTED_A = STARTED_EARLIER;
+  const STARTED_B = STARTED_LATER;
 
   test("an entry whose start time matches the live process is used", () => {
     const io = memoryIo();
