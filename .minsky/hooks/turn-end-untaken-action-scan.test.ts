@@ -528,6 +528,15 @@ describe("mt#3917 precision fixes", () => {
     test("an unarmed commitment with no watcher still fires", () => {
       expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
     });
+
+    test("naming CI as the blocker, with no watcher, still fires (PR #2784 R1)", () => {
+      // The first draft suppressed on `blocked only on ci` too. Naming a blocker
+      // is not evidence a watcher was armed — it is the announce-and-stop turn
+      // this guard exists to catch, so the suppression keys on the report-back
+      // clause instead.
+      const announceAndStop = "Blocked only on CI now — I'll merge the PR.";
+      expect(detectUntakenAction(announceAndStop).length).toBeGreaterThan(0);
+    });
   });
 
   describe("an attributed next step is a description, not a commitment", () => {

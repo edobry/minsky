@@ -149,8 +149,17 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   // where the subject is the watcher. `work-completion.mdc §External
   // self-resolving waits` prescribes exactly that shape, so firing on it tells
   // the agent to override the rule it was following.
+  //
+  // Scoped to the DELEGATED-REPORT clause only. A first draft also carried
+  // `blocked only on ci|checks|the build`, and PR #2784 R1 was right to reject
+  // it: naming CI as the blocker says nothing about whether a watcher was ever
+  // armed, so it silenced the exact turn this guard exists to catch — an agent
+  // that announces a blocker and then stops. `work-completion.mdc` asks for the
+  // watcher, not for the excuse, so the suppression has to key on evidence the
+  // watcher exists. `when <subject> reports back` names one; "blocked on CI"
+  // names none. The real 2026-08-09T04:18Z fire carries the report-back clause,
+  // so nothing is lost by dropping the broader phrase.
   /\bwhen\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
-  /\bblocked\s+only\s+on\s+(?:ci\b|checks\b|the\s+build\b)/i,
 ];
 
 /**
