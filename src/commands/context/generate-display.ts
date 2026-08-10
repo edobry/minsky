@@ -5,7 +5,11 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { formatContextWindowSize, formatContextWindowUtilization } from "./generate-analysis";
+import {
+  formatAssembledContextLine,
+  formatContextWindowSize,
+  formatContextWindowUtilization,
+} from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -42,12 +46,9 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
    * from silently disagreeing with the context an operator actually sends
    * (mt#3458) — the breakdown below sums to `Total Tokens`, not to this.
    */
-  if (analysis.summary.assembledTokens > analysis.summary.totalTokens) {
-    const headerTokens = analysis.summary.assembledTokens - analysis.summary.totalTokens;
-    log.cli(
-      `Assembled Context: ${analysis.summary.assembledTokens.toLocaleString()} tokens ` +
-        `(+${headerTokens.toLocaleString()} for the generation header, which is in no component)`
-    );
+  const assembledLine = formatAssembledContextLine(analysis.summary);
+  if (assembledLine) {
+    log.cli(assembledLine);
   }
   log.cli(`Total Components: ${analysis.summary.totalComponents}`);
   log.cli(

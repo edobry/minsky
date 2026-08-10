@@ -62,6 +62,29 @@ export function formatContextWindowUtilization(
 }
 
 /**
+ * The line naming the gap between the breakdown's total and the assembled
+ * context, or null when there is nothing to explain.
+ *
+ * Shared by every surface that prints `Total Tokens`, so a surface cannot show
+ * that figure while omitting what it excludes — the analysis and visualization
+ * displays both print it, and the next one to print it inherits this rather
+ * than reimplementing it (mt#3458, PR #2777 R1).
+ */
+export function formatAssembledContextLine(summary: {
+  totalTokens: number;
+  assembledTokens: number;
+}): string | null {
+  if (summary.assembledTokens <= summary.totalTokens) {
+    return null;
+  }
+  const headerTokens = summary.assembledTokens - summary.totalTokens;
+  return (
+    `Assembled Context: ${summary.assembledTokens.toLocaleString()} tokens ` +
+    `(+${headerTokens.toLocaleString()} for the generation header, which is in no component)`
+  );
+}
+
+/**
  * Resolve a model's context window from the model cache.
  *
  * Returns null when the model is not cached; callers render that as unknown.

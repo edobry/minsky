@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   analyzeGeneratedContext,
+  formatAssembledContextLine,
   formatContextWindowSize,
   formatContextWindowUtilization,
   getModelContextWindow,
@@ -377,6 +378,24 @@ describe("component breakdown reconciles with the reported total (mt#3458)", () 
         expect(parseFloat(percentage)).toBeLessThanOrEqual(100);
       }
     }
+  });
+
+  /**
+   * PR #2777 R1: the analysis display named the header gap and the
+   * visualization display did not, so the same `Total Tokens` figure was
+   * explained on one surface and bare on the other. Both now read one
+   * formatter, and this asserts the formatter's own contract.
+   */
+  test("the assembled-context line explains the gap, and is omitted when there is none", () => {
+    expect(formatAssembledContextLine({ totalTokens: 299, assembledTokens: 351 })).toBe(
+      `Assembled Context: ${(351).toLocaleString()} tokens ` +
+        `(+${(52).toLocaleString()} for the generation header, which is in no component)`
+    );
+
+    // Nothing to explain: no line, rather than a "+0" line.
+    expect(formatAssembledContextLine({ totalTokens: 299, assembledTokens: 299 })).toBeNull();
+    // Defensive: a smaller assembled figure is not a negative header.
+    expect(formatAssembledContextLine({ totalTokens: 299, assembledTokens: 100 })).toBeNull();
   });
 
   test("utilization counts the assembly header, which belongs to no component", async () => {
