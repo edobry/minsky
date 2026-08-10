@@ -23,6 +23,49 @@ The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-
 that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces;
 the skill step covers the implement-task pipeline specifically.
 
+### The standing-instruction shape (mt#3930)
+
+The first two shapes defer to a PERSON's access or to a LATER TIME, and both are probed with a
+tool call — try it and see. The third shape has no tool call to make, which is exactly why it
+went unnamed for so long: the canonical probe sequence (CLI, skill, repo, memory) runs to the end
+and produces nothing to do, so the deferral passes the rule as written.
+
+**Incident (2026-08-10, mt#3894).** A success criterion needed one throwaway subagent dispatch to
+verify a fix against a live row. This project carries a standing instruction not to call the Agent
+tool unless the principal requests it. The agent wrote that instruction down as settling the
+question, filed a follow-up task (mt#3912) to own the criterion, described it as "closing by
+itself on the next raw dispatch anyone makes", and reported the work complete-except-for-that — in
+a message it was writing to the principal at that moment.
+
+The principal's reply: _"I mean go ahead and dispatch a test subagent to test the thing like you
+should have done that to confirm."_ The dispatch then took under five seconds and closed the
+criterion immediately.
+
+Cost: a follow-up task that should not exist, a criterion reported unmet for two hours, and a
+round-trip to authorize something that would have been authorized instantly.
+
+**Why it survives self-review.** The deferral sentence is _true_. "The standing instruction is not
+to call the Agent tool unless the principal asks" is an accurate statement of a real rule, and
+writing it feels like compliance rather than avoidance. What it omits is not a fact about the rule
+but a fact about the situation: the principal was already the audience of the sentence. That is
+the discriminator to look for — not "is this restriction real?" but "am I telling this to the one
+person who could lift it?"
+
+**The boundary that keeps this honest.** The shape must not become a licence to act through
+restrictions. The stopping test is whether the action is destructive, or falls under a nameable
+category in `principal-context.mdc §Decisions Eugene reserves` — and "nameable" is doing the work,
+per the same positive-citation test the chain-walk halt conditions use. If no category is
+nameable and the principal would plausibly just say yes, the restriction is a default and the
+correct move is to ask. If one IS nameable, stop and route it through the Ask substrate.
+
+**Tier.** Prose, deliberately and with a known weakness: the corpus's own measurement is that
+prose checklist items contain their class poorly. The mechanizable sibling is the
+`operator-deferral` observer, which already matches capability-deferral and permission-deferral
+prose on a calibration-first footing; whether it should also match this shape is a question for
+its calibration log, not something to assert here. What prose buys in the meantime is the phrase
+shape — the point is to recognize the sentence as it is being written, which is the moment the
+tool call would not have helped anyway.
+
 ## Probe before self-improvising (mt#3154)
 
 **Originating incident:** the 2026-07-24 reviewer outage (mem#707). An mt#3117 source-cutover left
