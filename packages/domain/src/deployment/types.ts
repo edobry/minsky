@@ -104,6 +104,27 @@ export interface WaitForLatestOptions {
    * that don't need progress observation simply omit the option.
    */
   onStatusObserved?: (record: DeploymentRecord) => void | Promise<void>;
+  /**
+   * ISO8601 lower bound on the deployment's `createdAt` (mt#3890). When set,
+   * a deployment created BEFORE this instant is not accepted as the one being
+   * waited for — the wait keeps polling for a newer one and throws
+   * {@link NoDeploymentSinceError} if none appears before the timeout.
+   *
+   * Without it, this method's contract is "whatever is latest at call time,"
+   * which silently succeeds against an ARBITRARILY OLD deployment. That is not
+   * hypothetical: for ~4.5 days `minsky-mcp`'s redeploy call was returning
+   * `Not Authorized` while the workflow treated it as non-fatal, so no new
+   * deployment was ever created — and this method dutifully returned the
+   * 2026-08-05 SUCCESS record to every post-merge deploy gate that asked. The
+   * gate passed on a deploy that never happened.
+   *
+   * Callers verifying a specific merge should pass that merge's timestamp.
+   * Note the check is on TIME, not commit: an image-source Railway deploy
+   * carries no `commitHash` (verified on the reviewer service, whose working
+   * deploys have a null hash while its older repo-source builds have one), so
+   * commit comparison is not available on the path that matters.
+   */
+  notBefore?: string;
 }
 
 /**
@@ -214,6 +235,37 @@ export interface RestartCountResult {
  * last observed status so the caller can decide whether to keep waiting or
  * surface the partial state.
  */
+/**
+ * Thrown when `waitForLatestDeployment` was given a `notBefore` bound and no
+ * deployment created at or after it appeared before the timeout (mt#3890).
+ *
+ * Deliberately DISTINCT from {@link DeploymentWaitTimeoutError}: that one means
+ * "a deployment is running and hasn't finished," this one means "no deployment
+ * ever started." Those call for opposite responses — wait longer vs. go find
+ * out why nothing was triggered — and collapsing them is what let a broken
+ * deploy pipeline read as a slow one.
+ *
+ * Carries the newest record actually found (or null) so the caller can report
+ * how stale the service really is.
+ */
+export class NoDeploymentSinceError extends Error {
+  constructor(
+    public readonly notBefore: string,
+    public readonly timeoutSeconds: number,
+    public readonly newestRecord: DeploymentRecord | null
+  ) {
+    const newest = newestRecord
+      ? `Newest deployment is ${newestRecord.status} from ${newestRecord.createdAt}.`
+      : "No deployments exist for this service at all.";
+    super(
+      `No deployment created at or after ${notBefore} appeared within ${timeoutSeconds}s. ` +
+        `${newest} The deploy was almost certainly never triggered — check the deploy ` +
+        `workflow's redeploy step rather than waiting longer.`
+    );
+    this.name = "NoDeploymentSinceError";
+  }
+}
+
 export class DeploymentWaitTimeoutError extends Error {
   constructor(
     public readonly timeoutSeconds: number,

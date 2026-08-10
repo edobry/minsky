@@ -1003,6 +1003,16 @@ export const sessionPrDriveCommandParams = {
     required: false,
     defaultValue: 10,
   },
+  mergedAt: {
+    schema: z.string().min(1),
+    description:
+      "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). " +
+      "Bounds each deployment wait so a deployment predating the merge cannot satisfy it. " +
+      "Omit and the watch accepts whatever deployment is newest — the result then reports " +
+      "deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence " +
+      "this merge deployed (mt#3890).",
+    required: false,
+  },
 };
 
 /**
