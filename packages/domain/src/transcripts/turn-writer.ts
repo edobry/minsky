@@ -591,7 +591,15 @@ export interface ExtractAllTurnsResult {
  * that extracted nothing and a run that wrote nothing must not render as an
  * empty string. Everything else is shown only when non-zero.
  */
-const ALWAYS_SHOWN_COUNTERS: ReadonlySet<string> = new Set(["turnsExtracted", "turnsWritten"]);
+const ALWAYS_SHOWN_COUNTERS: ReadonlySet<string> = new Set([
+  "turnsExtracted",
+  "turnsWritten",
+  // `orphansDeleted` is always shown even at zero because a NO-OP delete is
+  // the exact shape of the mt#3911 incident: the operator needs to be able to
+  // tell "the delete ran and found nothing" from "the delete never ran" from
+  // the output line alone, without a database query.
+  "orphansDeleted",
+]);
 
 /**
  * True when the sweep's own numbers say it did not fully succeed (mt#3911).

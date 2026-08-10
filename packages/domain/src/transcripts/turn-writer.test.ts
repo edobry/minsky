@@ -1091,6 +1091,13 @@ describe("formatExtractAllTurnsResult (render-from-shape, mt#3911)", () => {
     expect(rendered).not.toContain("aborted");
   });
 
+  test("SC5: a NO-OP orphan delete is visible at zero — the shape of the original incident", () => {
+    // "the delete ran and found nothing" must be distinguishable from "the
+    // delete never ran" from the output line alone, with no database query.
+    const rendered = formatExtractAllTurnsResult(base({ turnsExtracted: 604, turnsWritten: 604 }));
+    expect(rendered).toContain("orphansDeleted=0");
+  });
+
   test("isDegradedExtraction flags an aborted sweep even when every counter looks healthy", () => {
     expect(isDegradedExtraction(base({ turnsExtracted: 3, turnsWritten: 3, aborted: true }))).toBe(
       true
