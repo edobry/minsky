@@ -177,6 +177,33 @@ describe("runProdStateBootRefresh", () => {
     expect(warnings.some((w) => w.includes("no raw SQL connection"))).toBe(true);
   });
 
+  test("the skip and the refresh go to SEPARATE sinks (PR #2805 R1)", async () => {
+    // The two events have very different frequencies — ~100 skips a day under a healthy daemon
+    // vs a refresh that means the daemon was NOT keeping the cache fresh — so they must be
+    // separately routable, which is what lets the defaults be debug and info respectively.
+    // The defaults themselves are a one-line read of the code; ADR-036 bans patching the
+    // logger to observe them.
+    const skips: string[] = [];
+    const infos: string[] = [];
+    const base = {
+      now: () => NOW_MS,
+      resolveRawSql: async () => async () => ({ sql: "stub" }),
+      refresh: async () => true,
+      logSkip: (message: string) => skips.push(message),
+      logInfo: (message: string) => infos.push(message),
+      logWarn: () => {},
+    };
+
+    await runProdStateBootRefresh({ ...base, readCache: () => cacheAged(60_000) });
+    expect(skips).toHaveLength(1);
+    expect(infos).toHaveLength(0);
+
+    await runProdStateBootRefresh({ ...base, readCache: () => null });
+    expect(skips).toHaveLength(1);
+    expect(infos).toHaveLength(1);
+    expect(infos[0]).toContain("refreshed prod-state cache at boot");
+  });
+
   test("a refresh that declines to write is reported, not counted as success", async () => {
     const warnings: string[] = [];
     const result = await runProdStateBootRefresh({

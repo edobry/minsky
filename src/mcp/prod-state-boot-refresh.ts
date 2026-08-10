@@ -143,6 +143,17 @@ export interface ProdStateBootRefreshDeps {
   refresh: (sql: unknown, nowIso: string) => Promise<boolean>;
   now?: () => number;
   stalenessMs?: number;
+  /**
+   * Sink for the SKIPPED case. Defaults to `log.debug` deliberately: this is the common path
+   * — the server boots ~100 times a day and a healthy daemon makes almost all of those skips
+   * — so logging it at info would bury the line that matters under ~100 that do not.
+   */
+  logSkip?: (message: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Sink for an actual REFRESH. Defaults to `log.info`, not `log.debug` (PR #2805 R1): this is
+   * the rare, operator-relevant event — it means the daemon's sweep was not keeping the cache
+   * fresh — and criterion 6 asks for it to be visible without raising the log level.
+   */
   logInfo?: (message: string, meta?: Record<string, unknown>) => void;
   logWarn?: (message: string, meta?: Record<string, unknown>) => void;
 }
@@ -165,12 +176,13 @@ export async function runProdStateBootRefresh(
   deps: ProdStateBootRefreshDeps
 ): Promise<ProdStateBootRefreshResult> {
   const nowMs = (deps.now ?? (() => Date.now()))();
-  const info = deps.logInfo ?? ((message, meta) => log.debug(message, meta));
+  const info = deps.logInfo ?? ((message, meta) => log.info(message, meta));
+  const skip = deps.logSkip ?? ((message, meta) => log.debug(message, meta));
   const warn = deps.logWarn ?? ((message, meta) => log.warn(message, meta));
 
   const decision = decideProdStateBootRefresh(deps.readCache(), nowMs, deps.stalenessMs);
   if (!decision.refresh) {
-    info("mcp: prod-state cache is fresh; skipping boot refresh", { ageMs: decision.ageMs });
+    skip("mcp: prod-state cache is fresh; skipping boot refresh", { ageMs: decision.ageMs });
     return { decision, wrote: null };
   }
 
