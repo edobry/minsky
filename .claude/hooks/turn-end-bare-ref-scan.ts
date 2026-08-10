@@ -276,9 +276,14 @@ export async function run(
     flagged_count: flagged.length,
     logged_only_count: logged.length,
     // mt#3860: whether the advisory was SUPPRESSED as the second consecutive
-    // continuation, and whether it was actually EMITTED. The next invocation
-    // reads `advisory_emitted` back to decide the cap, so a suppressed fire
-    // does not itself extend the chain it just ended.
+    // continuation, and whether it was actually EMITTED.
+    //
+    // Both are RECORDED ONLY — neither is read back. `advisoryIsChainCapped`
+    // consults `stop_hook_active` alone, deliberately: an earlier draft keyed on
+    // `advisory_emitted` and its replay test showed that made a suppressed turn
+    // read as a fresh chain, so the guard alternated rather than stopping. These
+    // fields exist so a `/calibration-review` pass can see which fires the cap
+    // silenced, which is otherwise invisible in the log.
     advisory_chain_capped: chainCapped,
     advisory_emitted: flagged.length > 0 && !chainCapped,
   };
