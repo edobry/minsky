@@ -8,7 +8,7 @@
    guardName "throws" / sessionId "sess-1", into the operator's live
    ~/.local/state/minsky/guard-health-log.jsonl). Neither touches the
    developer's actual ~/.local/state/minsky/. */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,9 +34,14 @@ import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordFireLogInput } from "./fire-log";
+import {
+  DISPATCH_HOOK_FILENAME,
+  baseInput,
+  stubContext,
+  makeStderrSpy,
+  useIsolatedStateDir,
+} from "./test-support/dispatcher-harness";
 
-/** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
-const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
 const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 // mt#2597: runDispatcher now fire-logs EVERY matched guard's outcome via the
@@ -47,30 +52,11 @@ const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 // pre-existing — can ever write through the developer's real
 // `~/.local/state/minsky/fire-log.jsonl` (the mt#2876 class this task's
 // coordination brief calls out explicitly).
-let fireLogTestStateDir: string;
-let prevMinskyStateDir: string | undefined;
-
-beforeAll(() => {
-  fireLogTestStateDir = mkdtempSync(join(tmpdir(), "mt2597-dispatcher-fire-log-isolation-"));
-  prevMinskyStateDir = process.env.MINSKY_STATE_DIR;
-  process.env.MINSKY_STATE_DIR = fireLogTestStateDir;
-});
-
-afterAll(() => {
-  if (prevMinskyStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
-  else process.env.MINSKY_STATE_DIR = prevMinskyStateDir;
-  rmSync(fireLogTestStateDir, { recursive: true, force: true });
-});
+useIsolatedStateDir("mt2597-dispatcher-fire-log-isolation-");
 
 // ---------------------------------------------------------------------------
 // checkOverride (D3)
 // ---------------------------------------------------------------------------
-
-/** Collects stderr writes for assertion without touching the real process.stderr. */
-function makeStderrSpy(): { writes: string[]; write: (s: string) => void } {
-  const writes: string[] = [];
-  return { writes, write: (s) => writes.push(s) };
-}
 
 /** Known-guard-name universe used by the checkOverride tests below — decoupled from the
  * real (growing) GUARD_REGISTRY so these tests don't need updating as guards migrate. */
@@ -757,27 +743,6 @@ describe("resolveDispatchContext", () => {
 // ---------------------------------------------------------------------------
 // runDispatcher (D1 core loop)
 // ---------------------------------------------------------------------------
-
-function baseInput(overrides: Partial<ToolHookInput> = {}): ToolHookInput {
-  return {
-    session_id: "sess-1",
-    cwd: "/tmp",
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command: "ls" },
-    ...overrides,
-  };
-}
-
-function stubContext() {
-  return {
-    event: "PreToolUse" as const,
-    hostCapSec: 15,
-    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
-    transcriptCandidates: [],
-    transcriptLines: [],
-  };
-}
 
 describe("runDispatcher", () => {
   test("no guards match -> writeOutputFn never called, no stdout", async () => {
