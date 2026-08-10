@@ -365,17 +365,44 @@ function readSettingsBlocks(event: string): SettingsMatcherBlock[] {
   return raw.hooks?.[event] ?? [];
 }
 
+/** Human-readable routing label, used in every failure message here. */
+function describeRouting(event: string, matcher?: string): string {
+  return matcher === undefined ? event : `${event} :: ${matcher}`;
+}
+
+/**
+ * Does a settings.json matcher string route `toolName`? Mirrors the dispatcher's
+ * own rule (`getGuardsForEvent`: `new RegExp(matcher).test(toolName)`, unanchored,
+ * malformed-regex treated as non-matching) plus Claude Code's documented match-all
+ * forms — omitted, `""`, or `"*"` (which is not a valid regex on its own).
+ */
+const MATCH_ALL_MATCHERS = new Set(["", "*"]);
+function matcherRoutesTool(matcher: string | undefined, toolName: string): boolean {
+  if (matcher === undefined || MATCH_ALL_MATCHERS.has(matcher)) return true;
+  try {
+    return new RegExp(matcher).test(toolName);
+  } catch {
+    return false;
+  }
+}
+
+/** The literal tool names an alternation-style registry matcher is authored to cover. */
+function toolNamesCoveredBy(matcher: string): string[] {
+  return matcher
+    .split(/[|,]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** A matcher member that is a plain tool name, per Claude Code's matcher grammar. */
+const LITERAL_TOOL_NAME = /^[A-Za-z0-9_-]+$/;
+
 /**
  * Blocks whose command list includes the dispatcher for `event`. A block may
  * carry several commands and an event may have several blocks with the same
  * matcher — Claude Code runs all matching hooks (docs: "All matching hooks run
  * in parallel"), so any block carrying the dispatcher satisfies the routing.
  */
-/** Human-readable routing label, used in every failure message here. */
-function describeRouting(event: string, matcher?: string): string {
-  return matcher === undefined ? event : `${event} :: ${matcher}`;
-}
-
 function dispatcherBlocks(event: string): SettingsMatcherBlock[] {
   const entrypoint = DISPATCHER_BY_EVENT[event];
   if (!entrypoint) return [];
@@ -395,25 +422,46 @@ describe("registry <-> .claude/settings.json parity (mt#3823)", () => {
     expect(unmapped).toEqual([]);
   });
 
-  test("every tool-scoped matcher in the registry is routed to the dispatcher", () => {
-    const seen = new Set<string>();
-    const registered: Array<{ event: string; matcher: string }> = [];
+  test("every registry matcher is an alternation of literal tool names", () => {
+    // The routing test below decides coverage by expanding a registry matcher
+    // into the tool names it is authored to cover. That expansion is only sound
+    // for the alternation-of-literals grammar every registration uses today. A
+    // future registration written as a genuine regex (`^Bash$`, a character
+    // class, a quantifier) would expand into nonsense members that no settings
+    // matcher routes — a spurious failure. Fail HERE instead, where the message
+    // says which matcher outgrew the expansion, so the coverage check is
+    // extended deliberately rather than silently believed.
+    const nonLiteral = GUARD_REGISTRY.filter((r) => r.matcher !== undefined)
+      .flatMap((r) =>
+        toolNamesCoveredBy(r.matcher as string)
+          .filter((member) => !LITERAL_TOOL_NAME.test(member))
+          .map((member) => `${describeRouting(r.event, r.matcher)}: member "${member}"`)
+      )
+      .sort();
+    expect([...new Set(nonLiteral)]).toEqual([]);
+  });
+
+  test("every tool the registry's matchers cover is routed to the dispatcher", () => {
+    // COVERAGE, not string equality (PR #2754 R1). The question is whether the
+    // dispatcher is spawned for the tools a registration matches — so a settings
+    // matcher that reorders the alternation (`B|A` for `A|B`), groups it, or
+    // covers a strict superset routes those tools and must pass. Only a settings
+    // side that routes strictly LESS is a defect, and this still catches it:
+    // with no block matching `mcp__minsky__tasks_create` at all, both of that
+    // matcher's guards are unreachable, which is the bug this whole block exists
+    // for.
+    const unrouted = new Set<string>();
     for (const reg of GUARD_REGISTRY) {
       if (reg.matcher === undefined) continue;
-      const label = describeRouting(reg.event, reg.matcher);
-      if (seen.has(label)) continue;
-      seen.add(label);
-      registered.push({ event: reg.event, matcher: reg.matcher });
+      const blocks = dispatcherBlocks(reg.event);
+      for (const toolName of toolNamesCoveredBy(reg.matcher)) {
+        if (blocks.some((b) => matcherRoutesTool(b.matcher, toolName))) continue;
+        // Named, not counted: the failure message has to say WHICH tool lost its
+        // wiring, since the whole defect class is invisible from the guard's side.
+        unrouted.add(`${reg.event} :: ${toolName}`);
+      }
     }
-
-    const unrouted = registered
-      .filter(({ event, matcher }) => !dispatcherBlocks(event).some((b) => b.matcher === matcher))
-      .map(({ event, matcher }) => describeRouting(event, matcher))
-      .sort();
-
-    // Named, not counted: the failure message has to say WHICH matcher lost its
-    // wiring, since the whole defect class is invisible from the guard's side.
-    expect(unrouted).toEqual([]);
+    expect([...unrouted].sort()).toEqual([]);
   });
 
   test("every matcher-less event in the registry is routed to the dispatcher", () => {
@@ -435,8 +483,13 @@ describe("registry <-> .claude/settings.json parity (mt#3823)", () => {
     // 18s scan, so copying the common value would have been wrong here.
     const violations: string[] = [];
     for (const reg of GUARD_REGISTRY) {
+      // Same coverage relation as the routing test above, not string equality
+      // (PR #2754 R1 class scan): the entries that must clear this guard's
+      // budget are the ones that actually spawn the dispatcher for its tools.
       const blocks = dispatcherBlocks(reg.event).filter(
-        (b) => reg.matcher === undefined || b.matcher === reg.matcher
+        (b) =>
+          reg.matcher === undefined ||
+          toolNamesCoveredBy(reg.matcher).some((tool) => matcherRoutesTool(b.matcher, tool))
       );
       for (const block of blocks) {
         const entrypoint = DISPATCHER_BY_EVENT[reg.event] as string;
