@@ -54,6 +54,21 @@ describe("linkifyDelta — what it must not touch", () => {
     expect(line("> quoting mt#2565 from the spec")).toBe("> quoting mt#2565 from the spec");
   });
 
+  test("a reference-style link label is left alone", () => {
+    const refLink = "see [mt#2565][spec] for detail";
+    expect(line(refLink)).toBe(refLink);
+  });
+
+  test("a reference-style link definition is left alone", () => {
+    const definition = "[mt#2565]: https://example.test/spec";
+    expect(line(definition)).toBe(definition);
+  });
+
+  test("an image's alt text and target are left alone", () => {
+    const image = "![mt#2565 diagram](https://example.test/mt#2565.png)";
+    expect(line(image)).toBe(image);
+  });
+
   test("a ref inside a bare URL is left alone", () => {
     const url = "https://example.test/mt#2565";
     expect(line(url)).toBe(url);

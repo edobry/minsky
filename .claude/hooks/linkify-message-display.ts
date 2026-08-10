@@ -71,10 +71,30 @@ export interface MessageDisplayInput extends ClaudeHookInput {
 }
 
 /**
- * The carried state. Exactly one message streams at a time, so a single record
- * suffices: a `message_id` that does not match the stored one means a new
- * message started and the fence flag resets. That is also what makes the file
- * self-cleaning — no per-message files accumulate.
+ * The carried state. Exactly one message streams at a time in a given client, so
+ * a single record suffices: a `message_id` that does not match the stored one
+ * means a new message started and the fence flag resets. That is also what makes
+ * the file self-cleaning — no per-message files accumulate.
+ *
+ * ## What happens when that assumption does not hold (PR #2763 R1)
+ *
+ * The file is shared per state dir, so two clients streaming at once — a second
+ * Claude Code window, or a subagent whose output displays concurrently — write
+ * over each other's record. There is no lock and no atomic rename, deliberately:
+ * this runs synchronously in the display path, and the failure it would prevent
+ * is not worth the cost.
+ *
+ * The blast radius of losing the race is one line's classification. A stolen
+ * record makes `message_id` mismatch, which resets `inFence` to false — so a
+ * fenced ref may be linked, or (after the other writer's fence opens) a prose
+ * ref may stay bare. Neither corrupts the message: `displayContent` replaces
+ * only the current delta, the stored transcript is untouched either way, and the
+ * next delta re-reads the file. A torn or truncated read degrades identically,
+ * which is why `readStoredState` returns null rather than throwing.
+ *
+ * If concurrent streaming ever becomes the common case, key the file by
+ * `session_id` rather than adding a lock — it keeps the write single and
+ * uncontended instead of making the hot path wait.
  */
 interface StoredFenceState {
   messageId: string;

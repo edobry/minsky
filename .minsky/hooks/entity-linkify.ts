@@ -54,13 +54,19 @@ const BLOCKQUOTE_LINE = /^[ \t]{0,3}>/;
  * Spans whose interior must never be rewritten, matched in one alternation so a
  * single left-to-right scan can skip them:
  *   1. inline code spans
- *   2. existing markdown links — covers both the label and the target, so an
- *      already-linked ref is never double-linked
- *   3. angle-bracket autolinks
- *   4. bare URLs, including `minsky://` ones written without markdown
+ *   2. existing inline markdown links — covers both the label and the target, so
+ *      an already-linked ref is never double-linked. An image (`![alt](url)`)
+ *      matches this branch too: the `!` sits outside the span and carries no ref.
+ *   3. reference-style links (`[label][ref]`) and their definitions
+ *      (`[ref]: target`). Rewriting a label there would emit
+ *      `[[mt#N](minsky://…)][ref]`, which renders as literal brackets — a
+ *      corruption rather than a missed link, which is why the branch is worth
+ *      carrying even though the form is rare in assistant output (PR #2763 R1).
+ *   4. angle-bracket autolinks
+ *   5. bare URLs, including `minsky://` ones written without markdown
  */
 const PROTECTED_SPAN =
-  /`+[^`\n]*`+|\[[^\]\n]*\]\([^)\n]*\)|<[^>\s]+>|\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
+  /`+[^`\n]*`+|\[[^\]\n]*\]\([^)\n]*\)|\[[^\]\n]*\]\[[^\]\n]*\]|^[ \t]{0,3}\[[^\]\n]+\]:[^\n]*|<[^>\s]+>|\b[a-z][a-z0-9+.-]*:\/\/\S+/gim;
 
 const TASK_REF = /\bmt#(\d+)\b/g;
 const PR_REF = /\bPR #(\d+)\b/g;
