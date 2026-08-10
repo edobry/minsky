@@ -6,6 +6,7 @@
 
 import { log } from "@minsky/shared/logger";
 import {
+  formatApproximationNote,
   formatAssembledContextLine,
   formatContextWindowSize,
   formatContextWindowUtilization,
@@ -29,9 +30,19 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
     log.cli(`Model: ${analysis.metadata.model}`);
     log.cli(`Interface Mode: ${analysis.metadata.interface}`);
     if (analysis.metadata.tokenizer) {
+      // Naming the approximation here is the whole point: an unlabelled
+      // `o200k_base` beside an Anthropic model reads as that model's
+      // tokenizer, which it is not (mt#3928).
       log.cli(
         `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
       );
+      const approximationNote = formatApproximationNote(
+        analysis.metadata.tokenizer,
+        analysis.metadata.model
+      );
+      if (approximationNote) {
+        log.cli(approximationNote);
+      }
     }
     log.cli(`Context Window: ${formatContextWindowSize(analysis.metadata.contextWindowSize)}`);
     log.cli(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);

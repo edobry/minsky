@@ -13,6 +13,11 @@ export interface TokenizerInfo {
   name: string;
   encoding: string;
   description: string;
+  /**
+   * True when no tokenizer is registered for the target model, so every count
+   * on the report is an approximation from an OpenAI encoding (mt#3928).
+   */
+  approximated: boolean;
 }
 
 export interface AnalysisMetadata {

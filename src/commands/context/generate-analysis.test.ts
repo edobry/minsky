@@ -11,6 +11,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   analyzeGeneratedContext,
+  describeTokenizer,
+  formatApproximationNote,
   formatAssembledContextLine,
   formatContextWindowSize,
   formatContextWindowUtilization,
@@ -23,6 +25,7 @@ import { displayAnalysisResults } from "./generate-display";
 import { displayContextVisualization } from "./generate-visualization";
 import { getFallbackModels, getPrimaryModels } from "@minsky/domain/ai/model-catalog";
 import type { AnalysisResult, GenerateResult } from "./generate-types";
+import type { TokenizerMetadata } from "@minsky/domain/ai/tokenization/index";
 
 /** Limits as returned by the live Anthropic listing, measured in mt#3379. */
 const LIVE_ANTHROPIC_CONTEXT_WINDOW = 1_000_000;
@@ -191,7 +194,14 @@ describe("display paths tolerate an unknown context window", () => {
   const unknownAnalysis: AnalysisResult = {
     metadata: {
       model: "claude-opus-6",
-      tokenizer: { name: "tiktoken", encoding: "cl100k_base", description: "OpenAI tokenizer" },
+      tokenizer: {
+        name: "tiktoken",
+        encoding: "cl100k_base",
+        description: "OpenAI tokenizer",
+        // `claude-opus-6` has no registered tokenizer — the approximation this
+        // fixture's model would really get (mt#3928).
+        approximated: true,
+      },
       interface: "cli",
       contextWindowSize: null,
       analysisTimestamp: new Date(0).toISOString(),
@@ -416,6 +426,99 @@ describe("component breakdown reconciles with the reported total (mt#3458)", () 
     // The breakdown still sums to Total Tokens, not to the assembled figure —
     // the two are different quantities and the display names the difference.
     expect(sumOfPercentages(analysis)).toBeCloseTo(100, 1);
+  });
+});
+
+/**
+ * mt#3928 — the analysis screen reported `tiktoken (cl100k_base)` for every
+ * model, because the value was a hardcoded literal reached through an
+ * optional-call to a method the service does not implement. An Anthropic model
+ * therefore displayed an OpenAI encoding as its own tokenizer.
+ */
+describe("the reported tokenizer describes what actually resolved (mt#3928)", () => {
+  function metadataSource(
+    metadata: TokenizerMetadata | null
+  ): Parameters<typeof describeTokenizer>[0] {
+    return { getTokenizerMetadata: async () => metadata };
+  }
+
+  function metadata(overrides: Partial<TokenizerMetadata> = {}): TokenizerMetadata {
+    return {
+      id: "o200k_base",
+      type: "bpe",
+      source: "config",
+      approximated: false,
+      library: "gpt-tokenizer",
+      ...overrides,
+    };
+  }
+
+  test("a matched tokenizer is reported without an approximation flag", async () => {
+    const info = await describeTokenizer(metadataSource(metadata()), "gpt-4o");
+
+    expect(info.name).toBe("gpt-tokenizer");
+    expect(info.encoding).toBe("o200k_base");
+    expect(info.approximated).toBe(false);
+  });
+
+  test("a substituted tokenizer is reported as an approximation", async () => {
+    const info = await describeTokenizer(
+      metadataSource(metadata({ source: "fallback", approximated: true })),
+      "claude-opus-5"
+    );
+
+    expect(info.approximated).toBe(true);
+    // The model name belongs in the description — "an approximation" alone does
+    // not tell the reader which model lacked a tokenizer.
+    expect(info.description).toContain("claude-opus-5");
+  });
+
+  test("an unresolvable model reports no tokenizer rather than inventing one", async () => {
+    const info = await describeTokenizer(metadataSource(null), "claude-opus-5");
+
+    // The pre-mt#3928 behavior for this case was the literal
+    // `{ name: "tiktoken", encoding: "cl100k_base" }` — a specific, wrong answer
+    // where there was no answer at all.
+    expect(info.name).not.toBe("tiktoken");
+    expect(info.encoding).toBe("unknown");
+    expect(info.approximated).toBe(true);
+  });
+
+  /**
+   * PR #2801 R1: the note asserted "an OpenAI encoding" as a fixed string.
+   * `TokenizerConfig.defaultLibrary` is configurable, so that was a claim the
+   * code never checked — the same unverified-assertion shape this task fixes.
+   */
+  test("the approximation note names the model and asserts nothing it has not checked", () => {
+    const note = formatApproximationNote(
+      {
+        name: "some-other-tokenizer",
+        encoding: "some-other-encoding",
+        description: "",
+        approximated: true,
+      },
+      "claude-opus-5"
+    );
+
+    expect(note).toContain("approximate");
+    expect(note).toContain("claude-opus-5");
+    // The fixed string that made the note wrong under a reconfigured
+    // `defaultLibrary` — the note must not name a vendor it never checked.
+    expect(note).not.toContain("OpenAI");
+  });
+
+  test("a matched tokenizer gets no note at all", () => {
+    expect(
+      formatApproximationNote(
+        {
+          name: "gpt-tokenizer",
+          encoding: "o200k_base",
+          description: "",
+          approximated: false,
+        },
+        "gpt-4o"
+      )
+    ).toBeNull();
   });
 });
 
