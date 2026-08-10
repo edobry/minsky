@@ -17,13 +17,16 @@
    detector's real-log test. */
 
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runStandaloneDuplicateGuardInner } from "./parallel-work-guard-standalone";
 import { STANDALONE_DUP_PROBE_TIMEOUT_MS } from "./standalone-dup-probe";
 import { readGuardHealthEvents } from "./guard-health";
 import type { ToolHookInput } from "./types";
+
+/** The canonical infra-class probe failure these tests simulate. */
+const CONNECT_TIMEOUT_ERROR = "write CONNECT_TIMEOUT 192.0.2.1:5432";
 
 function tasksCreateInput(): ToolHookInput {
   return {
@@ -43,7 +46,7 @@ describe("runStandaloneDuplicateGuardInner -> guard-health log (mt#3072 AT1)", (
     try {
       await runStandaloneDuplicateGuardInner(tasksCreateInput(), {
         fetchSimilar: () => ({
-          failed: "write CONNECT_TIMEOUT 192.0.2.1:5432",
+          failed: CONNECT_TIMEOUT_ERROR,
           causeClass: "infra",
         }),
       });
@@ -55,7 +58,7 @@ describe("runStandaloneDuplicateGuardInner -> guard-health log (mt#3072 AT1)", (
       expect(event?.kind).toBe("check-skip");
       // The diagnosable content: the ACTUAL underlying error, not a generic
       // "see stderr" pointer with zero content in the persisted record.
-      expect(event?.message).toContain("write CONNECT_TIMEOUT 192.0.2.1:5432");
+      expect(event?.message).toContain(CONNECT_TIMEOUT_ERROR);
       expect(event?.message).not.toBe(
         "tasks_search failed or returned unparseable output — the standalone-duplicate probe is " +
           "SKIPPED for this create (see stderr for the CLI failure detail)"
@@ -258,4 +261,46 @@ describe("standalone-duplicate guard — fail-open visibility (mt#3358)", () => 
       expect(out).not.toContain("SKIPPED");
     });
   });
+});
+
+describe("mt#3892: the inner function writes NO fire-log record", () => {
+  // PR #2762 R1 found a real double-write: the fire-log call originally sat in
+  // the inner function, before its output switch, so a throw AFTER that write
+  // produced two records for one evaluation — a `decided` one and then a
+  // `crashed` one from the outer catch. The `decided` record would have made a
+  // run that ultimately crashed read as a clean run, which is precisely the
+  // reading the `guardOutcome` marker exists to prevent.
+  //
+  // The fix is structural: exactly one call site, in the outer function's
+  // `finally`. This pins the half that a structural fix can silently lose — if
+  // anyone moves a write back into the inner function, the outer `finally`
+  // makes it a duplicate again, and this goes red.
+  const cases: ReadonlyArray<{
+    name: string;
+    fetchSimilar: () =>
+      | { results: []; degraded: boolean }
+      | { failed: string; causeClass: "infra" };
+  }> = [
+    { name: "a completed probe", fetchSimilar: () => ({ results: [], degraded: false }) },
+    {
+      name: "a degraded probe",
+      fetchSimilar: () => ({ failed: CONNECT_TIMEOUT_ERROR, causeClass: "infra" }),
+    },
+  ];
+
+  for (const { name, fetchSimilar } of cases) {
+    test(`${name} leaves the fire-log untouched`, async () => {
+      const scratchDir = mkdtempSync(join(tmpdir(), "mt3892-inner-firelog-"));
+      const prevStateDir = process.env.MINSKY_STATE_DIR;
+      process.env.MINSKY_STATE_DIR = scratchDir;
+      try {
+        await runStandaloneDuplicateGuardInner(tasksCreateInput(), { fetchSimilar });
+        expect(existsSync(join(scratchDir, "fire-log.jsonl"))).toBe(false);
+      } finally {
+        if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+        else process.env.MINSKY_STATE_DIR = prevStateDir;
+        rmSync(scratchDir, { recursive: true, force: true });
+      }
+    });
+  }
 });

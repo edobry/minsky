@@ -170,6 +170,32 @@ describe("the fire-log reader admits only clean runs", () => {
     expect(summary.byGuard[GUARD]?.escalation).toBe("critical");
   });
 
+  test("an OVERRIDE record is NOT admitted (PR #2762 R1, non-blocking)", () => {
+    // The dispatcher's override path leaves `guardOutcome` unset on purpose: an
+    // overridden guard did not run, so the record is evidence of neither a
+    // clean decision nor a crash. The reviewer's point was that leaving this to
+    // consumer discipline is fragile — so pin the INTENT here rather than
+    // relying on every future join to re-derive it. Shaped exactly as
+    // dispatcher.ts writes it, override fields and all.
+    const overrideRecord = `${JSON.stringify({
+      timestamp: minutesBeforeNow(5),
+      guardName: GUARD,
+      event: EVENT,
+      decision: "allow",
+      durationMs: 3,
+      overrideEnvVar: "MINSKY_HOOK_OVERRIDE",
+      overrideSource: "env",
+      overrideClassification: "unclassified",
+    })}\n`;
+
+    expect(readWith(overrideRecord)).toEqual([]);
+
+    // And end to end: an override during a failure streak must not clear it.
+    const summary = computeGuardHealthSummary(THREE_FAILURES, NOW, readWith(overrideRecord));
+    expect(summary.byGuard[GUARD]?.liveness).toBe("dormant");
+    expect(summary.byGuard[GUARD]?.escalation).toBe("critical");
+  });
+
   test("a missing fire-log yields no clean runs rather than throwing", () => {
     expect(readWith(null)).toEqual([]);
   });
