@@ -193,6 +193,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "ask-routing-deferral-detector",
         "block-secret-file-read",
         "calibration-review-cadence-detector",
+        "chained-verification-commands",
         "check-guessed-session-path",
         "code-mechanism-assertion-detector",
         "guard-health-escalation-detector",
@@ -262,6 +263,7 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
   "block-secret-file-read": "fixed",
   "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
+  "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
