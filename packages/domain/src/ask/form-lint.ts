@@ -93,6 +93,7 @@ import {
   hasRedundantOptionLetterPrefix,
   isOverOptionLabelBudget,
 } from "@minsky/shared/ask-option-label";
+import { linkifyExternalRefs } from "./external-refs";
 import type { AskKind } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -214,7 +215,8 @@ export type FormLintCheck =
   | "long-option-label"
   | "letter-prefixed-option-label"
   | "missing-force-immediate"
-  | "missing-decision-options";
+  | "missing-decision-options"
+  | "unlinkified-reference";
 
 /** A single fired check, with its human-readable warning message. */
 export interface FormLintMatch {
@@ -392,6 +394,24 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         "CLI; supply an options array with one entry per choice, rather than " +
         "writing the choices as [a]/[b]/[c] prose in the question body " +
         "(humility.mdc Escalation packaging, Form rule 6: options are the buttons)",
+    });
+  }
+
+  // mt#2918: an external artifact the reader needs, cited in a form they
+  // cannot click. Reports only that the reference could not be linkified —
+  // never that a destination was checked; see `external-refs.ts` for why no
+  // probe runs here. Advisory by construction: it is on
+  // `filterBlockingFormLintMatches`'s exclusion list at the asks.create
+  // boundary, so an unlinkifiable citation warns and still creates.
+  const { unlinkified } = linkifyExternalRefs(question);
+  if (unlinkified.length > 0) {
+    matches.push({
+      check: "unlinkified-reference",
+      message:
+        `${unlinkified.length} artifact reference(s) could not be turned into a link ` +
+        `(${unlinkified.join("; ")}) — the reader cannot open them from the ask. ` +
+        `Supply the full URL. Note this says the reference was not linkified, not ` +
+        `that a destination was checked: nothing here probes reachability`,
     });
   }
 

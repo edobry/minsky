@@ -105,6 +105,7 @@ import {
 } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { linkifyExternalRefs } from "@minsky/domain/ask/external-refs";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
@@ -900,9 +901,17 @@ export function validateAuthorizationApproveOptions(params: {
  * this filters only at the decision points that need the blocking/advisory
  * distinction, not at the point that computes matches.
  *
- * The exclusion list stays a DENYLIST of one, deliberately: a new check
- * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
- * added — it blocks with the original five. Its basis is recorded in
+ * The exclusion list stays a DENYLIST, deliberately: a new check blocks
+ * unless it is added here. Two are excluded. `unlinkified-reference`
+ * (mt#2918) is the second: the transform beside it is best-effort by design
+ * — it linkifies a CUED external reference and warns about the rest — and an
+ * ask carrying a citation it could not resolve is still a decidable ask, so
+ * rejecting the create would withhold a decision over a formatting gap. The
+ * warning's job is to tell the author; blocking is a different, harsher
+ * claim than the evidence supports.
+ *
+ * `missing-decision-options` (mt#3477) is NOT added — it blocks with the
+ * original five. Its basis is recorded in
  * `form-lint.ts`'s module header: no false-positive class to calibrate (an
  * optionless `direction.decide` renders zero buttons by construction), and
  * the family's own escalation threshold (mem#760: three form-failure
@@ -913,7 +922,9 @@ export function validateAuthorizationApproveOptions(params: {
  * pattern above.
  */
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
-  return matches.filter((m) => m.check !== "missing-force-immediate");
+  return matches.filter(
+    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+  );
 }
 
 /**
@@ -1384,10 +1395,21 @@ export async function createAskWithFormLint(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
-  const ask = await createAsk(repo, params, routerOptions);
+  // mt#2918: make external artifact citations reachable BEFORE the body is
+  // persisted, so every downstream reader — the cockpit inbox, the CLI, a
+  // notification payload — carries the URL rather than a bare page id. The
+  // display-surface linkifier cannot do this job: it resolves refs against a
+  // Minsky id-set, and a Notion page id is in no Minsky index.
+  const { text: linkifiedQuestion } = linkifyExternalRefs(params.question);
+  const persistedParams: CreateAskParams =
+    linkifiedQuestion === params.question ? params : { ...params, question: linkifiedQuestion };
+
+  const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    // Lint the PERSISTED text, not the caller's input: a reference the
+    // transform just made reachable must not also be reported as a defect.
+    question: persistedParams.question,
     // Option labels are lint input too (mt#3253) — they render as the decision
     // buttons, so a 167-char label or one repeating the surface-rendered letter
     // is a form defect the producer should hear about.
