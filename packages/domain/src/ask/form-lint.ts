@@ -218,6 +218,44 @@ export type FormLintCheck =
   | "missing-decision-options"
   | "unlinkified-reference";
 
+/**
+ * Markers that only appear in a question when the tool call's own parameter
+ * encoding leaked into the value (mt#3936).
+ *
+ * None of these is legitimate prose. `</question>` is the closing tag of the
+ * parameter the text is being stored INTO — if it survived into the value, the
+ * value swallowed everything after it, including sibling parameters.
+ *
+ * Observed in production: ask#7484 (`capability.escalate`, severity incident,
+ * about prod being four days stale) stored a question ending
+ * `…Evidence in mt#3890.</question>\n<parameter name="options">[{…}]`. Its
+ * three well-formed options never became data, so the surface rendered no
+ * buttons on the one ask that most needed them. Three such rows exist,
+ * 2026-07-26 through 2026-08-09.
+ */
+const SERIALIZED_PARAMETER_MARKERS = [
+  "</question>",
+  "<parameter name=",
+  "</parameter>",
+  "<function_calls>",
+  "</invoke>",
+] as const;
+
+/**
+ * The first serialization marker present in `question`, or `null`.
+ *
+ * Pure and exported so the boundary can reject on it BEFORE the
+ * `acknowledgeFormWarnings` escape — unlike every other check here, this one
+ * describes content that is definitionally broken rather than merely
+ * ill-formed, so there is nothing for an author to legitimately acknowledge.
+ */
+export function findSerializedParameterArtifact(question: string): string | null {
+  for (const marker of SERIALIZED_PARAMETER_MARKERS) {
+    if (question.includes(marker)) return marker;
+  }
+  return null;
+}
+
 /** A single fired check, with its human-readable warning message. */
 export interface FormLintMatch {
   check: FormLintCheck;

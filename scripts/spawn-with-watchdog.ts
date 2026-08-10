@@ -118,6 +118,39 @@ export const WATCHDOG_BUDGETS_MS = {
 } as const;
 
 /**
+ * bun's PER-TEST timer (`--timeout`) for FULL-SUITE runs — mt#3704.
+ *
+ * Sized by the same method as the budgets above, which it had never received:
+ * it was a flat `15000` copy-pasted into four runners, with no derivation and
+ * no contention margin, while its neighbours here were deliberately set at ~9x
+ * observed runtime.
+ *
+ * **Derivation.** Slowest SINGLE test this repo has measured, run alone: 10.8s
+ * (mt#3875's `session-auto-task-creation` "should auto-create task when
+ * description is provided"). Against the old 15s that is 1.4x margin. Applying
+ * the ~9x convention above gives ~97s; rounded up to 100s, still >=9x the
+ * observed maximum and an order of magnitude under `MAIN`, preserving the
+ * outer > inner ordering this table depends on.
+ *
+ * **Why raising it is safe.** This timer is NOT the hang backstop and never
+ * was: per `run-tests-main.ts`, it "never fires when a test blocks the event
+ * loop synchronously" — the wall-clock watchdogs above own that case, with
+ * SIGTERM -> SIGKILL escalation. Its only live function is cutting off tests
+ * that are merely SLOW, which under full-suite contention is precisely the
+ * false positive mt#3704 records four times over: six-plus distinct tests
+ * across three files, each starving in-suite while the whole file passes in
+ * ~200ms alone, each green on an unchanged retry.
+ *
+ * **Why NOT applied to narrow runs.** `package.json`'s `test:components` /
+ * `test:hooks` / `test:eslint-rules`, and the single-file invocation documented
+ * in `build-and-test.mdc`, deliberately keep 15s. They do not run against 800+
+ * competing files, so they have no contention to absorb — and a tight timer is
+ * useful feedback when you are iterating on one file. Every recorded starvation
+ * was in the gated suite.
+ */
+export const FULL_SUITE_PER_TEST_TIMEOUT_MS = 100_000;
+
+/**
  * Read a budget override from the environment, falling back to `fallbackMs`.
  * A legitimately slow run (a cold cache, a heavily loaded host) can raise the
  * budget without editing code; a non-numeric or non-positive value is ignored

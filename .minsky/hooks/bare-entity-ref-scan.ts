@@ -7,9 +7,9 @@
 // imperative-shell split ADR-036 prescribes, and it is what lets the
 // must-not-flag cases below be covered by fixtures rather than by patching.
 //
-// WHAT IS FLAGGED (v0, advisory only — never blocking):
-//   1. bare-ref        — `mt#N` / `PR #N` present with no minsky:// link for
-//                        that entity anywhere in the SAME message.
+// WHAT IS FLAGGED (advisory only — never blocking):
+//   1. bare-short-id   — `ask#N` / `mem#N` / `ws#N` present with no
+//                        minsky:// link labelling it in the SAME message.
 //   2. malformed-target— a minsky://ask|memory|session link whose id segment
 //                        is not a full 36-char UUID (ADR-029: the UUID is the
 //                        sole deeplink target). Deterministically wrong, so no
@@ -19,12 +19,26 @@
 //                        short id is `#` followed by decimal digits only, so
 //                        this is wrong by construction too.
 //
-// WHAT IS LOGGED BUT NOT FLAGGED (v0): bare `ask#N` / `mem#N` / `ws#N`. The
-// deeplink rule legitimately permits a bare short id when the UUID is not in
-// hand, and this scanner cannot know whether it was. mt#3286's R6 argues the
-// carve-out should be narrowed for decision-handing closing messages; that is
-// a recorded recommendation, NOT an accepted criterion, and is deliberately
-// not implemented here.
+// WHAT IS LOGGED BUT NOT FLAGGED: bare `mt#N` / `PR #N`.
+//
+// THE FLAG SET TRACKS THE LINKIFIER'S COMPLEMENT (mt#3897). v0 had these two
+// classes the other way around. `mt#2565` then shipped a display linkifier
+// (`entity-linkify.ts`) that rewrites `mt#N` and `PR #N` into deeplinks as they
+// are rendered — so warning about them tells the agent to hand-fix something
+// already fixed downstream. Measured over ask#7639's review window: 13 of the
+// 13 warnings this scanner injected were for that now-auto-linked class.
+//
+// The linkifier deliberately does NOT cover `ask#N` / `mem#N` / `ws#N`: their
+// deeplink target is a UUID, which ADR-029 makes the sole legal target and
+// which cannot be derived from the visible label without an id-set lookup the
+// display hook cannot afford. Those are therefore the only classes where a bare
+// ref still costs the reader a lookup — which is what makes them worth warning
+// about and the others not.
+//
+// Both halves are operator decisions, not inferences: ask#7415 (2026-08-10)
+// approved flagging the short-id families; ask#7639 (2026-08-10) retired the
+// `mt#`/`PR #` warnings while explicitly keeping the two malformed-deeplink
+// classes live — the linkifier cannot repair a link that is present but wrong.
 //
 // @see .minsky/hooks/turn-end-bare-ref-scan.ts — the guard shell
 // @see docs/architecture/adr-029-* — full UUID as the sole deeplink target
@@ -54,11 +68,18 @@ function safeDecode(value: string): string | null {
   }
 }
 
-/** Entity classes whose deeplink target is DERIVABLE from the visible label. */
-export type FlaggedKind = "bare-ref" | "malformed-target" | "raw-uuid-label";
+/**
+ * Classes that produce advisory text.
+ *
+ * The organising axis is whether the display linkifier can repair the defect on
+ * its own (see the header): `bare-short-id` it cannot, because the target is a
+ * UUID it would have to look up; the two malformed-link classes it cannot,
+ * because a link that is present but wrong is not a missing link at all.
+ */
+export type FlaggedKind = "bare-short-id" | "malformed-target" | "raw-uuid-label";
 
 export interface ScanFinding {
-  kind: FlaggedKind | "bare-short-id";
+  kind: FlaggedKind | "bare-ref";
   /** The reference as it appeared, e.g. "mt#3286" or "minsky://ask/fa4b942e". */
   ref: string;
   /** One-line reason, rendered into the advisory. */
@@ -85,6 +106,39 @@ function collectLinks(elided: string): Array<{ label: string; type: string; id: 
     links.push({ label: m[1] ?? "", type: (m[2] ?? "").toLowerCase(), id: m[3] ?? "" });
   }
   return links;
+}
+
+/**
+ * Character ranges covered by the LABEL of each `[label](minsky://type/id)`
+ * link, tagged with that link's entity type.
+ *
+ * Needed because a short id cannot be matched to its target the way a task id
+ * can. `mt#3897` appears verbatim inside `minsky://task/mt%233897`, so the
+ * bare-`mt#` check can ask "is this id linked anywhere in the message". An
+ * `ask#N` target is a UUID with no trace of `N` in it, so the only thing that
+ * ties `ask#7415` to `minsky://ask/639b443a-…` is that the former is the
+ * LABEL of the latter — a positional fact, not a matchable one.
+ *
+ * Getting this wrong is not a near-miss: the correctly-linked form
+ * `[ask#7415](minsky://ask/<uuid>)` still contains the literal text `ask#7415`,
+ * so a scan that ignores position flags every properly-linked short id in the
+ * corpus. That was harmless while this class was record-only (the v0 code says
+ * as much: "we record either way and never flag, so precision here costs
+ * nothing"), and stopped being harmless the moment it started flagging.
+ */
+function collectLinkLabelRanges(
+  elided: string
+): Array<{ type: string; start: number; end: number }> {
+  const ranges: Array<{ type: string; start: number; end: number }> = [];
+  const linkRe = /\[([^\]]*)\]\(minsky:\/\/([a-z]+)\/([^)\s]+)\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(elided)) !== null) {
+    const label = m[1] ?? "";
+    // +1 skips the opening `[` so the range covers exactly the label text.
+    const start = m.index + 1;
+    ranges.push({ type: (m[2] ?? "").toLowerCase(), start, end: start + label.length });
+  }
+  return ranges;
 }
 
 /**
@@ -168,10 +222,12 @@ export function scanMessage(text: string): ScanResult {
     if (!num || seenTask.has(num)) continue;
     seenTask.add(num);
     if (!linkedTaskIds.has(num)) {
-      flagged.push({
+      // Recorded, not flagged (mt#3897): `entity-linkify.ts` rewrites this into
+      // a deeplink at display time, so the reader can already click it.
+      logged.push({
         kind: "bare-ref",
         ref: `mt#${num}`,
-        reason: "no minsky://task link for this task in this message",
+        reason: "no minsky://task link in this message (auto-linked at display time)",
       });
     }
   }
@@ -184,32 +240,47 @@ export function scanMessage(text: string): ScanResult {
     if (!num || seenPr.has(num)) continue;
     seenPr.add(num);
     if (!linkedChangesetIds.has(num)) {
-      flagged.push({
+      // Recorded, not flagged (mt#3897) — same reason as the task case above.
+      logged.push({
         kind: "bare-ref",
         ref: `PR #${num}`,
-        reason: "no minsky://changeset link for this PR in this message",
+        reason: "no minsky://changeset link in this message (auto-linked at display time)",
       });
     }
   }
 
-  // --- log-only: bare ask#N / mem#N / ws#N ---------------------------------
-  const linkedShortIdTypes = new Set(links.map((l) => l.type));
-  const seenShort = new Set<string>();
+  // --- flagged: bare ask#N / mem#N / ws#N (mt#3897) ------------------------
+  // These are the classes the display linkifier cannot repair, so a bare one
+  // genuinely costs the reader a lookup. See the header for the split.
+  const labelRanges = collectLinkLabelRanges(elided);
+  // Collected across ALL occurrences before deciding, so that linking the first
+  // mention and writing the rest bare does not flag — the same "linked
+  // somewhere in this message" semantics the mt#/PR# checks above use.
+  const linkedShortIds = new Set<string>();
+  const shortIdMatches: Array<{ whole: string; entityType: string }> = [];
+
   for (const m of elided.matchAll(/\b(ask|mem|ws)#(\d+)\b/gi)) {
     const whole = m[0];
     const kind = (m[1] ?? "").toLowerCase();
-    if (seenShort.has(whole)) continue;
-    seenShort.add(whole);
-    // If the message carries ANY link of the corresponding entity type, this
-    // mention may well be the label of that link; the v0 carve-out means we
-    // record either way and never flag, so precision here costs nothing.
     const entityType = kind === "ask" ? "ask" : kind === "mem" ? "memory" : "session";
-    logged.push({
+    const start = m.index ?? 0;
+    const end = start + whole.length;
+    const insideMatchingLabel = labelRanges.some(
+      (r) => r.type === entityType && start >= r.start && end <= r.end
+    );
+    if (insideMatchingLabel) linkedShortIds.add(whole.toLowerCase());
+    shortIdMatches.push({ whole, entityType });
+  }
+
+  const seenShort = new Set<string>();
+  for (const { whole, entityType } of shortIdMatches) {
+    const key = whole.toLowerCase();
+    if (seenShort.has(key) || linkedShortIds.has(key)) continue;
+    seenShort.add(key);
+    flagged.push({
       kind: "bare-short-id",
       ref: whole,
-      reason: linkedShortIdTypes.has(entityType)
-        ? "bare short id in a message that does link this entity type (possible link-decay)"
-        : "bare short id with no link of this entity type in the message",
+      reason: `bare ${entityType} short id — its deeplink target is a UUID, so nothing downstream can link it for you`,
     });
   }
 

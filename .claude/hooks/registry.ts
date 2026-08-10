@@ -1835,14 +1835,17 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 700, optionCount: 0 },
     canary: {
-      // A bare task ref with no link anywhere in the message — the enforced
-      // v0 class. `transcript_path` is deliberately nonexistent: this guard
-      // prefers `last_assistant_message` and must work when the transcript
-      // has not yet flushed the final message.
+      // A bare short id with no link anywhere in the message — the enforced
+      // class as of mt#3897. It used to be a bare `mt#`/`PR #` pair; those are
+      // record-only now (the display linkifier repairs them), so that input
+      // stopped firing and left this guard invisible to the shape test.
+      // `transcript_path` is deliberately nonexistent: this guard prefers
+      // `last_assistant_message` and must work when the transcript has not yet
+      // flushed the final message.
       input: {
         session_id: "mt3286-bare-ref-canary",
         transcript_path: "/nonexistent/mt3286-canary.jsonl",
-        last_assistant_message: "Shipped mt#1234 and merged PR #5678.",
+        last_assistant_message: "Pending your call on ask#1234 and mem#5678.",
       },
       transcriptLines: [],
       expects: "warn",
@@ -1854,15 +1857,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // denialMessageSizeChars is measured against a real worst case rather than
     // a comfortable one. The in-code budget fit is what actually bounds it.
     worstCaseCanary: {
+      // Re-posed at the mt#3897 flag set. The previous worst case saturated on
+      // bare `mt#`/`PR #`, which are record-only now — it would still have
+      // returned "warn" (the two malformed links below flag regardless) while
+      // measuring only 2 rendered lines instead of 18, quietly understating the
+      // budget it exists to bound. Saturates every FLAGGED axis at once: many
+      // bare short ids across all three families, plus both malformed classes.
       input: {
         session_id: "mt3286-bare-ref-worst-case",
         transcript_path: "/nonexistent/mt3286-worst.jsonl",
         last_assistant_message:
-          "Status: mt#10001 mt#10002 mt#10003 mt#10004 mt#10005 mt#10006 mt#10007 " +
-          "mt#10008 mt#10009 mt#10010 mt#10011 mt#10012 are open; " +
-          "PR #20001 PR #20002 PR #20003 PR #20004 PR #20005 PR #20006 are in flight; " +
+          "Status: ask#10001 ask#10002 ask#10003 ask#10004 ask#10005 ask#10006 " +
+          "mem#10007 mem#10008 mem#10009 mem#10010 mem#10011 mem#10012 " +
+          "ws#10013 ws#10014 ws#10015 ws#10016 ws#10017 ws#10018 are pending; " +
           "see [ask#…deadbeef](minsky://ask/1e2d3c4b-5a69-4788-9910-aabbccddeeff) " +
-          "and [mem#…cafebabe](minsky://memory/2f3e4d5c-6b7a-4899-8a0b-bbccddeeff00).",
+          "and [mem#…cafebabe](minsky://memory/2f3e4d5c-6b7a-4899-8a0b-bbccddeeff00) " +
+          "and [ws#42](minsky://session/short).",
       },
       transcriptLines: [],
       expects: "warn",

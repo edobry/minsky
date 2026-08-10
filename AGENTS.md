@@ -842,8 +842,10 @@ discipline-tier. Recipes + leak-containment runbook:
   stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
   zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
   what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
-  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
-  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  list walked from that file's `ROOTS` — `src/`, `packages/`, the gated `tests/` subdirectories,
+  and `scripts/` since mt#1084 — with `src/mcp/**` excluded) then
+  `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in its own process), and treats a
+  missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
 - **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
@@ -896,6 +898,13 @@ probe showed a `tool_result` block carrying no HTTP metadata, which became "the 
 enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
+
+**Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
+phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
+accessor, the transcript is the source. It presents as introspection rather than a lookup, and is
+asked when a fire is demanding more work. Name the kind and carry its evidence: **pattern-false**
+(text absent — grep the transcript, locating THIS conversation's file first, since a null from an
+unverified one is not evidence) or **semantic-false** (present but misread — argued, quote acknowledged).
 
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
@@ -1071,7 +1080,10 @@ A turn-end report is three parts, **each 1–3 sentences**:
 Rules bounding the shape: **routine success is one line**; **detail lives behind a pointer, never
 inline** (use `minsky://` deeplinks, `cockpit-deeplinks.mdc`, or a task-record path — point into
 the substrate, never restate a PR body, spec section, or gate report in chat); **hard budget:
-readable in under 30 seconds (~200 words)**; **no skill-internal labels** (gate letters `(l)`,
+readable in under 30 seconds (~200 words)** — the `wall-of-text` detector warns at **1.5× that
+budget**, so the stretch between the budget and the warning is unpoliced headroom, not permission
+(mt#3942 narrowed it from 2× after a run of reports inside the old gap drew a complaint no
+detector had flagged); **no skill-internal labels** (gate letters `(l)`,
 premise-audit labels `(iii)`, criterion-table IDs — audit-trail vocabulary, not the principal's;
 specializes `user-preferences.mdc §Plain-language first`).
 
@@ -1368,7 +1380,7 @@ the same turn produce two.
 - **Turn-end-untaken-action** — Stop scan (mt#3179): final message names a next action without taking it. Phrase-keyed. On an overlap with ask-routing-deferral THIS guard speaks and the sibling stays quiet (mt#3620 inverted mt#3336: a dedup across events is a handoff, and it must hand toward the EARLIER event), and it emits the deferral remedy rather than "take it now" (mt#3767). Suppressed when the message NAMES a principal-reserved category (mt#3768) — a named category, never a bare "your call" or an option set; suppressed fires are still RECORDED, with the reason. `MINSKY_ACK_UNTAKEN_ACTION`.
 - **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
-- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Posture is per finding class — `bare-ref` (`mt#N` / `PR #N` unlinked), `malformed-target` and `raw-uuid-label` are LIVE; bare `ask#N`/`mem#N`/`ws#N` is RECORD-ONLY under the v0 carve-out, since the scanner cannot know whether the UUID was in hand (enforcing those is HOLD-ed behind the re-fire fix per ask#7415; mt#3897 owns it). **Its advisory is chain-capped at one follow-up (mt#3860)** — the remedy message is itself a closing message, so 42% of measured fires were the guard reacting to text it caused; a second consecutive Stop-continuation records but stays silent. `MINSKY_ACK_BARE_ENTITY_REF`.
+- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Posture is per finding class, and mt#3897 SWAPPED the two bare classes so the flag set tracks the display linkifier's COMPLEMENT: bare `ask#N`/`mem#N`/`ws#N` (`bare-short-id`), `malformed-target` and `raw-uuid-label` are LIVE; bare `mt#N` / `PR #N` (`bare-ref`) is RECORD-ONLY, because mt#2565's linkifier repairs those at display time (13 of 13 injected warnings were measured false). Short-id targets are UUIDs the linkifier cannot derive, so they are the only refs still costing a lookup. Both halves are operator decisions: ask#7415 enabled the short ids, ask#7639 retired the task/PR warnings while keeping the two malformed classes live. **Re-evaluate when mt#3914 ships** — a short-id→UUID map would make the flagged class auto-repaired too. **Its advisory is chain-capped at one follow-up (mt#3860)** — the remedy message is itself a closing message, so 42% of measured fires were the guard reacting to text it caused; a second consecutive Stop-continuation records but stays silent. `MINSKY_ACK_BARE_ENTITY_REF`.
 - **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
 - **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
@@ -1489,7 +1501,7 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 - The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
 - The task is gated on a principal-owned decision — and you can NAME which reserved category from `principal-context.mdc §Decisions Eugene reserves` it falls under.
 
-**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes. (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
+**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes; preferences that set a durable default (a one-off preference call is yours to make). (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
 
 **Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
@@ -1544,6 +1556,12 @@ execution`, principal-level decisions stay with Eugene:
 - Scope changes to in-flight work
 - Vendor commitments (signup actions, paid plan upgrades)
 - **Framework choices** when stakes are principal-level
+- Preferences that set a **durable default** — the default model, a standing tool or format
+  choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and
+  say what you picked. (ask#7587, 2026-08-10 — filed because this list and `humility.mdc`
+  §"Preference-bound decisions … are not yours to make alone" contradicted each other, and a
+  detector fired on an agent that halted correctly. The durability, not the taste, is what makes
+  it reserved.)
 
 ### Trigger rule — before applying any framework
 
@@ -1675,10 +1693,29 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   - "can't verify until X" / "needs X first" / "blocked on X landing"
   - "verification deferred" with no named actor
 
-  **The probe question is availability-NOW, regardless of what the deferral defers TO.** Both
-  shapes assert the same thing — *I am unable to do this at this moment* — and both are checked
-  the same way: try it. A deferral to a later time is not self-justifying just because it names
-  no person; it is a claim about your present capability and needs the same evidence.
+  *Deferring because a STANDING INSTRUCTION forbids it (mt#3930) — the probe is a question, not a tool call:*
+  - "the standing instruction is not to X" / "I'm not supposed to X unless asked"
+  - "X requires your authorization, so I've left it" / "rather than X, I filed a follow-up"
+  - any restriction cited as settling the matter, in a turn where you are already writing to the principal
+
+  **The probe question is availability-NOW, regardless of what the deferral defers TO.** All three
+  shapes assert the same thing — *I am unable to do this at this moment* — and all three need
+  evidence rather than assumption. What differs is the FORM the evidence takes: for the first two
+  it is a tool call (try it); for the third it is a question (ask). A deferral to a later time is
+  not self-justifying just because it names no person; it is a claim about your present capability
+  and needs the same evidence.
+
+  **For the third shape the probe is: ASK, in this turn.** A restriction is a default, not a wall.
+  If you are already composing a message to the principal, the cost of adding the question is one
+  sentence; the cost of not asking is a round-trip plus an artifact that should not exist. The tell
+  is that the deferral reads as compliance — the sentence is TRUE, which is why it survives your own
+  review, and what it omits is that the principal was right there. **Filing a follow-up task to own
+  work you were not actually blocked on is the failure, not the mitigation.**
+
+  **Where it genuinely stops:** an action that is destructive, or that falls under a nameable
+  category in `principal-context.mdc §Decisions Eugene reserves`. The test is whether the principal
+  would plausibly just say yes — if so it is a question, not a boundary. This shape does not license
+  acting through real boundaries; it licenses asking about them instead of building around them.
 
   **Canonical probe sequence** (run in order; first hit unblocks):
   1. **CLI probe** — `which <cli> && <cli> whoami` (or equivalent auth-check) for the relevant tool.
