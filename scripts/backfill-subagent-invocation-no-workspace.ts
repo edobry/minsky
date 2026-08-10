@@ -52,11 +52,20 @@ import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagen
 // ---------------------------------------------------------------------------
 
 /**
- * The six workspace-derived classes. A raw-path row carrying ANY of them was classified from a
- * workspace that was not the subagent's, so all six are eligible — not just the
- * `partial-committed-handoff-written` that the observed rows happen to carry. The label varies
- * with the operator's tree (committing the untracked files would have produced `committed-no-pr`
- * instead), so pinning the sweep to the one observed value would leave the others behind.
+ * The five classes `classifyWorkspaceOutcome` can actually PRODUCE. A raw-path row carrying any
+ * of them was classified from a workspace that was not the subagent's, so all five are eligible —
+ * not just the `partial-committed-handoff-written` the observed rows happen to carry. The label
+ * varies with the operator's tree (committing the untracked files would have produced
+ * `committed-no-pr` instead), so pinning the sweep to the one observed value would leave the
+ * others behind.
+ *
+ * **`rate-limited` is deliberately NOT here** (PR #2759 R2). It is the one enum member that is
+ * not workspace-derived: it records an API-level rejection, an observation about the dispatch
+ * itself that holds regardless of any workspace. Nothing writes it to this table today — the
+ * classifier's own header defers that detection to mt#1739, and a grep finds no writer — but
+ * this sweep must be correct by construction rather than by that accident: the moment mt#1739
+ * ships, a raw-path row could legitimately carry `rate-limited`, and rewriting it to
+ * `no-workspace` would destroy a true observation to fix a false one.
  */
 export const WORKSPACE_DERIVED_OUTCOMES = [
   "completed-with-pr",
@@ -64,8 +73,14 @@ export const WORKSPACE_DERIVED_OUTCOMES = [
   "partial-committed-handoff-written",
   "partial-uncommitted-no-handoff",
   "crashed-no-output",
-  "rate-limited",
 ] as const;
+
+/**
+ * Enum values this sweep must never claim, each for its own reason: `pending` is still-open (the
+ * dispatcher's placeholder), `no-workspace` is what the sweep writes (excluding it is what makes
+ * a re-run idempotent), and `rate-limited` is a real non-workspace observation — see above.
+ */
+export const NON_WORKSPACE_DERIVED_OUTCOMES = ["pending", "no-workspace", "rate-limited"] as const;
 
 /** The value these rows are corrected to (added by migration 0092). */
 export const REPLACEMENT_OUTCOME = "no-workspace";

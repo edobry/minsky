@@ -14,6 +14,7 @@ import {
   MEASURED_BASELINE,
   SCOPE_DIVERGENCE_FACTOR,
   WORKSPACE_DERIVED_OUTCOMES,
+  NON_WORKSPACE_DERIVED_OUTCOMES,
   REPLACEMENT_OUTCOME,
 } from "./backfill-subagent-invocation-no-workspace";
 import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
@@ -73,14 +74,27 @@ describe("parseIntFlag", () => {
 });
 
 describe("the sweep's target outcomes", () => {
-  test("are exactly the enum's values minus `pending` and the replacement", () => {
-    // Asserted against the enum rather than a hand-copied list, so adding a member to the enum
-    // without deciding whether the sweep covers it fails here instead of silently leaving rows
-    // behind.
-    const expected = SUBAGENT_INVOCATION_OUTCOME_VALUES.filter(
-      (value) => value !== "pending" && value !== REPLACEMENT_OUTCOME
-    ).sort();
-    expect([...WORKSPACE_DERIVED_OUTCOMES].sort()).toEqual(expected);
+  test("partition the enum: every value is either a target or explicitly excluded", () => {
+    // Asserted against the enum rather than a hand-copied list, so adding a member without
+    // deciding which side it falls on fails here — instead of silently leaving rows behind (if
+    // it should have been a target) or silently clobbering them (if it should not).
+    const partition = [...WORKSPACE_DERIVED_OUTCOMES, ...NON_WORKSPACE_DERIVED_OUTCOMES].sort();
+    expect(partition).toEqual([...SUBAGENT_INVOCATION_OUTCOME_VALUES].sort());
+  });
+
+  test("the two halves are disjoint", () => {
+    const targets = new Set<string>(WORKSPACE_DERIVED_OUTCOMES);
+    for (const excluded of NON_WORKSPACE_DERIVED_OUTCOMES) {
+      expect(targets.has(excluded)).toBe(false);
+    }
+  });
+
+  test("excludes `rate-limited` — a real observation, not a workspace-derived one (R2)", () => {
+    // `rate-limited` records an API-level rejection that holds regardless of any workspace.
+    // Nothing writes it to this table today (detection is deferred to mt#1739), but the sweep
+    // must be correct by construction: rewriting such a row to `no-workspace` would destroy a
+    // true observation in order to fix a false one.
+    expect([...WORKSPACE_DERIVED_OUTCOMES]).not.toContain("rate-limited");
   });
 
   test("does not include the value it writes — otherwise the sweep would not be idempotent", () => {
