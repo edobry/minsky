@@ -68,6 +68,8 @@ import {
   readCalibrationLogText,
   MAX_DEDUPE_READ_BYTES,
   WORD_COUNT_THRESHOLD,
+  LEAD_WORD_BUDGET,
+  OVER_BUDGET_MULTIPLIER,
   LEAD_WINDOW_WORDS,
   EXCERPT_MAX_CHARS,
   EXCERPT_TRUNCATION_MARKER,
@@ -259,23 +261,31 @@ describe("measureWallOfText", () => {
     expect(m.leadLabelHits).toEqual([]);
   });
 
-  // mt#3942: the multiplier dropped 2 -> 1.5, so the threshold moved 400 -> 300.
-  // These two pin the band that was previously invisible. A 320-word report is
-  // the shape the principal complained about on 2026-08-10; under the old
-  // multiplier it produced no record at all, which is why nothing surfaced.
-  test("320 words -> fires (would not have at the old 2x multiplier)", () => {
-    const m = measureWallOfText(words(320));
-    expect(WORD_COUNT_THRESHOLD).toBe(300);
-    expect(m.wordCount).toBeGreaterThanOrEqual(320);
+  // mt#3942: the multiplier dropped 2 -> 1.5, narrowing the silent band from
+  // 201-399 to 201-299 at the default budget. These pin the DECISION (the
+  // multiplier) and the BEHAVIOUR (the newly-covered band) separately, and both
+  // are expressed relative to the constants — `LEAD_WORD_BUDGET` is tunable via
+  // MINSKY_WALL_OF_TEXT_WORD_BUDGET, so a literal word count would make these
+  // tests fail on a tuned machine for a reason unrelated to what they assert
+  // (PR #2798 R1 BLOCKING).
+  test("the over-budget multiplier is 1.5x the contract budget", () => {
+    expect(OVER_BUDGET_MULTIPLIER).toBe(1.5);
+    expect(WORD_COUNT_THRESHOLD).toBe(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER);
+  });
+
+  test("a report just over the threshold fires — the band the old 2x multiplier missed", () => {
+    // Under the old 2x this length sat below the threshold and produced no
+    // record at all, which is why an over-long report drew a human complaint
+    // instead of a warning.
+    const m = measureWallOfText(words(Math.ceil(WORD_COUNT_THRESHOLD) + 20));
     expect(m.matched).toBe(true);
     expect(m.trigger).toBe("over-budget");
   });
 
-  test("250 words -> still does not fire, so the margin over the budget survives", () => {
-    // The contract's target is ~200. 1.5x deliberately leaves headroom above it
-    // rather than firing on every report that runs slightly long — this is the
-    // negative control for the lower bound.
-    const m = measureWallOfText(words(250));
+  test("a report below the threshold still does not fire, so margin over the budget survives", () => {
+    // 1.5x deliberately leaves headroom above the ~200-word target rather than
+    // firing on every report that runs slightly long — the lower-bound control.
+    const m = measureWallOfText(words(Math.floor(WORD_COUNT_THRESHOLD) - 50));
     expect(m.wordCount).toBeLessThan(WORD_COUNT_THRESHOLD);
     expect(m.matched).toBe(false);
     expect(m.trigger).toBe("none");

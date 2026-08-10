@@ -246,10 +246,10 @@ A turn-end report is three parts, **each 1–3 sentences**:
 Rules bounding the shape: **routine success is one line**; **detail lives behind a pointer, never
 inline** (use `minsky://` deeplinks, `cockpit-deeplinks.mdc`, or a task-record path — point into
 the substrate, never restate a PR body, spec section, or gate report in chat); **hard budget:
-readable in under 30 seconds (~200 words)** — the `wall-of-text` detector warns at **300**, so
-201–300 is unpoliced headroom, not permission (mt#3942 narrowed that band from 201–399 after a
-run of reports inside it drew a complaint that no detector had flagged); **no skill-internal
-labels** (gate letters `(l)`,
+readable in under 30 seconds (~200 words)** — the `wall-of-text` detector warns at **1.5× that
+budget**, so the stretch between the budget and the warning is unpoliced headroom, not permission
+(mt#3942 narrowed it from 2× after a run of reports inside the old gap drew a complaint no
+detector had flagged); **no skill-internal labels** (gate letters `(l)`,
 premise-audit labels `(iii)`, criterion-table IDs — audit-trail vocabulary, not the principal's;
 specializes `user-preferences.mdc §Plain-language first`).
 

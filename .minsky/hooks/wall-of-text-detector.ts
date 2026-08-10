@@ -30,10 +30,13 @@
 //     the pointer-presence signal (detail should live behind pointers).
 //
 // **Thresholds.** The contract's Tier-1 budget is verbatim "hard budget:
-// readable in under 30 seconds (~200 words)". A record is logged at 2x that
-// budget (>= 400 words) — a clear violation, not a borderline expanded
+// readable in under 30 seconds (~200 words)". A record is logged at
+// OVER_BUDGET_MULTIPLIER times that budget — 1.5x since mt#3942, so >= 300
+// words at the default budget — a clear violation, not a borderline expanded
 // report (severity legitimately pierces the register; calibration data will
-// show how often that happens) — OR on any lead-label hit.
+// show how often that happens) — OR on any lead-label hit. Both factors are
+// tunable (the budget via MINSKY_WALL_OF_TEXT_WORD_BUDGET), so read the
+// constants rather than the figures quoted here.
 //
 // **mt#3028 — two measurement-integrity fixes (2026-07-21 calibration review,
 // ask 8bf53c54, tune-both disposition).**
