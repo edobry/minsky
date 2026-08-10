@@ -19,6 +19,7 @@ import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
   createAskWithFormLint,
   filterBlockingFormLintMatches,
+  normalizeQuestionForLint,
   validateFormLintNotViolated,
 } from "./asks";
 
@@ -108,6 +109,18 @@ describe("createAskWithFormLint — external references (mt#2918)", () => {
         question: "Grant the reviewer App the checks:write permission in the app settings.",
       })
     ).toThrow(/portal-no-link/);
+  });
+
+  test("the shared normalization seam is idempotent and leaves clean params untouched", () => {
+    const withRef = { question: `See Notion ${INCIDENT_ID}.` };
+    const once = normalizeQuestionForLint(withRef);
+    expect(once.question).toContain(INCIDENT_URL);
+    expect(normalizeQuestionForLint(once).question).toBe(once.question);
+
+    // No reference to resolve → the SAME object back, not a copy, so the seam
+    // is free on the overwhelmingly common path.
+    const clean = { question: "Approve the deploy." };
+    expect(normalizeQuestionForLint(clean)).toBe(clean);
   });
 
   test("the check is excluded from the hard-reject set, so it can never block a create", () => {

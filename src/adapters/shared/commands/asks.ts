@@ -921,6 +921,27 @@ export function validateAuthorizationApproveOptions(params: {
  * Exported for direct testing, matching `validateFormLintNotViolated`'s
  * pattern above.
  */
+/**
+ * Return `params` with its question normalized to the form that will actually
+ * be PERSISTED (mt#2918).
+ *
+ * The single normalization seam shared by the two places that need it:
+ * `asks.create`'s `validate` hook, which must not reject a body the transform
+ * is about to fix, and `createAskWithFormLint`, which writes that body. Naming
+ * it makes the ordering legible at both call sites instead of leaving it as an
+ * implementation detail of whichever function happens to run first — PR #2755
+ * R1/R2 both landed on that ambiguity.
+ *
+ * Idempotent, because `linkifyExternalRefs` is: a question that already carries
+ * its URLs comes back unchanged, so applying this twice is a no-op rather than
+ * a double-append.
+ */
+export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+  if (typeof params.question !== "string") return params;
+  const { text } = linkifyExternalRefs(params.question);
+  return text === params.question ? params : { ...params, question: text };
+}
+
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
   return matches.filter(
     (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
@@ -1418,9 +1439,7 @@ export async function createAskWithFormLint(
   // notification payload — carries the URL rather than a bare page id. The
   // display-surface linkifier cannot do this job: it resolves refs against a
   // Minsky id-set, and a Notion page id is in no Minsky index.
-  const { text: linkifiedQuestion } = linkifyExternalRefs(params.question);
-  const persistedParams: CreateAskParams =
-    linkifiedQuestion === params.question ? params : { ...params, question: linkifiedQuestion };
+  const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
 
   const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
@@ -1976,7 +1995,15 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // mt#3326: reject a create whose question/options fail any form-lint
         // check, unless the caller explicitly acknowledges them. Runs last —
         // fixing form/wording is usually the last thing an author checks.
-        validateFormLintNotViolated(params);
+        //
+        // mt#2918 / PR #2755: the question is normalized to its PERSISTED form
+        // before it is linted, so `validate` and `execute` judge the same text.
+        // Without this a URL-reading check (`portal-no-link`) rejects a body
+        // whose only missing link the transform was about to add.
+        // `validateFormLintNotViolated` also normalizes internally, so a caller
+        // that forgets this is still correct; `linkifyExternalRefs` is
+        // idempotent, which is what makes applying it at both seams safe.
+        validateFormLintNotViolated(normalizeQuestionForLint(params));
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await requireAskRepository(container, "asks.create");
