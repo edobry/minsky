@@ -5,6 +5,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edobry/minsky.git"
+  },
+  "homepage": "https://github.com/edobry/minsky#readme",
+  "bugs": {
+    "url": "https://github.com/edobry/minsky/issues"
+  },
   "description": "The engineering organization around your AI agents — tasks, isolated sessions, adversarial review, memory, and decision routing, built as environment.",
   "icon": "assets/icon/minsky-icon.svg",
   "keywords": [
