@@ -35,6 +35,7 @@ import {
   computeReviewDueLogs,
   advanceWatermarks,
   clearResolvedAskIds,
+  mergeWatermarkWrite,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
@@ -377,15 +378,52 @@ export function registerCalibrationCommands(): void {
 
         let watermarks = await loadWatermarks(workspacePath);
 
+        // Every write below goes through `persistWatermarks` (mt#3899), which
+        // re-reads the store and drops any target another pass changed
+        // underneath us. Drifted paths accumulate here and are reported.
+        const driftedPaths: string[] = [];
+
+        /**
+         * Persist `intended` against the store as it stands NOW, not against
+         * the snapshot this pass read (mt#3899). Returns the paths whose edit
+         * was dropped because a concurrent writer got there first; the caller
+         * decides what that means for its own success flag.
+         */
+        const persistWatermarks = async (
+          base: WatermarkStore,
+          intended: WatermarkStore,
+          targetPaths: ReadonlySet<string>
+        ): Promise<{ store: WatermarkStore; drifted: string[] }> => {
+          const fresh = await loadWatermarks(workspacePath);
+          const { merged, driftedPaths: drifted } = mergeWatermarkWrite(
+            base,
+            intended,
+            fresh,
+            targetPaths
+          );
+          await saveWatermarks(workspacePath, merged);
+          driftedPaths.push(...drifted);
+          return { store: merged, drifted };
+        };
+
         // Clear a resolved disposition-ask reference first (mt#2659) — this
         // is independent of --ack and does not touch lastReviewedCount/At.
         let clearedAskId = false;
         if (params.clearAskId) {
           const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
           if (clearedWatermarks !== watermarks) {
-            watermarks = clearedWatermarks;
-            await saveWatermarks(workspacePath, watermarks);
-            clearedAskId = true;
+            const targets = new Set(
+              Object.keys(watermarks).filter((p) => watermarks[p]?.openAskId === params.clearAskId)
+            );
+            const { store, drifted } = await persistWatermarks(
+              watermarks,
+              clearedWatermarks,
+              targets
+            );
+            watermarks = store;
+            // Honest reporting: a clear whose every target drifted cleared
+            // nothing, so it must not claim it did.
+            clearedAskId = drifted.length < targets.size;
           }
         }
 
@@ -443,8 +481,14 @@ export function registerCalibrationCommands(): void {
               new Date().toISOString(),
               params.askId
             );
-            await saveWatermarks(workspacePath, updated);
-            watermarkAdvanced = true;
+            const { drifted } = await persistWatermarks(
+              watermarks,
+              updated,
+              selection.ackablePaths
+            );
+            // An ack whose every target drifted advanced nothing. Reporting it
+            // as advanced is what makes the race silent (mt#3899).
+            watermarkAdvanced = drifted.length < selection.ackablePaths.size;
           }
         }
 
@@ -486,6 +530,9 @@ export function registerCalibrationCommands(): void {
             watermarkAdvanced,
             clearedAskId,
             skippedOpenAskPaths,
+            // mt#3899: paths whose intended write was dropped because another
+            // pass changed them mid-sweep. Empty on every uncontended run.
+            driftedPaths,
           };
         }
 
@@ -501,14 +548,23 @@ export function registerCalibrationCommands(): void {
             ? `\nSkipped ${skippedOpenAskPaths.length} log(s) with a still-open disposition ask ` +
               `(no askId supplied): ${skippedOpenAskPaths.join(", ")}`
             : "";
+        // mt#3899: name the dropped writes. A pass that silently loses the race
+        // reads identically to one that won it, which is what made the
+        // originating incident invisible until the counts were compared by hand.
+        const driftedSuffix =
+          driftedPaths.length > 0
+            ? `\nDropped ${driftedPaths.length} write(s) — another pass changed these logs ` +
+              `mid-sweep; their values stand: ${driftedPaths.join(", ")}`
+            : "";
 
         return {
           success: true,
           json: false,
-          message: text + suffix + clearedSuffix + skippedSuffix,
+          message: text + suffix + clearedSuffix + skippedSuffix + driftedSuffix,
           watermarkAdvanced,
           clearedAskId,
           skippedOpenAskPaths,
+          driftedPaths,
         };
       } catch (error) {
         return {

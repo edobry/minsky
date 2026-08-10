@@ -252,6 +252,8 @@ type AckResult = {
   success: boolean;
   watermarkAdvanced: boolean;
   skippedOpenAskPaths: string[];
+  driftedPaths: string[];
+  clearedAskId: boolean;
   reviewDue: Array<{ name: string; reason: string }>;
   results: Array<{ name: string; pastThreshold: boolean; openAskId?: string }>;
 };
@@ -387,5 +389,50 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     expect(acked.skippedOpenAskPaths).toHaveLength(0);
     expect(acked.watermarkAdvanced).toBe(true);
     expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.openAskId).toBe(ASK_ID);
+  });
+});
+
+describe("observability.calibration-review — concurrent-write reconciliation (mt#3899)", () => {
+  // The domain-level race semantics are pinned in
+  // `src/domain/calibration/calibration-sweep.test.ts` (`mergeWatermarkWrite`),
+  // which is where the decision lives. These two assert the WIRING: that the
+  // command routes both of its write paths through it, and that an uncontended
+  // pass is unchanged by the routing.
+
+  test("an uncontended ack reports no dropped writes and still advances", async () => {
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+
+    const acked = (await getCommand().execute(
+      { ack: true, json: true },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(acked.driftedPaths).toEqual([]);
+    expect(readWatermarks(workspace)[CAUSAL_PREMISE_PATH]?.lastReviewedCount).toBe(3);
+  });
+
+  test("an uncontended clear reports no dropped writes and leaves the counts alone", async () => {
+    // Doubles as the mt#3899 regression pin from the task's Acceptance Test 4:
+    // clearing an ask must not move lastReviewedCount/At. That behavior was
+    // CORRECT before this change — the first diagnosis of the incident wrongly
+    // blamed it — and the reconciliation must not disturb it.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    const original = { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20), openAskId: ASK_ID };
+    writeWatermarks(workspace, { [CAUSAL_PREMISE_PATH]: original });
+
+    const cleared = (await getCommand().execute(
+      { ack: false, json: true, clearAskId: ASK_ID },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(cleared.clearedAskId).toBe(true);
+    expect(cleared.driftedPaths).toEqual([]);
+    const after = readWatermarks(workspace)[CAUSAL_PREMISE_PATH];
+    expect(after?.lastReviewedCount).toBe(original.lastReviewedCount);
+    expect(after?.lastReviewedAt).toBe(original.lastReviewedAt);
+    expect(after?.openAskId).toBeUndefined();
   });
 });
