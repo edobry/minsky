@@ -56,7 +56,7 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ALLOW_SECRET_FILE_READ";
  * whose whole purpose is holding secrets — so a match is near-certainly a real
  * hit. Widening later is cheap; earning back trust after noise is not.
  */
-export const SECRET_PATH_PATTERNS: readonly RegExp[] = [
+export const EXPLICIT_SECRET_PATH_PATTERNS: readonly RegExp[] = [
   // Minsky's own config — holds `connectionString`, provider apiKeys (mt#2864
   // found all four live API keys leaked into transcripts from this file).
   /(^|\/)\.config\/minsky\/config\.ya?ml\b/,
@@ -72,9 +72,61 @@ export const SECRET_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)id_(rsa|dsa|ecdsa|ed25519)\b/,
   /\.pem\b/,
   /\.p12\b/,
-  // Anything self-describing as a credential/secret store.
-  /(^|\/)[\w.-]*(credential|secret)[\w.-]*(\.(ya?ml|json|env|txt|conf))?\b/i,
 ];
+
+/**
+ * Anything self-describing as a credential/secret store.
+ *
+ * Split out from the explicit list above (mt#3703) because it is the ONLY entry
+ * that matches by NAME RESEMBLANCE rather than by naming a specific known file,
+ * and so the only one that can match something that is not a secret at all. The
+ * carve-out in {@link isSecretPath} applies to this pattern alone; the explicit
+ * patterns keep matching unconditionally.
+ */
+export const GENERIC_SECRET_NAME_PATTERN =
+  /(^|\/)[\w.-]*(credential|secret)[\w.-]*(\.(ya?ml|json|env|txt|conf))?\b/i;
+
+/** Back-compat: the full set, explicit entries first. */
+export const SECRET_PATH_PATTERNS: readonly RegExp[] = [
+  ...EXPLICIT_SECRET_PATH_PATTERNS,
+  GENERIC_SECRET_NAME_PATTERN,
+];
+
+/**
+ * Extensions that mark a token as PROGRAM SOURCE rather than a credential store.
+ *
+ * The generic pattern's extension group is optional and `\b` matches at a `/`, so
+ * `packages/domain/src/credentials/providers/telegram.ts` matched on the
+ * `credentials/` DIRECTORY segment — denying greps over ordinary committed
+ * TypeScript (mt#3703). Source files are the highest-traffic read target in this
+ * repo, so that false positive sat directly on the hot path.
+ *
+ * The carve-out is deliberately about the FILE, not the directory: a secret
+ * stored under a `secrets/` directory (`secrets/prod.yaml`) still matches,
+ * because its own extension is a data extension.
+ *
+ * Failure mode, stated rather than discovered later: a real credential pasted
+ * into a committed `.ts` file is no longer caught by the GENERIC pattern. That
+ * is accepted — a secret in committed source has already been distributed to
+ * everyone with repository access, which is a larger and different incident than
+ * the transcript leak this guard prevents. Every explicit pattern above still
+ * applies regardless of extension.
+ */
+export const SOURCE_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+]);
+
+function hasSourceCodeExtension(token: string): boolean {
+  const base = token.slice(token.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return SOURCE_CODE_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
 
 /**
  * Commands that EMIT file content to stdout. `grep`/`rg` are conditional —
@@ -221,7 +273,39 @@ export function tokenize(segment: string): string[] {
 
 /** Does this token look like a path into a known-secret-bearing file? */
 export function isSecretPath(token: string): boolean {
-  return SECRET_PATH_PATTERNS.some((re) => re.test(token));
+  if (EXPLICIT_SECRET_PATH_PATTERNS.some((re) => re.test(token))) return true;
+  // The generic name-resemblance pattern alone must not condemn program source.
+  if (hasSourceCodeExtension(token)) return false;
+  return GENERIC_SECRET_NAME_PATTERN.test(token);
+}
+
+/**
+ * The tokens of a segment that could name a FILE the reader would emit.
+ *
+ * For grep-family readers the first non-flag argument is the SEARCH PATTERN, not
+ * a path — and the guard used to scan every token, so
+ * `grep -n 'CredentialRead' <source>.ts` was denied because the PATTERN
+ * resembled a credential file (mt#3703). The denial recurred while planning that
+ * fix, on a grep whose pattern contained the words this guard matches, over the
+ * guard's own source: it blocked work on itself.
+ *
+ * `-e PATTERN` / `-f FILE` move the pattern into the flag, so when either is
+ * present nothing is skipped and every non-flag token stays a file candidate.
+ *
+ * Why skipping cannot lose coverage: only ONE token is dropped and all others are
+ * still checked, so the sole way a secret path could escape is by BEING the first
+ * non-flag argument — which for grep makes it the pattern, leaving grep to read
+ * stdin and emit nothing from that file. A flag taking a separate value
+ * (`grep -m 5 …`) shifts which token is dropped, and the same argument covers it.
+ */
+export function filePathCandidates(program: string, tokens: string[]): string[] {
+  const args = tokens.slice(1);
+  if (!CONDITIONAL_READERS.has(program)) return args;
+  if (args.some((t) => t === "-e" || t === "-f" || /^--(regexp|file)=/.test(t))) return args;
+
+  const patternIdx = args.findIndex((t) => !t.startsWith("-"));
+  if (patternIdx === -1) return args;
+  return [...args.slice(0, patternIdx), ...args.slice(patternIdx + 1)];
 }
 
 /**
@@ -273,7 +357,7 @@ export function findSecretReads(command: string): SecretReadHit[] {
     if (!program) continue;
     if (SAFE_INSPECTORS.includes(program)) continue;
 
-    const secretToken = tokens.slice(1).find((t) => isSecretPath(t));
+    const secretToken = filePathCandidates(program, tokens).find((t) => isSecretPath(t));
     if (!secretToken) continue;
 
     // `< secretfile` feeds content to stdin; treat as emitting regardless of
