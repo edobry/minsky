@@ -109,6 +109,15 @@ export interface HookOutput {
      * `./registry.ts`.
      */
     updatedInput?: Record<string, unknown>;
+    /**
+     * MessageDisplay-only: the text shown in place of the streaming delta. Read
+     * off the installed client's own embedded schema (2.1.226), which describes
+     * it as "Text displayed in place of the delta. Omit (or return the delta
+     * unchanged) to display the original." Display-only — the stored transcript
+     * and what the model sees keep the original. Added by mt#2565 for
+     * `linkify-message-display.ts`.
+     */
+    displayContent?: string;
   };
 }
 
