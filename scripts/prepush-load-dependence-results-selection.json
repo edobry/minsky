@@ -1,0 +1,196 @@
+{
+  "task": "mt#3871",
+  "loadSensitiveTestFiles": [
+    "src/cockpit/transcript-sweep-backstop.test.ts",
+    "src/cockpit/health-contract.test.ts",
+    "src/cockpit/routes/sweeps.test.ts"
+  ],
+  "results": [
+    {
+      "sha": "75f9c13010f1f7d272d082d2e8650783005fdcff",
+      "filesReplayed": 6,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "f28435482d659d55cc163cae68a591c8eaf36155",
+      "filesReplayed": 5,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "c1f839c21c330464210774114cec3ea3ca0914b0",
+      "filesReplayed": 102,
+      "filesMissing": 2,
+      "selected": 3
+    },
+    {
+      "sha": "60e187806d3227801b55dd9999abb00e64792155",
+      "filesReplayed": 8,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "a23d8a97b2c5ad73fb70ee753b1e45317f057a0e",
+      "filesReplayed": 8,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "e90f5f710dd8d389e2cfec8ff5ecb303cf878c30",
+      "filesReplayed": 3,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "a2626a49f22e568b5cf7d3d393aec6e6ee8b660a",
+      "filesReplayed": 3,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "e7532a9f998775e88bde9eee994d757cafd93462",
+      "filesReplayed": 2,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "2a16429bd32e47f9bfa90253353db433f7e664b4",
+      "filesReplayed": 3,
+      "filesMissing": 0,
+      "selected": 3
+    },
+    {
+      "sha": "a5ccf27f8f5ee166cae44f4ae431d1e8a21ac3f8",
+      "filesReplayed": 1,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "fdeb0e73690325600ed5d2aa79088220b3754eb0",
+      "filesReplayed": 3,
+      "filesMissing": 0,
+      "selected": 3
+    },
+    {
+      "sha": "7858c124747e73d228100aea0d2e1bbe8cb1d2cb",
+      "filesReplayed": 2,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "4086d68d9337145021052e666b5264ee57f0ac2c",
+      "filesReplayed": 2,
+      "filesMissing": 0,
+      "selected": 3
+    },
+    {
+      "sha": "418751934f17532bc596b1ad6090044f6a58865d",
+      "filesReplayed": 2,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "8e4bfd6795844268a9b33bea8514f10aef6b97ff",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "2ad14b291a3ac29759c3dda5e696464fa8d5374b",
+      "filesReplayed": 3,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "ec5aaabd997e2558fc56e25c69e3c8f3b97a6b28",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "172b6a84a131f978fae46c84736a9b6345ce0411",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "7568b9812e04f355717020dc4c8a14474fc17e2c",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "a87959bfc30a929ca80a2b44212731826ac6f1a2",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "7f3d3649d9fa79d9bf5249466e6206d6fd395f5a",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "0c2de8df2d06a268f815731c59270cb2bbfc200e",
+      "filesReplayed": 28,
+      "filesMissing": 0,
+      "selected": 1
+    },
+    {
+      "sha": "53f84573fc39c15d8f13479d5cf5e3e12db940f4",
+      "filesReplayed": 4,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "dbbb533161c8f2030b927d013582df178f1ad644",
+      "filesReplayed": 28,
+      "filesMissing": 0,
+      "selected": 1
+    },
+    {
+      "sha": "c4c9e69078502819ea2cc14c0f812ba8c33ad89c",
+      "filesReplayed": 2,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "4507a3dca5a53bf2a03f4cc5e2b163f54aadf8ee",
+      "filesReplayed": 0,
+      "filesMissing": 1,
+      "selected": 0
+    },
+    {
+      "sha": "c76ca99f7771611e8f7a8d89dd170386429aafad",
+      "filesReplayed": 3,
+      "filesMissing": 1,
+      "selected": 0
+    },
+    {
+      "sha": "1e9837546dd4c8904847fcddbfec0d5f5561a2b3",
+      "filesReplayed": 9,
+      "filesMissing": 0,
+      "selected": 1
+    },
+    {
+      "sha": "8adf4b980c61b8d039d75b55ff17a9c347c0c866",
+      "filesReplayed": 8,
+      "filesMissing": 0,
+      "selected": 0
+    },
+    {
+      "sha": "a963272f135a986052c91be39ca8d19c58b207bb",
+      "filesReplayed": 1,
+      "filesMissing": 0,
+      "selected": 0
+    }
+  ],
+  "fraction": {
+    "commitsExamined": 29,
+    "commitsSelecting": 7,
+    "fraction": 0.2413793103448276,
+    "commitsUnreplayable": 1
+  }
+}
