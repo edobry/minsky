@@ -10,7 +10,8 @@
  *                              and R times under generated CPU load, recording wall
  *                              time, pass/fail, the achieved load average, and every
  *                              failing test's own elapsed time.
- *   --mode=selection-fraction  over the last N commits on the branch, how many
+ *   --mode=selection-fraction  over the last N first-parent commits on the trunk
+ *                              (`--ref`, default main / origin/main), how many
  *                              actually select the load-sensitive test population.
  *
  * The analysis lives in `scripts/prepush-load-measurement.ts` as pure functions;
@@ -31,10 +32,12 @@ import { cpus, loadavg } from "os";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import {
+  commitListArgs,
   deriveVerdict,
   parseCompletionSummary,
   parseFailingTests,
   parseSelectionLine,
+  resolveTrunkRef,
   selectedCount,
   straddleCheck,
   summarizeCommitSelection,
@@ -114,6 +117,8 @@ interface Options {
   workers: number;
   commits: number;
   controlRuns: number;
+  /** Trunk ref SC6 is measured over; resolved from candidates when omitted. */
+  ref: string | null;
   jsonPath: string;
 }
 
@@ -139,6 +144,7 @@ export function parseArgs(argv: string[]): Options {
     workers: Number.parseInt(get("workers") ?? String(cpus().length * 2), 10),
     commits: Number.parseInt(get("commits") ?? "30", 10),
     controlRuns: Number.parseInt(get("control-runs") ?? "2", 10),
+    ref: get("ref") ?? null,
     jsonPath: get("json") ?? "scripts/prepush-load-dependence-results.json",
   };
 }
@@ -502,10 +508,28 @@ async function probeSelection(ref: string): Promise<SelectionReport | null> {
 
 async function measureSelectionFraction(options: Options): Promise<number> {
   console.log(
-    `mt#3871 selection fraction — probing HEAD~0..HEAD~${options.commits} against ` +
+    `mt#3871 selection fraction — replaying commits against ` +
       `${LOAD_SENSITIVE_TEST_FILES.length} load-sensitive files.`
   );
-  const shas = nonEmptyLines(git(["log", "--format=%H", "-n", String(options.commits)]));
+  const ref =
+    options.ref ??
+    resolveTrunkRef((candidate) => {
+      try {
+        git(["rev-parse", "--verify", "--quiet", candidate]);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  if (ref === null) {
+    console.error(
+      "Could not resolve a trunk ref (tried main, origin/main, origin/master) — measurement not " +
+        "taken. Pass --ref=<ref> explicitly."
+    );
+    return 1;
+  }
+  console.log(`  measuring the last ${options.commits} first-parent commits on ${ref}`);
+  const shas = nonEmptyLines(git(commitListArgs(ref, options.commits)));
   const results: CommitSelection[] = [];
 
   for (const sha of shas) {
@@ -554,7 +578,14 @@ async function measureSelectionFraction(options: Options): Promise<number> {
   writeFileSync(
     outPath,
     `${JSON.stringify(
-      { task: "mt#3871", loadSensitiveTestFiles: LOAD_SENSITIVE_TEST_FILES, results, fraction },
+      {
+        task: "mt#3871",
+        ref,
+        commitsRequested: options.commits,
+        loadSensitiveTestFiles: LOAD_SENSITIVE_TEST_FILES,
+        results,
+        fraction,
+      },
       null,
       2
     )}\n`

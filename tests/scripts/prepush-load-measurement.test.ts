@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  commitListArgs,
   deriveVerdict,
   median,
   parseCompletionSummary,
   parseFailingTests,
   parseSelectionLine,
+  resolveTrunkRef,
   selectedCount,
   straddleCheck,
   summarizeCommitSelection,
@@ -298,6 +300,40 @@ describe("deriveVerdict", () => {
   test("measuring no sensitive shape at all cannot produce a verdict", () => {
     expect(deriveVerdict([insensitiveStable]).verdict).toBe("inconclusive");
     expect(deriveVerdict([]).verdict).toBe("inconclusive");
+  });
+});
+
+describe("commitListArgs (PR #2760 R1)", () => {
+  test("pins the ref and walks first-parent only", () => {
+    expect(commitListArgs("origin/main", 30)).toEqual([
+      "log",
+      "--first-parent",
+      "origin/main",
+      "-n",
+      "30",
+      "--format=%H",
+    ]);
+  });
+
+  test("never falls back to an implicit HEAD", () => {
+    // The original defect: no ref meant "whatever branch this runs on", which was
+    // equivalent to main only while the branch had no commits of its own.
+    expect(commitListArgs("main", 5)).toContain("main");
+    expect(commitListArgs("main", 5)).toContain("--first-parent");
+  });
+});
+
+describe("resolveTrunkRef", () => {
+  test("prefers a local main when it exists", () => {
+    expect(resolveTrunkRef((ref) => ref === "main" || ref === "origin/main")).toBe("main");
+  });
+
+  test("falls back to origin/main in a clone with no local main", () => {
+    expect(resolveTrunkRef((ref) => ref === "origin/main")).toBe("origin/main");
+  });
+
+  test("returns null rather than silently measuring the wrong ref", () => {
+    expect(resolveTrunkRef(() => false)).toBeNull();
   });
 });
 

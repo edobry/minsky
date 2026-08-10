@@ -361,6 +361,40 @@ export interface SelectionFraction {
   commitsUnreplayable: number;
 }
 
+/**
+ * `git log` arguments for the commit list SC6 is defined over.
+ *
+ * Two details are load-bearing and were both wrong in the first implementation
+ * (PR #2760 R1):
+ *
+ * - **`--first-parent`.** Without it `git log` traverses BOTH parents of every
+ *   merge, so the list is individual side-branch work commits rather than main's
+ *   own history. Those are different populations with different sizes, and a push
+ *   gates on a branch's cumulative diff — which is exactly what a first-parent
+ *   merge commit represents.
+ * - **An explicit ref.** Defaulting to HEAD silently measures whatever branch the
+ *   script runs on. That happened to be equivalent to main the first time only
+ *   because the branch had no commits yet, which is precisely the kind of accident
+ *   that stops being true the moment anyone re-runs it.
+ */
+export function commitListArgs(ref: string, count: number): string[] {
+  return ["log", "--first-parent", ref, "-n", String(count), "--format=%H"];
+}
+
+/**
+ * Pick the ref naming the trunk, from the candidates that exist in this checkout.
+ *
+ * A session workspace is a clone, so `main` may exist only as `origin/main`. The
+ * order mirrors `resolveChangedBase` in `scripts/run-tests-gated.ts` so the
+ * measurement is defined over the same trunk the gate itself resolves against.
+ */
+export function resolveTrunkRef(
+  exists: (ref: string) => boolean,
+  candidates: string[] = ["main", "origin/main", "origin/master"]
+): string | null {
+  return candidates.find((candidate) => exists(candidate)) ?? null;
+}
+
 export function summarizeCommitSelection(results: CommitSelection[]): SelectionFraction {
   const replayable = results.filter((r) => r.filesReplayed > 0);
   const commitsSelecting = replayable.filter((r) => r.selected > 0).length;
