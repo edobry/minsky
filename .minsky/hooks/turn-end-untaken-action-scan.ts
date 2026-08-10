@@ -156,7 +156,20 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   // watcher exists. `when <subject> reports back` names one; "blocked on CI"
   // names none. The real 2026-08-09T04:18Z fire carries the report-back clause,
   // so nothing is lost by dropping the broader phrase.
-  /\bwhen\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
+  //
+  // PR #2784 R3: the subject must be a MECHANISM, not a person. `when you
+  // report back` is operator-delegation — the agent handing the principal the
+  // wait — which is the failure `work-completion.mdc` names outright ("Ping me
+  // when GitHub's back" is its stated anti-pattern). Suppressing it inverted
+  // the rule this entry exists to serve, so second-person and
+  // principal-referent subjects are excluded and still fire.
+  // The exclusion sits immediately after `when`, and swallows the optional
+  // `the` ITSELF, because placing it after `(?:the\s+)?` leaves a backtracking
+  // hole: the engine retries with `the` unconsumed, the lookahead then inspects
+  // "the operator" instead of "operator", and the person-check passes. Caught by
+  // this entry's own test rather than by reading — worth keeping in mind for any
+  // later edit here.
+  /\bwhen\s+(?!(?:the\s+)?(?:you|your|i|we|operator|principal|user|eugene)\b)(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
 ];
 
 /**
@@ -423,6 +436,18 @@ const ATTRIBUTION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bper\s+(?:the\s+)?[\w\s.'-]{0,30}$/i,
 ];
 
+/**
+ * Attribution to a PERSON is not attribution to a document (PR #2784 R3).
+ *
+ * `according to <X>` and `per <X>` were matching any object, so "According to
+ * you, the next step is the migration" read as a runbook citation. It is the
+ * opposite: a next step the PRINCIPAL named is still one the agent owes an
+ * action or an ask on, and suppressing it hides a true positive. Only an
+ * impersonal source moves the step off the speaker.
+ */
+const PERSONAL_ATTRIBUTION_PATTERN =
+  /\b(?:you|your|yours|i|me|my|we|us|our|operator|principal|user|eugene)\b/i;
+
 /** Chars of preceding context an attribution marker may occupy. */
 const ATTRIBUTION_LOOKBACK_CHARS = 40;
 
@@ -432,6 +457,7 @@ const ATTRIBUTION_LOOKBACK_CHARS = 40;
  */
 export function isAttributedStep(text: string, index: number): boolean {
   const before = text.slice(Math.max(0, index - ATTRIBUTION_LOOKBACK_CHARS), index);
+  if (PERSONAL_ATTRIBUTION_PATTERN.test(before)) return false;
   return ATTRIBUTION_PATTERNS.some((re) => re.test(before));
 }
 

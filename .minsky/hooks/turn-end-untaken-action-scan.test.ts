@@ -529,6 +529,30 @@ describe("mt#3917 precision fixes", () => {
       expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
     });
 
+    test("delegating the wait to the PRINCIPAL still fires (PR #2784 R3)", () => {
+      // "when you report back" is operator-delegation, which
+      // `work-completion.mdc` names as the anti-pattern ("Ping me when GitHub's
+      // back"). Suppressing it inverted the rule the suppression exists to
+      // serve. The subject has to be a mechanism, not a person.
+      //
+      // Each fixture carries an OBJECT (`the PR`). Written without one —
+      // "I'll merge when you report back" — nothing fires at all, because no
+      // commitment family matches, and the test then passes or fails for a
+      // reason unrelated to suppression. That is the third fixture-choice slip
+      // in this block: verify a fixture against the matcher before asserting on
+      // it, rather than writing what the sentence ought to trip.
+      for (const delegated of [
+        "I'll merge the PR when you report back.",
+        "I'll merge the PR when the operator reports back.",
+      ]) {
+        expect(detectUntakenAction(delegated).length).toBeGreaterThan(0);
+      }
+      // Positive control on the same shape: a MECHANISM subject still suppresses.
+      expect(detectUntakenAction("I'll merge the PR when the checks task reports back.")).toEqual(
+        []
+      );
+    });
+
     test("naming CI as the blocker, with no watcher, still fires (PR #2784 R1)", () => {
       // The first draft suppressed on `blocked only on ci` too. Naming a blocker
       // is not evidence a watcher was armed — it is the announce-and-stop turn
@@ -545,6 +569,18 @@ describe("mt#3917 precision fixes", () => {
         "every rung reported absent while the service was actively 422ing, and the " +
         "documented next step is bypass merge.";
       expect(detectUntakenAction(real)).toEqual([]);
+    });
+
+    test("attribution to a PERSON does not suppress (PR #2784 R3)", () => {
+      // A next step the principal named is still one the agent owes an action
+      // or an ask on — suppressing it hides a true positive, which is the
+      // opposite of citing a runbook.
+      for (const personal of [
+        "According to you, next step is the migration.",
+        "Per your last message, next step is to rerun it.",
+      ]) {
+        expect(detectUntakenAction(personal).length).toBeGreaterThan(0);
+      }
     });
 
     test("the agent's OWN next step still fires", () => {
