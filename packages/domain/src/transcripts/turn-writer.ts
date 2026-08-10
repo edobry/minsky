@@ -157,6 +157,50 @@ export async function writeTurnsForTranscript(
     };
   }
 
+  // ── Serialization (mt#3514, PR #2736 R1) ───────────────────────────────
+  // The upsert and the orphan DELETE must not interleave with ANOTHER writer
+  // for the same session. Three callers can overlap in practice — the ingest
+  // service (running continuously in the cockpit daemon), the
+  // `index-embeddings --all` sweep, and `index-embeddings --session` — so a
+  // concurrent run that extracts MORE turns could write rows at indexes this
+  // run then deletes as "orphans." That is data loss, not a stale-row cleanup.
+  //
+  // Extends the session-scoped advisory-lock convention already used by
+  // `withDrivenSessionResumeLock` (driven-session-registry-store.ts): a
+  // TRANSACTION-scoped lock, because this runs on a pooled postgres-js
+  // connection where a session-scoped acquire/release pair could land on
+  // different connections. Blocking (`pg_advisory_xact_lock`) rather than
+  // `try` — a second writer must WAIT its turn, not skip its write.
+  //
+  // Per-chunk SAVEPOINTs (drizzle's nested `transaction`) preserve mt#2457's
+  // partial-write tolerance: without them a single failed chunk would poison
+  // the whole transaction, turning a partial write into a total rollback and
+  // silently changing `erroredChunks` semantics.
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${TURN_WRITE_LOCK_NAMESPACE}, hashtext(${agentSessionId}))`
+    );
+    return writeTurnsLocked(tx, agentSessionId, turns, transcript, logSink);
+  });
+}
+
+/** Advisory-lock namespace for per-session turn writes (mt#3514). */
+const TURN_WRITE_LOCK_NAMESPACE = 3_514_001;
+
+/**
+ * The upsert + orphan-removal body, running inside the caller's transaction
+ * with the session's advisory lock already held. Split out so the locking and
+ * the write logic are separately readable; not exported — the lock is not
+ * optional.
+ */
+async function writeTurnsLocked(
+  tx: PostgresJsDatabase,
+  agentSessionId: string,
+  turns: ReturnType<typeof extractTurns>,
+  transcript: unknown[],
+  logSink: TurnWriterLogSink
+): Promise<WriteTurnsResult> {
+  const db = tx;
   // mt#2457 perf: upsert in bulk, chunked, rather than one round-trip per
   // turn. A handful of legacy sessions run into the thousands of turns (up
   // to ~4,511 raw lines observed in the 2026-07-20 corpus measurement) —
@@ -191,22 +235,28 @@ export async function writeTurnsForTranscript(
     }));
 
     try {
-      await db
-        .insert(agentTranscriptTurnsTable)
-        .values(insertValues)
-        .onConflictDoUpdate({
-          target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
-          // `embedding` is intentionally NOT in this SET — preserve any vector
-          // the backfill already filled (ADR-019 embedding-preservation invariant).
-          set: {
-            userText: sql`EXCLUDED.user_text`,
-            assistantText: sql`EXCLUDED.assistant_text`,
-            toolCalls: sql`EXCLUDED.tool_calls`,
-            startedAt: sql`EXCLUDED.started_at`,
-            endedAt: sql`EXCLUDED.ended_at`,
-            isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
-          },
-        });
+      // SAVEPOINT per chunk (mt#3514): inside the outer transaction a failed
+      // statement would otherwise abort everything, so a single bad chunk
+      // would roll back chunks that already succeeded — silently converting
+      // mt#2457's tolerated PARTIAL write into a total loss.
+      await db.transaction(async (sp) => {
+        await sp
+          .insert(agentTranscriptTurnsTable)
+          .values(insertValues)
+          .onConflictDoUpdate({
+            target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
+            // `embedding` is intentionally NOT in this SET — preserve any vector
+            // the backfill already filled (ADR-019 embedding-preservation invariant).
+            set: {
+              userText: sql`EXCLUDED.user_text`,
+              assistantText: sql`EXCLUDED.assistant_text`,
+              toolCalls: sql`EXCLUDED.tool_calls`,
+              startedAt: sql`EXCLUDED.started_at`,
+              endedAt: sql`EXCLUDED.ended_at`,
+              isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+            },
+          });
+      });
       written += chunk.length;
     } catch (err) {
       // mt#2457 R1 review: a failed chunk must be counted as an error, not

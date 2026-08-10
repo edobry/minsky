@@ -130,7 +130,23 @@ function makeDb(
     });
   }
 
-  return {
+  const fake: Record<string, unknown> = {
+    /**
+     * mt#3514: the writer runs its upsert + orphan-delete inside a
+     * transaction holding a session advisory lock, with a per-chunk SAVEPOINT
+     * (a nested `transaction`). The fake models the CONTROL FLOW only — it
+     * passes itself as the tx/savepoint handle and propagates rejections — not
+     * rollback semantics, which would be pretending to implement Postgres.
+     * Real atomicity and real locking are database behavior, out of reach of
+     * an in-memory fake and covered by the live prod verification instead.
+     */
+    async transaction<T>(cb: (tx: unknown) => Promise<T>): Promise<T> {
+      return cb(fake);
+    },
+    /** The advisory-lock statement; the fake has no lock to take. */
+    execute(_query: unknown): Promise<unknown[]> {
+      return Promise.resolve([]);
+    },
     select(_fields?: Record<string, unknown>) {
       return {
         from: (_table: unknown) =>
@@ -184,6 +200,7 @@ function makeDb(
       return deleteCalls.length;
     },
   };
+  return fake as typeof fake & { __deleteCallCount(): number };
 }
 
 type FakeDb = ReturnType<typeof makeDb>;
