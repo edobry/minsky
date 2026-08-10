@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
-import { classifyExecFailure, executeCommand } from "./exec";
+import { exec } from "child_process";
+
+import { classifyExecFailure, executeCommand, markKilledByTimeout } from "./exec";
 
 // ---------------------------------------------------------------------------
 // Pure classification (mt#3909)
@@ -16,9 +18,36 @@ describe("classifyExecFailure", () => {
     expect(classifyExecFailure({ code: 3 })).toEqual({ kind: "exit", exitCode: 3 });
   });
 
-  it("reads killed-with-no-code as a timeout kill", () => {
+  // mt#3923: `killed` says the parent sent a signal, never why. Reporting that
+  // as a timeout is a guess, and it is wrong for any caller that kills for a
+  // different reason (operator cancellation, a pre-timeout abort).
+  it("reads an unexplained parent kill as killed, not as a timeout", () => {
     expect(classifyExecFailure({ killed: true, code: null, signal: "SIGTERM" })).toEqual({
-      kind: "timeout",
+      kind: "killed",
+      signal: "SIGTERM",
+    });
+  });
+
+  it("reads a parent kill as a timeout when the caller reports the reason", () => {
+    expect(
+      classifyExecFailure(
+        { killed: true, code: null, signal: "SIGTERM" },
+        { killedDueToTimeout: true }
+      )
+    ).toEqual({ kind: "timeout", signal: "SIGTERM" });
+  });
+
+  it("reads a parent kill as a timeout when the error carries the stamp", () => {
+    const error = markKilledByTimeout({ killed: true, code: null, signal: "SIGTERM" });
+    expect(classifyExecFailure(error)).toEqual({ kind: "timeout", signal: "SIGTERM" });
+  });
+
+  // The caller's explicit word beats the stamp — a caller that knows the kill
+  // was NOT a timeout can say so even on a stamped error.
+  it("lets an explicit reason override the stamp", () => {
+    const error = markKilledByTimeout({ killed: true, code: null, signal: "SIGTERM" });
+    expect(classifyExecFailure(error, { killedDueToTimeout: false })).toEqual({
+      kind: "killed",
       signal: "SIGTERM",
     });
   });
@@ -108,6 +137,26 @@ describe("classifyExecFailure against real child_process errors", () => {
     }
     const withStdout = caught as { stdout?: string };
     expect(withStdout.stdout ?? "").toContain("before-the-kill");
+  });
+
+  // mt#3923's negative control, and the case the mt#3909 tests never covered:
+  // a REAL parent-initiated kill with no timeout involved. Node reports it
+  // identically to a timeout kill (`killed: true`, no code, SIGTERM), which is
+  // exactly why the reason cannot be recovered from the error.
+  it("does not call a real non-timeout parent kill a timeout", async () => {
+    const caught = await new Promise<unknown>((resolve) => {
+      const child = exec("sleep 5", (error) => resolve(error));
+      setTimeout(() => child.kill("SIGTERM"), 100);
+    });
+
+    // Pin the premise this whole task rests on: the shape really is
+    // indistinguishable from the timeout case above.
+    expect((caught as { killed?: boolean }).killed).toBe(true);
+    expect((caught as { code?: unknown }).code).toBeNull();
+
+    const failure = classifyExecFailure(caught);
+    expect(failure.kind).toBe("killed");
+    expect(failure.kind).not.toBe("timeout");
   });
 
   it("leaves a successful command untouched", async () => {

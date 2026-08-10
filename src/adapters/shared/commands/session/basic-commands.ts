@@ -18,6 +18,8 @@ import {
   sessionDirCommandParams,
   sessionSearchCommandParams,
   sessionExecCommandParams,
+  SESSION_EXEC_DEFAULT_TIMEOUT_MS,
+  SESSION_EXEC_MAX_TIMEOUT_MS,
 } from "./session-parameters";
 import {
   annotateSessionsWithAttachment,
@@ -380,15 +382,17 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
 }
 
 /**
- * Default and ceiling for `session_exec`'s command timeout.
+ * Resolve the timeout a `session_exec` invocation will actually run under.
  *
- * Kept beside the command and mirrored by `sessionExecCommandParams`'s schema
- * (`z.number().int().positive().max(120000)`) and its description, which is
- * what actually REJECTS an over-cap request — the `Math.min` at the call site
- * is only defense-in-depth for callers that bypass the schema.
+ * The bounds live in `session-parameters.ts` beside the schema that enforces
+ * them (mt#3923) — this reads them rather than restating them. The schema is
+ * what REJECTS an over-cap request; this clamp is defense-in-depth for callers
+ * that bypass the schema, and is exported so a test can assert the two agree
+ * instead of trusting that they do.
  */
-const SESSION_EXEC_DEFAULT_TIMEOUT_MS = 30_000;
-const SESSION_EXEC_MAX_TIMEOUT_MS = 120_000;
+export function resolveSessionExecTimeout(requested: number | undefined): number {
+  return Math.min(requested ?? SESSION_EXEC_DEFAULT_TIMEOUT_MS, SESSION_EXEC_MAX_TIMEOUT_MS);
+}
 
 /**
  * Shape a caught exec error into `session_exec`'s failure result (mt#3909).
@@ -411,11 +415,18 @@ export function buildSessionExecFailureResult(
     success: false,
     stdout: (execError.stdout ?? "").trim(),
     stderr: (execError.stderr ?? "").trim(),
-    // Only an `exit` failure has a real exit code. Everything else reports 1
-    // for back-compat with callers reading this field, but `timedOut` /
-    // `failureKind` are what a caller should branch on — a bare 1 cannot
-    // distinguish "your command failed" from "we killed your command," and
-    // those have opposite remedies.
+    // DEPRECATED as a failure discriminator — branch on `failureKind` /
+    // `timedOut` instead. Only an `exit` failure has a real exit code; every
+    // other kind reports 1, so a bare 1 cannot distinguish "your command
+    // failed" from "we killed your command," and those have opposite remedies.
+    //
+    // mt#3923 decided to KEEP the 1 rather than report null for non-exit
+    // failures. A consumer sweep of `src/`, `packages/`, `.minsky/`, `scripts/`
+    // and `services/` found no in-repo reader of this field on THIS result —
+    // the consumers are agents reading the MCP result — so nulling it would buy
+    // no information (`failureKind` already carries all of it) while adding a
+    // third state every agent-side reader would have to handle. The tool
+    // description already steers callers to the discriminating fields.
     exitCode: failure.exitCode ?? 1,
     failureKind: failure.kind,
     timedOut,
@@ -471,14 +482,7 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
         repo: params.repo as string | undefined,
       });
 
-      // The schema (`session-parameters.ts`) already bounds `timeout` at
-      // SESSION_EXEC_MAX_TIMEOUT_MS and documents it, so an over-cap request is
-      // REJECTED there rather than silently reduced here. This clamp is
-      // defense-in-depth for non-MCP callers that bypass the schema.
-      const timeout = Math.min(
-        (params.timeout as number | undefined) ?? SESSION_EXEC_DEFAULT_TIMEOUT_MS,
-        SESSION_EXEC_MAX_TIMEOUT_MS
-      );
+      const timeout = resolveSessionExecTimeout(params.timeout as number | undefined);
 
       try {
         const { stdout, stderr } = await executeCommand(params.command as string, {

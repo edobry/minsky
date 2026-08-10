@@ -39,12 +39,14 @@ export function safeShellQuote(s: string): string {
  * - `exit`      — the command ran and exited non-zero. Its exit code is real.
  * - `timeout`   — WE killed it because the `timeout` option elapsed. There is no
  *                 exit code; the command never chose to stop.
+ * - `killed`    — the parent killed it, and nothing told us why. Same absence of
+ *                 an exit code as `timeout`, without the claim about the reason.
  * - `maxbuffer` — WE killed it because output exceeded `maxBuffer`. Also not the
  *                 command's choice, and a different remedy from `timeout`.
  * - `signal`    — something else signalled it (an operator, the OOM killer).
  * - `unknown`   — the error carried no shape we recognize.
  */
-export type ExecFailureKind = "exit" | "timeout" | "maxbuffer" | "signal" | "unknown";
+export type ExecFailureKind = "exit" | "timeout" | "killed" | "maxbuffer" | "signal" | "unknown";
 
 export interface ExecFailure {
   kind: ExecFailureKind;
@@ -52,6 +54,41 @@ export interface ExecFailure {
   exitCode?: number;
   /** The signal used, when one was involved. */
   signal?: string;
+}
+
+/**
+ * Stamped on an error by whoever killed the child BECAUSE its time budget
+ * elapsed (mt#3923).
+ *
+ * Node cannot answer this question. Its docs define `subprocess.killed` as
+ * "the child process successfully received a signal from `subprocess.kill()`"
+ * — a fact about WHO sent a signal, with nothing about WHY — and describe no
+ * property that separates a timeout kill from any other parent-initiated one.
+ * So the reason has to travel from the code that HAS it: `executeCommand`
+ * stamps this when it is the one that set `timeout`.
+ *
+ * `Symbol.for` rather than a fresh symbol: the bundle can hold more than one
+ * copy of this module, and a stamp from one copy must be legible to another.
+ */
+export const KILLED_BY_TIMEOUT = Symbol.for("minsky.exec.killedByTimeout");
+
+/**
+ * Record that this error's kill was a timeout kill.
+ *
+ * For callers that run their OWN timer around a child (rather than using
+ * `executeCommand`'s `timeout` option) and then classify the result — without
+ * this, their kill is reported as `killed`, which is the honest default but
+ * less useful than the truth they already hold.
+ */
+export function markKilledByTimeout<T>(error: T): T {
+  if (error !== null && typeof error === "object") {
+    Object.defineProperty(error, KILLED_BY_TIMEOUT, {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return error;
 }
 
 /**
@@ -79,12 +116,28 @@ export interface ExecFailure {
  * `code` must never be assigned to a numeric `exitCode` without a typeof check.
  * That conflation is a real latent bug in any caller doing `code ?? 1`: a
  * maxBuffer overrun would put a string where a number is declared.
+ *
+ * ## Why the kill REASON is an argument, not an inference (mt#3923)
+ *
+ * `killed: true` says the parent sent a signal. It does not say why, and Node
+ * exposes nothing that does. Reading it as "timed out" is right for every
+ * caller in this repo today only because `executeCommand` is the only thing
+ * killing children here — a future caller that kills on operator cancellation
+ * or a pre-timeout abort would have that kill silently relabelled a timeout,
+ * which is the same class of guess mt#3909 removed one layer down. So an
+ * unexplained parent kill is `killed`, and `timeout` is reserved for a kill
+ * whose reason was actually reported — via `context.killedDueToTimeout` or the
+ * `KILLED_BY_TIMEOUT` stamp `executeCommand` applies.
  */
-export function classifyExecFailure(error: unknown): ExecFailure {
+export function classifyExecFailure(
+  error: unknown,
+  context?: { killedDueToTimeout?: boolean }
+): ExecFailure {
   const err = error as {
     code?: number | string | null;
     killed?: boolean;
     signal?: string | null;
+    [KILLED_BY_TIMEOUT]?: boolean;
   } | null;
 
   if (!err || typeof err !== "object") return { kind: "unknown" };
@@ -105,11 +158,13 @@ export function classifyExecFailure(error: unknown): ExecFailure {
       : { kind: "exit", exitCode: err.code, signal };
   }
 
-  // No exit code. `killed` is Node telling us IT did the killing, which for
-  // this helper means the `timeout` option elapsed (maxBuffer already returned
-  // above on its string code).
+  // No exit code. `killed` is Node telling us the PARENT did the killing —
+  // not why (maxBuffer already returned above on its string code). Only a
+  // reported reason earns the `timeout` label.
   if (err.killed === true) {
-    return signal === undefined ? { kind: "timeout" } : { kind: "timeout", signal };
+    const kind =
+      (context?.killedDueToTimeout ?? err[KILLED_BY_TIMEOUT]) === true ? "timeout" : "killed";
+    return signal === undefined ? { kind } : { kind, signal };
   }
 
   // Signalled by something outside this process.
@@ -148,6 +203,14 @@ export async function executeCommand(
       stderr: typeof result.stderr === "string" ? result.stderr : String(result.stderr),
     };
   } catch (error) {
+    // This function set the `timeout` option, so it is the only place that can
+    // say a parent kill was a TIMEOUT kill rather than some other kill. Stamp
+    // it here; `classifyExecFailure` reports `killed` without it (mt#3923).
+    const killedByParent = (error as { killed?: boolean } | null)?.killed === true;
+    if (killedByParent && typeof execOptions.timeout === "number" && execOptions.timeout > 0) {
+      markKilledByTimeout(error);
+    }
+
     // Ensure any spawned processes are cleaned up on error
     // Node.js exec errors may have a child process reference (non-standard property)
     const execError = error as { child?: { kill: (signal: string) => void } };

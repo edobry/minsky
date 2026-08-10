@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
 import { classifyExecFailure, executeCommand } from "@minsky/shared/exec";
-import { buildSessionExecFailureResult } from "./basic-commands";
-import { sessionExecCommandParams } from "./session-parameters";
+import { buildSessionExecFailureResult, resolveSessionExecTimeout } from "./basic-commands";
+import {
+  sessionExecCommandParams,
+  SESSION_EXEC_DEFAULT_TIMEOUT_MS,
+  SESSION_EXEC_MAX_TIMEOUT_MS,
+} from "./session-parameters";
 
 // ---------------------------------------------------------------------------
 // mt#3909 — session_exec must distinguish "your command failed" from
@@ -98,6 +102,59 @@ describe("buildSessionExecFailureResult", () => {
 
   it("accepts a timeout at the cap", () => {
     expect(sessionExecCommandParams.timeout.schema.safeParse(120_000).success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3923 finding 1 — the handler's clamp and the schema's ceiling are ONE
+// bound, not two that happen to agree.
+//
+// Drift here would have been invisible in production: the schema rejects an
+// over-cap request before the clamp is ever reached, so a clamp that disagreed
+// would never run. These assertions are the only thing that would notice.
+// ---------------------------------------------------------------------------
+
+describe("session_exec timeout bounds", () => {
+  it("clamps to exactly the value the schema stops accepting", () => {
+    expect(resolveSessionExecTimeout(SESSION_EXEC_MAX_TIMEOUT_MS * 5)).toBe(
+      SESSION_EXEC_MAX_TIMEOUT_MS
+    );
+    expect(
+      sessionExecCommandParams.timeout.schema.safeParse(SESSION_EXEC_MAX_TIMEOUT_MS).success
+    ).toBe(true);
+    expect(
+      sessionExecCommandParams.timeout.schema.safeParse(SESSION_EXEC_MAX_TIMEOUT_MS + 1).success
+    ).toBe(false);
+  });
+
+  it("falls back to the documented default when no timeout is requested", () => {
+    expect(resolveSessionExecTimeout(undefined)).toBe(SESSION_EXEC_DEFAULT_TIMEOUT_MS);
+  });
+
+  it("honors a request below the ceiling", () => {
+    expect(resolveSessionExecTimeout(5_000)).toBe(5_000);
+  });
+
+  // The description is the third statement of these numbers, and the one an
+  // agent actually reads. Interpolated from the constants, so it cannot drift.
+  it("states the same bounds in the parameter description", () => {
+    expect(sessionExecCommandParams.timeout.description).toContain(
+      String(SESSION_EXEC_DEFAULT_TIMEOUT_MS)
+    );
+    expect(sessionExecCommandParams.timeout.description).toContain(
+      String(SESSION_EXEC_MAX_TIMEOUT_MS)
+    );
+  });
+
+  // mt#3923 finding 3: the decision was to KEEP `exitCode: 1` on non-exit
+  // failures rather than null it. Pinned so the back-compat value is a choice
+  // with a test behind it, not an accident nobody would notice changing.
+  it("keeps the back-compat exitCode of 1 on a kill, with failureKind carrying the truth", async () => {
+    const error = await catchExecError("sleep 5", 150);
+    const result = buildSessionExecFailureResult(error, classifyExecFailure(error), CONTEXT);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.failureKind).toBe("timeout");
   });
 
   it("carries the workdir and the error message through unchanged", async () => {
