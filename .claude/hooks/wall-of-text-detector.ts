@@ -257,8 +257,18 @@ export const LEAD_WORD_BUDGET = readTunedThreshold("MINSKY_WALL_OF_TEXT_WORD_BUD
  */
 export const OVER_BUDGET_MULTIPLIER = 1.5;
 
-/** Word count at which the over-budget trigger fires. */
-export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
+/**
+ * Word count at which the over-budget trigger fires.
+ *
+ * `Math.ceil` because the multiplier is no longer an integer (mt#3942): a tuned
+ * odd budget — say 141 — yields 211.5, and no word count can ever equal that.
+ * Anything comparing a measured count against the threshold for EQUALITY (the
+ * threshold-edge tests do) then under-shoots by half a word and reads as under
+ * budget. Rounding up keeps the constant in the same domain as the thing it is
+ * compared against, and ceil rather than round so the threshold is never
+ * quietly LOWER than the configured multiple. (PR #2798 R2 BLOCKING.)
+ */
+export const WORD_COUNT_THRESHOLD = Math.ceil(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER);
 
 /**
  * Size of the OPENING window (in words) scanned for skill-internal labels.

@@ -270,14 +270,24 @@ describe("measureWallOfText", () => {
   // (PR #2798 R1 BLOCKING).
   test("the over-budget multiplier is 1.5x the contract budget", () => {
     expect(OVER_BUDGET_MULTIPLIER).toBe(1.5);
-    expect(WORD_COUNT_THRESHOLD).toBe(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER);
+    expect(WORD_COUNT_THRESHOLD).toBe(Math.ceil(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER));
+  });
+
+  test("the threshold is a whole number of words for any tuned budget", () => {
+    // A non-integer multiplier makes an odd budget produce a fractional
+    // threshold (141 * 1.5 = 211.5), which no word count can equal — so every
+    // equality-based edge test would under-shoot it. WORD_COUNT_THRESHOLD
+    // rounds up to stay in the same domain as the counts it is compared
+    // against; this pins that so a future multiplier change cannot silently
+    // reintroduce the fractional case. (PR #2798 R2 BLOCKING.)
+    expect(Number.isInteger(WORD_COUNT_THRESHOLD)).toBe(true);
   });
 
   test("a report just over the threshold fires — the band the old 2x multiplier missed", () => {
     // Under the old 2x this length sat below the threshold and produced no
     // record at all, which is why an over-long report drew a human complaint
     // instead of a warning.
-    const m = measureWallOfText(words(Math.ceil(WORD_COUNT_THRESHOLD) + 20));
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD + 20));
     expect(m.matched).toBe(true);
     expect(m.trigger).toBe("over-budget");
   });
@@ -285,7 +295,7 @@ describe("measureWallOfText", () => {
   test("a report below the threshold still does not fire, so margin over the budget survives", () => {
     // 1.5x deliberately leaves headroom above the ~200-word target rather than
     // firing on every report that runs slightly long — the lower-bound control.
-    const m = measureWallOfText(words(Math.floor(WORD_COUNT_THRESHOLD) - 50));
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD - 50));
     expect(m.wordCount).toBeLessThan(WORD_COUNT_THRESHOLD);
     expect(m.matched).toBe(false);
     expect(m.trigger).toBe("none");
