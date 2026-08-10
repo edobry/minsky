@@ -842,8 +842,10 @@ discipline-tier. Recipes + leak-containment runbook:
   stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
   zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
   what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
-  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
-  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  list walked from that file's `ROOTS` — `src/`, `packages/`, the gated `tests/` subdirectories,
+  and `scripts/` since mt#1084 — with `src/mcp/**` excluded) then
+  `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in its own process), and treats a
+  missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
 - **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
