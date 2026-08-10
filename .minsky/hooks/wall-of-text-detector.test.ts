@@ -252,11 +252,33 @@ describe("measureWallOfText", () => {
     expect(m.trigger).toBe("none");
   });
 
-  test("over-budget alone (clean prose at 2x budget) -> trigger 'over-budget'", () => {
+  test("over-budget alone (clean prose at the threshold) -> trigger 'over-budget'", () => {
     const m = measureWallOfText(words(WORD_COUNT_THRESHOLD));
     expect(m.matched).toBe(true);
     expect(m.trigger).toBe("over-budget");
     expect(m.leadLabelHits).toEqual([]);
+  });
+
+  // mt#3942: the multiplier dropped 2 -> 1.5, so the threshold moved 400 -> 300.
+  // These two pin the band that was previously invisible. A 320-word report is
+  // the shape the principal complained about on 2026-08-10; under the old
+  // multiplier it produced no record at all, which is why nothing surfaced.
+  test("320 words -> fires (would not have at the old 2x multiplier)", () => {
+    const m = measureWallOfText(words(320));
+    expect(WORD_COUNT_THRESHOLD).toBe(300);
+    expect(m.wordCount).toBeGreaterThanOrEqual(320);
+    expect(m.matched).toBe(true);
+    expect(m.trigger).toBe("over-budget");
+  });
+
+  test("250 words -> still does not fire, so the margin over the budget survives", () => {
+    // The contract's target is ~200. 1.5x deliberately leaves headroom above it
+    // rather than firing on every report that runs slightly long — this is the
+    // negative control for the lower bound.
+    const m = measureWallOfText(words(250));
+    expect(m.wordCount).toBeLessThan(WORD_COUNT_THRESHOLD);
+    expect(m.matched).toBe(false);
+    expect(m.trigger).toBe("none");
   });
 
   test("under budget but 'gate (l)' in the lead -> trigger 'lead-labels'", () => {

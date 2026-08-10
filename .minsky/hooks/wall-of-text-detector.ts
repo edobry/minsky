@@ -226,8 +226,30 @@ export const LEAD_WORD_BUDGET = readTunedThreshold("MINSKY_WALL_OF_TEXT_WORD_BUD
   readTunedValueFn: (key) => readTunedValue(key),
 });
 
-/** A record is logged at this multiple of the budget — clear violation, not borderline. */
-export const OVER_BUDGET_MULTIPLIER = 2;
+/**
+ * A record is logged at this multiple of the budget — clear violation, not
+ * borderline.
+ *
+ * Lowered 2 → 1.5 (400 → 300 words) by mt#3942. At 2× a report could run
+ * 100% over the contract's stated budget and produce no signal at all, and the
+ * 201–399 band is where reports actually land: on 2026-08-10 the principal said
+ * "Just too much information" about a run of reports in that band, and the
+ * calibration log holds no record for any of them — correctly, since a record
+ * is written only on a fire. The human was the enforcement.
+ *
+ * Why 1.5 and not 1.25: this is a first calibration move on a single operator
+ * complaint, and 1.5 still leaves a 50% margin over the target so ordinary
+ * variation does not fire. It covers the observed band; 1.25 can follow if
+ * reports keep landing at 250–299.
+ *
+ * The fire-count delta could NOT be measured from the existing corpus before
+ * changing it, and that is structural rather than an omission: records are
+ * written only when the trigger matches, so every sub-threshold turn — exactly
+ * the population this change newly covers — is absent from the log by
+ * construction. mt#3649 (records carry no input text) would block a replay even
+ * if they were present. The measurement becomes possible only after this ships.
+ */
+export const OVER_BUDGET_MULTIPLIER = 1.5;
 
 /** Word count at which the over-budget trigger fires. */
 export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
