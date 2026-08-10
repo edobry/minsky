@@ -240,11 +240,17 @@ describe("/api/health while the database is wedged (mt#3563)", () => {
   // this module carries is process-global, so an afterEach only protects the
   // files that run LATER — it does nothing for this test's own starting point.
   // refreshDbReachability skips the probe entirely when the status is already
-  // "ok" and one finished under DB_REACHABILITY_MIN_INTERVAL_MS ago, so a
-  // preceding file that left that state makes the wedge below unreachable and
-  // the status assertion read "ok". That rejected pushes on task/mt-2680 for 32
-  // days: green alone and across src/cockpit, red 4-for-4 in the pre-push
-  // gate's changed-file subset, where different files run first.
+  // "ok" and one finished less than its healthy-state floor ago (see
+  // shared-persistence.ts, DB_REACHABILITY_MIN_INTERVAL_MS — deliberately not
+  // imported here, since this test must not depend on the floor's value; the
+  // reset makes the floor unreachable whatever it is). A preceding file that
+  // left that state makes the wedge below unreachable and the status assertion
+  // read "ok". That rejected pushes on task/mt-2680 for 32 days: green alone
+  // and across src/cockpit, red 4-for-4 in the pre-push gate's changed-file
+  // subset, where different files run first.
+  //
+  // The reset is SYNCHRONOUS (`__resetSharedPersistenceForTests(): void`) — it
+  // only clears module-level fields — so there is nothing here to await.
   beforeEach(() => {
     __resetSharedPersistenceForTests();
   });
