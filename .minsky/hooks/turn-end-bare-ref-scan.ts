@@ -14,18 +14,22 @@
 // Rung-1 deterministic matcher (ADR-024), and a blocking Stop hook would turn
 // any false positive into a hijacked turn.
 //
-// Posture is PER FINDING CLASS, and `run()`'s two return paths below are the
+// Posture is PER FINDING CLASS, and `run()`'s return paths below are the
 // authority on it:
 //   - `bare-ref` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
-//     returns `additionalContext`, which the dispatcher emits into the Stop
-//     event's `hookSpecificOutput`, so the agent reads the advisory that turn.
+//     returns `additionalContext`, which the dispatcher MERGES into the Stop
+//     event's `hookSpecificOutput` — subject to that merge's char budget, so a
+//     lower-priority fragment can be dropped (named in a trailing notice,
+//     never silently).
 //   - `bare-short-id` is RECORD-ONLY, per the v0 carve-out documented on the
 //     scanner. A message carrying only those findings writes a calibration
 //     record and no text.
 //
-// Both classes write to the JSONL log regardless, which is what a
-// `/calibration-review` pass rates — and why the flagged and log-only
-// populations go into separate fields rather than one merged list.
+// Neither class is gated on the other — whichever fires, a calibration record
+// is written, and that log is what a `/calibration-review` pass rates. The one
+// path writing NO record is the override branch at the top of `run()`, which
+// returns an audit line and nothing else. Flagged and log-only findings go
+// into separate fields so a pass can compare the two populations.
 //
 // Scan input: the Stop payload's `last_assistant_message`, falling back to the
 // transcript's final turn — hooks.md documents that the transcript is not
