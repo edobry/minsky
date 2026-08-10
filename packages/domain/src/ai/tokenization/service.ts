@@ -135,16 +135,21 @@ export class DefaultTokenizationService implements TokenizationService {
    * Get tokenizer metadata for a model
    */
   async getTokenizerMetadata(model: string): Promise<TokenizerMetadata | null> {
-    const tokenizer = this.registry.getForModel(model);
-    if (!tokenizer) {
+    const resolution = this.registry.resolveForModel(model);
+    if (!resolution) {
       return null;
     }
 
-    // Create metadata from tokenizer information
+    const { tokenizer, source } = resolution;
+
+    // `source` used to be the literal "config" here regardless of how the
+    // tokenizer was resolved, which made this field — the one place designed to
+    // record exactly that — incapable of reporting an approximation (mt#3928).
     const metadata: TokenizerMetadata = {
       id: this.getTokenizerEncoding(tokenizer, model),
       type: "bpe", // Most modern tokenizers are BPE
-      source: "config", // From our configuration
+      source,
+      approximated: source === "fallback",
       library: tokenizer.library,
       metadata: {
         tokenizerId: tokenizer.id,

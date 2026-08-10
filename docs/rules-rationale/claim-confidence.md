@@ -216,6 +216,46 @@ that view would show the thing if it were there. If the answer is no — or unkn
 label is "absent from `<view>`", and the falsifier is one read of the primary source: the raw file
 behind the parser, the call sites behind the type, the component behind the screenshot.
 
+### The fourth surface: your own recent output (mt#3904)
+
+A guard fire quotes the phrase that tripped it precisely so the agent can recognize a false
+positive instead of complying blindly. That invitation carries no evidentiary bar, which makes
+"that's a false positive" a costless exit — available at the moment of maximum motivation to take
+one, since a fire is a demand for more work, usually at turn end.
+
+Recognizing an FP is itself a claim about text, and its usual shape is a data-existence negative:
+"the quoted phrase doesn't appear in my message." The derived view is recollection of one's own
+output; the primary source is the transcript. This surface is harder than the three above because
+the question does not present as a lookup at all — "did I write X?" feels like introspection, and
+introspection has no file to open.
+
+Incident, 2026-08-10. A `turn-end-untaken-action` fire quoted `next-up: "next step is"`. The
+response was that the quoted phrase "doesn't appear in my message." It did appear — "…and the
+documented **next step is** bypass merge" — inside the guard's 600-character tail window
+(`TAIL_WINDOW_CHARS`, `.minsky/hooks/turn-end-untaken-action-scan.ts`). The follow-up check then
+grepped the NEWEST transcript file, which belonged to a different conversation, and read the
+resulting `0 matches` as confirmation; it would have been reported as vindication had the
+principal not asked. Two failures stacked: a negative asserted from a derived view, then a
+falsifier run against an unverified source.
+
+The remedy is to make the claim carry its evidence, which also splits it into two kinds that are
+settled differently:
+
+| Kind               | The claim                                    | What settles it                                                                                             |
+| ------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **pattern-false**  | the quoted text is not present               | grepping the transcript holding THIS conversation — located first, by grepping a distinctive string from it |
+| **semantic-false** | the text is present but the fire misreads it | argument, with the quoted text acknowledged rather than denied                                              |
+
+A genuine semantic-false defense was available in the incident and went unused: the phrase sat
+inside a handoff message describing a documented process step, not an announcement of the agent's
+own next action. The unfalsifiable claim was reached for because it was faster.
+
+Placement follows from the same reasoning. `guard-feedback-authoring.mdc` is where the quoted-
+evidence invitation is written, but it is path-scoped to `.minsky/hooks/**` — it loads for the
+guard AUTHOR, while the FP claim is made at `Stop`, in an arbitrary session, with no hook file
+open. The bar therefore lives here, in an always-loaded rule, with a two-line pointer left for the
+author.
+
 ### Why containments keep arriving late
 
 The corpus's negative-claim disciplines are scoped by SURFACE — capability claims (mt#3162),
