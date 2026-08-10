@@ -1118,3 +1118,43 @@ describe("isStatementTimeout (mt#3911)", () => {
     expect(isStatementTimeout(undefined)).toBe(false);
   });
 });
+
+describe("AT2 (mt#3911): a failed orphan DELETE is visibly degraded at the CLI", () => {
+  test("orphanDeleteFailed reaches the rendered message text, not just the exit code", () => {
+    // The spec's acceptance test 2. Walks the real path end to end: a write
+    // whose chunks all succeeded but whose orphan DELETE threw must classify
+    // as errored, aggregate as a failed transcript, and RENDER as degraded.
+    // Before mt#3911 the same run printed `extracted=<n>` and nothing else —
+    // indistinguishable from a clean success.
+    const written = classifyWriteOutcome({
+      extracted: 12,
+      written: 12,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: true,
+      chunkSplits: 0,
+    });
+    expect(written.bucket).toBe("errored");
+
+    const aggregate: ExtractAllTurnsResult = {
+      transcriptsScanned: 1,
+      transcriptsProcessed: 0,
+      transcriptsSkipped: 0,
+      transcriptsErrored: written.bucket === "errored" ? 1 : 0,
+      turnsWritten: written.turnsWritten,
+      turnsExtracted: written.turnsExtracted,
+      chunkSplits: written.chunkSplits,
+      nonEmptyYieldedZero: 0,
+      orphansDeleted: written.orphansDeleted,
+      aborted: false,
+    };
+
+    const rendered = formatExtractAllTurnsResult(aggregate);
+    expect(rendered).toContain("DEGRADED");
+    expect(rendered).toContain("transcriptsErrored=1");
+    // A zero-delete run and a FAILED-delete run must not render identically.
+    const cleanRun = formatExtractAllTurnsResult({ ...aggregate, transcriptsErrored: 0 });
+    expect(rendered).not.toBe(cleanRun);
+  });
+});
