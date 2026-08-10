@@ -10,10 +10,22 @@
 // one-link-per-entity ceiling, and unusable to the person it was written for.
 // The closing message is the surface under contract.
 //
-// Advisory-only, always. This is a Rung-1 deterministic matcher (ADR-024) and
-// a blocking Stop hook would turn any false positive into a hijacked turn.
-// Calibration-first per the same ADR: the JSONL log is the enforcement
-// evidence, and injection stays off until the FP rate is measured.
+// Advisory-only, always: this guard injects text and never denies. It is a
+// Rung-1 deterministic matcher (ADR-024), and a blocking Stop hook would turn
+// any false positive into a hijacked turn.
+//
+// Posture is PER FINDING CLASS, and `run()`'s two return paths below are the
+// authority on it:
+//   - `bare-ref` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
+//     returns `additionalContext`, which the dispatcher emits into the Stop
+//     event's `hookSpecificOutput`, so the agent reads the advisory that turn.
+//   - `bare-short-id` is RECORD-ONLY, per the v0 carve-out documented on the
+//     scanner. A message carrying only those findings writes a calibration
+//     record and no text.
+//
+// Both classes write to the JSONL log regardless, which is what a
+// `/calibration-review` pass rates — and why the flagged and log-only
+// populations go into separate fields rather than one merged list.
 //
 // Scan input: the Stop payload's `last_assistant_message`, falling back to the
 // transcript's final turn — hooks.md documents that the transcript is not
