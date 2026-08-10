@@ -137,13 +137,27 @@ export interface DenialFingerprint extends ErrorFingerprint {
  * included: the whole point is to detect a byte-identical REPEAT, and a
  * key-only digest would call every `Bash` call identical.
  */
-export function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown, seen: Set<object> = new Set()): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0
-  );
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+  // Cycle guard (PR #2770 R1). Tool input arrives as parsed JSON and so should
+  // be acyclic, but this is an exported helper and unbounded recursion on a
+  // cycle would throw a RangeError up through a guard's DENY path — the one
+  // path that must never fail for a bookkeeping reason.
+  if (seen.has(value as object)) return '"[cycle]"';
+  seen.add(value as object);
+  try {
+    if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    );
+    return `{${entries
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v, seen)}`)
+      .join(",")}}`;
+  } finally {
+    // Released so a value repeated across SIBLING branches still serializes,
+    // rather than being mistaken for a cycle after its first appearance.
+    seen.delete(value as object);
+  }
 }
 
 /**

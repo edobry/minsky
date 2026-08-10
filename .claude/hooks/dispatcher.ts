@@ -974,13 +974,27 @@ export async function runDispatcher(
       // is allowed to reach the domain — same shape as `recordFireLogFn`.
       // The recorder swallows its own failures (SC4); a tracker problem must
       // never change the decision this branch is about to emit.
-      recordGuardDenialFn({
-        sessionId: input.session_id,
-        toolName: input.tool_name,
-        guardName: reg.name,
-        reason: outcome.deny.reason,
-        toolInput: input.tool_input,
-      });
+      //
+      // Wrapped HERE, not just inside the default recorder (PR #2770 R1). The
+      // production recorder swallows its own failures, but that is a property
+      // of the current INJECTION, not of this seam — the parameter takes an
+      // arbitrary callback, and SC4's "a tracker failure never converts into a
+      // denied or failed tool call" has to hold for every one of them.
+      try {
+        recordGuardDenialFn({
+          sessionId: input.session_id,
+          toolName: input.tool_name,
+          guardName: reg.name,
+          reason: outcome.deny.reason,
+          toolInput: input.tool_input,
+        });
+      } catch (err) {
+        stderrWrite(
+          `[dispatcher] two-strikes denial recording failed (non-fatal): ${
+            err instanceof Error ? err.message : String(err)
+          }\n`
+        );
+      }
       writeOutputFn({
         hookSpecificOutput: {
           hookEventName: event,

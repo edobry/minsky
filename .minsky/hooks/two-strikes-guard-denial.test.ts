@@ -177,6 +177,21 @@ describe("SC3 — the byte-identical input tell is recorded", () => {
     expect(observation?.secondInputHash).not.toBe(observation?.firstInputHash as string);
   });
 
+  test("a cyclic input does not blow the stack (PR #2770 R1)", () => {
+    const cyclic: Record<string, unknown> = { command: "git status" };
+    cyclic.self = cyclic;
+
+    expect(() => fingerprintGuardDenial({ ...DENIAL, toolInput: cyclic })).not.toThrow();
+  });
+
+  test("a value repeated across siblings is not mistaken for a cycle", () => {
+    const shared = { a: 1 };
+    const a = fingerprintGuardDenial({ ...DENIAL, toolInput: { x: shared, y: shared } });
+    const b = fingerprintGuardDenial({ ...DENIAL, toolInput: { x: { a: 1 }, y: { a: 1 } } });
+
+    expect(a.inputHash).toBe(b.inputHash);
+  });
+
   test("input hashing is key-order independent", () => {
     const a = fingerprintGuardDenial({ ...DENIAL, toolInput: { command: "x", description: "y" } });
     const b = fingerprintGuardDenial({ ...DENIAL, toolInput: { description: "y", command: "x" } });
