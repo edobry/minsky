@@ -39,6 +39,7 @@ import { join, resolve } from "node:path";
 import { readInput, writeOutput, findRepoRoot, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordFireLogEntry } from "./fire-log";
+import { recordGuardDenial } from "./two-strikes-record";
 
 /** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
 const GUARD_NAME = "block-git-gh-cli";
@@ -1059,6 +1060,19 @@ if (import.meta.main) {
     }
     const reason = checkDenial(parsed, context);
     if (reason) {
+      // mt#3802: this guard is NOT yet migrated onto the dispatcher (ADR-028
+      // Phase 5), so the dispatcher's central deny-branch recording cannot see
+      // it — and this is the guard from the originating incident, where four
+      // byte-identical `Bash` calls were denied in a row and nothing recorded
+      // it. The call lives here until this guard migrates, at which point the
+      // dispatcher covers it and this line comes out.
+      recordGuardDenial({
+        sessionId: input.session_id,
+        toolName: input.tool_name,
+        guardName: "block-git-gh-cli",
+        reason,
+        toolInput: input.tool_input,
+      });
       writeOutput({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",

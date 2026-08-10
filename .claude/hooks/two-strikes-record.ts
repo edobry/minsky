@@ -160,18 +160,28 @@ export function sanitizeSessionId(raw: string): string {
  *   - Drains observations to the JSONL file after recording.
  *   - Persists the tracker snapshot to per-session state file.
  */
-export function runHook(input: ToolHookInput, deps: HookDeps): void {
+/**
+ * Load the session's persisted tracker, let the caller record into it, then
+ * drain observations and persist again (mt#3802).
+ *
+ * Extracted from `runHook` because the tracker is hermetic and in-memory while
+ * every hook process is short-lived: the streak that makes a SECOND strike a
+ * second strike lives only in this file on disk. A second caller that skipped
+ * this cycle would record into a fresh in-memory tracker every time and observe
+ * a first strike forever — recording nothing while appearing to work.
+ */
+export function withPersistedTracker(
+  rawSessionIdInput: string | undefined,
+  deps: HookDeps,
+  mutate: (tracker: TwoStrikesTracker) => void
+): void {
   // Use truthy default (not nullish-coalescing) so empty-string session_id
   // also falls back to "default". With `?? "default"`, empty strings would
   // pass through and produce a `.json` state file colliding across all
   // empty-id sessions. Per PR #926 R4 BLOCKING fix.
   const rawSessionId =
-    input.session_id && input.session_id.trim().length > 0 ? input.session_id : "default";
+    rawSessionIdInput && rawSessionIdInput.trim().length > 0 ? rawSessionIdInput : "default";
   const sessionId = sanitizeSessionId(rawSessionId);
-  const toolName = input.tool_name;
-  const toolResult = input.tool_result;
-
-  if (!toolName) return;
 
   const stateFile = join(deps.stateDir, `${sessionId}.json`);
   const observationsFile = join(deps.stateDir, "observations.jsonl");
@@ -202,20 +212,7 @@ export function runHook(input: ToolHookInput, deps: HookDeps): void {
 
   const tracker = TwoStrikesTracker.fromSnapshot(snapshot);
 
-  const outcome = detectOutcome(toolName, toolResult);
-  switch (outcome.kind) {
-    case "error":
-      tracker.recordError(toolName, outcome.error);
-      break;
-    case "success":
-      tracker.recordSuccess(toolName);
-      break;
-    case "unknown":
-      // No-op: missing/ambiguous tool_result must not modify the streak.
-      // Preserves "consecutive identical errors" semantics — only an
-      // explicit success signal can break a streak.
-      break;
-  }
+  mutate(tracker);
 
   // Drain new observations and append them to the global JSONL log so they
   // survive the hook's exit.
@@ -228,6 +225,65 @@ export function runHook(input: ToolHookInput, deps: HookDeps): void {
   }
 
   deps.fs.writeText(stateFile, JSON.stringify(tracker.snapshot(), null, 2));
+}
+
+export function runHook(input: ToolHookInput, deps: HookDeps): void {
+  const toolName = input.tool_name;
+  if (!toolName) return;
+  const toolResult = input.tool_result;
+
+  withPersistedTracker(input.session_id, deps, (tracker) => {
+    const outcome = detectOutcome(toolName, toolResult);
+    switch (outcome.kind) {
+      case "error":
+        tracker.recordError(toolName, outcome.error);
+        break;
+      case "success":
+        tracker.recordSuccess(toolName);
+        break;
+      case "unknown":
+        // No-op: missing/ambiguous tool_result must not modify the streak.
+        // Preserves "consecutive identical errors" semantics — only an
+        // explicit success signal can break a streak.
+        break;
+    }
+  });
+}
+
+/**
+ * Record a PreToolUse guard denial into the same session stream (mt#3802).
+ *
+ * Called by the dispatcher's deny branch — one central call covering every
+ * denying guard, per ADR-028's consolidation, rather than a call per guard.
+ *
+ * Best-effort by contract (SC4): every failure is swallowed, because this runs
+ * INSIDE a guard's deny path and a tracker problem must never change a guard's
+ * decision. Same posture as the dispatcher's existing calibration logging.
+ */
+export function recordGuardDenial(
+  denial: {
+    sessionId?: string;
+    toolName: string;
+    guardName: string;
+    reason: unknown;
+    toolInput: unknown;
+  },
+  deps: HookDeps = defaultDeps()
+): void {
+  try {
+    if (!denial.toolName || !denial.guardName) return;
+    withPersistedTracker(denial.sessionId, deps, (tracker) => {
+      tracker.recordDenial({
+        toolName: denial.toolName,
+        guardName: denial.guardName,
+        reason: denial.reason,
+        toolInput: denial.toolInput,
+      });
+    });
+  } catch {
+    // intentional-swallow: a tracker failure must not convert a guard's deny
+    // into a crash. The denial itself is the load-bearing output here.
+  }
 }
 
 // ---------------------------------------------------------------------------
