@@ -35,7 +35,23 @@ Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) —
 6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
 7. **Every artifact the reader needs must be reachable by click.** Full URL for an external doc (`https://app.notion.com/p/<32-hex, no dashes>` for a Notion page — that form is what Notion's own API returns for a page, verified via a `notion-search` response rather than assumed, so re-derive it from a live response rather than this line if Notion ever changes shape; the GitHub URL for an issue or PR), `minsky://` deeplink for a Minsky entity. A bare id is a corpus citation, not a reader affordance — the convention that says "cross-link by page id, because titles drift" is correct for specs and memories and wrong here. This generalizes item 3, which covers only the portal-action case: the obligation is on every artifact the decision rests on, not just the one you are asking the principal to click through to. `asks_create` now appends the URL for a Notion page id you cue by name (mt#2918) and warns when it finds an artifact reference it cannot linkify — but it resolves only what it can recognize, so the obligation is still yours. Note what that warning does and does not say: it reports that a reference was not turned into a link, never that a destination was checked. Nothing probes reachability, deliberately (an HTTP status check returns 200 for any route-shaped URL on an SPA console, including a garbage id — see mt#2918's spec).
 
-Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.
+8. **A non-empty `formWarnings` array is fix-before-ship, not advisory.** `asks_create` and `asks_edit` both hard-reject on a blocking check and both return warnings for the rest; either way, fix via `asks_edit` before the turn ends. The channel exists precisely because authors cannot self-assess their own form. `acknowledgeFormWarnings: true` is the sanctioned override for a genuinely long or complex ask — it is recorded for calibration review, not a silent bypass, so use it deliberately rather than to make a message go away.
+
+## The cold-reader bar
+
+**Canonical statement — other skills cite this section rather than restating it** (`calibration-review` Step 4b does). One bar, one place; a second copy is how it drifts.
+
+Completeness and form are both self-assessed, and the author is the one person who cannot judge either — you are reading your own body with all the context that made it seem clear. So before `asks_create`, read the drafted body as a reader who has never seen this codebase, this skill, or these internal names. That reader must be able to, **from the body alone**:
+
+1. State in one sentence what decision is being asked.
+2. Predict what each option does if chosen, including any downstream consequence.
+3. Reach every artifact the decision rests on by clicking.
+
+If you cannot answer all three from the text, rewrite before creating — do not ship and hope the principal infers it.
+
+**When to dispatch a real cold reader.** Reading it yourself catches the obvious cases; it does not catch the terms you no longer see as jargon. Dispatch a **fresh minimal-context agent** (never a `fork` — inherited context defeats the test) to role-play the principal reading it cold, and have it answer the three questions above plus flag any term it cannot resolve. It costs roughly 75 seconds. Do this when the ask's body **defines a term**, **names a mechanism the principal did not ask about**, or **runs past about a screen** — all three are signals you are explaining a world the reader is not in. A one-line yes/no ask does not need it.
+
+Originating incidents: ask `6807fb14` (2026-07-15) — routed correctly, packaged completely, unusable in form. ask#6448 (2026-07-29) — a cold reader rated it not-actionable: seven undefined names, and a recommended option whose own precondition was unmet. ask#7591 (2026-08-10) — R3, and the one that put this section here: the bar existed, but only inside `calibration-review`, so an ask filed from `/plan-task` never met it and the principal replied _"I don't really understand the context of what this is all about."_ Detail: `docs/rules-rationale/humility.md §Form`; family record mem#760.
 
 ## When this fires
 

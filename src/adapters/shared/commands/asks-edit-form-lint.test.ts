@@ -1,0 +1,146 @@
+/**
+ * `asks.edit` form-lint enforcement — mt#3929.
+ *
+ * mt#3326 made the form-lint checks consequential at the `asks.create` boundary and explicitly
+ * left `asks.edit` alone ("does not compute form-lint at all"). But `asks_edit` is the repair
+ * path the corpus recommends for a rejected create (mem#760 rule 4), so every fix-up landed on
+ * the unenforced surface: ask#7591 (2026-08-10) was hard-rejected at create for
+ * `over-word-budget` + `long-option-label`, trimmed to pass, then edited back over budget with
+ * no warning at all.
+ *
+ * Lives in its own file rather than in `asks.test.ts` because that file is at its 1500-line
+ * ceiling.
+ */
+
+import { describe, expect, test } from "bun:test";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import {
+  asksEditParams,
+  editRequiresFormLintGuard,
+  mergeEditForFormLint,
+  validateEditFormLintAgainstExistingAsk,
+} from "./asks";
+
+const KIND_DIRECTION_DECIDE = "direction.decide" as const;
+
+/** Over the 60-char ceiling `long-option-label` enforces — the check ask#7591's create hit. */
+const LONG_LABEL = `Expand scope: ${"x".repeat(60)}`;
+
+/** A suspended Ask, walked through the real state machine so it has real timestamps. */
+async function seedSuspendedAsk(repo: FakeAskRepository) {
+  const ask = await repo.create({
+    kind: KIND_DIRECTION_DECIDE,
+    classifierVersion: "v1.0.0",
+    requestor: "minsky.agent:test",
+    title: "T",
+    question: "Q",
+    metadata: {},
+  });
+  await repo.transition(ask.id, "classified");
+  await repo.transition(ask.id, "routed");
+  await repo.transition(ask.id, "suspended");
+  return ask;
+}
+
+describe("editRequiresFormLintGuard", () => {
+  test("fires only on edits that can change what form-lint reads", () => {
+    // The skip is the point: a title-only edit must not pay a repository fetch.
+    expect(editRequiresFormLintGuard({ question: "new" })).toBe(true);
+    expect(editRequiresFormLintGuard({ options: [{ label: "a", value: "a" }] })).toBe(true);
+    expect(editRequiresFormLintGuard({ title: "new" })).toBe(false);
+    expect(editRequiresFormLintGuard({ metadata: { a: 1 } })).toBe(false);
+    expect(editRequiresFormLintGuard({ contextRefs: [] })).toBe(false);
+  });
+});
+
+describe("mergeEditForFormLint", () => {
+  const existing = {
+    kind: KIND_DIRECTION_DECIDE,
+    question: "existing question",
+    options: [{ label: "existing", value: "existing" }],
+  };
+
+  test("an absent field comes from the existing ask, so the RESULT is what gets linted", () => {
+    // Linting the payload alone would let either half slip past by being omitted: an
+    // options-only edit is still bounded by the existing question's word count, and vice versa.
+    expect(mergeEditForFormLint(existing, { question: "replaced" })).toEqual({
+      kind: KIND_DIRECTION_DECIDE,
+      question: "replaced",
+      options: [{ label: "existing", value: "existing" }],
+    });
+  });
+
+  test("a provided field wins over the existing one", () => {
+    expect(mergeEditForFormLint(existing, { options: [{ label: "replaced" }] })).toEqual({
+      kind: KIND_DIRECTION_DECIDE,
+      question: "existing question",
+      options: [{ label: "replaced" }],
+    });
+  });
+});
+
+describe("validateEditFormLintAgainstExistingAsk", () => {
+  test("rejects an edit whose resulting options violate — the gap mt#3326 left open", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo);
+
+    await expect(
+      validateEditFormLintAgainstExistingAsk(repo, ask.id, {
+        options: [{ label: LONG_LABEL, value: "v" }],
+      })
+    ).rejects.toThrow(/asks\.edit: .*form-lint violation/);
+  });
+
+  test("names the edit surface, so the message matches the boundary that rejected", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo);
+
+    await expect(
+      validateEditFormLintAgainstExistingAsk(repo, ask.id, {
+        options: [{ label: LONG_LABEL, value: "v" }],
+      })
+    ).rejects.toThrow(/asks_edit boundary/);
+  });
+
+  test("acknowledgeFormWarnings is the same escape the create path offers", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo);
+
+    await validateEditFormLintAgainstExistingAsk(repo, ask.id, {
+      options: [{ label: LONG_LABEL, value: "v" }],
+      acknowledgeFormWarnings: true,
+    });
+  });
+
+  test("a clean edit passes", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo);
+
+    await validateEditFormLintAgainstExistingAsk(repo, ask.id, {
+      options: [{ label: "Short label", value: "v" }],
+    });
+  });
+
+  test("fails OPEN when the ask cannot be fetched — a DB blip must not block a repair", async () => {
+    const throwingRepo = {
+      getById: async () => {
+        throw new Error("transient");
+      },
+    } as unknown as Parameters<typeof validateEditFormLintAgainstExistingAsk>[0];
+
+    await validateEditFormLintAgainstExistingAsk(throwingRepo, "any-id", {
+      options: [{ label: LONG_LABEL, value: "v" }],
+    });
+    // A null repo is the same posture — execute() surfaces its own error.
+    await validateEditFormLintAgainstExistingAsk(null, "any-id", {
+      options: [{ label: LONG_LABEL, value: "v" }],
+    });
+  });
+});
+
+describe("asks.edit parameter surface", () => {
+  test("exposes the override param, so the escape is reachable from the tool", () => {
+    expect(asksEditParams.acknowledgeFormWarnings).toBeDefined();
+    expect(asksEditParams.acknowledgeFormWarnings.required).toBe(false);
+  });
+});
