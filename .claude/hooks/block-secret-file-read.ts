@@ -168,6 +168,9 @@ export const EMITTING_READERS: readonly string[] = [
 /** Readers whose emitting-ness depends on flags (count/quiet forms are safe). */
 const CONDITIONAL_READERS = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack"]);
 
+/** Separate-value flags whose argument is a pattern (or a file OF patterns). */
+const PATTERN_BEARING_FLAGS = new Set(["-e", "--regexp", "-f", "--file"]);
+
 /** Flags that make a conditional reader non-emitting (no matching LINE printed). */
 const NON_EMITTING_FLAGS = new Set([
   "-c",
@@ -292,8 +295,13 @@ export function isSecretPath(token: string): boolean {
  * fix, on a grep whose pattern contained the words this guard matches, over the
  * guard's own source: it blocked work on itself.
  *
- * `-e PATTERN` / `-f FILE` move the pattern into the flag, so when either is
- * present nothing is skipped and every non-flag token stays a file candidate.
+ * `-e PATTERN` / `-f FILE` move the pattern OFF the positional slot, but its
+ * value is still a separate token in the argument list. PR #2778 R1 caught the
+ * first version returning every argument in that case, which let
+ * `grep -e 'CredentialRead' <source>.ts` deny on the pattern again — the exact
+ * false positive this function exists to remove. The value of each
+ * pattern-bearing flag is now skipped by position, and the positional-pattern
+ * skip is suppressed only when such a flag was actually seen.
  *
  * Why skipping cannot lose coverage: only ONE token is dropped and all others are
  * still checked, so the sole way a secret path could escape is by BEING the first
@@ -304,11 +312,38 @@ export function isSecretPath(token: string): boolean {
 export function filePathCandidates(program: string, tokens: string[]): string[] {
   const args = tokens.slice(1);
   if (!CONDITIONAL_READERS.has(program)) return args;
-  if (args.some((t) => t === "-e" || t === "-f" || /^--(regexp|file)=/.test(t))) return args;
 
-  const patternIdx = args.findIndex((t) => !t.startsWith("-"));
-  if (patternIdx === -1) return args;
-  return [...args.slice(0, patternIdx), ...args.slice(patternIdx + 1)];
+  const out: string[] = [];
+  let sawPatternFlag = false;
+  let skipNext = false;
+
+  for (const t of args) {
+    if (skipNext) {
+      // The VALUE of -e/-f: a pattern, or a file OF patterns. grep reads a
+      // pattern file but never prints it, so neither is an emitted path.
+      skipNext = false;
+      continue;
+    }
+    if (PATTERN_BEARING_FLAGS.has(t)) {
+      sawPatternFlag = true;
+      skipNext = true;
+      continue;
+    }
+    if (/^--(regexp|file)=/.test(t)) {
+      sawPatternFlag = true;
+      continue;
+    }
+    // Every other token is kept, INCLUDING other flags. `--include=config.yaml`
+    // makes grep read matching files, so it must stay a path candidate — this is
+    // why flags are not dropped wholesale.
+    out.push(t);
+  }
+
+  if (sawPatternFlag) return out;
+
+  const patternIdx = out.findIndex((t) => !t.startsWith("-"));
+  if (patternIdx === -1) return out;
+  return [...out.slice(0, patternIdx), ...out.slice(patternIdx + 1)];
 }
 
 /**

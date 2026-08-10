@@ -321,9 +321,27 @@ describe("mt#3703 — the two false-positive classes", () => {
       expect(hits[0]?.path).toContain("credentials");
     });
 
-    test("-e moves the pattern into the flag, so no argument is skipped", () => {
+    test("-e supplies the pattern and the FILE is still checked", () => {
       const hits = findSecretReads("grep -e 'anything' ~/.aws/credentials");
       expect(hits.length).toBe(1);
+    });
+
+    test("a credential-shaped pattern passed via -e is allowed (PR #2778 R1)", () => {
+      // R1 found the first version returning every argument when -e was present,
+      // which reinstated the pattern-as-path false positive through the flag form.
+      expect(
+        findSecretReads("grep -e 'CredentialRead' packages/domain/src/notify/principal-channel.ts")
+      ).toEqual([]);
+      expect(
+        findSecretReads(
+          "grep --regexp='CredentialRead' packages/domain/src/notify/principal-channel.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("a directory argument is still checked when the pattern is skipped", () => {
+      // The pattern is dropped, the remaining positional is not.
+      expect(findSecretReads("grep -r anything ~/.config/minsky/config.yaml").length).toBe(1);
     });
 
     test("a non-grep reader has no pattern argument, so every token is a file", () => {
@@ -406,11 +424,27 @@ describe("mt#3703 — the two false-positive classes", () => {
       expect(filePathCandidates("cat", ["cat", "a", "b"])).toEqual(["a", "b"]);
     });
 
-    test("keeps every argument when -e supplies the pattern", () => {
-      expect(filePathCandidates("grep", ["grep", "-e", "p", "file.ts"])).toEqual([
-        "-e",
-        "p",
-        "file.ts",
+    test("drops -e and its VALUE, keeping the file (PR #2778 R1)", () => {
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("drops an attached --regexp= pattern", () => {
+      expect(filePathCandidates("grep", ["grep", "--regexp=p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("keeps a non-pattern flag token", () => {
+      // Flags are NOT dropped wholesale: `--include=<glob>` selects which files
+      // grep reads, so its value must stay reachable by the path matcher.
+      expect(filePathCandidates("grep", ["grep", "-r", "--include=x", "p", "dir"])).toContain(
+        "--include=x"
+      );
+    });
+
+    test("with -e present, the first positional is a FILE, not the pattern", () => {
+      // The positional-skip must not also fire, or the real file is dropped.
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "a.ts", "b.ts"])).toEqual([
+        "a.ts",
+        "b.ts",
       ]);
     });
 
