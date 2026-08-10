@@ -1,7 +1,10 @@
 {
-  "name": "minsky",
+  "name": "@edobry/minsky",
   "version": "0.1.0",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "The engineering organization around your AI agents — tasks, isolated sessions, adversarial review, memory, and decision routing, built as environment.",
   "icon": "assets/icon/minsky-icon.svg",
   "keywords": [

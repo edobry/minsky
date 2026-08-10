@@ -2,7 +2,37 @@
 
 **Status:** Accepted (ask#6804 answered "(a) npm/bun global package" by the principal, 2026-08-03T21:52Z)
 **Date:** 2026-08-03
-**Task:** mt#3578 (decision + analysis) · mt#3616 (execution)
+**Task:** mt#3578 (decision + analysis) · mt#3616 (execution) · mt#3915 (amendment)
+
+> **Amendment, 2026-08-10 — the package name is `@edobry/minsky`, not `minsky`.**
+>
+> npm **refuses to create** the unscoped name. Verified with a real authenticated `PUT`:
+>
+> ```
+> 403 Forbidden - PUT https://registry.npmjs.org/minsky
+> Package name too similar to existing package minify;
+> try renaming your package to '@edobry/minsky' and publishing with 'npm publish --access=public'
+> ```
+>
+> Everywhere below that says `bun add -g minsky`, read `bun add -g @edobry/minsky`. **The decision
+> itself is unchanged** — npm/bun global package, same `dist/` bundle + adjacent-assets layout,
+> binaries and Homebrew still deferred. Only the name moves.
+>
+> **The CLI command is NOT scoped.** `bin` maps command names independently of package name, so a
+> scoped package still installs a plain `minsky`. The user-visible change is one line of install
+> documentation; nothing about using the tool differs.
+>
+> **Correcting this ADR's own reasoning:** the consequence line below reads "verified unclaimed on
+> the npm registry 2026-08-03 — a 404 from `npm view minsky`". A 404 does **not** mean a name is
+> claimable. `minsky` returned 404 on 2026-08-10 too, and npm still refused it — the similarity
+> guard runs at `PUT` time and has no pre-flight endpoint. The only names knowably available in
+> advance are scoped ones under a scope you already own.
+>
+> **The guard is measurably inconsistent, so an appeal stays open.** `minsky`→`minify` is
+> Levenshtein distance 2; `mintlify`→`minify` is _also_ distance 2, and `mintlify` exists
+> (`GET /mintlify` → 200, `GET /minify` → 200, `GET /minsky` → 404). If npm support grants an
+> exception, the unscoped name would be ADDED alongside the scoped one — it would not invalidate
+> this amendment.
 
 ## Decision
 
