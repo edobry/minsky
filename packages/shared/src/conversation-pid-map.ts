@@ -28,7 +28,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getMinskyStateDir } from "./paths";
 
 /**
@@ -96,8 +96,20 @@ export interface ConversationTransition {
   /** SessionStart's own `source`: startup | resume | clear | compact | fork. */
   source?: string;
   harnessPid: number;
-  /** Start time of the harness process, to disambiguate a recycled pid. */
+  /** Start time of the harness process that wrote the SUCCESSOR. */
   harnessStartedAt?: string;
+  /**
+   * Start time recorded alongside the PREDECESSOR, when the prior entry carried
+   * one (PR #2791 R1).
+   *
+   * Both are needed, and the successor's alone is not enough: a pid identifies a
+   * process only together with its start time, so an edge where these two
+   * DIFFER was manufactured by the OS handing the pid to an unrelated harness —
+   * not by an operator switching conversations. With only one timestamp a
+   * reader of this log cannot tell those apart, which would make the log's
+   * headline fact unreliable exactly where it matters.
+   */
+  predecessorHarnessStartedAt?: string;
   at: string;
 }
 
@@ -279,7 +291,7 @@ export function writeConversationMapping(
     // is the only moment it is observable — a `/clear` does not announce itself
     // anywhere else, and once this write lands the edge is unrecoverable.
     // Capture before clobbering.
-    const predecessor = readMappedConversationId(io.read(path));
+    const prior = readPriorMapping(io.read(path));
 
     const payload: ConversationPidMapping = {
       conversationId: successor,
@@ -292,14 +304,17 @@ export function writeConversationMapping(
     // AFTER the mapping write, and independently failure-isolated: the mapping
     // is what correctness depends on (mt#3900), the log is observability. A
     // broken log must never cost us a correct attribution.
-    if (predecessor !== null && predecessor !== successor) {
+    if (prior !== null && prior.conversationId !== successor) {
       appendConversationTransition(
         {
-          predecessor,
+          predecessor: prior.conversationId,
           successor,
           ...(source ? { source } : {}),
           harnessPid,
           ...(startedAt ? { harnessStartedAt: startedAt } : {}),
+          ...(prior.harnessStartedAt
+            ? { predecessorHarnessStartedAt: prior.harnessStartedAt }
+            : {}),
           at: new Date().toISOString(),
         },
         io
@@ -323,14 +338,22 @@ export function writeConversationMapping(
  * Suppressing it here would silently drop transitions; recording it lets a
  * reader tell the two apart via `harnessStartedAt`.
  */
-function readMappedConversationId(contents: string | null): string | null {
+function readPriorMapping(
+  contents: string | null
+): { conversationId: string; harnessStartedAt?: string } | null {
   if (contents === null) return null;
   try {
     const parsed: unknown = JSON.parse(contents);
     if (!parsed || typeof parsed !== "object") return null;
-    const id = (parsed as Partial<ConversationPidMapping>).conversationId;
+    const mapping = parsed as Partial<ConversationPidMapping>;
+    const id = mapping.conversationId;
     if (typeof id !== "string" || !UUID_RE.test(id)) return null;
-    return id.toLowerCase();
+    return {
+      conversationId: id.toLowerCase(),
+      ...(typeof mapping.harnessStartedAt === "string"
+        ? { harnessStartedAt: mapping.harnessStartedAt }
+        : {}),
+    };
   } catch {
     return null;
   }
@@ -350,7 +373,10 @@ export function appendConversationTransition(
 ): boolean {
   try {
     const logPath = getConversationTransitionLogPath();
-    io.ensureDir(getMinskyStateDir());
+    // Derived from the log path, not hard-coded to the state root (PR #2791 R1):
+    // if the log ever moves into a subdirectory, a hard-coded parent silently
+    // stops creating the directory that actually needs to exist.
+    io.ensureDir(dirname(logPath));
     io.append(logPath, `${JSON.stringify(transition)}\n`);
     return true;
   } catch {

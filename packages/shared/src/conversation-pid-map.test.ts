@@ -278,14 +278,46 @@ describe("conversation transition capture (mt#3943)", () => {
     expect(readConversationMapping(TEST_PID, io, () => null)).toBe(CONV_B);
   });
 
-  test("records carry the harness start time, so a recycled pid is legible", () => {
-    // Without this a reader cannot tell a genuine in-seat switch from an edge
-    // manufactured by the OS handing the pid to an unrelated harness.
+  test("a recycled pid is distinguishable from a real switch using the log ALONE", () => {
+    // PR #2791 R1. The first version of this test asserted only that the
+    // SUCCESSOR's start time was recorded, and its name claimed that made a
+    // recycled pid "legible" — which it did not. A pid identifies a process only
+    // together with its start time, so telling "operator switched conversations"
+    // from "the OS reused this pid for an unrelated harness" needs BOTH ends.
+    // With one timestamp the two are identical in the log.
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, "startup", io, STARTED_EARLIER);
     writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_LATER);
 
-    expect(transitionsIn(io)[0]?.harnessStartedAt).toBe(STARTED_LATER);
+    const record = transitionsIn(io)[0];
+    expect(record?.harnessStartedAt).toBe(STARTED_LATER);
+    expect(record?.predecessorHarnessStartedAt).toBe(STARTED_EARLIER);
+    // Differing ends ⇒ this edge crossed a process boundary, not a switch.
+    expect(record?.predecessorHarnessStartedAt).not.toBe(record?.harnessStartedAt);
+  });
+
+  test("a genuine in-seat switch shows MATCHING start times at both ends", () => {
+    // The contrast case: same live harness, operator ran /clear. Equal
+    // timestamps are what makes this edge trustworthy as a real switch.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, STARTED_EARLIER);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_EARLIER);
+
+    const record = transitionsIn(io)[0];
+    expect(record?.harnessStartedAt).toBe(STARTED_EARLIER);
+    expect(record?.predecessorHarnessStartedAt).toBe(STARTED_EARLIER);
+  });
+
+  test("a predecessor written without a start time still records the edge", () => {
+    // Back-compat: entries written before `harnessStartedAt` existed. Absence
+    // must degrade to a less-legible edge, never to a dropped one.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, "startup", io, null);
+    writeConversationMapping(TEST_PID, CONV_B, "clear", io, STARTED_LATER);
+
+    const record = transitionsIn(io)[0];
+    expect(record?.predecessor).toBe(CONV_A);
+    expect(record?.predecessorHarnessStartedAt).toBeUndefined();
   });
 
   test("no succession is asserted — the record carries no continuesFrom", () => {
