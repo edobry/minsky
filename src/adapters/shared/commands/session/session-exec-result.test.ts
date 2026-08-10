@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { classifyExecFailure, executeCommand } from "@minsky/shared/exec";
 import { buildSessionExecFailureResult } from "./basic-commands";
+import { sessionExecCommandParams } from "./session-parameters";
 
 // ---------------------------------------------------------------------------
 // mt#3909 — session_exec must distinguish "your command failed" from
@@ -84,6 +85,19 @@ describe("buildSessionExecFailureResult", () => {
     expect(result.failureKind).toBe("maxbuffer");
     // A maxBuffer overrun is not a timeout — waiting longer would not help.
     expect(result.timedOut).toBe(false);
+  });
+
+  // Criterion 3. The criterion assumed the ceiling "silently overrides an explicit larger
+  // request"; it does not — the schema rejects first, so an over-cap request fails loudly
+  // rather than quietly becoming 120000. Pinned here because that was asserted from reading
+  // the schema before it was observed, and reading is how the criterion got it wrong.
+  it("rejects an over-cap timeout rather than silently clamping it", () => {
+    const parsed = sessionExecCommandParams.timeout.schema.safeParse(600_000);
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts a timeout at the cap", () => {
+    expect(sessionExecCommandParams.timeout.schema.safeParse(120_000).success).toBe(true);
   });
 
   it("carries the workdir and the error message through unchanged", async () => {
