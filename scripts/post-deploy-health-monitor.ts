@@ -1379,7 +1379,7 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     }
   } else {
     // No credential is "I cannot look," not "nothing to look at."
-    deployStatus = "SKIPPED (no RAILWAY_TOKEN)";
+    deployStatus = "COULD-NOT-RUN (no RAILWAY_TOKEN)";
     deployOutcome = "failed";
     deployDetail = "RAILWAY_TOKEN is not set — the monitor has no Railway credential";
   }
@@ -1438,7 +1438,9 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
       // and alerts as such.
       digestLagError = railwayToken
         ? "No Railway deployment data available — cannot compare digests"
-        : "SKIPPED (no RAILWAY_TOKEN)";
+        : // The console line already wraps this in COULD-NOT-RUN(…), so this
+          // carries the reason alone rather than repeating the label.
+          "no RAILWAY_TOKEN — the monitor has no Railway credential";
     } else {
       const parsedRef = parseGhcrImageRef(svc.image);
       deployedDigest = deployment.meta?.imageDigest ?? null;
@@ -1619,8 +1621,10 @@ async function main(): Promise<void> {
 
   if (!railwayToken) {
     console.warn(
-      "WARNING: RAILWAY_TOKEN not set — Railway deploy-status checks will be skipped. " +
-        "Only /health probes will run."
+      "WARNING: RAILWAY_TOKEN not set — the deploy-status check cannot run, and the " +
+        "digest check cannot run for image-source services. Since mt#3921 those count as " +
+        "FAILED checks, not skips: every affected service will be DEGRADED and raise a " +
+        "check-failed alert. Only the /health probe carries information in this state."
     );
   }
 
@@ -1757,7 +1761,10 @@ async function main(): Promise<void> {
       // Only attempt when MCP auth token is available.
       if (mcpAuthToken && !dryRun) {
         try {
-          const subject = `[P0] ${svc.name}: ${alert.class} — GitHub issue ${issueUrl}`;
+          // mt#3921 R1: reuse issueTitle so both channels read identically —
+          // the raw class name ("check-failed") is not a sentence an operator
+          // can act on, and a second mapping would drift from the first.
+          const subject = `${issueTitle(svc.name, alert.class)} — GitHub issue ${issueUrl}`;
           await alertViaMcp(mcpAuthToken, subject, alert.details);
         } catch (err) {
           // Best-effort: log but NEVER suppress the primary path.
