@@ -1,0 +1,801 @@
+{
+  "task": "mt#3871",
+  "cores": 16,
+  "loadMode": "both",
+  "workers": 32,
+  "runsPerCondition": 5,
+  "baselineLoad": 16.8779296875,
+  "loadLapsed": true,
+  "loadSensitiveTestFiles": [
+    "src/cockpit/transcript-sweep-backstop.test.ts",
+    "src/cockpit/health-contract.test.ts",
+    "src/cockpit/routes/sweeps.test.ts"
+  ],
+  "shapes": [
+    {
+      "id": "A",
+      "label": "selects tests, none of them load-sensitive",
+      "target": "tests/scripts/prepush-load-measurement.test.ts",
+      "selectsLoadSensitive": false,
+      "idle": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 272.1145,
+          "median": 283.064042,
+          "max": 335.888708
+        },
+        "load": {
+          "min": 16.6474609375,
+          "max": 16.8779296875
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "loaded": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 456.71579100000235,
+          "median": 480.3874169999981,
+          "max": 547.7468329999974
+        },
+        "load": {
+          "min": 47.70166015625,
+          "max": 52.60986328125
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "straddle": {
+        "kind": "same-regime",
+        "regime": "all-pass"
+      }
+    },
+    {
+      "id": "B",
+      "label": "selects the load-sensitive population",
+      "target": "src/cockpit/transcript-sweep-backstop.test.ts",
+      "selectsLoadSensitive": true,
+      "idle": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 547.8920410000001,
+          "median": 578.0096250000001,
+          "max": 593.4209579999997
+        },
+        "load": {
+          "min": 16.6474609375,
+          "max": 16.6474609375
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "loaded": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 861.4432080000042,
+          "median": 904.9534170000043,
+          "max": 949.1277499999997
+        },
+        "load": {
+          "min": 52.60986328125,
+          "max": 56.884765625
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "straddle": {
+        "kind": "same-regime",
+        "regime": "all-pass"
+      }
+    },
+    {
+      "id": "C",
+      "label": "docs-only, expected zero selection",
+      "target": "docs/testing-patterns.md",
+      "selectsLoadSensitive": false,
+      "idle": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 265.2251669999996,
+          "median": 302.8834999999999,
+          "max": 359.11858400000074
+        },
+        "load": {
+          "min": 16.6474609375,
+          "max": 16.6474609375
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "loaded": {
+        "runs": 5,
+        "failedRuns": 0,
+        "wallMs": {
+          "min": 415.4223750000019,
+          "median": 467.749791000002,
+          "max": 471.8420840000035
+        },
+        "load": {
+          "min": 56.884765625,
+          "max": 56.884765625
+        },
+        "failingTestNames": [],
+        "worstFailureElapsedMs": null
+      },
+      "straddle": {
+        "kind": "same-regime",
+        "regime": "all-pass"
+      }
+    }
+  ],
+  "positiveControl": {
+    "runs": 2,
+    "failedRuns": 1,
+    "description": "same diff, same load, MINSKY_PREPUSH_FULL_SUITE=1 (pre-mt#3562 behaviour)",
+    "summary": {
+      "runs": 2,
+      "failedRuns": 1,
+      "wallMs": {
+        "min": 299673.569708,
+        "median": 302025.88870849996,
+        "max": 304378.207709
+      },
+      "load": {
+        "min": 56.884765625,
+        "max": 134.32568359375
+      },
+      "failingTestNames": [
+        "startLiveTail > does NOT leak historical content when the file is absent at connect, then appears (R1)"
+      ],
+      "worstFailureElapsedMs": 202.54
+    },
+    "runs_detail": [
+      {
+        "shape": "B",
+        "condition": "loaded",
+        "passed": false,
+        "exitCode": 1,
+        "wallMs": 304378.207709,
+        "loadStart": 56.884765625,
+        "loadEnd": 122.1142578125,
+        "selection": null,
+        "summary": {
+          "tests": 12023,
+          "files": 818
+        },
+        "failures": [
+          {
+            "name": "startLiveTail > does NOT leak historical content when the file is absent at connect, then appears (R1)",
+            "elapsedMs": 202.54
+          }
+        ]
+      },
+      {
+        "shape": "B",
+        "condition": "loaded",
+        "passed": true,
+        "exitCode": 0,
+        "wallMs": 299673.569708,
+        "loadStart": 122.1142578125,
+        "loadEnd": 134.32568359375,
+        "selection": null,
+        "summary": {
+          "tests": 12023,
+          "files": 818
+        },
+        "failures": []
+      }
+    ]
+  },
+  "verdict": {
+    "verdict": "met",
+    "rationale": "The unscoped positive control failed 1/2 runs under the same load, so the condition demonstrably breaks these tests — yet every change-scoped shape passed under it, including the shape that selects the same load-sensitive tests. Scoping, not a weak load condition, is what removed the failures."
+  },
+  "runs": [
+    {
+      "shape": "A",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 335.888708,
+      "loadStart": 16.8779296875,
+      "loadEnd": 16.8779296875,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 314.776292,
+      "loadStart": 16.8779296875,
+      "loadEnd": 16.8779296875,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 277.29433299999994,
+      "loadStart": 16.8779296875,
+      "loadEnd": 16.8779296875,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 272.1145,
+      "loadStart": 16.8779296875,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 283.064042,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 549.8803749999997,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 547.8920410000001,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 593.4209579999997,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 587.8148329999999,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 578.0096250000001,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 283.5382499999996,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 302.8834999999999,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 359.11858400000074,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 320.8642089999994,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "idle",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 265.2251669999996,
+      "loadStart": 16.6474609375,
+      "loadEnd": 16.6474609375,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 547.7468329999974,
+      "loadStart": 47.70166015625,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 456.71579100000235,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 481.36358299999847,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 480.3874169999981,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "A",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 470.4316250000047,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 5,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 890.1534170000014,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 904.9534170000043,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 861.4432080000042,
+      "loadStart": 52.60986328125,
+      "loadEnd": 52.60986328125,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 926.6489160000056,
+      "loadStart": 52.60986328125,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "B",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 949.1277499999997,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 2,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 46,
+        "files": 2
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 471.2282500000001,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 415.4223750000019,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 471.8420840000035,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 444.62225000000035,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    },
+    {
+      "shape": "C",
+      "condition": "loaded",
+      "passed": true,
+      "exitCode": 0,
+      "wallMs": 467.749791000002,
+      "loadStart": 56.884765625,
+      "loadEnd": 56.884765625,
+      "selection": {
+        "kind": "selected",
+        "changedFiles": 6,
+        "selected": 1,
+        "candidates": 818
+      },
+      "summary": {
+        "tests": 27,
+        "files": 1
+      },
+      "failures": []
+    }
+  ]
+}
