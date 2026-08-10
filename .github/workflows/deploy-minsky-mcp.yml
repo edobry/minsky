@@ -285,7 +285,30 @@ jobs:
             exit 1
           fi
 
-          npm install -g @railway/cli
+          # Pinned, and retried (PR #2768 R1 NON-BLOCKING). Two reasons, the
+          # second stronger than the supply-chain one:
+          #
+          #   1. This step is now FATAL, so a transient npm failure reds main
+          #      rather than warning — hence the retry.
+          #   2. `--from-source`'s semantics below were verified against 4.44.0
+          #      specifically (`railway redeploy --help`). npm `latest` is
+          #      currently 5.35.1 — a MAJOR version ahead — and an unpinned
+          #      install would silently put a CLI on the deploy path whose flag
+          #      behavior nobody here has checked. Pin to the version actually
+          #      verified; bump deliberately after re-reading `--help`.
+          #
+          # deploy-reviewer.yml is still unpinned (and therefore running 5.x);
+          # that divergence is worth back-porting, not a reason to match it.
+          RAILWAY_CLI_VERSION="4.44.0"
+          for i in 1 2 3; do
+            if npm install -g "@railway/cli@${RAILWAY_CLI_VERSION}"; then break; fi
+            if [ "$i" = 3 ]; then
+              echo "::error::Failed to install @railway/cli@${RAILWAY_CLI_VERSION} after 3 attempts."
+              exit 1
+            fi
+            echo "npm install failed — retry $i"
+            sleep 5
+          done
 
           # Railway identifier from services/minsky-mcp/deploy.config.ts, kept
           # inline to match the convention in this file and deploy-reviewer.yml.

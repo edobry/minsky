@@ -9,16 +9,31 @@
  *               that let a 4.5-day outage pass every post-merge check)
  *   bounded   → raises NoDeploymentSinceError        (the fix)
  *
- * Read-only: `waitForLatestDeployment` only queries. Requires a Railway
- * credential; skips cleanly without one.
+ * Read-only: `waitForLatestDeployment` only queries.
+ *
+ * Requires a Railway credential and SKIPS cleanly (exit 0) without one, per
+ * §7a's artifact contract — the credential lives in Minsky's config store, not
+ * an env var, so the gate is an actual resolution attempt rather than an
+ * env-var presence check. PR #2768 R1: the docblock previously claimed this
+ * skip while the script had no gate at all and would have failed hard on a
+ * credential-less machine.
  */
 // The deployment adapter is tsyringe-@injectable; the polyfill must load
 // before any decorated class is imported.
 import "reflect-metadata";
 import { resolveDeploymentConfig, resolveAdapter } from "../packages/domain/src/deployment/index";
 import { NoDeploymentSinceError } from "../packages/domain/src/deployment/types";
+import { getValidRailwayToken } from "../packages/domain/src/deployment/railway/graphql-client";
 
 const SERVICE = "minsky-mcp";
+
+try {
+  await getValidRailwayToken();
+} catch (e) {
+  console.log(`SKIP: no usable Railway credential — ${(e as Error).message}`);
+  console.log("Configure one (config_credentials_add railway) to run this verification.");
+  process.exit(0);
+}
 
 const { config } = await resolveDeploymentConfig(SERVICE);
 const adapter = resolveAdapter(config);
