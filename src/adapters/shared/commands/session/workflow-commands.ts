@@ -1,9 +1,13 @@
 /**
  * Session Workflow Commands
  *
- * Factories for session workflow operations: commit, approve, inspect,
- * review, pr.approve, pr.merge. PR create/edit/list/get/open factories
- * live in their own files and are re-exported here for convenience.
+ * Factories for session workflow operations: commit, inspect, review,
+ * pr.approve, pr.merge. PR create/edit/list/get/open factories live in
+ * their own files and are re-exported here for convenience.
+ *
+ * There is no bare `approve` factory: `session.approve` was residue from the
+ * `session.pr.*` consolidation and was deleted in mt#3941. `pr.approve` is the
+ * live approve path.
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";

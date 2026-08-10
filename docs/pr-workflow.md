@@ -8,7 +8,7 @@ The enhanced PR workflow offers a streamlined approach to creating and merging p
 
 1. Create a PR summary to review changes (`git summary`)
 2. Create a PR/changeset (`session pr create`, `session changeset create`, or `session cs create`)
-3. Approve and merge the prepared PR (`session approve` or `git merge-pr`)
+3. Approve and merge the prepared PR (`session pr approve` or `git merge-pr`)
 
 This workflow is designed to minimize merge conflicts and ensure that merges occur via fast-forward only, resulting in a cleaner, more linear commit history.
 
@@ -152,12 +152,12 @@ This command:
 3. Pushes the updated base branch to the remote
 4. Deletes the PR branch locally and remotely
 
-### `session approve`
+### `session pr approve`
 
 A high-level command that combines PR merging with task status updates.
 
 ```bash
-minsky session approve [options]
+minsky session pr approve [options]
 ```
 
 **Options:**
@@ -169,7 +169,7 @@ minsky session approve [options]
 **Example:**
 
 ```bash
-minsky session approve my-feature
+minsky session pr approve my-feature
 ```
 
 This command:
@@ -214,7 +214,7 @@ The PR workflow commands use specific exit codes to indicate common failure cond
 
 3. Review the PR and when ready to merge:
    ```bash
-   minsky session approve
+   minsky session pr approve
    ```
 
 ### Manual Workflow
