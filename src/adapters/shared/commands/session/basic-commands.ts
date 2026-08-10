@@ -10,6 +10,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
+import type { ExecFailure } from "@minsky/shared/exec";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -378,6 +379,64 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
   };
 }
 
+/**
+ * Default and ceiling for `session_exec`'s command timeout.
+ *
+ * Kept beside the command and mirrored by `sessionExecCommandParams`'s schema
+ * (`z.number().int().positive().max(120000)`) and its description, which is
+ * what actually REJECTS an over-cap request — the `Math.min` at the call site
+ * is only defense-in-depth for callers that bypass the schema.
+ */
+const SESSION_EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+const SESSION_EXEC_MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * Shape a caught exec error into `session_exec`'s failure result (mt#3909).
+ *
+ * Exported and pure so the decision can be tested against real error objects
+ * without standing up a session or patching the handler's dynamic imports —
+ * the functional-core split `testing-standards.mdc §Testable Design` asks for.
+ * `failure` is passed in rather than classified here so the caller owns the one
+ * import, and so a test can drive both halves independently.
+ */
+export function buildSessionExecFailureResult(
+  error: unknown,
+  failure: ExecFailure,
+  context: { timeoutMs: number; workdir: string }
+): Record<string, unknown> {
+  const execError = error as { stdout?: string; stderr?: string };
+  const timedOut = failure.kind === "timeout";
+
+  return {
+    success: false,
+    stdout: (execError.stdout ?? "").trim(),
+    stderr: (execError.stderr ?? "").trim(),
+    // Only an `exit` failure has a real exit code. Everything else reports 1
+    // for back-compat with callers reading this field, but `timedOut` /
+    // `failureKind` are what a caller should branch on — a bare 1 cannot
+    // distinguish "your command failed" from "we killed your command," and
+    // those have opposite remedies.
+    exitCode: failure.exitCode ?? 1,
+    failureKind: failure.kind,
+    timedOut,
+    ...(timedOut
+      ? {
+          timeoutMs: context.timeoutMs,
+          killedSignal: failure.signal ?? "SIGTERM",
+          // The signal goes to the shell this command started, not to whatever
+          // that shell spawned. A grandchild can outlive it and keep running —
+          // holding a lock, writing a file, consuming an API budget. Observed
+          // in mt#3909's originating incident, where an orphaned `bun` process
+          // ran to completion after its parent was killed, which is why its log
+          // looked like a success.
+          descendantsMaySurvive: true,
+        }
+      : {}),
+    workdir: context.workdir,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.exec",
@@ -393,10 +452,15 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
       "block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec " +
       "the same way it denies them on Bash (mt#1196). Inside a session, the carved-out " +
       "commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via " +
-      "session_exec because they're the recommended escape hatch.",
+      "session_exec because they're the recommended escape hatch. TIMEOUT: a command is KILLED " +
+      "after `timeout` ms (default 30s, max 120s) — the result then carries `timedOut: true`, " +
+      '`failureKind: "timeout"` and `descendantsMaySurvive: true` rather than a bare ' +
+      "`exitCode: 1`. Do NOT retry on a timeout as though the command had failed: it may have " +
+      "done part of its work, and anything it spawned can outlive the kill. For work that may " +
+      "exceed the cap, launch it detached (`nohup … &`) and read a log file instead.",
     parameters: sessionExecCommandParams,
     execute: withErrorLogging("session.exec", async (params: Record<string, unknown>) => {
-      const { executeCommand } = await import("@minsky/shared/exec");
+      const { executeCommand, classifyExecFailure } = await import("@minsky/shared/exec");
       const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
@@ -407,7 +471,14 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
         repo: params.repo as string | undefined,
       });
 
-      const timeout = Math.min((params.timeout as number | undefined) ?? 30000, 120000);
+      // The schema (`session-parameters.ts`) already bounds `timeout` at
+      // SESSION_EXEC_MAX_TIMEOUT_MS and documents it, so an over-cap request is
+      // REJECTED there rather than silently reduced here. This clamp is
+      // defense-in-depth for non-MCP callers that bypass the schema.
+      const timeout = Math.min(
+        (params.timeout as number | undefined) ?? SESSION_EXEC_DEFAULT_TIMEOUT_MS,
+        SESSION_EXEC_MAX_TIMEOUT_MS
+      );
 
       try {
         const { stdout, stderr } = await executeCommand(params.command as string, {
@@ -420,17 +491,13 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
           stderr: stderr.trim(),
           workdir,
           exitCode: 0,
+          timedOut: false,
         };
       } catch (error) {
-        const execError = error as { code?: number; stdout?: string; stderr?: string };
-        return {
-          success: false,
-          stdout: (execError.stdout ?? "").trim(),
-          stderr: (execError.stderr ?? "").trim(),
-          exitCode: execError.code ?? 1,
+        return buildSessionExecFailureResult(error, classifyExecFailure(error), {
+          timeoutMs: timeout,
           workdir,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        });
       }
     }),
   };

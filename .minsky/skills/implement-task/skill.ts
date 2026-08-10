@@ -574,7 +574,7 @@ verification must actually run, here, after the deploy completes.
 **Primary mechanism: \`mcp__minsky__deployment_wait-for-latest\`.**
 
 \`\`\`
-deployment_wait-for-latest(service?: string, timeoutSeconds?: number)
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number, notBefore?: string)
 \`\`\`
 
 Block-and-return on the latest deployment for the configured service.
@@ -583,6 +583,26 @@ CRASHED). Platform-neutral; the tool routes to the platform declared in
 \`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter; v2
 candidates: Vercel, Cloudflare Pages, etc.). See
 \`docs/deployment-platforms.md\` for the abstraction.
+
+**ALWAYS pass \`notBefore\` — the merge's timestamp (mt#3890).** Without it,
+this call returns whatever deployment is newest, with no relationship to the
+merge you are verifying. That is not a theoretical weakness: from 2026-08-05
+to 2026-08-10 the \`minsky-mcp\` redeploy step was silently unauthorized, no
+deployment was ever created, and this call dutifully returned the four-day-old
+SUCCESS record to every post-merge gate that asked. Every one of them passed.
+A probe that returns the same answer whether or not the deploy happened is not
+verification (mem#704).
+
+The timestamp is \`mergeInfo.mergeDate\` from the \`session_pr_merge\` you just
+ran. With it, a deployment predating the merge no longer satisfies the wait —
+the call raises \`NoDeploymentSinceError\`, which means "nothing was ever
+triggered," NOT "it is still building." Those call for opposite responses: go
+find out why the deploy did not fire, rather than waiting longer.
+
+\`session.pr.drive --postMerge\` takes the same value as \`mergedAt\` and threads
+it to every watched service. If you omit it there, the result carries
+\`deployBoundApplied: false\` and the text output says so — treat that as an
+unverified deploy, not a passing one.
 
 **Follow-ups for inspection (not for waiting):**
 

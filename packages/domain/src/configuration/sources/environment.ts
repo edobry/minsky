@@ -195,6 +195,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
   "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
   "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
+  "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
   // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
@@ -357,6 +358,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
   "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
   "MINSKY_SKIP_WALL_OF_TEXT", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
+  "MINSKY_SKIP_TERMINAL_LINKIFY", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
   "MINSKY_SILENT_STRETCH_GAP_MINUTES", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
   "MINSKY_SILENT_STRETCH_TOOL_CALLS", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
   "MINSKY_WALL_OF_TEXT_WORD_BUDGET", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)

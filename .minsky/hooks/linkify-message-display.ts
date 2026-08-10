@@ -1,0 +1,217 @@
+#!/usr/bin/env bun
+// MessageDisplay hook: linkify entity refs in assistant output as it is
+// displayed, leaving the stored transcript untouched (mt#2565).
+//
+// ## Why a hook rather than authoring discipline
+//
+// The deeplink rule used to ask the agent to hand-emit `[mt#N](minsky://...)`
+// for every reference it wanted clickable. mt#3459 measured the result — 31
+// linked vs 232 bare refs in one session — and decided to move linkification to
+// the display surface instead of tuning the authoring ration. This is that move.
+//
+// ## The event's contract, read off the installed client (2.1.226)
+//
+//   input : { hook_event_name, turn_id, message_id, index, final, delta }
+//   output: hookSpecificOutput { hookEventName: "MessageDisplay", displayContent }
+//
+// The schema's own description: "Fired with each batch of newly completed lines
+// while an assistant message streams. Display-only: the stored message and what
+// the model sees are untouched." Omitting `displayContent` (or returning the
+// delta unchanged) displays the original, and the client degrades to the
+// original delta if the hook fails — so every failure path here is a no-op.
+//
+// ## Why this is NOT on the guard dispatcher (ADR-028)
+//
+// ADR-028 D1 says one process per lifecycle event, and that is exactly what
+// this is: the sole MessageDisplay hook. What it deliberately does NOT do is
+// join the GUARD_REGISTRY, for two reasons the ADR itself supplies. The
+// dispatcher resolves transcript candidates and writes fire-log records per
+// invocation, and D7(5) rules out routing per-invocation IO into a hot path —
+// and this event is the hottest one in the harness, firing once per batch of
+// lines rather than once per turn, synchronously in the display path. Second,
+// a guard's outcome is a decision (deny / inject context); this one's output is
+// a TEXT TRANSFORM, which `GuardOutcome` cannot express. If a second
+// MessageDisplay consumer ever appears, the right move is a
+// `dispatch-messagedisplay.ts` entrypoint with a transform-shaped outcome —
+// not a second settings.json command.
+//
+// Consequences for everything below: no domain bootstrap, no DB, no network, no
+// transcript read. The only IO is one small state file, and it exists solely
+// because a code fence opens in one delta and closes in another.
+//
+// Override: MINSKY_SKIP_TERMINAL_LINKIFY=1 displays every delta unchanged.
+//
+// @see .minsky/hooks/entity-linkify.ts — the pure transform
+// @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1, D7(5)
+// @see docs/architecture/adr-029-numeric-short-ids-foundation.md — why short ids are out of scope
+// @see mt#2565 — this task; mt#3459 — the decision
+
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+import { readInput, writeOutput } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+import { linkifyDelta } from "./entity-linkify";
+import type { FenceState } from "./entity-linkify";
+
+export const TERMINAL_LINKIFY_OVERRIDE_ENV = "MINSKY_SKIP_TERMINAL_LINKIFY";
+
+const STATE_FILENAME = "message-display-fence-state.json";
+
+export interface MessageDisplayInput extends ClaudeHookInput {
+  turn_id?: string;
+  message_id?: string;
+  index?: number;
+  final?: boolean;
+  delta?: string;
+}
+
+/**
+ * The carried state. Exactly one message streams at a time in a given client, so
+ * a single record suffices: a `message_id` that does not match the stored one
+ * means a new message started and the fence flag resets. That is also what makes
+ * the file self-cleaning — no per-message files accumulate.
+ *
+ * ## What happens when that assumption does not hold (PR #2763 R1)
+ *
+ * The file is shared per state dir, so two clients streaming at once — a second
+ * Claude Code window, or a subagent whose output displays concurrently — write
+ * over each other's record. There is no lock and no atomic rename, deliberately:
+ * this runs synchronously in the display path, and the failure it would prevent
+ * is not worth the cost.
+ *
+ * The blast radius of losing the race is one line's classification. A stolen
+ * record makes `message_id` mismatch, which resets `inFence` to false — so a
+ * fenced ref may be linked, or (after the other writer's fence opens) a prose
+ * ref may stay bare. Neither corrupts the message: `displayContent` replaces
+ * only the current delta, the stored transcript is untouched either way, and the
+ * next delta re-reads the file. A torn or truncated read degrades identically,
+ * which is why `readStoredState` returns null rather than throwing.
+ *
+ * If concurrent streaming ever becomes the common case, key the file by
+ * `session_id` rather than adding a lock — it keeps the write single and
+ * uncontended instead of making the hot path wait.
+ */
+interface StoredFenceState {
+  messageId: string;
+  inFence: boolean;
+}
+
+/** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
+export function getStateDir(): string {
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || path.join(process.env["HOME"] || os.homedir(), ".local/state");
+  return path.join(xdgStateHome, "minsky");
+}
+
+export function getFenceStatePath(): string {
+  return path.join(getStateDir(), STATE_FILENAME);
+}
+
+function readStoredState(): StoredFenceState | null {
+  try {
+    const raw = fs.readFileSync(getFenceStatePath(), "utf8");
+    const parsed = JSON.parse(raw) as Partial<StoredFenceState>;
+    if (typeof parsed.messageId !== "string" || typeof parsed.inFence !== "boolean") return null;
+    return { messageId: parsed.messageId, inFence: parsed.inFence };
+  } catch {
+    // intentional-swallow: a missing, truncated, or concurrently-rewritten state
+    // file means "no carried fence state", which degrades to treating this delta
+    // as top-level prose. The worst case is one code-fenced ref rendered as a
+    // link; failing the hook instead would cost the whole message's display.
+    return null;
+  }
+}
+
+function writeStoredState(next: StoredFenceState | null): void {
+  const target = getFenceStatePath();
+  try {
+    if (next === null) {
+      fs.rmSync(target, { force: true });
+      return;
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(next));
+  } catch {
+    // intentional-swallow: losing the carried flag degrades exactly like a
+    // missing file above. This runs in the display path; it must never throw.
+  }
+}
+
+function isOverrideTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+/**
+ * The decision, extracted so it is observable without stdin, a state file, or a
+ * process: given a delta and whatever state was carried, what should be
+ * displayed and what state should be carried forward?
+ *
+ * `null` for `display` means "emit nothing" — the client then shows the
+ * original delta, which is both the no-change case and every failure case.
+ */
+export function decideDisplay(
+  input: MessageDisplayInput,
+  stored: StoredFenceState | null
+): { display: string | null; nextState: StoredFenceState | null } {
+  const delta = input.delta ?? "";
+  const messageId = input.message_id ?? "";
+  const carried: FenceState =
+    stored !== null && stored.messageId === messageId
+      ? { inFence: stored.inFence }
+      : { inFence: false };
+
+  if (delta === "") {
+    // The final flush is empty when the message ends on a newline; treat `final`
+    // as the end-of-message signal regardless, and drop the carried state.
+    return { display: null, nextState: input.final === true ? null : stored };
+  }
+
+  const result = linkifyDelta(delta, carried, { final: input.final === true });
+  const nextState: StoredFenceState | null =
+    input.final === true ? null : { messageId, inFence: result.state.inFence };
+
+  return { display: result.text === delta ? null : result.text, nextState };
+}
+
+async function main(): Promise<void> {
+  if (isOverrideTruthy(process.env[TERMINAL_LINKIFY_OVERRIDE_ENV])) return;
+
+  let input: MessageDisplayInput;
+  try {
+    input = await readInput<MessageDisplayInput>();
+  } catch {
+    // intentional-swallow: unparseable stdin means display the original delta.
+    return;
+  }
+  if (input.hook_event_name !== "MessageDisplay") return;
+
+  const { display, nextState } = decideDisplay(input, readStoredState());
+  writeStoredState(nextState);
+  if (display === null) return;
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "MessageDisplay",
+      displayContent: display,
+    },
+  };
+  writeOutput(output);
+}
+
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (err) {
+    // The client falls back to the original delta when a hook fails, so the
+    // display is safe either way; stderr keeps the cause visible.
+    process.stderr.write(
+      `[linkify-message-display] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+}
