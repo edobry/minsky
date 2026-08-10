@@ -164,14 +164,26 @@ describe("reminder + rollout gate", () => {
   });
 
   test("principal-reserved reminder names asks_create", () => {
-    const m: DeferralMatch[] = [{ cls: PRINCIPAL_RESERVED, matchedPhrase: "needs your call" }];
+    const m: DeferralMatch[] = [
+      {
+        cls: PRINCIPAL_RESERVED,
+        matchedPhrase: "needs your call",
+        context: "Naming the surface needs your call.",
+      },
+    ];
     const reminder = buildReminder(m);
     expect(reminder).toContain("asks_create");
     expect(reminder).toContain("direction.decide");
   });
 
   test("deferral-menu reminder routes through classify-before-deferring", () => {
-    const m: DeferralMatch[] = [{ cls: DEFERRAL_MENU, matchedPhrase: "what's your call?" }];
+    const m: DeferralMatch[] = [
+      {
+        cls: DEFERRAL_MENU,
+        matchedPhrase: "what's your call?",
+        context: "I could do A or B — what's your call?",
+      },
+    ];
     const reminder = buildReminder(m);
     expect(reminder).toContain("classify-before-deferring");
   });

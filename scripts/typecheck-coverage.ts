@@ -64,14 +64,6 @@ export interface AllowlistEntry {
 
 export const COVERAGE_ALLOWLIST: readonly AllowlistEntry[] = [
   {
-    prefix: ".minsky/",
-    reason:
-      "Source tree for the generated .claude/** outputs. tsconfig.hooks.json covers only the " +
-      "COMPILED .claude/hooks copy, so an error in a source file is not caught until it is " +
-      "compiled. This is a real gap, not a deliberate exclusion.",
-    tracking: "mt#2900",
-  },
-  {
     prefix: "tests/fixtures/",
     reason:
       "Deliberately-malformed sample inputs (e.g. a NUL-byte source file) used AS TEST DATA. " +
@@ -87,86 +79,6 @@ export const COVERAGE_ALLOWLIST: readonly AllowlistEntry[] = [
     reason:
       "Rule-test fixtures. The `invalid.ts` files are invalid BY DESIGN — they exist so the " +
       "custom ESLint rules have something to flag — so they must not be typechecked.",
-  },
-  {
-    prefix: "services/cockpit/deploy.config.ts",
-    reason:
-      "Deploy-surface config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/minsky-mcp/deploy.config.ts",
-    reason:
-      "Deploy-surface config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/minsky-ops/deploy.config.ts",
-    reason:
-      "Deploy-surface config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/reviewer/deploy.config.ts",
-    reason:
-      "Deploy-surface config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/reviewer/drizzle.pg.config.ts",
-    reason: "Drizzle config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/reviewer/eval/",
-    reason:
-      "Reviewer eval harness, outside services/reviewer/tsconfig.json's include. Surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/site/",
-    reason:
-      "services/site ships a tsconfig but declares no typecheck script and has no CI step, so " +
-      "nothing runs it. Surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "services/cockpit/src/",
-    reason:
-      "services/cockpit ships a tsconfig but declares no typecheck script and has no CI step, so " +
-      "nothing runs it. Surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "infra/",
-    reason:
-      "infra ships a tsconfig but declares no typecheck script and has no CI step, so nothing " +
-      "runs it. Surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "vite.config.ts",
-    reason:
-      "Root build config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "tailwind.config.ts",
-    reason:
-      "Root build config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "drizzle.config.ts",
-    reason:
-      "Root drizzle config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
-  },
-  {
-    prefix: "drizzle.pg.config.ts",
-    reason:
-      "Root drizzle config in no run project. Verified clean 2026-08-06; surfaced, not paid down.",
-    tracking: "mt#3817",
   },
 ];
 

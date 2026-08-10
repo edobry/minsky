@@ -86,6 +86,8 @@ export function evaluateCanaryOutcome(
       return outcome.calibration !== undefined;
     case "sessionTitle":
       return outcome.sessionTitle !== undefined;
+    case "updatedInput":
+      return outcome.updatedInput !== undefined;
     default: {
       // Exhaustiveness guard — if a new `expects` variant is ever added to
       // the registry's canary type without a matching case here, fail

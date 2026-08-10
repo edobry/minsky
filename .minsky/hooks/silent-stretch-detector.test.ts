@@ -739,7 +739,11 @@ describe("buildTurnAnchor", () => {
 
   test("the SAME turn (identical boundaries) always produces the SAME anchor", () => {
     const boundaries = { turnStartTimestamp: ts(0), turnEndTimestamp: ts(50) };
-    expect(buildTurnAnchor(boundaries)).toBe(buildTurnAnchor({ ...boundaries }));
+    // Same-value comparison, but the spread-arg call types as `string |
+    // undefined`; prove it present before comparing (mt#2900).
+    const fromCopy = buildTurnAnchor({ ...boundaries });
+    expect(fromCopy).toBeDefined();
+    expect(buildTurnAnchor(boundaries)).toBe(fromCopy as string);
   });
 });
 

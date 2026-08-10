@@ -20,8 +20,10 @@ import {
   decideRecordingAction,
   HOOK_UNKNOWN_TASK_ID,
   recordFailureBestEffort,
+  recoverDispatchStamp,
   __setDeadlineExceededForTest,
 } from "./record-subagent-invocation";
+import { buildDispatchStamp } from "./agent-dispatch-stamp";
 import { UNKNOWN_TASK_ID } from "../../src/mcp/subagent-dispatch-tracker";
 import { readTranscriptMetrics } from "../../packages/domain/src/subagent/transcript-metrics";
 
@@ -114,7 +116,7 @@ describe("decideRecordingAction (mt#3019)", () => {
     const decision = decideRecordingAction(null, null, "/tmp/not-a-session");
 
     expect(decision.action).toBe("skip");
-    expect(decision.warning).toContain("no taskId and no session correlation key");
+    expect(decision.warning).toContain("no taskId, no session correlation key");
     expect(decision.warning).toContain("/tmp/not-a-session");
     expect(decision.warning).toContain("skipping DB write");
     // Nothing to key the write on — there must be no task id to write either.
@@ -244,7 +246,11 @@ describe("record-subagent-invocation process contract (mt#3019)", () => {
     // key, or it reports a bootstrap failure as a value. CI has no Postgres
     // configured and takes the second path; a developer machine takes the
     // first. (An earlier revision asserted only the first and failed in CI.)
-    const skippedOnKey = stderr.includes("no taskId and no session correlation key");
+    // Matched on the stable prefix rather than the full sentence: mt#2292 added
+    // the dispatch stamp as a third correlation key, which extended this warning
+    // ("...and no dispatch stamp"). Pinning the whole string made a test that
+    // asserts a BEHAVIOR fail on a wording change.
+    const skippedOnKey = stderr.includes("no taskId, no session correlation key");
     const reportedBootstrapFailure = stderr.includes("domain bootstrap failed");
     expect(skippedOnKey || reportedBootstrapFailure).toBe(true);
 
@@ -254,6 +260,61 @@ describe("record-subagent-invocation process contract (mt#3019)", () => {
     // there, whatever the environment.
     expect(stderr).not.toContain("unexpected top-level error");
     expect(stderr).not.toContain("reflect polyfill");
+  }, 30_000);
+
+  test("a STAMPED dispatch reaches the record branch without a TDZ throw", async () => {
+    // The mt#3893 regression, at the process level — the only level where it
+    // exists. `import.meta.main` is false under `bun test`, so no import of the
+    // module can execute the entrypoint whose top-level `await` created the
+    // temporal dead zone.
+    //
+    // The case above cannot catch it: its cwd resolves no correlation key, so
+    // `decideRecordingAction` takes the SKIP branch, which never reads
+    // `HOOK_UNKNOWN_TASK_ID`. A stamp is what routes execution into the RECORD
+    // branch that does — which is exactly why the defect stayed latent until
+    // mt#2292 introduced stamps.
+    //
+    // HONEST LIMIT, stated because a reader will otherwise over-trust this: on a
+    // machine that cannot reach Postgres, `recordInvocation` returns early at
+    // `ensureHookDomainBootstrap()` and never reaches the branch at all — the
+    // assertion then passes vacuously. That is the same environment-dependence
+    // the sibling test above documents, and it is why the load-bearing check is
+    // the STATIC one in `record-subagent-invocation-entrypoint.test.ts`, which
+    // holds everywhere. This test adds real coverage on a developer machine and
+    // costs nothing on CI; it is a complement, not the guarantee.
+    const root = mkdtempSync(join(tmpdir(), "record-subagent-invocation-stamp-"));
+    fixtureRoots.push(root);
+    const childTranscript = join(root, "agent-mt3893.jsonl");
+    writeFileSync(
+      childTranscript,
+      `${JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: `do the thing\n\n${buildDispatchStamp({
+            parentAgentSessionId: "mt3893-parent-session",
+            parentToolUseId: "toolu_01Mt3893ProcessTest",
+          })}`,
+        },
+      })}\n`
+    );
+
+    const { exitCode, stderr } = await runHook({
+      agent_id: "mt3893-process-test-agent",
+      // The main repo, not a session dir — the raw-dispatch shape, where both
+      // pre-mt#2292 keys resolve null and only the stamp survives.
+      cwd: process.cwd(),
+      transcript_path: "",
+      agent_transcript_path: childTranscript,
+    });
+
+    expect(exitCode).toBe(0);
+
+    // The specific throw, named. A TDZ ReferenceError surfaces through the
+    // entrypoint's catch as an "unexpected top-level error", so both assertions
+    // guard it — the second is the precise one.
+    expect(stderr).not.toContain("unexpected top-level error");
+    expect(stderr).not.toContain("before initialization");
   }, 30_000);
 
   test("missing agent_id (a main-agent Stop) exits 0 without touching the DB", async () => {
@@ -416,5 +477,77 @@ describe("attribution-failure warning (mt#3256 SC2)", () => {
 
     expect(warning).toContain("its per-agent transcript");
     expect(warning).not.toContain("PARENT-transcript fallback");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dispatch-stamp recovery — the close side of the mt#2292 join
+// ---------------------------------------------------------------------------
+
+describe("recoverDispatchStamp (mt#2292)", () => {
+  const STAMP = {
+    parentAgentSessionId: "c4d477ed-06f4-4a8b-884d-e306ec3ac523",
+    parentToolUseId: "toolu_01HFmYeonk1aZCcGM9VMt2VD",
+  };
+
+  test("recovers the dispatch key from the child's own transcript", () => {
+    const read = () =>
+      [
+        JSON.stringify({ type: "user", content: `work\n\n${buildDispatchStamp(STAMP)}` }),
+        JSON.stringify({ type: "assistant", content: "done" }),
+      ].join("\n");
+
+    expect(recoverDispatchStamp("/tmp/agent-x.jsonl", read)).toEqual(STAMP);
+  });
+
+  test("returns null when no transcript path is supplied", () => {
+    // The `undefined` case is a harness build that stops sending the field —
+    // the join degrades, it must not throw.
+    expect(recoverDispatchStamp(undefined, () => "unused")).toBeNull();
+  });
+
+  test("returns null rather than throwing when the transcript is unreadable", () => {
+    const read = () => {
+      throw new Error("ENOENT");
+    };
+    expect(recoverDispatchStamp("/tmp/missing.jsonl", read)).toBeNull();
+  });
+
+  test("returns null for a subagent dispatched before the stamp shipped", () => {
+    const read = () => JSON.stringify({ type: "user", content: "plain prompt" });
+    expect(recoverDispatchStamp("/tmp/agent-old.jsonl", read)).toBeNull();
+  });
+});
+
+describe("decideRecordingAction with a dispatch stamp (mt#2292)", () => {
+  const STAMP = {
+    parentAgentSessionId: "parent-session",
+    parentToolUseId: "toolu_dispatch",
+  };
+
+  test("a stamp alone makes the raw spawn path recordable", () => {
+    // THE regression this task exists to fix. A bare Explore/general-purpose
+    // dispatch runs with the MAIN repo as cwd, so both pre-mt#2292 keys resolve
+    // null and this used to take the skip branch — which is why ~42% of
+    // dispatch rows never closed.
+    const decision = decideRecordingAction(null, null, "/Users/x/Projects/minsky", STAMP);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe(HOOK_UNKNOWN_TASK_ID);
+    expect(decision.warning).toContain("toolu_dispatch");
+  });
+
+  test("still skips when there is no key of ANY kind", () => {
+    const decision = decideRecordingAction(null, null, "/Users/x/Projects/minsky", null);
+
+    expect(decision.action).toBe("skip");
+    expect(decision.warning).toContain("no dispatch stamp");
+  });
+
+  test("a real task id still wins over the sentinel", () => {
+    const decision = decideRecordingAction("mt#2292", null, "/some/cwd", STAMP);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe("mt#2292");
   });
 });

@@ -199,7 +199,13 @@ describe("evaluation stream records misses, not just fires (mt#3463)", () => {
   test("a fired turn names its surfaces", () => {
     const record = buildEvaluationRecord(
       "s-1",
-      [{ surface: PERMISSION_PROSE, matchedPhrase: "Want me to?" }],
+      [
+        {
+          surface: PERMISSION_PROSE,
+          matchedPhrase: "Want me to?",
+          context: "I can rerun the migration. Want me to?",
+        },
+      ],
       "Want me to?"
     );
     expect(record.fired).toBe(true);
@@ -638,7 +644,7 @@ describe("calibration-first posture", () => {
 
   test("record carries the mt#2554 coverage-receipt source field and matches shape", () => {
     const record = buildCalibrationRecord("s4", [
-      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL },
+      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
     ]);
     expect(record["source"]).toBe("live");
     expect(record["injection_enabled"]).toBe(false);
@@ -646,12 +652,20 @@ describe("calibration-first posture", () => {
     expect(matches[0]).toEqual({
       category: ASK_OPTION_LABEL,
       phrase: R5_LABEL,
+      // `context` is required on DeferralMatch and IS written to the record;
+      // the previous expectation only omitted it because the fixture above
+      // omitted it, which nothing typechecked until mt#2900.
+      context: R5_LABEL,
     });
   });
 
   test("the reminder names the probe sequence and the override var", () => {
     const reminder = buildReminder([
-      { surface: CAPABILITY_PROSE, matchedPhrase: "requires Railway access" },
+      {
+        surface: CAPABILITY_PROSE,
+        matchedPhrase: "requires Railway access",
+        context: "Deferred — this requires Railway access.",
+      },
     ]);
     expect(reminder).toContain("whoami");
     expect(reminder).toContain(OVERRIDE_ENV_VAR);

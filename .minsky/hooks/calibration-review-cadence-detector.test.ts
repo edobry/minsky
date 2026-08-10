@@ -11,6 +11,7 @@ import type {
   ReviewDueLog,
 } from "../../src/domain/calibration/calibration-sweep";
 import {
+  assessClassifiability,
   computeReviewDueLogs,
   STALE_DAYS_MS,
 } from "../../src/domain/calibration/calibration-sweep";
@@ -69,6 +70,11 @@ function makeResult(
     pastThreshold: false,
     newRecords: [],
     watermarkCount: 0,
+    // Required on CalibrationLogResult, so the fixture must supply it or the
+    // spread of a Partial widens it to `| undefined` (mt#2900). Derived with the
+    // production function rather than hardcoded, so a fixture that DOES pass
+    // `newRecords` gets the verdict runSweep would have computed for them.
+    classifiability: assessClassifiability(overrides.newRecords ?? []),
     ...overrides,
   };
   return {
@@ -172,6 +178,8 @@ describe("shouldReWarn", () => {
     path: ASK_ROUTING_DEFERRAL_PATH,
     kind: ASK_ROUTING_DEFERRAL,
     firesSinceLastReview: 43,
+    injectedFiresSinceLastReview: 43,
+    suppressedSinceLastReview: 0,
     totalFires: 43,
     distinctPhrases: 31,
     reason: "past-threshold",
@@ -223,6 +231,8 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
     path: POLICY_COVERAGE_PATH,
     kind: POLICY_COVERAGE,
     firesSinceLastReview: 1457,
+    injectedFiresSinceLastReview: 1457,
+    suppressedSinceLastReview: 0,
     totalFires: 1457,
     distinctPhrases: 5,
     reason: "past-threshold",
@@ -358,6 +368,8 @@ describe("formatCadenceWarning", () => {
         path: ".minsky/causal-premise-calibration.jsonl",
         kind: "causal-premise",
         firesSinceLastReview: 1,
+        injectedFiresSinceLastReview: 1,
+        suppressedSinceLastReview: 0,
         totalFires: 1,
         distinctPhrases: 1,
         reason: "never-reviewed",
@@ -383,11 +395,14 @@ describe("formatCadenceWarning", () => {
   describe("size ceiling holds independent of due-log count (mt#3824)", () => {
     /** Longest registry name + longest reason clause — the true worst case. */
     const WORST_CASE_NAME = "constructed-identifier-batch";
-    function worstCaseDue(name = WORST_CASE_NAME): ReviewDueLog {
+    // `name` is free text (the callers below generate distinct ones to simulate
+    // several registry entries); `kind` is a closed union, so the two cannot be
+    // the same value — conflating them is what mt#2900 surfaced here.
+    function worstCaseDue(name: string = WORST_CASE_NAME): ReviewDueLog {
       return {
         name,
         path: `.minsky/${name}-calibration.jsonl`,
-        kind: name,
+        kind: WORST_CASE_NAME,
         firesSinceLastReview: 999,
         injectedFiresSinceLastReview: 999,
         suppressedSinceLastReview: 999,
@@ -517,6 +532,8 @@ describe("selectPendingAskLogs", () => {
     path: POLICY_COVERAGE_PATH,
     kind: POLICY_COVERAGE,
     firesSinceLastReview: 20,
+    injectedFiresSinceLastReview: 20,
+    suppressedSinceLastReview: 0,
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
@@ -574,6 +591,8 @@ describe("formatPendingAskLines", () => {
     path: POLICY_COVERAGE_PATH,
     kind: POLICY_COVERAGE,
     firesSinceLastReview: 20,
+    injectedFiresSinceLastReview: 20,
+    suppressedSinceLastReview: 0,
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",

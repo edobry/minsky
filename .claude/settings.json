@@ -63,6 +63,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-bare-prohibition-dispatch.ts",
             "timeout": 10,
             "statusMessage": "Checking dispatch prompt for bare prohibitions..."
+          },
+          {
+            "_comment": "mt#2292 dispatch instrumentation — the ADR-028 D1 dispatcher's slot in the Agent block. Added because record-agent-dispatch is registered in .minsky/hooks/registry.ts (D1: register guards there, never as new individual hook commands here) and the Agent matcher had no dispatcher entry yet. Placed LAST so the three deny-capable standalone guards above keep their existing first-deny-wins order relative to each other; this guard never denies, so its position cannot change any outcome. Timeout=15 matches the dispatcher's other settings.json entries and sits above the guard's own 13s registry budget, so the guard's deadline fires first — that path still returns the prompt stamp, whereas a dispatcher kill would lose it.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 15,
+            "statusMessage": "Recording subagent dispatch..."
           }
         ]
       },

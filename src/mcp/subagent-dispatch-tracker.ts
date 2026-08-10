@@ -382,6 +382,23 @@ export class SubagentDispatchTracker {
         targetRow = byId[0];
       }
 
+      // mt#2292: the parent-side dispatch key, tried BEFORE the subagentSessionId
+      // heuristic because it is exact where that one is a guess. One `Agent` tool
+      // call has exactly one `(parent_agent_session_id, parent_tool_use_id)` pair
+      // and the pair is backed by a UNIQUE index, so a match is THE row for that
+      // dispatch — no open-row/most-recent tiebreak is needed or possible.
+      //
+      // Ordering matters on the Stop path, where BOTH keys are often available:
+      // the subagentSessionId heuristic cannot tell two dispatches into the same
+      // Minsky workspace apart (that is the retry-chain ambiguity documented on
+      // `_selectHeuristicUpsertTarget`), while the parent key can.
+      if (!targetRow && input.parentAgentSessionId != null && input.parentToolUseId != null) {
+        targetRow = await this._selectParentKeyUpsertTarget(
+          input.parentAgentSessionId,
+          input.parentToolUseId
+        );
+      }
+
       if (!targetRow && input.subagentSessionId != null) {
         targetRow = await this._selectHeuristicUpsertTarget(input.subagentSessionId);
       }
@@ -482,6 +499,44 @@ export class SubagentDispatchTracker {
    * without the strong `id` binding this heuristic still picks the more recent one).
    * The strong-binding `id` path is what actually eliminates that residual case.
    */
+  /**
+   * Select the UPDATE target for the parent-key upsert path (mt#2292): the row
+   * for one specific `Agent` tool call, identified by the harness's own
+   * `(session_id, tool_use_id)` pair.
+   *
+   * Unlike {@link _selectHeuristicUpsertTarget} this needs no two-pass
+   * open-row/most-recent selection, because the pair is unique by construction —
+   * `idx_subagent_invocations_parent_tool_use_id` is a UNIQUE index, and a
+   * tool_use id names exactly one call within its conversation. At most one row
+   * can match, so there is nothing to disambiguate and no residual
+   * misattribution window of the kind that path documents.
+   *
+   * Returns undefined when no row carries the pair — the dispatch-side write
+   * never landed, or this is a Stop for a subagent spawned before mt#2292
+   * shipped. The caller falls through to the older keys, so absence degrades to
+   * the pre-mt#2292 behavior rather than dropping the write.
+   */
+  private async _selectParentKeyUpsertTarget(
+    parentAgentSessionId: string,
+    parentToolUseId: string
+  ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {
+    const [row] = await this.db
+      .select({
+        id: subagentInvocationsTable.id,
+        agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
+      })
+      .from(subagentInvocationsTable)
+      .where(
+        and(
+          eq(subagentInvocationsTable.parentAgentSessionId, parentAgentSessionId),
+          eq(subagentInvocationsTable.parentToolUseId, parentToolUseId)
+        )
+      )
+      .limit(1);
+    return row;
+  }
+
   private async _selectHeuristicUpsertTarget(
     subagentSessionId: string
   ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {

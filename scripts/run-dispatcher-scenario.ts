@@ -61,6 +61,7 @@ process.env["CLAUDE_PROJECT_DIR"] = SCENARIO_STATE_DIR;
 
 const { runDispatcher } = await import("../.minsky/hooks/dispatcher");
 const { readFireLogEntries, getFireLogPath } = await import("../.minsky/hooks/fire-log");
+const { parseDispatchStamp } = await import("../.minsky/hooks/agent-dispatch-stamp");
 type GuardRegistration = import("../.minsky/hooks/registry").GuardRegistration;
 type HookOutput = import("../.minsky/hooks/types").HookOutput;
 
@@ -76,6 +77,19 @@ interface Scenario {
   describes: string;
   registrations: GuardRegistration[];
   toolName: string;
+  /**
+   * Tool arguments for this scenario. Defaults to the `Bash`-shaped
+   * `{ command: "echo original" }` the first two scenarios were written against;
+   * a scenario on a different tool supplies its own (mt#2292).
+   */
+  toolInput?: Record<string, unknown>;
+  /**
+   * The harness `tool_use_id` for this call (mt#2292). Omitted by default
+   * because the original scenarios do not read it; a guard that keys on the
+   * harness's own call identity needs it present, and its ABSENCE is itself
+   * worth being able to pose.
+   */
+  toolUseId?: string;
   /** Env vars to set for this scenario only; restored afterwards. */
   env?: Record<string, string>;
   expect: (run: ScenarioRun) => { ok: boolean; detail: string };
@@ -141,6 +155,58 @@ const SCENARIOS: Scenario[] = [
       };
     },
   },
+  {
+    name: "agent-dispatch-stamp",
+    describes:
+      "mt#2292: the REAL record-agent-dispatch guard, run through the REAL dispatcher on an " +
+      "Agent-shaped payload, emits updatedInput whose prompt carries the harness " +
+      "(session_id, tool_use_id) as a parseable stamp — the key the SubagentStop side " +
+      "recovers from the child transcript to close the dispatch row.",
+    toolName: "Agent",
+    toolUseId: "toolu_01ScenarioAgentDispatch",
+    toolInput: {
+      description: "scenario dispatch",
+      prompt: "Do the scenario thing.",
+      subagent_type: "general-purpose",
+    },
+    // Canary mode short-circuits the guard's DB write. That is the point of
+    // running it here: this scenario asks whether the STAMP survives the
+    // dispatcher's aggregation and reaches `hookSpecificOutput`, which is a
+    // question about wiring, not about persistence. The DB write is covered by
+    // the live post-deploy check, and reaching a real database from a scenario
+    // harness is exactly the mt#3824 mistake.
+    env: { MINSKY_CANARY_MODE: "1" },
+    registrations: [
+      {
+        name: "record-agent-dispatch",
+        event: "PreToolUse",
+        matcher: "Agent",
+        module: () =>
+          import("../.minsky/hooks/record-agent-dispatch").then((m) => ({ run: m.run })),
+        timeoutMs: 13000,
+        denyCapable: false,
+      },
+    ],
+    expect: (run) => {
+      const updated = run.outputs[0]?.hookSpecificOutput?.updatedInput as
+        | { prompt?: string }
+        | undefined;
+      const prompt = updated?.prompt ?? "";
+      // Parsed with the SAME parser the Stop side uses, not a hand-written
+      // regex: a scenario that matched its own private pattern could pass while
+      // the real recovery path failed.
+      const stamp = parseDispatchStamp(prompt);
+      const ok =
+        stamp?.parentAgentSessionId === "dispatcher-scenario" &&
+        stamp?.parentToolUseId === "toolu_01ScenarioAgentDispatch" &&
+        prompt.startsWith("Do the scenario thing.") &&
+        run.outputs[0]?.hookSpecificOutput?.permissionDecision === undefined;
+      return {
+        ok,
+        detail: `stamp=${stamp ? `${stamp.parentAgentSessionId}/${stamp.parentToolUseId}` : "(none)"}, prompt preserved=${prompt.startsWith("Do the scenario thing.")}, decision=${run.outputs[0]?.hookSpecificOutput?.permissionDecision ?? "(none, as required)"}`,
+      };
+    },
+  },
 ];
 
 /**
@@ -203,7 +269,8 @@ async function runScenario(scenario: Scenario): Promise<ScenarioRun> {
           cwd: SCENARIO_STATE_DIR,
           hook_event_name: "PreToolUse",
           tool_name: scenario.toolName,
-          tool_input: { command: "echo original" },
+          tool_input: scenario.toolInput ?? { command: "echo original" },
+          ...(scenario.toolUseId !== undefined ? { tool_use_id: scenario.toolUseId } : {}),
         } as never),
       writeOutputFn: (output) => outputs.push(output),
       stderrWrite: (s) => stderr.push(s),

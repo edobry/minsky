@@ -328,8 +328,17 @@ failure never fails ask creation — the ask is the decision record.
 
 **Both halves are required for the marker.** A severity event you can fix yourself does not
 warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
-inbox. Marking a non-operator-routed ask is inert: the notification only fires for asks routed to
-the operator, because nothing else has a human on the other end.
+inbox.
+
+**The marker now ROUTES, not just notifies (mt#3851).** This paragraph used to warn that marking
+a non-operator-routed ask is inert — the notification fires only for operator-routed asks. That
+warning described a defect, not a design: `severity: "incident"` set a flag the router read to
+skip its policy phase and then ignored when picking a target, so five of the seven kinds
+(`capability.escalate`, `stuck.unblock`, `information.retrieve`, `coordination.notify`,
+`quality.review`) went to a subagent / retriever / peer / reviewer and no human was ever reached
+— which is the opposite of what the marker is for. The router now forces `operator` + inbox for
+EVERY kind carrying the marker, so there is no longer such a thing as a marked-but-unroutable
+ask. Pick the kind that fits the question; the marker decides who sees it.
 
 **Dedupe carve-out — now the only transport judgment left to you.** When the principal is
 actively responding in the same conversation, a notification is redundant; omit the marker and
@@ -540,7 +549,15 @@ the same turn produce two.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Calibration-first (mt#3162). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP — it caught scope decisions, role constraints, and guard-backed policy); still recorded, and the policy to grant one stands. `MINSKY_ACK_BARE_PROHIBITION`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) that ALREADY appear in an active task's spec, in a task the duplicate-check record does not concede overlapping. Exact substring over `task_specs` in ONE OR-ed query, no similarity metric — the advisory embedding sibling provably cannot discriminate at the distances real duplicates sit at (mem#819). A fourth rule (cited `mt#NNNN` refs) was cut pre-ship at 4/4 false positives. The deny-tier sibling `require-duplicate-check-record` (`hook-files.mdc`) checks the record is PRESENT; this checks whether its verdicts are TRUE. Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
-- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Agent-dispatch record** (mt#2292) — PreToolUse on `Agent`: writes the `pending`
+  `subagent_invocations` row on the RAW spawn path (the one `tasks_dispatch` /
+  `session_generate_prompt` never see), and stamps the harness `(session_id, tool_use_id)` into the
+  prompt via `updatedInput` so the Stop side can find that row. The stamp is the JOIN: PreToolUse
+  has no `agent_id`, SubagentStop has no `tool_use_id`, and nothing else connects them. Never
+  denies; emits the stamp even when the DB write fails, since the prompt is sent either way.
+  `MINSKY_SKIP_AGENT_DISPATCH_RECORD`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row; recovers the mt#2292 stamp
+  from `agent_transcript_path` to close on the parent key. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-creator link** — stamps workspace↔conversation link at `session_start` (mt#3120). none.
 - **Subagent model verification** — Agent-tool PostToolUse: warns when the requested `model` mismatches `resolvedModel` (mt#3151); degraded payloads log instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
