@@ -1,0 +1,148 @@
+/**
+ * Tests for the ask-body external-reference transform (mt#2918).
+ *
+ * The functions under test are pure string -> string, so nothing here patches
+ * a collaborator: every assertion reads a returned value.
+ */
+import { describe, expect, test } from "bun:test";
+import {
+  elideCodeRegions,
+  linkifyExternalRefs,
+  normalizeNotionId,
+  notionPageUrl,
+} from "./external-refs";
+
+/** The RFC page id from ask 755ddc6a, the incident this task exists for. */
+const INCIDENT_ID = "3a0937f0-3cb4-81a6-8699-e419a5ce4da0";
+/** The same id in the dashless form Notion's own page URLs carry. */
+const INCIDENT_ID_BARE = "3a0937f03cb481a68699e419a5ce4da0";
+const INCIDENT_URL = `https://app.notion.com/p/${INCIDENT_ID_BARE}`;
+
+describe("normalizeNotionId", () => {
+  test("strips dashes and lowercases, matching Notion's own URL form", () => {
+    expect(normalizeNotionId(INCIDENT_ID)).toBe(INCIDENT_ID_BARE);
+    expect(normalizeNotionId("3A0937F0-3CB4-81A6-8699-E419A5CE4DA0")).toBe(INCIDENT_ID_BARE);
+  });
+
+  test("is idempotent on an already-bare id", () => {
+    const bare = INCIDENT_ID_BARE;
+    expect(normalizeNotionId(bare)).toBe(bare);
+  });
+});
+
+describe("linkifyExternalRefs — the transform", () => {
+  test("replays the 755ddc6a incident: a cued dashed id gains the canonical URL", () => {
+    const question = `Please accept the RFC (Notion ${INCIDENT_ID}) so Phase 1 can start.`;
+    const { text, unlinkified } = linkifyExternalRefs(question);
+
+    expect(text).toContain(INCIDENT_URL);
+    expect(unlinkified).toEqual([]);
+    // The author's prose is preserved — the URL is appended, not substituted.
+    expect(text).toContain(`Notion ${INCIDENT_ID}`);
+  });
+
+  test("accepts the bare 32-hex form", () => {
+    const { text } = linkifyExternalRefs(`See Notion ${INCIDENT_ID_BARE} first.`);
+    expect(text).toContain(INCIDENT_URL);
+  });
+
+  test("accepts the 'Notion page id:' phrasing", () => {
+    const { text } = linkifyExternalRefs(`Background: Notion page id: ${INCIDENT_ID}`);
+    expect(text).toContain(INCIDENT_URL);
+  });
+
+  test("transforms every distinct cued id in one body", () => {
+    const second = "389937f0-3cb4-81e6-a224-d369a8b373b3";
+    const { text } = linkifyExternalRefs(
+      `Compare Notion ${INCIDENT_ID} against Notion ${second} before deciding.`
+    );
+    expect(text).toContain(INCIDENT_URL);
+    expect(text).toContain("https://app.notion.com/p/389937f03cb481e6a224d369a8b373b3");
+  });
+
+  test("is idempotent: a second pass adds nothing", () => {
+    const once = linkifyExternalRefs(`Accept the RFC (Notion ${INCIDENT_ID}).`).text;
+    const twice = linkifyExternalRefs(once).text;
+    expect(twice).toBe(once);
+  });
+
+  test("leaves an author-supplied URL alone", () => {
+    const question = `Accept the RFC: ${INCIDENT_URL} (Notion ${INCIDENT_ID}).`;
+    expect(linkifyExternalRefs(question).text).toBe(question);
+  });
+});
+
+describe("linkifyExternalRefs — what it must NOT touch", () => {
+  test("an uncued UUID is left alone — it may be a Minsky entity id", () => {
+    // This is an ask id, not a Notion page. Rewriting it into a Notion URL
+    // would be actively wrong, which is why the cue is required.
+    const question = "Close ask 639b443a-411e-4e88-a03a-beac836cd8aa before deciding.";
+    const { text, unlinkified } = linkifyExternalRefs(question);
+    expect(text).toBe(question);
+    expect(unlinkified).toEqual([]);
+  });
+
+  test("a cued id inside an inline code span is displayed, not cited", () => {
+    const question = `Run the query with \`Notion ${INCIDENT_ID}\` as the argument.`;
+    expect(linkifyExternalRefs(question).text).toBe(question);
+  });
+
+  test("a cued id inside a fenced block is left alone", () => {
+    const question = [
+      "Use this payload:",
+      "```json",
+      `{ "source": "Notion ${INCIDENT_ID}" }`,
+      "```",
+      "Then approve.",
+    ].join("\n");
+    expect(linkifyExternalRefs(question).text).toBe(question);
+  });
+
+  test("a git SHA is not artifact-shaped and never matches", () => {
+    const question = "Revert commit 60e187806 and Notion is not involved here.";
+    const { text, unlinkified } = linkifyExternalRefs(question);
+    expect(text).toBe(question);
+    expect(unlinkified).toEqual([]);
+  });
+
+  test("the word Notion with no id nearby produces neither a link nor a warning", () => {
+    const question = "The strategy doc lives in Notion; the decision does not depend on it.";
+    const { text, unlinkified } = linkifyExternalRefs(question);
+    expect(text).toBe(question);
+    expect(unlinkified).toEqual([]);
+  });
+});
+
+describe("linkifyExternalRefs — the warning population", () => {
+  test("a cued but truncated id is reported, not silently dropped", () => {
+    const { text, unlinkified } = linkifyExternalRefs("Accept the RFC (Notion 3a0937f0-3cb4).");
+    expect(text).not.toContain("app.notion.com");
+    expect(unlinkified).toHaveLength(1);
+    expect(unlinkified[0]).toContain("3a0937f0-3cb4");
+  });
+
+  test("a resolved reference is never also reported as unlinkified", () => {
+    const { unlinkified } = linkifyExternalRefs(`Notion ${INCIDENT_ID} is the page.`);
+    expect(unlinkified).toEqual([]);
+  });
+});
+
+describe("elideCodeRegions", () => {
+  test("preserves length so match offsets stay valid against the original", () => {
+    const text = "before `code span` after";
+    expect(elideCodeRegions(text)).toHaveLength(text.length);
+  });
+
+  test("preserves newlines so fenced blocks keep their line structure", () => {
+    const text = "a\n```\nb\nc\n```\nd";
+    const elided = elideCodeRegions(text);
+    expect(elided).toHaveLength(text.length);
+    expect(elided.split("\n")).toHaveLength(text.split("\n").length);
+  });
+});
+
+describe("notionPageUrl", () => {
+  test("builds the canonical form Notion's own API returns", () => {
+    expect(notionPageUrl(INCIDENT_ID_BARE)).toBe(INCIDENT_URL);
+  });
+});

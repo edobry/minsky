@@ -105,6 +105,7 @@ import {
 } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { linkifyExternalRefs } from "@minsky/domain/ask/external-refs";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
@@ -900,9 +901,17 @@ export function validateAuthorizationApproveOptions(params: {
  * this filters only at the decision points that need the blocking/advisory
  * distinction, not at the point that computes matches.
  *
- * The exclusion list stays a DENYLIST of one, deliberately: a new check
- * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
- * added — it blocks with the original five. Its basis is recorded in
+ * The exclusion list stays a DENYLIST, deliberately: a new check blocks
+ * unless it is added here. Two are excluded. `unlinkified-reference`
+ * (mt#2918) is the second: the transform beside it is best-effort by design
+ * — it linkifies a CUED external reference and warns about the rest — and an
+ * ask carrying a citation it could not resolve is still a decidable ask, so
+ * rejecting the create would withhold a decision over a formatting gap. The
+ * warning's job is to tell the author; blocking is a different, harsher
+ * claim than the evidence supports.
+ *
+ * `missing-decision-options` (mt#3477) is NOT added — it blocks with the
+ * original five. Its basis is recorded in
  * `form-lint.ts`'s module header: no false-positive class to calibrate (an
  * optionless `direction.decide` renders zero buttons by construction), and
  * the family's own escalation threshold (mem#760: three form-failure
@@ -912,8 +921,31 @@ export function validateAuthorizationApproveOptions(params: {
  * Exported for direct testing, matching `validateFormLintNotViolated`'s
  * pattern above.
  */
+/**
+ * Return `params` with its question normalized to the form that will actually
+ * be PERSISTED (mt#2918).
+ *
+ * The single normalization seam shared by the two places that need it:
+ * `asks.create`'s `validate` hook, which must not reject a body the transform
+ * is about to fix, and `createAskWithFormLint`, which writes that body. Naming
+ * it makes the ordering legible at both call sites instead of leaving it as an
+ * implementation detail of whichever function happens to run first — PR #2755
+ * R1/R2 both landed on that ambiguity.
+ *
+ * Idempotent, because `linkifyExternalRefs` is: a question that already carries
+ * its URLs comes back unchanged, so applying this twice is a no-op rather than
+ * a double-append.
+ */
+export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+  if (typeof params.question !== "string") return params;
+  const { text } = linkifyExternalRefs(params.question);
+  return text === params.question ? params : { ...params, question: text };
+}
+
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
-  return matches.filter((m) => m.check !== "missing-force-immediate");
+  return matches.filter(
+    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+  );
 }
 
 /**
@@ -991,9 +1023,27 @@ export function validateFormLintNotViolated(params: {
   // schema already enforces — nothing for this check to add.
   if (!params.kind || !params.question) return;
 
+  // mt#2918 (PR #2755 R1): lint the text that will actually be PERSISTED, not
+  // the caller's raw input. `createAskWithFormLint` linkifies external
+  // references before the repo write, so validating the pre-transform text
+  // judges a body that never exists. The failure is a false hard-reject:
+  // `portal-no-link` fires on an authorization.approve question that names a
+  // portal action and carries no URL — which is exactly the state of a
+  // question whose only citation is a Notion page id the transform was about
+  // to resolve. The author would be rejected for a defect the system had
+  // already fixed.
+  //
+  // Normalizing here rather than special-casing `portal-no-link` is
+  // deliberate: any present or future check that reads for a URL inherits the
+  // same mismatch, so the fix belongs at the text, not at the check. One
+  // consequence worth naming: `over-word-budget` now counts the appended URLs.
+  // That is correct — the budget should measure the body the principal
+  // actually receives.
+  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+
   const matches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    question: normalizedQuestion,
     options: params.options,
     forceImmediate: params.forceImmediate,
   });
@@ -1384,10 +1434,19 @@ export async function createAskWithFormLint(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
-  const ask = await createAsk(repo, params, routerOptions);
+  // mt#2918: make external artifact citations reachable BEFORE the body is
+  // persisted, so every downstream reader — the cockpit inbox, the CLI, a
+  // notification payload — carries the URL rather than a bare page id. The
+  // display-surface linkifier cannot do this job: it resolves refs against a
+  // Minsky id-set, and a Notion page id is in no Minsky index.
+  const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
+
+  const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    // Lint the PERSISTED text, not the caller's input: a reference the
+    // transform just made reachable must not also be reported as a defect.
+    question: persistedParams.question,
     // Option labels are lint input too (mt#3253) — they render as the decision
     // buttons, so a 167-char label or one repeating the surface-rendered letter
     // is a form defect the producer should hear about.
@@ -1936,7 +1995,15 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // mt#3326: reject a create whose question/options fail any form-lint
         // check, unless the caller explicitly acknowledges them. Runs last —
         // fixing form/wording is usually the last thing an author checks.
-        validateFormLintNotViolated(params);
+        //
+        // mt#2918 / PR #2755: the question is normalized to its PERSISTED form
+        // before it is linted, so `validate` and `execute` judge the same text.
+        // Without this a URL-reading check (`portal-no-link`) rejects a body
+        // whose only missing link the transform was about to add.
+        // `validateFormLintNotViolated` also normalizes internally, so a caller
+        // that forgets this is still correct; `linkifyExternalRefs` is
+        // idempotent, which is what makes applying it at both seams safe.
+        validateFormLintNotViolated(normalizeQuestionForLint(params));
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await requireAskRepository(container, "asks.create");
