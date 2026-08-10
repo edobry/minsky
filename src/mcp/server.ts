@@ -149,6 +149,35 @@ export interface MinskyMCPServerOptions {
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
+/**
+ * Tools that READ presence, and therefore must never WRITE it (mt#3889).
+ *
+ * Task presence is deliberately touch-based — a claim means "this actor touched
+ * this task recently" — so an ordinary `tasks.get` writing one is by design.
+ * Reading the claims themselves is the exception: an observation that mutates
+ * what it observes cannot answer the question it was asked.
+ *
+ * Concretely, `tasks.claims.list` is the first step of the collision probe in
+ * `user-preferences.mdc §Probe before claiming a shared resource`. Before this
+ * exemption, probing task T upserted a claim on T, so `lastRefreshedAt` advanced
+ * to the moment of the probe and a long-stale claim reported `stale: false` —
+ * the probe manufactured the freshness it was checking for. Measured 2026-08-09:
+ * two reads of the same task 3 minutes apart, no other actor running, each
+ * moving `lastRefreshedAt` to its own timestamp.
+ *
+ * Matched EXACTLY against the canonical dotted name and its Claude-Desktop
+ * underscore alias, never as a substring — same discipline as
+ * `DISPATCH_RECOVER_TOOL_NAME` above.
+ */
+const PRESENCE_READING_TOOL_NAMES: readonly string[] = ["tasks.claims.list"];
+
+/** True when `toolName` is a presence-READ tool under either registered spelling. */
+function isPresenceReadingTool(toolName: string): boolean {
+  return PRESENCE_READING_TOOL_NAMES.some(
+    (name) => toolName === name || toolName === toClaudeDesktopName(name)
+  );
+}
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -1193,12 +1222,16 @@ export class MinskyMCPServer {
 
           // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
           // Fires whenever args.task or args.taskId is present — no Minsky session required.
-          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
-            log.debug("presence claim write failed (non-blocking)", {
-              error: getErrorMessage(err),
-              tool: request.params.name,
-            });
-          });
+          // mt#3889: except for presence-READ tools, which must not refresh the very
+          // claims they were asked to report.
+          this.writeTaskClaim(request.params.arguments || {}, agentId, request.params.name).catch(
+            (err) => {
+              log.debug("presence claim write failed (non-blocking)", {
+                error: getErrorMessage(err),
+                tool: request.params.name,
+              });
+            }
+          );
 
           // mt#2284: Write session-grain runtime-attachment claim (fire-and-forget).
           // Session-SCOPED (unlike writeTaskClaim) — requires a resolvable session,
@@ -1596,7 +1629,15 @@ export class MinskyMCPServer {
    * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
    * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
-  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+  private async writeTaskClaim(
+    args: Record<string, unknown>,
+    actorId: string,
+    toolName?: string
+  ): Promise<void> {
+    // mt#3889: a presence READ must not write presence. Checked before the repo
+    // is resolved so the probe costs nothing it did not already cost.
+    if (toolName && isPresenceReadingTool(toolName)) return;
+
     const repo = await this.getPresenceClaimRepo();
     if (!repo) return;
 

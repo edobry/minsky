@@ -148,6 +148,103 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
     expect(upsertMock.mock.calls.length).toBe(1);
   });
 
+  /**
+   * mt#3889: a tool that READS presence must not WRITE it.
+   *
+   * The probe in `user-preferences.mdc §Probe before claiming a shared resource`
+   * opens with `tasks_claims_list`. While that call upserted a claim on the task
+   * it was asked about, the probe refreshed the very `lastRefreshedAt` it then
+   * reported — so a long-stale claim read back as `stale: false`, and an agent
+   * checking whether anyone else held a task saw its own write.
+   */
+  describe("presence-reading tools are exempt from the presence write (mt#3889)", () => {
+    /** A fast-path repo whose upsert calls are counted. */
+    function serverWithCountingRepo() {
+      const upsertMock = mock(async (_input: unknown) => ({
+        id: "test-id",
+        subjectKind: "task" as const,
+        subjectId: "mt3889",
+        actorId: "test-actor",
+        claimedAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+        lastRefreshedAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+      }));
+
+      const fakeRepo: PresenceClaimRepository = {
+        upsertClaim: upsertMock as unknown as PresenceClaimRepository["upsertClaim"],
+        listClaims: mock(async () => []),
+        reapStale: mock(async () => 0),
+        listAllForKind: mock(async () => []),
+        deleteBySubject: mock(async () => 0),
+        deleteByIds: mock(async () => 0),
+      };
+
+      return { fakeRepo, upsertMock };
+    }
+
+    async function writeTaskClaimFor(
+      fakeRepo: PresenceClaimRepository,
+      args: Record<string, unknown>,
+      toolName?: string
+    ) {
+      const { MinskyMCPServer } = await import("./server");
+      const server = new MinskyMCPServer({
+        name: "Test Server",
+        version: "1.0.0",
+        projectContext: { repositoryPath: "/mock/test-repo" },
+      });
+      server.setPresenceClaimRepository(fakeRepo);
+
+      const writeTaskClaim = (
+        server as unknown as {
+          writeTaskClaim: (
+            args: Record<string, unknown>,
+            actorId: string,
+            toolName?: string
+          ) => Promise<void>;
+        }
+      ).writeTaskClaim.bind(server);
+
+      await writeTaskClaim(args, "test-actor", toolName);
+    }
+
+    test("tasks.claims.list does NOT upsert a claim for the task it reports on", async () => {
+      const { fakeRepo, upsertMock } = serverWithCountingRepo();
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.claims.list");
+      expect(upsertMock.mock.calls.length).toBe(0);
+    });
+
+    test("the Claude-Desktop underscore alias is exempt too", async () => {
+      // Both spellings are registered, so exempting only the dotted name would
+      // leave the defect live for any client using the alias.
+      const { fakeRepo, upsertMock } = serverWithCountingRepo();
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks_claims_list");
+      expect(upsertMock.mock.calls.length).toBe(0);
+    });
+
+    test("a NON-presence-reading tool carrying the same args still writes its claim", async () => {
+      // Bounds the exemption: presence is touch-based by design, so this must
+      // stay a narrow carve-out and not become a general "reads don't claim".
+      const { fakeRepo, upsertMock } = serverWithCountingRepo();
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.get");
+      expect(upsertMock.mock.calls.length).toBe(1);
+    });
+
+    test("a substring match does not trigger the exemption", async () => {
+      // The name is matched exactly; a hypothetical tool whose name merely
+      // CONTAINS the exempt one must keep writing its claim.
+      const { fakeRepo, upsertMock } = serverWithCountingRepo();
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.claims.list.export");
+      expect(upsertMock.mock.calls.length).toBe(1);
+    });
+
+    test("an absent tool name preserves the pre-mt#3889 write behavior", async () => {
+      // The param is optional; callers that do not pass it must be unaffected.
+      const { fakeRepo, upsertMock } = serverWithCountingRepo();
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" });
+      expect(upsertMock.mock.calls.length).toBe(1);
+    });
+  });
+
   test("no-ops gracefully when args carry no task or taskId", async () => {
     // Verify that writeTaskClaim resolves without throwing when there is no
     // task to claim — the early-return path after building/resolving the repo.
