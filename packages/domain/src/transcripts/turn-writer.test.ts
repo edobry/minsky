@@ -1070,7 +1070,7 @@ describe("formatExtractAllTurnsResult (render-from-shape, mt#3911)", () => {
 
   test("a partial write renders DEGRADED even when no transcript landed in the errored bucket", () => {
     const rendered = formatExtractAllTurnsResult(base({ turnsExtracted: 604, turnsWritten: 104 }));
-    expect(rendered).toStartWith("DEGRADED(");
+    expect(rendered.startsWith("DEGRADED(")).toBe(true);
     // Both numbers present, so the shortfall is readable rather than implied.
     expect(rendered).toContain("turnsExtracted=604");
     expect(rendered).toContain("turnsWritten=104");
