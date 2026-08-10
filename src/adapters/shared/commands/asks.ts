@@ -1002,9 +1002,27 @@ export function validateFormLintNotViolated(params: {
   // schema already enforces — nothing for this check to add.
   if (!params.kind || !params.question) return;
 
+  // mt#2918 (PR #2755 R1): lint the text that will actually be PERSISTED, not
+  // the caller's raw input. `createAskWithFormLint` linkifies external
+  // references before the repo write, so validating the pre-transform text
+  // judges a body that never exists. The failure is a false hard-reject:
+  // `portal-no-link` fires on an authorization.approve question that names a
+  // portal action and carries no URL — which is exactly the state of a
+  // question whose only citation is a Notion page id the transform was about
+  // to resolve. The author would be rejected for a defect the system had
+  // already fixed.
+  //
+  // Normalizing here rather than special-casing `portal-no-link` is
+  // deliberate: any present or future check that reads for a URL inherits the
+  // same mismatch, so the fix belongs at the text, not at the check. One
+  // consequence worth naming: `over-word-budget` now counts the appended URLs.
+  // That is correct — the budget should measure the body the principal
+  // actually receives.
+  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+
   const matches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    question: normalizedQuestion,
     options: params.options,
     forceImmediate: params.forceImmediate,
   });

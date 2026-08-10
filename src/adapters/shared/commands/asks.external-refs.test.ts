@@ -16,7 +16,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
-import { createAskWithFormLint, filterBlockingFormLintMatches } from "./asks";
+import {
+  createAskWithFormLint,
+  filterBlockingFormLintMatches,
+  validateFormLintNotViolated,
+} from "./asks";
 
 const NONEXISTENT_WORKSPACE_ROOT = "/__nonexistent_test_dir_for_asks_create__";
 const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
@@ -78,6 +82,32 @@ describe("createAskWithFormLint — external references (mt#2918)", () => {
 
     expect((await repo.getById(ask.id))?.question).toBe(question);
     expect(formLintMatches.map((m) => m.check)).not.toContain(UNLINKIFIED);
+  });
+
+  // PR #2755 R1 — validate ran on the caller's raw text while execute
+  // persisted the transformed text, so the hard-reject judged a body that
+  // never existed. `portal-no-link` is the check that made it bite.
+  test("a portal ask whose only link is a Notion citation is not falsely rejected", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        // Names a portal action ("grant") and carries no URL of its own — the
+        // exact state of a body whose citation the transform is about to
+        // resolve into one.
+        question: `Grant the reviewer App the checks:write permission, per the RFC (Notion ${INCIDENT_ID}).`,
+      })
+    ).not.toThrow();
+  });
+
+  test("a portal ask with NO resolvable citation is still rejected", () => {
+    // The negative control for the case above: the fix must not have turned
+    // `portal-no-link` off, only taught it to read the persisted text.
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        question: "Grant the reviewer App the checks:write permission in the app settings.",
+      })
+    ).toThrow(/portal-no-link/);
   });
 
   test("the check is excluded from the hard-reject set, so it can never block a create", () => {

@@ -75,7 +75,20 @@ const NOTION_CUED_MALFORMED_RE = new RegExp(
   "gi"
 );
 
-/** Canonical page-URL form, verified against Notion's own API response. */
+/**
+ * Canonical page-URL form.
+ *
+ * Taken from the primary source rather than convention: Notion's own API
+ * returns `https://app.notion.com/p/<32-hex>?pvs=204` as a page's `url` (read
+ * off a live `notion-search` response, 2026-08-10). The `?pvs=` parameter is a
+ * view-source marker and is not required to resolve the page, so it is not
+ * emitted.
+ *
+ * Worth recording because the repo's own prose disagrees: `www.notion.so/<id>`
+ * outnumbers this form ~158 to 19 across markdown and specs. Those citations
+ * are agent-authored, so their majority is not evidence — the API response is.
+ * If Notion ever changes shape, re-derive from a live response.
+ */
 export const NOTION_PAGE_URL_PREFIX = "https://app.notion.com/p/";
 
 /** Strip dashes and lowercase — the form Notion's own page URLs carry. */
