@@ -55,7 +55,7 @@ import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { isSidecarLineType } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
-import { writeTurnsForTranscript } from "./turn-writer";
+import { writeTurnsForTranscript, classifyWriteOutcome } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
 import { WriterDivergenceScanner } from "./writer-divergence";
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
@@ -843,12 +843,16 @@ export class AgentTranscriptIngestService {
         .limit(1);
       const fullTranscript = fullRows[0]?.transcript ?? null;
       persistedCwd = fullRows[0]?.cwd ?? null;
-      const { nonEmptyYieldedZero, erroredChunks } = await writeTurnsForTranscript(
-        this.db,
-        agentSessionId,
-        fullTranscript
-      );
-      if (nonEmptyYieldedZero) {
+      const writeResult = await writeTurnsForTranscript(this.db, agentSessionId, fullTranscript);
+      // mt#3514: derive the degraded/ok verdict from classifyWriteOutcome
+      // rather than restating its conditions. This site is the THIRD copy of
+      // that logic (the sweep and index-embeddings-command were the others),
+      // and restating it is exactly how it fell out of date: it enumerated
+      // nonEmptyYieldedZero and erroredChunks, so a failed orphan-DELETE — a
+      // new error condition the sweep honors — was silently ingested as a
+      // success. Call the shared classifier; name the cause in the message.
+      const classification = classifyWriteOutcome(writeResult);
+      if (classification.countNonEmptyYieldedZero) {
         // mt#2457 SC3: a non-empty transcript that yields zero turns is an
         // extraction failure, not a "nothing new to write" no-op — the throw-only
         // catch below can't see this case (writeTurnsForTranscript already logs a
@@ -856,13 +860,20 @@ export class AgentTranscriptIngestService {
         turnExtractError = new Error(
           `Non-empty transcript yielded zero turns for session ${agentSessionId}`
         );
-      } else if (erroredChunks > 0) {
-        // A failed bulk-upsert chunk is a partial write, not a success — surface
-        // it as a degraded ingest so ingestAll counts this session in
-        // sessionsErrored, matching the sweep and single-session classifications.
-        turnExtractError = new Error(
-          `${erroredChunks} turn-upsert chunk(s) failed for session ${agentSessionId}`
-        );
+      } else if (classification.bucket === "errored") {
+        // A failed bulk-upsert chunk is a partial write, and a failed orphan
+        // delete leaves stale rows the upsert cannot reach — neither is a
+        // success. Surface either as a degraded ingest so ingestAll counts this
+        // session in sessionsErrored, matching the sweep and single-session
+        // classifications.
+        const causes: string[] = [];
+        if (writeResult.erroredChunks > 0) {
+          causes.push(`${writeResult.erroredChunks} turn-upsert chunk(s) failed`);
+        }
+        if (writeResult.orphanDeleteFailed) {
+          causes.push("orphaned-turn-row cleanup failed");
+        }
+        turnExtractError = new Error(`${causes.join("; ")} for session ${agentSessionId}`);
       }
     } catch (err) {
       turnExtractError = err instanceof Error ? err : new Error(String(err));

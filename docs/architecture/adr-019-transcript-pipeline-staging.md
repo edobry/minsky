@@ -186,6 +186,45 @@ the full corpus:
   invocations for the largest legacy sessions); zero-turn non-null-transcript rows in the
   2026-04-27 – 2026-06-08 window went from 650 to 0.
 
+## Implementation notes (mt#3514) — extraction is a REPLACE, not an additive upsert
+
+This ADR's Decision says extraction "materializes per-turn rows." Until mt#3514 that was implemented
+as an additive upsert and nothing more: `writeTurnsForTranscript` upserted on
+`(agent_session_id, turn_index)` and **nothing in the codebase ever deleted a turn row**. So the
+write only reached the indexes the CURRENT extraction produced; any index a PREVIOUS extraction
+wrote and this one does not re-emit survived indefinitely with its stale content.
+
+Measured against prod 2026-08-08: **107** `(session, tool_use_id)` pairs appeared in more than one
+turn row across **27** conversations, **104 of them byte-identical** in both `user_text` and
+`assistant_text`, at turn-index spreads up to **704**. The raw `agent_transcripts.transcript` is
+clean — each affected `tool_use` id appears exactly once — so this stage CREATES the duplication
+rather than inheriting it from capture.
+
+**The reconciliation.** After a clean write of N turns, the writer deletes that session's rows at
+`turn_index >= N`. `turn_index` is contiguous 0..N-1 over the whole transcript, so every row at or
+beyond N belongs to a superseded extraction. Two safety properties, both deliberate:
+
+- The delete sits AFTER the non-empty-yielded-zero early return. At zero extracted turns "delete
+  everything this extraction did not emit" would erase the session's whole turn history, turning a
+  suspected extractor regression into data loss.
+- It is skipped when any chunk upsert failed — the write is already known-degraded, and compounding
+  it with a delete makes the resulting state harder to reason about. A later clean run reconciles.
+
+**Serialization.** The upsert and the delete run in ONE transaction holding a transaction-scoped
+advisory lock keyed on the session (`pg_advisory_xact_lock`), extending the convention
+`withDrivenSessionResumeLock` already uses. Without it, overlapping writers for the same session —
+the ingest service, the `--all` sweep, and `--session` indexing can all run concurrently — could
+have one run delete rows a longer-running peer had just written. Each chunk upsert is wrapped in a
+SAVEPOINT so mt#2457's tolerated PARTIAL write is preserved rather than being rolled back whole.
+
+**Result-shape change.** `WriteTurnsResult` gains `orphansDeleted` (rows removed) and
+`orphanDeleteFailed`. A failed delete is classified as an **error**, not a success: a write that
+upserted cleanly but could not remove stale rows has left exactly the state this mechanism exists
+to prevent. `ExtractAllTurnsResult` aggregates `orphansDeleted` across the sweep. All three callers
+— the sweep, `transcripts index-embeddings --session`, and the ingest service — derive their
+verdict from the shared `classifyWriteOutcome` rather than restating its conditions, which is how
+the ingest path had already fallen out of step with a newly-added error condition.
+
 ## Cross-references
 
 - Related tasks: **mt#2234** (cockpit-daemon transcript capture — owns and implements this split),

@@ -206,7 +206,48 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
   /** mt#3836: attachment rows as written, for primary-key assertions. */
   const attachments: Array<{ lineIndex: number }> = [];
 
+  // Forward reference for the fake's own `transaction`, which must hand the
+  // callback the SAME fake (see below). Declared separately so `db` keeps its
+  // inferred type — annotating it to break the initializer cycle would erase
+  // the shape every `db._primeSession(...)` / `db._writeOrder` in this file
+  // depends on.
+  const selfRef: { db?: unknown } = {};
   const db = {
+    /**
+     * mt#3514: `writeTurnsForTranscript` now runs its upsert + orphan-delete
+     * inside a transaction holding a session advisory lock, with a per-chunk
+     * SAVEPOINT (a nested `transaction`). The fake models the CONTROL FLOW
+     * only — it passes itself as the tx/savepoint handle — not rollback or
+     * locking semantics, which are database behavior an in-memory fake cannot
+     * honestly stand in for.
+     */
+    async transaction<T>(cb: (tx: unknown) => Promise<T>): Promise<T> {
+      return cb(selfRef.db);
+    },
+    /** The advisory-lock statement; the fake has no lock to take. */
+    execute(_query: unknown): Promise<unknown[]> {
+      return Promise.resolve([]);
+    },
+    /**
+     * mt#3514 orphan removal. These fixtures never build the stale-row state
+     * the DELETE targets, so it removes nothing here — but it must EXIST:
+     * without it the call throws, `orphanDeleteFailed` goes true, and every
+     * ingest in this file is correctly reported as degraded. (That is exactly
+     * what happened when this method was missing, which is the new
+     * error-propagation working as intended.)
+     */
+    delete(_table: unknown) {
+      return {
+        where(_cond: unknown) {
+          return {
+            returning(_cols?: unknown): Promise<unknown[]> {
+              return Promise.resolve([]);
+            },
+          };
+        },
+      };
+    },
+
     /** Called by test setup to tell the fake which session is being processed. */
     _primeSession(sid: string) {
       currentSid = sid;
@@ -458,6 +499,8 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
     },
   };
 
+  // Close the forward reference now that `db` exists (mt#3514).
+  selfRef.db = db;
   return db;
 }
 
