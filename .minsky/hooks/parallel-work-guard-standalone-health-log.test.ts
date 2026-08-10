@@ -20,9 +20,13 @@ import { describe, test, expect } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runStandaloneDuplicateGuardInner } from "./parallel-work-guard-standalone";
+import {
+  runStandaloneDuplicateGuard,
+  runStandaloneDuplicateGuardInner,
+} from "./parallel-work-guard-standalone";
 import { STANDALONE_DUP_PROBE_TIMEOUT_MS } from "./standalone-dup-probe";
-import { readGuardHealthEvents } from "./guard-health";
+import { readGuardHealthEvents, readCleanGuardInvocations } from "./guard-health";
+import { readFireLogEntries } from "./fire-log";
 import type { ToolHookInput } from "./types";
 
 /** The canonical infra-class probe failure these tests simulate. */
@@ -260,6 +264,35 @@ describe("standalone-duplicate guard — fail-open visibility (mt#3358)", () => 
       // "check ran" line here would put a notification on every create.
       expect(out).not.toContain("SKIPPED");
     });
+  });
+});
+
+describe("mt#3892 / PR #2762 R2: a non-degraded skip is not clean-run evidence", () => {
+  // `decideStandaloneDuplicateGuard` returns a non-degraded skip for a
+  // title-less create BEFORE it ever calls `fetchSimilar`. So that path never
+  // exercises the probe — the thing that actually breaks — and marking it
+  // `decided` would let one title-less create clear a failure streak caused by
+  // a probe that is still broken. Unset, like the dispatcher's override record:
+  // evidence of neither a clean decision nor a crash.
+  test("a title-less create records no guardOutcome", async () => {
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt3892-r2-skip-"));
+    const prevStateDir = process.env.MINSKY_STATE_DIR;
+    process.env.MINSKY_STATE_DIR = scratchDir;
+    try {
+      await runStandaloneDuplicateGuard({ ...tasksCreateInput(), tool_input: {} });
+
+      const entries = readFireLogEntries().filter(
+        (e) => e.guardName === "standalone-duplicate-matcher"
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.guardOutcome).toBeUndefined();
+      // And so it contributes nothing to the recovery join.
+      expect(readCleanGuardInvocations()).toEqual([]);
+    } finally {
+      if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+      else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
   });
 });
 

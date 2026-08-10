@@ -327,18 +327,32 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
   // Defaults to `crashed`: every early exit from this function other than a
   // completed inner call is a failure, so the safe value is the one that does
   // NOT count as clean-run evidence.
-  let guardOutcome: "decided" | "crashed" = "crashed";
+  let guardOutcome: "decided" | "crashed" | undefined = "crashed";
   try {
     const decision = await runStandaloneDuplicateGuardInner(input, {
       fetchSimilar: (query) => fetchSimilarActiveTasksInProcess(query, STANDALONE_DUP_SEARCH_LIMIT),
     });
     fireLogDecision = decision.action === "warn" ? "warn" : "allow";
-    // A degraded skip is the fail-open path — the probe checked NOTHING — so it
-    // is `crashed`, matching what the dispatcher records for a guard that threw.
-    // Counting it as a clean run would let a permanently degraded guard report
-    // itself recovered on every create, which is the exact reading mem#884
-    // recorded ("recent `allow`s reflect crashes, not verified checks").
-    guardOutcome = decision.action === "skip" && decision.degraded === true ? "crashed" : "decided";
+    // Three outcomes, not two (PR #2762 R2):
+    //
+    // - `crashed` — a DEGRADED skip. The fail-open path: the probe checked
+    //   NOTHING. Matches what the dispatcher records for a guard that threw.
+    //   Counting it clean would let a permanently degraded guard report itself
+    //   recovered on every create — the reading mem#884 recorded in the field
+    //   ("recent `allow`s reflect crashes, not verified checks").
+    // - UNSET — a NON-degraded skip. `decideStandaloneDuplicateGuard` returns
+    //   this before it ever calls `fetchSimilar` (the title-less create), so the
+    //   guard neither crashed nor exercised the path that breaks. It is evidence
+    //   of neither, exactly like the dispatcher's override record — and marking
+    //   it `decided` would let one title-less create clear a streak caused by a
+    //   probe that is still broken.
+    // - `decided` — `warn` or `permit`, both of which follow a completed probe.
+    //   The only outcomes that are real clean-run evidence.
+    if (decision.action === "skip") {
+      guardOutcome = decision.degraded === true ? "crashed" : undefined;
+    } else {
+      guardOutcome = "decided";
+    }
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] standalone-duplicate probe errored — failing open (permit): ${
