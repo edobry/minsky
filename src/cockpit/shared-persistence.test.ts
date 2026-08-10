@@ -889,6 +889,123 @@ describe("recycle backoff by failure kind (mt#3826 AT1/AT3)", () => {
   }, 30_000);
 });
 
+/**
+ * Unaided recovery, at the state a real outage leaves the process in (mt#3682).
+ *
+ * On 2026-08-07 this host lost its route to the pooler for ~9 hours and PID
+ * 34289 came back on its own — same process, no restart, 36.8h uptime at
+ * recovery. That was observed once, in the wild, and nothing pinned it. The
+ * gap these tests close is narrower than "does it recover": the existing
+ * recovery tests above all drive recovery from a NON-escalated degraded state,
+ * whereas a multi-hour outage escalates mt#3826's recycle backoff toward its
+ * 15-minute ceiling first. The question is whether that backoff, which
+ * deliberately stops recycling a port that will never open, also delays
+ * noticing that the port opened.
+ *
+ * It does not, and the reason is structural: recovery runs through the PROBE,
+ * which is unthrottled while degraded (`refreshDbReachability`'s healthy-state
+ * floor is skipped unless `_dbStatus === "ok"`), while the backoff throttles
+ * only the RECYCLE. So these are two independent clocks, and pinning that is
+ * what deletes the "escalate to a supervised process restart" design this task
+ * was originally filed to add.
+ */
+describe("unaided recovery under an escalated backoff (mt#3682)", () => {
+  function driverError(code: string): Error {
+    return Object.assign(new Error(`write ${code} db.example.com:6543`), { code, errno: code });
+  }
+
+  /** An init that never settles — the shape a blocked port presents. */
+  const hangingFactory: PersistenceServiceFactory = async () =>
+    ({
+      initialize: () => new Promise<void>(() => {}),
+      close: async () => {},
+    }) as unknown as PersistenceService;
+
+  const failing = () => Promise.reject(driverError("CONNECT_TIMEOUT"));
+  const succeeding = () => Promise.resolve("ok");
+
+  /**
+   * One degraded round: re-prime the service (a recycle clears `_initPromise`,
+   * and `shouldRecycleNow` correctly refuses to fire with nothing to tear
+   * down), then two failing probes either side of a sleep longer than the base
+   * recycle floor.
+   *
+   * The explicit `minIntervalMs: 0` disables the HEALTHY-state probe floor, and
+   * it is required rather than incidental: a round that runs immediately after
+   * a successful probe finds `_dbStatus === "ok"`, and at the default floor
+   * both of its probes are skipped without ever reaching the driver — so the
+   * round would observe nothing and AT3 would measure the floor instead of the
+   * recycle cadence it is about. The floor's own behavior is covered by
+   * "skips a probe inside the healthy-state floor" above.
+   */
+  async function degradedRound(): Promise<void> {
+    void getSharedPersistenceService(60_000, hangingFactory).catch(() => {});
+    await refreshDbReachability(failing, 20, 0);
+    await new Promise((r) => setTimeout(r, 150));
+    await refreshDbReachability(failing, 20, 0);
+  }
+
+  const ROUNDS = 10;
+
+  /**
+   * Drive the connect-timeout arm until the backoff has escalated past its base
+   * floor. Returns the recycle count reached, which is asserted to be BELOW the
+   * round count — that inequality is the evidence the backoff actually engaged,
+   * so a later assertion about recovery is being made from the intended state
+   * rather than from an un-escalated one.
+   */
+  async function escalateBackoff(): Promise<number> {
+    // Degraded-duration threshold 10ms; base recycle floor 100ms.
+    __setRecycleThresholdsForTests(10, 100);
+    for (let i = 0; i < ROUNDS; i++) await degradedRound();
+    const recycles = getDbRecycle().recycleCount;
+    expect(recycles).toBeLessThan(ROUNDS);
+    return recycles;
+  }
+
+  test("a successful probe recovers without a recycle and without a restart (AT1)", async () => {
+    const recyclesAtEscalation = await escalateBackoff();
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+
+    await refreshDbReachability(succeeding, 50);
+
+    expect(getDbStatus()).toBe("ok");
+    const health = getDbHealth();
+    expect(health.mode).toBe("connected");
+    expect(health.failure).toBeUndefined();
+    // The load-bearing assertion: no recycle was needed to get here. If
+    // recovery required one, an escalated backoff would gate it behind an
+    // interval heading for 15 minutes.
+    expect(getDbRecycle().recycleCount).toBe(recyclesAtEscalation);
+  }, 30_000);
+
+  test("negative control: the same escalated state, still failing, does not report ok (AT2)", async () => {
+    // Without this, AT1 could pass by asserting a state the code reaches
+    // unconditionally rather than one the recovering probe produced.
+    await escalateBackoff();
+
+    await refreshDbReachability(failing, 20);
+
+    expect(getDbStatus()).not.toBe("ok");
+    expect(getDbHealth().mode).not.toBe("connected");
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+  }, 30_000);
+
+  test("recovery returns the recycle cadence to its floor (AT3)", async () => {
+    await escalateBackoff();
+    await refreshDbReachability(succeeding, 50);
+    const recyclesAtRecovery = getDbRecycle().recycleCount;
+
+    // At the floor, one round recycles once — the same cadence the pool-wedge
+    // arm of the mt#3826 test sustains for all 10 of its rounds. Asserted as a
+    // count rather than an elapsed interval, so a timing wobble cannot
+    // manufacture a result (mem#883).
+    await degradedRound();
+
+    expect(getDbRecycle().recycleCount).toBe(recyclesAtRecovery + 1);
+  }, 30_000);
+});
+
 describe("test-only surface guards (PR #2586 R1)", () => {
   test("__setRecycleThresholdsForTests and __resetSharedPersistenceForTests refuse outside NODE_ENV=test", () => {
     const prev = process.env.NODE_ENV;

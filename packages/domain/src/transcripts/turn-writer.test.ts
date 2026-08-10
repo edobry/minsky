@@ -29,6 +29,7 @@ import {
   classifyWriteOutcome,
   type TranscriptPageRow,
   type TurnWriterLogSink,
+  type WriteTurnsResult,
 } from "./turn-writer";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -88,10 +89,26 @@ function makeDb(
    * `onConflictDoUpdate()` reject instead of resolving. Lets tests simulate
    * a chunk-level write failure (mt#2457 R1 review: erroredChunks).
    */
-  failInsertCall?: (callIndex: number, batchSize: number) => boolean
+  failInsertCall?: (callIndex: number, batchSize: number) => boolean,
+  /**
+   * mt#3514 orphan-removal seam. The fake deliberately does NOT evaluate the
+   * drizzle predicate (`and(eq(session), gte(turn_index, N))`) — simulating
+   * Postgres's WHERE evaluation in a fake would be pretending to implement the
+   * database, and a test that passes against that pretence is evidence about
+   * the fake, not the query. So these tests cover the DECISIONS the writer
+   * makes around the delete (is it issued at all, how is its result counted,
+   * what happens when it throws); the predicate's actual row selection is
+   * covered against real Postgres by `scripts/verify-turn-orphan-removal.ts`.
+   *
+   * `deleteBehavior` returns the rows the DELETE should report as removed, or
+   * throws to simulate a failing delete. Absent → the delete removes nothing.
+   */
+  deleteBehavior?: (callIndex: number) => { turnIndex: number }[]
 ) {
   type TurnValues = Partial<FakeTurnRow> & { agentSessionId: string; turnIndex: number };
   let insertCallIndex = -1;
+  let deleteCallIndex = -1;
+  const deleteCalls: number[] = [];
 
   function upsertOne(v: TurnValues): void {
     const key = turnKey(v.agentSessionId, v.turnIndex);
@@ -113,7 +130,23 @@ function makeDb(
     });
   }
 
-  return {
+  const fake: Record<string, unknown> = {
+    /**
+     * mt#3514: the writer runs its upsert + orphan-delete inside a
+     * transaction holding a session advisory lock, with a per-chunk SAVEPOINT
+     * (a nested `transaction`). The fake models the CONTROL FLOW only — it
+     * passes itself as the tx/savepoint handle and propagates rejections — not
+     * rollback semantics, which would be pretending to implement Postgres.
+     * Real atomicity and real locking are database behavior, out of reach of
+     * an in-memory fake and covered by the live prod verification instead.
+     */
+    async transaction<T>(cb: (tx: unknown) => Promise<T>): Promise<T> {
+      return cb(fake);
+    },
+    /** The advisory-lock statement; the fake has no lock to take. */
+    execute(_query: unknown): Promise<unknown[]> {
+      return Promise.resolve([]);
+    },
     select(_fields?: Record<string, unknown>) {
       return {
         from: (_table: unknown) =>
@@ -144,7 +177,30 @@ function makeDb(
         },
       };
     },
+    delete(_table: unknown) {
+      deleteCallIndex++;
+      const callIndex = deleteCallIndex;
+      deleteCalls.push(callIndex);
+      return {
+        where(_cond: unknown) {
+          return {
+            returning(_cols?: unknown): Promise<{ turnIndex: number }[]> {
+              try {
+                return Promise.resolve(deleteBehavior?.(callIndex) ?? []);
+              } catch (err) {
+                return Promise.reject(err);
+              }
+            },
+          };
+        },
+      };
+    },
+    /** Test-only accessor: how many DELETEs the writer issued (mt#3514). */
+    __deleteCallCount(): number {
+      return deleteCalls.length;
+    },
   };
+  return fake as typeof fake & { __deleteCallCount(): number };
 }
 
 type FakeDb = ReturnType<typeof makeDb>;
@@ -450,58 +506,177 @@ describe("writeTurnsForTranscript", () => {
   });
 });
 
-describe("classifyWriteOutcome (pure core, mt#3628)", () => {
-  test("a total write failure (erroredChunks > 0, written === 0) buckets as errored", () => {
-    const result = classifyWriteOutcome({
-      written: 0,
-      nonEmptyYieldedZero: false,
-      erroredChunks: 1,
+describe("orphan removal (mt#3514)", () => {
+  const twoTurnTranscript: RawTurnLine[] = [
+    userLine("first"),
+    assistantLine("reply one"),
+    userLine("second", TS3),
+    assistantLine("reply two", [], TS4),
+  ];
+
+  test("issues an orphan-removal DELETE after a clean write and reports what it removed", async () => {
+    const store = new Map();
+    // The DELETE reports two removed rows — the shape Postgres returns for a
+    // session whose previous extraction emitted more turns than this one.
+    const db = makeDb([], store, undefined, undefined, () => [{ turnIndex: 2 }, { turnIndex: 3 }]);
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, twoTurnTranscript);
+
+    expect(db.__deleteCallCount()).toBe(1);
+    expect(result.orphansDeleted).toBe(2);
+    expect(result.orphanDeleteFailed).toBe(false);
+    expect(result.erroredChunks).toBe(0);
+  });
+
+  test("SAFETY: a non-empty transcript yielding ZERO turns issues NO delete", async () => {
+    // The regression this guard exists for: at zero extracted turns, "delete
+    // every row this extraction did not emit" would delete the session's
+    // ENTIRE turn history — turning a suspected extractor regression into
+    // permanent data loss.
+    const store = new Map();
+    const unrecognized = [
+      { type: "system", timestamp: TS1, message: { role: "system", content: "boot" } },
+    ] as unknown as RawTurnLine[];
+    const db = makeDb([], store, undefined, undefined, () => [{ turnIndex: 0 }]);
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, unrecognized);
+
+    expect(result.nonEmptyYieldedZero).toBe(true);
+    expect(db.__deleteCallCount()).toBe(0);
+    expect(result.orphansDeleted).toBe(0);
+  });
+
+  test("SAFETY: an empty/absent transcript issues NO delete", async () => {
+    const db = makeDb([], new Map(), undefined, undefined, () => [{ turnIndex: 0 }]);
+    await writeTurnsForTranscript(asPg(db), SESSION_A, []);
+    expect(db.__deleteCallCount()).toBe(0);
+  });
+
+  test("issues NO delete when a chunk write failed — a degraded write is not compounded", async () => {
+    const db = makeDb(
+      [],
+      new Map(),
+      undefined,
+      () => true, // every insert chunk fails
+      () => [{ turnIndex: 2 }]
+    );
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, twoTurnTranscript);
+
+    expect(result.erroredChunks).toBeGreaterThan(0);
+    expect(db.__deleteCallCount()).toBe(0);
+    expect(result.orphansDeleted).toBe(0);
+  });
+
+  test("a THROWING delete sets orphanDeleteFailed, warns, and does not throw out of the writer", async () => {
+    const warnCalls: { message: string }[] = [];
+    const logSink: TurnWriterLogSink = {
+      warn: (message) => warnCalls.push({ message }),
+      error: () => {},
+    };
+    const db = makeDb([], new Map(), undefined, undefined, () => {
+      throw new Error("simulated delete failure");
     });
-    expect(result).toEqual({ bucket: "errored", turnsWritten: 0, countNonEmptyYieldedZero: false });
+
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, twoTurnTranscript, logSink);
+
+    expect(result.orphanDeleteFailed).toBe(true);
+    expect(result.orphansDeleted).toBe(0);
+    // The upsert half still succeeded — the writer reports a degraded result
+    // rather than losing the turns it did write.
+    expect(result.written).toBeGreaterThan(0);
+    expect(warnCalls.some((c) => c.message.includes("orphaned turn rows"))).toBe(true);
+  });
+
+  test("the sweep aggregates orphansDeleted across transcripts", async () => {
+    const rows: FakeTranscriptRow[] = [
+      { agentSessionId: SESSION_A, transcript: twoTurnTranscript },
+      { agentSessionId: SESSION_B, transcript: twoTurnTranscript },
+    ];
+    // One orphan removed per transcript.
+    const db = makeDb(rows, new Map(), undefined, undefined, () => [{ turnIndex: 2 }]);
+    const { fetchPage } = makeFetchPage(rows);
+    const result = await extractTurnsForAllTranscripts(asPg(db), { fetchPage });
+
+    expect(result.orphansDeleted).toBe(2);
+    expect(result.transcriptsProcessed).toBe(2);
+  });
+});
+
+describe("classifyWriteOutcome (pure core, mt#3628)", () => {
+  /**
+   * Fills the fields a given case doesn't care about (mt#3514 added two).
+   * Keeps each test's literal to the values it is actually about, so a future
+   * field addition doesn't require editing every case again.
+   */
+  const outcome = (over: Partial<WriteTurnsResult>): WriteTurnsResult => ({
+    written: 0,
+    nonEmptyYieldedZero: false,
+    erroredChunks: 0,
+    orphansDeleted: 0,
+    orphanDeleteFailed: false,
+    ...over,
+  });
+
+  test("a total write failure (erroredChunks > 0, written === 0) buckets as errored", () => {
+    const result = classifyWriteOutcome(outcome({ erroredChunks: 1 }));
+    expect(result).toEqual({
+      bucket: "errored",
+      turnsWritten: 0,
+      countNonEmptyYieldedZero: false,
+      orphansDeleted: 0,
+    });
   });
 
   test("a PARTIAL write (erroredChunks > 0, written > 0) still buckets as errored — never processed", () => {
-    const result = classifyWriteOutcome({
-      written: 700,
-      nonEmptyYieldedZero: false,
-      erroredChunks: 1,
-    });
+    const result = classifyWriteOutcome(outcome({ written: 700, erroredChunks: 1 }));
     expect(result).toEqual({
       bucket: "errored",
       turnsWritten: 700,
       countNonEmptyYieldedZero: false,
+      orphansDeleted: 0,
     });
   });
 
   test("a genuinely-empty transcript (written === 0, nonEmptyYieldedZero false) buckets as skipped, uncounted", () => {
-    const result = classifyWriteOutcome({
-      written: 0,
-      nonEmptyYieldedZero: false,
-      erroredChunks: 0,
+    const result = classifyWriteOutcome(outcome({}));
+    expect(result).toEqual({
+      bucket: "skipped",
+      turnsWritten: 0,
+      countNonEmptyYieldedZero: false,
+      orphansDeleted: 0,
     });
-    expect(result).toEqual({ bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: false });
   });
 
   test("mt#2457 SC3: a non-empty-yielded-zero transcript buckets as skipped, but IS counted", () => {
-    const result = classifyWriteOutcome({
-      written: 0,
-      nonEmptyYieldedZero: true,
-      erroredChunks: 0,
+    const result = classifyWriteOutcome(outcome({ nonEmptyYieldedZero: true }));
+    expect(result).toEqual({
+      bucket: "skipped",
+      turnsWritten: 0,
+      countNonEmptyYieldedZero: true,
+      orphansDeleted: 0,
     });
-    expect(result).toEqual({ bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: true });
   });
 
   test("a clean write (written > 0, no errors) buckets as processed", () => {
-    const result = classifyWriteOutcome({
-      written: 5,
-      nonEmptyYieldedZero: false,
-      erroredChunks: 0,
-    });
+    const result = classifyWriteOutcome(outcome({ written: 5 }));
     expect(result).toEqual({
       bucket: "processed",
       turnsWritten: 5,
       countNonEmptyYieldedZero: false,
+      orphansDeleted: 0,
     });
+  });
+
+  test("mt#3514: a failed orphan DELETE buckets as errored even when every chunk upserted cleanly", () => {
+    const result = classifyWriteOutcome(outcome({ written: 5, orphanDeleteFailed: true }));
+    expect(result.bucket).toBe("errored");
+  });
+
+  test("mt#3514: orphansDeleted is carried through on EVERY bucket, including errored", () => {
+    expect(classifyWriteOutcome(outcome({ written: 5, orphansDeleted: 3 })).orphansDeleted).toBe(3);
+    expect(
+      classifyWriteOutcome(outcome({ written: 5, orphansDeleted: 3, erroredChunks: 1 }))
+        .orphansDeleted
+    ).toBe(3);
+    expect(classifyWriteOutcome(outcome({ orphansDeleted: 2 })).orphansDeleted).toBe(2);
   });
 });
 

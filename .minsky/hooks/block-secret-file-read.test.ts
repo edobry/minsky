@@ -195,10 +195,23 @@ describe("denial message", () => {
 });
 
 describe("run() — dispatcher entry point", () => {
-  const denyInput: ToolHookInput = {
-    tool_name: "Bash",
-    tool_input: { command: R3_COMMAND },
-  } as ToolHookInput;
+  /**
+   * Supplies the ToolHookInput fields these fixtures were omitting
+   * (session_id / cwd / hook_event_name), which is why the bare `as` casts were
+   * rejected as non-overlapping conversions once this file entered a typecheck
+   * project. mt#2900.
+   */
+  function hookInput(toolName: string, toolInput: Record<string, unknown>): ToolHookInput {
+    return {
+      session_id: "block-secret-file-read-test",
+      cwd: "/test/cwd",
+      hook_event_name: "PreToolUse",
+      tool_name: toolName,
+      tool_input: toolInput,
+    } as ToolHookInput;
+  }
+
+  const denyInput: ToolHookInput = hookInput("Bash", { command: R3_COMMAND });
 
   test("denies the incident command", () => {
     const prev = process.env[OVERRIDE_ENV_VAR];
@@ -216,10 +229,7 @@ describe("run() — dispatcher entry point", () => {
     const prev = process.env[OVERRIDE_ENV_VAR];
     delete process.env[OVERRIDE_ENV_VAR];
     try {
-      const out = run(
-        { tool_name: "Bash", tool_input: { command: "cat README.md" } } as ToolHookInput,
-        CTX
-      );
+      const out = run(hookInput("Bash", { command: "cat README.md" }), CTX);
       expect(out).toBeNull();
     } finally {
       if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
@@ -244,10 +254,7 @@ describe("run() — dispatcher entry point", () => {
     delete process.env[OVERRIDE_ENV_VAR];
     try {
       const out = run(
-        {
-          tool_name: "mcp__minsky__session_exec",
-          tool_input: { command: "cat .env", task: "mt#3282" },
-        } as ToolHookInput,
+        hookInput("mcp__minsky__session_exec", { command: "cat .env", task: "mt#3282" }),
         CTX
       );
       expect(out?.deny).toBeDefined();

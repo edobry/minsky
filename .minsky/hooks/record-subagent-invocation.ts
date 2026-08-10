@@ -102,48 +102,6 @@ async function closeRegisteredProvider(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Main entrypoint
-// ---------------------------------------------------------------------------
-
-if (import.meta.main) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    // Inside the try (PR #2178 R1): `readInput` is `Bun.stdin.json()`, which
-    // THROWS on a malformed payload. Reading it outside the guard meant a
-    // truncated or non-JSON stdin exited the process non-zero — a direct
-    // violation of the fail-safe contract above, since a non-zero hook exit is
-    // exactly what blocks the event it observes. Surfaced by this file's
-    // "malformed payload still exits 0" test.
-    const input = await readInput<StopHookInput>();
-
-    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => {
-        deadlineState.exceeded = true;
-        resolve(TIMED_OUT);
-      }, RECORD_INVOCATION_TIMEOUT_MS);
-    });
-    const outcome = await Promise.race([recordInvocation(input), deadline]);
-    if (outcome === TIMED_OUT) {
-      process.stderr.write(
-        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
-      );
-      // The abandoned path's `finally` will never run before process.exit —
-      // close its provider here instead of leaking the connection.
-      await closeRegisteredProvider();
-    }
-  } catch (err) {
-    process.stderr.write(
-      `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    await closeRegisteredProvider();
-  } finally {
-    clearTimeout(timer);
-  }
-
-  process.exit(0);
-}
-
-// ---------------------------------------------------------------------------
 // Metrics-transcript resolution (mt#2649)
 // ---------------------------------------------------------------------------
 
@@ -378,13 +336,35 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   //    Session directories are named after the session ID, not the task ID, so
   //    the task ID comes from the session record (or the git branch).
   //
-  //    DEMOTED to last-resort (mt#2292, criterion 6): this resolves from `cwd`,
-  //    which `prompt-generation.ts` guarantees is the MAIN repo for every
-  //    dispatched subagent — it forbids `cd` and instructs absolute paths. So it
-  //    returns null on exactly the traffic this hook most needs to record, and
-  //    is retained only for the pre-stamp rows still in flight and for
-  //    session-workspace subagents where it does resolve.
-  const taskId = await resolveTaskId(cwd);
+  //    DEMOTED to last-resort (mt#2292, criterion 6), and as of mt#3893 that
+  //    demotion is REAL rather than documentary: it is now SKIPPED entirely when
+  //    a stamp was recovered. Two reasons, one correctness and one cost.
+  //
+  //    Correctness: it resolves from `cwd`, which `prompt-generation.ts`
+  //    guarantees is the MAIN repo for every dispatched subagent (it forbids
+  //    `cd` and instructs absolute paths), so on stamped raw-path traffic it
+  //    returns null anyway. The stamped row already carries the real task id
+  //    from its dispatch-time writer, and the tracker's UPDATE path preserves
+  //    that value when it sees the sentinel — so skipping loses nothing.
+  //
+  //    Cost, and this is what forced the change: `resolveTaskId` opens its OWN
+  //    persistence provider and lists EVERY session, a full cold connect that
+  //    mt#3879 measured at 4.3-5.5s. `classifyAndRecord` then opens a second
+  //    one. Two cold connects do not fit in this hook's 8s deadline — measured
+  //    8.35s and still unfinished — so the row never closed even with the TDZ
+  //    defect fixed. Skipping the redundant connect is the substantive fix;
+  //    raising the budget alone would only have papered over it.
+  //
+  //    The skip is conditioned on BOTH a stamp AND the absence of a session key,
+  //    not on the stamp alone. That is deliberately narrower than it needs to be
+  //    for the measured case: when `subagentSessionId` IS available the row can
+  //    be found without the stamp, and an orphan Stop (no dispatch row to
+  //    preserve a task id from) would then INSERT under the sentinel where it
+  //    previously recorded a real task id. Narrowing costs nothing on the path
+  //    that motivated the change — raw-path dispatches have no session key by
+  //    construction — and it keeps a rare pre-existing case exactly as it was.
+  const canSkipTaskIdResolution = dispatchStamp !== null && subagentSessionId === null;
+  const taskId = canSkipTaskIdResolution ? null : await resolveTaskId(cwd);
 
   const decision = decideRecordingAction(taskId, subagentSessionId, cwd, dispatchStamp);
   if (decision.warning) process.stderr.write(decision.warning);
@@ -416,7 +396,12 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[record-subagent-invocation] warn: recording step failed: ${message}\n`);
-    await recordFailureBestEffort(subagentSessionId, decision.effectiveTaskId, message);
+    await recordFailureBestEffort(
+      subagentSessionId,
+      decision.effectiveTaskId,
+      message,
+      dispatchStamp
+    );
   }
 }
 
@@ -621,18 +606,30 @@ async function classifyAndRecord(params: {
  * Uses the tracker's existing heuristic upsert (prefers the most recent OPEN
  * row for `subagentSessionId` — the pending row dispatch wrote) rather than
  * the strong-binding `id` path, since a failure this early may not have
- * reached the current-invocation-marker read.
+ * reached the current-invocation-marker read. When the dispatch STAMP is
+ * available it is passed too, and the tracker resolves that exact-match key
+ * ahead of the heuristic.
  *
- * Never throws. No-ops when there is no correlation key to attach the error
- * to, or when the entrypoint's deadline has already fired (respecting the
- * "no new work after deadline" contract the rest of this hook applies).
+ * **The stamp is not merely an additional key here — it is the only one for the
+ * dispatch class this hook newly handles (mt#3893).** A raw `Agent` dispatch has
+ * no Minsky workspace, so `subagentSessionId` is null for it; gating on that
+ * alone meant the one class of dispatch whose failures most needed a durable
+ * trace was precisely the class that produced none. That is how the mt#3893 TDZ
+ * throw presented: not as an error anywhere, but as a row that sat `pending`
+ * forever with `error_summary` null, which reads identically to a Stop event
+ * that never fired.
+ *
+ * Never throws. No-ops when there is no correlation key of EITHER kind to attach
+ * the error to, or when the entrypoint's deadline has already fired (respecting
+ * the "no new work after deadline" contract the rest of this hook applies).
  */
 export async function recordFailureBestEffort(
   subagentSessionId: string | null,
   effectiveTaskId: string,
-  errorMessage: string
+  errorMessage: string,
+  dispatchStamp: DispatchStamp | null = null
 ): Promise<void> {
-  if (!subagentSessionId || deadlineState.exceeded) return;
+  if ((!subagentSessionId && !dispatchStamp) || deadlineState.exceeded) return;
   try {
     const { resolvePersistenceProvider } = await import(
       "../../packages/domain/src/persistence/factory"
@@ -662,6 +659,8 @@ export async function recordFailureBestEffort(
     await tracker.recordSubagentInvocation({
       taskId: effectiveTaskId,
       subagentSessionId,
+      parentAgentSessionId: dispatchStamp?.parentAgentSessionId ?? null,
+      parentToolUseId: dispatchStamp?.parentToolUseId ?? null,
       agentType: UNKNOWN_AGENT_TYPE,
       outcome: "crashed-no-output",
       errorSummary: safeTruncate(errorMessage, 2000, "head"),
@@ -776,4 +775,73 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Main entrypoint
+// ---------------------------------------------------------------------------
+//
+// LAST IN THE FILE, and that placement is load-bearing (mt#3893).
+//
+// This block contains a top-level `await`, which SUSPENDS module evaluation at
+// that point. Anything declared BELOW it is still in its temporal dead zone
+// while the awaited code runs, so a runtime path that reads such a binding
+// throws `ReferenceError: Cannot access 'X' before initialization` — from the
+// one context no unit test covers, because `import.meta.main` is false when a
+// test imports this module.
+//
+// That is not hypothetical. The block used to sit mid-file, above
+// `HOOK_UNKNOWN_TASK_ID`. It was harmless only because the sole path reading
+// that constant was unreachable: a raw `Agent` dispatch has cwd = the MAIN repo,
+// so both legacy correlation keys resolved null and `decideRecordingAction` took
+// its skip branch. mt#2292 added the dispatch stamp precisely so that case
+// becomes recordable — which routed it into the branch that reads the constant,
+// and every stamped dispatch began throwing here while the hook still exited 0
+// per its fail-safe contract. The dispatch row stayed `pending` forever.
+//
+// Keeping the entrypoint last makes the hazard structurally unreachable rather
+// than incidentally unreached: there is no binding below it to read. Enforced by
+// `record-subagent-invocation-entrypoint.test.ts`, which runs this file as a
+// PROCESS — the only context that can observe it.
+//
+// ADR-028 Phase 7 removes standalone `if (import.meta.main)` entrypoints from
+// migrated guard modules outright, at which point this comment and its hazard
+// both go away. This is the compatible intermediate step, not a competing one.
+
+if (import.meta.main) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Inside the try (PR #2178 R1): `readInput` is `Bun.stdin.json()`, which
+    // THROWS on a malformed payload. Reading it outside the guard meant a
+    // truncated or non-JSON stdin exited the process non-zero — a direct
+    // violation of the fail-safe contract above, since a non-zero hook exit is
+    // exactly what blocks the event it observes. Surfaced by this file's
+    // "malformed payload still exits 0" test.
+    const input = await readInput<StopHookInput>();
+
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => {
+        deadlineState.exceeded = true;
+        resolve(TIMED_OUT);
+      }, RECORD_INVOCATION_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([recordInvocation(input), deadline]);
+    if (outcome === TIMED_OUT) {
+      process.stderr.write(
+        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
+      );
+      // The abandoned path's `finally` will never run before process.exit —
+      // close its provider here instead of leaking the connection.
+      await closeRegisteredProvider();
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    await closeRegisteredProvider();
+  } finally {
+    clearTimeout(timer);
+  }
+
+  process.exit(0);
 }

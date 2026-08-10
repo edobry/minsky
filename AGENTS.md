@@ -1155,8 +1155,17 @@ failure never fails ask creation — the ask is the decision record.
 
 **Both halves are required for the marker.** A severity event you can fix yourself does not
 warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
-inbox. Marking a non-operator-routed ask is inert: the notification only fires for asks routed to
-the operator, because nothing else has a human on the other end.
+inbox.
+
+**The marker now ROUTES, not just notifies (mt#3851).** This paragraph used to warn that marking
+a non-operator-routed ask is inert — the notification fires only for operator-routed asks. That
+warning described a defect, not a design: `severity: "incident"` set a flag the router read to
+skip its policy phase and then ignored when picking a target, so five of the seven kinds
+(`capability.escalate`, `stuck.unblock`, `information.retrieve`, `coordination.notify`,
+`quality.review`) went to a subagent / retriever / peer / reviewer and no human was ever reached
+— which is the opposite of what the marker is for. The router now forces `operator` + inbox for
+EVERY kind carrying the marker, so there is no longer such a thing as a marked-but-unroutable
+ask. Pick the kind that fits the question; the marker decides who sees it.
 
 **Dedupe carve-out — now the only transport judgment left to you.** When the principal is
 actively responding in the same conversation, a notification is redundant; omit the marker and
@@ -1694,6 +1703,7 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims (who has touched this task recently). Treat it as a **signal, not proof** — run probes 1–4 to confirm any hit:
      - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. `actorId` is an opaque `unknown:hash:<...>` (ADR-006 ascribed identity) for callers without a declared agent_id and **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims can show up as "other." It tells you *when* to do the forensics, not *who* definitively holds the task.
      - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive, not proof-of-unclaimed. (Claims self-stale at ~15 min; the default fresh-only view is what you want here.)
+     - **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN (mt#3900, open).** The proxy resolves the conversation id once at spawn, so an in-process switch attributes your calls to the PREVIOUS conversation until the next reconnect. Your own touches then read back under an id you don't recognize. Before treating a hit as a collision, check whether the cited conversation is actually alive — `ls -l ~/.claude/projects/<project>/<id>.jsonl` — a transcript last written hours ago is not a live sibling. Probing no longer refreshes what it reports (mt#3889 exempted presence-reads from the presence write), so `lastRefreshedAt` is now trustworthy; **attribution is not, yet**.
   1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
   3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.

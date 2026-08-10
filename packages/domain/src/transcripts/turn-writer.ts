@@ -24,7 +24,7 @@
  * @see mt#2381 — this file
  */
 
-import { gt, sql } from "drizzle-orm";
+import { and, eq, gt, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -59,6 +59,29 @@ export interface WriteTurnsResult {
    * indistinguishable from one with nothing to write).
    */
   erroredChunks: number;
+  /**
+   * Number of ORPHANED rows deleted for this session (mt#3514) — rows at a
+   * `turn_index` this extraction did not emit, left behind by an earlier
+   * extraction that produced a different turn count.
+   *
+   * Before mt#3514 nothing ever deleted a turn row: the write was a pure
+   * upsert on `(agent_session_id, turn_index)`, so it only ever overwrote the
+   * indexes the CURRENT extraction happened to produce. Any index a previous
+   * run wrote but this one does not re-emit survived untouched, carrying its
+   * stale content forever. Measured 2026-08-08: 107 orphaned
+   * `(session, tool_use_id)` pairs across 27 conversations, 104 of them with
+   * byte-identical text to their live twin, at index spreads up to 704.
+   */
+  orphansDeleted: number;
+  /**
+   * True when the orphan-removal DELETE itself threw. Treated as an ERROR
+   * outcome (see `classifyWriteOutcome`), not folded into success: a write
+   * that upserted cleanly but could not remove stale rows has left the
+   * session in exactly the inconsistent state this mechanism exists to
+   * prevent, and reporting it as "processed" would make the defect invisible
+   * again.
+   */
+  orphanDeleteFailed: boolean;
 }
 
 /**
@@ -98,7 +121,13 @@ export async function writeTurnsForTranscript(
   logSink: TurnWriterLogSink = defaultLogSink
 ): Promise<WriteTurnsResult> {
   if (!Array.isArray(transcript) || transcript.length === 0) {
-    return { written: 0, nonEmptyYieldedZero: false, erroredChunks: 0 };
+    return {
+      written: 0,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: false,
+    };
   }
 
   const turns = extractTurns(transcript as RawTurnLine[]);
@@ -112,9 +141,66 @@ export async function writeTurnsForTranscript(
         `zero turns for session ${agentSessionId} — possible extractor-shape mismatch`,
       { agentSessionId, transcriptLines: transcript.length }
     );
-    return { written: 0, nonEmptyYieldedZero: true, erroredChunks: 0 };
+    // mt#3514 SAFETY: return BEFORE the orphan-removal delete below. A
+    // non-empty transcript that extracts to zero turns is a suspected
+    // EXTRACTOR regression, not evidence that the session has no turns — and
+    // "delete every row this extraction did not emit" would, at zero turns,
+    // wipe the session's entire turn history. The delete must never run on
+    // this path; that is why it lives after this early return rather than
+    // being guarded by a condition someone could later reorder.
+    return {
+      written: 0,
+      nonEmptyYieldedZero: true,
+      erroredChunks: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: false,
+    };
   }
 
+  // ── Serialization (mt#3514, PR #2736 R1) ───────────────────────────────
+  // The upsert and the orphan DELETE must not interleave with ANOTHER writer
+  // for the same session. Three callers can overlap in practice — the ingest
+  // service (running continuously in the cockpit daemon), the
+  // `index-embeddings --all` sweep, and `index-embeddings --session` — so a
+  // concurrent run that extracts MORE turns could write rows at indexes this
+  // run then deletes as "orphans." That is data loss, not a stale-row cleanup.
+  //
+  // Extends the session-scoped advisory-lock convention already used by
+  // `withDrivenSessionResumeLock` (driven-session-registry-store.ts): a
+  // TRANSACTION-scoped lock, because this runs on a pooled postgres-js
+  // connection where a session-scoped acquire/release pair could land on
+  // different connections. Blocking (`pg_advisory_xact_lock`) rather than
+  // `try` — a second writer must WAIT its turn, not skip its write.
+  //
+  // Per-chunk SAVEPOINTs (drizzle's nested `transaction`) preserve mt#2457's
+  // partial-write tolerance: without them a single failed chunk would poison
+  // the whole transaction, turning a partial write into a total rollback and
+  // silently changing `erroredChunks` semantics.
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${TURN_WRITE_LOCK_NAMESPACE}, hashtext(${agentSessionId}))`
+    );
+    return writeTurnsLocked(tx, agentSessionId, turns, transcript, logSink);
+  });
+}
+
+/** Advisory-lock namespace for per-session turn writes (mt#3514). */
+const TURN_WRITE_LOCK_NAMESPACE = 3_514_001;
+
+/**
+ * The upsert + orphan-removal body, running inside the caller's transaction
+ * with the session's advisory lock already held. Split out so the locking and
+ * the write logic are separately readable; not exported — the lock is not
+ * optional.
+ */
+async function writeTurnsLocked(
+  tx: PostgresJsDatabase,
+  agentSessionId: string,
+  turns: ReturnType<typeof extractTurns>,
+  transcript: unknown[],
+  logSink: TurnWriterLogSink
+): Promise<WriteTurnsResult> {
+  const db = tx;
   // mt#2457 perf: upsert in bulk, chunked, rather than one round-trip per
   // turn. A handful of legacy sessions run into the thousands of turns (up
   // to ~4,511 raw lines observed in the 2026-07-20 corpus measurement) —
@@ -149,22 +235,28 @@ export async function writeTurnsForTranscript(
     }));
 
     try {
-      await db
-        .insert(agentTranscriptTurnsTable)
-        .values(insertValues)
-        .onConflictDoUpdate({
-          target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
-          // `embedding` is intentionally NOT in this SET — preserve any vector
-          // the backfill already filled (ADR-019 embedding-preservation invariant).
-          set: {
-            userText: sql`EXCLUDED.user_text`,
-            assistantText: sql`EXCLUDED.assistant_text`,
-            toolCalls: sql`EXCLUDED.tool_calls`,
-            startedAt: sql`EXCLUDED.started_at`,
-            endedAt: sql`EXCLUDED.ended_at`,
-            isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
-          },
-        });
+      // SAVEPOINT per chunk (mt#3514): inside the outer transaction a failed
+      // statement would otherwise abort everything, so a single bad chunk
+      // would roll back chunks that already succeeded — silently converting
+      // mt#2457's tolerated PARTIAL write into a total loss.
+      await db.transaction(async (sp) => {
+        await sp
+          .insert(agentTranscriptTurnsTable)
+          .values(insertValues)
+          .onConflictDoUpdate({
+            target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
+            // `embedding` is intentionally NOT in this SET — preserve any vector
+            // the backfill already filled (ADR-019 embedding-preservation invariant).
+            set: {
+              userText: sql`EXCLUDED.user_text`,
+              assistantText: sql`EXCLUDED.assistant_text`,
+              toolCalls: sql`EXCLUDED.tool_calls`,
+              startedAt: sql`EXCLUDED.started_at`,
+              endedAt: sql`EXCLUDED.ended_at`,
+              isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+            },
+          });
+      });
       written += chunk.length;
     } catch (err) {
       // mt#2457 R1 review: a failed chunk must be counted as an error, not
@@ -182,7 +274,49 @@ export async function writeTurnsForTranscript(
     }
   }
 
-  return { written, nonEmptyYieldedZero: false, erroredChunks };
+  // ── Orphan removal (mt#3514) ───────────────────────────────────────────
+  // `turnIndex` is assigned contiguously 0..N-1 over the whole transcript
+  // (turn-extractor.ts: `let turnIndex = 0` … `turnIndex++` per emitted turn),
+  // so after writing N turns, every row for this session at `turn_index >= N`
+  // is a row a PREVIOUS extraction emitted and this one did not — an orphan.
+  // The upsert above cannot reach it, and before this nothing else did either.
+  //
+  // Skipped when any chunk failed: the upsert half is already known-degraded,
+  // and compounding it with a delete would make the session's state harder to
+  // reason about, not easier. A later clean run removes the orphans.
+  let orphansDeleted = 0;
+  let orphanDeleteFailed = false;
+  if (erroredChunks === 0) {
+    try {
+      const deleted = await db
+        .delete(agentTranscriptTurnsTable)
+        .where(
+          and(
+            eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId as ConversationId),
+            gte(agentTranscriptTurnsTable.turnIndex, turns.length)
+          )
+        )
+        .returning({ turnIndex: agentTranscriptTurnsTable.turnIndex });
+      orphansDeleted = deleted.length;
+      if (orphansDeleted > 0) {
+        logSink.warn(
+          `writeTurnsForTranscript: removed ${orphansDeleted} orphaned turn row(s) for ` +
+            `${agentSessionId} at turn_index >= ${turns.length} — left by an earlier ` +
+            `extraction that emitted more turns than this one`,
+          { agentSessionId, orphansDeleted, currentTurnCount: turns.length }
+        );
+      }
+    } catch (err) {
+      orphanDeleteFailed = true;
+      logSink.warn(
+        `writeTurnsForTranscript: failed to remove orphaned turn rows for ${agentSessionId} ` +
+          `at turn_index >= ${turns.length}`,
+        { error: getLoggableErrorSummary(err) }
+      );
+    }
+  }
+
+  return { written, nonEmptyYieldedZero: false, erroredChunks, orphansDeleted, orphanDeleteFailed };
 }
 
 /** Which aggregate bucket a single transcript's write outcome falls into. */
@@ -195,6 +329,13 @@ export interface WriteOutcomeClassification {
   turnsWritten: number;
   /** Whether this outcome should also increment the aggregate's `nonEmptyYieldedZero`. */
   countNonEmptyYieldedZero: boolean;
+  /**
+   * Orphaned rows removed for this transcript (mt#3514) — carried through the
+   * classification so the sweep's aggregate reports it in EVERY bucket. An
+   * errored transcript can still have deleted orphans before the failure, and
+   * dropping that count on the error path would understate the sweep's effect.
+   */
+  orphansDeleted: number;
 }
 
 /**
@@ -209,18 +350,35 @@ export function classifyWriteOutcome({
   written,
   nonEmptyYieldedZero,
   erroredChunks,
+  orphansDeleted,
+  orphanDeleteFailed,
 }: WriteTurnsResult): WriteOutcomeClassification {
-  if (erroredChunks > 0) {
+  // mt#3514: a failed orphan DELETE is an error even when every chunk upserted
+  // cleanly. The session is left holding stale rows the upsert cannot reach —
+  // the exact state this mechanism exists to remove — so classifying it
+  // "processed" would re-hide the defect behind a success count.
+  if (erroredChunks > 0 || orphanDeleteFailed) {
     return {
       bucket: "errored",
       turnsWritten: written > 0 ? written : 0,
       countNonEmptyYieldedZero: false,
+      orphansDeleted,
     };
   }
   if (written === 0) {
-    return { bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: nonEmptyYieldedZero };
+    return {
+      bucket: "skipped",
+      turnsWritten: 0,
+      countNonEmptyYieldedZero: nonEmptyYieldedZero,
+      orphansDeleted,
+    };
   }
-  return { bucket: "processed", turnsWritten: written, countNonEmptyYieldedZero: false };
+  return {
+    bucket: "processed",
+    turnsWritten: written,
+    countNonEmptyYieldedZero: false,
+    orphansDeleted,
+  };
 }
 
 /** Aggregate result of an extraction reconciliation sweep. */
@@ -246,6 +404,12 @@ export interface ExtractAllTurnsResult {
    * it should not happen in steady state.
    */
   nonEmptyYieldedZero: number;
+  /**
+   * Total orphaned turn rows removed across the sweep (mt#3514). In steady
+   * state this is 0; a non-zero value on a corpus-wide run is the backlog of
+   * stale rows accumulated while nothing deleted them.
+   */
+  orphansDeleted: number;
   /**
    * True when the sweep stopped early because a batch fetch (`fetchPage`)
    * failed, rather than reaching a clean end-of-corpus completion (an empty
@@ -368,6 +532,7 @@ export async function extractTurnsForAllTranscripts(
     transcriptsErrored: 0,
     turnsWritten: 0,
     nonEmptyYieldedZero: 0,
+    orphansDeleted: 0,
     aborted: false,
   };
 
@@ -410,6 +575,9 @@ export async function extractTurnsForAllTranscripts(
         // "processed", it's a degraded result that needs investigating, same
         // as a total write failure.
         const classification = classifyWriteOutcome(outcome);
+        // mt#3514: accumulate before the bucket switch — orphan removal is
+        // orthogonal to which bucket the transcript lands in.
+        result.orphansDeleted += classification.orphansDeleted;
         switch (classification.bucket) {
           case "errored":
             result.transcriptsErrored++;

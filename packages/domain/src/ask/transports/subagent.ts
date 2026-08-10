@@ -128,6 +128,25 @@ export type SubagentClosedAsk = RoutedAsk & {
   routingTarget: "subagent";
 };
 
+/**
+ * An Ask the subagent transport could not satisfy, handed to the operator
+ * instead of being closed (mt#3851).
+ *
+ * ADR-008's kind table prices `capability.escalate` as "Token; no operator cost
+ * **unless escalation fails**" — the clause concedes that a failed escalation
+ * costs operator attention, which is only possible if the operator is reached.
+ * Before this type existed the failure path closed the Ask with an error
+ * payload, so the escalation was terminal and silent: the agent had already
+ * established it could not proceed alone, and the one actor who could help was
+ * never told.
+ *
+ * `state` is "routed", not "closed" — the Ask is live and awaiting a human.
+ */
+export type OperatorFallbackAsk = RoutedAsk & {
+  state: "routed";
+  routingTarget: "operator";
+};
+
 // ---------------------------------------------------------------------------
 // dispatchToSubagent
 // ---------------------------------------------------------------------------
@@ -166,7 +185,9 @@ export interface SubagentTransportOptions {
  *
  * `capability.escalate`:
  *   Dispatches to the model/type extracted from the Ask payload (or defaults
- *   to opus/general-purpose). Returns on first successful response.
+ *   to opus/general-purpose). Returns on first successful response. On
+ *   failure or timeout, returns an `OperatorFallbackAsk` — still `routed`,
+ *   now aimed at the operator — rather than a closed error (mt#3851).
  *
  * `stuck.unblock`:
  *   Step 1 of the escalation chain: dispatch to Opus.
@@ -186,7 +207,7 @@ export interface SubagentTransportOptions {
 export async function dispatchToSubagent(
   routedAsk: RoutedAsk,
   options: SubagentTransportOptions = {}
-): Promise<SubagentClosedAsk> {
+): Promise<SubagentClosedAsk | OperatorFallbackAsk> {
   const { kind } = routedAsk;
 
   if (kind !== "capability.escalate" && kind !== "stuck.unblock") {
@@ -236,14 +257,19 @@ async function dispatchEscalate(
   routedAsk: RoutedAsk,
   dispatcher: SubagentDispatcher,
   timeoutMs: number
-): Promise<SubagentClosedAsk> {
+): Promise<SubagentClosedAsk | OperatorFallbackAsk> {
   const request = extractEscalateRequest(routedAsk);
 
   let subagentResponse: SubagentResponse;
   try {
     subagentResponse = await withTimeout(dispatcher.dispatch(request), timeoutMs);
   } catch (err) {
-    return buildErrorClose(routedAsk, "capability.escalate", err);
+    // ADR-008's "unless escalation fails" clause: hand it to the operator
+    // rather than closing it (mt#3851). `stuck.unblock` keeps the error-close
+    // for now — ADR-008 gives it a longer chain (Opus → mesh peer → Inbox →
+    // operator) whose middle steps are owned by mt#1001 / mt#454, and jumping
+    // straight to the operator would skip them.
+    return buildOperatorFallback(routedAsk, "capability.escalate", err);
   }
 
   return buildSuccessClose(routedAsk, subagentResponse, "general-purpose");
@@ -410,6 +436,49 @@ function buildSuccessClose(
  * For error closes, the responder is "timeout" (the invocation timed out
  * or failed), and attentionCost reflects that via the accounting module.
  */
+/**
+ * Package a `capability.escalate` dispatch failure as an operator-routed Ask.
+ *
+ * The Ask stays LIVE (`state: "routed"`) on the inbox transport, so the
+ * operator sees a request that is still waiting rather than a closed record of
+ * something that did not happen. The failure itself is preserved on
+ * `metadata.escalationFailure` — the operator needs to know the subagent route
+ * was tried and why it did not work, and `RoutedAsk` has no `response` field to
+ * carry it (that belongs to closed Asks).
+ */
+function buildOperatorFallback(
+  routedAsk: RoutedAsk,
+  stepName: string,
+  err: unknown
+): OperatorFallbackAsk {
+  const now = new Date().toISOString();
+
+  const errorMessage = err instanceof Error ? err.message : String(err);
+
+  const packagedPayload: AskPayload = {
+    question: routedAsk.question,
+    options: routedAsk.options,
+    contextRefs: routedAsk.contextRefs,
+  };
+
+  return {
+    ...routedAsk,
+    state: "routed",
+    routingTarget: "operator",
+    transport: { kind: "inbox" },
+    packagedPayload,
+    routedAt: routedAsk.routedAt ?? now,
+    metadata: {
+      ...(routedAsk.metadata ?? {}),
+      escalationFailure: {
+        step: stepName,
+        error: errorMessage,
+        failedAt: now,
+      },
+    },
+  };
+}
+
 function buildErrorClose(routedAsk: RoutedAsk, stepName: string, err: unknown): SubagentClosedAsk {
   const now = new Date().toISOString();
 
