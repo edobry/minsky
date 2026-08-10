@@ -4,6 +4,7 @@ import {
   classifyDispatchRecoveryState,
   buildDispatchRecoveryContinuationPrompt,
   DISPATCH_RECOVERY_STALE_MS,
+  DISPATCH_RECOVERY_CLASSIFICATION_VALUES,
   type DispatchRecoveryPromptInput,
   type DispatchRecoveryClassification,
 } from "./dispatch-recovery-classifier";
@@ -13,6 +14,30 @@ import {
 const CRASHED_NO_OUTPUT: DispatchRecoveryClassification = "crashed-no-output";
 const PARTIAL_UNCOMMITTED_NO_HANDOFF: DispatchRecoveryClassification =
   "partial-uncommitted-no-handoff";
+const PARTIAL_COMMITTED_HANDOFF_WRITTEN: DispatchRecoveryClassification =
+  "partial-committed-handoff-written";
+const COMMITTED_NO_PR: DispatchRecoveryClassification = "committed-no-pr";
+
+describe("DISPATCH_RECOVERY_CLASSIFICATION_VALUES membership (mt#3894)", () => {
+  test("is exactly the four resumable workspace states", () => {
+    // Exact membership, not a `not.toContain` — an enum member added later would slip past a
+    // negative assertion, and the question this pins is which outcomes this recovery path
+    // claims it can resume from.
+    expect([...DISPATCH_RECOVERY_CLASSIFICATION_VALUES].sort()).toEqual([
+      COMMITTED_NO_PR,
+      CRASHED_NO_OUTPUT,
+      PARTIAL_COMMITTED_HANDOFF_WRITTEN,
+      PARTIAL_UNCOMMITTED_NO_HANDOFF,
+    ]);
+  });
+
+  test("excludes `no-workspace` — there is no workspace to resume", () => {
+    // Every value above names a state of a SESSION WORKSPACE this path resumes from. A dispatch
+    // that never had one cannot be resumed, so offering it as a recovery candidate would send
+    // the operator to inspect a workspace that does not exist.
+    expect([...DISPATCH_RECOVERY_CLASSIFICATION_VALUES]).not.toContain("no-workspace");
+  });
+});
 
 describe("computeDispatchStaleness", () => {
   const START = Date.parse("2026-07-17T10:00:00Z");
@@ -253,7 +278,7 @@ describe("classifyDispatchRecoveryState", () => {
         handoffExists: false,
         hasOpenPr: false,
       })
-    ).toBe("partial-uncommitted-no-handoff");
+    ).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
   });
 
   test("dirty tree with handoff -> partial-committed-handoff-written", () => {
@@ -264,7 +289,7 @@ describe("classifyDispatchRecoveryState", () => {
         handoffExists: true,
         hasOpenPr: false,
       })
-    ).toBe("partial-committed-handoff-written");
+    ).toBe(PARTIAL_COMMITTED_HANDOFF_WRITTEN);
   });
 
   test("clean tree, commits ahead -> committed-no-pr", () => {
@@ -417,7 +442,7 @@ describe("buildDispatchRecoveryContinuationPrompt", () => {
   test("partial-committed-handoff-written guidance reproduces the handoff content and points to it", () => {
     const prompt = buildDispatchRecoveryContinuationPrompt({
       ...base,
-      classification: "partial-committed-handoff-written",
+      classification: PARTIAL_COMMITTED_HANDOFF_WRITTEN,
       handoffExists: true,
       handoffFirstLines: ["Done: X", "Remaining: Y"],
     });
