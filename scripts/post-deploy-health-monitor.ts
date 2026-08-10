@@ -158,14 +158,20 @@
  * USAGE (in GitHub Actions):
  *   RAILWAY_TOKEN=... GITHUB_TOKEN=... GITHUB_REPO=edobry/minsky bun scripts/post-deploy-health-monitor.ts
  *
- * USAGE (local dry-run — no RAILWAY_TOKEN needed, skips Railway checks):
+ * USAGE (local dry-run — runnable without RAILWAY_TOKEN, but every service
+ * will read DEGRADED, since the Railway-dependent checks cannot run):
  *   DRY_RUN=true GITHUB_TOKEN=... GITHUB_REPO=edobry/minsky bun scripts/post-deploy-health-monitor.ts
  *
  * ENV VARS:
- *   RAILWAY_TOKEN          — Railway API token (read access). Skip Railway
- *                            checks when absent (graceful degradation). Also
- *                            gates the digest-lag check (c), which needs the
- *                            deployed digest from the same Railway call.
+ *   RAILWAY_TOKEN          — Railway ACCOUNT or WORKSPACE token (read access);
+ *                            in CI it is fed from the RAILWAY_MCP_TOKEN secret.
+ *                            Also gates the digest-lag check (c), which needs
+ *                            the deployed digest from the same Railway call.
+ *                            **Its absence is NOT graceful degradation
+ *                            (mt#3921):** both checks are then marked `failed`,
+ *                            every affected service is DEGRADED, and a
+ *                            check-failed alert fires. A monitor with no
+ *                            credential is blind, and says so.
  *   GITHUB_TOKEN           — GitHub PAT or Actions token with issues:write.
  *   GITHUB_REPO            — "owner/repo" (e.g. "edobry/minsky").
  *   MINSKY_MCP_AUTH_TOKEN  — Bearer token for hosted MCP (secondary path).
@@ -473,8 +479,9 @@ interface GhcrManifestResult {
  * platform-specific deployed digest (see GhcrManifestResult). Throws on any
  * failure (network, non-200, missing header, unparseable body) — the caller
  * treats a thrown error as "cannot determine," NOT as "digest matches" (see
- * checkService: a lookup failure logs a warning and skips the alert, it
- * never asserts "OK" by default).
+ * checkService: a lookup failure logs a warning and never raises `digest-lag`,
+ * since it is not evidence of a lag — but as of mt#3921 it marks the check
+ * `failed`, which raises `check-failed`. It never asserts "OK" by default).
  */
 async function fetchGhcrManifest(ref: ParsedGhcrImageRef): Promise<GhcrManifestResult> {
   const controller = new AbortController();
