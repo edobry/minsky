@@ -291,8 +291,10 @@ preference to express.
    TUNE (already file-it-yourself) or an Ask — never this.
 3. **The retirement is scoped to that ONE category.** The detector keeps firing on
    everything else. Retiring a whole detector stays always-Ask.
-4. **No other live ask covers the same detector's posture.** If one is open, fold
-   this into it rather than acting underneath it.
+4. **No other OPEN Ask covers the same detector's posture.** If one is open, fold
+   this into it rather than acting underneath it. ("Open," not "live" — this
+   skill uses LIVE for a detector's enforcement posture, and an Ask has no
+   posture; the two words must not blur here.)
 5. **At least one live category remains on the detector.** Retiring the last one
    IS whole-detector retirement, and a detector with no live category is
    indistinguishable from a dead one — the failure `coverage-receipt.ts` exists to
