@@ -24,6 +24,9 @@ import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
 import { findStampInTranscriptLines, type DispatchStamp } from "./agent-dispatch-stamp";
+// Type-only, so it erases at compile time and cannot load a domain module ahead of the
+// bootstrap below.
+import type { ObservedSubagentInvocationOutcome } from "../../packages/domain/src/storage/schemas/subagent-invocations-schema";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3019: STATIC — importing this module installs the tsyringe reflect
 // polyfill, which must be resolved before ANY domain module loads. Every
@@ -287,6 +290,55 @@ export function decideRecordingAction(
   return { action: "record", effectiveTaskId: taskId };
 }
 
+/**
+ * What this hook records as the observed outcome: a workspace classification, or the
+ * `no-workspace` value for a subagent that had no workspace to classify (mt#3894).
+ */
+export interface RecordedClassification {
+  outcome: ObservedSubagentInvocationOutcome;
+  prUrl?: string;
+  lastCommitHash?: string;
+  handoffWritten: boolean;
+}
+
+/**
+ * The record written for a subagent with no workspace of its own (mt#3894).
+ *
+ * `prUrl` and `lastCommitHash` are deliberately ABSENT rather than carried over from the cwd:
+ * they were the parent's, and `lastCommitHash` in particular held main's HEAD, attributing a
+ * commit to a subagent that made none.
+ */
+export const NO_WORKSPACE_CLASSIFICATION: RecordedClassification = {
+  outcome: "no-workspace",
+  handoffWritten: false,
+};
+
+/**
+ * Decide what to record for a finished subagent (mt#3894).
+ *
+ * The discriminator is `subagentSessionId`: it is derived from the cwd path
+ * (`~/.local/state/minsky/sessions/<sessionId>`), so it is null exactly when the subagent was
+ * not running in a Minsky workspace. A raw harness `Agent` dispatch is always that case —
+ * `prompt-generation.ts` forbids `cd`, so its cwd is the MAIN repo.
+ *
+ * Running the workspace classifier there does not merely produce an uninformative label, it
+ * produces a CONFIDENT WRONG one drawn from the operator's own checkout, and one that varies
+ * with it: the three rows written this way all read `partial-committed-handoff-written`, and
+ * would have read `committed-no-pr` had the operator's untracked files been committed.
+ *
+ * `classifyWorkspace` is a parameter rather than an import so the "no workspace ⇒ the classifier
+ * is never invoked" half is directly observable in a test — that half is not incidental: it also
+ * removes a `git` + `gh` subprocess round-trip from a path running against this hook's 8s
+ * deadline (mt#3893).
+ */
+export async function resolveRecordedClassification(
+  subagentSessionId: string | null,
+  classifyWorkspace: () => Promise<RecordedClassification>
+): Promise<RecordedClassification> {
+  if (subagentSessionId === null) return NO_WORKSPACE_CLASSIFICATION;
+  return classifyWorkspace();
+}
+
 // ---------------------------------------------------------------------------
 // Core logic
 // ---------------------------------------------------------------------------
@@ -426,13 +478,19 @@ async function classifyAndRecord(params: {
   //    handoff file and to look up a PR by branch name; with the sentinel both
   //    degrade to "not found" while the commit/handoff classification — the
   //    part that matters — still works.
-  const { classifyWorkspaceOutcome } = await import(
-    "../../packages/domain/src/subagent/workspace-classifier"
-  );
+  //
+  //    mt#3894: only when the subagent HAD a workspace. See
+  //    `resolveRecordedClassification` for why running the classifier against a
+  //    workspace-less subagent's cwd describes the parent, not the subagent.
   const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
     "../../src/mcp/subagent-dispatch-tracker"
   );
-  const classification = await classifyWorkspaceOutcome(cwd, effectiveTaskId);
+  const classification = await resolveRecordedClassification(subagentSessionId, async () => {
+    const { classifyWorkspaceOutcome } = await import(
+      "../../packages/domain/src/subagent/workspace-classifier"
+    );
+    return classifyWorkspaceOutcome(cwd, effectiveTaskId);
+  });
 
   // 3. Read transcript metrics (best-effort).
   const { readTranscriptMetrics, extractActualModel, readTranscriptLines } = await import(
