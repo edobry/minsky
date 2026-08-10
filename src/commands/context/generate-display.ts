@@ -5,7 +5,11 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { formatContextWindowSize, formatContextWindowUtilization } from "./generate-analysis";
+import {
+  formatAssembledContextLine,
+  formatContextWindowSize,
+  formatContextWindowUtilization,
+} from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -36,6 +40,16 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
 
   // Summary
   log.cli(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
+  /**
+   * The assembly header belongs to no component, so it is absent from the
+   * breakdown's denominator. Naming the difference is what keeps `Total Tokens`
+   * from silently disagreeing with the context an operator actually sends
+   * (mt#3458) — the breakdown below sums to `Total Tokens`, not to this.
+   */
+  const assembledLine = formatAssembledContextLine(analysis.summary);
+  if (assembledLine) {
+    log.cli(assembledLine);
+  }
   log.cli(`Total Components: ${analysis.summary.totalComponents}`);
   log.cli(
     `Context Window Utilization: ${formatContextWindowUtilization(analysis.summary.contextWindowUtilization)}`
