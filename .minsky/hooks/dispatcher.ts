@@ -835,6 +835,11 @@ export async function runDispatcher(
       // doc comment for the full rationale.
       const { overrideSource, overrideEnvVar, overrideClassification } =
         buildOverrideFireLogFields(override);
+      // mt#3892: `guardOutcome` is deliberately UNSET here, and that is neither
+      // value. An overridden guard did not run at all, so this record is
+      // evidence of neither a clean decision nor a crash — leaving it unset
+      // keeps it out of the recovery join, which is correct: an override says
+      // nothing about whether the guard would have worked.
       recordFireLog({
         guardName: reg.name,
         event,
@@ -874,10 +879,18 @@ export async function runDispatcher(
       // silently missing every crashed evaluation. guard-health.ts already
       // owns the FAILURE-half record above; this is the complementary
       // decision-outcome record.
+      //
+      // mt#3892: marked `crashed` so a reader can tell this `allow` apart from
+      // one the guard actually decided. Without the marker the two are
+      // indistinguishable, and guard-health's recovery join would read a
+      // continuously crashing guard as recovered — this record is written
+      // microseconds AFTER the recordError() above, so "an invocation later
+      // than the last failure" is true on every single crash.
       recordFireLog({
         guardName: reg.name,
         event,
         decision: "allow",
+        guardOutcome: "crashed",
         durationMs: nowMs() - evalStartMs,
         toolName: input.tool_name,
         sessionId: input.session_id,
@@ -894,6 +907,9 @@ export async function runDispatcher(
       guardName: reg.name,
       event,
       decision,
+      // mt#3892: the guard returned an outcome, so this record is evidence the
+      // guard ran cleanly — the only kind guard-health's recovery join counts.
+      guardOutcome: "decided",
       durationMs: nowMs() - evalStartMs,
       toolName: input.tool_name,
       sessionId: input.session_id,

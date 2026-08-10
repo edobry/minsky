@@ -14,12 +14,31 @@
 // @see .minsky/hooks/test-first-evidence.ts — the second consumer that motivated the move
 
 /**
- * Pattern for test files we care about. Matches:
- *   - *.test.ts
- *   - *.integration.test.ts
- *   - *.spec.ts
+ * Pattern for test files we care about. Matches, in both `.ts` and `.tsx`:
+ *   - *.test.ts / *.test.tsx
+ *   - *.integration.test.ts / *.integration.test.tsx
+ *   - *.spec.ts / *.spec.tsx
+ *
+ * **`.tsx` was absent until mt#3868, and the omission was load-bearing.** The
+ * pattern ended `\.ts$`, so every test file under `src/cockpit/web` — 92 of
+ * them at the time of the fix — was invisible to `findNewTestFiles`, and
+ * therefore to the mt#1459 execution-evidence merge gate, which BLOCKS a PR
+ * that adds a new test file without an `Execution evidence:` block. A whole
+ * frontend tree could add test files with no evidence and never trip a gate
+ * that exists to demand it.
+ *
+ * Found via mt#3810 / PR #2711, whose ONLY test file was
+ * `ConversationElementRenderers.image.test.tsx` (commit `68e7f58d0`): the
+ * mt#2421 spec recorded that the gate "fired and was satisfied" there, and it
+ * had not fired at all.
+ *
+ * The `integration\.test` alternative is redundant — the pattern is unanchored
+ * at the start, so `foo.integration.test.ts` already matches via `test` — and is
+ * kept because removing it is not this fix and it costs nothing. Note the same
+ * unanchored property is why no `e2e`/`unit`-style alternative is needed: any
+ * `<anything>.test.tsx` matches.
  */
-const TEST_FILE_PATTERN = /\.(test|integration\.test|spec)\.ts$/;
+const TEST_FILE_PATTERN = /\.(test|integration\.test|spec)\.tsx?$/;
 
 /**
  * Returns true when a filename matches a test-file pattern.
