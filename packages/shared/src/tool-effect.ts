@@ -337,6 +337,22 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.get": "reads",
   "tasks.status.get": "reads",
 
+  // --- session workspace files (registered on the MCP surface, not the shared
+  //     registry — `debug.listMethods` does not report these) ------------------
+  "session.write_file": "mutates",
+  "session.delete_file": "mutates",
+  "session.create_directory": "mutates",
+  "session.edit_file": "mutates",
+  "session.search_replace": "mutates",
+  "session.move_file": "mutates",
+  "session.rename_file": "mutates",
+  "session.read_file": "reads",
+  "session.list_directory": "reads",
+  "session.file_exists": "reads",
+  "session.grep_search": "reads",
+  "session.diff": "reads",
+  "session.status": "reads",
+
   // --- tools / principal corpus ---------------------------------------------
   "tools.index-embeddings": "mutates",
   "tools.search": "reads",

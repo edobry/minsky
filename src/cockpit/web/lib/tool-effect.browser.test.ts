@@ -23,12 +23,22 @@ describe("tool-effect is reachable from the cockpit web bundle", () => {
     expect(classifyTool("Write")).toBe("mutates");
   });
 
-  test("the module imports nothing, so it can pull nothing server-only in", () => {
-    // A zero-import module cannot reach `node:fs`, the DI container, or the
-    // command registry — the properties the bundle needs — and this is cheaper
-    // and more direct than asserting the bundle's contents after the fact.
+  test("the module imports nothing the browser cannot have", () => {
+    // PR #2789 R1: this asserted ZERO imports, which coupled the test to an
+    // implementation detail — importing a sibling browser-safe type would have
+    // failed it for no reason. What actually matters is the CLASS of import:
+    // anything Node-only or server-side breaks the bundle, anything else does
+    // not. Checked here as well as by `custom/no-node-import-in-cockpit-web`,
+    // because that rule polices this tree and the module lives in another.
     const source = String(readFileSync("packages/shared/src/tool-effect.ts", "utf8"));
-    const imports = source.split("\n").filter((line) => /^\s*import\s/.test(line));
-    expect(imports).toEqual([]);
+    const specifiers = [...source.matchAll(/^\s*import\s[^;]*?from\s+["']([^"']+)["']/gm)].map(
+      (m) => m[1] as string
+    );
+    const serverOnly = specifiers.filter((s) =>
+      /^node:|^(fs|path|os|child_process|crypto|http|https|net)$|@minsky\/domain|drizzle|tsyringe/.test(
+        s
+      )
+    );
+    expect(serverOnly).toEqual([]);
   });
 });

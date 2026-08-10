@@ -261,16 +261,33 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "window.service",
   "window.status",
   "workspace.info",
-  // Registered directly on the MCP surface, not via the shared registry:
+  // Registered directly on the MCP surface, not via the shared registry, so
+  // `debug.listMethods` reports none of these. PR #2789 R1: the first draft
+  // listed only the two task-spec tools and missed the entire session-workspace
+  // file family — most of what an agent actually calls. The scan below now
+  // covers `src/adapters/mcp/**` so the omission cannot recur silently.
   "tasks.spec.patch",
   "tasks.spec.search_replace",
+  "session.read_file",
+  "session.write_file",
+  "session.list_directory",
+  "session.file_exists",
+  "session.delete_file",
+  "session.create_directory",
+  "session.grep_search",
+  "session.diff",
+  "session.status",
+  "session.edit_file",
+  "session.search_replace",
+  "session.move_file",
+  "session.rename_file",
 ];
 
 /**
  * The committed floor. This is the coverage ACHIEVED at authoring time, not an
  * aspiration — raising it is the point, lowering it should require saying so.
  */
-const MINIMUM_CLASSIFIED = 218;
+const MINIMUM_CLASSIFIED = 231;
 
 function classifiedCount(): number {
   return REGISTERED_TOOL_IDS.filter((id) => classifyTool(id) !== "unclassified").length;
@@ -400,6 +417,35 @@ describe("snapshot freshness against the command sources", () => {
     }
     return ids;
   }
+
+  /**
+   * The MCP surface registers tools with `name:` rather than `id:`, in a
+   * different tree. Scanning only the shared registry is how the first draft of
+   * this snapshot missed 13 session-workspace file tools (PR #2789 R1).
+   */
+  function scanMcpToolNames(dir: string): string[] {
+    const names: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry);
+      if (statSync(p).isDirectory()) {
+        names.push(...scanMcpToolNames(p));
+        continue;
+      }
+      if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
+      const text = String(readFileSync(p, "utf8"));
+      for (const m of text.matchAll(/^\s*name:\s*["'`]([a-z][a-z0-9._-]*)["'`],/gim)) {
+        names.push(m[1] as string);
+      }
+    }
+    return names;
+  }
+
+  test("no MCP-registered tool name is missing from the snapshot", () => {
+    const scanned = new Set(scanMcpToolNames("src/adapters/mcp"));
+    const snapshot = new Set(REGISTERED_TOOL_IDS);
+    const missing = [...scanned].filter((name) => !snapshot.has(name));
+    expect(missing).toEqual([]);
+  });
 
   test("no command id in the sources is missing from the snapshot", () => {
     const scanned = new Set(scanCommandIds("src/adapters/shared/commands"));
