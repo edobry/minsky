@@ -57,6 +57,15 @@ export const OVERRIDE_ENV = "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN";
  * Goes stale when a new verification script is added to `package.json` without being listed here.
  * The failure mode is a MISS (no fire), never a false fire, so staleness degrades recall only.
  * To refresh: compare against `package.json`'s scripts block.
+ *
+ * `bun run build` is deliberately EXCLUDED (PR #2765 R1), despite being listed in this task's
+ * original spec. A build is a PREREQUISITE, not an independent check: `bun run build && bun test`
+ * expresses ordering — build, then test the artifact — and the `&&` is load-bearing sequencing
+ * rather than two results the author needs to tell apart. Firing there would flag a correct
+ * idiom. The distinguishing question for anything added here is not "can it fail?" (a build
+ * certainly can) but "is its pass/fail the REASON it was run, independent of the command beside
+ * it?". `bunx tsc` stays because a typecheck is run to learn its verdict; a build is run to get
+ * an artifact.
  */
 const VERIFICATION_PATTERNS: readonly RegExp[] = [
   /^bun\s+test\b/,
@@ -65,7 +74,6 @@ const VERIFICATION_PATTERNS: readonly RegExp[] = [
   /^bun\s+run\s+format/,
   /^bun\s+run\s+typecheck/,
   /^bun\s+run\s+validate/,
-  /^bun\s+run\s+build\b/,
   /^bunx\s+eslint\b/,
   /^bunx\s+tsc\b/,
   /^tsgo\b/,
@@ -91,13 +99,48 @@ export function isOverridden(): boolean {
  * asserting on a fire/no-fire outcome that could be right for the wrong reason.
  */
 export function splitTopLevel(command: string): string[] {
-  const segments: string[] = [];
+  return splitOutsideQuotes(command, (ch, next) => {
+    if (ch === ";") return 1;
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) return 2;
+    return 0;
+  });
+}
+
+/**
+ * Split on unquoted pipe (`|`), NOT on the `||` operator — that one is a command separator and is
+ * already handled by `splitTopLevel` upstream.
+ *
+ * Shares `splitOutsideQuotes` with the separator split rather than using `String.split("|")`
+ * (PR #2765 R1). The naive version truncates on a `|` inside quotes — `bun test --filter 'a|b'`
+ * became `bun test --filter 'a` — which is the exact defect class the separator split already
+ * guarded against, left unfixed one function over. The classification usually survived the
+ * truncation, so the visible symptom was a mangled command in the advisory rather than a wrong
+ * verdict; consistency here is what stops it becoming a wrong verdict later.
+ */
+export function splitPipeline(segment: string): string[] {
+  return splitOutsideQuotes(segment, (ch, next) => (ch === "|" && next !== "|" ? 1 : 0));
+}
+
+/**
+ * Split `input` wherever `separatorAt` reports a separator OUTSIDE quotes, returning the trimmed
+ * non-empty parts. `separatorAt` returns the separator's length (0 = not a separator), so a
+ * caller can match one- or two-character operators.
+ *
+ * Deliberately not a full shell parser — no subshells, no heredocs, backslash-escape handling only.
+ * Those shapes are rare in agent-composed verification commands, and under-parsing produces a
+ * MISS rather than a false fire.
+ */
+function splitOutsideQuotes(
+  input: string,
+  separatorAt: (ch: string, next: string | undefined) => number
+): string[] {
+  const parts: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
 
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i] as string;
-    const next = command[i + 1];
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i] as string;
+    const next = input[i + 1];
 
     if (ch === "\\") {
       current += ch + (next ?? "");
@@ -117,24 +160,19 @@ export function splitTopLevel(command: string): string[] {
       continue;
     }
 
-    if (ch === ";") {
-      segments.push(current);
+    const sepLen = separatorAt(ch, next);
+    if (sepLen > 0) {
+      parts.push(current);
       current = "";
-      continue;
-    }
-
-    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-      segments.push(current);
-      current = "";
-      i++;
+      i += sepLen - 1;
       continue;
     }
 
     current += ch;
   }
 
-  segments.push(current);
-  return segments.map((s) => s.trim()).filter((s) => s.length > 0);
+  parts.push(current);
+  return parts.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 /**
@@ -146,7 +184,7 @@ export function splitTopLevel(command: string): string[] {
  *   - environment-variable prefixes (`FOO=1 bun test`) — strip them.
  */
 export function leadingCommandOf(segment: string): string {
-  const firstStage = (segment.split("|")[0] ?? "").trim();
+  const firstStage = splitPipeline(segment)[0] ?? "";
   const words = firstStage.split(/\s+/);
   let start = 0;
   while (start < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[start] ?? "")) {

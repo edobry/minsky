@@ -117,6 +117,27 @@ describe("scanCommand — the trigger", () => {
     expect(result.verificationSegments).toHaveLength(3);
   });
 
+  // PR #2765 R1 (BLOCKING): a build is a PREREQUISITE, not an independent check. `build && test`
+  // expresses ordering, not two verdicts to disambiguate — firing there flags a correct idiom.
+  test("does not fire on a build-then-test dependency sequence", () => {
+    expect(scanCommand("bun run build && bun test").chained).toBe(false);
+    expect(scanCommand("bun run build; bun run typecheck").chained).toBe(false);
+  });
+
+  test("still fires on two genuine checks that merely include a build-adjacent name", () => {
+    // Guards the fix against over-correction: removing `build` must not silence real pairs.
+    expect(scanCommand("bun run typecheck && bun test").chained).toBe(true);
+  });
+
+  // PR #2765 R1 (NON-BLOCKING): the pipeline split was not quote-aware, so a `|` inside quotes
+  // truncated the segment. Same defect class the separator split already handled.
+  test("a quoted pipe does not truncate the classified command", () => {
+    const quotedPipe = "bun test --filter 'a|b'";
+    expect(leadingCommandOf(quotedPipe)).toBe(quotedPipe);
+    // The quoted `|` is text; the UNQUOTED one is a real pipeline boundary.
+    expect(leadingCommandOf(`${quotedPipe} | tail -3`)).toBe(quotedPipe);
+  });
+
   test("a quoted separator cannot manufacture a fire", () => {
     // One real verification command; the `;` inside the quotes is text, not a separator.
     expect(scanCommand("echo 'run bun test; then bun run lint'; bun test").chained).toBe(false);
