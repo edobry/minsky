@@ -94,13 +94,14 @@ runtime prerequisite either way — the CLI and the hooks it provisions run unde
 
 ```bash
 # Install globally (recommended)
-bun add -g minsky
+bun add -g @edobry/minsky
 
 # Or with npm
-npm install -g minsky
+npm install -g @edobry/minsky
 ```
 
-`minsky --version` reports the installed release version.
+The package is scoped; the command is not. Either install puts a plain `minsky`
+on your PATH, and `minsky --version` reports the installed release version.
 
 For development on Minsky itself, install from source instead:
 

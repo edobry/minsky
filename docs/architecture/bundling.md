@@ -31,12 +31,12 @@ execution before the bundle takes over.
 
 ## When the bundle gets built
 
-| Trigger                                                 | Profile              | Mechanism                                                                |
-| ------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------ |
-| `git rev-parse HEAD` differs from `dist/.build-stamp`   | A (source install)   | Bin entry runs `bun build` synchronously at startup                      |
-| Docker image build                                      | B (Railway HTTP)     | `RUN bun build ...` step in `Dockerfile`                                 |
-| Future `bun install -g minsky` from a published package | D (end-user install) | `prepublishOnly` script ran at publish time; bundle ships in the tarball |
-| Manual `bun run build`                                  | Any                  | Convenience for dev work outside the bin-entry path                      |
+| Trigger                                                         | Profile              | Mechanism                                                                |
+| --------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------ |
+| `git rev-parse HEAD` differs from `dist/.build-stamp`           | A (source install)   | Bin entry runs `bun build` synchronously at startup                      |
+| Docker image build                                              | B (Railway HTTP)     | `RUN bun build ...` step in `Dockerfile`                                 |
+| Future `bun install -g @edobry/minsky` from a published package | D (end-user install) | `prepublishOnly` script ran at publish time; bundle ships in the tarball |
+| Manual `bun run build`                                          | Any                  | Convenience for dev work outside the bin-entry path                      |
 
 The bin entry only rebuilds when source has actually changed; the HEAD-sentinel
 check is ~10ms. Subsequent `/mcp` reconnects on the same HEAD reuse the existing
@@ -62,11 +62,11 @@ if (existsSync(bundlePath)) {
 The realpath-based detection (resolving symlinks via `realpathSync(fileURLToPath(import.meta.url))`)
 correctly distinguishes three install shapes:
 
-| Install shape                                  | `realpath` resolves to                   | `src/cli.ts` exists?                       | Verdict           |
-| ---------------------------------------------- | ---------------------------------------- | ------------------------------------------ | ----------------- |
-| Direct exec from source repo                   | `~/Projects/minsky/scripts/cli-entry.ts` | Yes                                        | Source install    |
-| `bun link` symlink (today's global install)    | Source path (follows symlink)            | Yes                                        | Source install    |
-| `bun install -g minsky` from published package | Install path (no source)                 | No (excluded via `package.json` `"files"`) | Published install |
+| Install shape                                          | `realpath` resolves to                   | `src/cli.ts` exists?                       | Verdict           |
+| ------------------------------------------------------ | ---------------------------------------- | ------------------------------------------ | ----------------- |
+| Direct exec from source repo                           | `~/Projects/minsky/scripts/cli-entry.ts` | Yes                                        | Source install    |
+| `bun link` symlink (today's global install)            | Source path (follows symlink)            | Yes                                        | Source install    |
+| `bun install -g @edobry/minsky` from published package | Install path (no source)                 | No (excluded via `package.json` `"files"`) | Published install |
 
 ## Deployment profiles
 
@@ -91,7 +91,7 @@ correctly distinguishes three install shapes:
 - Same `package.json` `"bin"` entry; same bin entry logic
 - Daemon is long-lived; freshness check only fires when the daemon restarts (manually OR via mt#1713's supervisor catching staleness exit and respawning)
 
-### Profile D — Future end-user install (`bun install -g minsky` from npm)
+### Profile D — Future end-user install (`bun install -g @edobry/minsky` from npm)
 
 - `prepublishOnly` script builds the bundle at publish time
 - `package.json` `"files": ["dist/", "scripts/cli-entry.ts", ...]` ensures `src/` is NOT in the tarball
