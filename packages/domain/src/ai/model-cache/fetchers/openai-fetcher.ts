@@ -7,6 +7,7 @@
 
 import { ModelFetcher, CachedProviderModel, ModelFetchConfig, ModelFetchError } from "../types";
 import { AICapability, TokenizerInfo } from "../../types";
+import { fetchModelLimitsCatalog, type ModelLimitsCatalog } from "../model-limits-catalog";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -25,6 +26,36 @@ interface OpenAIModelsListResponse {
 }
 
 /**
+ * Human-readable display names for well-known model ids (mt#3457, PR #2752 R1).
+ *
+ * DISPLAY ONLY — deliberately separate from token limits, which come from the community catalog.
+ * The distinction is the whole point of keeping this table while deleting the old one: a stale
+ * display name is COSMETIC ("gpt-4o" instead of "GPT-4o"), whereas a stale token limit is a wrong
+ * number that silently changes routing and truncation decisions. The old `modelSpecs` table
+ * conflated the two, so its rot produced a 128x context-window error rather than an ugly label.
+ *
+ * Goes stale when OpenAI ships a model whose id is not listed here. The failure mode is bounded
+ * by construction: an unlisted id falls back to the raw id, which is exactly what the retired
+ * generic fallback already did for most models. **Nothing numeric depends on this map.** To
+ * refresh, add the id; there is nothing to verify beyond spelling.
+ *
+ * OpenAI's `GET /v1/models` carries no display-name field (unlike Anthropic's, which supplies
+ * `display_name` — see `anthropic-fetcher.ts`), which is why this cannot be sourced from the API.
+ */
+const DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  "gpt-4o": "GPT-4o",
+  "gpt-4o-mini": "GPT-4o Mini",
+  "gpt-4-turbo": "GPT-4 Turbo",
+  "gpt-4": "GPT-4",
+  "gpt-4.1": "GPT-4.1",
+  "gpt-4.1-mini": "GPT-4.1 Mini",
+  "gpt-4.1-nano": "GPT-4.1 Nano",
+  "gpt-3.5-turbo": "GPT-3.5 Turbo",
+  "o1-preview": "o1 Preview",
+  "o1-mini": "o1 Mini",
+};
+
+/**
  * OpenAI model fetcher implementation
  */
 export class OpenAIModelFetcher implements ModelFetcher {
@@ -32,6 +63,18 @@ export class OpenAIModelFetcher implements ModelFetcher {
 
   private readonly defaultBaseURL = "https://api.openai.com/v1";
   private readonly modelsEndpoint = "/models";
+
+  /**
+   * Catalog lookup, injected so the limits source is a seam rather than a module reach.
+   * Production constructs with no argument and gets the real fetch; tests supply a stub and
+   * never touch the network. Injecting this (instead of letting a test patch global `fetch`)
+   * is what keeps the omission behavior observable from a returned value.
+   */
+  private readonly fetchLimitsCatalog: typeof fetchModelLimitsCatalog;
+
+  constructor(deps: { fetchLimitsCatalog?: typeof fetchModelLimitsCatalog } = {}) {
+    this.fetchLimitsCatalog = deps.fetchLimitsCatalog ?? fetchModelLimitsCatalog;
+  }
 
   /**
    * Fetch models from OpenAI API
@@ -84,16 +127,42 @@ export class OpenAIModelFetcher implements ModelFetcher {
 
         log.info(`Fetched ${data.data.length} models from OpenAI API`);
 
-        // Convert OpenAI models to our cached model format
-        const cachedModels = await Promise.all(
-          data.data.map((model) => this.convertToCachedModel(model))
+        // Filter out non-GPT models that we don't support before doing any per-model work.
+        const supported = data.data.filter((model) => this.isSupportedModel(model.id));
+
+        // The listing carries no limits (mt#3457) — source them from the community catalog,
+        // once per refresh rather than per model. A null catalog is a degrade, not a failure:
+        // every model is then omitted rather than given an invented limit.
+        const limitsCatalog = await this.fetchLimitsCatalog(this.provider, {
+          timeoutMs: config.timeout,
+        });
+
+        if (!limitsCatalog) {
+          log.warn(
+            "OpenAI model refresh: limits catalog unavailable, so no model can be cached with " +
+              "trustworthy limits. Returning an empty set rather than fabricating values.",
+            { provider: this.provider, listed: supported.length }
+          );
+          return [];
+        }
+
+        const converted = supported.map((model) => this.convertToCachedModel(model, limitsCatalog));
+        const cachedModels = converted.filter(
+          (model): model is CachedProviderModel => model !== null
         );
 
-        // Filter out non-GPT models that we don't support
-        const supportedModels = cachedModels.filter((model) => this.isSupportedModel(model.id));
+        const omitted = supported.length - cachedModels.length;
+        if (omitted > 0) {
+          // Visible by construction: an absence shows up in the count, where a plausible-looking
+          // default would not (mt#3379's rationale).
+          log.info(
+            `OpenAI models omitted from cache for want of published limits: ${omitted} of ${supported.length}`,
+            { provider: this.provider }
+          );
+        }
 
-        log.debug(`Filtered to ${supportedModels.length} supported models`);
-        return supportedModels;
+        log.debug(`Filtered to ${cachedModels.length} supported models`);
+        return cachedModels;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -171,21 +240,34 @@ export class OpenAIModelFetcher implements ModelFetcher {
   /**
    * Convert OpenAI API model to our cached model format
    */
-  private async convertToCachedModel(apiModel: OpenAIModelResponse): Promise<CachedProviderModel> {
-    const capabilities = this.getStaticCapabilities(apiModel.id);
-    const modelInfo = this.getModelInfo(apiModel.id);
-    const tokenizer = this.getTokenizerInfo(apiModel.id);
+  private convertToCachedModel(
+    apiModel: OpenAIModelResponse,
+    limitsCatalog: ModelLimitsCatalog
+  ): CachedProviderModel | null {
+    const limits = limitsCatalog.get(apiModel.id);
+
+    if (!limits) {
+      // Omit rather than invent. `contextWindow` is exactly the field a caller consults to decide
+      // whether a payload fits or which model to route to, so a fabricated value is worse than an
+      // absent model — and the absence is visible in the omitted-count logged by fetchModels,
+      // where a plausible-looking default is not. This is mt#3379's rule, applied to the provider
+      // that publishes no limits at all.
+      log.debug("OpenAI model omitted: no published limits in the community catalog", {
+        modelId: apiModel.id,
+      });
+      return null;
+    }
 
     return {
       id: apiModel.id,
       provider: this.provider,
-      name: modelInfo.name,
-      description: modelInfo.description,
-      capabilities,
-      contextWindow: modelInfo.contextWindow,
-      maxOutputTokens: modelInfo.maxOutputTokens,
-      costPer1kTokens: modelInfo.costPer1kTokens,
-      tokenizer,
+      name: DISPLAY_NAMES[apiModel.id] ?? apiModel.id,
+      description: `OpenAI's ${DISPLAY_NAMES[apiModel.id] ?? apiModel.id}`,
+      capabilities: this.getStaticCapabilities(apiModel.id),
+      contextWindow: limits.contextWindow,
+      maxOutputTokens: limits.maxOutputTokens,
+      costPer1kTokens: limits.costPer1kTokens,
+      tokenizer: this.getTokenizerInfo(apiModel.id),
       fetchedAt: new Date(),
       status: this.getModelStatus(apiModel),
       providerMetadata: {
@@ -257,116 +339,6 @@ export class OpenAIModelFetcher implements ModelFetcher {
       { name: "structured-output", supported: false },
       { name: "image-input", supported: false },
     ];
-  }
-
-  /**
-   * Get detailed model information
-   */
-  private getModelInfo(modelId: string): {
-    name: string;
-    description: string;
-    contextWindow: number;
-    maxOutputTokens: number;
-    costPer1kTokens?: { input: number; output: number };
-  } {
-    // Known model specifications (these should be updated as OpenAI releases new models)
-    const modelSpecs: Record<
-      string,
-      {
-        name: string;
-        description: string;
-        contextWindow: number;
-        maxOutputTokens: number;
-        costPer1kTokens?: { input: number; output: number };
-      }
-    > = {
-      "gpt-4o": {
-        name: "GPT-4o",
-        description: "Most advanced GPT-4 model with improved reasoning",
-        contextWindow: 128000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.005, output: 0.015 },
-      },
-      "gpt-4o-mini": {
-        name: "GPT-4o Mini",
-        description: "Faster, more cost-efficient GPT-4o variant",
-        contextWindow: 128000,
-        maxOutputTokens: 16384,
-        costPer1kTokens: { input: 0.00015, output: 0.0006 },
-      },
-      "o1-preview": {
-        name: "o1 Preview",
-        description: "Advanced reasoning model with step-by-step thinking",
-        contextWindow: 128000,
-        maxOutputTokens: 32768,
-        costPer1kTokens: { input: 0.015, output: 0.06 },
-      },
-      "o1-mini": {
-        name: "o1 Mini",
-        description: "Faster reasoning model optimized for coding and math",
-        contextWindow: 128000,
-        maxOutputTokens: 65536,
-        costPer1kTokens: { input: 0.003, output: 0.012 },
-      },
-      "gpt-4-turbo": {
-        name: "GPT-4 Turbo",
-        description: "Latest GPT-4 model with improved instruction following",
-        contextWindow: 128000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.01, output: 0.03 },
-      },
-      "gpt-3.5-turbo": {
-        name: "GPT-3.5 Turbo",
-        description: "Fast and capable model for most conversational tasks",
-        contextWindow: 16385,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.0005, output: 0.0015 },
-      },
-    };
-
-    // Check for exact match first
-    if (modelSpecs[modelId]) {
-      return modelSpecs[modelId];
-    }
-
-    // Fallback to pattern matching for variants
-    if (modelId.startsWith("gpt-4o")) {
-      return {
-        name: `GPT-4o (${modelId})`,
-        description: "GPT-4o model variant",
-        contextWindow: 128000,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.005, output: 0.015 },
-      };
-    }
-
-    if (modelId.startsWith("gpt-4")) {
-      return {
-        name: `GPT-4 (${modelId})`,
-        description: "GPT-4 model variant",
-        contextWindow: 8192,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.03, output: 0.06 },
-      };
-    }
-
-    if (modelId.startsWith("gpt-3.5")) {
-      return {
-        name: `GPT-3.5 (${modelId})`,
-        description: "GPT-3.5 model variant",
-        contextWindow: 4096,
-        maxOutputTokens: 4096,
-        costPer1kTokens: { input: 0.0015, output: 0.002 },
-      };
-    }
-
-    // Generic fallback
-    return {
-      name: modelId,
-      description: `OpenAI model: ${modelId}`,
-      contextWindow: 4096,
-      maxOutputTokens: 4096,
-    };
   }
 
   /**

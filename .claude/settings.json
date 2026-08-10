@@ -180,6 +180,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-task-spec.ts",
             "timeout": 5,
             "statusMessage": "Validating task spec structure..."
+          },
+          {
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout=30 rather than the other entries' 15 because this matcher carries an 18s guard budget; the floor is enforced by the parity block in .minsky/hooks/registry.test.ts, which is what fails if either fact drifts.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 30,
+            "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
       },

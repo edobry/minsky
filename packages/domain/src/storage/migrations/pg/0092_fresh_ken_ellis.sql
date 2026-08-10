@@ -1,0 +1,32 @@
+--- Add the `no-workspace` outcome to subagent_invocation_outcome — mt#3894.
+---
+--- Each of the six mt#1005 outcome classes is a predicate over a workspace (commits, a dirty
+--- tree, a handoff.md, a PR). A raw harness `Agent` dispatch has no workspace: prompt-generation
+--- forbids `cd`, so its cwd is the MAIN repo, and classifying against that cwd describes the
+--- OPERATOR's checkout rather than the subagent. Every such row written since mt#2292 shipped
+--- the raw-path writer carried `partial-committed-handoff-written` plus main's HEAD in
+--- `last_commit_hash`, for subagents that committed nothing.
+---
+--- Reusing `pending` was rejected: it means "no outcome observed YET" (mt#1770), and this
+--- absence is permanent, not transient. See the enum's doc comment in
+--- subagent-invocations-schema.ts for the full rationale.
+---
+--- Backout:
+---   -- PG enums don't support DROP VALUE; would need to recreate the type.
+---   -- In practice, an unused enum value is harmless.
+---   (Same constraint and disposition as 0083_red_tarantula.sql.)
+---
+--- `IF NOT EXISTS` mirrors 0083/0042: makes re-application after a partial failure safe. Drizzle
+--- generates the bare form; the guard is added by hand, as it was there.
+---
+--- No data UPDATE here by design: Postgres cannot use a newly-added enum value in the same
+--- transaction that adds it. Correcting the already-written rows is therefore a separate,
+--- POST-DEPLOY step, and it is a SCRIPT rather than a follow-on migration — there is no 0093:
+---
+---   bun scripts/backfill-subagent-invocation-no-workspace.ts            # dry-run (default)
+---   bun scripts/backfill-subagent-invocation-no-workspace.ts --execute  # apply
+---
+--- A script rather than a migration because the sweep needs a dry-run, a scope-match guard
+--- against a recorded baseline, and an operator reading its output before it mutates anything —
+--- none of which a migration that runs unattended at boot can offer. Tracked at mt#3912.
+ALTER TYPE "public"."subagent_invocation_outcome" ADD VALUE IF NOT EXISTS 'no-workspace';
