@@ -271,16 +271,23 @@ jobs:
           # the build: a silent deploy failure is strictly worse than a loud
           # one, and "silent" is exactly what cost 4.5 days here.
 
+          # DEPLOY_TOKEN_SOURCE names the SECRET the token actually came from,
+          # and is carried into every downstream message (PR #2772 R1
+          # BLOCKING x2). Hardcoding a secret name into a failure message is
+          # how a debugger gets sent to inspect the wrong credential — the
+          # precise class of misleading signal this task exists to remove.
           if [ -n "${RAILWAY_MCP_TOKEN:-}" ]; then
-            echo "Using RAILWAY_MCP_TOKEN (minsky-mcp, mt#3907)."
             DEPLOY_TOKEN="${RAILWAY_MCP_TOKEN}"
+            DEPLOY_TOKEN_SOURCE="RAILWAY_MCP_TOKEN"
+            echo "Using the ${DEPLOY_TOKEN_SOURCE} secret (minsky-mcp, mt#3907)."
           else
-            echo "::warning::RAILWAY_MCP_TOKEN is not set — falling back to the generic RAILWAY_TOKEN, which is NOT scoped to minsky-mcp and is expected to fail (mt#3890)."
             DEPLOY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+            DEPLOY_TOKEN_SOURCE="RAILWAY_TOKEN"
+            echo "::warning::The RAILWAY_MCP_TOKEN secret is not set — falling back to the generic RAILWAY_TOKEN secret (exposed to this step as RAILWAY_TOKEN_FALLBACK), which is NOT scoped to minsky-mcp and is expected to fail (mt#3890)."
           fi
 
           if [ -z "${DEPLOY_TOKEN:-}" ]; then
-            echo "::error::Neither RAILWAY_MCP_TOKEN nor RAILWAY_TOKEN is set — minsky-mcp redeploy cannot be triggered."
+            echo "::error::Neither the RAILWAY_MCP_TOKEN nor the RAILWAY_TOKEN secret is set (the latter reaches this step as RAILWAY_TOKEN_FALLBACK) — minsky-mcp redeploy cannot be triggered."
             exit 1
           fi
 
@@ -352,16 +359,29 @@ jobs:
               railway redeploy --from-source --service "${SERVICE_ID}" -y
           }
 
-          echo "Attempt 1/2: treating the token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN)."
+          # Diagnostic only, never fatal: prints the authenticated identity so
+          # a credential failure is self-describing (PR #2772 R1 NON-BLOCKING —
+          # restored after being dropped when it stopped being the selector).
+          # Run under the account/workspace interpretation, since that is the
+          # only scope for which `whoami` is meaningful at all: a project token
+          # is not a user identity and legitimately reports nothing. Silence
+          # here is therefore evidence of a PROJECT token, not of a broken one.
+          # Email masked — this repo's CI logs are public.
+          echo "Railway auth identity (diagnostic; blank is expected for a project token):"
+          env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "RAILWAY_API_TOKEN=${DEPLOY_TOKEN}" \
+            railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
+            || echo "note: whoami reported no identity — expected for a project token, see below."
+
+          echo "Attempt 1/2: treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN)."
           if redeploy_with RAILWAY_API_TOKEN; then
-            echo "Railway redeploy triggered successfully via the CLI (account/workspace token)."
+            echo "Railway redeploy triggered successfully via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
           else
-            echo "Attempt 1 failed — retrying as PROJECT scope (RAILWAY_TOKEN)."
+            echo "Attempt 1 failed — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
             if redeploy_with RAILWAY_TOKEN; then
-              echo "Railway redeploy triggered successfully via the CLI (project token)."
+              echo "Railway redeploy triggered successfully via the CLI (${DEPLOY_TOKEN_SOURCE}, project scope)."
             else
               rc=$?
-              echo "::error::railway redeploy failed under BOTH token scopes (exit ${rc}). The token in RAILWAY_MCP_TOKEN is not valid for this service as either an account/workspace token or a project token — re-mint it for the minsky-mcp project."
+              echo "::error::railway redeploy failed under BOTH token scopes (exit ${rc}). The token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for this service as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
               exit "$rc"
             fi
           fi
