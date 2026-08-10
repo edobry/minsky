@@ -658,6 +658,73 @@ describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
     expect(propagated?.result.hadPropagation).toBe(true);
     expect(propagated?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
   });
+
+  // mt#3901 — the verdict was written as `every(occ => hasPropagationAfter(occ))`
+  // and commented as per-occurrence strictness. Because `hasPropagationAfter` is
+  // unbounded, it is monotone in position, so that conjunction was equivalent to
+  // a single check on the LAST occurrence. These pin the equivalence, so a future
+  // change that reintroduces the redundant form (or breaks the semantic) fails.
+  describe("mt#3901 — the verdict is a last-occurrence check, not a per-occurrence one", () => {
+    test("mt#3901 AT1: two research occurrences sharing ONE later capture -> propagated", async () => {
+      // The case that distinguishes the two formulations. The retired comment
+      // said this should be a miss ("one uncaptured piece of research is
+      // enough"); the code has always scored it propagated, and that is now the
+      // documented semantic. Recording it as a test makes the choice visible
+      // rather than emergent — the strict reading is mt#3783's rung-3 scope.
+      const lines = buildSession([
+        "research",
+        ...filler(2),
+        "research",
+        ...filler(2),
+        "propagate",
+        ...filler(6),
+      ]);
+      const detection = await detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+      expect(detection?.result.hadPropagation).toBe(true);
+      expect(detection?.suppressionReasons).toEqual([SUPPRESSION_PROPAGATION_IN_WINDOW]);
+    });
+
+    test("mt#3901 AT2: mt#3720 regression control — one occurrence, far-later capture, still propagated", async () => {
+      // mt#3720 deliberately made late capture a TRUE NEGATIVE. Re-bounding the
+      // propagation search to a window was the rejected option (a); this pins
+      // that it was not quietly adopted.
+      const lines = buildSession(["research", ...filler(18), "propagate", ...filler(2)]);
+      const detection = await detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+      expect(detection?.result.hadPropagation).toBe(true);
+    });
+
+    test("mt#3901 AT3: research AFTER the last capture -> miss", async () => {
+      // The case the old and new forms both get right, and the only shape that
+      // can still produce a miss: the session's final research is uncaptured.
+      const lines = buildSession([
+        "research",
+        ...filler(2),
+        "propagate",
+        ...filler(2),
+        "research",
+        ...filler(6),
+      ]);
+      const detection = await detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+      expect(detection?.result.hadPropagation).toBe(false);
+      expect(detection?.suppressionReasons).toEqual([]);
+    });
+
+    test("mt#3901 AT4: occurrence ORDER does not change the verdict", async () => {
+      // The implementation takes the max index rather than `at(-1)`, because
+      // nothing guarantees `matchedOccurrences` is ordered and the equivalence
+      // argument depends on genuinely reaching the LAST occurrence. Two research
+      // calls with the capture between them must be a miss regardless of the
+      // order the occurrences are collected in — the second research is
+      // uncaptured either way.
+      const lines = buildSession(["research", "propagate", "research", ...filler(6)]);
+      const detection = await detectKnowledgeAcquisition(lines, [SKILL], KEYWORDS, new Set());
+
+      expect(detection?.result.hadPropagation).toBe(false);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
