@@ -179,12 +179,18 @@ export class DefaultTokenizerService implements TokenizerService {
    * Detect tokenizer from model ID patterns
    */
   private detectTokenizerFromModel(modelId: string, provider?: string): TokenizerInfo | null {
-    // OpenAI model patterns
+    // `source` distinguishes a tokenizer we know is right for the model
+    // ("config") from one substituted because none exists ("fallback"). Every
+    // branch below reported "fallback" regardless, which made the field useless
+    // in both directions: it understated the OpenAI matches and gave the Claude
+    // and Gemini approximations no distinguishing mark (mt#3928).
+
+    // OpenAI model patterns — these encodings ARE these models' tokenizers.
     if (modelId.startsWith("gpt-4o") || modelId.startsWith("o1")) {
       return {
         encoding: "o200k_base",
         library: "gpt-tokenizer",
-        source: "fallback",
+        source: "config",
       };
     }
 
@@ -192,11 +198,17 @@ export class DefaultTokenizerService implements TokenizerService {
       return {
         encoding: "cl100k_base",
         library: "gpt-tokenizer",
-        source: "fallback",
+        source: "config",
       };
     }
 
-    // Claude model patterns
+    // Claude and Gemini keep "fallback", which is already correct: neither
+    // vendor publishes a local BPE (Anthropic exposes a `count_tokens` API
+    // endpoint instead), so `createAnthropicTokenizer` / `createGoogleTokenizer`
+    // below both return tiktoken `cl100k_base` whatever these encodings say.
+    // Those names are labels for a tokenizer that does not exist here; dispatch
+    // is on `library`, so correcting them is cosmetic and out of scope for
+    // mt#3928 — `source` is the field that has to be right.
     if (modelId.includes("claude")) {
       return {
         encoding: "claude-3",
@@ -205,7 +217,6 @@ export class DefaultTokenizerService implements TokenizerService {
       };
     }
 
-    // Gemini model patterns
     if (modelId.includes("gemini")) {
       return {
         encoding: "gemini",
