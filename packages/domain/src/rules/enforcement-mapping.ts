@@ -757,6 +757,13 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "UserPromptSubmit guard-dispatcher; routes to 20+ GUARD_REGISTRY sub-guards (detectors, injectors, calibration-review cadence)",
   },
 
+  // ── Display transforms: rewrite what is shown, decide nothing ──
+  {
+    configPath: ".claude/hooks/linkify-message-display.ts",
+    reason:
+      "MessageDisplay text transform (mt#2565); rewrites bare mt#NNNN / PR #N into deeplinks as a message is displayed and enforces no rule — it never denies, never injects context, and leaves the stored transcript untouched",
+  },
+
   // ── Calibration-mode detectors: default to log-only, not yet graduated to blocking ──
   {
     configPath: ".claude/hooks/warn-bare-prohibition-dispatch.ts",

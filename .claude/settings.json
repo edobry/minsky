@@ -580,6 +580,18 @@
           }
         ]
       }
+    ],
+    "MessageDisplay": [
+      {
+        "_comment": "mt#2565: linkifies bare mt#NNNN / PR #N refs in assistant output as it is displayed; the stored transcript keeps the bare ref. This event fires per BATCH OF COMPLETED LINES while a message streams, synchronously in the display path — far hotter than any other event here — so it deliberately does NOT go through the guard dispatcher (ADR-028 D7(5): keep per-invocation IO out of a hot path) and the hook itself loads no domain code. Timeout=5 is a ceiling, not a budget: the measured per-invocation cost is process startup plus a small state-file read. If a SECOND MessageDisplay consumer ever appears, add a dispatch-messagedisplay.ts entrypoint with a transform-shaped outcome rather than a second command here.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/linkify-message-display.ts",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
