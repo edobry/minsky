@@ -547,6 +547,19 @@ export interface RunDispatcherOptions {
    * decision. Diagnostics go to `stderrWrite`.
    */
   writeOutputFn?: (output: HookOutput) => void;
+  /**
+   * Records a PreToolUse guard denial into the 2-strikes stream (mt#3802).
+   *
+   * Injected rather than imported so this module keeps its no-`packages/domain`
+   * invariant; the entrypoint supplies the real recorder.
+   */
+  recordGuardDenialFn?: (denial: {
+    sessionId?: string;
+    toolName: string;
+    guardName: string;
+    reason: unknown;
+    toolInput: unknown;
+  }) => void;
   /** Injectable for tests — defaults to `process.stderr.write`. */
   stderrWrite?: (s: string) => void;
   /** Injectable for tests — defaults to the real `logCalibrationRecord`. */
@@ -801,6 +814,11 @@ export async function runDispatcher(
     ((evt, input, opts) => resolveDispatchContext(evt, input, opts));
   const recordError = options.recordGuardErrorFn ?? recordGuardError;
   const recordFireLog = options.recordFireLogFn ?? recordFireLogEntry;
+  // Defaults to a no-op because this module may not reach the tracker (see the
+  // deny branch). `dispatch-pretooluse.ts` supplies the real one — and
+  // `dispatcher-guard-denial.test.ts` asserts that it does, so the wiring
+  // cannot silently regress to the no-op.
+  const recordGuardDenialFn = options.recordGuardDenialFn ?? (() => {});
   const nowMs = options.nowMsFn ?? Date.now;
 
   const input = await readInputFn();
@@ -939,6 +957,40 @@ export async function runDispatcher(
       logCalibration(primaryLog, outcome.calibration);
     }
     if (outcome.deny && reg.denyCapable) {
+      // mt#3802: the 2-strikes tracker was registered PostToolUse only, and a
+      // denial means the tool never runs — so the class an agent is MOST likely
+      // to retry blindly was the one class nothing was watching. Recorded here,
+      // once, on the dispatcher's single deny branch, per ADR-028: a
+      // cross-cutting concern belongs to the dispatcher rather than to each of
+      // the denying guards.
+      //
+      // INJECTED, not imported: the tracker lives in `packages/domain`, and
+      // this file's own invariant is that it imports only siblings. The real
+      // recorder is wired at the entrypoint (`dispatch-pretooluse.ts`), which
+      // is allowed to reach the domain — same shape as `recordFireLogFn`.
+      // The recorder swallows its own failures (SC4); a tracker problem must
+      // never change the decision this branch is about to emit.
+      //
+      // Wrapped HERE, not just inside the default recorder (PR #2770 R1). The
+      // production recorder swallows its own failures, but that is a property
+      // of the current INJECTION, not of this seam — the parameter takes an
+      // arbitrary callback, and SC4's "a tracker failure never converts into a
+      // denied or failed tool call" has to hold for every one of them.
+      try {
+        recordGuardDenialFn({
+          sessionId: input.session_id,
+          toolName: input.tool_name,
+          guardName: reg.name,
+          reason: outcome.deny.reason,
+          toolInput: input.tool_input,
+        });
+      } catch (err) {
+        stderrWrite(
+          `[dispatcher] two-strikes denial recording failed (non-fatal): ${
+            err instanceof Error ? err.message : String(err)
+          }\n`
+        );
+      }
       writeOutputFn({
         hookSpecificOutput: {
           hookEventName: event,
