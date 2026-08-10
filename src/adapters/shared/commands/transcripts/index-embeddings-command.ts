@@ -45,6 +45,7 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
 import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
+import { formatExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
@@ -245,7 +246,9 @@ export function registerTranscriptIndexEmbeddingsCommand(
         }
 
         const message =
-          `Extraction: turnsWritten=${extractionResult?.turnsWritten ?? "error"}; ` +
+          `Extraction: ${
+            extractionResult ? formatExtractAllTurnsResult(extractionResult) : "error"
+          }; ` +
           `Embedding: embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
           `Summary: processed=${summaryResult?.transcriptsProcessed ?? "error"}`;
 
@@ -294,6 +297,8 @@ export function registerTranscriptIndexEmbeddingsCommand(
           transcriptsSkipped: classification.bucket === "skipped" ? 1 : 0,
           transcriptsErrored: classification.bucket === "errored" ? 1 : 0,
           turnsWritten: classification.turnsWritten,
+          turnsExtracted: classification.turnsExtracted,
+          chunkSplits: classification.chunkSplits,
           nonEmptyYieldedZero: classification.countNonEmptyYieldedZero ? 1 : 0,
           orphansDeleted: classification.orphansDeleted,
           aborted: false,
@@ -331,8 +336,14 @@ export function registerTranscriptIndexEmbeddingsCommand(
         });
       }
 
+      // mt#3911: render from the result's SHAPE, not from a hand-picked field
+      // list. The previous line printed `extracted=${turnsWritten}` — the wrong
+      // field under a label that reads like the right one, so a session that
+      // extracted 604 turns and wrote 104 reported `extracted=104`.
       const message =
-        `Session ${sessionId}: extracted=${extractionResult?.turnsWritten ?? "error"}, ` +
+        `Session ${sessionId}: ${
+          extractionResult ? formatExtractAllTurnsResult(extractionResult) : "extraction=error"
+        }, ` +
         `embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
         `summary=${summaryProcessed ? "generated" : "skipped"}`;
 
