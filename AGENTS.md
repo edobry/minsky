@@ -1487,7 +1487,7 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 - The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
 - The task is gated on a principal-owned decision — and you can NAME which reserved category from `principal-context.mdc §Decisions Eugene reserves` it falls under.
 
-**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes. (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
+**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes; preferences that set a durable default (a one-off preference call is yours to make). (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
 
 **Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
@@ -1542,6 +1542,12 @@ execution`, principal-level decisions stay with Eugene:
 - Scope changes to in-flight work
 - Vendor commitments (signup actions, paid plan upgrades)
 - **Framework choices** when stakes are principal-level
+- Preferences that set a **durable default** — the default model, a standing tool or format
+  choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and
+  say what you picked. (ask#7587, 2026-08-10 — filed because this list and `humility.mdc`
+  §"Preference-bound decisions … are not yours to make alone" contradicted each other, and a
+  detector fired on an agent that halted correctly. The durability, not the taste, is what makes
+  it reserved.)
 
 ### Trigger rule — before applying any framework
 

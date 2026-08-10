@@ -488,3 +488,68 @@ describe("detectReservedCategoryHalt (mt#3768)", () => {
     expect(detectReservedCategoryHalt("")).toEqual([]);
   });
 });
+
+// mt#3917: precision fixes from the 2026-08-10 calibration pass. Each case is a
+// VERBATIM tail from `.minsky/untaken-action-calibration.jsonl`, not an invented
+// example — the file's own tuning discipline.
+describe("mt#3917 precision fixes", () => {
+  describe("durable-default preference is reserved; a one-off is not (ask#7587)", () => {
+    test("suppresses the 2026-08-09T00:09Z fire", () => {
+      const real =
+        "picking the replacement myself because which model becomes your default is your " +
+        "preference, not a capability gap. Say the word and a model and it's done.";
+      expect(detectReservedCategoryHalt(real).length).toBeGreaterThan(0);
+    });
+
+    test("a ONE-OFF preference still fires — the discriminator is durability, not taste", () => {
+      // The operator chose C: reserve a preference only once it sets a durable
+      // default. A bare "your preference" must NOT suppress, or the fix inverts
+      // the decision it is implementing.
+      const oneOff =
+        "Which shade of blue do you want for this one diagram? It's your preference. " +
+        "Say the word and it's done.";
+      expect(detectReservedCategoryHalt(oneOff)).toEqual([]);
+    });
+
+    test("durability alone, with no preference framing, does not suppress", () => {
+      const durableOnly = "This becomes the default timeout for every retry. I'll wire it up.";
+      expect(detectReservedCategoryHalt(durableOnly)).toEqual([]);
+    });
+  });
+
+  describe("a delegated watcher is not an untaken action", () => {
+    test("suppresses the 2026-08-09T04:18Z fire", () => {
+      const real =
+        "Decision and its basis are recorded in the spec. Blocked only on CI now — " +
+        "I'll merge when the checks task reports back.";
+      expect(detectUntakenAction(real)).toEqual([]);
+    });
+
+    test("an unarmed commitment with no watcher still fires", () => {
+      expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("an attributed next step is a description, not a commitment", () => {
+    test("suppresses the 2026-08-10T10:09Z fire", () => {
+      const real =
+        "every rung reported absent while the service was actively 422ing, and the " +
+        "documented next step is bypass merge.";
+      expect(detectUntakenAction(real)).toEqual([]);
+    });
+
+    test("the agent's OWN next step still fires", () => {
+      expect(detectUntakenAction("Next step is to rerun the migration.").length).toBeGreaterThan(0);
+    });
+
+    test("attribution suppresses only its own match, not a real commitment beside it", () => {
+      // Per-match, not global: the quoted procedure must not silence the
+      // commitment that follows it.
+      const mixed =
+        "The documented next step is bypass merge. I'll implement the fix in this session.";
+      const families = detectUntakenAction(mixed).map((m) => m.family);
+      expect(families).toContain("ill-action");
+      expect(families).not.toContain("next-up");
+    });
+  });
+});

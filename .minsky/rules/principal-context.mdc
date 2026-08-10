@@ -25,6 +25,12 @@ execution`, principal-level decisions stay with Eugene:
 - Scope changes to in-flight work
 - Vendor commitments (signup actions, paid plan upgrades)
 - **Framework choices** when stakes are principal-level
+- Preferences that set a **durable default** — the default model, a standing tool or format
+  choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and
+  say what you picked. (ask#7587, 2026-08-10 — filed because this list and `humility.mdc`
+  §"Preference-bound decisions … are not yours to make alone" contradicted each other, and a
+  detector fired on an agent that halted correctly. The durability, not the taste, is what makes
+  it reserved.)
 
 ### Trigger rule — before applying any framework
 

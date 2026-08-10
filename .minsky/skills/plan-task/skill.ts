@@ -1029,6 +1029,8 @@ conversations, all of them this skill's gate reports).
    - Scope changes to in-flight work
    - Vendor commitments
    - Framework choices when stakes are principal-level
+   - Preferences that set a durable default (the default model, a standing tool or format
+     choice). A one-off preference call is the agent's — make it and say what you picked.
 
    That list is restated here because the halt happens here, but it is a COPY. The canonical
    source is \`principal-context.mdc §Decisions Eugene reserves\` — edit there first; if the two

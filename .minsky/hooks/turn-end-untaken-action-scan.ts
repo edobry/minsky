@@ -140,6 +140,14 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bwaiting\s+(?:for|on)\s+/i,
   /\bno\s+action\s+needed\s+from\s+you\b/i,
   /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
+  // mt#3917: the watcher reports to the AGENT, not the agent to the principal.
+  // The line above covers "I'll report back when …"; the 2026-08-09T04:18Z fire
+  // was "Blocked only on CI now — I'll merge when the checks task reports back",
+  // where the subject is the watcher. `work-completion.mdc §External
+  // self-resolving waits` prescribes exactly that shape, so firing on it tells
+  // the agent to override the rule it was following.
+  /\bwhen\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
+  /\bblocked\s+only\s+on\s+(?:ci\b|checks\b|the\s+build\b)/i,
 ];
 
 /**
@@ -212,6 +220,46 @@ const RESERVED_CATEGORY_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 /**
+ * A preference is reserved ONLY once it establishes a durable default (ask#7587).
+ *
+ * The six categories above are the list `principal-context.mdc` carried, and a
+ * preference is on none of them — so the 2026-08-09T00:09Z fire ("which model
+ * becomes your default is your preference, not a capability gap") named no
+ * category and was flagged. `humility.mdc` says the opposite for preference-bound
+ * decisions, and the operator settled the conflict: **reserve a preference when it
+ * becomes a durable default; decide a one-off inline.**
+ *
+ * That answer is a DISCRIMINATOR, not a phrase. Matching "your preference" alone
+ * would suppress exactly the one-off case the operator kept with the agent, which
+ * inverts the decision — so both halves are required: the message must frame the
+ * choice as the principal's taste AND mark it as durable. "Which font do you want
+ * for this one diagram?" carries the first and not the second, and still fires.
+ */
+const DURABLE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:becomes?|be|is)\s+(?:your|the)\s+default\b/i,
+  /\byour\s+default\b/i,
+  /\bstanding\s+(?:preference|default|choice)\b/i,
+  /\b(?:from\s+now\s+on|going\s+forward)\b/i,
+  /\bdefault\s+(?:for\s+)?(?:every|all)\b/i,
+];
+
+const PREFERENCE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\byour\s+(?:preference|taste)\b/i,
+  /\bpreference[-\s]bound\b/i,
+  /\bnot\s+a\s+capability\s+gap\b/i,
+  /\byours\s+to\s+set\b/i,
+];
+
+/** First matching phrase from `list`, or undefined. */
+function firstMatch(list: ReadonlyArray<RegExp>, text: string): string | undefined {
+  for (const re of list) {
+    const m = re.exec(text);
+    if (m) return m[0];
+  }
+  return undefined;
+}
+
+/**
  * Returns the reserved-category phrases the message names, in match order.
  *
  * Runs over the SAME elided text the commitment scan uses, so a category named
@@ -228,6 +276,13 @@ export function detectReservedCategoryHalt(finalMessage: string): string[] {
   for (const re of RESERVED_CATEGORY_PATTERNS) {
     const m = re.exec(scanned);
     if (m) named.push(m[0]);
+  }
+  // A durable-default preference is reserved per ask#7587 — but only when BOTH
+  // halves are present, so a one-off preference call still fires.
+  const durable = firstMatch(DURABLE_MARKER_PATTERNS, scanned);
+  const preference = firstMatch(PREFERENCE_MARKER_PATTERNS, scanned);
+  if (durable !== undefined && preference !== undefined) {
+    named.push(`${preference} / ${durable}`);
   }
   return named;
 }
@@ -304,9 +359,52 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   const matches: UntakenActionMatch[] = [];
   for (const { family, re } of COMMITMENT_PATTERNS) {
     const m = re.exec(tail);
-    if (m) matches.push({ family, matchedPhrase: m[0] });
+    if (!m) continue;
+    if (isAttributedStep(tail, m.index)) continue;
+    matches.push({ family, matchedPhrase: m[0] });
   }
   return matches;
+}
+
+/**
+ * Words that attribute a next step to a DOCUMENT or PROCEDURE rather than to the
+ * speaker (mt#3917).
+ *
+ * The `next-up` family matches `next step is`, which is a commitment when the
+ * agent says it and a description when a document does. The 2026-08-10T10:09Z
+ * fire was "…every rung reported 'absent' while the service was actively 422ing,
+ * and the documented next step is bypass merge" — narrating what a runbook
+ * prescribes while diagnosing, committing to nothing.
+ *
+ * Checked against the text immediately BEFORE the match rather than the whole
+ * message, and per-match rather than as a `SUPPRESSION_PATTERNS` entry: a global
+ * suppression would silence a real commitment that happens to share a message
+ * with a quoted procedure, which is the over-suppression this guard's own
+ * doc comment warns against.
+ *
+ * This is one instance of a matcher weakness three detectors share — mt#3864
+ * (`pre-narration` fires on historical and quoted statements) and mt#3865
+ * (`operator-deferral` fires on rule text describing the detector itself). If a
+ * fourth appears, the shared "asserted vs described" primitive is worth lifting
+ * out rather than patched a fourth time.
+ */
+const ATTRIBUTION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:documented|prescribed|recommended|official|canonical)\s*$/i,
+  /\b(?:the\s+)?(?:docs?|runbook|skill|rule|procedure|playbook)\s+says?\s*$/i,
+  /\baccording\s+to\s+[\w\s.'-]{0,30}$/i,
+  /\bper\s+(?:the\s+)?[\w\s.'-]{0,30}$/i,
+];
+
+/** Chars of preceding context an attribution marker may occupy. */
+const ATTRIBUTION_LOOKBACK_CHARS = 40;
+
+/**
+ * Does the text right before `index` attribute the step to something other than
+ * the speaker?
+ */
+export function isAttributedStep(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - ATTRIBUTION_LOOKBACK_CHARS), index);
+  return ATTRIBUTION_PATTERNS.some((re) => re.test(before));
 }
 
 /**
