@@ -9,6 +9,11 @@ import { profileCheckpoint } from "@minsky/shared/cold-start-profile";
 import { PersistenceConfig } from "../types";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
+  classifyVectorProbe,
+  describeProbeRows,
+  VectorCapabilityProbeInconclusiveError,
+} from "../vector-capability-probe";
+import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
@@ -59,7 +64,18 @@ export class PostgresProviderFactory {
       `;
       profileCheckpoint("pg_probe_pgvector");
 
-      const hasVectorExtension = result[0]?.exists ?? false;
+      // mt#3833: three outcomes, not two. `result[0]?.exists ?? false` used to
+      // render "the probe did not answer" as "the extension is absent", and the
+      // resulting provider — successfully constructed, merely less capable — was
+      // memoized for the process lifetime with nothing to retry it, because
+      // nothing had failed. Propagating instead is ADR-035 rule 1's first
+      // remedy, and it reuses the container's existing retry rather than
+      // re-deriving one here.
+      const probeOutcome = classifyVectorProbe(result);
+      if (probeOutcome === "inconclusive") {
+        throw new VectorCapabilityProbeInconclusiveError(describeProbeRows(result));
+      }
+      const hasVectorExtension = probeOutcome === "present";
 
       // Hand the probed client to the provider for REUSE — do NOT end() it here.
       // The provider adopts it (its close() owns the lifecycle from now on).
