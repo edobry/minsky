@@ -104,7 +104,11 @@ import {
   classifyIdInput,
 } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import {
+  computeFormLintMatches,
+  findSerializedParameterArtifact,
+  type FormLintMatch,
+} from "@minsky/domain/ask/form-lint";
 import { linkifyExternalRefs } from "@minsky/domain/ask/external-refs";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
@@ -942,6 +946,41 @@ export function normalizeQuestionForLint<T extends { question?: string }>(params
   return text === params.question ? params : { ...params, question: text };
 }
 
+/**
+ * Reject a question carrying the tool call's own parameter encoding (mt#3936).
+ *
+ * Deliberately NOT a `computeFormLintMatches` check, for two reasons. It must
+ * fire ahead of `acknowledgeFormWarnings`, which the lint pipeline sits behind;
+ * and it is not a judgment about form at all — the markers it looks for cannot
+ * occur in prose an author wrote, so there is no calibration question and no
+ * false-positive posture to tune.
+ *
+ * What this DOES and does not buy: it catches the corruption when the artifact
+ * lands IN the question, which is the shape three production rows actually
+ * took. It cannot catch the sibling shape where `options` is dropped and the
+ * question arrives clean — server-side, that is indistinguishable from an
+ * author who supplied no options, which is exactly why the
+ * `missing-decision-options` message cannot be made to tell them apart.
+ */
+export function assertNoSerializedParameterArtifact(
+  question: string | undefined,
+  surface: "asks.create" | "asks.edit" = "asks.create"
+): void {
+  if (typeof question !== "string") return;
+  const marker = findSerializedParameterArtifact(question);
+  if (marker === null) return;
+  throw new ValidationError(
+    `${surface}: the question contains \`${marker}\`, which is tool-call parameter markup, ` +
+      `not prose. This means the call's encoding leaked into the question value — and ` +
+      `anything that followed it, typically the \`options\` array, was swallowed with it ` +
+      `rather than arriving as data.\n\n` +
+      `Do NOT work around this by rewording the question or by passing ` +
+      `acknowledgeFormWarnings (it does not apply here). Re-issue the call with each ` +
+      `parameter supplied separately. If the options array keeps arriving empty while you ` +
+      `are supplying it, that is mt#3936 — a shorter question is the known workaround.`
+  );
+}
+
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
   return matches.filter(
     (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
@@ -1031,6 +1070,13 @@ export function validateFormLintNotViolated(params: {
    */
   surface?: "asks.create" | "asks.edit";
 }): void {
+  // mt#3936: BEFORE the acknowledge escape, deliberately. Every other check
+  // here describes an ask that is ill-FORMED — too long, no buttons — where an
+  // author can reasonably say "yes, I meant that." This one describes a
+  // question that has swallowed the tool call's own parameter encoding, which
+  // is never something an author meant, and which silently destroyed the
+  // sibling `options` array on its way in. There is nothing to acknowledge.
+  assertNoSerializedParameterArtifact(params.question, params.surface);
   if (params.acknowledgeFormWarnings) return;
   // Absence of kind/question is a required-field concern the parameter
   // schema already enforces — nothing for this check to add.
@@ -1821,6 +1867,10 @@ export async function validateEditFormLintAgainstExistingAsk(
     acknowledgeFormWarnings?: boolean;
   }
 ): Promise<void> {
+  // mt#3936: same reasoning as the create path — an edit can carry the
+  // artifact in exactly as a create can, and repairing a corrupted ask by
+  // writing MORE corrupted markup into it is the one outcome to prevent.
+  assertNoSerializedParameterArtifact(params.question, "asks.edit");
   if (params.acknowledgeFormWarnings) return;
   if (!repo) return; // fail-open — execute() surfaces its own clear error
 

@@ -22,7 +22,12 @@
 import { describe, expect, test } from "bun:test";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { OPTION_LABEL_BUDGET } from "@minsky/shared/ask-option-label";
-import { filterBlockingFormLintMatches, validateFormLintNotViolated } from "./asks";
+import { findSerializedParameterArtifact } from "@minsky/domain/ask/form-lint";
+import {
+  assertNoSerializedParameterArtifact,
+  filterBlockingFormLintMatches,
+  validateFormLintNotViolated,
+} from "./asks";
 
 const KIND_DIRECTION_DECIDE = "direction.decide" as const;
 const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
@@ -247,5 +252,47 @@ describe("validateFormLintNotViolated (mt#3326)", () => {
       { check: CHECK_MISSING_FORCE_IMMEDIATE, message: "m2" },
     ]);
     expect(kept.map((m) => m.check)).toEqual([CHECK_MISSING_DECISION_OPTIONS]);
+  });
+});
+
+// ── mt#3936: serialization artifacts in the question ────────────────────────
+
+describe("assertNoSerializedParameterArtifact (mt#3936)", () => {
+  test("rejects the exact shape ask#7484 stored in production", () => {
+    // Verbatim tail of the real corrupted row: the question swallowed its own
+    // closing tag and the entire sibling options array.
+    const corrupted =
+      "Only you can grant the token its scope. Evidence in mt#3890.</question>\n" +
+      '<parameter name="options">[{"label": "Re-scope RAILWAY_TOKEN", "value": "rescope"}]';
+    expect(() => assertNoSerializedParameterArtifact(corrupted)).toThrow(/parameter markup/);
+  });
+
+  test("the error names the specific marker found, not a generic complaint", () => {
+    expect(() => assertNoSerializedParameterArtifact("text</question>more")).toThrow(
+      /`<\/question>`/
+    );
+  });
+
+  test("names the surface, so an edit rejection does not read as a create rejection", () => {
+    expect(() => assertNoSerializedParameterArtifact("bad</parameter>", "asks.edit")).toThrow(
+      /^asks\.edit:/
+    );
+  });
+
+  test("ordinary prose passes, including prose that merely mentions parameters or XML", () => {
+    // The markers are exact tag syntax; discussing them is not writing them.
+    expect(() =>
+      assertNoSerializedParameterArtifact(
+        "The options parameter is empty. See <https://example.com> and the `parameter name` docs."
+      )
+    ).not.toThrow();
+    expect(() => assertNoSerializedParameterArtifact("a < b and c > d")).not.toThrow();
+    expect(() => assertNoSerializedParameterArtifact(undefined)).not.toThrow();
+  });
+
+  test("findSerializedParameterArtifact reports which marker matched, or null", () => {
+    expect(findSerializedParameterArtifact("clean question")).toBeNull();
+    expect(findSerializedParameterArtifact('x<parameter name="options">')).toBe("<parameter name=");
+    expect(findSerializedParameterArtifact("y</invoke>")).toBe("</invoke>");
   });
 });
