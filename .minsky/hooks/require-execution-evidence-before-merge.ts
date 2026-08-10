@@ -150,10 +150,24 @@ export function isOperationalScript(filename: string): boolean {
  *     the previous filename did NOT match a test pattern (i.e. this is a conversion
  *     into a test file, not merely a rename of an existing test file).
  */
-export function findNewTestFiles(files: PrFile[]): string[] {
+export function findNewTestFiles(
+  files: PrFile[],
+  /**
+   * The test-file predicate, injectable (mt#3868).
+   *
+   * Defaults to the shared {@link isTestFile}, so every production caller is
+   * unchanged. The seam exists so a measurement can REPLAY this exact function
+   * under a different predicate instead of re-implementing its status logic —
+   * the renamed/copied/`previous_filename` handling below is subtle enough that
+   * a copy would drift from it, and a measurement that drifts from the gate is
+   * not a measurement of the gate. Used by
+   * `scripts/measure-tsx-test-gate-impact.ts`.
+   */
+  isTest: (filename: string) => boolean = isTestFile
+): string[] {
   return files
     .filter((f) => {
-      if (!isTestFile(f.filename)) return false;
+      if (!isTest(f.filename)) return false;
       if (f.status === "added") return true;
       if (f.status === "renamed" || f.status === "copied") {
         // Only count if the source was NOT already a test file (new-test-file
@@ -162,7 +176,7 @@ export function findNewTestFiles(files: PrFile[]): string[] {
         // ./pr-context explains why `!== undefined` alone is unsafe), not
         // just `!== undefined`.
         if (f.previous_filename != null) {
-          return !isTestFile(f.previous_filename);
+          return !isTest(f.previous_filename);
         }
         // No previous_filename info available — conservatively include it
         return true;
