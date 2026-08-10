@@ -5802,6 +5802,11 @@
                   "flags": ["--poll-interval-seconds"],
                   "description": "Poll cadence. Default: 10 seconds.",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--not-before"],
+                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+                  "takesValue": true
                 }
               ]
             },
