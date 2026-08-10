@@ -19,6 +19,36 @@
  *       `railway.source.image`); repo-source deploys have no registry tag
  *       to compare against — see "Does NOT cover" below.
  *
+ * A fourth alert class, `check-failed`, fires when any of (a)/(b)/(c) could
+ * not COMPLETE (mt#3921) — the credential is wrong-scoped, the registry is
+ * unreachable, a response will not parse. A service with an unrunnable check
+ * is DEGRADED, not HEALTHY, because the monitor has observed nothing about
+ * it. Scoring lives in packages/domain/src/deployment/monitor-verdict.ts,
+ * which carries the full rule and the incident that produced it.
+ *
+ * ### Covers (check-failed, mt#3921)
+ *
+ *   - Any credential, network, or parse failure that prevents a check from
+ *     running, on any service, including the fleet-wide case: the five
+ *     services span four Railway projects, so one wrong-scoped token blinds
+ *     all of them at once, which is exactly what happened for 4.5 days.
+ *   - A monitor deployed with NO Railway credential at all.
+ *
+ * ### Does NOT cover (check-failed, mt#3921)
+ *
+ *   - A check that runs and returns a WRONG answer (a stale Railway record,
+ *     a registry serving a cached manifest). This class detects checks that
+ *     cannot run, not checks that lie. No current owner — file a task if
+ *     such an incident occurs.
+ *   - The monitor workflow failing to run at all (a cancelled schedule, a
+ *     broken `bun install`, GitHub Actions downtime). Nothing inside this
+ *     script can observe its own absence; that gap belongs to whatever
+ *     watches the workflow's run history. No current owner.
+ *   - Alert DELIVERY. This class decides an alert is warranted; whether it
+ *     reaches the operator is the primary GitHub-issue path plus the
+ *     secondary cockpit-ask path, and the latter is separately broken —
+ *     mt#2782 owns it.
+ *
  * ### Covers (check (c), mt#3251)
  *
  *   - A service's deploy pipeline silently failing to ship new images to
@@ -67,15 +97,22 @@
  *     that deploy shape is not verified by this check. No current owner —
  *     file a follow-up task if a "repo-source service frozen" incident
  *     motivates one.
- *   - minsky-ops — skipped like all other checks (empty serviceId).
+ *     (minsky-ops is NOT in this category: it was provisioned with an
+ *     image-source config sharing minsky-mcp's project, so check (c) applies
+ *     to it. This line previously claimed it was skipped for an empty
+ *     serviceId — corrected mt#3921.)
  *   - Whether the NEWEST registry image was built from the CORRECT source
  *     commit. This check only verifies "did the newest pushed image reach
  *     Railway," not "was the right code built into that image."
  *   - A multi-arch index whose `manifests` array cannot be parsed into any
  *     per-platform digest (mt#3251 R1). Rather than guess and risk a
- *     permanent false positive, this degrades to a logged, non-alerting
- *     "cannot compare" skip — the same fail-open discipline as any other
- *     lookup failure in this check.
+ *     permanent false `digest-lag` positive, this never claims a lag.
+ *     It does NOT pass silently either (mt#3921): like any other lookup
+ *     failure here it marks the check `failed`, which raises a
+ *     `check-failed` alert saying the digest could not be compared. The two
+ *     classes answer different questions — "is this service on a stale
+ *     image?" versus "can this monitor tell?" — and only the first would be
+ *     a false alarm.
  *   - An operator deliberately rolling back to an older image. This
  *     check has no way to distinguish an intentional rollback from an
  *     unintentional freeze — both alert (after the sustained-check above
@@ -89,9 +126,10 @@
  *     ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer, which are
  *     public). If package visibility is later changed to private, the
  *     registry fetch will fail and this check degrades to a logged
- *     warning (see fetchGhcrManifest's caller in checkService) —
- *     it does NOT alert on that failure, since a lookup failure is not
- *     evidence of a digest lag.
+ *     warning (see fetchGhcrManifest's caller in checkService). It never
+ *     alerts `digest-lag` on that failure, since a lookup failure is not
+ *     evidence of a lag — but as of mt#3921 it does alert `check-failed`,
+ *     because a check that cannot reach the registry is not one that passed.
  *
  * Primary alert:   Open / update a GitHub P0 issue per service+failure-class.
  *                  De-duped so a sustained outage updates ONE issue, not N.
@@ -108,8 +146,9 @@
  *   needs no changes.
  *
  *   A service is SKIPPED when its railway.serviceId is empty (the standard
- *   "not yet provisioned" convention — e.g., minsky-ops). This is exclusion by
- *   data, not by name-based special-casing.
+ *   "not yet provisioned" convention). This is exclusion by data, not by
+ *   name-based special-casing. As of mt#3921 no service is in that state —
+ *   all five carry a serviceId, so all five are checked.
  *
  *   Source of truth for healthUrl: services/<svc>/deploy.config.ts (healthUrl
  *   field on the DeploymentConfig). See packages/shared/src/deployment/config.ts.
@@ -154,6 +193,14 @@ import {
   identityForServiceDir,
   type ServiceIdentity,
 } from "../packages/domain/src/deployment/health-identity";
+// mt#3921 — the verdict scorer lives outside this file because this file calls
+// main() at module scope; a test cannot import it without running the monitor.
+import {
+  scoreService,
+  type AlertClass,
+  type CheckOutcome,
+  type ServiceCheckSummary,
+} from "../packages/domain/src/deployment/monitor-verdict";
 
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
@@ -183,8 +230,9 @@ interface ServiceDef {
  *
  * This is the runtime realisation of the spec/PR/docs claim that the monitor runs
  * "for each service with a provisioned deploy.config.ts serviceId". A service with
- * an empty serviceId is excluded by data (not by name), matching the convention
- * in services/minsky-ops/deploy.config.ts.
+ * an empty serviceId is excluded by data (not by name). minsky-ops was the
+ * example of that convention when this comment was written and no longer is —
+ * it now carries a serviceId and is checked like the rest (mt#3921).
  *
  * Source of truth for health URLs: the `healthUrl` field of each DeploymentConfig.
  * See packages/shared/src/deployment/config.ts.
@@ -644,16 +692,15 @@ async function githubRequest<T>(
  * Issue title for a given service+failure-class combo.
  * Used as the de-duplication key: search for an open issue with this exact title.
  */
-function issueTitle(
-  serviceName: string,
-  failureClass: "deploy-failed" | "health-down" | "digest-lag"
-): string {
+function issueTitle(serviceName: string, failureClass: AlertClass): string {
   const classLabel =
     failureClass === "deploy-failed"
       ? "Deploy FAILED/CRASHED"
       : failureClass === "health-down"
         ? "Health check DOWN"
-        : "Deployed image digest lags registry";
+        : failureClass === "check-failed"
+          ? "Monitor checks could not run — service state UNKNOWN"
+          : "Deployed image digest lags registry";
   return `[P0] ${serviceName}: ${classLabel}`;
 }
 
@@ -764,7 +811,7 @@ async function alertViaGitHubIssue(
   repo: string,
   token: string,
   serviceName: string,
-  failureClass: "deploy-failed" | "health-down" | "digest-lag",
+  failureClass: AlertClass,
   details: string,
   dryRun: boolean
 ): Promise<string> {
@@ -1252,6 +1299,18 @@ interface CheckResult {
   digestLagError: string | null;
   skipped: boolean;
   skipReason: string | null;
+  /**
+   * mt#3921 — the three-state per-check outcomes the verdict scorer reads.
+   * The booleans above say whether a check that RAN found a problem; this says
+   * whether it ran at all. Scoring the first without the second is what let a
+   * fleet-wide credential failure report five HEALTHY services for 4.5 days.
+   */
+  summary: ServiceCheckSummary;
+}
+
+/** mt#3921 — a check that does not apply to this service by design. */
+function notApplicableCheck(detail: string) {
+  return { outcome: "not-applicable" as CheckOutcome, detail, problem: false };
 }
 
 async function checkService(svc: ServiceDef, railwayToken: string | null): Promise<CheckResult> {
@@ -1273,6 +1332,12 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
       digestLagError: null,
       skipped: true,
       skipReason: "serviceId not provisioned",
+      summary: {
+        service: svc.name,
+        deploy: notApplicableCheck("serviceId not provisioned"),
+        health: notApplicableCheck("serviceId not provisioned"),
+        digest: notApplicableCheck("serviceId not provisioned"),
+      },
     };
   }
 
@@ -1285,6 +1350,10 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   // fetched deployment's `meta.imageDigest` instead of a second Railway call.
   let deployment: RailwayDeploymentNode | null = null;
 
+  // mt#3921 — `failed` means the check could not run, which is NOT a pass.
+  let deployOutcome: CheckOutcome = "ok";
+  let deployDetail: string | null = null;
+
   if (railwayToken) {
     try {
       deployment = await fetchLatestDeployment(svc.serviceId, railwayToken);
@@ -1293,16 +1362,26 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
         deployId = deployment.id;
         deployCreatedAt = deployment.createdAt;
         deployAlert = FAILED_TERMINAL_STATUSES.has(deployment.status);
+        deployDetail = `latest deployment ${deployment.id} is ${deployment.status}`;
       } else {
         deployStatus = "NO_DEPLOYMENTS";
+        deployDetail = "Railway reports no deployments for this service";
       }
     } catch (err) {
-      console.warn(`[${svc.name}] Railway deploy check failed: ${err}`);
-      // Non-fatal: continue to health check.
-      deployStatus = `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[${svc.name}] Railway deploy check failed: ${message}`);
+      // Non-fatal for the sweep — the health check below still runs — but the
+      // check itself did not complete, so it contributes an alert rather than
+      // silently counting as a pass.
+      deployStatus = `ERROR: ${message}`;
+      deployOutcome = "failed";
+      deployDetail = message;
     }
   } else {
+    // No credential is "I cannot look," not "nothing to look at."
     deployStatus = "SKIPPED (no RAILWAY_TOKEN)";
+    deployOutcome = "failed";
+    deployDetail = "RAILWAY_TOKEN is not set — the monitor has no Railway credential";
   }
 
   // --- (b) HTTP /health probe ---
@@ -1310,6 +1389,11 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   let healthStatus: number | null = null;
   let healthAlert = false;
   let healthError: string | null = null;
+
+  // A service with no configured health endpoint has nothing to probe — that
+  // is a design fact, not a failure to observe one.
+  const healthOutcome: CheckOutcome = svc.healthUrl ? "ok" : "not-applicable";
+  let healthDetail: string | null = svc.healthUrl ? null : "no healthUrl configured";
 
   if (svc.healthUrl) {
     // mt#3148: resolve the expected identity from the service DIRECTORY name
@@ -1321,6 +1405,11 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthStatus = probe.statusCode;
     healthError = probe.error;
     healthAlert = !probe.ok;
+    // An unreachable endpoint is an observation, not an unrunnable check: the
+    // probe ran and the service failed to answer.
+    healthDetail = probe.ok
+      ? `HTTP ${probe.statusCode}`
+      : (probe.error ?? `HTTP ${probe.statusCode ?? "timeout"}`);
   }
 
   // --- (c) Digest-lag check (mt#3251) ---
@@ -1331,13 +1420,22 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   let deployedDigest: string | null = null;
   let registryDigest: string | null = null;
   let digestLagError: string | null = null;
+  // mt#3921 — a repo-source service has no registry tag to compare against, so
+  // the check genuinely does not apply. Every other non-`ok` path below is a
+  // check that DOES apply and could not complete.
+  let digestOutcome: CheckOutcome = svc.image ? "ok" : "not-applicable";
+  let digestDetail: string | null = svc.image
+    ? null
+    : "repo-source service — no configured image to compare";
 
   if (svc.image) {
     if (!deployment) {
       // No Railway data to compare against — either RAILWAY_TOKEN is absent
       // or check (a) already failed and logged its own warning above. Either
-      // way this is "cannot determine," not "OK": no alert is raised, but the
-      // gap is visible in the console log via digestLagError.
+      // way this is "cannot determine," not "OK". Until mt#3921 that meant a
+      // console line and nothing else, which is how a fleet-wide credential
+      // failure produced five HEALTHY services; it is now an unrunnable check
+      // and alerts as such.
       digestLagError = railwayToken
         ? "No Railway deployment data available — cannot compare digests"
         : "SKIPPED (no RAILWAY_TOKEN)";
@@ -1383,11 +1481,24 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
         } catch (err) {
           console.warn(`[${svc.name}] GHCR digest lookup failed: ${err}`);
           // Non-fatal, same discipline as (a): a lookup failure is not
-          // evidence of a lag, so it must never alert.
+          // evidence of a lag, so it never raises `digest-lag`. It is
+          // recorded as an unrunnable check, which raises `check-failed`
+          // downstream (mt#3921).
           digestLagError = err instanceof Error ? err.message : String(err);
         }
       }
     }
+  }
+
+  // Every `digestLagError` set inside the block above is a check that applies
+  // to this service and could not complete — an auth failure, an unparseable
+  // registry response, a missing digest field. `not-applicable` is set once,
+  // at declaration, for the only case that is a design fact (no image).
+  if (svc.image && digestLagError) {
+    digestOutcome = "failed";
+    digestDetail = digestLagError;
+  } else if (digestOutcome === "ok") {
+    digestDetail = `deployed=${deployedDigest ?? "?"} registry=${registryDigest ?? "?"}`;
   }
 
   return {
@@ -1406,12 +1517,44 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     digestLagError,
     skipped: false,
     skipReason: null,
+    summary: {
+      service: svc.name,
+      deploy: { outcome: deployOutcome, detail: deployDetail, problem: deployAlert },
+      health: { outcome: healthOutcome, detail: healthDetail, problem: healthAlert },
+      digest: { outcome: digestOutcome, detail: digestDetail, problem: digestLagAlert },
+    },
   };
 }
 
 // ---------------------------------------------------------------------------
 // Format alert details
 // ---------------------------------------------------------------------------
+
+/**
+ * mt#3921 — one or more checks could not run, so this service's state is
+ * UNKNOWN. Distinct from the three "we looked and found a problem" classes:
+ * the operator's action is to repair the monitor, not the service.
+ */
+function formatCheckFailedDetails(svc: ServiceDef, result: CheckResult, reason: string): string {
+  return [
+    `- **Service:** \`${svc.name}\``,
+    `- **Why:** ${reason}`,
+    "",
+    "**This is not a report that the service is down.** It is a report that the",
+    "monitor could not determine whether it is. Until these checks run, this",
+    "service is unmonitored — treat a green run as carrying no information.",
+    "",
+    "**Common cause:** the Railway credential is wrong-scoped for this service's",
+    "project, or (for a locally-run monitor) an expired CLI access token — the",
+    "API answers `Not Authorized` for both, so read the detail above rather than",
+    "assuming which. A Railway *project* token cannot authenticate this call at",
+    "all: the GraphQL request sends `Authorization: Bearer`, which per Railway's",
+    "public-API reference is the account/workspace-token header.",
+    "",
+    `**Observed:** deploy=\`${result.summary.deploy.outcome}\` health=\`${result.summary.health.outcome}\` digest=\`${result.summary.digest.outcome}\``,
+    `**Railway service ID:** \`${svc.serviceId}\``,
+  ].join("\n");
+}
 
 function formatDeployFailedDetails(svc: ServiceDef, result: CheckResult): string {
   return [
@@ -1528,40 +1671,26 @@ async function main(): Promise<void> {
       );
     }
     if (svc.image) {
+      // mt#3921 — "SKIP" read as "nothing to check" and meant "I could not
+      // look." The word is the bug's user-facing half; say which it is.
       const digestStatus = result.digestLagAlert
         ? "LAG"
         : result.digestLagError
-          ? `SKIP (${result.digestLagError})`
+          ? `COULD-NOT-RUN (${result.digestLagError})`
           : "OK";
       console.log(
         `  Digest:        deployed=${result.deployedDigest ?? "?"} registry=${result.registryDigest ?? "?"} — ${digestStatus}`
       );
     }
 
-    const alerts: Array<{
-      class: "deploy-failed" | "health-down" | "digest-lag";
-      details: string;
-    }> = [];
-
-    if (result.deployAlert) {
-      alerts.push({
-        class: "deploy-failed",
-        details: formatDeployFailedDetails(svc, result),
-      });
-    }
-
-    if (result.healthAlert) {
-      alerts.push({
-        class: "health-down",
-        details: formatHealthDownDetails(svc, result),
-      });
-    }
+    // mt#3251 R2: never escalate on a single observation — a healthy
+    // build+push+redeploy cycle transiently lags for a few minutes, and
+    // this check runs every 10 minutes. Route through the cross-run
+    // pending-tracker before deciding to alert. Resolved here, BEFORE
+    // scoring, so the scorer itself stays a pure function (mt#3921).
+    let digestLagSustained = false;
 
     if (result.digestLagAlert && result.deployedDigest && result.registryDigest) {
-      // mt#3251 R2: never escalate on a single observation — a healthy
-      // build+push+redeploy cycle transiently lags for a few minutes, and
-      // this check runs every 10 minutes. Route through the cross-run
-      // pending-tracker before deciding to alert.
       const sustained = await resolveDigestLagSustained(
         githubRepo,
         githubToken,
@@ -1571,12 +1700,7 @@ async function main(): Promise<void> {
         dryRun
       );
       console.log(`  Digest-lag sustained-check: ${sustained.note}`);
-      if (sustained.escalate) {
-        alerts.push({
-          class: "digest-lag",
-          details: formatDigestLagDetails(svc, result),
-        });
-      }
+      digestLagSustained = sustained.escalate;
     } else if (svc.image && !result.digestLagError) {
       // Digest check ran cleanly and found no lag this run — if a pending
       // tracker exists from an earlier observation, the transient lag
@@ -1586,11 +1710,28 @@ async function main(): Promise<void> {
       await closeDigestLagPendingTracker(githubRepo, githubToken, svc.name, dryRun);
     }
 
-    if (alerts.length === 0) {
+    // mt#3921 — a check that could not run alerts here rather than passing
+    // silently into a HEALTHY verdict. See monitor-verdict.ts for the rule.
+    const score = scoreService(result.summary, digestLagSustained);
+
+    const alerts = score.alerts.map((alert) => ({
+      class: alert.class,
+      details:
+        alert.class === "deploy-failed"
+          ? formatDeployFailedDetails(svc, result)
+          : alert.class === "health-down"
+            ? formatHealthDownDetails(svc, result)
+            : alert.class === "digest-lag"
+              ? formatDigestLagDetails(svc, result)
+              : formatCheckFailedDetails(svc, result, alert.reason),
+    }));
+
+    if (score.verdict === "HEALTHY") {
       console.log(`  Status: HEALTHY`);
       continue;
     }
 
+    console.log(`  Status: DEGRADED — ${alerts.length} alert(s)`);
     totalAlerts += alerts.length;
 
     for (const alert of alerts) {
