@@ -487,6 +487,39 @@ it an explicit reaffirmation and what makes it unsafe on a mixed pass. An
 `--ack` call that omits `askId` never DROPS a pre-existing `openAskId` on the
 logs it does advance — only `clearAskId` clears it.
 
+### Step 5a — Read `driftedPaths`: another pass may have been running (mt#3899)
+
+Every write this command makes — `--ack` and `clearAskId` alike — is reconciled
+against the store as it stands at write time, not the snapshot the pass read
+minutes earlier. A target another pass changed in between is **not** overwritten:
+its edit is DROPPED and the path is named in the result's `driftedPaths` (and in
+the text output's `Dropped N write(s)` line). An uncontended pass returns `[]`.
+
+**A non-empty `driftedPaths` means your pass raced another one, and lost that
+path.** Treat it as a real finding, not noise:
+
+1. Say so in your pass output, naming the paths. A silent loss is the failure
+   this reporting exists to prevent.
+2. Do NOT re-run `--ack` to force it through. The other pass's watermark reflects
+   a review that actually happened; overwriting it re-opens exactly the data loss
+   Step 5's `askId` branch guards against.
+3. Whatever classification work you did on a drifted log was duplicated — the
+   other pass reviewed the same fires. Reconcile before filing: check for a task
+   or ask that pass already filed on the same log, and fold your findings into it
+   rather than filing a near-duplicate.
+
+`watermarkAdvanced` and `clearedAskId` are now honest about this: each is false
+when EVERY target of that operation drifted, so a pass that accomplished nothing
+no longer reports success.
+
+**Prevention is cheap and worth doing.** This is a shared resource across
+concurrent sessions, so before starting a pass, run the presence probe from
+`user-preferences.mdc §Probe before claiming a shared resource` over the
+calibration surface — a recent task or ask filed against a log you are about to
+review is the visible signature of a pass in flight. The originating incident
+(2026-08-10) had two agents classify the same 42 fires on `bare-entity-ref`
+inside four minutes and file overlapping findings; neither probed.
+
 ## Cross-references
 
 - Tracking task: mt#2483. Migration target for the recurring trigger: mt#2322

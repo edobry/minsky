@@ -131,6 +131,7 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
               services: params.services as string[] | undefined,
               deployTimeoutSeconds: params.deployTimeoutSeconds as number | undefined,
               deployIntervalSeconds: params.deployIntervalSeconds as number | undefined,
+              mergedAt: params.mergedAt as string | undefined,
             },
             { sessionDB: deps.sessionProvider }
           );
@@ -156,6 +157,18 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
                 }`
             ),
           ];
+          if (!result.deployBoundApplied) {
+            // The reader of the text output is the one deciding whether the
+            // deploy is verified. Reporting per-service SUCCESS without saying
+            // the check was unbounded hands them the same false confidence the
+            // whole task exists to remove (mt#3890, PR #2750 R1 NON-BLOCKING).
+            lines.push(
+              "",
+              "⚠ Unbounded check — no mergedAt was supplied, so a deployment predating this",
+              "  merge could have satisfied it. A SUCCESS above is not evidence THIS merge",
+              "  deployed. Pass mergedAt (session.pr.merge's mergeInfo.mergeDate) to bound it."
+            );
+          }
           return { success: true, message: lines.join("\n") };
         }
 
