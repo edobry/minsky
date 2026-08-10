@@ -168,6 +168,14 @@ const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
  * Matched EXACTLY against the canonical dotted name and its Claude-Desktop
  * underscore alias, never as a substring — same discipline as
  * `DISPATCH_RECOVER_TOOL_NAME` above.
+ *
+ * KNOWN LIMITATION (mt#3903): this is a hand-maintained list, so the fact that
+ * a tool reads presence lives here rather than at the tool's definition. A
+ * future presence-reading tool added without a line here silently reintroduces
+ * the defect. The obvious fix — reuse `CommandDefinition.mutating` — is wrong:
+ * that flag is scoped to staleness-gating external side effects and only 13
+ * session/PR commands set it. Deriving this from a purpose-built registry field
+ * is mt#3903.
  */
 const PRESENCE_READING_TOOL_NAMES: readonly string[] = ["tasks.claims.list"];
 
@@ -1636,6 +1644,13 @@ export class MinskyMCPServer {
   ): Promise<void> {
     // mt#3889: a presence READ must not write presence. Checked before the repo
     // is resolved so the probe costs nothing it did not already cost.
+    //
+    // `toolName` is optional for TEST callers only. The single production
+    // callsite (the tools/call handler above) always passes
+    // `request.params.name`, which the MCP protocol requires on every
+    // tools/call request — so the exemption cannot be silently skipped in
+    // production by omitting it. Verified: `writeTaskClaim` has exactly one
+    // non-test callsite.
     if (toolName && isPresenceReadingTool(toolName)) return;
 
     const repo = await this.getPresenceClaimRepo();
