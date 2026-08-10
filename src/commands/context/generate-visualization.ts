@@ -6,7 +6,7 @@
 
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "../../utils/safe-truncate.ts";
-import { formatContextWindowUtilization } from "./generate-analysis";
+import { formatAssembledContextLine, formatContextWindowUtilization } from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -56,6 +56,12 @@ export function displayContextVisualization(
   log.cli("\n🎨 Context Visualization");
   log.cli("━".repeat(Math.min(width, 80)));
   log.cli(`Total Tokens: ${analysisResult.summary.totalTokens.toLocaleString()}`);
+  // The chart below is proportioned against Total Tokens, so this surface owes
+  // the same explanation of what that figure excludes (mt#3458, PR #2777 R1).
+  const assembledLine = formatAssembledContextLine(analysisResult.summary);
+  if (assembledLine) {
+    log.cli(assembledLine);
+  }
   log.cli(
     `Context Window Utilization: ${formatContextWindowUtilization(analysisResult.summary.contextWindowUtilization)}`
   );

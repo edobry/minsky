@@ -26,7 +26,10 @@ export interface AnalysisMetadata {
 }
 
 export interface AnalysisSummary {
+  /** The breakdown's denominator: the sum of the per-component counts shown beside it (mt#3458). */
   totalTokens: number;
+  /** The assembled context including the generation header, which belongs to no component (mt#3458). */
+  assembledTokens: number;
   totalComponents: number;
   averageTokensPerComponent: number;
   largestComponent: string;
@@ -90,7 +93,23 @@ export interface GenerateResult {
   }>;
   metadata: {
     generationTime: number;
+    /** Sum of the components' `token_count`. Excludes the assembly header — see `assembledTokens`. */
     totalTokens: number;
+    /** Real token count of the full assembled `content`, header included (mt#3458). */
+    assembledTokens: number;
+    /**
+     * The model the counts above were produced for. The analysis path reuses
+     * `token_count` only when its own target model matches this, so the
+     * breakdown's numerators and its denominator are always the same
+     * measurement (mt#3458).
+     */
+    tokenizedForModel: string;
+    /**
+     * Labels whose count fell back to a character estimate because tokenization
+     * threw — component ids, plus `<assembled context>` for the assembled
+     * string. Empty on the normal path.
+     */
+    tokenCountFallbacks: string[];
     skipped: string[];
     errors: string[];
   };
