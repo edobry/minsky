@@ -41,7 +41,23 @@ const manifest = JSON.parse(
   dependencies?: Record<string, string>;
   files?: string[];
   bin?: Record<string, string>;
+  module?: string;
 };
+
+/**
+ * Whether `files` ships the given path — either as an exact entry or via a directory entry it
+ * sits under. Negation entries (`!dist/*.map`) are ignored: they subtract from a directory
+ * already listed, and no manifest path this guard checks is a source map.
+ */
+function shipsUnderFiles(path: string, files: string[]): boolean {
+  const normalized = path.replace(/^\.\//, "");
+  return files
+    .filter((entry) => !entry.startsWith("!"))
+    .some((entry) => {
+      const normalizedEntry = entry.replace(/^\.\//, "");
+      return normalized === normalizedEntry || normalized.startsWith(normalizedEntry);
+    });
+}
 
 describe("published manifest resolvability (mt#3949)", () => {
   test("no `dependencies` entry uses a local-only protocol", () => {
@@ -60,15 +76,20 @@ describe("published manifest resolvability (mt#3949)", () => {
     expect(Object.keys(manifest.dependencies ?? {}).length).toBeGreaterThan(0);
   });
 
+  test("the runtime bundle the bin entry loads ships in the published file set", () => {
+    // The bin entry is a thin shim: it `await import()`s `module` (dist/minsky.js), which is
+    // where all the actual code lives. Shipping the shim without its target produces a package
+    // that installs cleanly and dies on first run — the same shape as the vacuous-`dependencies`
+    // failure guarded above. `files` covers it today via the `dist/` directory entry; a future
+    // narrowing of that list would drop it silently. (PR #2803 reviewer suggestion.)
+    const moduleEntry = manifest.module ?? "";
+    expect(moduleEntry).not.toBe("");
+    expect(shipsUnderFiles(moduleEntry, manifest.files ?? [])).toBe(true);
+  });
+
   test("the bin entry ships in the published file set", () => {
     const binEntry = manifest.bin?.minsky ?? "";
     expect(binEntry).not.toBe("");
-
-    // `files` lists the bin entry either exactly or via the directory it sits in.
-    const normalized = binEntry.replace(/^\.\//, "");
-    const shipped = (manifest.files ?? []).some(
-      (entry) => normalized === entry.replace(/^\.\//, "") || normalized.startsWith(entry)
-    );
-    expect(shipped).toBe(true);
+    expect(shipsUnderFiles(binEntry, manifest.files ?? [])).toBe(true);
   });
 });
