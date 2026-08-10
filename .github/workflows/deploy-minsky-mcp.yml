@@ -321,6 +321,12 @@ jobs:
           # No `railway link` is needed: a project-scoped RAILWAY_TOKEN carries
           # its own project+environment context (mt#3251).
           SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
+          # PROJECT_ID / ENVIRONMENT_ID are needed for the account-token path
+          # (mt#3927). ENVIRONMENT_ID was present in the pre-mt#3907 curl and
+          # was dropped in the CLI migration, because a PROJECT token does not
+          # need it — an ACCOUNT token does.
+          PROJECT_ID="0e054318-7e19-4489-8e1e-de787965161d"
+          ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
           # mt#3925 — the CLI takes the token in a DIFFERENT env var depending
           # on the token's scope, per Railway's CLI docs:
@@ -353,8 +359,32 @@ jobs:
           # the `:latest` tag this job just pushed. Per `railway redeploy
           # --help`: "Pull and deploy the latest commit or image from the
           # configured source, instead of redeploying the existing deployment."
+          # mt#3927 — the two scopes also differ in whether the CLI knows WHICH
+          # PROJECT to act on, not only in how it authenticates:
+          #
+          #   PROJECT token  → embeds its own project+environment. No link
+          #                    needed (this is why deploy-reviewer.yml has
+          #                    none, as its own comment states).
+          #   ACCOUNT token  → authenticates the USER and carries no project
+          #                    binding. `--service <id>` alone leaves the CLI
+          #                    with nothing to resolve the service against, and
+          #                    it fails with "No linked project found" — an
+          #                    error that reads like a credential problem and
+          #                    is not one (run 31388126169: `whoami` succeeded
+          #                    on the same token in the same step).
+          #
+          # `railway redeploy --help` exposes no --project/--environment, so the
+          # binding has to come from `railway link`. Verified non-interactive
+          # with UUID args before shipping.
           redeploy_with() {
             # $1 = env var name to carry the token
+            # $2 = "link" to establish project context first (account scope)
+            if [ "${2:-}" = "link" ]; then
+              env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
+                railway link --project "${PROJECT_ID}" \
+                             --environment "${ENVIRONMENT_ID}" \
+                             --service "${SERVICE_ID}" || return 1
+            fi
             env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
               railway redeploy --from-source --service "${SERVICE_ID}" -y
           }
@@ -372,8 +402,8 @@ jobs:
             railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
             || echo "note: whoami reported no identity — expected for a project token, see below."
 
-          echo "Attempt 1/2: treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN)."
-          if redeploy_with RAILWAY_API_TOKEN; then
+          echo "Attempt 1/2: treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
+          if redeploy_with RAILWAY_API_TOKEN link; then
             echo "Railway redeploy triggered successfully via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
           else
             echo "Attempt 1 failed — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
