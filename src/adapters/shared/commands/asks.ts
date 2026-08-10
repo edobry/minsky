@@ -2362,6 +2362,38 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Postgres `uuid` column comparison.
         const id = await resolveAskIdInput(params.id as string, container);
 
+        // mt#3929 (PR #2779 R1): re-run the form-lint here, adjacent to the
+        // write. The `validate` hook's copy reads a snapshot fetched a moment
+        // earlier, so a concurrent edit landing in between would persist a body
+        // nothing linted — the check would pass against state that no longer
+        // exists. Re-linting against a fresh read closes that window down to
+        // `editAskContent`'s own read-modify-write, which is as tight as this
+        // layer gets without a transaction; the validate-time copy stays because
+        // it is what gives a caller the rejection BEFORE any work is attempted.
+        if (editRequiresFormLintGuard(params)) {
+          await validateEditFormLintAgainstExistingAsk(repo, id, {
+            question: params.question as string | undefined,
+            options: params.options as AskOption[] | undefined,
+            acknowledgeFormWarnings: params.acknowledgeFormWarnings as boolean | undefined,
+          });
+        }
+
+        // Same window, same close, for the mt#3209 approve-options guard. The
+        // reviewer flagged only the form-lint one because that is what this PR
+        // added, but the defect is the shape — a validate-time read deciding a
+        // write that happens later — and this sibling has carried it since
+        // mt#3209. Stripping the last approve-shaped option from an
+        // authorization.approve Ask is a worse outcome to let through than an
+        // over-long label, so leaving it exposed while fixing its neighbour
+        // would be the wrong half to close.
+        if (editRequiresApproveOptionsGuard(params)) {
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            id,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
+
         return editAskContent(repo, {
           id,
           title: params.title as string | undefined,

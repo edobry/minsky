@@ -12,7 +12,11 @@
  * ceiling.
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- reading the shipped source IS the point of the call-site drift check below */
+
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
   asksEditParams,
@@ -142,5 +146,35 @@ describe("asks.edit parameter surface", () => {
   test("exposes the override param, so the escape is reachable from the tool", () => {
     expect(asksEditParams.acknowledgeFormWarnings).toBeDefined();
     expect(asksEditParams.acknowledgeFormWarnings.required).toBe(false);
+  });
+});
+
+describe("both edit guards run adjacent to the write (PR #2779 R1)", () => {
+  // A validate-time read deciding a write that happens later is a TOCTOU window: a concurrent
+  // edit landing in between persists a body nothing checked. Both guards therefore run again
+  // inside `execute`, against a fresh read.
+  //
+  // Asserted against the source rather than by driving the command, because what regressed
+  // would be the CALL SITE — a future edit moving either guard back to validate-only restores
+  // the window while every behavioral test on the guard functions keeps passing.
+  const FORM_LINT_GUARD = "validateEditFormLintAgainstExistingAsk";
+  const APPROVE_OPTIONS_GUARD = "validateEditOptionsAgainstExistingAsk";
+  const source = readFileSync(join(import.meta.dir, "asks.ts")).toString();
+  const executeBody = source.slice(
+    source.indexOf("execute: async (params): Promise<{ ask: Ask }>")
+  );
+
+  test("the form-lint guard is re-run in execute, not only in validate", () => {
+    expect(executeBody).toContain(FORM_LINT_GUARD);
+  });
+
+  test("the approve-options guard is re-run in execute too — same class, same window", () => {
+    expect(executeBody).toContain(APPROVE_OPTIONS_GUARD);
+  });
+
+  test("both re-runs sit BEFORE the write they protect", () => {
+    const write = executeBody.indexOf("editAskContent(repo");
+    expect(write).toBeGreaterThan(executeBody.indexOf(FORM_LINT_GUARD));
+    expect(write).toBeGreaterThan(executeBody.indexOf(APPROVE_OPTIONS_GUARD));
   });
 });
