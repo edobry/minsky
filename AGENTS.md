@@ -1390,7 +1390,7 @@ the same turn produce two.
 - **Subagent model verification** — Agent-tool PostToolUse: warns when the requested `model` mismatches `resolvedModel` (mt#3151); degraded payloads log instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
-- **Guard-health tracker** — guard failure streaks tagged `infra`/`logic`; escalation banner cools down per-session up to 1h (mt#3072). none.
+- **Guard-health tracker** — guard failure streaks tagged `infra`/`logic`; escalation banner cools down per-session up to 1h (mt#3072). Since mt#3892 the summary also carries `liveness` (`failing`/`recovered`/`dormant`) and `lastCleanRunAt`, joined from the fire-log's `guardOutcome: "decided"` records: a streak now resets on evidence the guard ran cleanly, not only on the 24h age-out, so `recovered` and `dormant` are no longer one state. A `crashed` record never counts as clean — a fail-open guard writes `allow` on every crash, so counting it would report a permanently broken guard as recovered. none.
 
 # Design Principle: Humility
 

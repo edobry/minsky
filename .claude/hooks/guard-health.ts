@@ -55,7 +55,7 @@ import { homedir } from "node:os";
 // mt#3892 — the clean-run (success) half of the corpus. Same tree, so this does
 // not breach SPEC.md's no-`src/` invariant; the src/-side copy of this module
 // cannot make the same import and inlines its own reader instead.
-import { readFireLogEntries } from "./fire-log";
+import { readFireLogEntries, type FireLogReadOptions } from "./fire-log";
 
 // ---------------------------------------------------------------------------
 // Persisted event shape
@@ -596,7 +596,9 @@ export function getGuardHealthSummary(
     // fork the corpus's interpretation. A read failure degrades to "no
     // clean-run evidence" (every entry reads `dormant`), never to a false
     // all-clear.
-    const invocations = options?.invocations ?? readCleanGuardInvocations(options?.env);
+    const invocations =
+      options?.invocations ??
+      readCleanGuardInvocations(options?.env ? { env: options.env } : undefined);
     return computeGuardHealthSummary(events, options?.now ?? new Date(), invocations);
   } catch {
     return { byGuard: {}, criticalGuards: [], attentionGuards: [], escalation: "none" };
@@ -614,9 +616,9 @@ export function getGuardHealthSummary(
  * clean-run evidence. Fail-safe: any read problem yields `[]`, which reports
  * `dormant` rather than a false `recovered`.
  */
-export function readCleanGuardInvocations(env?: NodeJS.ProcessEnv): GuardInvocation[] {
+export function readCleanGuardInvocations(options?: FireLogReadOptions): GuardInvocation[] {
   try {
-    return readFireLogEntries(env ? { env } : undefined)
+    return readFireLogEntries(options)
       .filter((e) => e.guardOutcome === "decided")
       .map((e) => ({ guardName: e.guardName, timestamp: e.timestamp }));
   } catch {
