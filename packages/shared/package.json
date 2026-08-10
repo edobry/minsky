@@ -19,6 +19,7 @@
     "./exec": "./src/exec.ts",
     "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
+    "./conversation-pid-map": "./src/conversation-pid-map.ts",
     "./process": "./src/process.ts",
     "./stdout-sync": "./src/stdout-sync.ts",
     "./fs": "./src/fs.ts",
