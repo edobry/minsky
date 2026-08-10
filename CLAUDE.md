@@ -963,9 +963,11 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   - any restriction cited as settling the matter, in a turn where you are already writing to the principal
 
   **The probe question is availability-NOW, regardless of what the deferral defers TO.** All three
-  shapes assert the same thing — *I am unable to do this at this moment* — and all three are
-  checked the same way: try it. A deferral to a later time is not self-justifying just because it
-  names no person; it is a claim about your present capability and needs the same evidence.
+  shapes assert the same thing — *I am unable to do this at this moment* — and all three need
+  evidence rather than assumption. What differs is the FORM the evidence takes: for the first two
+  it is a tool call (try it); for the third it is a question (ask). A deferral to a later time is
+  not self-justifying just because it names no person; it is a claim about your present capability
+  and needs the same evidence.
 
   **For the third shape the probe is: ASK, in this turn.** A restriction is a default, not a wall.
   If you are already composing a message to the principal, the cost of adding the question is one
