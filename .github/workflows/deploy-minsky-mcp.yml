@@ -272,15 +272,14 @@ jobs:
           # one, and "silent" is exactly what cost 4.5 days here.
 
           if [ -n "${RAILWAY_MCP_TOKEN:-}" ]; then
-            echo "Using RAILWAY_MCP_TOKEN (minsky-mcp-scoped, mt#3907)."
-            RAILWAY_TOKEN="${RAILWAY_MCP_TOKEN}"
+            echo "Using RAILWAY_MCP_TOKEN (minsky-mcp, mt#3907)."
+            DEPLOY_TOKEN="${RAILWAY_MCP_TOKEN}"
           else
             echo "::warning::RAILWAY_MCP_TOKEN is not set — falling back to the generic RAILWAY_TOKEN, which is NOT scoped to minsky-mcp and is expected to fail (mt#3890)."
-            RAILWAY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+            DEPLOY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
           fi
-          export RAILWAY_TOKEN
 
-          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
             echo "::error::Neither RAILWAY_MCP_TOKEN nor RAILWAY_TOKEN is set — minsky-mcp redeploy cannot be triggered."
             exit 1
           fi
@@ -316,24 +315,53 @@ jobs:
           # its own project+environment context (mt#3251).
           SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
 
-          # Diagnostic only (non-fatal): prints the authenticated identity,
-          # never the token, so a scope problem is self-diagnosing instead of
-          # another round of guessing. Email masked — this repo's CI logs are
-          # public.
-          echo "Railway auth identity:"
-          railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
-            || echo "note: railway whoami did not report an authenticated identity (non-fatal diagnostic) — see the token-scope notes above if the redeploy below also fails."
-
+          # mt#3925 — the CLI takes the token in a DIFFERENT env var depending
+          # on the token's scope, per Railway's CLI docs:
+          #
+          #   RAILWAY_TOKEN      → PROJECT token
+          #   RAILWAY_API_TOKEN  → ACCOUNT or WORKSPACE token
+          #
+          # mt#3907 assigned the secret to RAILWAY_TOKEN unconditionally, on
+          # the claim that "the CLI accepts all token types so scope doesn't
+          # matter." Half true: it accepts all three, via different variables.
+          # RAILWAY_MCP_TOKEN was minted from railway.com/account/tokens, which
+          # issues account/workspace tokens — so the CLI read an account token
+          # as a project token and rejected it ("Invalid RAILWAY_TOKEN",
+          # run 31385911966).
+          #
+          # Rather than record which scope the operator happened to choose —
+          # a fact nobody should have to remember, and which silently rots if
+          # the token is ever re-minted differently — try BOTH interpretations.
+          # A rejected redeploy has no side effects, so attempting both is
+          # free; the real operation is its own test.
+          #
+          # Deliberately NOT discriminating on `railway whoami`: a project
+          # token is not a user identity, so whoami legitimately fails for one
+          # (which is why deploy-reviewer.yml keeps it non-fatal). Using it as
+          # the selector would misclassify a valid project token as invalid.
+          #
           # `--from-source` is REQUIRED, not decorative: minsky-mcp is an
           # image-source service, and without this flag `redeploy` re-deploys
           # the EXISTING deployment (the same stale image) instead of pulling
           # the `:latest` tag this job just pushed. Per `railway redeploy
           # --help`: "Pull and deploy the latest commit or image from the
           # configured source, instead of redeploying the existing deployment."
-          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
-            echo "Railway redeploy triggered successfully via the CLI."
+          redeploy_with() {
+            # $1 = env var name to carry the token
+            env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
+              railway redeploy --from-source --service "${SERVICE_ID}" -y
+          }
+
+          echo "Attempt 1/2: treating the token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN)."
+          if redeploy_with RAILWAY_API_TOKEN; then
+            echo "Railway redeploy triggered successfully via the CLI (account/workspace token)."
           else
-            rc=$?
-            echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' output above to distinguish a token-scope problem from a genuine redeploy failure."
-            exit "$rc"
+            echo "Attempt 1 failed — retrying as PROJECT scope (RAILWAY_TOKEN)."
+            if redeploy_with RAILWAY_TOKEN; then
+              echo "Railway redeploy triggered successfully via the CLI (project token)."
+            else
+              rc=$?
+              echo "::error::railway redeploy failed under BOTH token scopes (exit ${rc}). The token in RAILWAY_MCP_TOKEN is not valid for this service as either an account/workspace token or a project token — re-mint it for the minsky-mcp project."
+              exit "$rc"
+            fi
           fi
