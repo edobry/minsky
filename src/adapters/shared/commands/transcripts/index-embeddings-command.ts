@@ -299,6 +299,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           turnsWritten: classification.turnsWritten,
           turnsExtracted: classification.turnsExtracted,
           chunkSplits: classification.chunkSplits,
+          orphanDeletesFailed: classification.orphanDeleteFailed ? 1 : 0,
           nonEmptyYieldedZero: classification.countNonEmptyYieldedZero ? 1 : 0,
           orphansDeleted: classification.orphansDeleted,
           aborted: false,

@@ -474,6 +474,16 @@ export interface WriteOutcomeClassification {
   turnsExtracted: number;
   /** Chunk splits to add to the running aggregate (mt#3911). */
   chunkSplits: number;
+  /**
+   * Whether THIS transcript's orphan DELETE failed (mt#3911).
+   *
+   * Carried through the classification for the same reason `orphansDeleted`
+   * is: the aggregate — and therefore the operator-facing line — has no other
+   * way to see it. Without this the field existed on `WriteTurnsResult`,
+   * was honored by the bucketing, and still could not be rendered, which is
+   * the precise defect this task exists to fix, one level down.
+   */
+  orphanDeleteFailed: boolean;
   /** Whether this outcome should also increment the aggregate's `nonEmptyYieldedZero`. */
   countNonEmptyYieldedZero: boolean;
   /**
@@ -512,6 +522,7 @@ export function classifyWriteOutcome({
       turnsWritten: written > 0 ? written : 0,
       turnsExtracted: extracted,
       chunkSplits,
+      orphanDeleteFailed,
       countNonEmptyYieldedZero: false,
       orphansDeleted,
     };
@@ -522,6 +533,7 @@ export function classifyWriteOutcome({
       turnsWritten: 0,
       turnsExtracted: extracted,
       chunkSplits,
+      orphanDeleteFailed,
       countNonEmptyYieldedZero: nonEmptyYieldedZero,
       orphansDeleted,
     };
@@ -531,6 +543,7 @@ export function classifyWriteOutcome({
     turnsWritten: written,
     turnsExtracted: extracted,
     chunkSplits,
+    orphanDeleteFailed,
     countNonEmptyYieldedZero: false,
     orphansDeleted,
   };
@@ -559,6 +572,12 @@ export interface ExtractAllTurnsResult {
   turnsExtracted: number;
   /** Chunks split and retried after a statement timeout (mt#3911). */
   chunkSplits: number;
+  /**
+   * Transcripts whose orphan DELETE itself failed (mt#3911). Always rendered,
+   * even at zero, so "the delete ran and found nothing" and "the delete ran
+   * and threw" are distinguishable from the output line alone.
+   */
+  orphanDeletesFailed: number;
   /**
    * mt#2457 SC3: count of non-empty transcripts that yielded zero turns with
    * NO chunk errors — an extraction/extractor-shape-mismatch signal, distinct
@@ -599,6 +618,10 @@ const ALWAYS_SHOWN_COUNTERS: ReadonlySet<string> = new Set([
   // tell "the delete ran and found nothing" from "the delete never ran" from
   // the output line alone, without a database query.
   "orphansDeleted",
+  // Same reasoning, and the other half of the spec criterion: a delete that
+  // THREW must be readable from the line, not inferable only from the
+  // DEGRADED marker (which several unrelated conditions also set).
+  "orphanDeletesFailed",
 ]);
 
 /**
@@ -611,6 +634,7 @@ const ALWAYS_SHOWN_COUNTERS: ReadonlySet<string> = new Set([
 export function isDegradedExtraction(result: ExtractAllTurnsResult): boolean {
   return (
     result.transcriptsErrored > 0 ||
+    result.orphanDeletesFailed > 0 ||
     result.aborted ||
     result.nonEmptyYieldedZero > 0 ||
     result.turnsWritten < result.turnsExtracted
@@ -753,6 +777,7 @@ export async function extractTurnsForAllTranscripts(
     turnsWritten: 0,
     turnsExtracted: 0,
     chunkSplits: 0,
+    orphanDeletesFailed: 0,
     nonEmptyYieldedZero: 0,
     orphansDeleted: 0,
     aborted: false,
@@ -805,6 +830,7 @@ export async function extractTurnsForAllTranscripts(
         result.orphansDeleted += classification.orphansDeleted;
         result.turnsExtracted += classification.turnsExtracted;
         result.chunkSplits += classification.chunkSplits;
+        if (classification.orphanDeleteFailed) result.orphanDeletesFailed++;
         switch (classification.bucket) {
           case "errored":
             result.transcriptsErrored++;

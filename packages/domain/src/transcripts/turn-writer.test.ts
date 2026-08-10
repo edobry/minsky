@@ -660,6 +660,7 @@ describe("classifyWriteOutcome (pure core, mt#3628)", () => {
       turnsWritten: 0,
       turnsExtracted: 0,
       chunkSplits: 0,
+      orphanDeleteFailed: false,
       countNonEmptyYieldedZero: false,
       orphansDeleted: 0,
     });
@@ -672,6 +673,7 @@ describe("classifyWriteOutcome (pure core, mt#3628)", () => {
       turnsWritten: 700,
       turnsExtracted: 0,
       chunkSplits: 0,
+      orphanDeleteFailed: false,
       countNonEmptyYieldedZero: false,
       orphansDeleted: 0,
     });
@@ -684,6 +686,7 @@ describe("classifyWriteOutcome (pure core, mt#3628)", () => {
       turnsWritten: 0,
       turnsExtracted: 0,
       chunkSplits: 0,
+      orphanDeleteFailed: false,
       countNonEmptyYieldedZero: false,
       orphansDeleted: 0,
     });
@@ -696,6 +699,7 @@ describe("classifyWriteOutcome (pure core, mt#3628)", () => {
       turnsWritten: 0,
       turnsExtracted: 0,
       chunkSplits: 0,
+      orphanDeleteFailed: false,
       countNonEmptyYieldedZero: true,
       orphansDeleted: 0,
     });
@@ -708,6 +712,7 @@ describe("classifyWriteOutcome (pure core, mt#3628)", () => {
       turnsWritten: 5,
       turnsExtracted: 0,
       chunkSplits: 0,
+      orphanDeleteFailed: false,
       countNonEmptyYieldedZero: false,
       orphansDeleted: 0,
     });
@@ -1052,6 +1057,7 @@ describe("formatExtractAllTurnsResult (render-from-shape, mt#3911)", () => {
     turnsWritten: 0,
     turnsExtracted: 0,
     chunkSplits: 0,
+    orphanDeletesFailed: 0,
     nonEmptyYieldedZero: 0,
     orphansDeleted: 0,
     aborted: false,
@@ -1152,6 +1158,7 @@ describe("AT2 (mt#3911): a failed orphan DELETE is visibly degraded at the CLI",
       turnsWritten: written.turnsWritten,
       turnsExtracted: written.turnsExtracted,
       chunkSplits: written.chunkSplits,
+      orphanDeletesFailed: written.orphanDeleteFailed ? 1 : 0,
       nonEmptyYieldedZero: 0,
       orphansDeleted: written.orphansDeleted,
       aborted: false,
@@ -1160,6 +1167,14 @@ describe("AT2 (mt#3911): a failed orphan DELETE is visibly degraded at the CLI",
     const rendered = formatExtractAllTurnsResult(aggregate);
     expect(rendered).toContain("DEGRADED");
     expect(rendered).toContain("transcriptsErrored=1");
+    // SC5's other half, and the gap PR #2771 R2 caught: the FIELD ITSELF must
+    // reach the line. Before that round `orphanDeleteFailed` existed on
+    // WriteTurnsResult and was honored by the bucketing, but was carried
+    // nowhere the renderer could see — so this assertion passed only via the
+    // DEGRADED marker, which several unrelated conditions also set. That is
+    // the same plumbed-but-never-rendered defect this task exists to fix, one
+    // level down.
+    expect(rendered).toContain("orphanDeletesFailed=1");
     // A zero-delete run and a FAILED-delete run must not render identically.
     const cleanRun = formatExtractAllTurnsResult({ ...aggregate, transcriptsErrored: 0 });
     expect(rendered).not.toBe(cleanRun);
