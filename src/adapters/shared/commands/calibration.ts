@@ -50,6 +50,18 @@ import {
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
 
+/**
+ * Lock guarding the watermark store's read-merge-write critical section
+ * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
+ * platform we run on — no dependency, no partial-create state.
+ */
+const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+/** A holder older than this is treated as dead; the section is ~2 file ops. */
+const WATERMARK_LOCK_STALE_MS = 10_000;
+/** Give up waiting and proceed unlocked rather than lose the pass's work. */
+const WATERMARK_LOCK_MAX_WAIT_MS = 5_000;
+const WATERMARK_LOCK_RETRY_MS = 15;
+
 // ---------------------------------------------------------------------------
 // Per-record context rendering (mt#3289)
 // ---------------------------------------------------------------------------
@@ -165,6 +177,68 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
   const { join } = await import("node:path");
   const storePath = join(workspacePath, WATERMARK_STORE_PATH);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
+}
+
+/**
+ * Run `critical` with exclusive access to the watermark store (mt#3899).
+ *
+ * Re-reading before writing narrows the race but does not close it: another
+ * pass can still write in the gap between this pass's re-read and its own
+ * write. That gap is small — two file operations — but it is exactly where two
+ * in-process passes land, and it is where the originating incident's write
+ * would have landed too. The lock makes read-merge-write indivisible.
+ *
+ * **Failure mode, stated because a lock has one.** The lock is a directory, so
+ * a process that dies mid-section leaves it behind. Two bounds keep that from
+ * wedging the loop: a holder older than `WATERMARK_LOCK_STALE_MS` is removed as
+ * dead, and a waiter that has spun for `WATERMARK_LOCK_MAX_WAIT_MS` proceeds
+ * WITHOUT the lock rather than failing. Proceeding unlocked degrades to
+ * re-read-and-merge — the narrow race — which is strictly better than throwing
+ * away a pass's classification work over a stale directory. The section holds
+ * the lock for two file ops, never for the multi-second sweep, so contention is
+ * brief by construction.
+ */
+async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
+  const { join } = await import("node:path");
+  const { mkdir, rm, stat } = await import("node:fs/promises");
+  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
+  let held = false;
+  while (Date.now() < deadline) {
+    try {
+      await mkdir(lockPath, { recursive: false });
+      held = true;
+      break;
+    } catch {
+      // Held by someone. Reap it if the holder looks dead, then retry.
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > WATERMARK_LOCK_STALE_MS) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // Vanished between the failed mkdir and the stat — the holder released
+        // it, so retry immediately rather than sleeping.
+        continue;
+      }
+      await sleep(WATERMARK_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await critical();
+  } finally {
+    if (held) {
+      await rm(lockPath, { recursive: true, force: true }).catch(() => {
+        // intentional-swallow: releasing a lock we hold is best-effort. A
+        // failure here leaves a directory the staleness reaper collects; it
+        // must not mask the critical section's own result or error.
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -393,28 +467,38 @@ export function registerCalibrationCommands(): void {
           base: WatermarkStore,
           intended: WatermarkStore,
           targetPaths: ReadonlySet<string>
-        ): Promise<{ store: WatermarkStore; drifted: string[] }> => {
-          const fresh = await loadWatermarks(workspacePath);
-          const { merged, driftedPaths: drifted } = mergeWatermarkWrite(
-            base,
-            intended,
-            fresh,
-            targetPaths
-          );
-          await saveWatermarks(workspacePath, merged);
-          driftedPaths.push(...drifted);
-          return { store: merged, drifted };
-        };
+        ): Promise<{ store: WatermarkStore; drifted: string[] }> =>
+          // The re-read and the write must be indivisible: re-reading alone
+          // still loses to a writer that lands in between, which is where two
+          // in-process passes reliably collide (measured — the AT1 test failed
+          // against the re-read-only version of this fix).
+          withWatermarkLock(workspacePath, async () => {
+            const fresh = await loadWatermarks(workspacePath);
+            const { merged, driftedPaths: drifted } = mergeWatermarkWrite(
+              base,
+              intended,
+              fresh,
+              targetPaths
+            );
+            await saveWatermarks(workspacePath, merged);
+            driftedPaths.push(...drifted);
+            return { store: merged, drifted };
+          });
 
         // Clear a resolved disposition-ask reference first (mt#2659) — this
         // is independent of --ack and does not touch lastReviewedCount/At.
         let clearedAskId = false;
         if (params.clearAskId) {
-          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
-          if (clearedWatermarks !== watermarks) {
-            const targets = new Set(
-              Object.keys(watermarks).filter((p) => watermarks[p]?.openAskId === params.clearAskId)
-            );
+          // Select the entries FIRST, and gate on that rather than on
+          // `clearResolvedAskIds`'s return reference: it copies the store
+          // whenever the id set is non-empty, so reference-inequality holds even
+          // when the id matches no entry — which would otherwise read+write the
+          // whole store to change nothing (PR #2753 R1).
+          const targets = new Set(
+            Object.keys(watermarks).filter((p) => watermarks[p]?.openAskId === params.clearAskId)
+          );
+          if (targets.size > 0) {
+            const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
             const { store, drifted } = await persistWatermarks(
               watermarks,
               clearedWatermarks,

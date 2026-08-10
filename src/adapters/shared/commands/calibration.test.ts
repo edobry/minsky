@@ -393,11 +393,59 @@ describe("observability.calibration-review — --ack covers all review-due legs 
 });
 
 describe("observability.calibration-review — concurrent-write reconciliation (mt#3899)", () => {
-  // The domain-level race semantics are pinned in
-  // `src/domain/calibration/calibration-sweep.test.ts` (`mergeWatermarkWrite`),
-  // which is where the decision lives. These two assert the WIRING: that the
-  // command routes both of its write paths through it, and that an uncontended
-  // pass is unchanged by the routing.
+  // The drift DECISION is a pure function, pinned exhaustively in
+  // `src/domain/calibration/calibration-sweep.test.ts` (`mergeWatermarkWrite`).
+  // These assert the command level: two real passes racing over one store, and
+  // the uncontended contract.
+
+  test("two overlapping passes each keep the other's write (spec AT1)", async () => {
+    // The incident, at the level it happened. Two passes overlap; each read the
+    // store before either wrote it. Pre-fix, both wrote their own stale
+    // whole-store snapshot, so whichever finished last erased the other's
+    // effect — silently, with both passes reporting success.
+    //
+    // The two passes must intend DIFFERENT writes for this to be able to fail:
+    // when both compute the same values, a stale write is indistinguishable
+    // from a fresh one and the test proves nothing (measured — an earlier
+    // version of this test used two identical acks and passed against the
+    // pre-fix code). So:
+    //   pass A = --ack, which skips the open-ask log and advances the other;
+    //   pass B = --clearAskId, which touches ONLY the open-ask log.
+    // Disjoint targets, one store, one write each.
+    //
+    // Concurrency is real: no module is patched and no timing is asserted. Both
+    // calls start together and each spends its sweep between its read and its
+    // write. The assertion holds under either completion order.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    const silentStretch = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
+    writeFileSync(
+      join(workspace, ".minsky", SILENT_STRETCH_LOG),
+      `${silentStretch.join("\n")}\n`,
+      "utf-8"
+    );
+    writeWatermarks(workspace, {
+      // Carries the open ask -> pass A skips it, pass B clears it.
+      [CAUSAL_PREMISE_PATH]: {
+        lastReviewedCount: 0,
+        lastReviewedAt: daysAgoIso(40),
+        openAskId: ASK_ID,
+      },
+      // No ask -> pass A advances it, pass B never touches it.
+      [SILENT_STRETCH_PATH]: { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20) },
+    });
+
+    const command = getCommand();
+    await Promise.all([
+      command.execute({ ack: true, json: true }, { workspacePath: workspace }),
+      command.execute({ ack: false, json: true, clearAskId: ASK_ID }, { workspacePath: workspace }),
+    ]);
+
+    // BOTH effects must survive. Pre-fix, exactly one does.
+    const after = readWatermarks(workspace);
+    expect(after[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(3);
+    expect(after[CAUSAL_PREMISE_PATH]?.openAskId).toBeUndefined();
+  });
 
   test("an uncontended ack reports no dropped writes and still advances", async () => {
     const workspace = makeWorkspace();
