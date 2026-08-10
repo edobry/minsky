@@ -68,6 +68,17 @@ export interface ConversationPidMapping {
   updatedAt: string;
   /** Which SessionStart `source` wrote it — diagnostic only, never matched on. */
   source?: string;
+  /**
+   * The harness process's start time, verbatim from `ps -o lstart=`.
+   *
+   * This is what makes a pid safe to key on. A pid alone is ambiguous across
+   * time — the OS recycles it — so an entry written by one `claude` could be
+   * read as if it belonged to a later, unrelated `claude` that happened to
+   * inherit the number. Pid PLUS start time identifies a specific process
+   * instance, so a recycled pid fails the comparison and the entry is treated
+   * as absent (PR #2764 R1, SC5/AT4).
+   */
+  harnessStartedAt?: string;
 }
 
 /**
@@ -140,6 +151,28 @@ function readProcessInfo(pid: number): { ppid: number; comm: string } | null {
 }
 
 /**
+ * Read a process's start time as `ps` reports it, or null when the process is
+ * gone or `ps` is unusable.
+ *
+ * The exact format does not matter — it is only ever compared verbatim against
+ * a value produced the same way on the same machine.
+ */
+export function readProcessStartTime(pid: number): string | null {
+  try {
+    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (!result.success) return null;
+
+    const out = new TextDecoder().decode(result.stdout).trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Walk up from `startPid` to the nearest harness process and return its pid.
  *
  * Returns null when no harness ancestor is found within {@link MAX_ANCESTOR_HOPS}
@@ -187,7 +220,8 @@ export function writeConversationMapping(
   harnessPid: number,
   conversationId: string,
   source?: string,
-  io: MappingIo = realMappingIo
+  io: MappingIo = realMappingIo,
+  startedAt: string | null = readProcessStartTime(harnessPid)
 ): boolean {
   if (!UUID_RE.test(conversationId)) return false;
 
@@ -197,6 +231,7 @@ export function writeConversationMapping(
       conversationId: conversationId.toLowerCase(),
       updatedAt: new Date().toISOString(),
       ...(source ? { source } : {}),
+      ...(startedAt ? { harnessStartedAt: startedAt } : {}),
     };
     io.write(getConversationPidMapPath(harnessPid), `${JSON.stringify(payload)}\n`);
     return true;
@@ -220,7 +255,8 @@ export function writeConversationMapping(
  */
 export function readConversationMapping(
   harnessPid: number,
-  io: MappingIo = realMappingIo
+  io: MappingIo = realMappingIo,
+  readStartTime: (pid: number) => string | null = readProcessStartTime
 ): string | null {
   try {
     const contents = io.read(getConversationPidMapPath(harnessPid));
@@ -229,8 +265,25 @@ export function readConversationMapping(
     const parsed: unknown = JSON.parse(contents);
     if (!parsed || typeof parsed !== "object") return null;
 
-    const id = (parsed as Partial<ConversationPidMapping>).conversationId;
+    const mapping = parsed as Partial<ConversationPidMapping>;
+    const id = mapping.conversationId;
     if (typeof id !== "string" || !UUID_RE.test(id)) return null;
+
+    // Staleness rule (SC5/AT4): a pid identifies a process only together with
+    // its start time. If the entry names one and the live process reports a
+    // different one, this pid has been recycled onto a DIFFERENT harness since
+    // the entry was written — the conversation it names is not ours, so treat
+    // the entry as absent and let the caller fall back.
+    //
+    // Either side missing is tolerated rather than rejected: `ps` can fail, and
+    // an entry written before this field existed is not evidence of recycling.
+    // Both are best-effort degradations toward the pre-mt#3900 behavior, never
+    // toward asserting a wrong identity.
+    const recordedStart = mapping.harnessStartedAt;
+    if (typeof recordedStart === "string" && recordedStart.length > 0) {
+      const liveStart = readStartTime(harnessPid);
+      if (liveStart !== null && liveStart !== recordedStart) return null;
+    }
 
     return id.toLowerCase();
   } catch {

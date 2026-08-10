@@ -17,7 +17,7 @@
  *         1 = they disagree, or the write did not land.
  */
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
   getConversationPidMapPath,
   readConversationMapping,
@@ -44,8 +44,16 @@ async function main(): Promise<void> {
   console.log(`resolved harness pid: ${harnessPid}`);
 
   const mapPath = getConversationPidMapPath(harnessPid);
-  const preExisting = existsSync(mapPath) ? readConversationMapping(harnessPid) : null;
-  console.log(`pre-existing mapping: ${preExisting ?? "(none)"}`);
+
+  // Capture the RAW bytes, not the parsed id (PR #2764 R1). This script
+  // overwrites the operator's live mapping to run its probe, so it has to put
+  // back exactly what was there — `updatedAt` and `harnessStartedAt` included.
+  // Restoring a re-serialized parse would silently rewrite those fields, and
+  // restoring only the id would drop them entirely.
+  const preExistingRaw = existsSync(mapPath) ? String(readFileSync(mapPath, "utf8")) : null;
+  console.log(
+    `pre-existing mapping: ${preExistingRaw ? readConversationMapping(harnessPid) : "(none)"}`
+  );
 
   // Drive the REAL hook exactly as the harness does: JSON payload on stdin.
   const payload = JSON.stringify({
@@ -69,13 +77,20 @@ async function main(): Promise<void> {
   console.log(`reader saw: ${readBack ?? "(none)"}`);
 
   // Restore whatever was there before, so running this does not leave a probe
-  // id attributed to the operator's live conversation.
-  if (preExisting === null) {
-    try {
+  // id attributed to the operator's live conversation. BOTH branches matter:
+  // an earlier revision only handled the "nothing was there" case and silently
+  // left the probe id in place when a real mapping existed — which would have
+  // mis-attributed the operator's own next tool call (PR #2764 R1).
+  try {
+    if (preExistingRaw === null) {
       rmSync(mapPath);
-    } catch {
-      // intentional-swallow: best-effort cleanup of a file we created.
+    } else {
+      writeFileSync(mapPath, preExistingRaw, "utf8");
     }
+  } catch {
+    // intentional-swallow: best-effort restore. Report it rather than throw,
+    // since the measurement above is already complete.
+    console.log(`WARN: could not restore ${mapPath}`);
   }
 
   if (readBack !== PROBE_CONVERSATION_ID) {

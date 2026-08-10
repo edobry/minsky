@@ -101,6 +101,7 @@ function toConversationAgentId(sessionId: string): string | null {
 export const CONVERSATION_MAPPING_TTL_MS = 2_000;
 
 interface MappingCache {
+  harnessPid: number;
   agentId: string | null;
   readAtMs: number;
 }
@@ -141,13 +142,23 @@ export function resolveLiveConversationAgentId(
   if (harnessPid === null) return fallbackAgentId;
 
   const nowMs = now();
-  if (mappingCache && nowMs - mappingCache.readAtMs < CONVERSATION_MAPPING_TTL_MS) {
+  // Keyed by pid, not merely time (PR #2764 R1): the cache is module-global, so
+  // an entry cached for one harness must never answer for another. In today's
+  // production shape there is one proxy per process and the pid is constant,
+  // but the module is shared and exported — an unkeyed cache would hand a
+  // second caller the first one's conversation, which is this task's own defect
+  // wearing a different hat.
+  if (
+    mappingCache &&
+    mappingCache.harnessPid === harnessPid &&
+    nowMs - mappingCache.readAtMs < CONVERSATION_MAPPING_TTL_MS
+  ) {
     return mappingCache.agentId ?? fallbackAgentId;
   }
 
   const mapped = readMapping(harnessPid);
   const agentId = mapped ? toConversationAgentId(mapped) : null;
-  mappingCache = { agentId, readAtMs: nowMs };
+  mappingCache = { harnessPid, agentId, readAtMs: nowMs };
 
   return agentId ?? fallbackAgentId;
 }

@@ -103,6 +103,25 @@ describe("resolveLiveConversationAgentId (mt#3900)", () => {
     expect(reads).toBe(1);
   });
 
+  test("the cache is keyed by harness pid, not just by time", () => {
+    // PR #2764 R1: the cache is module-global. Without a pid key, a second
+    // caller inside the TTL would be handed the FIRST caller's conversation —
+    // this task's own defect, reintroduced one layer up.
+    const byPid: Record<number, string> = {
+      1111: CONV_UUID,
+      2222: SWITCHED_UUID,
+    };
+    const clock = 1_000_000;
+    const deps = {
+      readMapping: (pid: number) => byPid[pid] ?? null,
+      now: () => clock,
+    };
+
+    expect(resolveLiveConversationAgentId(1111, null, deps)).toBe(EXPECTED_AGENT_ID);
+    // Same instant, different harness — must NOT reuse the cached entry.
+    expect(resolveLiveConversationAgentId(2222, null, deps)).toBe(SWITCHED_AGENT_ID);
+  });
+
   test("a switch is picked up once the TTL expires", () => {
     // The cache must not outlive its usefulness — otherwise the fix reproduces
     // the very staleness it exists to remove, just on a shorter clock.

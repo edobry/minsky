@@ -170,3 +170,47 @@ describe("mapping round-trip (mt#3900)", () => {
     expect(readConversationMapping(TEST_PID, io)).toBe(CONV_A);
   });
 });
+
+/**
+ * Staleness (SC5 / AT4, added in PR #2764 R1).
+ *
+ * A pid is ambiguous across time — the OS recycles it. Pid plus start time
+ * identifies a process INSTANCE, which is what the mapping actually needs: an
+ * entry left by a dead `claude` must not answer for a later, unrelated `claude`
+ * that inherited its number.
+ */
+describe("recycled-pid staleness (mt#3900)", () => {
+  const STARTED_A = "Mon Aug 10 06:00:00 2026";
+  const STARTED_B = "Mon Aug 10 07:30:00 2026";
+
+  test("an entry whose start time matches the live process is used", () => {
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_A)).toBe(CONV_A);
+  });
+
+  test("an entry from a RECYCLED pid is treated as absent", () => {
+    // Written by one harness; the pid now belongs to a different one. Returning
+    // CONV_A here would attribute this process's work to a dead conversation —
+    // the same class of error the whole task exists to remove.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_B)).toBeNull();
+  });
+
+  test("a start time that cannot be read does not invalidate the entry", () => {
+    // `ps` failing is not evidence of recycling. Degrade toward the existing
+    // mapping rather than toward discarding a good one.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
+    expect(readConversationMapping(TEST_PID, io, () => null)).toBe(CONV_A);
+  });
+
+  test("an entry without a recorded start time is still honored", () => {
+    // Back-compat with any entry written before this field existed; absence is
+    // not evidence of recycling either.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, null);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_B)).toBe(CONV_A);
+  });
+});

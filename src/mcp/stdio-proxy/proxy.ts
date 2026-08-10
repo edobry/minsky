@@ -323,7 +323,19 @@ export class MinskyStdioProxy {
     // frame. null means "no harness ancestor found" (manual invocation, a
     // non-Claude-Code parent, tests), in which case the per-frame resolution
     // below degrades to the spawn-time env value exactly as before.
-    this.harnessPid = options.harnessPid !== undefined ? options.harnessPid : resolveHarnessPid();
+    //
+    // A caller that supplied `conversationAgentId` explicitly is CONTROLLING
+    // identity — including `null` for "identity inactive" — so the mapping must
+    // not override it. Only the default path (env-resolved identity) consults
+    // the mapping. Without this, a test asking for an inactive identity would
+    // still get one from whatever mapping happens to exist on the machine
+    // running the suite, which is exactly what surfaced here.
+    this.harnessPid =
+      options.harnessPid !== undefined
+        ? options.harnessPid
+        : options.conversationAgentId !== undefined
+          ? null
+          : resolveHarnessPid();
   }
 
   /**
