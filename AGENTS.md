@@ -899,6 +899,13 @@ enters the transcript" in a task spec; the record's sibling `toolUseResult` fiel
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
 
+**Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
+phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
+accessor, the transcript is the source. It presents as introspection rather than a lookup, and is
+asked when a fire is demanding more work. Name the kind and carry its evidence: **pattern-false**
+(text absent — grep the transcript, locating THIS conversation's file first, since a null from an
+unverified one is not evidence) or **semantic-false** (present but misread — argued, quote acknowledged).
+
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
 checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
@@ -1073,7 +1080,10 @@ A turn-end report is three parts, **each 1–3 sentences**:
 Rules bounding the shape: **routine success is one line**; **detail lives behind a pointer, never
 inline** (use `minsky://` deeplinks, `cockpit-deeplinks.mdc`, or a task-record path — point into
 the substrate, never restate a PR body, spec section, or gate report in chat); **hard budget:
-readable in under 30 seconds (~200 words)**; **no skill-internal labels** (gate letters `(l)`,
+readable in under 30 seconds (~200 words)** — the `wall-of-text` detector warns at **1.5× that
+budget**, so the stretch between the budget and the warning is unpoliced headroom, not permission
+(mt#3942 narrowed it from 2× after a run of reports inside the old gap drew a complaint no
+detector had flagged); **no skill-internal labels** (gate letters `(l)`,
 premise-audit labels `(iii)`, criterion-table IDs — audit-trail vocabulary, not the principal's;
 specializes `user-preferences.mdc §Plain-language first`).
 
