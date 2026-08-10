@@ -3665,6 +3665,11 @@
                   "flags": ["--deploy-interval-seconds"],
                   "description": "postMerge mode only: poll cadence for each deployment wait (default 10).",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--merged-at"],
+                  "description": "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). Bounds each deployment wait so a deployment predating the merge cannot satisfy it. Omit and the watch accepts whatever deployment is newest — the result then reports deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence this merge deployed (mt#3890).",
+                  "takesValue": true
                 }
               ]
             },

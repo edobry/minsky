@@ -131,6 +131,7 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
               services: params.services as string[] | undefined,
               deployTimeoutSeconds: params.deployTimeoutSeconds as number | undefined,
               deployIntervalSeconds: params.deployIntervalSeconds as number | undefined,
+              mergedAt: params.mergedAt as string | undefined,
             },
             { sessionDB: deps.sessionProvider }
           );
