@@ -143,6 +143,36 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bwaiting\s+(?:for|on)\s+/i,
   /\bno\s+action\s+needed\s+from\s+you\b/i,
   /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
+  // mt#3917: the watcher reports to the AGENT, not the agent to the principal.
+  // The line above covers "I'll report back when …"; the 2026-08-09T04:18Z fire
+  // was "Blocked only on CI now — I'll merge when the checks task reports back",
+  // where the subject is the watcher. `work-completion.mdc §External
+  // self-resolving waits` prescribes exactly that shape, so firing on it tells
+  // the agent to override the rule it was following.
+  //
+  // Scoped to the DELEGATED-REPORT clause only. A first draft also carried
+  // `blocked only on ci|checks|the build`, and PR #2784 R1 was right to reject
+  // it: naming CI as the blocker says nothing about whether a watcher was ever
+  // armed, so it silenced the exact turn this guard exists to catch — an agent
+  // that announces a blocker and then stops. `work-completion.mdc` asks for the
+  // watcher, not for the excuse, so the suppression has to key on evidence the
+  // watcher exists. `when <subject> reports back` names one; "blocked on CI"
+  // names none. The real 2026-08-09T04:18Z fire carries the report-back clause,
+  // so nothing is lost by dropping the broader phrase.
+  //
+  // PR #2784 R3: the subject must be a MECHANISM, not a person. `when you
+  // report back` is operator-delegation — the agent handing the principal the
+  // wait — which is the failure `work-completion.mdc` names outright ("Ping me
+  // when GitHub's back" is its stated anti-pattern). Suppressing it inverted
+  // the rule this entry exists to serve, so second-person and
+  // principal-referent subjects are excluded and still fire.
+  // The exclusion sits immediately after `when`, and swallows the optional
+  // `the` ITSELF, because placing it after `(?:the\s+)?` leaves a backtracking
+  // hole: the engine retries with `the` unconsumed, the lookahead then inspects
+  // "the operator" instead of "operator", and the person-check passes. Caught by
+  // this entry's own test rather than by reading — worth keeping in mind for any
+  // later edit here.
+  /\bwhen\s+(?!(?:the\s+)?(?:you|your|i|we|operator|principal|user|eugene)\b)(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
 ];
 
 /**
@@ -215,6 +245,46 @@ const RESERVED_CATEGORY_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 /**
+ * A preference is reserved ONLY once it establishes a durable default (ask#7587).
+ *
+ * The six categories above are the list `principal-context.mdc` carried, and a
+ * preference is on none of them — so the 2026-08-09T00:09Z fire ("which model
+ * becomes your default is your preference, not a capability gap") named no
+ * category and was flagged. `humility.mdc` says the opposite for preference-bound
+ * decisions, and the operator settled the conflict: **reserve a preference when it
+ * becomes a durable default; decide a one-off inline.**
+ *
+ * That answer is a DISCRIMINATOR, not a phrase. Matching "your preference" alone
+ * would suppress exactly the one-off case the operator kept with the agent, which
+ * inverts the decision — so both halves are required: the message must frame the
+ * choice as the principal's taste AND mark it as durable. "Which font do you want
+ * for this one diagram?" carries the first and not the second, and still fires.
+ */
+const DURABLE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:becomes?|be|is)\s+(?:your|the)\s+default\b/i,
+  /\byour\s+default\b/i,
+  /\bstanding\s+(?:preference|default|choice)\b/i,
+  /\b(?:from\s+now\s+on|going\s+forward)\b/i,
+  /\bdefault\s+(?:for\s+)?(?:every|all)\b/i,
+];
+
+const PREFERENCE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\byour\s+(?:preference|taste)\b/i,
+  /\bpreference[-\s]bound\b/i,
+  /\bnot\s+a\s+capability\s+gap\b/i,
+  /\byours\s+to\s+set\b/i,
+];
+
+/** First matching phrase from `list`, or undefined. */
+function firstMatch(list: ReadonlyArray<RegExp>, text: string): string | undefined {
+  for (const re of list) {
+    const m = re.exec(text);
+    if (m) return m[0];
+  }
+  return undefined;
+}
+
+/**
  * Returns the reserved-category phrases the message names, in match order.
  *
  * Runs over the SAME elided text the commitment scan uses, so a category named
@@ -231,6 +301,13 @@ export function detectReservedCategoryHalt(finalMessage: string): string[] {
   for (const re of RESERVED_CATEGORY_PATTERNS) {
     const m = re.exec(scanned);
     if (m) named.push(m[0]);
+  }
+  // A durable-default preference is reserved per ask#7587 — but only when BOTH
+  // halves are present, so a one-off preference call still fires.
+  const durable = firstMatch(DURABLE_MARKER_PATTERNS, scanned);
+  const preference = firstMatch(PREFERENCE_MARKER_PATTERNS, scanned);
+  if (durable !== undefined && preference !== undefined) {
+    named.push(`${preference} / ${durable}`);
   }
   return named;
 }
@@ -307,9 +384,84 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
   const matches: UntakenActionMatch[] = [];
   for (const { family, re } of COMMITMENT_PATTERNS) {
     const m = re.exec(tail);
-    if (m) matches.push({ family, matchedPhrase: m[0] });
+    if (!m) continue;
+    if (ATTRIBUTABLE_FAMILIES.has(family) && isAttributedStep(tail, m.index)) continue;
+    matches.push({ family, matchedPhrase: m[0] });
   }
   return matches;
+}
+
+/**
+ * Families whose match can legitimately belong to a DOCUMENT rather than the
+ * speaker (PR #2784 R2).
+ *
+ * `next step is` / `that's the next step` are impersonal: a runbook has a next
+ * step, so naming one is as often description as commitment. Every other family
+ * is first-person by construction — `I'll …`, `I'm going to …`, `moving on to`,
+ * `say the word`. Nothing preceding those changes who is committing: "per the
+ * plan, I'll implement the fix" is still the agent saying it will implement the
+ * fix.
+ *
+ * The first draft applied the attribution filter to ALL families, which would
+ * have silenced exactly that sentence. The bundled test did not catch it — its
+ * attribution sat outside the 40-char lookback of the `ill-action` match, so the
+ * check never ran on the case it was supposed to protect. A test can agree with
+ * a bug when it accidentally avoids the condition.
+ */
+const ATTRIBUTABLE_FAMILIES: ReadonlySet<string> = new Set(["next-up", "next-step"]);
+
+/**
+ * Words that attribute a next step to a DOCUMENT or PROCEDURE rather than to the
+ * speaker (mt#3917).
+ *
+ * The `next-up` family matches `next step is`, which is a commitment when the
+ * agent says it and a description when a document does. The 2026-08-10T10:09Z
+ * fire was "…every rung reported 'absent' while the service was actively 422ing,
+ * and the documented next step is bypass merge" — narrating what a runbook
+ * prescribes while diagnosing, committing to nothing.
+ *
+ * Checked against the text immediately BEFORE the match rather than the whole
+ * message, and per-match rather than as a `SUPPRESSION_PATTERNS` entry: a global
+ * suppression would silence a real commitment that happens to share a message
+ * with a quoted procedure, which is the over-suppression this guard's own
+ * doc comment warns against.
+ *
+ * This is one instance of a matcher weakness three detectors share — mt#3864
+ * (`pre-narration` fires on historical and quoted statements) and mt#3865
+ * (`operator-deferral` fires on rule text describing the detector itself). If a
+ * fourth appears, the shared "asserted vs described" primitive is worth lifting
+ * out rather than patched a fourth time.
+ */
+const ATTRIBUTION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:documented|prescribed|recommended|official|canonical)\s*$/i,
+  /\b(?:the\s+)?(?:docs?|runbook|skill|rule|procedure|playbook)\s+says?\s*$/i,
+  /\baccording\s+to\s+[\w\s.'-]{0,30}$/i,
+  /\bper\s+(?:the\s+)?[\w\s.'-]{0,30}$/i,
+];
+
+/**
+ * Attribution to a PERSON is not attribution to a document (PR #2784 R3).
+ *
+ * `according to <X>` and `per <X>` were matching any object, so "According to
+ * you, the next step is the migration" read as a runbook citation. It is the
+ * opposite: a next step the PRINCIPAL named is still one the agent owes an
+ * action or an ask on, and suppressing it hides a true positive. Only an
+ * impersonal source moves the step off the speaker.
+ */
+const PERSONAL_ATTRIBUTION_PATTERN =
+  /\b(?:you|your|yours|i|me|my|we|us|our|operator|principal|user|eugene)\b/i;
+
+/** Chars of preceding context an attribution marker may occupy. */
+const ATTRIBUTION_LOOKBACK_CHARS = 40;
+
+/**
+ * Does the text right before `index` attribute the step to something other than
+ * the speaker?
+ */
+export function isAttributedStep(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - ATTRIBUTION_LOOKBACK_CHARS), index);
+  if (PERSONAL_ATTRIBUTION_PATTERN.test(before)) return false;
+  return ATTRIBUTION_PATTERNS.some((re) => re.test(before));
 }
 
 /**

@@ -1,9 +1,13 @@
 /**
  * Session Workflow Commands
  *
- * Factories for session workflow operations: commit, approve, inspect,
- * review, pr.approve, pr.merge. PR create/edit/list/get/open factories
- * live in their own files and are re-exported here for convenience.
+ * Factories for session workflow operations: commit, inspect, review,
+ * pr.approve, pr.merge. PR create/edit/list/get/open factories live in
+ * their own files and are re-exported here for convenience.
+ *
+ * There is no bare `approve` factory: `session.approve` was residue from the
+ * `session.pr.*` consolidation and was deleted in mt#3941. `pr.approve` is the
+ * live approve path.
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
@@ -444,37 +448,6 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
           }
           throw err;
         }
-      }
-    ),
-  };
-}
-
-export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDefinition {
-  return {
-    id: "session.approve",
-    category: CommandCategory.SESSION,
-    name: "approve",
-    description: "Approve a session pull request",
-    parameters: sessionApproveCommandParams,
-    execute: withErrorLogging(
-      "session.approve",
-      async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("@minsky/domain/session/session-service");
-        const deps = await getDeps();
-        const service = new SessionService(deps);
-
-        const result = await service.approve({
-          session: params.sessionId as string | undefined,
-          task: params.task as string | undefined,
-          repo: params.repo as string | undefined,
-          json: params.json as boolean | undefined,
-          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
-          // reviewComment) with session.pr.approve — thread it here too so --review-comment
-          // isn't silently dropped on this command.
-          reviewComment: params.reviewComment as string | undefined,
-        });
-
-        return { success: true, result };
       }
     ),
   };
