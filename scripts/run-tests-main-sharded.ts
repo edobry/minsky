@@ -111,6 +111,7 @@ import { join } from "node:path";
 import { readTextFileSync } from "@minsky/shared/fs";
 import { parseTestcases, type TestCase } from "./analyze-test-timing";
 import { discoverTestFiles } from "./run-tests-main";
+import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { binPackFiles as binPackFilesCore } from "./run-tests-sharded-prototype";
 
 // ---------------------------------------------------------------------------
@@ -704,7 +705,7 @@ if (import.meta.main) {
       "test",
       "--preload",
       "./tests/setup.ts",
-      "--timeout=15000",
+      `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
       ...(junitOutfile ? ["--reporter=junit", `--reporter-outfile=${junitOutfile}`] : []),
       ...rawExtraArgs,
       // `./`-prefixed (R1 review, mt#2990): `bun test <path>` matches its

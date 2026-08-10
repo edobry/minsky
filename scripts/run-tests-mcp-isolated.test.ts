@@ -4,12 +4,18 @@
    cannot be verified any other way (mirrors scripts/run-tests-main-sharded.test.ts's identical
    justification for its own real-subprocess collision tests). */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { discoverMcpTestFiles, toBunTestArg, verifyIsolatedRun } from "./run-tests-mcp-isolated";
 
-const BUN_TEST_PRELOAD_ARGS = ["--preload", "./tests/setup.ts", "--timeout=15000"];
+// mt#3704 — see run-tests-main.test.ts for why this derives from the constant.
+const BUN_TEST_PRELOAD_ARGS = [
+  "--preload",
+  "./tests/setup.ts",
+  `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
+];
 
 // Shared fixture path for the verifyIsolatedRun unit tests below (mt#3014 R1
 // lint fix: avoids the repeated string literal custom/no-magic-string-duplication
