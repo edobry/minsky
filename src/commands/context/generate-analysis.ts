@@ -5,6 +5,7 @@
  */
 
 import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
+import type { TokenizerMetadata } from "@minsky/domain/ai/tokenization/index";
 import { DefaultModelCacheService } from "@minsky/domain/ai/model-cache/index";
 import { log } from "@minsky/shared/logger";
 import type {
@@ -59,6 +60,72 @@ export function formatContextWindowUtilization(
     return `${utilization.toFixed(1)}%`;
   }
   return options.compact ? "unknown" : UNKNOWN_UTILIZATION_LABEL;
+}
+
+/** The subset of the tokenization service the tokenizer description reads. */
+export interface TokenizerMetadataSource {
+  getTokenizerMetadata(model: string): Promise<TokenizerMetadata | null>;
+}
+
+/**
+ * What the analysis reports about the tokenizer that produced its counts.
+ *
+ * This used to be a hardcoded `{ name: "tiktoken", encoding: "cl100k_base" }`
+ * literal: the call it appeared to make was `getTokenizerInfo`, which
+ * `DefaultTokenizationService` does not implement, so the optional-call
+ * `?.()` returned undefined on EVERY invocation and the `||` default was the
+ * only value the display ever showed (mt#3928). It reported `cl100k_base` for
+ * an Anthropic model because it reported `cl100k_base` for everything,
+ * including models that do not exist.
+ */
+export async function describeTokenizer(
+  source: TokenizerMetadataSource,
+  model: string
+): Promise<TokenizerInfo> {
+  const metadata = await source.getTokenizerMetadata(model);
+
+  if (!metadata) {
+    return {
+      name: "none",
+      encoding: "unknown",
+      description: `No tokenizer could be resolved for ${model}`,
+      approximated: true,
+    };
+  }
+
+  return {
+    name: metadata.library ?? "unknown",
+    encoding: metadata.id,
+    description: metadata.approximated
+      ? `${metadata.id} — an approximation; no tokenizer registered for ${model}`
+      : `${metadata.id} tokenizer for ${model}`,
+    approximated: metadata.approximated,
+  };
+}
+
+/**
+ * The note qualifying a count produced by a tokenizer not made for the model,
+ * or null when the tokenizer was a genuine match.
+ *
+ * Names the substitute rather than asserting "an OpenAI encoding": the
+ * registry's `defaultLibrary` is configurable (`TokenizerConfig`), so that
+ * phrasing was a claim this code never checked — and repeating the unverified
+ * half of a figure is the habit this whole task is about (PR #2801 R1). It
+ * also stops the encoding beside it reading as the MODEL's encoding, which is
+ * exactly what it is not.
+ *
+ * Its own line rather than a suffix: appended to the tokenizer line it pushed
+ * that line past 130 characters, and a report surface that wraps mid-sentence
+ * is how a qualifier gets skipped.
+ */
+export function formatApproximationNote(tokenizer: TokenizerInfo, model: string): string | null {
+  if (!tokenizer.approximated) {
+    return null;
+  }
+  // Names the MODEL, not the tokenizer: the line this sits under already
+  // prints the tokenizer, and a note that repeats the line above it reads as
+  // decoration and gets skipped.
+  return `  ^ approximate: no tokenizer is registered for ${model}, so the above is a substitute`;
 }
 
 /**
@@ -208,14 +275,7 @@ export async function analyzeGeneratedContext(
   // Generate optimization suggestions
   const optimizations = generateContextOptimizations(componentAnalysis, totalTokens);
 
-  // Get tokenizer information (getTokenizerInfo is an optional extension not in the base interface)
-  const tokenizerInfo = (
-    tokenizationService as { getTokenizerInfo?: (model: string) => TokenizerInfo }
-  ).getTokenizerInfo?.(targetModel) || {
-    name: "tiktoken",
-    encoding: "cl100k_base",
-    description: "OpenAI tokenizer",
-  };
+  const tokenizerInfo = await describeTokenizer(tokenizationService, targetModel);
 
   return {
     metadata: {

@@ -11,8 +11,6 @@
         "@clack/prompts": "^0.11.0",
         "@dotenvx/dotenvx": "^1.45.2",
         "@hpcc-js/wasm": "^2.26.1",
-        "@minsky/domain": "workspace:*",
-        "@minsky/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@octokit/rest": "^22.0.0",
         "@pnpm/tabtab": "^0.5.4",

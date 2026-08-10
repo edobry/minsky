@@ -16,7 +16,7 @@
  * @see contract/README.md
  * @see cockpit-tray/src-tauri/src/supervisor.rs — `health_contract` test module
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
@@ -236,6 +236,25 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
 describe("/api/health while the database is wedged (mt#3563)", () => {
   const closeList: Array<() => Promise<void>> = [];
 
+  // The reset must run BEFORE the test, not only after it (mt#3951). The state
+  // this module carries is process-global, so an afterEach only protects the
+  // files that run LATER — it does nothing for this test's own starting point.
+  // refreshDbReachability skips the probe entirely when the status is already
+  // "ok" and one finished less than its healthy-state floor ago (see
+  // shared-persistence.ts, DB_REACHABILITY_MIN_INTERVAL_MS — deliberately not
+  // imported here, since this test must not depend on the floor's value; the
+  // reset makes the floor unreachable whatever it is). A preceding file that
+  // left that state makes the wedge below unreachable and the status assertion
+  // read "ok". That rejected pushes on task/mt-2680 for 32 days: green alone
+  // and across src/cockpit, red 4-for-4 in the pre-push gate's changed-file
+  // subset, where different files run first.
+  //
+  // The reset is SYNCHRONOUS (`__resetSharedPersistenceForTests(): void`) — it
+  // only clears module-level fields — so there is nothing here to await.
+  beforeEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
   afterEach(async () => {
     for (const close of closeList.splice(0)) {
       await close();
@@ -243,13 +262,15 @@ describe("/api/health while the database is wedged (mt#3563)", () => {
     __resetSharedPersistenceForTests();
   });
 
-  // Scope note (mem#704 — a probe must be able to fail): the elapsed-time
-  // assertion below does NOT discriminate awaiting-vs-not, because with a probe
-  // already outstanding refreshDbReachability returns early either way. What
-  // this test pins is the wedged-state RESPONSE CONTRACT: still 200, and `db`
-  // no longer "ok". The non-blocking property is evidenced separately by the
-  // live run recorded in the task spec, where the probe measured 223–353 ms
-  // while /api/health answered in ~2 ms — an awaiting handler could not.
+  // Scope note (mem#704 — a probe must be able to fail): there is deliberately
+  // no elapsed-time assertion here. One used to sit at the end of this test and
+  // could not discriminate awaiting-vs-not, because with a probe already
+  // outstanding refreshDbReachability returns early either way — so it pinned
+  // nothing while still failing under load. What this test pins is the
+  // wedged-state RESPONSE CONTRACT: still 200, and `db` no longer "ok". The
+  // non-blocking property is evidenced separately by the live run recorded in
+  // the task spec, where the probe measured 223–353 ms while /api/health
+  // answered in ~2 ms — an awaiting handler could not.
   test("still answers 200 but reports a non-ok db when a probe is outstanding", async () => {
     // Put the module into the exact state the incidents produced: a probe was
     // issued and never came back. This is the state in which the route must
@@ -262,15 +283,12 @@ describe("/api/health while the database is wedged (mt#3563)", () => {
     const { url, close } = await startTestServer();
     closeList.push(close);
 
-    const startedAt = Date.now();
     const res = await fetch(`${url}/api/health`);
-    const elapsedMs = Date.now() - startedAt;
     const body = (await res.json()) as Record<string, unknown>;
 
     // HTTP 200 regardless of DB state — the status code is the tray's liveness
     // signal, so DB truth rides in the body (same split as `schema`).
     expect(res.status).toBe(200);
     expect(body.db).not.toBe("ok");
-    expect(elapsedMs).toBeLessThan(1000);
   });
 });

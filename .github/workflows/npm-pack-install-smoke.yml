@@ -1,0 +1,78 @@
+name: npm Pack Install Smoke
+
+# mt#3949 — consumer-side gate for the npm publish channel.
+#
+# Every check the publish path had was a PUBLISHER-side check: does the package
+# exist, do we own the name, did OIDC authenticate, is provenance attached. All
+# of them pass on a package nobody can install — which is exactly what shipped.
+# `@edobry/minsky@0.1.1` declared two dependencies at `workspace:*`, a protocol
+# no registry client can resolve, so every install outside this monorepo failed
+# at resolution. It was live and uninstallable for a day, across two versions.
+#
+# This job runs `scripts/verify-npm-pack-install.ts`, which packs the exact
+# artifact `npm publish` would upload and installs it — locally and through the
+# global path, into a throwaway BUN_INSTALL prefix — then runs the installed
+# `minsky --version`. Verifying against the packed tarball is what makes this a
+# PRE-publish gate: checking after publishing costs an immutable version number
+# per attempt, which is how the original defect was found rather than prevented.
+#
+# Sibling gates, and why this is not either of them:
+#   - bundle-boot-smoke: does the thing we DEPLOY start? (dist/minsky.js on Railway)
+#   - docker-build-smoke: does the production image BUILD?
+#   - this: can an end user INSTALL and run what we PUBLISH?
+#
+# Not registered as a merge-gate required check — that list is owned by
+# `.claude/hooks/require-review-before-merge.ts` and adding to it is a separate,
+# deliberate decision.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821). The per-step retry
+  # loop remains the load-bearing mitigation. Remove both when a bun release
+  # carries the upstream fix (mt#3835 tracks the retirement).
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
+jobs:
+  npm-pack-install-smoke:
+    name: npm-pack-install-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # `npm pack` and the publish workflow both run on npm's CLI; pin the same
+      # Node major `publish-npm.yml` uses so the packed artifact matches.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+
+      # The script asserts the bundle is present rather than building it, so a
+      # stale-bundle failure reads as a stale bundle instead of an install failure.
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Pack, install, and run the published artifact
+        run: bun scripts/verify-npm-pack-install.ts
