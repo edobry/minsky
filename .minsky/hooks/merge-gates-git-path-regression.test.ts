@@ -76,7 +76,12 @@ beforeAll(() => {
   // Setup uses the TEST process's own (real, unrestricted) PATH — only the
   // spawned hook subprocess below gets the broken PATH under test.
   scratchRepo = mkdtempSync(join(tmpdir(), "mt2810-git-path-"));
-  const init = Bun.spawnSync(["git", "init", "--quiet"], { cwd: scratchRepo });
+  // stderr: "pipe" so the failure message below can actually read it — without
+  // it the overload types `init.stderr` as `never` (mt#2900).
+  const init = Bun.spawnSync(["git", "init", "--quiet"], {
+    cwd: scratchRepo,
+    stderr: "pipe",
+  });
   if (init.exitCode !== 0) {
     throw new Error(
       `test setup failed: \`git init\` in scratch repo exited ${init.exitCode} — ` +
@@ -134,7 +139,9 @@ function runGateWithBrokenPath(hookFilename: string): GateRunResult {
   };
   const result = Bun.spawnSync([process.execPath, hookPath], {
     cwd: scratchRepo,
-    stdin: Buffer.from(JSON.stringify(input)),
+    // Bun's spawnSync types pin `stdin` to `"ignore"` though the runtime accepts
+    // data — see the mt#2900 note in merge-gate-task-resolution.test.ts.
+    stdin: new TextEncoder().encode(JSON.stringify(input)) as unknown as "ignore",
     stdout: "pipe",
     stderr: "pipe",
     env: {

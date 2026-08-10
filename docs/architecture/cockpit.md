@@ -411,7 +411,11 @@ POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
 registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
-(next section) under the name `"scheduled follow-ups"`.
+(next section) under the name `"scheduled follow-ups"`. Those fields cover the
+SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
+`reportsDomainOutcome` is `false` and whether its work is succeeding is not
+currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
+it is separate work).
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -441,23 +445,48 @@ GET /api/sweeps
     {
       "name": "prod-state refresh",
       "intervalMs": 600000,
+      // Scheduling layer: did the timer fire, and did the callback return?
       "lastAttemptAt": "2026-07-17T13:00:00.000Z",
       "lastSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastErrorAt": null,
       "consecutiveFailures": 0,
       "reinits": 0,
       "metaRestarts": 0,
+      // Domain layer (mt#3684): did the sweep's WORK succeed?
+      "reportsDomainOutcome": true,
+      "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastDomainFailureAt": null,
+      "consecutiveDomainFailures": 0,
     },
   ],
 }
 ```
 
+**The two groups of fields answer different questions, and reading one for the
+other is what made a 13-hour outage invisible (mt#3684).** The scheduling
+fields report that the timer fired and the tick function returned. Because the
+factory's `tick` contract asks each sweep to apply its own fail-open try/catch,
+a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
+`lastSuccessAt` one minute old and `consecutiveFailures: 0` while the
+prod-state sweep had been failing every tick for 13 hours. That reading was
+correct about scheduling and silent about the outage.
+
+A tick may therefore also report its own outcome (return `{ ok: boolean }`),
+recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
+sweep that reports nothing — read the other three as meaningless in that case,
+NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
+deliberately drives neither: re-init recovers a wedged tick, and mt#3682
+established that restarting the interval does nothing for a failure below the
+sweep.
+
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
-(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
-layer's liveness uniformly across all six sweeps, including the three (ask
-advancement, topology, deploy.smoke) that have no domain-specific tracker of
-their own. `reinits` counts a sweep's own bounded self re-init (below);
-`metaRestarts` counts a meta-watchdog-triggered force-restart.
+(`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
+of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
+topology, deploy.smoke, scheduled follow-ups, conversation presence,
+conversation title, conversation summary — have no domain-specific tracker of
+their own, which is why the domain fields above exist on the shared registry
+rather than being deferred to a per-sweep tracker that may not exist.
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the

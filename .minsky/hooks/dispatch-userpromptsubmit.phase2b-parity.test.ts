@@ -131,7 +131,11 @@ function makeInput(overrides: Partial<ClaudeHookInput> = {}): ClaudeHookInput {
 /** Spawn the standalone CLI entrypoint for `hookFilename`, feed it `input` on stdin. */
 async function invokeHookCli(
   hookFilename: string,
-  input: ClaudeHookInput & Record<string, unknown>,
+  // Plain ClaudeHookInput, not `& Record<string, unknown>`: the intersection was
+  // unsatisfiable by every caller (an interface without an index signature is not
+  // assignable to Record<string, unknown>), and no caller passes extra keys — the
+  // body only JSON-stringifies this onto the child's stdin. mt#2900.
+  input: ClaudeHookInput,
   env: Record<string, string> = {}
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const hookPath = new URL(hookFilename, import.meta.url).pathname;
@@ -228,7 +232,9 @@ describe("Phase 2b parity: auto-session-title", () => {
     const cliOutput = JSON.parse(cliResult.stdout) as {
       hookSpecificOutput?: { sessionTitle?: string };
     };
-    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(outcome?.sessionTitle);
+    const runSessionTitle = outcome?.sessionTitle;
+    expect(runSessionTitle).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(runSessionTitle as string);
   });
 });
 
@@ -313,7 +319,9 @@ describe("Phase 2b parity: inject-prod-state", () => {
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(outcome?.additionalContext).toContain("UNKNOWN");
-    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(outcome?.additionalContext);
+    const runAdditionalContext = outcome?.additionalContext;
+    expect(runAdditionalContext).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(runAdditionalContext as string);
   });
 });
 

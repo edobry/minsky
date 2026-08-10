@@ -192,7 +192,7 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/${SCRIPTS_PROJECT}`]: TSCONFIG,
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([
       HOOKS_PROJECT,
       SCRIPTS_PROJECT,
     ]);
@@ -203,7 +203,7 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/package.json`]: scriptsPkg({ "typecheck:root": "tsgo --noEmit" }),
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([]);
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([]);
   });
 
   test("ignores non-typecheck scripts that happen to pass -p", async () => {
@@ -212,7 +212,7 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/build.config.json`]: TSCONFIG,
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([]);
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([]);
   });
 
   test("accepts --project, the equals forms, and quoted paths", async () => {
@@ -231,7 +231,7 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/tsconfig.d.json`]: TSCONFIG,
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([
       "tsconfig.a.json",
       "tsconfig.b.json",
       "tsconfig.c.json",
@@ -248,7 +248,7 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([HOOKS_PROJECT]);
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([HOOKS_PROJECT]);
   });
 
   test("deduplicates a project two scripts both name", async () => {
@@ -260,14 +260,165 @@ describe("discoverStandaloneTypecheckProjects", () => {
       [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
     });
 
-    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([HOOKS_PROJECT]);
+    expect((await discoverStandaloneTypecheckProjects(ROOT, fs)).projects).toEqual([HOOKS_PROJECT]);
   });
 
   test("fails open to [] when the root package.json is missing or unparseable", async () => {
-    expect(await discoverStandaloneTypecheckProjects(ROOT, memFs({}))).toEqual([]);
+    expect((await discoverStandaloneTypecheckProjects(ROOT, memFs({}))).projects).toEqual([]);
     expect(
-      await discoverStandaloneTypecheckProjects(ROOT, memFs({ [`${ROOT}/package.json`]: "{{{" }))
+      (await discoverStandaloneTypecheckProjects(ROOT, memFs({ [`${ROOT}/package.json`]: "{{{" })))
+        .projects
     ).toEqual([]);
+  });
+
+  // mt#3895: `infra/` is discovered (its tsconfig is tracked) but a root `bun install` never
+  // populates it — its deps come from `pulumi install`. Running it anyway reported two TS2307
+  // module-resolution errors in every session that had not run that command.
+  describe("uninstalled non-workspace sub-project (mt#3895)", () => {
+    const INFRA_PROJECT = "infra/tsconfig.json";
+
+    function withInfra(extra: Record<string, string>) {
+      return memFs({
+        [`${ROOT}/package.json`]: JSON.stringify({
+          name: "root",
+          workspaces: ["packages/*", "services/*"],
+          scripts: {
+            "typecheck:hooks": HOOKS_SCRIPT,
+            "typecheck:infra": `tsgo --noEmit -p ${INFRA_PROJECT}`,
+          },
+        }),
+        [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
+        [`${ROOT}/${INFRA_PROJECT}`]: TSCONFIG,
+        ...extra,
+      });
+    }
+
+    test("skips it, and reports the skip with a reason naming the install", async () => {
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        withInfra({ [`${ROOT}/infra/package.json`]: JSON.stringify({ name: "minsky-infra" }) })
+      );
+
+      expect(result.projects).toEqual([HOOKS_PROJECT]);
+      expect(result.skipped).toHaveLength(1);
+      expect(result.skipped[0]?.project).toBe(INFRA_PROJECT);
+      expect(result.skipped[0]?.reason).toContain("pulumi install");
+    });
+
+    test("runs it once its node_modules exists", async () => {
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        withInfra({
+          [`${ROOT}/infra/package.json`]: JSON.stringify({ name: "minsky-infra" }),
+          [`${ROOT}/infra/node_modules`]: "",
+        })
+      );
+
+      expect(result.projects).toEqual([HOOKS_PROJECT, INFRA_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    // The discriminator that makes the rule safe. packages/* members have their own
+    // package.json and NO local node_modules — bun hoists to the root — so a rule keyed only
+    // on "package.json without node_modules" would silently drop them.
+    test("does NOT skip a workspace member that has no local node_modules", async () => {
+      const PACKAGES_PROJECT = "packages/domain/tsconfig.json";
+      const fs = memFs({
+        [`${ROOT}/package.json`]: JSON.stringify({
+          name: "root",
+          workspaces: ["packages/*", "services/*"],
+          scripts: { "typecheck:packages": `tsgo --noEmit -p ${PACKAGES_PROJECT}` },
+        }),
+        [`${ROOT}/${PACKAGES_PROJECT}`]: TSCONFIG,
+        [`${ROOT}/packages/domain/package.json`]: JSON.stringify({ name: "@minsky/domain" }),
+      });
+
+      const result = await discoverStandaloneTypecheckProjects(ROOT, fs);
+      expect(result.projects).toEqual([PACKAGES_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    test("does NOT skip a root-level tsconfig, which has no sub-project of its own", async () => {
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: ["packages/*"],
+            scripts: { "typecheck:hooks": HOOKS_SCRIPT },
+          }),
+          [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
+        })
+      );
+
+      expect(result.projects).toEqual([HOOKS_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    // PR #2743 R1: `"./packages/*"` and `"packages/*/"` are both legal workspaces entries.
+    // Before normalization they read as non-members, which would skip a project that must
+    // always run — the false-negative direction this whole change exists to avoid.
+    test.each([
+      ["leading ./", "./packages/*"],
+      ["trailing /", "packages/*/"],
+      ["both", "./packages/*/"],
+    ])("treats a workspace glob spelled with %s as matching", async (_label, pattern) => {
+      const PACKAGES_PROJECT = "packages/domain/tsconfig.json";
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: [pattern],
+            scripts: { "typecheck:packages": `tsgo --noEmit -p ${PACKAGES_PROJECT}` },
+          }),
+          [`${ROOT}/${PACKAGES_PROJECT}`]: TSCONFIG,
+          [`${ROOT}/packages/domain/package.json`]: JSON.stringify({ name: "@minsky/domain" }),
+        })
+      );
+
+      expect(result.projects).toEqual([PACKAGES_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    // The install command is per-directory; an unknown sub-project must not inherit infra's.
+    test("names a generic install for a sub-project with no known install command", async () => {
+      const OTHER_PROJECT = "vendored/tsconfig.json";
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: ["packages/*"],
+            scripts: { "typecheck:other": `tsgo --noEmit -p ${OTHER_PROJECT}` },
+          }),
+          [`${ROOT}/${OTHER_PROJECT}`]: TSCONFIG,
+          [`${ROOT}/vendored/package.json`]: JSON.stringify({ name: "vendored" }),
+        })
+      );
+
+      expect(result.skipped[0]?.project).toBe(OTHER_PROJECT);
+      expect(result.skipped[0]?.reason).toContain("Install its dependencies");
+      expect(result.skipped[0]?.reason).not.toContain("pulumi");
+    });
+
+    test("does NOT skip a non-workspace sub-project that has no package.json of its own", async () => {
+      const WEB_PROJECT = "src/cockpit/web/tsconfig.json";
+      const result = await discoverStandaloneTypecheckProjects(
+        ROOT,
+        memFs({
+          [`${ROOT}/package.json`]: JSON.stringify({
+            name: "root",
+            workspaces: ["packages/*"],
+            scripts: { "typecheck:cockpit-web": `tsgo --noEmit -p ${WEB_PROJECT}` },
+          }),
+          [`${ROOT}/${WEB_PROJECT}`]: TSCONFIG,
+        })
+      );
+
+      expect(result.projects).toEqual([WEB_PROJECT]);
+      expect(result.skipped).toEqual([]);
+    });
   });
 });
 

@@ -143,8 +143,17 @@ failure never fails ask creation — the ask is the decision record.
 
 **Both halves are required for the marker.** A severity event you can fix yourself does not
 warrant it, and an operator-only chore that is not a severity event belongs in the ordinary
-inbox. Marking a non-operator-routed ask is inert: the notification only fires for asks routed to
-the operator, because nothing else has a human on the other end.
+inbox.
+
+**The marker now ROUTES, not just notifies (mt#3851).** This paragraph used to warn that marking
+a non-operator-routed ask is inert — the notification fires only for operator-routed asks. That
+warning described a defect, not a design: `severity: "incident"` set a flag the router read to
+skip its policy phase and then ignored when picking a target, so five of the seven kinds
+(`capability.escalate`, `stuck.unblock`, `information.retrieve`, `coordination.notify`,
+`quality.review`) went to a subagent / retriever / peer / reviewer and no human was ever reached
+— which is the opposite of what the marker is for. The router now forces `operator` + inbox for
+EVERY kind carrying the marker, so there is no longer such a thing as a marked-but-unroutable
+ask. Pick the kind that fits the question; the marker decides who sees it.
 
 **Dedupe carve-out — now the only transport judgment left to you.** When the principal is
 actively responding in the same conversation, a notification is redundant; omit the marker and

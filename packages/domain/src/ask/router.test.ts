@@ -20,6 +20,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 import { policyFirstRoute, buildPolicyClosedEvent } from "./router";
+import type { TransportBinding } from "./router";
 import type { Ask } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -432,6 +433,76 @@ The following steps are permitted: approve and run the CI test suite at any time
       // Policy short-circuits to closed, regardless of capability.
       expect(result.state).toBe("closed");
       expect(result.transport.kind).toBe("policy");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Severity-forced operator routing across EVERY kind (mt#3851)
+  // -------------------------------------------------------------------------
+
+  describe("severity: incident forces operator routing (mt#3851)", () => {
+    // Asserted per-kind rather than over a loop-with-one-expectation so that a
+    // kind added to the transport-binding matrix later cannot slip in with a
+    // non-operator severity row unnoticed. mt#3714 shipped this criterion but
+    // only reached the policy phase; it was verified against
+    // authorization.approve, the one kind whose Phase-2 default is ALREADY the
+    // operator, so the gap was invisible. These are the five that were broken.
+    const FORCED_TO_OPERATOR: ReadonlyArray<[string, Ask["kind"]]> = [
+      ["capability.escalate", KIND_CAPABILITY_ESCALATE],
+      ["stuck.unblock", KIND_STUCK_UNBLOCK],
+      ["information.retrieve", KIND_INFO_RETRIEVE],
+      ["coordination.notify", KIND_COORD_NOTIFY],
+      ["quality.review", KIND_QUALITY_REVIEW],
+      ["authorization.approve", KIND_AUTH_APPROVE],
+      ["direction.decide", KIND_DIR_DECIDE],
+    ];
+
+    for (const [label, kind] of FORCED_TO_OPERATOR) {
+      it(`routes ${label} to the operator when severity is incident`, async () => {
+        const ask: Ask = { ...makeAsk(kind, `incident ask: ${label}`), severity: "incident" };
+
+        const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+        expect(result.routingTarget).toBe("operator");
+        expect(result.transport.kind).toBe("inbox");
+      });
+    }
+
+    it("does not force the operator when severity is absent — ADR-008 defaults hold", async () => {
+      // The other direction: this is an OVERRIDE, not a flipped default. If
+      // these rows moved, the fix would be amending ADR-008's
+      // transport-binding matrix, which is explicitly out of scope for mt#3851.
+      const expected: ReadonlyArray<[Ask["kind"], string, TransportBinding["kind"]]> = [
+        [KIND_CAPABILITY_ESCALATE, "subagent", "subagent"],
+        [KIND_STUCK_UNBLOCK, "subagent", "subagent"],
+        [KIND_INFO_RETRIEVE, "retriever", "retriever"],
+        [KIND_COORD_NOTIFY, "peer", "mesh"],
+        [KIND_QUALITY_REVIEW, "reviewer", "inbox"],
+        [KIND_DIR_DECIDE, "operator", "inbox"],
+      ];
+
+      for (const [kind, routingTarget, transportKind] of expected) {
+        const result = await policyFirstRoute(makeAsk(kind), { workspaceRoot: tmpDir });
+        expect(result.routingTarget).toBe(routingTarget);
+        expect(result.transport.kind).toBe(transportKind);
+      }
+    });
+
+    it("beats the elicitation preference — the walked-away operator needs the inbox", async () => {
+      // Elicitation is a synchronous dialog requiring an attached client, and
+      // severity exists for the case where nobody is attached.
+      const ask: Ask = { ...makeAsk(KIND_DIR_DECIDE), severity: "incident" };
+
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: {
+          hasElicitation: () => true,
+          activeElicitationServer: () => null,
+        },
+      });
+
+      expect(result.routingTarget).toBe("operator");
+      expect(result.transport.kind).toBe("inbox");
     });
   });
 });

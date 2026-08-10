@@ -35,6 +35,15 @@ import { buildSuccessCriteriaContext } from "./inject-success-criteria";
 // Shared fixtures (custom/no-magic-string-duplication)
 // ---------------------------------------------------------------------------
 
+/**
+ * Bun's `spawnSync` TYPES pin `stdin` to `"ignore"` even though the runtime
+ * accepts a data stdin, which is how these hook subprocesses are fed. Confined
+ * to this helper so no call site repeats the cast. mt#2900.
+ */
+function stdinData(text: string): "ignore" {
+  return new TextEncoder().encode(text) as unknown as "ignore";
+}
+
 const TASK_ID = "mt#3350";
 const PR_NUMBER = 4242;
 const GREP_CRITERION = "A repo-wide `grep '<select' src/cockpit/web` returns zero hits.";
@@ -383,7 +392,7 @@ describe("AT6: the injection hook FIRES as a real process", () => {
       ["config", "user.name", "Test"],
       ["commit", "-q", "--allow-empty", "-m", "init"],
     ]) {
-      const r = Bun.spawnSync(["git", ...args], { cwd: repoDir });
+      const r = Bun.spawnSync(["git", ...args], { cwd: repoDir, stderr: "pipe" });
       if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
     }
   });
@@ -399,7 +408,7 @@ describe("AT6: the injection hook FIRES as a real process", () => {
     // Asserts the injection FIRED and carried the section text — not merely that the hook
     // exited 0, which a completely dead hook would also do.
     const result = Bun.spawnSync(["bun", join(import.meta.dir, "inject-success-criteria.ts")], {
-      stdin: Buffer.from(
+      stdin: stdinData(
         JSON.stringify({
           session_id: "00000000-0000-4000-8000-00000000000a",
           tool_name: "mcp__minsky__session_pr_create",
@@ -423,7 +432,7 @@ describe("AT6: the injection hook FIRES as a real process", () => {
 
   test("stays silent when no task id resolves", () => {
     const result = Bun.spawnSync(["bun", join(import.meta.dir, "inject-success-criteria.ts")], {
-      stdin: Buffer.from(
+      stdin: stdinData(
         JSON.stringify({
           session_id: "00000000-0000-4000-8000-00000000000b",
           tool_name: "mcp__minsky__session_pr_create",

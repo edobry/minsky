@@ -1,11 +1,3 @@
-/* eslint-disable custom/no-real-fs-in-tests -- the isolated MINSKY_STATE_DIR temp
-   directory is REQUIRED, not incidental: runDispatcher's default
-   recordFireLogEntry wiring writes through it, so without a real temp dir every
-   run here would append to the developer's live ~/.local/state/minsky/
-   fire-log.jsonl (the mt#2876 class). Same exemption, same reason, as
-   dispatcher.test.ts and guard-health-dispatcher-integration.test.ts. A mock fs
-   cannot substitute — the subprocess tests below spawn a real `bun` process
-   that does its own real fs writes. */
 /**
  * Dispatcher OUTPUT-CONTRACT tests — what actually reaches Claude Code's stdin.
  *
@@ -27,57 +19,28 @@
  * @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md §D1
  * @see mt#3612 (updatedInput forwarding) · mt#3625 (stdout is one JSON object)
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, test, expect } from "bun:test";
 import { join } from "node:path";
 import { runDispatcher, buildDiscardedRewriteAuditLine } from "./dispatcher";
 import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput } from "./types";
+import {
+  DISPATCH_HOOK_FILENAME,
+  baseInput,
+  stubContext,
+  useIsolatedStateDir,
+} from "./test-support/dispatcher-harness";
 
-const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
 /** The injection-capable event, used to check the invariant holds off PreToolUse too. */
 const UPS_EVENT = "UserPromptSubmit";
 
 // Same isolation contract as dispatcher.test.ts: runDispatcher's default
 // `recordFireLogEntry` writes through MINSKY_STATE_DIR, and without this every
 // run in this file would append to the developer's real
-// ~/.local/state/minsky/fire-log.jsonl (the mt#2876 class).
-let stateDir: string;
-let prevStateDir: string | undefined;
-
-beforeAll(() => {
-  stateDir = mkdtempSync(join(tmpdir(), "mt3625-output-contract-"));
-  prevStateDir = process.env.MINSKY_STATE_DIR;
-  process.env.MINSKY_STATE_DIR = stateDir;
-});
-
-afterAll(() => {
-  if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
-  else process.env.MINSKY_STATE_DIR = prevStateDir;
-  rmSync(stateDir, { recursive: true, force: true });
-});
-
-function baseInput(overrides: Partial<ToolHookInput> = {}): ToolHookInput {
-  return {
-    session_id: "sess-1",
-    cwd: "/tmp",
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command: "ls" },
-    ...overrides,
-  };
-}
-
-function stubContext() {
-  return {
-    event: "PreToolUse" as const,
-    hostCapSec: 15,
-    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
-    transcriptCandidates: [],
-    transcriptLines: [],
-  };
-}
+// ~/.local/state/minsky/fire-log.jsonl (the mt#2876 class). The subprocess
+// tests below ALSO need the path itself — a child builds its own env, so
+// mutating this process's is not enough.
+const getStateDir = useIsolatedStateDir("mt3625-output-contract-");
 
 /**
  * Runs the real dispatcher in a SEPARATE bun process and returns its real
@@ -111,7 +74,7 @@ async function runInSubprocess(
   const proc = Bun.spawn(["bun", "-e", script], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, MINSKY_STATE_DIR: stateDir },
+    env: { ...process.env, MINSKY_STATE_DIR: getStateDir() },
   });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),

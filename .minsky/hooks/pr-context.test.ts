@@ -87,7 +87,9 @@ describe("withCallCounter", () => {
       return { exitCode: 0, stdout: "ok", stderr: "" };
     });
     const result = exec(["gh", "pr", "view"]);
-    expect(seen).toEqual(["gh", "pr", "view"]);
+    // Cast back to the declared union (mt#2900): `seen` is assigned only inside
+    // the exec callback, so CFA narrows it to `null` at this read.
+    expect(seen as string[] | null).toEqual(["gh", "pr", "view"]);
     expect(result.stdout).toBe("ok");
   });
 });
