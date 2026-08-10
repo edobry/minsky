@@ -30,12 +30,16 @@
 // of 13, while the short-id families it cannot derive a target for are the ones
 // still costing the reader a lookup.
 //
-// EXPIRY CONDITION — re-evaluate this posture when mt#3914 ships. That task
-// gives the linkifier a cached short-id → UUID map, which would let it repair
-// `ask#N` / `mem#N` / `ws#N` too. At that point the class flagged here becomes
-// auto-repaired exactly as `bare-ref` did, and leaving it live would recreate
-// the false-warning rate ask#7639 was filed to end. This is a posture change
-// and therefore an operator decision — surface it, do not flip it silently.
+// EXPIRY CONDITION — FIRED 2026-08-10, posture deliberately UNCHANGED. mt#3914
+// shipped the cached short-id → UUID map, so the linkifier now repairs
+// `ask#N` / `mem#N` / `ws#N` — but only when the id is IN the map. An id minted
+// since the last sweep, or any id at all when no cockpit is running to refresh
+// the cache, still reaches the reader bare. So this is a narrowing of the
+// flagged population, not the clean auto-repair `bare-ref` got, and the right
+// input to the decision is the post-mt#3914 fire rate rather than the ship
+// event. This is a posture change and therefore an operator decision — it is
+// surfaced, not flipped, and a `/calibration-review` pass over the fires
+// recorded from here on is the vehicle (ask#7639 is the precedent).
 //
 // Neither class is gated on the other — whichever fires, a calibration record
 // is written, and that log is what a `/calibration-review` pass rates. The one
