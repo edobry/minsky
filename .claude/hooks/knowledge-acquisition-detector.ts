@@ -70,11 +70,18 @@
 // session instead of once per occurrence). An agent that says "I'll capture
 // this after finishing the current edit," then does so later, is a TRUE
 // NEGATIVE, and under session grain it stays one no matter how much later.
-// Once eligible, the session's verdict is `hadPropagation: true` iff EVERY
-// matched occurrence has a propagation call somewhere after it in the currently
-// visible transcript — one uncaptured piece of research is enough to make the
-// verdict a miss, since the detector's purpose is catching knowledge that was
-// never captured anywhere, not merely the first thing researched.
+// Once eligible, the session's verdict is `hadPropagation: true` iff a
+// propagation call appears after the session's LAST matched occurrence in the
+// currently visible transcript. So a miss means "the session ended with research
+// that was never followed by any capture."
+//
+// This sentence used to claim EVERY occurrence needed its own propagation call —
+// "one uncaptured piece of research is enough to make the verdict a miss." The
+// code never did that (mt#3901): `hasPropagationAfter` is unbounded and therefore
+// monotone in position, so the `every` collapsed to the single last-occurrence
+// check now written at the verdict site. The strict per-occurrence reading needs
+// topical relation between a capture and a research call, which ADR-024 puts at
+// rung 3 and mt#3783 owns.
 //
 // The whole-session-scan widening (loaded skills + research occurrences,
 // rather than just the last turn) mirrors build-claim-injection-detector.ts's
@@ -882,15 +889,35 @@ export async function detectKnowledgeAcquisition(
   }
 
   const firstMatch = matchedOccurrences[0];
-  const lastMatch = matchedOccurrences[matchedOccurrences.length - 1];
-  if (!firstMatch || !lastMatch) return null;
+  if (!firstMatch) return null;
+
+  /**
+   * Transcript index of the session's MOST RECENT matched occurrence.
+   *
+   * Computed by max rather than by taking the array's last element, and computed
+   * ONCE because two consumers depend on it — the eligibility gate immediately
+   * below and the session verdict further down. PR #2751 R1 caught them
+   * disagreeing: the verdict had been made order-invariant while the gate still
+   * read `matchedOccurrences[length - 1]`, so an unordered array would have let
+   * the two pick different occurrences and mis-time the grace period.
+   *
+   * Both construction paths (rung-2 `nominated` and the lexical fallback) push in
+   * `candidates` iteration order today, so the array IS ordered in practice and
+   * the two forms agree. That is an invariant held at a distance, in a different
+   * branch, which is exactly the kind that breaks quietly later — deriving the
+   * value once removes the coupling instead of restating the assumption twice.
+   */
+  const lastOccurrenceIdx = matchedOccurrences.reduce(
+    (max, { occ }) => (occ.idx > max ? occ.idx : max),
+    -1
+  );
 
   // Session eligibility: the grace period runs against the MOST RECENT matched
   // occurrence, not each one individually (mt#3720), so a session with
   // continuing matched research keeps re-extending its own clock. A deferral,
   // not a suppression — nothing is recorded, and it is re-evaluated on the next
   // Stop invocation.
-  if (countPromptBoundariesAfter(lines, lastMatch.occ.idx) < windowTurns) return null;
+  if (countPromptBoundariesAfter(lines, lastOccurrenceIdx) < windowTurns) return null;
 
   // mt#3617 instrumentation, aggregated across every matched occurrence
   // (mt#3720). Collected after the nomination loop — so it cannot influence
@@ -907,13 +934,40 @@ export async function detectKnowledgeAcquisition(
     firstMatch.matchedKeyword
   );
 
-  // The session verdict. EVERY matched occurrence must have a propagation call
-  // somewhere after it (`hasPropagationAfter` is unbounded, unchanged from v1)
-  // for the session to count as propagated: one uncaptured piece of research is
-  // enough to make the verdict a miss, since the detector's purpose is catching
-  // knowledge that was never captured anywhere, not merely the first thing
-  // researched.
-  const hadPropagation = matchedOccurrences.every(({ occ }) => hasPropagationAfter(lines, occ.idx));
+  // The session verdict: did a propagation call happen after the session's LAST
+  // matched research occurrence?
+  //
+  // ## This used to be an `every`, and the `every` was redundant (mt#3901)
+  //
+  // The prior form was `matchedOccurrences.every(occ => hasPropagationAfter(occ.idx))`,
+  // commented as "one uncaptured piece of research is enough to make the verdict
+  // a miss." It did not do that. `hasPropagationAfter` is unbounded — it scans
+  // from the occurrence to the end of the visible transcript — which makes it
+  // MONOTONE IN POSITION: a propagation call after the last occurrence is
+  // necessarily also after every earlier one. So the conjunction was
+  // mathematically equivalent to this single check, and the strictness the
+  // comment claimed was never implemented. Measured corroboration at the time:
+  // 15 of 15 post-mt#3720 records scored propagated, none a miss.
+  //
+  // Written explicitly so the code states what it computes. This is a clarity
+  // fix with an equivalence proof, NOT a behavior change — if the live
+  // propagation rate moves after this ships, the equivalence argument is wrong
+  // and that is the signal to reopen mt#3901.
+  //
+  // ## Why the strict reading is not implemented here
+  //
+  // "One UNCAPTURED piece of research" requires knowing whether a given capture
+  // COVERS a given research occurrence — topical relation, which ADR-024 places
+  // at rung 3. A rung-1 proxy (require one distinct propagation call per
+  // occurrence) was considered and rejected: an agent who researches three
+  // related things and writes one well-scoped memory has captured the knowledge
+  // correctly, so the proxy would flag good consolidation as a miss. The strict
+  // semantic is assigned to mt#3783, this detector's rung-3 task.
+  //
+  // `lastOccurrenceIdx` is derived ONCE above and deliberately shared with the
+  // eligibility gate — see its doc comment for why the two must not compute
+  // "the most recent occurrence" independently (PR #2751 R1).
+  const hadPropagation = lastOccurrenceIdx >= 0 && hasPropagationAfter(lines, lastOccurrenceIdx);
 
   return {
     result: {

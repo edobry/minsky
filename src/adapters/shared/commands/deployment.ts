@@ -97,6 +97,16 @@ const deploymentWaitParams = {
     required: false,
     defaultValue: 10,
   },
+  notBefore: {
+    schema: z.string().min(1).optional(),
+    description:
+      "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this " +
+      "instant will not satisfy the wait — the call keeps polling for a newer one and fails with " +
+      "NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a " +
+      "specific merge deployed: without it this returns whatever is latest, which can be an " +
+      "arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+    required: false,
+  },
 };
 
 const deploymentStatusParams = {
@@ -223,6 +233,7 @@ export function registerDeploymentCommands(): void {
         const result = await adapter.waitForLatestDeployment({
           timeoutSeconds: params.timeoutSeconds as number,
           pollIntervalSeconds: params.pollIntervalSeconds as number,
+          notBefore: params.notBefore as string | undefined,
           onStatusObserved: makeDeployBuildObserver(ctx?.container, service),
         });
         log.info("deployment.wait-for-latest: complete", {

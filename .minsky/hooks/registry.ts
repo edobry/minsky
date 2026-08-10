@@ -573,6 +573,17 @@ export interface GuardCanary {
 // cadence-detector; both are appended here, BEFORE calibration-review-
 // cadence-detector, which is relocated to stay the true last entry (its
 // documented invariant — see the comment on that registration below).
+// A registration here is NOT sufficient to make a guard run (mt#3823).
+// `.claude/settings.json` must ALSO route the guard's event — and, for a
+// tool-scoped event, its exact `matcher` string — to the matching
+// `dispatch-*.ts` entrypoint; the dispatcher process is spawned by that entry,
+// not by this array. Adding a registration on a matcher no settings.json block
+// carries yields a guard that is fully declared, fully tested, and never once
+// invoked: `require-duplicate-check-record` and `duplicate-signature-scan` sat
+// that way from the day they shipped until 2026-08-10, with zero fire-log
+// records the whole time. `registry.test.ts`'s parity block is what fails now
+// when the pair comes apart; ADR-028 Phase 7 retires it by generating the
+// settings.json `hooks` block from this array.
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",

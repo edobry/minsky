@@ -35,9 +35,18 @@ Until step 1 above happens, Railway's native repo-source auto-trigger may still 
 
 `deploy-reviewer.yml`'s "Trigger Railway redeploy" step (item 5 above) has been failing since
 2026-07-25T21:57Z: the `RAILWAY_TOKEN` repo secret it fell back on is a Railway PROJECT token
-scoped to a DIFFERENT project (it is shared with `deploy-minsky-mcp.yml` and
-`post-deploy-health-monitor.yml`, which legitimately depend on its current broader scope — it
-must NOT be re-scoped). As of mt#3251, the redeploy step prefers a new, not-yet-created secret,
+scoped to a DIFFERENT project (it is shared with `deploy-minsky-mcp.yml`,
+`cockpit-preview.yml` and `post-deploy-health-monitor.yml` — it must NOT be re-scoped).
+
+> **Correction (mt#3890, 2026-08-10).** The parenthetical above originally read "…which
+> _legitimately depend on its current broader scope_". That is false for `deploy-minsky-mcp.yml`:
+> its redeploy call gets the same `Not Authorized` the reviewer's did. Because that step is
+> warn-not-fail, `minsky-mcp` silently stopped deploying on 2026-08-05 and was still serving that
+> image 4.5 days later. `minsky-mcp` needs its own project token by the same route described
+> below; `cockpit-preview.yml` and `post-deploy-health-monitor.yml` are the only remaining
+> reasons not to re-scope the shared secret. Full evidence: mt#3890.
+
+As of mt#3251, the redeploy step prefers a new, not-yet-created secret,
 `RAILWAY_REVIEWER_TOKEN`, and falls back to the existing generic `RAILWAY_TOKEN` (so the deploy
 keeps failing exactly as it does today until this secret exists — no worse, no better).
 
