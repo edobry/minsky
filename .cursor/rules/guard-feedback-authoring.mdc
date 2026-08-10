@@ -32,6 +32,9 @@ Four parts, nothing else:
 4. **Legitimate-halt branch** — the conditions under which NOT doing it is correct, and what to
    say instead. Without this the guard pressures the agent into acting when stopping was right.
 
+Part 2 invites a CHECKABLE claim, not a costless exit — the agent owes evidence and a kind
+(pattern-false / semantic-false) per `claim-confidence.mdc`; quote exactly so it can be checked.
+
 ```
 [turn-end-untaken-action] You named a next action and did not take it.
 
