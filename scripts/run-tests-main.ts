@@ -62,10 +62,17 @@ import {
   resolveWatchdogBudgetMs,
   formatWatchdogTimeout,
   WATCHDOG_BUDGETS_MS,
+  FULL_SUITE_PER_TEST_TIMEOUT_MS,
 } from "./spawn-with-watchdog";
 
 export const ROOTS = [
   "./src",
+  // mt#1084: `scripts/` holds 20 colocated `*.test.ts` files that ran in NO
+  // suite before this entry -- neither this gate nor CI targeted the directory.
+  // Three of them test the gate machinery itself (run-tests-main,
+  // run-tests-mcp-isolated, spawn-with-watchdog), so the runner deciding what
+  // the pre-push gate executes had tests the pre-push gate did not execute.
+  "./scripts",
   "./tests/adapters",
   "./tests/domain",
   "./tests/scripts",
@@ -174,10 +181,14 @@ if (import.meta.main) {
   }
 
   const extraArgs = process.argv.slice(2);
-  // mt#3156: `--timeout=15000` is bun's PER-TEST timer and never fires when a
-  // test blocks the event loop synchronously. This wall-clock watchdog bounds
-  // the WHOLE run, and escalates SIGTERM -> SIGKILL so a child that ignores the
-  // first signal is still reaped rather than orphaned at 100% CPU.
+  // mt#3156: the per-test `--timeout` is bun's PER-TEST timer and never fires
+  // when a test blocks the event loop synchronously. This wall-clock watchdog
+  // bounds the WHOLE run, and escalates SIGTERM -> SIGKILL so a child that
+  // ignores the first signal is still reaped rather than orphaned at 100% CPU.
+  //
+  // mt#3704: that division of labour is exactly why the per-test timer could be
+  // raised from a flat 15s to a derived budget — this watchdog, not that timer,
+  // is what catches a hang.
   const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.MAIN);
   const result = await spawnWithWatchdog(
     [
@@ -185,7 +196,7 @@ if (import.meta.main) {
       "test",
       "--preload",
       "./tests/setup.ts",
-      "--timeout=15000",
+      `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
       ...extraArgs,
       ...toBunTestArgs(files),
     ],

@@ -172,7 +172,25 @@ export interface CommandDefinition<
    * Whether this command performs external side effects that must not run
    * when the MCP server is stale (loaded commit !== workspace HEAD).
    * Examples: session_pr_create, session_pr_merge, session_pr_review_dismiss,
-   * session_update, session_commit. Read-only commands leave this unset.
+   * session_update, session_commit.
+   *
+   * **This is a drift-gate allowlist, NOT a read/write classification (mt#3847).**
+   * Its only consumer is `checkDriftGate` in `src/mcp/server.ts`, whose rule is
+   * "refuse this call when the server build is stale." Two consequences a reader
+   * has to know, because the type signature shows neither:
+   *
+   * - **Unset does NOT mean "reads".** 13 of 225 registered commands set this,
+   *   all of them session/PR operations, and none sets it `false`. `tasks.delete`,
+   *   `memory.create`, `git.push` and `persistence.migrate` all write and all
+   *   leave it unset. A consumer reading absence as "read-only" gets a confident
+   *   wrong answer for ~212 commands — mt#3845 nearly shipped exactly that.
+   * - **Do not backfill it to fix that.** Adding the flag to more commands widens
+   *   what a stale server REFUSES, which is a change to a safety gate's blast
+   *   radius and belongs to a deliberate decision (mt#3924), not to whichever
+   *   consumer wanted a classification next.
+   *
+   * For "does invoking this tool change state?", use `@minsky/shared/tool-effect`
+   * — three-state, browser-reachable, and coverage-tested.
    */
   mutating?: boolean;
 }
@@ -251,6 +269,12 @@ export interface SharedCommand<
     context: CommandExecutionContext
   ) => Promise<ValidatedContext<C> | void>;
   requiresSetup?: boolean;
+  /**
+   * Carried through from `CommandDefinition.mutating` — read its docblock above
+   * before consuming this. It is a drift-gate allowlist, not a read/write
+   * classification, and unset does not mean "reads" (mt#3847). For tool effect,
+   * use `@minsky/shared/tool-effect`.
+   */
   mutating?: boolean;
 }
 
