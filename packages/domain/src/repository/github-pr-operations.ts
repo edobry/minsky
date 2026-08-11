@@ -223,8 +223,33 @@ export function buildPrCreatePushTimeoutMessage(params: {
     `  2. Is the branch already on the remote? 'git ls-remote --heads origin ${params.sourceBranch}'`,
     `     — if it reports the same commit as HEAD, this push had nothing to send and the`,
     `     network is not the problem.`,
-    `  3. Retry with a larger bound: pass pushTimeoutMs to session_pr_create.`,
+    `  3. Retry with a larger bound: pass pushTimeoutMs to session_pr_create, or`,
+    `     CreatePROptions.pushTimeoutMs if you are calling the repository backend directly.`,
   ].join("\n");
+}
+
+/**
+ * Reject a bound that cannot describe a timeout (PR #2838 R1).
+ *
+ * `session_pr_create`'s MCP schema already constrains this to a positive
+ * integer, but `CreatePROptions` is a domain-level surface reachable without
+ * that schema — the changeset adapter is one such caller — so the check lives
+ * where the value is consumed. `Number.isInteger` rejects NaN and Infinity
+ * along with fractions.
+ *
+ * Deliberately no minimum beyond "> 0" and no maximum: the parameter exists so
+ * an operator can ask for MORE headroom on a legitimately slow push (mt#3480),
+ * and a ceiling would take that back. Tests in this repo drive real push paths
+ * with 20ms bounds, so a floor would break them.
+ */
+function assertUsablePushTimeout(pushTimeoutMs: number): void {
+  if (!Number.isInteger(pushTimeoutMs) || pushTimeoutMs <= 0) {
+    throw new MinskyError(
+      `Invalid pushTimeoutMs for the pre-PR push: expected a positive integer count of ` +
+        `milliseconds, received ${String(pushTimeoutMs)}. Leave it unset to use the ` +
+        `${DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS}ms default.`
+    );
+  }
 }
 
 /**
@@ -238,6 +263,9 @@ export async function ensureBranchPushedForPr(
   params: EnsureBranchPushedParams,
   deps: EnsureBranchPushedDeps = { execGit: execGitWithTimeout }
 ): Promise<void> {
+  if (params.pushTimeoutMs !== undefined) {
+    assertUsablePushTimeout(params.pushTimeoutMs);
+  }
   const timeoutMs = params.pushTimeoutMs ?? DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS;
   const boundSource =
     params.pushTimeoutMs !== undefined

@@ -217,3 +217,56 @@ describe("ensureBranchPushedForPr — bound (mt#3939)", () => {
     await ensureBranchPushedForPr({ workdir: WORKDIR, sourceBranch: BRANCH }, { execGit });
   });
 });
+
+describe("ensureBranchPushedForPr — bound validation (PR #2838 R1)", () => {
+  // The MCP schema for session_pr_create already rejects these, but
+  // CreatePROptions is reachable without it (the changeset adapter is one such
+  // caller), so an unusable bound must fail here rather than reach the
+  // subprocess as an undefined-behavior timeout.
+  const unusable: Array<[string, number]> = [
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["zero", 0],
+    ["negative", -1000],
+    ["fractional", 1500.5],
+  ];
+
+  for (const [label, value] of unusable) {
+    test(`rejects ${label} before spawning git`, async () => {
+      const { calls, execGit } = makeRecordingExec("ok");
+
+      let caught: unknown;
+      try {
+        await ensureBranchPushedForPr(
+          { workdir: WORKDIR, sourceBranch: BRANCH, pushTimeoutMs: value },
+          { execGit }
+        );
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(MinskyError);
+      expect((caught as MinskyError).message).toContain("Invalid pushTimeoutMs");
+      // Fail fast: no subprocess was started with the unusable bound.
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  test("accepts a bound far above the default — no ceiling is imposed", async () => {
+    const { calls, execGit } = makeRecordingExec("ok");
+    await ensureBranchPushedForPr(
+      { workdir: WORKDIR, sourceBranch: BRANCH, pushTimeoutMs: 1_800_000 },
+      { execGit }
+    );
+    expect(onlyCall(calls).options.timeout).toBe(1_800_000);
+  });
+
+  test("accepts a very small bound — no floor is imposed", async () => {
+    const { calls, execGit } = makeRecordingExec("ok");
+    await ensureBranchPushedForPr(
+      { workdir: WORKDIR, sourceBranch: BRANCH, pushTimeoutMs: 20 },
+      { execGit }
+    );
+    expect(onlyCall(calls).options.timeout).toBe(20);
+  });
+});
