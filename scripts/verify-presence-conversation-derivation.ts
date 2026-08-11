@@ -10,7 +10,15 @@
  * null (task rows: 0 of 6076) or stale (session rows, frozen at process spawn).
  * See mem#931: a call-site read is a derived view of what a column contains.
  *
- * Two arms, split at a cutover instant (`--since`, or `MT3945_CUTOVER`):
+ * Two arms, split at a cutover instant (`--since`, or `MT3945_CUTOVER`), on
+ * **`last_refreshed_at`** — the instant the checked value was last WRITTEN.
+ * Not `claimed_at`: `upsertClaim` deliberately preserves the original claim
+ * time across refreshes while rewriting `cc_conversation_id`, so a row first
+ * claimed days ago and refreshed by the fixed code carries a post-fix value
+ * under a pre-fix `claimed_at`. Splitting on the wrong column put four
+ * correctly-derived rows in BEFORE and left AFTER with nothing to compare,
+ * which made the probe SKIP at the exact moment it had evidence to report
+ * (mt#3970, measured against the mt#3945 merge instant).
  *
  *   AFTER  — rows written by the fixed code. Every conversation-scoped
  *     `actor_id` MUST carry the matching `cc_conversation_id`. A mismatch or a
@@ -129,14 +137,20 @@ async function main(): Promise<number> {
   // probe's own classification from the production parser also means the two
   // cannot drift: if the parser's carve-outs change, this follows.
   const raw = await db.execute(sql`
-    select subject_kind, actor_id, cc_conversation_id, claimed_at
+    select subject_kind, actor_id, cc_conversation_id, last_refreshed_at
     from presence_claims
   `);
 
   const buckets = new Map<string, ArmCounts>();
   for (const r of raw) {
-    const claimedAt = r.claimed_at instanceof Date ? r.claimed_at : new Date(String(r.claimed_at));
-    const arm = !cutover ? "ALL" : claimedAt >= new Date(cutover) ? "AFTER" : "BEFORE";
+    // `last_refreshed_at`, NOT `claimed_at` — see the module doc comment: the
+    // upsert rewrites the value while preserving the original claim time, so
+    // only this column dates the thing being checked.
+    const valueWrittenAt =
+      r.last_refreshed_at instanceof Date
+        ? r.last_refreshed_at
+        : new Date(String(r.last_refreshed_at));
+    const arm = !cutover ? "ALL" : valueWrittenAt >= new Date(cutover) ? "AFTER" : "BEFORE";
     const subjectKind = String(r.subject_kind);
 
     // `arm` is one of ALL/AFTER/BEFORE, so the separator cannot collide.
@@ -174,7 +188,11 @@ async function main(): Promise<number> {
 
   if (rows.length === 0) return skip("presence_claims is empty — nothing to verify");
 
-  console.log(cutover ? `Cutover: ${cutover}` : "Cutover: none given — reporting all rows as ALL");
+  console.log(
+    cutover
+      ? `Cutover: ${cutover} (arms split on last_refreshed_at — when the value was written)`
+      : "Cutover: none given — reporting all rows as ALL"
+  );
   console.table(rows);
 
   const checked = rows.filter((r) => r.arm === "AFTER" || r.arm === "ALL");
