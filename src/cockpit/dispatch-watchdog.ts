@@ -599,6 +599,11 @@ export async function getSessionWorkspaceExists(
  * `getSessionWorkspaceExists` helpers do (`getSessionsDir()` + the raw
  * session id, since this producer works directly off `subagent_invocations`
  * rows rather than a resolved `SessionRecord`).
+ *
+ * **Contract caution (mt#3958), inherited from `resolveLastWorkspaceMtimeAtMs`:**
+ * the returned mtime only advances on a dirty-file WRITE, not on a read/plan/
+ * test cycle — a large "time since" computed from this value means "no
+ * recent writes," not "no agent." Do not treat it alone as evidence of death.
  */
 export async function getSessionWorkspaceLastMtimeAtMs(
   subagentSessionId: string | null
