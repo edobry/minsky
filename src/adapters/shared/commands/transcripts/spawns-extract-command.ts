@@ -157,6 +157,10 @@ export function registerTranscriptSpawnsExtractCommand(
           `linkedFromMetadata=${pipelineResult.childLinkedFromMetadata}, ` +
           `linkedFromHeuristic=${pipelineResult.childLinkedFromHeuristic}, ` +
           `unresolved=${pipelineResult.childUnresolved}, ` +
+          // mt#3702: rendered rather than merely counted. A result field no
+          // output site prints is invisible exactly when someone is trying to
+          // diagnose from the command's own output (mem#922 / mt#3911's class).
+          `refusedSiblingSpawn=${pipelineResult.childRefusedSiblingSpawn}, ` +
           `errored=${pipelineResult.spawnsErrored}, ` +
           `spawnLinksWritten=${pipelineResult.spawnLinksWritten}, ` +
           `spawnLinksSkippedNoPromptMatch=${pipelineResult.spawnLinksSkippedNoPromptMatch}, ` +
@@ -183,7 +187,8 @@ export function registerTranscriptSpawnsExtractCommand(
 
       const message =
         `Session ${sessionId}: scanned=${pipelineResult.spawnsScanned}, ` +
-        `written=${pipelineResult.spawnsWritten}`;
+        `written=${pipelineResult.spawnsWritten}, ` +
+        `refusedSiblingSpawn=${pipelineResult.childRefusedSiblingSpawn}`;
 
       return { pipeline: pipelineResult, agentSessionId: sessionId, message };
     },
