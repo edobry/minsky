@@ -362,6 +362,27 @@ function getDefaultLogger() {
 // like `mode`/`config`/`_internal` defer via getters).
 type DefaultLogger = ReturnType<typeof createLogger>;
 
+/**
+ * Lines emitted through `log.cli` since process start.
+ *
+ * Read by the CLI bridge to tell "this command printed its own report" from
+ * "this command returned a payload and printed nothing" — the distinction that
+ * decides whether the generic result formatter should render the payload's keys
+ * or stay quiet (mt#3870). A command cannot be asked directly: most set no
+ * `printed` flag, and a shared formatter that guessed wrong would either double-
+ * print a self-rendered report or keep swallowing findings.
+ *
+ * This is a process-wide counter, so it is only meaningful where one command
+ * runs per process — which is exactly the CLI, its sole consumer. The MCP
+ * server increments it too and never reads it.
+ */
+let cliOutputLineCount = 0;
+
+/** Current value of the `log.cli` line counter. See `cliOutputLineCount`. */
+export function getCliOutputLineCount(): number {
+  return cliOutputLineCount;
+}
+
 export const log: DefaultLogger = {
   agent: (message) => getDefaultLogger().agent(message),
   debug: (message, context?) => getDefaultLogger().debug(message, context),
@@ -372,7 +393,10 @@ export const log: DefaultLogger = {
       message,
       context
     )) as DefaultLogger["error"],
-  cli: (message) => getDefaultLogger().cli(message),
+  cli: (message) => {
+    cliOutputLineCount++;
+    return getDefaultLogger().cli(message);
+  },
   cliWarn: (message) => getDefaultLogger().cliWarn(message),
   cliError: (message) => getDefaultLogger().cliError(message),
   setLevel: (level) => getDefaultLogger().setLevel(level),
