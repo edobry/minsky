@@ -3,7 +3,9 @@ import {
   computeDispatchStaleness,
   classifyDispatchRecoveryState,
   buildDispatchRecoveryContinuationPrompt,
+  describeDispatchStalenessForMessage,
   DISPATCH_RECOVERY_STALE_MS,
+  DISPATCH_PROGRESS_STALE_MS,
   DISPATCH_RECOVERY_CLASSIFICATION_VALUES,
   type DispatchRecoveryPromptInput,
   type DispatchRecoveryClassification,
@@ -266,6 +268,181 @@ describe("computeDispatchStaleness", () => {
     );
     expect(result.stale).toBe(false);
     expect(result.activitySource).toBe("workspace-mtime");
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3952: progress bound — presence alone no longer holds `healthy`
+  // indefinitely. mt#3812 is the standing instance: presence refreshed every
+  // ~10 minutes for 8+ hours while commit and workspace-mtime never moved.
+  // ---------------------------------------------------------------------------
+
+  // Spec Acceptance Test 1 / Success-Criteria fixture: presence 5 min old,
+  // last commit 8h ago, workspace mtime 8h ago, stale window 30 min ->
+  // verdict is NOT healthy, and progressStale/progressSource name the
+  // starved signal.
+  test("presence fresh but commit AND workspace-mtime both 8h stale -> stale via progress starvation, not activity (mt#3952 AT1)", () => {
+    const now = START + 8 * 60 * 60 * 1000; // 8h after dispatch
+    const lastCommit = START + 5 * 60 * 1000; // 8h - 5min ago (long past the progress bound)
+    const lastWorkspaceMtime = START + 4 * 60 * 1000; // slightly earlier — workspace untouched ~8h
+    const lastPresence = now - 5 * 60 * 1000; // presence refreshed 5 min ago (fresh)
+
+    const result = computeDispatchStaleness(
+      START,
+      lastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresence,
+      lastWorkspaceMtime
+    );
+
+    // The base ACTIVITY check alone would read healthy (presence is fresh),
+    // but the overall verdict must be stale because progress is starved.
+    expect(result.activitySource).toBe("presence");
+    expect(result.staleForMs).toBeLessThan(DISPATCH_RECOVERY_STALE_MS);
+    expect(result.progressStale).toBe(true);
+    // Tied/near-tied commit and workspace-mtime resolve to "commit" (checked
+    // first — same precedence the activity computation documents).
+    expect(result.progressSource).toBe("commit");
+    expect(result.stale).toBe(true);
+  });
+
+  // Spec Acceptance Test 2 / Success-Criteria fixture: presence 5 min old,
+  // workspace mtime 5 min old, no commit -> healthy (mt#3086 AT1 preserved).
+  // The workspace-mtime signal IS a progress signal, so it satisfies both
+  // the activity check (already covered above) and the new progress check.
+  test("presence fresh, workspace-mtime fresh, no commit -> healthy under the progress bound too (mt#3086 AT1 preserved / mt#3952 AT2)", () => {
+    const now = START + 10 * 60 * 1000;
+    const lastPresence = now - 5 * 60 * 1000;
+    const lastWorkspaceMtime = now - 5 * 60 * 1000;
+
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresence,
+      lastWorkspaceMtime
+    );
+
+    expect(result.stale).toBe(false);
+    expect(result.progressStale).toBe(false);
+    expect(result.progressSource).toBe("workspace-mtime");
+  });
+
+  // Spec Acceptance Test 3: no presence, no commit, mtime older than the
+  // window -> escalate (unchanged) — the ordinary "no activity at all" path
+  // must still reach `stale: true` the same way it did before this task.
+  test("no presence, no commit, mtime older than the window -> stale (unchanged, mt#3952 AT3)", () => {
+    const now = START + DISPATCH_RECOVERY_STALE_MS + 1000;
+    const staleMtime = START + 500;
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null,
+      staleMtime
+    );
+    // Unchanged behavior: the base activity check alone already produces
+    // `stale: true` here (nothing newer than dispatch start within staleMs)
+    // — the new progress check is not even the deciding factor for this
+    // fixture, since 30 minutes is well under the 2h progress bound.
+    expect(result.stale).toBe(true);
+    expect(result.progressSource).toBe("workspace-mtime");
+  });
+
+  test("neither commit nor workspace-mtime ever fired -> progressSource 'none', progress clock measured from dispatch start", () => {
+    const now = START + DISPATCH_PROGRESS_STALE_MS + 1000;
+    const lastPresence = now - 1000; // presence stays fresh throughout
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresence,
+      null
+    );
+    expect(result.activitySource).toBe("presence");
+    expect(result.progressSource).toBe("none");
+    expect(result.progressStaleForMs).toBe(now - START);
+    expect(result.progressStale).toBe(true);
+    expect(result.stale).toBe(true);
+  });
+
+  test("progress bound respects a custom progressStaleMs override", () => {
+    const now = START + 10 * 60 * 1000;
+    const lastPresence = now - 1000;
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresence,
+      null,
+      5 * 60 * 1000 // 5-minute progress bound
+    );
+    // 10 minutes since dispatch start with no commit/write, against a 5-minute bound.
+    expect(result.progressStale).toBe(true);
+    expect(result.stale).toBe(true);
+  });
+
+  test("a dispatch progressing normally (regular commits/writes) never trips the progress bound even over a long run", () => {
+    // Simulates a long-running healthy dispatch: workspace-mtime refreshed
+    // every 20 minutes, well under DISPATCH_PROGRESS_STALE_MS (2h).
+    const now = START + 3 * 60 * 60 * 1000; // 3h in
+    const lastWorkspaceMtime = now - 20 * 60 * 1000; // last write 20 min ago
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null,
+      lastWorkspaceMtime
+    );
+    expect(result.progressStale).toBe(false);
+    expect(result.stale).toBe(false);
+  });
+});
+
+describe("describeDispatchStalenessForMessage (mt#3952)", () => {
+  const START = Date.parse("2026-07-17T10:00:00Z");
+
+  test("returns '' when the dispatch is not progress-starved", () => {
+    const now = START + 5 * 60 * 1000;
+    const staleness = computeDispatchStaleness(START, null, now, DISPATCH_RECOVERY_STALE_MS, now);
+    expect(staleness.progressStale).toBe(false);
+    expect(describeDispatchStalenessForMessage(staleness)).toBe("");
+  });
+
+  test("names 'active but not progressing' when presence is fresh but progress is starved", () => {
+    const now = START + 8 * 60 * 60 * 1000;
+    const lastCommit = START + 5 * 60 * 1000;
+    const staleness = computeDispatchStaleness(
+      START,
+      lastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      now - 1000,
+      lastCommit
+    );
+    const message = describeDispatchStalenessForMessage(staleness);
+    expect(message).toContain("Active but NOT progressing");
+    expect(message).toContain("presence alone is not evidence of progress");
+  });
+
+  test("names 'progress-starved since dispatch start' when neither commit nor write has ever happened", () => {
+    const now = START + DISPATCH_PROGRESS_STALE_MS + 1000;
+    const staleness = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      now - 1000,
+      null
+    );
+    const message = describeDispatchStalenessForMessage(staleness);
+    expect(message).toContain("Progress-starved");
+    expect(message).toContain("since dispatch start");
   });
 });
 
