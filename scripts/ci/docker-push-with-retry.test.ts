@@ -285,6 +285,53 @@ describe("docker-push-with-retry.sh (mt#3979)", () => {
   }
 });
 
+/**
+ * Top-level alternatives of the script's `TRANSIENT_PATTERN`, split on `|` at
+ * paren/bracket depth zero — the anchored `EOF` alternative contains its own
+ * `|` inside parentheses, so a naive split would report it as two conditions.
+ */
+function scriptPatternAlternatives(): string[] {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the script under test to derive its real condition list; a hand-copied list here would be the very duplicate this check exists to catch
+  const script = readFileSync(SCRIPT_PATH, "utf8");
+  const match = script.match(/^TRANSIENT_PATTERN='(.+)'$/m);
+  if (!match) {
+    throw new Error("TRANSIENT_PATTERN not found in docker-push-with-retry.sh");
+  }
+
+  const pattern = match[1] ?? "";
+  const alternatives: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let inBracket = false;
+
+  for (const char of pattern) {
+    if (char === "[") inBracket = true;
+    else if (char === "]") inBracket = false;
+    else if (!inBracket && char === "(") parenDepth += 1;
+    else if (!inBracket && char === ")") parenDepth -= 1;
+
+    if (char === "|" && parenDepth === 0 && !inBracket) {
+      alternatives.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  alternatives.push(current);
+
+  return alternatives.map((alt) => alt.trim()).filter(Boolean);
+}
+
+/** The conditions a workflow's `# transient-retried:` comment enumerates. */
+function enumeratedConditions(workflowLines: string[]): string[] {
+  const line = workflowLines.find((candidate) => candidate.includes("# transient-retried:"));
+  const listed = line?.split("# transient-retried:")[1] ?? "";
+  return listed
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 describe("deploy workflows use the retry wrapper (mt#3979)", () => {
   const WORKFLOWS = [
     ".github/workflows/deploy-minsky-mcp.yml",
@@ -310,6 +357,28 @@ describe("deploy workflows use the retry wrapper (mt#3979)", () => {
           (line) => line.includes(SCRIPT_RELATIVE_PATH) && !line.trimStart().startsWith("#")
         );
         expect(invocations.length).toBe(1);
+      });
+
+      // mt#3979 SC2 requires the transient set to be enumerated in the WORKFLOW,
+      // not only in the script it calls. That makes the workflow comment a
+      // duplicate of the script's `TRANSIENT_PATTERN`, and an unchecked
+      // duplicate silently rots — so it is checked here: the script owns the
+      // set, and this asserts the workflow's copy still agrees with it.
+      it("enumerates exactly the transient conditions the script actually retries", () => {
+        const enumerated = enumeratedConditions(lines());
+        const alternatives = scriptPatternAlternatives();
+
+        // Catches a condition added to the script but not to the workflow.
+        expect(enumerated.length).toBe(alternatives.length);
+
+        // Catches a condition RENAMED in the script. Alternatives carrying
+        // regex syntax (the anchored `EOF`, the 5xx classes) have no verbatim
+        // form to compare, so the count check above is what binds them.
+        const literals = alternatives.filter((alt) => !/[()[\]^$\\]/.test(alt));
+        const haystack = enumerated.join(" | ").toLowerCase();
+        for (const literal of literals) {
+          expect(haystack).toContain(literal.toLowerCase());
+        }
       });
 
       it("passes the immutable sha tag before the mutable :latest pointer", () => {
