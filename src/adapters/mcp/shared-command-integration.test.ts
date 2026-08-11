@@ -14,8 +14,10 @@ import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  ADAPTER_BEHAVIOR_FLAG_KEYS,
   type CommandExecutionContext,
 } from "../shared/command-registry";
+import { createTasksClaimsListCommand } from "../shared/commands/tasks/claims-command";
 import { redact } from "../../utils/redaction";
 
 type CapturedCall = {
@@ -1346,6 +1348,96 @@ describe("MCP shared-command bridge", () => {
       await handler({});
       expect(calls[0]?.params.limit).toBe(20);
       expect(calls[0]?.params.status).toBeUndefined();
+    });
+  });
+
+  /**
+   * mt#3989: the bridge is the ONLY registration path shared commands take, and
+   * it builds its `addCommand` argument as a fresh literal. Any behavior flag
+   * the literal forgets is dropped silently — the tool registers, the call
+   * succeeds, and the flag's behavior never happens. `readsPresence` was
+   * dropped that way from the day it shipped, which left mt#3889's
+   * presence-read exemption inert in production while a mapper-level unit test
+   * (`presence-write-path.test.ts`) passed, because that test spreads the
+   * definition into `addCommand` itself and so hands over the field this path
+   * never hands over.
+   *
+   * These assert on the object the BRIDGE passes, which is the seam that broke.
+   */
+  describe("adapter behavior flags survive registration (mt#3989)", () => {
+    function makeToolCapturingMapper(nameFilter: string) {
+      const captured: { tool?: Record<string, unknown> } = {};
+      const mapper = {
+        addCommand: (cmd: { name: string }) => {
+          if (cmd.name === nameFilter) {
+            captured.tool = cmd as unknown as Record<string, unknown>;
+          }
+        },
+      };
+      return { mapper, captured };
+    }
+
+    test("every declared adapter behavior flag reaches the registered tool", () => {
+      // Built from the key list rather than written out: a flag added to
+      // ADAPTER_BEHAVIOR_FLAG_KEYS is covered here without editing this test,
+      // and one the bridge forgets to carry fails it.
+      const id = "tasks.__mcp_bridge_behavior_flags__";
+      const declaredFlags = Object.fromEntries(
+        ADAPTER_BEHAVIOR_FLAG_KEYS.map((key) => [key, true])
+      );
+
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3989: behavior-flag pass-through",
+        requiresSetup: false,
+        parameters: {},
+        ...declaredFlags,
+        execute: async () => ({ success: true }),
+      } as never);
+
+      const { mapper, captured } = makeToolCapturingMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+
+      expect(captured.tool).toBeDefined();
+      for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
+        expect(captured.tool?.[key]).toBe(true);
+      }
+    });
+
+    test("an undeclared flag stays absent rather than arriving as false", () => {
+      const id = "tasks.__mcp_bridge_behavior_flags_absent__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3989: undeclared flags are not invented",
+        requiresSetup: false,
+        parameters: {},
+        execute: async () => ({ success: true }),
+      });
+
+      const { mapper, captured } = makeToolCapturingMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+
+      expect(captured.tool).toBeDefined();
+      for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
+        expect(captured.tool?.[key]).toBeUndefined();
+      }
+    });
+
+    test("the real tasks.claims.list command carries readsPresence through the bridge", () => {
+      // The production command definition, through the production registration
+      // path — the combination neither existing test covered.
+      const command = createTasksClaimsListCommand(() => undefined);
+      registerTestCommand(command as never);
+
+      const { mapper, captured } = makeToolCapturingMapper(command.id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+
+      expect(captured.tool).toBeDefined();
+      expect(captured.tool?.readsPresence).toBe(true);
     });
   });
 });
