@@ -369,7 +369,7 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Skill text / command name | All skill files under `.claude/skills/` and `.claude/agents/`, all `CLAUDE.md` sections that reference the skill/command by name |
 | Env-var rename            | All reads in `src/`, `services/`, `scripts/`, `.github/` **and** deployed-environment artifacts (see below)                      |
 | Config key / schema field | All reads in `src/`, `tests/`, `services/`, `.github/`, `docs/` **and** deployed-environment artifacts (see below)               |
-| Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the `*.test.ts` beside the command), skill and rule text that shows a call, and the generated CLI/MCP surface (`src/generated/completion-manifest.json`) |
+| Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the `*.test.ts` beside the command), skill, rule and `docs/` text that shows a call, and the generated CLI/MCP surface (`src/generated/completion-manifest.json`) |
 
 **Callers of a COMMAND are a different population from callers of the FUNCTION behind it
 (mt#3969).** The row above exists because the two rows above it cannot find them:
