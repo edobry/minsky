@@ -845,6 +845,9 @@ describe("suppression-aware fire counting (mt#3197)", () => {
     expect(result.pastThreshold).toBe(true);
   });
 
+  // mt#3740's supersedes accounting lives in calibration-sweep.supersedes.test.ts
+  // (this file is at the 1500-line ceiling).
+
   test("records with no suppression outcome still count (unknown never hides a fire)", () => {
     // Every log except code-mechanism-assertion is in this state today, and
     // 149 of that one's records predate the field. Treating unknown as

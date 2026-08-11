@@ -824,6 +824,20 @@ export interface StopAtDecisionRecord {
  */
 export interface SharedCalibrationFields {
   /**
+   * Timestamp of an EARLIER record this one revises (mt#3740).
+   *
+   * A detector that fires on `Stop` sees a growing transcript, so its first
+   * verdict can be formed on a partial session and later become stale rather
+   * than wrong. Such a detector writes a fresh record naming the one it
+   * replaces instead of leaving the stale answer standing. Superseded records
+   * stay in the log — the revision history is the point — but they are not
+   * counted as their own review-worthy fire, so a revised session contributes
+   * ONE outcome, not two.
+   *
+   * Producers: `knowledge-acquisition` (mt#3740). Absent everywhere else.
+   */
+  supersedes?: string;
+  /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
    *
@@ -1088,8 +1102,12 @@ export function parseCalibrationRecord(
   if (record === null) return null;
   const suppressionReasons = parseSuppressionReasons(raw);
   const detectorFields = parseDetectorFields(raw, record);
+  // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
+  // malformed marker must not silently suppress a real record from the counts.
+  const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
   return {
     ...record,
+    ...(supersedes === undefined ? {} : { supersedes }),
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };
@@ -1426,7 +1444,35 @@ export function computeLogResult(
   // arithmetic must stay aligned with it; the threshold keys off the injected
   // count instead.
   const suppressedSinceLastReview = newRecords.filter(isSuppressedRecord).length;
-  const injectedFiresSinceLastReview = firesSinceLastReview - suppressedSinceLastReview;
+
+  // mt#3740: a record another record SUPERSEDES is a revised answer, not a
+  // second fire. Counting both would make one session look like two — the
+  // double-count its criterion 3 forbids.
+  //
+  // Derived by FILTERING rather than by subtracting a second count, because a
+  // record can be both suppressed and superseded (a propagated verdict carries
+  // a suppression reason, and a later re-research supersedes it); two
+  // independent subtractions would remove it twice and under-report the
+  // injected count.
+  // Scoped to (session_id, timestamp), NOT to the timestamp alone (PR #2873 R1).
+  // A timestamp is only unique WITHIN a session — two detectors' records, or two
+  // sessions writing in the same millisecond, can collide — and supersession is
+  // by definition a within-session relation. Keying on the bare timestamp would
+  // let one session's revision silently delete an unrelated session's fire from
+  // the counts.
+  //
+  // A marker on a record with no `session_id` scopes to nothing, so it drops
+  // nothing: same fail-safe direction as a dangling marker.
+  const supersededKeys = new Set(
+    newRecords
+      .filter((r) => typeof r.supersedes === "string" && r.session_id !== undefined)
+      .map((r) => `${r.session_id}::${r.supersedes}`)
+  );
+  const isRevisedAway = (r: CalibrationRecord): boolean =>
+    r.session_id !== undefined && supersededKeys.has(`${r.session_id}::${r.timestamp}`);
+  const injectedFiresSinceLastReview = newRecords.filter(
+    (r) => !isSuppressedRecord(r) && !isRevisedAway(r)
+  ).length;
 
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
   // only "past threshold" — i.e. worth surfacing for review — when it has enough
